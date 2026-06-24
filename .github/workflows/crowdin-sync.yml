@@ -1,0 +1,63 @@
+name: Crowdin Sync
+
+on:
+  push:
+    branches:
+      - v4
+      - feat/translations-adding
+    paths:
+      - "src/locales/en/**"
+      - "crowdin.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "18 3 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  upload-sources:
+    if: github.event_name == 'push'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upload source strings to Crowdin
+        uses: crowdin/github-action@v2
+        with:
+          config: crowdin.yml
+          upload_sources: true
+          upload_translations: false
+        env:
+          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+
+  download-translations:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download translations from Crowdin
+        uses: crowdin/github-action@v2
+        with:
+          config: crowdin.yml
+          download_translations: true
+          upload_sources: false
+          upload_translations: false
+        env:
+          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
+
+      - name: Create or update translation PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore(i18n): sync translations from Crowdin"
+          title: "chore(i18n): sync translations from Crowdin"
+          body: |
+            Automated translation sync from Crowdin.
+          branch: "chore/crowdin-translations"
+          base: "v4"

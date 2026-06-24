@@ -1,0 +1,547 @@
+name: Release v4
+
+on:
+  push:
+    branches:
+      - v4
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.MD"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: false
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+
+concurrency:
+  group: release-v4
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip release]') }}
+    runs-on: blacksmith-4vcpu-windows-2025
+    permissions:
+      contents: write
+      pull-requests: read
+    env:
+      RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate required v4 files
+        shell: pwsh
+        run: |
+          $required = @(
+            "package.json",
+            "src-tauri/tauri.conf.json",
+            "src-tauri/Cargo.toml"
+          )
+
+          $missing = @()
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) {
+              $missing += $path
+            }
+          }
+
+          if ($missing.Count -gt 0) {
+            throw "Missing required v4 files on this branch: $($missing -join ', '). Commit/push the v4 rewrite files first, then rerun Release v4."
+          }
+
+      - name: Resolve bump and channel
+        id: controls
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const message = (context.payload.head_commit?.message || "").toLowerCase();
+            const dispatchBump = context.payload.inputs?.bump || "";
+            let bump = dispatchBump === "minor" ? "minor" : "patch";
+            let channel = "beta";
+
+            if (message.includes("[bump:minor]")) bump = "minor";
+            if (message.includes("[bump:patch]")) bump = "patch";
+            if (message.includes("[channel:stable]")) channel = "stable";
+            if (message.includes("[channel:beta]")) channel = "beta";
+
+            const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha
+            });
+
+            if (prs.data.length > 0) {
+              const pr = prs.data.find((item) => item.base.ref === "v4") ?? prs.data[0];
+              const labels = pr.labels.map((label) => String(label.name).toLowerCase());
+
+              if (labels.includes("bump:minor")) bump = "minor";
+              if (labels.includes("bump:patch")) bump = "patch";
+              if (labels.includes("channel:stable")) channel = "stable";
+              if (labels.includes("channel:beta")) channel = "beta";
+
+              core.setOutput("pr_number", String(pr.number));
+            }
+
+            core.setOutput("bump", bump);
+            core.setOutput("channel", channel);
+
+      - name: Prepare version and release metadata
+        id: meta
+        run: bun .github/scripts/prepare-release.mjs
+        env:
+          RELEASE_BUMP: ${{ steps.controls.outputs.bump }}
+          RELEASE_CHANNEL: ${{ steps.controls.outputs.channel }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Inject updater public key
+        shell: pwsh
+        run: |
+          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if (-not $config.plugins) { $config | Add-Member -Name "plugins" -Value ([PSCustomObject]@{}) -MemberType NoteProperty }
+          if (-not $config.plugins.updater) { $config.plugins | Add-Member -Name "updater" -Value ([PSCustomObject]@{}) -MemberType NoteProperty }
+          $config.plugins.updater | Add-Member -Name "pubkey" -Value "${{ secrets.TAURI_SIGNING_PUBLIC_KEY }}" -MemberType NoteProperty -Force
+          $config | ConvertTo-Json -Depth 100 | Set-Content src-tauri/tauri.conf.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and publish standard release
+        id: tauri_build
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_ENABLE_NEXUS: "false"
+          VITE_ENABLE_WEBSERVER: "false"
+        with:
+          projectPath: "."
+          tauriScript: "bun tauri"
+          args: -- --no-default-features
+          tagName: ${{ steps.meta.outputs.tag }}
+          releaseName: ${{ steps.meta.outputs.release_title }}
+          releaseBody: ${{ steps.meta.outputs.release_body }}
+          generateReleaseNotes: true
+          prerelease: ${{ steps.controls.outputs.channel == 'beta' }}
+          releaseDraft: false
+
+      - name: Stage standard portable binary
+        shell: pwsh
+        run: |
+          Copy-Item "src-tauri/target/release/roblox-account-manager.exe" "src-tauri/target/release/portable-standard.exe" -Force
+
+      - name: Wait for release to become available
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $repo = "${{ github.repository }}"
+
+          for ($i = 1; $i -le 20; $i++) {
+            gh release view $tag --repo $repo --json id *> $null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Release $tag is available in $repo"
+              break
+            }
+
+            if ($i -eq 20) {
+              throw "Release $tag not found in $repo after waiting"
+            }
+
+            Start-Sleep -Seconds 3
+          }
+
+      - name: Generate and push standard update manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_CHANNEL: ${{ steps.controls.outputs.channel }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bun .github/scripts/generate-update-manifest.mjs
+
+      - name: Configure updater endpoint for full feature channel
+        shell: pwsh
+        run: |
+          $channel = "${{ steps.controls.outputs.channel }}"
+          $repo = "${{ github.repository }}"
+          $endpoint = "https://raw.githubusercontent.com/$repo/update-manifests/$channel-nexus-ws/latest.json"
+          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if (-not $config.plugins) { $config | Add-Member -Name "plugins" -Value ([PSCustomObject]@{}) -MemberType NoteProperty }
+          if (-not $config.plugins.updater) { $config.plugins | Add-Member -Name "updater" -Value ([PSCustomObject]@{}) -MemberType NoteProperty }
+          $config.plugins.updater.endpoints = @($endpoint)
+          $config | ConvertTo-Json -Depth 100 | Set-Content src-tauri/tauri.conf.json
+
+      - name: Build full feature variant (Nexus + WebServer)
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_ENABLE_NEXUS: "true"
+          VITE_ENABLE_WEBSERVER: "true"
+        run: |
+          bun tauri build -- --features nexus,webserver
+
+      - name: Prepare full feature assets and manifest
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.meta.outputs.app_version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          $bundleRoot = "src-tauri/target/release/bundle"
+          $stageDir = "src-tauri/target/release/release-assets"
+          $standardPortableSrc = "src-tauri/target/release/portable-standard.exe"
+          $fullPortableSrc = "src-tauri/target/release/roblox-account-manager.exe"
+          $nsisDir = Join-Path $bundleRoot "nsis"
+          $msiDir = Join-Path $bundleRoot "msi"
+
+          if (Test-Path $stageDir) {
+            Remove-Item $stageDir -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $stageDir | Out-Null
+
+          if (-not (Test-Path $standardPortableSrc)) {
+            throw "Standard portable binary not found"
+          }
+
+          if (-not (Test-Path $fullPortableSrc)) {
+            throw "Full feature portable binary not found"
+          }
+
+          $fullSetupSrc = $null
+          if (Test-Path $nsisDir) {
+            $fullSetupSrc = Get-ChildItem $nsisDir -File -Recurse -Filter "*.exe" |
+              Where-Object { $_.Name -match "setup" } |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+          }
+
+          if (-not $fullSetupSrc) {
+            $fullSetupSrc = Get-ChildItem $bundleRoot -File -Recurse -Filter "*.exe" |
+              Where-Object { $_.Name -match "setup" } |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+          }
+
+          if (-not $fullSetupSrc) {
+            $fullSetupSrc = Get-ChildItem $bundleRoot -File -Recurse -Filter "*.exe" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          }
+
+          if (-not $fullSetupSrc) {
+            throw "Full feature setup EXE not found"
+          }
+
+          $fullMsiSrc = $null
+          if (Test-Path $msiDir) {
+            $fullMsiSrc = Get-ChildItem $msiDir -File -Recurse -Filter "*.msi" |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+          }
+
+          if (-not $fullMsiSrc) {
+            $fullMsiSrc = Get-ChildItem $bundleRoot -File -Recurse -Filter "*.msi" |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
+          }
+
+          if (-not $fullMsiSrc) {
+            throw "Full feature MSI not found"
+          }
+
+          $fullSetupSigSrc = "$($fullSetupSrc.FullName).sig"
+          $fullMsiSigSrc = "$($fullMsiSrc.FullName).sig"
+
+          if (-not (Test-Path $fullSetupSigSrc)) {
+            throw "Full feature setup signature not found"
+          }
+
+          if (-not (Test-Path $fullMsiSigSrc)) {
+            throw "Full feature MSI signature not found"
+          }
+
+          $v = $env:RELEASE_VERSION
+          $fullSetupName = "Roblox.Account.Manager_${v}_x64-setup_full-nexus-ws.exe"
+          $fullMsiName = "Roblox.Account.Manager_${v}_x64_en-US_full-nexus-ws.msi"
+          $standardPortableName = "Roblox.Account.Manager_${v}_x64_portable.exe"
+          $fullPortableName = "Roblox.Account.Manager_${v}_x64_portable_full-nexus-ws.exe"
+
+          Copy-Item $fullSetupSrc.FullName (Join-Path $stageDir $fullSetupName) -Force
+          Copy-Item $fullSetupSigSrc (Join-Path $stageDir "$fullSetupName.sig") -Force
+          Copy-Item $fullMsiSrc.FullName (Join-Path $stageDir $fullMsiName) -Force
+          Copy-Item $fullMsiSigSrc (Join-Path $stageDir "$fullMsiName.sig") -Force
+          Copy-Item $standardPortableSrc (Join-Path $stageDir $standardPortableName) -Force
+          Copy-Item $fullPortableSrc (Join-Path $stageDir $fullPortableName) -Force
+
+          $baseUrl = "https://github.com/$($env:GITHUB_REPOSITORY)/releases/download/$($env:RELEASE_TAG)"
+          $fullSetupSignature = (Get-Content $fullSetupSigSrc -Raw).Trim()
+          $fullMsiSignature = (Get-Content $fullMsiSigSrc -Raw).Trim()
+
+          $manifest = [ordered]@{
+            version = $v
+            notes = ""
+            pub_date = (Get-Date).ToUniversalTime().ToString("o")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $fullMsiSignature
+                url = "$baseUrl/$fullMsiName"
+              }
+              "windows-x86_64-msi" = [ordered]@{
+                signature = $fullMsiSignature
+                url = "$baseUrl/$fullMsiName"
+              }
+              "windows-x86_64-nsis" = [ordered]@{
+                signature = $fullSetupSignature
+                url = "$baseUrl/$fullSetupName"
+              }
+            }
+          }
+
+          $fullManifestOut = Join-Path $stageDir "latest-full.json"
+          $manifest | ConvertTo-Json -Depth 100 | Set-Content $fullManifestOut
+
+          Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_STAGE_DIR=$stageDir"
+          Add-Content -Path $env:GITHUB_ENV -Value "FULL_SETUP_NAME=$fullSetupName"
+          Add-Content -Path $env:GITHUB_ENV -Value "FULL_MSI_NAME=$fullMsiName"
+          Add-Content -Path $env:GITHUB_ENV -Value "STANDARD_PORTABLE_NAME=$standardPortableName"
+          Add-Content -Path $env:GITHUB_ENV -Value "FULL_PORTABLE_NAME=$fullPortableName"
+          Add-Content -Path $env:GITHUB_ENV -Value "FULL_MANIFEST_PATH=$fullManifestOut"
+
+      - name: Upload full feature installer assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $repo = "${{ github.repository }}"
+          $fullSetupPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_SETUP_NAME
+          $fullMsiPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_MSI_NAME
+          gh release upload $tag "$fullSetupPath" --repo $repo --clobber
+          gh release upload $tag "$fullMsiPath" --repo $repo --clobber
+
+      - name: Upload portable binaries
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $repo = "${{ github.repository }}"
+          $standardPortablePath = Join-Path $env:RELEASE_STAGE_DIR $env:STANDARD_PORTABLE_NAME
+          $fullPortablePath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_PORTABLE_NAME
+          gh release upload $tag "$standardPortablePath" --repo $repo --clobber
+          gh release upload $tag "$fullPortablePath" --repo $repo --clobber
+
+      - name: Generate and push full feature update manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_CHANNEL: ${{ format('{0}-nexus-ws', steps.controls.outputs.channel) }}
+          RELEASE_MANIFEST_PATH: ${{ env.FULL_MANIFEST_PATH }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bun .github/scripts/generate-update-manifest.mjs
+
+      - name: Upload signature assets at bottom
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $repo = "${{ github.repository }}"
+          $tmpDir = "src-tauri/target/release/reordered-signatures"
+
+          if (Test-Path $tmpDir) {
+            Remove-Item $tmpDir -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $tmpDir | Out-Null
+
+          $release = gh release view $tag --repo $repo --json assets | ConvertFrom-Json
+          $sigNames = @($release.assets | Where-Object { $_.name -like "*.sig" } | ForEach-Object { $_.name })
+
+          foreach ($name in $sigNames) {
+            gh release download $tag --repo $repo --pattern "$name" --dir "$tmpDir" --clobber
+            gh release delete-asset $tag "$name" --repo $repo --yes
+          }
+
+          $fullSetupSig = Join-Path $env:RELEASE_STAGE_DIR "$env:FULL_SETUP_NAME.sig"
+          $fullMsiSig = Join-Path $env:RELEASE_STAGE_DIR "$env:FULL_MSI_NAME.sig"
+
+          if (Test-Path $fullSetupSig) {
+            Copy-Item $fullSetupSig (Join-Path $tmpDir (Split-Path $fullSetupSig -Leaf)) -Force
+          }
+
+          if (Test-Path $fullMsiSig) {
+            Copy-Item $fullMsiSig (Join-Path $tmpDir (Split-Path $fullMsiSig -Leaf)) -Force
+          }
+
+          Get-ChildItem $tmpDir -File -Filter "*.sig" | ForEach-Object {
+            $baseName = $_.Name
+            while ($baseName.StartsWith("zz-")) {
+              $baseName = $baseName.Substring(3)
+            }
+            $uploadPath = Join-Path $tmpDir "zz-$baseName"
+            if ($_.FullName -ne $uploadPath) {
+              Copy-Item $_.FullName $uploadPath -Force
+            }
+          }
+
+          Get-ChildItem $tmpDir -File -Filter "zz-*.sig" | Sort-Object Name | ForEach-Object {
+            gh release upload $tag $_.FullName --repo $repo --clobber
+          }
+
+      - name: Clean up release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $repo = "${{ github.repository }}"
+          gh release delete-asset $tag "latest.json" --repo $repo --yes 2>$null
+          gh release delete-asset $tag "roblox-account-manager.exe" --repo $repo --yes 2>$null
+          gh release delete-asset $tag "Roblox.Account.Manager.Recommended.Portable.exe" --repo $repo --yes 2>$null
+          gh release delete-asset $tag "Roblox Account Manager (Recommended) Portable.exe" --repo $repo --yes 2>$null
+          gh release delete-asset $tag "Roblox Account Manager (Full Features) Portable.exe" --repo $repo --yes 2>$null
+          gh release delete-asset $tag "zz-Roblox.Account.Manager.Optional.Full.Features.-.Nexus.+.WebServer.zip" --repo $repo --yes 2>$null
+          gh release delete-asset $tag "zz-Roblox Account Manager (Optional Full Features - Nexus + WebServer).zip" --repo $repo --yes 2>$null
+          exit 0
+
+      - name: Finalize release notes
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ env.RELEASE_GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const tag = process.env.RELEASE_TAG;
+            const channel = String(process.env.RELEASE_CHANNEL || "beta").toLowerCase();
+            const appVersion = process.env.RELEASE_APP_VERSION;
+            const previousTag = process.env.RELEASE_PREVIOUS_TAG;
+            const releaseCommitSha = (context.payload.head_commit?.id || context.sha || "").slice(0, 7);
+
+            let releaseCommitMessage = String(context.payload.head_commit?.message || "").trim();
+            if (!releaseCommitMessage) {
+              try {
+                const commit = await github.rest.repos.getCommit({
+                  owner,
+                  repo,
+                  ref: context.sha
+                });
+                releaseCommitMessage = String(commit.data.commit.message || "").trim();
+              } catch (error) {
+                core.warning(`Could not resolve release commit message from commit API: ${error.message}`);
+              }
+            }
+            releaseCommitMessage = (releaseCommitMessage.split(/\r?\n/)[0] || "N/A").trim();
+
+            const generatedNotes = await github.rest.repos.generateReleaseNotes({
+              owner,
+              repo,
+              tag_name: tag,
+              target_commitish: context.sha,
+              ...(previousTag ? { previous_tag_name: previousTag } : {})
+            });
+            const generatedBody = String(generatedNotes.data.body || "").trim();
+
+            const contributorSet = new Set();
+            if (previousTag) {
+              try {
+                const compare = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${previousTag}...${tag}`
+                });
+                for (const commit of compare.data.commits || []) {
+                  const login = commit.author?.login;
+                  if (login) {
+                    contributorSet.add(login);
+                  }
+                }
+              } catch (error) {
+                core.warning(`Could not compute contributor range ${previousTag}...${tag}: ${error.message}`);
+              }
+            }
+
+            const contributors = Array.from(contributorSet);
+            let contributorsBlock = "## Contributors\n- No contributor metadata found for this release range.";
+            if (contributors.length > 0) {
+              const avatars = contributors
+                .map((login) => `<a href=\"https://github.com/${login}\"><img src=\"https://github.com/${login}.png?size=64\" width=\"32\" height=\"32\" alt=\"@${login}\" /></a>`)
+                .join(" ");
+              const names = contributors
+                .map((login) => `[@${login}](https://github.com/${login})`)
+                .join(", ");
+              contributorsBlock = `## Contributors\n${avatars}\n\n${names}`;
+            }
+
+            const channelLabel = channel === "beta" ? "Beta" : "Stable";
+            const warningLine = channel === "beta"
+              ? "This is a beta release. Missing features, bugs and crashes are possible. Run at your own risk."
+              : "This is a stable release intended for general use.";
+            const calloutType = channel === "beta" ? "WARNING" : "NOTE";
+
+            const topNote = [
+              `> [!${calloutType}]`,
+              `> ${warningLine}`,
+              "",
+              `Channel: ${channelLabel}`,
+              `Release commit: ${releaseCommitSha}`,
+              `Release commit message: ${releaseCommitMessage}`,
+              `App version: ${appVersion}`,
+              "",
+              "Recommended assets: use installer/MSI/portable files without _full-nexus-ws",
+              "Full feature assets: use files ending in _full-nexus-ws.exe or _full-nexus-ws.msi",
+              "Portable builds are listed after installer and MSI assets"
+            ].join("\n");
+
+            const finalBody = [
+              topNote,
+              "",
+              generatedBody || "## What's Changed\n- Release notes could not be generated.",
+              "",
+              contributorsBlock
+            ].join("\n");
+
+            const release = await github.rest.repos.getReleaseByTag({
+              owner,
+              repo,
+              tag
+            });
+
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: release.data.id,
+              body: finalBody
+            });
+        env:
+          RELEASE_CHANNEL: ${{ steps.controls.outputs.channel }}
+          RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          RELEASE_APP_VERSION: ${{ steps.meta.outputs.app_version }}
+          RELEASE_PREVIOUS_TAG: ${{ steps.meta.outputs.previous_tag }}

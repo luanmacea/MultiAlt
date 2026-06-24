@@ -1,0 +1,53 @@
+name: Sync Release Labels
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      issues: write
+    steps:
+      - name: Ensure release labels exist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = [
+              { name: "bump:patch", color: "0E8A16", description: "Release bump: increase patch version (4.x.y)." },
+              { name: "bump:minor", color: "1D76DB", description: "Release bump: increase minor version (4.y.0)." },
+              { name: "channel:beta", color: "FBCA04", description: "Release channel: beta prerelease." },
+              { name: "channel:stable", color: "5319E7", description: "Release channel: stable release." },
+              { name: "greptile:skip", color: "BFDADC", description: "Skip Greptile review on this PR." }
+            ];
+
+            for (const label of labels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name
+                });
+
+                await github.rest.issues.updateLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  new_name: label.name,
+                  color: label.color,
+                  description: label.description
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                  color: label.color,
+                  description: label.description
+                });
+              }
+            }

@@ -1,0 +1,15 @@
+{
+  "triggerOnUpdates": true,
+  "includeBranches": [
+    "v4"
+  ],
+  "statusCheck": true,
+  "strictness": 2,
+  "commentTypes": [
+    "logic",
+    "syntax"
+  ],
+  "disabledLabels": [
+    "greptile:skip"
+  ]
+}

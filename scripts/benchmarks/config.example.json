@@ -1,0 +1,10 @@
+{
+  "v4_exe": "C:/benchmarks/v4/roblox-account-manager.exe",
+  "v3_8_exe": "C:/benchmarks/v3.8/RBX Alt Manager.exe",
+  "v3_7_2_exe": "C:/benchmarks/v3.7.2/RBX Alt Manager.exe",
+  "iterations": 10,
+  "warmup": 2,
+  "startup_timeout_seconds": 45,
+  "idle_sample_seconds": 5,
+  "output_dir": "scripts/benchmarks/results"
+}
