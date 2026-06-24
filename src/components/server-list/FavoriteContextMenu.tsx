@@ -7,8 +7,6 @@ export function FavoriteContextMenu({
   y,
   onClose,
   onJoin,
-  onSetPrivateServer,
-  hasPrivateServer,
   onRename,
   onRemove,
   onCopyPlaceId,
@@ -17,8 +15,6 @@ export function FavoriteContextMenu({
   y: number;
   onClose: () => void;
   onJoin: () => void;
-  onSetPrivateServer: () => void;
-  hasPrivateServer: boolean;
   onRename: () => void;
   onRemove: () => void;
   onCopyPlaceId: () => void;
@@ -77,17 +73,6 @@ export function FavoriteContextMenu({
           <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
         </svg>
         {t("Rename")}
-      </button>
-      <button
-        onClick={() => { onSetPrivateServer(); onClose(); }}
-        className="flex items-center gap-2.5 w-full px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-800 text-left"
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400">
-          <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-          <line x1="8" y1="21" x2="16" y2="21" />
-          <line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
-        {hasPrivateServer ? t("Edit Private Server") : t("Add Private Server")}
       </button>
       <div className="h-px bg-zinc-800 my-0.5" />
       <button
