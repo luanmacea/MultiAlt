@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicovank/tauri-v2/main/packages/cli/schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "process:allow-restart",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+    "updater:default"
+  ]
+}

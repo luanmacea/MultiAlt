@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - v4
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+  push:
+    branches:
+      - v4
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+
+jobs:
+  verify:
+    runs-on: blacksmith-4vcpu-windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend (full)
+        env:
+          VITE_ENABLE_NEXUS: "true"
+          VITE_ENABLE_WEBSERVER: "true"
+        run: bun run build
+
+      - name: Build frontend (standard)
+        env:
+          VITE_ENABLE_NEXUS: "false"
+          VITE_ENABLE_WEBSERVER: "false"
+        run: bun run build
+
+      - name: Check Rust backend (full features)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Check Rust backend (standard build)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features
