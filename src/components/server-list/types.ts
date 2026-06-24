@@ -38,12 +38,19 @@ export interface GameEntry {
   universeId?: number;
 }
 
+export interface VipServer {
+  id: string;
+  name: string;
+  link: string;
+}
+
 export interface FavoriteGame {
   placeId: number;
   name: string;
   iconUrl: string | null;
   addedAt: number;
-  privateServer?: string;
+  privateServer?: string; // legacy single VIP, migrated into vipServers on load
+  vipServers?: VipServer[];
 }
 
 export interface RecentGame {
@@ -61,9 +68,25 @@ export interface ServerRegion {
 const STORAGE_KEY_FAVORITES = "ram_favorite_games";
 const STORAGE_KEY_RECENT = "ram_recent_games";
 
+export function makeVipId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 export function loadFavorites(): FavoriteGame[] {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY_FAVORITES) || "[]");
+    const list: FavoriteGame[] = JSON.parse(localStorage.getItem(STORAGE_KEY_FAVORITES) || "[]");
+    return list.map((f) => {
+      if (!f.vipServers) {
+        f.vipServers = f.privateServer
+          ? [{ id: makeVipId(), name: "VIP", link: f.privateServer }]
+          : [];
+      }
+      return f;
+    });
   } catch {
     return [];
   }
