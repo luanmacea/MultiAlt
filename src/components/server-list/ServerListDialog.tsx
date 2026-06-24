@@ -28,6 +28,8 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
   const [activeTab, setActiveTab] = useState<TabId>("servers");
   const [localPlaceId, setLocalPlaceId] = useState(store.placeId);
   const [refreshOnOpenSignal, setRefreshOnOpenSignal] = useState(0);
+  const [jobIdPrefill, setJobIdPrefill] = useState("");
+  const [jobIdPrefillNonce, setJobIdPrefillNonce] = useState(0);
 
   const maxRecent = parseInt(store.settings?.General?.MaxRecentGames || "8") || 8;
   const userId = store.selectedAccount?.UserID || null;
@@ -57,9 +59,11 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
     }
   }
 
-  function handleSelectGame(placeId: number, name?: string, iconUrl?: string | null) {
+  function handleSelectGame(placeId: number, name?: string, iconUrl?: string | null, privateServer?: string) {
     setLocalPlaceId(String(placeId));
     store.setPlaceId(String(placeId));
+    setJobIdPrefill(privateServer || "");
+    setJobIdPrefillNonce((v) => v + 1);
     setActiveTab("servers");
     recordRecentGame(placeId, userId, maxRecent, { name, iconUrl });
   }
@@ -146,6 +150,8 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
               addToast={store.addToast}
               userId={userId}
               refreshOnOpenSignal={refreshOnOpenSignal}
+              prefillJobId={jobIdPrefill}
+              prefillNonce={jobIdPrefillNonce}
             />
           )}
           {activeTab === "games" && (
@@ -158,7 +164,7 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
           )}
           {activeTab === "favorites" && (
             <FavoritesTab
-              onSelectGame={(placeId) => handleSelectGame(placeId)}
+              onSelectGame={(placeId, privateServer) => handleSelectGame(placeId, undefined, undefined, privateServer)}
               addToast={store.addToast}
             />
           )}

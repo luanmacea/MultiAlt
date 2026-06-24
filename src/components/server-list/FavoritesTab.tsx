@@ -6,7 +6,7 @@ import { loadFavorites, saveFavorites } from "./types";
 import { FavoriteContextMenu } from "./FavoriteContextMenu";
 
 export interface FavoritesTabProps {
-  onSelectGame: (placeId: number) => void;
+  onSelectGame: (placeId: number, privateServer?: string) => void;
   addToast: (msg: string) => void;
 }
 
@@ -37,6 +37,21 @@ export function FavoritesTab({
     addToast(t("Removed from favorites"));
   }
 
+  async function handleSetPrivateServer(game: FavoriteGame) {
+    const value = await prompt(
+      t("Private server link or VIP code (leave empty to remove):"),
+      game.privateServer || ""
+    );
+    if (value === null) return;
+    const trimmed = value.trim();
+    const updated = favorites.map((f) =>
+      f.placeId === game.placeId ? { ...f, privateServer: trimmed || undefined } : f
+    );
+    setFavorites(updated);
+    saveFavorites(updated);
+    addToast(trimmed ? t("Private server saved") : t("Private server removed"));
+  }
+
   if (favorites.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full">
@@ -57,7 +72,7 @@ export function FavoritesTab({
             <div
               key={game.placeId}
               className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/40 transition-colors cursor-pointer group"
-              onClick={() => onSelectGame(game.placeId)}
+              onClick={() => onSelectGame(game.placeId, game.privateServer)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setContextMenu({ x: e.clientX, y: e.clientY, game });
@@ -91,7 +106,9 @@ export function FavoritesTab({
           x={contextMenu.x}
           y={contextMenu.y}
           onClose={() => setContextMenu(null)}
-          onJoin={() => onSelectGame(contextMenu.game.placeId)}
+          onJoin={() => onSelectGame(contextMenu.game.placeId, contextMenu.game.privateServer)}
+          onSetPrivateServer={() => handleSetPrivateServer(contextMenu.game)}
+          hasPrivateServer={!!contextMenu.game.privateServer}
           onRename={() => handleRename(contextMenu.game)}
           onRemove={() => handleRemove(contextMenu.game)}
           onCopyPlaceId={() => {

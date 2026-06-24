@@ -12,6 +12,8 @@ export interface ServersTabProps {
   addToast: (msg: string) => void;
   userId: number | null;
   refreshOnOpenSignal: number;
+  prefillJobId?: string;
+  prefillNonce?: number;
 }
 
 export function ServersTab({
@@ -21,8 +23,16 @@ export function ServersTab({
   addToast,
   userId,
   refreshOnOpenSignal,
+  prefillJobId,
+  prefillNonce,
 }: ServersTabProps) {
   const t = useTr();
+  const [manualJobId, setManualJobId] = useState("");
+
+  useEffect(() => {
+    setManualJobId(prefillJobId || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillNonce]);
   const [servers, setServers] = useState<ServerData[]>([]);
   const [loading, setLoading] = useState(false);
   const [placeName, setPlaceName] = useState("");
@@ -266,6 +276,25 @@ export function ServersTab({
           }`}
         >
           {loading ? t("Stop") : t("Refresh")}
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 px-1 pb-3">
+        <div className="flex-1 flex items-center gap-2">
+          <label className="text-[10px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Job ID")}</label>
+          <input
+            value={manualJobId}
+            onChange={(e) => setManualJobId(e.target.value)}
+            placeholder={t("Job ID or private server link (optional)")}
+            className="flex-1 sidebar-input font-mono text-xs"
+            onKeyDown={(e) => e.key === "Enter" && onJoinServer(manualJobId.trim())}
+          />
+        </div>
+        <button
+          onClick={() => onJoinServer(manualJobId.trim())}
+          className="px-4 py-[6px] rounded-lg text-[12px] font-medium transition-all bg-emerald-600 hover:bg-emerald-500 text-white"
+        >
+          {t("Join")}
         </button>
       </div>
 
