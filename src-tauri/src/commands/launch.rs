@@ -372,7 +372,9 @@ async fn launch_multiple(
 
     let delay = settings.get_int("General", "AccountJoinDelay").unwrap_or(8) as u64;
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
-    let delay = if multi_rbx { delay.max(12) } else { delay };
+    // Keep a small safety floor for multi-instance launches so they don't collide,
+    // but otherwise honor the user's AccountJoinDelay setting.
+    let delay = if multi_rbx { delay.max(5) } else { delay };
     let async_join = settings.get_bool("General", "AsyncJoin");
     let is_teleport = settings.get_bool("Developer", "IsTeleport");
     let configured_old_join = settings.get_bool("Developer", "UseOldJoin");
@@ -397,6 +399,8 @@ async fn launch_multiple(
         if tracker.is_launch_cancelled() {
             break;
         }
+
+        let iter_start = std::time::Instant::now();
 
         let account = accounts.iter().find(|a| a.user_id == uid);
         let acct_place = account
@@ -596,7 +600,14 @@ async fn launch_multiple(
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 }
             } else {
-                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                // Space launches by `delay` measured from the START of this account's
+                // launch — subtract the time already spent (auth + waiting for the PID)
+                // instead of stacking another full delay on top of it.
+                let target = std::time::Duration::from_secs(delay);
+                let elapsed = iter_start.elapsed();
+                if elapsed < target {
+                    tokio::time::sleep(target - elapsed).await;
+                }
             }
         }
     }
