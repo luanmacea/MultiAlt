@@ -856,6 +856,7 @@ fn cmd_kill_all_roblox() -> Result<u32, String> {
     {
         let killed = platform::windows::kill_all_roblox();
         let tracker = platform::windows::tracker();
+        tracker.cancel_launch();
         let all = tracker.get_all();
         for p in all {
             tracker.untrack(p.user_id);
@@ -866,6 +867,7 @@ fn cmd_kill_all_roblox() -> Result<u32, String> {
     {
         let killed = platform::macos::kill_all_roblox();
         let tracker = platform::macos::tracker();
+        tracker.cancel_launch();
         let all = tracker.get_all();
         for p in all {
             tracker.untrack(p.user_id);
