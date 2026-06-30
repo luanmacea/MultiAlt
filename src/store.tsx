@@ -898,6 +898,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   async function killAllRobloxProcesses() {
     try {
       const killed = await invoke<number>("cmd_kill_all_roblox");
+      clearLaunchTimeout();
+      setJoiningAccounts(new Set());
+      setLaunchProgress(null);
       addToast(killed > 0
         ? tr(killed === 1 ? "Closed {{count}} Roblox process" : "Closed {{count}} Roblox processes", { count: killed })
         : tr("No open Roblox processes found"));
