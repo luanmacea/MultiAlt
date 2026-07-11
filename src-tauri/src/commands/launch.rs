@@ -372,9 +372,12 @@ async fn launch_multiple(
 
     let delay = settings.get_int("General", "AccountJoinDelay").unwrap_or(8) as u64;
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
-    // Keep a small safety floor for multi-instance launches so they don't collide,
-    // but otherwise honor the user's AccountJoinDelay setting.
-    let delay = if multi_rbx { delay.max(5) } else { delay };
+    // Captcha-safety floor. Roblox issues a "verify you're not a robot"
+    // challenge when authentication-ticket redemptions from the same IP arrive
+    // too close together, so never let the target spacing drop below this,
+    // regardless of AccountJoinDelay / EnableMultiRbx.
+    const MIN_JOIN_GAP_SECS: u64 = 8;
+    let delay = delay.max(MIN_JOIN_GAP_SECS);
     let async_join = settings.get_bool("General", "AsyncJoin");
     let is_teleport = settings.get_bool("Developer", "IsTeleport");
     let configured_old_join = settings.get_bool("Developer", "UseOldJoin");
@@ -603,11 +606,28 @@ async fn launch_multiple(
                 // Space launches by `delay` measured from the START of this account's
                 // launch — subtract the time already spent (auth + waiting for the PID)
                 // instead of stacking another full delay on top of it.
+                //
+                // But always keep a minimum residual gap plus a little jitter
+                // between consecutive accounts. If this account's own work
+                // (auth + PID wait) already took >= `delay`, the naive
+                // `target - elapsed` collapses to zero and the next
+                // authentication-ticket request fires back-to-back, which is
+                // what trips Roblox's captcha. A non-zero, slightly randomized
+                // gap avoids both back-to-back requests and a perfectly
+                // periodic cadence.
+                const MIN_RESIDUAL_GAP_MS: u64 = 5000;
+                let jitter_ms = 300
+                    + std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| (d.subsec_millis() as u64) % 1200)
+                        .unwrap_or(0);
                 let target = std::time::Duration::from_secs(delay);
                 let elapsed = iter_start.elapsed();
-                if elapsed < target {
-                    tokio::time::sleep(target - elapsed).await;
-                }
+                let wait = target
+                    .saturating_sub(elapsed)
+                    .max(std::time::Duration::from_millis(MIN_RESIDUAL_GAP_MS))
+                    + std::time::Duration::from_millis(jitter_ms);
+                tokio::time::sleep(wait).await;
             }
         }
     }
