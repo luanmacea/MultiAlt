@@ -1,25 +1,16 @@
-import { User } from "lucide-react";
 import { useStore } from "../../store";
-import { MultiSelectSidebar } from "./MultiSelectSidebar";
 import { SingleSelectSidebar } from "./SingleSelectSidebar";
-import { useTr } from "../../i18n/text";
 
+/**
+ * Account Settings sidebar — shown only for single-account selection.
+ * Multi-account actions (launch, batch ops) live in BottomActionBar + ChooseGameScreen.
+ */
 export function DetailSidebar() {
-  const t = useTr();
   const store = useStore();
 
-  if (store.selectedAccounts.length > 1) {
-    return <MultiSelectSidebar />;
-  }
-
-  if (!store.selectedAccount) {
-    return (
-      <div className="theme-surface theme-border w-72 border-l flex flex-col items-center justify-center shrink-0">
-        <User size={32} strokeWidth={1} className="theme-muted mb-3" />
-        <p className="theme-muted text-xs">{t("Select an account")}</p>
-      </div>
-    );
-  }
+  // Sidebar only makes sense when editing a single account's settings.
+  // Multi-select is handled by BottomActionBar.
+  if (!store.selectedAccount || store.selectedAccounts.length > 1) return null;
 
   return <SingleSelectSidebar />;
 }

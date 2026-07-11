@@ -156,6 +156,8 @@ export interface StoreValue {
   toggleGroup: (group: string) => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  chooseGameOpen: boolean;
+  setChooseGameOpen: (open: boolean) => void;
   hideUsernames: boolean;
   setHideUsernames: (hide: boolean) => void;
   hiddenNameLetters: number;
@@ -338,7 +340,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   const [shuffleJobId, setShuffleJobId] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [chooseGameOpen, setChooseGameOpen] = useState(false);
   const [settings, setSettings] = useState<Record<string, Record<string, string>> | null>(null);
   const [platformCapabilities, setPlatformCapabilities] = useState<PlatformCapabilities | null>(null);
   const [theme, setThemeState] = useState<ThemeData | null>(null);
@@ -433,6 +436,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       parsed.push({ key, displayName, sortKey, accounts: accts });
     }
     parsed.sort((a, b) => a.sortKey - b.sortKey || a.displayName.localeCompare(b.displayName));
+
+    // If only one group and it's "Default", treat as flat list (no header).
+    // Headers only appear when the user has created named groups.
+    if (parsed.length === 1 && parsed[0].key === "Default") {
+      return [{ key: "__all__", displayName: tr("Accounts"), sortKey: 0, accounts: parsed[0].accounts }];
+    }
+
     return parsed;
   }, [filteredAccounts, showGroups]);
 
@@ -1939,6 +1949,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     toggleGroup,
     sidebarOpen,
     setSidebarOpen,
+    chooseGameOpen,
+    setChooseGameOpen,
     hideUsernames,
     setHideUsernames,
     hiddenNameLetters,

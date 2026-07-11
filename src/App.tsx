@@ -11,6 +11,8 @@ import { Toolbar } from "./components/layout/Toolbar";
 import { AccountList } from "./components/accounts/AccountList";
 import { ContextMenu } from "./components/menus/ContextMenu";
 import { DetailSidebar } from "./components/accounts/DetailSidebar";
+import { BottomActionBar } from "./components/layout/BottomActionBar";
+import { ChooseGameScreen } from "./components/ChooseGameScreen";
 import { StatusBar } from "./components/layout/StatusBar";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { ServerListDialog } from "./components/server-list/ServerListDialog";
@@ -107,9 +109,16 @@ function AppContent() {
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0">
-        <AccountList />
-        {store.sidebarOpen && <DetailSidebar />}
+      <div className="flex flex-col flex-1 min-h-0">
+        {store.chooseGameOpen ? (
+          <ChooseGameScreen />
+        ) : (
+          <div className="flex flex-1 min-h-0">
+            <AccountList />
+            {store.sidebarOpen && store.selectedAccounts.length === 1 && <DetailSidebar />}
+          </div>
+        )}
+        {!store.chooseGameOpen && store.selectedIds.size > 0 && <BottomActionBar />}
       </div>
 
       <StatusBar />
