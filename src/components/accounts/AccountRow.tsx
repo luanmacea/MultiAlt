@@ -1,4 +1,4 @@
-import { Check, User } from "lucide-react";
+import { Check, User, GripVertical } from "lucide-react";
 import { useStore } from "../../store";
 import type { Account } from "../../types";
 import { timeAgo, getFreshnessColor } from "../../types";
@@ -109,6 +109,14 @@ export function AccountRow({ account }: { account: Account }) {
       }}
       onDrop={handleDrop}
     >
+      {/* Drag handle — visible on hover, communicates reorderability */}
+      <div
+        className="shrink-0 opacity-0 group-hover/row:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+        title={t("Drag to reorder")}
+      >
+        <GripVertical size={12} strokeWidth={1.5} className="theme-muted" />
+      </div>
+
       <div className={`shrink-0 overflow-hidden transition-all duration-150 ease-out ${
         multiMode ? "w-4 opacity-100" : "w-0 opacity-0"
       }`}>
