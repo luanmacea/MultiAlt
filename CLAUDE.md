@@ -29,7 +29,9 @@ Roblox Account Manager 4 é um gerenciador desktop de múltiplas contas Roblox �
 
 **Testes:** `bun run check` (typecheck + vitest + `cargo test --all-features`) antes de commit/PR. Testes Rust ficam em `#[cfg(test)] mod <nome>_tests` **dentro** de cada arquivo (submódulos são `include!()`, não módulos), com nome único. URLs da API do Roblox sempre via `endpoints::host(...)` — literal `https://*.roblox.com` em `api/` quebra os testes mockados. Ao corrigir bug, escreva o teste que falha primeiro. Ver `docs/development.md#testes`.
 
-**Git (padrão do projeto):** ao terminar uma tarefa, **commitar imediatamente** — um commit por tarefa, mensagem em português descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes. Não fazer push sem o usuário pedir.
+**Git (padrão do projeto):** ao terminar uma tarefa, **commitar e dar push imediatamente**, sem perguntar — um commit por tarefa, mensagem em português descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes de commitar. Push é `git push` na branch atual (hoje `main` → `origin/main`).
+
+Limites do push automático: **nunca** `--force`/`--force-with-lease` e nunca reescrever histórico já publicado. Se o push for recusado porque a branch divergiu, integrar o remoto (`git pull --rebase`), rodar `bun run check` de novo e só então empurrar; se houver conflito, parar e avisar o usuário. Não criar branch nem PR sem o usuário pedir.
 
 **Documentação:** `docs/README.md` (índice), `docs/architecture.md` e um `.md` por funcionalidade em `docs/features/`. Mantenha-os atualizados ao mudar regras de negócio.
 
