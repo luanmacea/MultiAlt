@@ -139,6 +139,33 @@ export interface GeneratorStartConfig {
 }
 
 /**
+ * A private-server code written into the Job ID field, either as `vip:<code>`
+ * or inside a pasted link (`?privateServerLinkCode=`/`linkCode=`/`code=`).
+ * Returns an empty string when the field holds a plain Job ID.
+ *
+ * Both launch paths must agree on this: a single launch used to understand
+ * pasted links while a multi launch forwarded the whole URL as the Job ID.
+ */
+export function parsePrivateServerCode(rawJobId: string): string {
+  const raw = rawJobId.trim();
+  if (!raw) return "";
+
+  const vipPrefix = raw.match(/^vip:\s*(.+)$/i);
+  if (vipPrefix?.[1]) return vipPrefix[1].trim();
+
+  const linkLike = raw.match(/(?:privateServerLinkCode|linkCode|code)=([^&\s]+)/i);
+  if (linkLike?.[1]) {
+    try {
+      return decodeURIComponent(linkLike[1]);
+    } catch {
+      return linkLike[1];
+    }
+  }
+
+  return "";
+}
+
+/**
  * Explicit place/job for a launch. When provided, these take precedence over
  * the placeId/jobId held in store state — avoiding a stale-state race where a
  * caller sets place/job via setState and immediately triggers a launch (the
@@ -854,21 +881,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       let joinVip = false;
       let linkCode = "";
 
-      const vipPrefix = rawJobId.match(/^vip:\s*(.+)$/i);
-      if (vipPrefix?.[1]) {
-        joinVip = true;
-        linkCode = vipPrefix[1].trim();
+      const parsedCode = parsePrivateServerCode(rawJobId);
+      if (parsedCode) {
+        // `vip:` states the intent; a pasted link only supplies the code (the
+        // backend resolves the access code from it).
+        joinVip = /^vip:/i.test(rawJobId);
+        linkCode = parsedCode;
         resolvedJobId = "";
-      } else {
-        const linkLike = rawJobId.match(/(?:privateServerLinkCode|linkCode|code)=([^&\s]+)/i);
-        if (linkLike?.[1]) {
-          resolvedJobId = "";
-          try {
-            linkCode = decodeURIComponent(linkLike[1]);
-          } catch {
-            linkCode = linkLike[1];
-          }
-        }
       }
 
       // An already-resolved target (e.g. a pasted join link) wins over the
@@ -938,13 +957,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     try {
       const pid = parseInt(target?.placeId ?? placeId) || 5315046213;
+      const rawJobId = (target?.jobId ?? jobId).trim();
       // `launch_multiple` has no joinVip/linkCode parameters: the backend's
       // resolve_launch_job understands the `vip:<code>` job prefix instead.
-      const vipCode = target?.joinVip ? (target.linkCode || "").trim() : "";
+      // A code can come from the resolved target OR from a link pasted into
+      // the Job ID field — a single launch accepts both, so this must too.
+      const explicitCode = target?.joinVip ? (target.linkCode || "").trim() : "";
+      const vipCode = explicitCode || parsePrivateServerCode(rawJobId);
       await invoke("launch_multiple", {
         userIds,
         placeId: pid,
-        jobId: vipCode ? `vip:${vipCode}` : (target?.jobId ?? jobId),
+        jobId: vipCode ? `vip:${vipCode}` : rawJobId,
         launchData: target?.launchData ?? launchData,
       });
       await loadAccounts();
