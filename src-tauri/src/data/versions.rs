@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 #[cfg(target_os = "windows")]
-fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
+pub(crate) fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
 
@@ -25,7 +25,7 @@ fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
+pub(crate) fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
     std::fs::rename(src, dst).map_err(|e| e.to_string())
 }
 
@@ -212,4 +212,89 @@ pub fn ram_managed_versions_root() -> Option<PathBuf> {
             .join("Roblox Account Manager")
             .join("RobloxVersions"),
     )
+}
+
+#[cfg(test)]
+mod versions_atomic_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("ram-versions-{name}-{nanos}"));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn atomic_replace_overwrites_an_existing_destination() {
+        let dir = unique_dir("replace");
+        let src = dir.join("RAMVersions.json.tmp");
+        let dst = dir.join("RAMVersions.json");
+
+        std::fs::write(&dst, "old contents").expect("write dst");
+        std::fs::write(&src, "new contents").expect("write src");
+
+        atomic_replace(&src, &dst).expect("atomic_replace");
+
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), "new contents");
+        assert!(!src.exists(), "the temp file must not survive the replace");
+
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(leftovers, vec!["RAMVersions.json".to_string()]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_replace_creates_the_destination_when_it_does_not_exist() {
+        let dir = unique_dir("create");
+        let src = dir.join("RAMVersions.json.tmp");
+        let dst = dir.join("RAMVersions.json");
+
+        std::fs::write(&src, "fresh").expect("write src");
+        assert!(!dst.exists());
+
+        atomic_replace(&src, &dst).expect("atomic_replace");
+
+        assert_eq!(std::fs::read_to_string(&dst).unwrap(), "fresh");
+        assert!(!src.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn atomic_replace_fails_when_the_source_is_missing() {
+        let dir = unique_dir("missing");
+        let src = dir.join("does-not-exist.tmp");
+        let dst = dir.join("RAMVersions.json");
+
+        assert!(atomic_replace(&src, &dst).is_err());
+        assert!(!dst.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn version_id_joins_channel_and_hash() {
+        let entry = VersionEntry {
+            channel: "LIVE".into(),
+            version_hash: "version-abc123".into(),
+            binary_type: "WindowsPlayer".into(),
+            display_version: None,
+            install_path: String::new(),
+            install_size_bytes: 0,
+            installed_at: None,
+            last_launched_at: None,
+            user_label: None,
+        };
+        assert_eq!(entry.version_id(), "LIVE:version-abc123");
+    }
 }

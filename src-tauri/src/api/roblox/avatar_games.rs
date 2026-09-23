@@ -5,7 +5,7 @@ pub async fn set_avatar(security_token: &str, avatar_json: serde_json::Value) ->
 
     if let Some(avatar_type) = avatar_json.get("playerAvatarType") {
         client
-            .post("https://avatar.roblox.com/v1/avatar/set-player-avatar-type")
+            .post(format!("{}/v1/avatar/set-player-avatar-type", endpoints::host("avatar")))
             .header(COOKIE, cookie_header(security_token))
             .header("X-CSRF-TOKEN", &csrf)
             .json(&serde_json::json!({ "playerAvatarType": avatar_type }))
@@ -17,7 +17,7 @@ pub async fn set_avatar(security_token: &str, avatar_json: serde_json::Value) ->
     let scales = avatar_json.get("scales").or_else(|| avatar_json.get("scale"));
     if let Some(scale_obj) = scales {
         client
-            .post("https://avatar.roblox.com/v1/avatar/set-scales")
+            .post(format!("{}/v1/avatar/set-scales", endpoints::host("avatar")))
             .header(COOKIE, cookie_header(security_token))
             .header("X-CSRF-TOKEN", &csrf)
             .json(scale_obj)
@@ -28,7 +28,7 @@ pub async fn set_avatar(security_token: &str, avatar_json: serde_json::Value) ->
 
     if let Some(body_colors) = avatar_json.get("bodyColors") {
         client
-            .post("https://avatar.roblox.com/v1/avatar/set-body-colors")
+            .post(format!("{}/v1/avatar/set-body-colors", endpoints::host("avatar")))
             .header(COOKIE, cookie_header(security_token))
             .header("X-CSRF-TOKEN", &csrf)
             .json(body_colors)
@@ -39,7 +39,7 @@ pub async fn set_avatar(security_token: &str, avatar_json: serde_json::Value) ->
 
     if let Some(assets) = avatar_json.get("assets") {
         let response = client
-            .post("https://avatar.roblox.com/v2/avatar/set-wearing-assets")
+            .post(format!("{}/v2/avatar/set-wearing-assets", endpoints::host("avatar")))
             .header(COOKIE, cookie_header(security_token))
             .header("X-CSRF-TOKEN", &csrf)
             .json(&serde_json::json!({ "assets": assets }))
@@ -73,7 +73,7 @@ pub async fn get_outfits(user_id: i64) -> Result<Vec<OutfitInfo>, String> {
     let client = reqwest::Client::new();
 
     let response = client
-        .get(format!("https://avatar.roblox.com/v1/users/{}/outfits?page=1&itemsPerPage=50", user_id))
+        .get(format!("{}/v1/users/{}/outfits?page=1&itemsPerPage=50", endpoints::host("avatar"), user_id))
         .send()
         .await
         .map_err(|e| format!("Request failed: {}", e))?;
@@ -97,7 +97,7 @@ pub async fn get_outfit_details(outfit_id: i64) -> Result<serde_json::Value, Str
     let client = reqwest::Client::new();
 
     let response = client
-        .get(format!("https://avatar.roblox.com/v1/outfits/{}/details", outfit_id))
+        .get(format!("{}/v1/outfits/{}/details", endpoints::host("avatar"), outfit_id))
         .send()
         .await
         .map_err(|e| format!("Request failed: {}", e))?;
@@ -140,7 +140,7 @@ pub async fn get_place_details(place_ids: &[i64], security_token: Option<&str>) 
     for chunk in place_ids.chunks(50) {
         let query: String = chunk.iter().map(|id| format!("placeIds={}", id)).collect::<Vec<_>>().join("&");
 
-        let mut request = client.get(format!("https://games.roblox.com/v1/games/multiget-place-details?{}", query));
+        let mut request = client.get(format!("{}/v1/games/multiget-place-details?{}", endpoints::host("games"), query));
 
         if let Some(token) = security_token {
             request = request.header(COOKIE, cookie_header(token));
@@ -193,7 +193,8 @@ pub async fn get_servers(
     let client = reqwest::Client::new();
     let limit = if server_type == "VIP" { 25 } else { 100 };
     let mut url = format!(
-        "https://games.roblox.com/v1/games/{}/servers/{}?sortOrder=Asc&limit={}",
+        "{}/v1/games/{}/servers/{}?sortOrder=Asc&limit={}",
+        endpoints::host("games"),
         place_id, server_type, limit
     );
 
@@ -239,7 +240,7 @@ pub async fn join_game_instance(
     }
 
     let response = client
-        .post("https://gamejoin.roblox.com/v1/join-game-instance")
+        .post(format!("{}/v1/join-game-instance", endpoints::host("gamejoin")))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
@@ -261,7 +262,7 @@ pub async fn join_game(security_token: &str, place_id: i64) -> Result<serde_json
     let client = game_join_client();
 
     let response = client
-        .post("https://gamejoin.roblox.com/v1/join-game")
+        .post(format!("{}/v1/join-game", endpoints::host("gamejoin")))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
@@ -283,7 +284,8 @@ pub async fn search_games(security_token: Option<&str>, keyword: &str, _start: i
 
     if keyword.is_empty() {
         let url = format!(
-            "https://apis.roblox.com/explore-api/v1/get-sorts?sessionId={}",
+            "{}/explore-api/v1/get-sorts?sessionId={}",
+            endpoints::host("apis"),
             session_id
         );
         let response = send_with_retry(|| {
@@ -298,14 +300,15 @@ pub async fn search_games(security_token: Option<&str>, keyword: &str, _start: i
         if !response.status().is_success() {
             let status = response.status().as_u16();
             let body = response.text().await.unwrap_or_default();
-            return Err(format!("Failed to get games (status {}) {}", status, &body[..body.len().min(200)]));
+            return Err(format!("Failed to get games (status {}) {}", status, body.chars().take(200).collect::<String>()));
         }
 
         return response.json().await.map_err(|e| format!("Failed to parse: {}", e));
     }
 
     let url = format!(
-        "https://apis.roblox.com/search-api/omni-search?searchQuery={}&sessionId={}",
+        "{}/search-api/omni-search?searchQuery={}&sessionId={}",
+        endpoints::host("apis"),
         urlencoding::encode(keyword),
         session_id
     );
@@ -321,7 +324,7 @@ pub async fn search_games(security_token: Option<&str>, keyword: &str, _start: i
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("Failed to search games (status {}) {}", status, &body[..body.len().min(200)]));
+        return Err(format!("Failed to search games (status {}) {}", status, body.chars().take(200).collect::<String>()));
     }
 
     response.json().await.map_err(|e| format!("Failed to parse: {}", e))
@@ -342,12 +345,14 @@ pub async fn get_universe_places(universe_id: i64, security_token: Option<&str>)
     loop {
         let url = if cursor.is_empty() {
             format!(
-                "https://develop.roblox.com/v1/universes/{}/places?sortOrder=Asc&limit=100",
+                "{}/v1/universes/{}/places?sortOrder=Asc&limit=100",
+                endpoints::host("develop"),
                 universe_id
             )
         } else {
             format!(
-                "https://develop.roblox.com/v1/universes/{}/places?sortOrder=Asc&limit=100&cursor={}",
+                "{}/v1/universes/{}/places?sortOrder=Asc&limit=100&cursor={}",
+                endpoints::host("develop"),
                 universe_id, cursor
             )
         };
@@ -381,4 +386,63 @@ pub async fn get_universe_places(universe_id: i64, security_token: Option<&str>)
     }
 
     Ok(all_places)
+}
+
+#[cfg(test)]
+mod avatar_games_http_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{mock_path, mock_server};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    #[tokio::test]
+    async fn lists_outfits() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("avatar", "/v1/users/5150/outfits")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    { "id": 1, "name": "Outfit A" },
+                    { "id": 2, "name": "Outfit B" }
+                ]
+            })))
+            .mount(server)
+            .await;
+
+        let outfits = get_outfits(5150).await.expect("outfits");
+        assert_eq!(outfits.len(), 2);
+        assert_eq!(outfits[0].name, "Outfit A");
+        assert_eq!(outfits[1].id, 2);
+    }
+
+    #[tokio::test]
+    async fn lists_public_servers() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path(
+                "games",
+                "/v1/games/606849621/servers/Public",
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{
+                    "id": "job-1",
+                    "maxPlayers": 12,
+                    "playing": 7,
+                    "playerTokens": [],
+                    "fps": 59.5,
+                    "ping": 42
+                }],
+                "nextPageCursor": "cursor-2"
+            })))
+            .mount(server)
+            .await;
+
+        let servers = get_servers(606_849_621, "Public", None, None)
+            .await
+            .expect("servers");
+        assert_eq!(servers.next_page_cursor.as_deref(), Some("cursor-2"));
+        assert_eq!(servers.data.len(), 1);
+        assert_eq!(servers.data[0].id, "job-1");
+        assert_eq!(servers.data[0].playing, 7);
+    }
 }

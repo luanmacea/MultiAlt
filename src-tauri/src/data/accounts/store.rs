@@ -2,6 +2,10 @@ pub struct AccountStore {
     accounts: Mutex<Vec<Account>>,
     password_hash: Mutex<Option<Vec<u8>>>,
     file_path: PathBuf,
+    /// Set when the on-disk file exists but could not be decoded. While set,
+    /// `save()` refuses to write so an empty in-memory list never overwrites
+    /// the user's accounts.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -21,6 +25,7 @@ impl AccountStore {
             accounts: Mutex::new(Vec::new()),
             password_hash: Mutex::new(None),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -55,10 +60,19 @@ impl AccountStore {
             return Ok(());
         }
 
-        let accounts = self.decode_accounts_for_load(&data)?;
+        let accounts = match self.decode_accounts_for_load(&data) {
+            Ok(accounts) => accounts,
+            Err(e) => {
+                self.load_failed
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                return Err(e);
+            }
+        };
 
         let mut store = self.accounts.lock().map_err(|e| e.to_string())?;
         *store = accounts;
+        self.load_failed
+            .store(false, std::sync::atomic::Ordering::SeqCst);
 
         Ok(())
     }
@@ -94,6 +108,8 @@ impl AccountStore {
         let mut store = self.accounts.lock().map_err(|e| e.to_string())?;
         *store = accounts;
         drop(store);
+        self.load_failed
+            .store(false, std::sync::atomic::Ordering::SeqCst);
 
         let mut password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
         *password_hash = Some(hash);
@@ -101,6 +117,18 @@ impl AccountStore {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        self.save_inner(false)
+    }
+
+    /// `replace_encrypted_with_plain`: only for deliberately removing encryption
+    /// from an already-unlocked store (see `set_password`).
+    fn save_inner(&self, replace_encrypted_with_plain: bool) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Account file could not be loaded; refusing to overwrite it. Fix or restore AccountData.json and restart.".to_string(),
+            );
+        }
+
         let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
 
         let json = serde_json::to_string_pretty(&*accounts)
@@ -111,11 +139,20 @@ impl AccountStore {
         let data = if let Some(hash) = password_hash.as_ref() {
             crypto::encrypt(&json, hash).map_err(|e| format!("Failed to encrypt: {}", e))?
         } else {
+            // Still locked: never replace an encrypted file with plaintext (it
+            // would drop every account the user has not unlocked yet).
+            if !replace_encrypted_with_plain && self.is_encrypted()? {
+                return Err("Accounts are locked; unlock them before making changes.".to_string());
+            }
             json.into_bytes()
         };
 
-        fs::write(&self.file_path, data)
+        // Write-then-rename so a crash or full disk never leaves a truncated file.
+        let tmp_path = self.file_path.with_extension("json.tmp");
+        fs::write(&tmp_path, data)
             .map_err(|e| format!("Failed to write account file: {}", e))?;
+        crate::data::versions::atomic_replace(&tmp_path, &self.file_path)
+            .map_err(|e| format!("Failed to replace account file: {}", e))?;
 
         Ok(())
     }
@@ -131,9 +168,15 @@ impl AccountStore {
             }
         }
         let mut password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
+        let was_unlocked = password_hash.is_some();
+        if !was_unlocked && self.is_encrypted()? {
+            // Re-keying a file we never decrypted would encrypt an empty list
+            // over the user's accounts.
+            return Err("Accounts are locked; unlock them before changing the password.".to_string());
+        }
         *password_hash = password.map(|p| crypto::hash_password(p.trim()));
         drop(password_hash);
-        self.save()
+        self.save_inner(was_unlocked)
     }
 
     pub fn get_all(&self) -> Result<Vec<Account>, String> {
@@ -416,6 +459,60 @@ mod tests {
         assert_eq!(imported[0].user_id, 67890);
         assert_eq!(imported[0].username, "CurrentUser");
 
+        let _ = fs::remove_file(&store.file_path);
+    }
+
+    #[test]
+    fn save_should_not_overwrite_encrypted_file_while_locked() {
+        let store = new_test_store("locked-save");
+        let existing = vec![Account::new("cookie".to_string(), "Kept".to_string(), 111)];
+        let json = serde_json::to_string(&existing).unwrap();
+        let encrypted = crypto::encrypt(&json, &crypto::hash_password("secret-pass")).unwrap();
+        fs::write(&store.file_path, &encrypted).unwrap();
+
+        let result = store.add(Account::new("c2".to_string(), "New".to_string(), 222));
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&store.file_path).unwrap(), encrypted);
+        let _ = fs::remove_file(&store.file_path);
+    }
+
+    #[test]
+    fn set_password_none_should_decrypt_an_unlocked_store() {
+        let store = new_test_store("remove-encryption");
+        let existing = vec![Account::new("cookie".to_string(), "Kept".to_string(), 111)];
+        let json = serde_json::to_string(&existing).unwrap();
+        let encrypted = crypto::encrypt(&json, &crypto::hash_password("secret-pass")).unwrap();
+        fs::write(&store.file_path, &encrypted).unwrap();
+        store.load_with_password("secret-pass").unwrap();
+
+        store.set_password(None).unwrap();
+
+        assert!(!store.is_encrypted().unwrap());
+        assert_eq!(store.get_all().unwrap()[0].user_id, 111);
+        let _ = fs::remove_file(&store.file_path);
+    }
+
+    #[test]
+    fn save_should_refuse_after_failed_load() {
+        let store = new_test_store("failed-load");
+        fs::write(&store.file_path, b"not valid account data").unwrap();
+
+        assert!(store.load().is_err());
+        assert!(store.add(Account::new("c".to_string(), "U".to_string(), 1)).is_err());
+        assert_eq!(fs::read(&store.file_path).unwrap(), b"not valid account data");
+        let _ = fs::remove_file(&store.file_path);
+    }
+
+    #[test]
+    fn save_should_write_atomically_and_round_trip() {
+        let store = new_test_store("atomic-save");
+        store.add(Account::new("c".to_string(), "U".to_string(), 7)).unwrap();
+
+        assert!(!store.file_path.with_extension("json.tmp").exists());
+        let reloaded = AccountStore::new(store.file_path.clone());
+        reloaded.load().unwrap();
+        assert_eq!(reloaded.get_all().unwrap()[0].user_id, 7);
         let _ = fs::remove_file(&store.file_path);
     }
 

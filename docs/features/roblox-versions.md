@@ -1,0 +1,95 @@
+# Versões do Roblox (catálogo, instalação e override por conta)
+
+## Objetivo
+
+Permitir instalar builds específicas do Roblox Player (direto do CDN oficial) numa pasta gerenciada pelo app, escolher uma versão padrão e/ou uma versão por conta, e lançar a conta com essa build via old join. Exclusivo de Windows (instalação e launch versionado).
+
+## Onde fica o código
+
+| Arquivo | Papel |
+|---|---|
+| [data/versions.rs](../../src-tauri/src/data/versions.rs) | `VersionEntry`, `VersionsCatalogStore` (list/find/upsert/remove/set_label/touch_launched), caminhos `RAMVersions.json` e `RobloxVersions` |
+| [commands/versions.rs](../../src-tauri/src/commands/versions.rs) | Comandos `versions_list_installed`, `versions_list_remote`, `versions_install`, `versions_uninstall`, `versions_set_default`, `versions_set_account_override`, `versions_set_label`, `versions_open_folder` |
+| [platform/windows/versions.rs](../../src-tauri/src/platform/windows/versions.rs) | `fetch_remote_catalog`, `install_version`, `uninstall_version`, `resolve_roblox_install_path` |
+| [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | `running_version_keys` (guarda de versão concorrente) |
+| [launch.rs](../../src-tauri/src/commands/launch.rs) | Uso no launch único e múltiplo |
+
+## Fluxo
+
+### Listar versões remotas
+`versions_list_remote` → `fetch_remote_catalog`: busca `https://weao.xyz/api/versions/current` (obrigatório) e `https://weao.xyz/api/versions/past` (opcional; falha vira `pastError`). Extrai `Windows`/`Mac` + `…Response.version` + `…Date`, sempre com `channel: "LIVE"`.
+
+### Instalar
+1. `versions_install(installId, channel, versionHash, label)`; canal vazio → `LIVE`; hash obrigatório.
+2. Valida nomes: canal `[A-Za-z0-9_.-]{1,64}` (não `.`/`..`), hash `version-<hex>`.
+3. Destino: `%LOCALAPPDATA%\Roblox Account Manager\RobloxVersions\<canal>\<hash>`; staging em `<hash>.staging-<ms>` (apagado automaticamente em erro).
+4. Manifesto `<hash>-rbxPkgManifest.txt` de `https://setup-aws.rbxcdn.com/` (LIVE) ou `…/channel/<canal>/`; se falhar num canal não-LIVE, tenta `…/channel/common/`.
+5. Baixa pacotes em paralelo (`MaxParallelDownloads`, 1–8), verifica hash (MD5 se 32 hex, SHA-256 se 64) e extrai cada zip na subpasta mapeada (`EXTRACT_ROOTS`, ex.: `content-textures3.zip` → `PlatformContent/pc/textures/`).
+6. Grava `AppSettings.xml`; exige `RobloxPlayerBeta.exe` no staging.
+7. Troca atômica: pasta existente vira `.old-<ms>`, staging é renomeado para o destino; em erro restaura o antigo.
+8. `upsert` no catálogo e evento final `version-install-progress` `ready` (estágios: `resolving` → `installing` por pacote → `ready`).
+
+### Resolver qual instalação usar (`resolve_roblox_install_path`)
+
+Precedência:
+1. **Override da conta** (`account.fields["RobloxVersion"]`, formato `<canal>:<hash>`): precisa existir no catálogo e ter `RobloxPlayerBeta.exe`, senão **erro** (não cai para o próximo nível).
+2. **`Versions.DefaultVersion`**: mesma validação e erro.
+3. **Versão do catálogo usada mais recentemente** (`last_launched_at`, ou `installed_at`) que tenha o exe.
+4. **Instalação do sistema** (`get_roblox_path`: pasta da build production em cache (`cached_production_player_dir`), senão `HKCR\roblox\DefaultIcon`, senão a pasta `version-*` mais recente em `%LOCALAPPDATA%\Roblox\Versions`) → `version_id = None`. No spawn por old join, o launch ainda passa essa pasta por `default_player_dir`, que fixa o canal em `production` e troca pela pasta da build production quando instalada (ver [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix)).
+
+```mermaid
+sequenceDiagram
+    participant L as launch_*
+    participant R as resolve_roblox_install_path
+    participant C as VersionsCatalogStore
+    L->>R: RobloxVersion da conta
+    alt override definido
+        R->>C: find(canal:hash) (erro se ausente)
+    else DefaultVersion definido
+        R->>C: find(DefaultVersion) (erro se ausente)
+    else catálogo não vazio
+        R->>C: mais recente com exe
+    else
+        R->>R: get_roblox_path() (build production em cache ou registro, version_id=None)
+    end
+    R-->>L: (base_path, version_id)
+    alt version_id.is_some()
+        L->>L: old join em base_path (pasta do catálogo, canal não é fixado)
+    else version_id = None e old join
+        L->>L: default_player_dir(base_path) → pin canal + pasta da build production
+    end
+```
+
+## Regras de negócio
+
+- **ID de versão** = `"<canal>:<hash>"` (`VersionEntry::version_id`).
+- **Versão do catálogo ⇒ old join**: qualquer `version_id` resolvido força `RobloxPlayerBeta.exe --app -t -j` na pasta da versão (exceto quando `Isolation.Mode = Full` sem versão do catálogo, ver [launch.md](launch.md)).
+- **Clientes concorrentes devem compartilhar a mesma versão**: o tracker guarda o `version_id` de cada PID e de cada launch pendente; se algum for diferente do da nova conta, o launch único falha ("already running on a different version…") e o multi pula a conta (`version-conflict`). Instalação do sistema conta como a "versão" `None`.
+- **Uninstall:** recusado se a versão estiver rodando; apaga a pasta, remove do catálogo, limpa `DefaultVersion` se for ela e remove `RobloxVersion` de toda conta que a usava.
+- **Override por conta:** `versions_set_account_override(userId, versionId|null)`; vazio/null remove o campo.
+- **`touch_launched`** atualiza `last_launched_at` quando o PID é detectado (influencia o passo 3 da precedência).
+- **Catálogo** persistido em `%LOCALAPPDATA%\Roblox Account Manager\RAMVersions.json` (escrita via `.json.tmp` + `MoveFileExW` atômico). Na primeira execução, copia `RAMVersions.json` legado de ao lado do exe se existir.
+- **Isolamento Full nunca apaga** `%LOCALAPPDATA%\Roblox Account Manager\RobloxVersions`.
+
+## Configurações relacionadas
+
+Seção `[Versions]`:
+
+| Chave | Default | Efeito |
+|---|---|---|
+| `DefaultVersion` | vazio | `canal:hash` usado quando a conta não tem override |
+| `MaxParallelDownloads` | `4` | Downloads simultâneos na instalação (clamp 1–8) |
+| `CatalogCacheMinutes` | `10` | Criado nos defaults; não é lido em lugar nenhum |
+| `PreferOldJoinForVersioned` | `true` | Exibido na UI ([VersionsTab.tsx](../../src/components/settings/VersionsTab.tsx)); **ignorado pelo backend** (versionado sempre usa old join) |
+| `ShowPreReleaseVersions` | `false` | Toggle na UI ([VersionsTab.tsx](../../src/components/settings/VersionsTab.tsx)); não lido pelo backend |
+
+Campo por conta: `RobloxVersion` (`canal:hash`).
+
+## Armadilhas / cuidados
+
+- Se existir **qualquer** versão no catálogo, contas sem override e sem `DefaultVersion` usam a versão do catálogo mais recente (passo 3), não a instalação do sistema. Isso muda o modo de launch para old join sem o usuário perceber.
+- Misturar contas com versões diferentes num mesmo lote faz as divergentes serem puladas.
+- Botting e web server ignoram o catálogo (usam sempre a build production via `launch_url`/`default_player_dir`).
+- Versões do catálogo **não** recebem o fix de canal: o old join executa a build instalada como está.
+- Uma build antiga do catálogo pode ser rejeitada pelos servidores do Roblox (exigir update); nesse caso o cliente abre o instalador próprio.
+- Sem `weao.xyz` no ar, a lista remota falha (a instalação por hash manual continua funcionando via CDN).

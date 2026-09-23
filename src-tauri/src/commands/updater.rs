@@ -246,3 +246,117 @@ fn install_selected_update(updater_state: tauri::State<'_, UpdaterRuntimeState>)
         .install(bytes)
         .map_err(|e| format!("Failed to install update: {}", e))
 }
+
+#[cfg(test)]
+mod updater_tests {
+    use super::*;
+
+    // ---- channel normalization ----------------------------------------------
+
+    #[test]
+    fn release_channel_normalizes_to_stable_only_for_stable() {
+        assert_eq!(normalize_updater_release_channel("stable"), "stable");
+        assert_eq!(normalize_updater_release_channel("STABLE"), "stable");
+        assert_eq!(normalize_updater_release_channel("Stable"), "stable");
+    }
+
+    #[test]
+    fn release_channel_defaults_to_beta_for_anything_else() {
+        assert_eq!(normalize_updater_release_channel("beta"), "beta");
+        assert_eq!(normalize_updater_release_channel(""), "beta");
+        assert_eq!(normalize_updater_release_channel("nightly"), "beta");
+        assert_eq!(normalize_updater_release_channel("  stable  "), "beta");
+    }
+
+    #[test]
+    fn feature_channel_accepts_the_three_nexus_aliases() {
+        assert_eq!(normalize_updater_feature_channel("nexus-ws"), "nexus-ws");
+        assert_eq!(normalize_updater_feature_channel("NEXUS"), "nexus-ws");
+        assert_eq!(normalize_updater_feature_channel("Full"), "nexus-ws");
+    }
+
+    #[test]
+    fn feature_channel_defaults_to_standard() {
+        assert_eq!(normalize_updater_feature_channel("standard"), "standard");
+        assert_eq!(normalize_updater_feature_channel(""), "standard");
+        assert_eq!(normalize_updater_feature_channel("whatever"), "standard");
+    }
+
+    // ---- manifest channel / endpoint ----------------------------------------
+
+    #[test]
+    fn resolve_manifest_channel_appends_the_nexus_suffix() {
+        assert_eq!(resolve_manifest_channel("beta", "nexus-ws"), "beta-nexus-ws");
+        assert_eq!(
+            resolve_manifest_channel("stable", "nexus-ws"),
+            "stable-nexus-ws"
+        );
+        assert_eq!(resolve_manifest_channel("beta", "standard"), "beta");
+        assert_eq!(resolve_manifest_channel("stable", "standard"), "stable");
+    }
+
+    #[test]
+    fn build_manifest_endpoint_points_at_the_channel_manifest() {
+        let url = build_manifest_endpoint("stable", "standard").unwrap();
+        assert_eq!(
+            url.as_str(),
+            format!("{}/stable/latest.json", UPDATER_MANIFEST_BASE)
+        );
+
+        let nexus = build_manifest_endpoint("beta", "nexus-ws").unwrap();
+        assert_eq!(
+            nexus.as_str(),
+            format!("{}/beta-nexus-ws/latest.json", UPDATER_MANIFEST_BASE)
+        );
+        assert_eq!(nexus.scheme(), "https");
+        assert_eq!(nexus.host_str(), Some("raw.githubusercontent.com"));
+    }
+
+    // ---- parse_semver --------------------------------------------------------
+
+    #[test]
+    fn parse_semver_strips_the_v_prefix_and_whitespace() {
+        assert_eq!(
+            parse_semver("  v4.1.0  "),
+            Some(semver::Version::parse("4.1.0").unwrap())
+        );
+        assert_eq!(
+            parse_semver("4.1.0"),
+            Some(semver::Version::parse("4.1.0").unwrap())
+        );
+    }
+
+    #[test]
+    fn parse_semver_returns_none_for_invalid_input() {
+        assert_eq!(parse_semver(""), None);
+        assert_eq!(parse_semver("not-a-version"), None);
+        assert_eq!(parse_semver("4.1"), None);
+    }
+
+    #[test]
+    fn parse_semver_orders_numerically_not_lexicographically() {
+        // This ordering is what select_preferred_update relies on to pick the
+        // newer of the primary/fallback manifests.
+        let older = parse_semver("v4.9.9").unwrap();
+        let newer = parse_semver("v4.10.0").unwrap();
+        assert!(newer > older);
+
+        // Pre-releases sort below the matching release.
+        assert!(parse_semver("4.1.0").unwrap() > parse_semver("4.1.0-beta.1").unwrap());
+    }
+
+    // ---- select_preferred_update / update_payload_key ------------------------
+
+    #[test]
+    fn select_preferred_update_returns_none_when_no_channel_has_an_update() {
+        // `tauri_plugin_updater::Update` has private fields and cannot be built
+        // in a unit test, so only the empty case is exercised here; the
+        // higher-semver preference is covered by parse_semver's ordering test.
+        assert!(select_preferred_update(None, None).is_none());
+    }
+
+    #[test]
+    fn update_payload_key_is_none_without_a_pending_update() {
+        assert_eq!(update_payload_key(None), None);
+    }
+}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type UIEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { useConfirm, usePrompt } from "../hooks/usePrompt";
@@ -6,45 +6,205 @@ import { useJoinOnlineWarning } from "../hooks/useJoinOnlineWarning";
 import { FavoritesTab } from "./server-list/FavoritesTab";
 import { GamesTab } from "./server-list/GamesTab";
 import { RecentTab } from "./server-list/RecentTab";
-import { loadFavorites, saveFavorites, recordRecentGame } from "./server-list/types";
+import { loadFavorites, saveFavorites } from "./server-list/types";
 import type { GameEntry } from "./server-list/types";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User } from "lucide-react";
+import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle } from "lucide-react";
+import type { LaunchLogLevel, LaunchTarget } from "../store";
+import type { JoinTarget } from "../types";
 
-type TabId = "favorites" | "games" | "recent" | "follow";
+type TabId = "favorites" | "games" | "recent" | "follow" | "console";
 
 function maskName(name: string, previewLetters: number) {
   if (previewLetters > 0 && previewLetters < name.length) return name.slice(0, previewLetters) + "********";
   return "************";
 }
 
+/** Extra launch parameters for targets that were already resolved (join links). */
+type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode">;
+
+/** Result of a launch attempt, so callers can surface the failure inline. */
+type LaunchResult = { ok: boolean; error?: string };
+
 /** Launches all selected accounts into a given place/job. */
 function useLauncher() {
   const store = useStore();
   const confirmJoinOnline = useJoinOnlineWarning();
 
-  async function launchAll(userIds: number[], placeId: number, jobId: string = "") {
-    if (!(await confirmJoinOnline(userIds))) return;
-    store.setPlaceId(String(placeId));
-    store.setJobId(jobId);
-    const maxRecent = parseInt(store.settings?.General?.MaxRecentGames || "8") || 8;
+  async function launchAll(
+    userIds: number[],
+    placeId: number,
+    jobId: string = "",
+    onStarted?: () => void,
+    extras?: LaunchExtras
+  ): Promise<LaunchResult> {
+    if (!(await confirmJoinOnline(userIds))) return { ok: false };
+    onStarted?.();
+    // Keep the launch input fields in sync for the UI, but pass the target
+    // explicitly to the launch call. setPlaceId/setJobId are async state
+    // updates, so the launch closure would otherwise read the PREVIOUS
+    // place/job — this is what caused clicking a game's VIP to sometimes join
+    // the previously-selected game's VIP instead.
+    const placeIdText = String(placeId);
+    const target: LaunchTarget = { placeId: placeIdText, jobId, ...(extras || {}) };
+    store.setPlaceId(placeIdText);
+    // The visible Job ID field holds the VIP code in its `vip:` form so a
+    // manual re-launch from the field hits the same private server.
+    store.setJobId(extras?.joinVip && extras.linkCode ? `vip:${extras.linkCode}` : jobId);
     try {
       if (userIds.length === 1) {
-        await store.joinServer(userIds[0]);
+        await store.joinServer(userIds[0], target);
       } else {
-        await store.launchMultiple(userIds);
+        await store.launchMultiple(userIds, target);
       }
-      void recordRecentGame(placeId, userIds[0], maxRecent).catch(() => {});
+      // Recent games are recorded by the store on a successful launch.
+      return { ok: true };
     } catch (e) {
       store.addToast(tr("Launch failed: {{error}}", { error: String(e) }));
+      return { ok: false, error: String(e) };
     }
   }
 
   return launchAll;
 }
 
+// ── Join link section ─────────────────────────────────────────────────────────
+/**
+ * Resolves a pasted Roblox link (experience invite, VIP/private server, plain
+ * game, `roblox://` deep link, `ro.blox.com` short link) through the backend
+ * and launches every selected account into the resolved target.
+ */
+function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsole?: () => void }) {
+  const t = useTr();
+  const launchAll = useLauncher();
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resolved, setResolved] = useState<JoinTarget | null>(null);
+
+  function describeTarget(target: JoinTarget): string {
+    const kindLabel =
+      target.kind === "invite"
+        ? t("Invite")
+        : target.kind === "private"
+          ? t("Private server")
+          : target.kind === "job"
+            ? t("Server")
+            : t("Game");
+    const parts = [kindLabel, t("place {{placeId}}", { placeId: String(target.placeId) })];
+    if (target.jobId) parts.push(t("server {{jobId}}", { jobId: target.jobId }));
+    return parts.join(" · ");
+  }
+
+  async function handleJoin() {
+    const value = link.trim();
+    if (!value || busy || userIds.length === 0) return;
+    setBusy(true);
+    setError(null);
+    setResolved(null);
+    try {
+      const target = await invoke<JoinTarget>("resolve_join_link", {
+        userId: userIds[0],
+        link: value,
+      });
+      setResolved(target);
+
+      // private → `joinVip` + code (launchMultiple re-encodes it as `vip:<code>`)
+      // invite/job → the resolved job id; place → no job at all.
+      const vipCode = (target.linkCode || target.accessCode || "").trim();
+      const isPrivate = target.kind === "private" && vipCode !== "";
+      const job = isPrivate || target.kind === "place" ? "" : target.jobId;
+
+      const result = await launchAll(userIds, target.placeId, job, undefined, {
+        launchData: target.launchData || undefined,
+        joinVip: isPrivate || undefined,
+        linkCode: isPrivate ? vipCode : undefined,
+      });
+      if (!result.ok && result.error) setError(result.error);
+    } catch (e) {
+      // Keep the typed link so the user can fix it.
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="theme-panel theme-border border rounded-xl p-5 mb-4">
+      <div className="flex items-start justify-between mb-1">
+        <h3 className="text-sm font-semibold text-[var(--panel-fg)] flex items-center gap-1.5">
+          <Link2 size={14} strokeWidth={1.5} />
+          {t("Join link")}
+        </h3>
+        <span className="text-[10px] bg-[var(--accent-soft)] text-[var(--accent-color)] px-2 py-0.5 rounded-md font-medium">
+          {userIds.length === 1 ? t("1 account") : t("{{count}} accounts", { count: userIds.length })}
+        </span>
+      </div>
+      <p className="text-[11px] theme-muted mb-4 leading-relaxed">
+        {t("Paste an experience invite, a VIP/private server link or a plain game link. All selected accounts join the same place.")}
+      </p>
+
+      <label className="text-[11px] theme-label font-medium block mb-1.5">{t("Link")}</label>
+      <div className="flex gap-2 mb-3">
+        <input
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleJoin();
+          }}
+          placeholder={t("e.g. https://www.roblox.com/share?code=abc123&type=ExperienceInvite")}
+          className="sidebar-input flex-1 min-w-0"
+          spellCheck={false}
+          autoComplete="off"
+          disabled={busy}
+        />
+        <button
+          onClick={handleJoin}
+          disabled={busy || !link.trim() || userIds.length === 0}
+          style={{ width: "auto" }}
+          className="sidebar-btn theme-btn shrink-0 px-4 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {busy ? t("Resolving link...") : t("Join")}
+        </button>
+      </div>
+
+      {resolved && (
+        <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-2">
+          <span className="truncate">{describeTarget(resolved)}</span>
+          {onGoToConsole && (
+            <button
+              onClick={onGoToConsole}
+              className="shrink-0 text-[11px] theme-muted hover:text-[var(--panel-fg)] transition-colors"
+            >
+              {t("View console")}
+            </button>
+          )}
+        </div>
+      )}
+
+      {resolved?.note && (
+        <div className="flex items-start gap-2 text-[11px] text-amber-400 bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-2 leading-relaxed">
+          <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
+          <span>
+            {t("This invite is no longer valid ({{note}}) — joining the game's public servers instead.", {
+              note: resolved.note,
+            })}
+          </span>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-start gap-2 text-[11px] text-red-400 bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 leading-relaxed">
+          <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
+          <span className="break-words">{error}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Follow Tab ────────────────────────────────────────────────────────────────
-function FollowTab({ userIds }: { userIds: number[] }) {
+function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsole?: () => void }) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
@@ -90,6 +250,9 @@ function FollowTab({ userIds }: { userIds: number[] }) {
 
   return (
     <div className="flex-1 overflow-y-auto p-5">
+      {/* Join link */}
+      <JoinLinkSection userIds={userIds} onGoToConsole={onGoToConsole} />
+
       {/* Follow card */}
       <div className="theme-panel theme-border border rounded-xl p-5 mb-4">
         <div className="flex items-start justify-between mb-1">
@@ -115,13 +278,14 @@ function FollowTab({ userIds }: { userIds: number[] }) {
             onChange={(e) => setFollowUser(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleFollow()}
             placeholder={t("e.g. Builderman")}
-            className="sidebar-input flex-1"
+            className="sidebar-input flex-1 min-w-0"
             disabled={launching}
           />
           <button
             onClick={handleFollow}
             disabled={launching || !followUser.trim()}
-            className="sidebar-btn theme-btn px-4 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ width: "auto" }}
+            className="sidebar-btn theme-btn shrink-0 px-4 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {launching ? t("Launching...") : t("Follow")}
           </button>
@@ -162,6 +326,265 @@ function FollowTab({ userIds }: { userIds: number[] }) {
   );
 }
 
+// ── Grid window arranger ──────────────────────────────────────────────────────
+type MonitorInfo = { index: number; width: number; height: number; primary: boolean };
+
+function GridControls() {
+  const t = useTr();
+  const store = useStore();
+  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [gap, setGap] = useState<number>(() => parseInt(store.settings?.General?.GridGap || "20") || 20);
+  // Raw text while typing so the field can be cleared; clamped/saved on blur.
+  const [gapText, setGapText] = useState<string>(() => String(gap));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    invoke<MonitorInfo[]>("list_display_monitors")
+      .then((mons) => {
+        if (cancelled) return;
+        const list = (mons || []).map((m) => ({
+          index: m.index,
+          width: m.width,
+          height: m.height,
+          primary: !!m.primary,
+        }));
+        setMonitors(list);
+        const saved = (store.settings?.General?.GridMonitors || "")
+          .split(",")
+          .map((s) => parseInt(s.trim()))
+          .filter((n) => Number.isFinite(n));
+        const initial =
+          saved.length > 0 ? saved.filter((i) => list.some((m) => m.index === i)) : list.map((m) => m.index);
+        setSelected(new Set(initial));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function persist(nextSel: Set<number>, nextGap: number) {
+    invoke("update_setting", {
+      section: "General",
+      key: "GridMonitors",
+      value: [...nextSel].sort((a, b) => a - b).join(","),
+    }).catch(() => {});
+    invoke("update_setting", { section: "General", key: "GridGap", value: String(nextGap) }).catch(() => {});
+  }
+
+  function toggleMonitor(i: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      persist(next, gap);
+      return next;
+    });
+  }
+
+  function commitGap() {
+    const v = parseInt(gapText);
+    const g = Number.isFinite(v) ? Math.max(0, Math.min(200, v)) : gap;
+    setGapText(String(g));
+    if (g !== gap) {
+      setGap(g);
+      persist(selected, g);
+    }
+  }
+
+  async function arrange() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await invoke<{ arranged: number; total: number }>("arrange_windows_grid", {
+        monitorIndices: [...selected].sort((a, b) => a - b),
+        gap,
+      });
+      const leftover = res.total - res.arranged;
+      store.addToast(
+        leftover > 0
+          ? t("{{arranged}}/{{total}} windows arranged ({{leftover}} didn't fit)", {
+              arranged: res.arranged,
+              total: res.total,
+              leftover,
+            })
+          : t("{{arranged}} window(s) arranged in grid", { arranged: res.arranged })
+      );
+    } catch (e) {
+      store.addToast(t("Grid failed: {{error}}", { error: String(e) }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="shrink-0 theme-panel theme-border border rounded-lg p-3 mb-2">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Window layout")}</h3>
+          <p className="text-[10px] theme-muted truncate">
+            {t("Tile all open Roblox windows across the selected monitors.")}
+          </p>
+        </div>
+        <button
+          onClick={arrange}
+          disabled={busy || selected.size === 0}
+          style={{ width: "auto" }}
+          className="sidebar-btn theme-btn shrink-0 flex items-center gap-1.5 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <LayoutGrid size={13} strokeWidth={1.5} />
+          {busy ? t("Arranging...") : t("Arrange in grid")}
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {monitors.length === 0 ? (
+          <span className="text-[10px] theme-muted">{t("No monitors detected")}</span>
+        ) : (
+          monitors.map((m) => {
+            const on = selected.has(m.index);
+            return (
+              <button
+                key={m.index}
+                onClick={() => toggleMonitor(m.index)}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] transition-colors ${
+                  on
+                    ? "border-[var(--accent-color)] text-[var(--panel-fg)] bg-[var(--accent-soft)]"
+                    : "theme-border theme-muted hover:text-[var(--panel-fg)]"
+                }`}
+                title={`${m.width}×${m.height}`}
+              >
+                <span
+                  className={`w-3 h-3 rounded-[3px] border flex items-center justify-center ${
+                    on ? "border-[var(--accent-color)] bg-[var(--accent-color)]" : "theme-border"
+                  }`}
+                >
+                  {on && <Check size={9} stroke="var(--forms-bg)" strokeWidth={3} />}
+                </span>
+                {t("Monitor {{n}}", { n: m.index })}
+                {m.primary ? ` ${t("(main)")}` : ""}
+                <span className="theme-muted tabular-nums">
+                  {m.width}×{m.height}
+                </span>
+              </button>
+            );
+          })
+        )}
+
+        <div className="flex items-center gap-1.5 ml-auto">
+          <label className="text-[10px] theme-label">{t("Gap")}</label>
+          <input
+            type="number"
+            min={0}
+            max={200}
+            value={gapText}
+            onChange={(e) => setGapText(e.target.value)}
+            onBlur={commitGap}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitGap();
+            }}
+            className="sidebar-input w-16 text-xs tabular-nums"
+          />
+          <span className="text-[10px] theme-muted">px</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Console Tab ───────────────────────────────────────────────────────────────
+const LEVEL_STYLES: Record<LaunchLogLevel, { dot: string; text: string }> = {
+  info: { dot: "bg-[var(--panel-muted)]", text: "text-[var(--panel-fg)]" },
+  success: { dot: "bg-emerald-500", text: "text-emerald-400" },
+  warn: { dot: "bg-amber-500", text: "text-amber-400" },
+  error: { dot: "bg-red-500", text: "text-red-400" },
+};
+
+function ConsoleTab() {
+  const t = useTr();
+  const store = useStore();
+  const logs = store.launchLogs;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  // Build a userId → display name map from the loaded accounts.
+  const nameFor = (userId: number | null): string => {
+    if (userId === null) return "—";
+    const a = store.accounts.find((acc) => acc.UserID === userId);
+    if (!a) return String(userId);
+    const raw = a.Alias || a.Username;
+    return store.hideUsernames ? maskName(raw, store.hiddenNameLetters) : raw;
+  };
+
+  const fmtTime = (ts: number) =>
+    new Date(ts).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  // Auto-scroll to the newest line unless the user scrolled up.
+  useEffect(() => {
+    if (autoScroll && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs, autoScroll]);
+
+  function onScroll(e: UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    setAutoScroll(atBottom);
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <GridControls />
+
+      <div className="shrink-0 flex items-center justify-between px-1 pb-2">
+        <span className="text-[11px] theme-muted">
+          {logs.length === 0
+            ? t("No launch activity yet")
+            : t("{{count}} log lines", { count: logs.length })}
+        </span>
+        <button
+          onClick={() => store.clearLaunchLogs()}
+          disabled={logs.length === 0}
+          className="flex items-center gap-1.5 text-[11px] theme-muted hover:text-[var(--panel-fg)] px-2 py-1 rounded-md theme-btn-ghost border theme-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Trash2 size={12} strokeWidth={1.5} />
+          {t("Clear")}
+        </button>
+      </div>
+
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="flex-1 min-h-0 overflow-y-auto rounded-lg border theme-border bg-[var(--panel-soft)] font-mono text-[11px] leading-relaxed p-3"
+      >
+        {logs.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
+            <Terminal size={22} strokeWidth={1.5} />
+            <p className="text-[11px]">{t("Launch a game to see live progress here")}</p>
+          </div>
+        ) : (
+          logs.map((log) => {
+            const style = LEVEL_STYLES[log.level] ?? LEVEL_STYLES.info;
+            return (
+              <div key={log.id} className="flex items-start gap-2 py-0.5">
+                <span className="theme-muted shrink-0 tabular-nums">{fmtTime(log.ts)}</span>
+                <span className={`shrink-0 w-1.5 h-1.5 rounded-full mt-[6px] ${style.dot}`} />
+                <span className="shrink-0 text-[var(--accent-color)] max-w-[120px] truncate">
+                  {nameFor(log.userId)}
+                </span>
+                <span className={`${style.text} break-words`}>{log.message}</span>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export function ChooseGameScreen() {
   const t = useTr();
@@ -185,17 +608,19 @@ export function ChooseGameScreen() {
 
   // ── Game selection handlers ────────────────────────────────────────────────
 
+  const goToConsole = () => setActiveTab("console");
+
   function handleSelectGame(placeId: number, _name?: string, _iconUrl?: string | null, privateServer?: string) {
     // For Games/Recent tabs: just launch directly
-    launchAll(userIds, placeId, privateServer || "");
+    launchAll(userIds, placeId, privateServer || "", goToConsole);
   }
 
   async function handleFavoritesSelectGame(placeId: number, privateServer?: string) {
-    await launchAll(userIds, placeId, privateServer || "");
+    await launchAll(userIds, placeId, privateServer || "", goToConsole);
   }
 
   async function handleJoinGame(placeId: number) {
-    await launchAll(userIds, placeId, "");
+    await launchAll(userIds, placeId, "", goToConsole);
   }
 
   async function handleAddFavorite(game: GameEntry) {
@@ -232,6 +657,11 @@ export function ChooseGameScreen() {
       id: "follow",
       label: t("Follow"),
       hint: undefined,
+    },
+    {
+      id: "console",
+      label: t("Console"),
+      hint: t("Live launch log: which account is joining which game, auth ticket, isolation, process PID and errors."),
     },
   ];
   const activeHint = TABS.find((t) => t.id === activeTab)?.hint;
@@ -348,7 +778,12 @@ export function ChooseGameScreen() {
           </div>
         )}
         {activeTab === "follow" && (
-          <FollowTab userIds={userIds} />
+          <FollowTab userIds={userIds} onGoToConsole={goToConsole} />
+        )}
+        {activeTab === "console" && (
+          <div className="h-full px-4 pt-3 pb-4">
+            <ConsoleTab />
+          </div>
         )}
       </div>
 

@@ -55,6 +55,17 @@ interface LaunchProgressState {
   userId: number | null;
 }
 
+export type LaunchLogLevel = "info" | "success" | "warn" | "error";
+
+export interface LaunchLogEntry {
+  id: number;
+  userId: number | null;
+  level: LaunchLogLevel;
+  step: string;
+  message: string;
+  ts: number;
+}
+
 type ActionStatusTone = "info" | "success" | "warn" | "error";
 
 interface ActionStatusState {
@@ -127,6 +138,30 @@ export interface GeneratorStartConfig {
   maxAccounts: number;
 }
 
+/**
+ * Explicit place/job for a launch. When provided, these take precedence over
+ * the placeId/jobId held in store state — avoiding a stale-state race where a
+ * caller sets place/job via setState and immediately triggers a launch (the
+ * launch closure would otherwise still read the PREVIOUS place/job).
+ */
+export interface LaunchTarget {
+  placeId?: string;
+  jobId?: string;
+  /**
+   * Overrides the store's `launchData` for this launch only (used by targets
+   * resolved from a join link, which can carry their own launch data).
+   */
+  launchData?: string;
+  /**
+   * Forces a VIP/private join instead of parsing it out of `jobId`.
+   * `joinServer` forwards it to `launch_roblox`; `launchMultiple` encodes it as
+   * a `vip:<code>` job because `launch_multiple` has no such parameter.
+   */
+  joinVip?: boolean;
+  /** VIP/private server code (link code or access code) used with `joinVip`. */
+  linkCode?: string;
+}
+
 export interface StoreValue {
   accounts: Account[];
   groups: ParsedGroup[];
@@ -188,8 +223,8 @@ export interface StoreValue {
   presenceByUserId: Map<number, number>;
   launchedByProgram: Set<number>;
 
-  joinServer: (userId: number) => Promise<void>;
-  launchMultiple: (userIds: number[]) => Promise<void>;
+  joinServer: (userId: number, target?: LaunchTarget) => Promise<void>;
+  launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
   restartRobloxClients: (userIds: number[]) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
   killAllRobloxProcesses: () => Promise<void>;
@@ -211,6 +246,8 @@ export interface StoreValue {
   reorderAccounts: (draggedUserId: number, targetUserId: number) => Promise<void>;
   joiningAccounts: Set<number>;
   launchProgress: LaunchProgressState | null;
+  launchLogs: LaunchLogEntry[];
+  clearLaunchLogs: () => void;
 
   dragState: { userId: number; sourceGroup: string } | null;
   setDragState: (s: { userId: number; sourceGroup: string } | null) => void;
@@ -388,6 +425,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [joiningAccounts, setJoiningAccounts] = useState<Set<number>>(new Set());
   const [launchProgress, setLaunchProgress] = useState<LaunchProgressState | null>(null);
+  const [launchLogs, setLaunchLogs] = useState<LaunchLogEntry[]>([]);
+  const launchLogIdRef = useRef(0);
+  // Latest accounts for long-lived event listeners (their effects don't
+  // re-subscribe on every accounts change, so a captured value goes stale).
+  const accountsRef = useRef<Account[]>([]);
+  accountsRef.current = accounts;
+  const clearLaunchLogs = useCallback(() => setLaunchLogs([]), []);
   const [actionStatus, setActionStatus] = useState<ActionStatusState | null>(null);
 
   const avatarLoadingRef = useRef<Set<number>>(new Set());
@@ -790,7 +834,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function joinServer(userId: number) {
+  async function joinServer(userId: number, target?: LaunchTarget) {
     clearLaunchTimeout();
     setJoiningAccounts(new Set([userId]));
     setLaunchProgress({
@@ -804,8 +848,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setActionStatusMessage(tr("Launching {{name}}...", { name: accountName }), "info", 5000);
 
     try {
-      const pid = parseInt(placeId) || 5315046213;
-      const rawJobId = jobId.trim();
+      const pid = parseInt(target?.placeId ?? placeId) || 5315046213;
+      const rawJobId = (target?.jobId ?? jobId).trim();
       let resolvedJobId = rawJobId;
       let joinVip = false;
       let linkCode = "";
@@ -827,11 +871,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // An already-resolved target (e.g. a pasted join link) wins over the
+      // string parsing above. Absent fields keep the parsed defaults, so
+      // callers that only pass placeId/jobId behave exactly as before.
+      if (target?.joinVip !== undefined) joinVip = target.joinVip;
+      if (target?.linkCode !== undefined) linkCode = target.linkCode;
+      if (joinVip) resolvedJobId = "";
+
       await invoke("launch_roblox", {
         userId,
         placeId: pid,
         jobId: resolvedJobId,
-        launchData,
+        launchData: target?.launchData ?? launchData,
         followUser: false,
         joinVip,
         linkCode,
@@ -863,7 +914,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }, 7000);
   }
 
-  async function launchMultiple(userIds: number[]) {
+  async function launchMultiple(userIds: number[], target?: LaunchTarget) {
     if (userIds.length === 0) return;
     if (userIds.length > 1 && platformCapabilities?.os === "linux" && !platformCapabilities.supportsMultiLaunch) {
       const message =
@@ -886,12 +937,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setActionStatusMessage(tr("Launching {{count}} accounts...", { count: userIds.length }), "info", 5000);
 
     try {
-      const pid = parseInt(placeId) || 5315046213;
+      const pid = parseInt(target?.placeId ?? placeId) || 5315046213;
+      // `launch_multiple` has no joinVip/linkCode parameters: the backend's
+      // resolve_launch_job understands the `vip:<code>` job prefix instead.
+      const vipCode = target?.joinVip ? (target.linkCode || "").trim() : "";
       await invoke("launch_multiple", {
         userIds,
         placeId: pid,
-        jobId,
-        launchData,
+        jobId: vipCode ? `vip:${vipCode}` : (target?.jobId ?? jobId),
+        launchData: target?.launchData ?? launchData,
       });
       await loadAccounts();
       void recordRecentGame(pid, userIds[0], parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
@@ -1535,6 +1589,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const unsubs: Array<() => void> = [];
 
     const listeners = [
+      listen<{ userId: number | null; level: LaunchLogLevel; step: string; message: string }>(
+        "launch-log",
+        (e) => {
+          const p = e.payload;
+          setLaunchLogs((prev) => {
+            const entry: LaunchLogEntry = {
+              id: launchLogIdRef.current++,
+              userId: p.userId ?? null,
+              level: p.level ?? "info",
+              step: p.step ?? "",
+              message: p.message ?? "",
+              ts: Date.now(),
+            };
+            // Cap the buffer so a long botting session can't grow unbounded.
+            const next = prev.length >= 500 ? prev.slice(prev.length - 499) : prev;
+            return [...next, entry];
+          });
+        }
+      ),
+      listen<{ userId: number; group?: string }>("account-moderated", (e) => {
+        const userId = e.payload.userId;
+        // The backend already moved the account into the "moderadas" group and
+        // persisted it — reload so the list reflects the new grouping right away.
+        void loadAccounts().catch(() => {});
+        const acct = accountsRef.current.find((a) => a.UserID === userId);
+        const name = acct?.Alias || acct?.Username || String(userId);
+        addToast(tr("{{name}} is moderated — moved to 'moderadas'", { name }));
+      }),
       listen<{ userId: number; index: number; total: number }>("launch-progress", (e) => {
         const current = (e.payload.index ?? 0) + 1;
         const total = Math.max(1, e.payload.total ?? 1);
@@ -1564,6 +1646,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           launchClearTimeoutRef.current = null;
         }, 1500);
       }),
+      // The launcher installs a new Roblox production build by itself (so the
+      // Roblox installer never runs and closes the other clients); a big
+      // download would otherwise look like a frozen launch.
+      listen<{ version: string; stage: string; current: number; total: number; message?: string | null }>(
+        "roblox-build-install",
+        (e) => {
+          const { stage, current, total, message } = e.payload || ({} as never);
+          if (stage === "starting" || stage === "resolving") {
+            setActionStatusMessage(tr("Downloading the new Roblox version..."), "info", 60000);
+          } else if (stage === "installing" && total > 0) {
+            setActionStatusMessage(
+              tr("Downloading the new Roblox version... {{current}}/{{total}}", { current, total }),
+              "info",
+              60000
+            );
+          } else if (stage === "ready") {
+            setActionStatusMessage(tr("New Roblox version installed"), "success", 4000);
+          } else if (stage === "error") {
+            addToast(tr("Could not install the Roblox version: {{error}}", { error: message || "" }));
+          }
+        }
+      ),
       listen<OptimizationWarningPayload>("roblox-optimization-warning", (e) => {
         const pid = typeof e.payload?.pid === "number" ? e.payload.pid : null;
         const message =
@@ -1578,9 +1682,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
     ];
 
-    Promise.all(listeners).then((fns) => fns.forEach((fn) => unsubs.push(fn)));
+    // listen() resolves asynchronously: if cleanup already ran, unsubscribe
+    // immediately instead of leaking a duplicate handler.
+    let disposed = false;
+    Promise.all(listeners)
+      .then((fns) => (disposed ? fns.forEach((fn) => fn()) : fns.forEach((fn) => unsubs.push(fn))))
+      .catch(() => {});
 
     return () => {
+      disposed = true;
       unsubs.forEach((fn) => fn());
     };
   }, [needsPassword, initialized, setActionStatusMessage, addToast]);
@@ -1639,9 +1749,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }),
     ];
-    Promise.all(listeners).then((fns) => fns.forEach((fn) => unsubs.push(fn)));
+    // listen() resolves asynchronously: if cleanup already ran, unsubscribe
+    // immediately instead of leaking a duplicate handler.
+    let disposed = false;
+    Promise.all(listeners)
+      .then((fns) => (disposed ? fns.forEach((fn) => fn()) : fns.forEach((fn) => unsubs.push(fn))))
+      .catch(() => {});
 
     return () => {
+      disposed = true;
       unsubs.forEach((fn) => fn());
     };
   }, [needsPassword, initialized, setActionStatusMessage]);
@@ -1996,6 +2112,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     reorderAccounts,
     joiningAccounts,
     launchProgress,
+    launchLogs,
+    clearLaunchLogs,
     dragState,
     setDragState,
     toasts,

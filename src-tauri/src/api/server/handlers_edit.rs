@@ -98,6 +98,10 @@ async fn handle_set_field(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -139,6 +143,10 @@ async fn handle_remove_field(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -176,6 +184,10 @@ async fn handle_set_alias(
     body: String,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -212,6 +224,10 @@ async fn handle_set_description(
     body: String,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -248,6 +264,10 @@ async fn handle_append_description(
     body: String,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -284,6 +304,10 @@ async fn handle_set_avatar(
     body: String,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -315,6 +339,10 @@ async fn handle_block_user(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -346,6 +374,10 @@ async fn handle_unblock_user(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -377,6 +409,10 @@ async fn handle_get_blocked_list(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -422,6 +458,10 @@ async fn handle_unblock_everyone(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -441,6 +481,13 @@ async fn handle_unblock_everyone(
         Ok(count) => reply(200, &format!("Unblocked {} users", count), v2),
         Err(e) => reply(500, &e, v2),
     }
+}
+
+/// Strict variant for secrets (cookies): the configured password must be sent,
+/// even when EveryRequestRequiresPassword is off.
+fn check_password_required(state: &AppState, password: &Option<String>) -> bool {
+    let ws_password = state.settings.get_string("WebServer", "Password");
+    ws_password.len() >= 6 && matches!(password, Some(p) if *p == ws_password)
 }
 
 fn check_password(state: &AppState, password: &Option<String>) -> bool {
@@ -463,3 +510,105 @@ fn check_password(state: &AppState, password: &Option<String>) -> bool {
     }
 }
 
+
+#[cfg(test)]
+mod password_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_path(name: &str, ext: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("ram-wspw-{name}-{nanos}.{ext}"))
+    }
+
+    /// `AppState` holds `&'static` stores, so the test stores are leaked.
+    /// Returns the state plus the two temp files to clean up.
+    fn test_state(name: &str, password: &str, every_request: bool) -> (AppState, Vec<PathBuf>) {
+        let settings_path = unique_path(name, "ini");
+        let accounts_path = unique_path(name, "json");
+
+        let settings: &'static SettingsStore =
+            Box::leak(Box::new(SettingsStore::new(settings_path.clone())));
+        settings.set("WebServer", "Password", password).ok();
+        settings
+            .set(
+                "WebServer",
+                "EveryRequestRequiresPassword",
+                if every_request { "true" } else { "false" },
+            )
+            .unwrap();
+
+        let accounts: &'static AccountStore =
+            Box::leak(Box::new(AccountStore::new(accounts_path.clone())));
+
+        (
+            AppState { accounts, settings },
+            vec![settings_path, accounts_path],
+        )
+    }
+
+    fn cleanup(paths: Vec<PathBuf>) {
+        for path in paths {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn a_password_shorter_than_six_characters_never_authenticates() {
+        let (state, paths) = test_state("short", "12345", false);
+        assert!(!check_password(&state, &Some("12345".to_string())));
+        assert!(!check_password(&state, &None));
+        assert!(!check_password_required(&state, &Some("12345".to_string())));
+        assert!(!check_password_required(&state, &None));
+        cleanup(paths);
+    }
+
+    #[test]
+    fn an_unset_password_never_authenticates() {
+        let (state, paths) = test_state("unset", "", false);
+        assert_eq!(state.settings.get_string("WebServer", "Password"), "");
+        assert!(!check_password(&state, &None));
+        assert!(!check_password(&state, &Some(String::new())));
+        assert!(!check_password_required(&state, &None));
+        cleanup(paths);
+    }
+
+    #[test]
+    fn check_password_lets_a_missing_password_through_when_the_flag_is_off() {
+        let (state, paths) = test_state("optional", "sup3rsecret", false);
+        assert!(check_password(&state, &None));
+        assert!(check_password(&state, &Some("sup3rsecret".to_string())));
+        // A wrong password is still rejected even when it is optional.
+        assert!(!check_password(&state, &Some("wrongpass".to_string())));
+        cleanup(paths);
+    }
+
+    #[test]
+    fn check_password_required_never_lets_a_missing_password_through() {
+        let (state, paths) = test_state("required-off", "sup3rsecret", false);
+        // Same settings as the test above, where check_password accepts None.
+        assert!(check_password(&state, &None));
+        assert!(!check_password_required(&state, &None));
+        assert!(!check_password_required(&state, &Some(String::new())));
+        assert!(!check_password_required(&state, &Some("wrongpass".to_string())));
+        assert!(check_password_required(&state, &Some("sup3rsecret".to_string())));
+        cleanup(paths);
+    }
+
+    #[test]
+    fn an_exact_match_is_required_when_every_request_requires_a_password() {
+        let (state, paths) = test_state("required-on", "sup3rsecret", true);
+        assert!(!check_password(&state, &None));
+        assert!(!check_password(&state, &Some("sup3rsecre".to_string())));
+        assert!(!check_password(&state, &Some("SUP3RSECRET".to_string())));
+        assert!(check_password(&state, &Some("sup3rsecret".to_string())));
+
+        assert!(!check_password_required(&state, &None));
+        assert!(check_password_required(&state, &Some("sup3rsecret".to_string())));
+        cleanup(paths);
+    }
+}

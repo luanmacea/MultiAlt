@@ -538,3 +538,155 @@ fn stop_watcher() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod watcher_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    fn unique_settings_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("ram-watcher-{name}-{nanos}.ini"))
+    }
+
+    struct TempSettings {
+        store: SettingsStore,
+        path: PathBuf,
+    }
+
+    impl TempSettings {
+        fn new(name: &str) -> Self {
+            let path = unique_settings_path(name);
+            let store = SettingsStore::new(path.clone());
+            Self { store, path }
+        }
+    }
+
+    impl Drop for TempSettings {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    // ---- watcher_clamped_u64 ------------------------------------------------
+
+    #[test]
+    fn watcher_clamped_u64_uses_the_stored_value_when_in_range() {
+        let s = TempSettings::new("in-range");
+        s.store.set("Watcher", "ScanInterval", "12").unwrap();
+        assert_eq!(watcher_clamped_u64(&s.store, "ScanInterval", 6, 1, 3600), 12);
+    }
+
+    #[test]
+    fn watcher_clamped_u64_clamps_above_max_and_below_min() {
+        let s = TempSettings::new("clamp");
+        s.store.set("Watcher", "ScanInterval", "999999").unwrap();
+        assert_eq!(
+            watcher_clamped_u64(&s.store, "ScanInterval", 6, 1, 3600),
+            3600
+        );
+
+        s.store.set("Watcher", "ScanInterval", "-50").unwrap();
+        assert_eq!(watcher_clamped_u64(&s.store, "ScanInterval", 6, 1, 3600), 1);
+
+        // A negative value would underflow an unsigned cast if it were not
+        // clamped first.
+        s.store.set("Watcher", "MemoryLowValue", "-1").unwrap();
+        assert_eq!(
+            watcher_clamped_u64(&s.store, "MemoryLowValue", 200, 1, 16384),
+            1
+        );
+    }
+
+    #[test]
+    fn watcher_clamped_u64_falls_back_to_the_default_and_clamps_it() {
+        let s = TempSettings::new("default");
+        assert_eq!(
+            watcher_clamped_u64(&s.store, "NoSuchWatcherKey", 42, 1, 3600),
+            42
+        );
+        // The default itself is clamped too.
+        assert_eq!(
+            watcher_clamped_u64(&s.store, "NoSuchWatcherKey", 99_999, 1, 3600),
+            3600
+        );
+    }
+
+    #[test]
+    fn watcher_clamped_u64_falls_back_when_the_value_is_not_a_number() {
+        let s = TempSettings::new("garbage");
+        s.store.set("Watcher", "ScanInterval", "abc").unwrap();
+        assert_eq!(watcher_clamped_u64(&s.store, "ScanInterval", 6, 1, 3600), 6);
+    }
+
+    // ---- watcher_due / watcher_remaining_ms ---------------------------------
+
+    #[test]
+    fn watcher_due_is_true_before_the_first_tick() {
+        assert!(watcher_due(None, 60_000));
+    }
+
+    #[test]
+    fn watcher_due_is_false_while_the_interval_has_not_elapsed() {
+        assert!(!watcher_due(Some(Instant::now()), 60_000));
+    }
+
+    #[test]
+    fn watcher_due_is_true_once_the_interval_elapsed() {
+        let tick = Instant::now() - Duration::from_millis(500);
+        assert!(watcher_due(Some(tick), 100));
+        // A zero interval is always due.
+        assert!(watcher_due(Some(Instant::now()), 0));
+    }
+
+    #[test]
+    fn watcher_remaining_ms_is_zero_before_the_first_tick() {
+        assert_eq!(watcher_remaining_ms(None, 60_000), 0);
+    }
+
+    #[test]
+    fn watcher_remaining_ms_saturates_instead_of_underflowing() {
+        let tick = Instant::now() - Duration::from_millis(500);
+        assert_eq!(watcher_remaining_ms(Some(tick), 100), 0);
+        assert_eq!(watcher_remaining_ms(Some(Instant::now()), 0), 0);
+    }
+
+    #[test]
+    fn watcher_remaining_ms_counts_down_within_the_interval() {
+        let remaining = watcher_remaining_ms(Some(Instant::now()), 60_000);
+        assert!(remaining > 0 && remaining <= 60_000, "remaining={remaining}");
+    }
+
+    // ---- title heuristics ---------------------------------------------------
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_title_indicates_disconnect_matches_known_phrases() {
+        // The caller lowercases the title before calling in.
+        assert!(windows_title_indicates_disconnect("roblox - disconnected"));
+        assert!(windows_title_indicates_disconnect("connection error"));
+        assert!(windows_title_indicates_disconnect("lost connection"));
+        assert!(windows_title_indicates_disconnect("no connection"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_title_indicates_disconnect_ignores_healthy_titles() {
+        assert!(!windows_title_indicates_disconnect("roblox"));
+        assert!(!windows_title_indicates_disconnect(""));
+        assert!(!windows_title_indicates_disconnect("jailbreak"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_title_indicates_beta_is_case_insensitive() {
+        assert!(windows_title_indicates_beta("Roblox Beta"));
+        assert!(windows_title_indicates_beta("ROBLOX BETA"));
+        assert!(!windows_title_indicates_beta("Roblox"));
+        assert!(!windows_title_indicates_beta(""));
+    }
+}

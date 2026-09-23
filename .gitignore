@@ -337,3 +337,6 @@ _legacy/
 target/
 dist/
 src-tauri/gen/
+
+# Relatórios de cobertura de testes (vitest)
+/coverage

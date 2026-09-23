@@ -25,7 +25,11 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsWindowVisible, MoveWindow, SetForegroundWindow, ShowWindow,
+    GetWindowThreadProcessId, IsIconic, IsWindowVisible, MoveWindow, SetForegroundWindow,
+    ShowWindow,
+};
+use windows_sys::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
 };
 
 const WAIT_OBJECT_0: u32 = 0;
@@ -34,6 +38,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 const INVALID_HANDLE_VALUE: HANDLE = -1isize as HANDLE;
 const SW_MINIMIZE: i32 = 6;
 const SW_RESTORE: i32 = 9;
+const MONITORINFOF_PRIMARY: u32 = 1;
 
 include!("windows/core.rs");
 include!("windows/process.rs");

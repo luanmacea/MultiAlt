@@ -1,5 +1,7 @@
-import { useState, useMemo } from "react";
-import { ChevronDown, Save } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { ChevronDown, Users } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useJoinOnlineWarning } from "../../hooks/useJoinOnlineWarning";
@@ -19,7 +21,24 @@ export function MultiSelectSidebar() {
   const [refreshing, setRefreshing] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [accountsExpanded, setAccountsExpanded] = useState(false);
-  const [savingLaunchFields, setSavingLaunchFields] = useState(false);
+  const [friendOpen, setFriendOpen] = useState(false);
+  const [friendMode, setFriendMode] = useState<"mesh" | "star">("star");
+  const [friendMain, setFriendMain] = useState<number | null>(null);
+  const [friendBusy, setFriendBusy] = useState(false);
+  const [friendDelay, setFriendDelay] = useState("2.5");
+  const [friendProgress, setFriendProgress] = useState<{ phase: string; done: number; total: number } | null>(null);
+
+  useEffect(() => {
+    const unlisten = listen<{ phase: string; done: number; total: number }>(
+      "friend-link-progress",
+      (e) => {
+        setFriendProgress(e.payload.phase === "done" ? null : e.payload);
+      }
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const previewAccounts = accounts.slice(0, 5);
   const remaining = count - previewAccounts.length;
@@ -80,6 +99,71 @@ export function MultiSelectSidebar() {
     store.addToast(tr("Copied {{count}} cookies", { count: cookies.length }));
   }
 
+  const effectiveMain = friendMain ?? accounts[0]?.UserID ?? null;
+  const friendRequestCount =
+    friendMode === "mesh" ? count * (count - 1) : Math.max(0, count - 1) * 2;
+  const friendBtnLabel = friendProgress
+    ? friendProgress.phase === "checking"
+      ? t("Checking {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
+      : friendProgress.phase === "verifying"
+      ? t("Verifying {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
+      : t("Linking {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
+    : t("Linking friends...");
+
+  async function handleMakeFriends() {
+    if (count < 2) {
+      store.addToast(t("Select at least 2 accounts."));
+      return;
+    }
+    if (friendMode === "star" && effectiveMain == null) {
+      store.addToast(t("Pick a main account."));
+      return;
+    }
+    // Warn before large batches — Roblox rate-limits friend requests hard.
+    if (
+      friendRequestCount > 30 &&
+      !(await confirm(
+        tr(
+          "This will send {{n}} friend requests (~{{min}} min). Roblox may rate-limit new accounts. Continue?",
+          { n: friendRequestCount, min: Math.ceil((friendRequestCount * 2.5) / 60) }
+        )
+      ))
+    ) {
+      return;
+    }
+    setFriendOpen(false);
+    setFriendBusy(true);
+    const delaySec = parseFloat(friendDelay);
+    const delayMs = Number.isFinite(delaySec) && delaySec >= 0 ? Math.round(delaySec * 1000) : null;
+    try {
+      const res = await invoke<{
+        pairsTotal: number;
+        alreadyFriends: number;
+        attempted: number;
+        verifiedOk: number;
+        failed: number;
+      }>("make_selected_friends", {
+        userIds: accounts.map((a) => a.UserID),
+        mode: friendMode,
+        mainUserId: friendMode === "star" ? effectiveMain : null,
+        delayMs,
+      });
+      store.addToast(
+        tr("Friends linked: {{ok}} formed, {{already}} already, {{fail}} failed (of {{total}} pairs)", {
+          ok: res.verifiedOk,
+          already: res.alreadyFriends,
+          fail: res.failed,
+          total: res.pairsTotal,
+        })
+      );
+    } catch (e) {
+      store.addToast(tr("Friend linking failed: {{error}}", { error: String(e) }));
+    } finally {
+      setFriendBusy(false);
+      setFriendProgress(null);
+    }
+  }
+
   async function handleMoveToGroup(group: string) {
     setMoveOpen(false);
     await store.moveToGroup(
@@ -96,31 +180,6 @@ export function MultiSelectSidebar() {
       accounts.map((a) => a.UserID),
       name.trim()
     );
-  }
-
-  async function handleSaveLaunchFields() {
-    if (accounts.length === 0 || savingLaunchFields) return;
-    setSavingLaunchFields(true);
-    try {
-      await Promise.all(
-        accounts.map((account) =>
-          store.updateAccount({
-            ...account,
-            Fields: {
-              ...(account.Fields || {}),
-              SavedPlaceId: store.placeId,
-              SavedJobId: store.jobId,
-              SavedLaunchData: store.launchData,
-            },
-          })
-        )
-      );
-      store.addToast(tr("Saved launch fields to {{count}} account(s)", { count: accounts.length }));
-    } catch (e) {
-      store.addToast(tr("Failed to save launch fields: {{error}}", { error: String(e) }));
-    } finally {
-      setSavingLaunchFields(false);
-    }
   }
 
   async function handleAddToBottingMode() {
@@ -251,14 +310,6 @@ export function MultiSelectSidebar() {
                 placeholder={t("Launch Data")}
                 className="sidebar-input flex-1 text-xs"
               />
-              <button
-                onClick={handleSaveLaunchFields}
-                disabled={savingLaunchFields}
-                className="theme-muted p-1 rounded hover:text-[var(--panel-fg)] disabled:opacity-50 disabled:cursor-not-allowed"
-                title={t("Save to selected accounts")}
-              >
-                <Save size={14} strokeWidth={1.5} />
-              </button>
             </div>
           </div>
           <button
@@ -323,6 +374,83 @@ export function MultiSelectSidebar() {
             <button onClick={handleCopyCookies} className="sidebar-btn theme-btn">
               {t("Copy All Cookies")}
             </button>
+
+            <div className="relative">
+              <button
+                onClick={() => setFriendOpen(!friendOpen)}
+                disabled={friendBusy}
+                className="sidebar-btn theme-btn flex items-center justify-between disabled:opacity-50"
+              >
+                <span className="flex items-center gap-1.5 min-w-0 truncate">
+                  <Users size={13} strokeWidth={1.5} className="shrink-0" />
+                  {friendBusy ? friendBtnLabel : t("Make Friends ({{count}})", { count })}
+                </span>
+                <ChevronDown size={12} strokeWidth={2} className="theme-muted" />
+              </button>
+              {friendOpen && (
+                <div className="theme-panel theme-border absolute left-0 right-0 top-full mt-1 border rounded-lg shadow-xl z-20 p-2.5 animate-scale-in flex flex-col gap-2">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(["star", "mesh"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setFriendMode(m)}
+                        className={`px-2 py-1.5 rounded-md border text-[11px] transition-colors ${
+                          friendMode === m
+                            ? "border-[var(--accent-color)] text-[var(--panel-fg)] bg-[var(--accent-soft)]"
+                            : "theme-border theme-muted hover:text-[var(--panel-fg)]"
+                        }`}
+                      >
+                        {m === "star" ? t("Star (1 main)") : t("Mesh (all)")}
+                      </button>
+                    ))}
+                  </div>
+
+                  {friendMode === "star" && (
+                    <div className="flex flex-col gap-1">
+                      <label className="theme-label text-[10px]">{t("Main account")}</label>
+                      <select
+                        value={effectiveMain ?? ""}
+                        onChange={(e) => setFriendMain(Number(e.target.value))}
+                        className="sidebar-input text-xs"
+                      >
+                        {accounts.map((a) => (
+                          <option key={a.UserID} value={a.UserID}>
+                            {a.Alias || a.Username}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1.5">
+                    <label className="theme-label text-[10px] flex-1">{t("Delay between requests")}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={friendDelay}
+                      onChange={(e) => setFriendDelay(e.target.value)}
+                      className="sidebar-input w-16 text-xs tabular-nums"
+                    />
+                    <span className="theme-muted text-[10px]">s</span>
+                  </div>
+
+                  <p className="theme-muted text-[10px] leading-snug">
+                    {friendMode === "star"
+                      ? t("Every account will friend the main. Already-friend pairs are skipped. ~{{n}} requests.", { n: friendRequestCount })
+                      : t("Every pair will friend each other. Already-friend pairs are skipped. ~{{n}} requests.", { n: friendRequestCount })}
+                  </p>
+
+                  <button
+                    onClick={handleMakeFriends}
+                    disabled={friendBusy || count < 2}
+                    className="sidebar-btn theme-btn disabled:opacity-50"
+                  >
+                    {t("Start")}
+                  </button>
+                </div>
+              )}
+            </div>
 
             <div className="relative">
               <button

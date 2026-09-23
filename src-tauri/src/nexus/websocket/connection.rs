@@ -9,6 +9,15 @@ async fn handle_connection(
         stream,
         |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
          res: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            // Web pages can open ws://127.0.0.1 too; browsers always send an
+            // Origin header, Roblox executors connecting from Lua don't.
+            if req.headers().contains_key("origin") {
+                let reject = tokio_tungstenite::tungstenite::http::Response::builder()
+                    .status(403)
+                    .body(Some("Connections from web pages are not allowed".to_string()))
+                    .unwrap_or_default();
+                return Err(reject);
+            }
             uri_path = req.uri().to_string();
             Ok(res)
         },
@@ -60,6 +69,8 @@ async fn handle_connection(
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    // Kept to recognise *this* connection on cleanup (see below).
+    let own_sender = tx.clone();
 
     {
         let mut conns = server.connections.lock().unwrap();
@@ -95,7 +106,11 @@ async fn handle_connection(
         };
         if let Some(sender) = tx_clone {
             tokio::spawn(async move {
+                let deadline = Instant::now() + Duration::from_secs(60);
                 loop {
+                    if sender.is_closed() || Instant::now() >= deadline {
+                        break;
+                    }
                     let ready = {
                         let accounts = nexus().accounts.lock().unwrap();
                         accounts
@@ -149,9 +164,21 @@ async fn handle_connection(
         }
     }
 
-    {
+    // On a rejoin the new socket registers under the same name before the old
+    // one closes; only clean up if the entry is still ours.
+    let still_current = {
         let mut conns = server.connections.lock().unwrap();
-        conns.remove(&name);
+        let ours = conns
+            .get(&name)
+            .map(|c| c.sender.same_channel(&own_sender))
+            .unwrap_or(false);
+        if ours {
+            conns.remove(&name);
+        }
+        ours
+    };
+    if !still_current {
+        return;
     }
 
     {
@@ -182,4 +209,60 @@ fn parse_query_params(uri: &str) -> HashMap<String, String> {
         }
     }
     params
+}
+
+#[cfg(test)]
+mod nexus_query_tests {
+    use super::*;
+
+    #[test]
+    fn parse_query_params_reads_simple_pairs() {
+        let params = parse_query_params("/?name=Player1&id=42");
+        assert_eq!(params.get("name").map(String::as_str), Some("Player1"));
+        assert_eq!(params.get("id").map(String::as_str), Some("42"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn parse_query_params_decodes_percent_encoding_in_keys_and_values() {
+        let params = parse_query_params("/?display%20name=Player%20One&path=a%2Fb");
+        assert_eq!(
+            params.get("display name").map(String::as_str),
+            Some("Player One")
+        );
+        assert_eq!(params.get("path").map(String::as_str), Some("a/b"));
+    }
+
+    #[test]
+    fn parse_query_params_ignores_pairs_without_an_equals_sign() {
+        let params = parse_query_params("/?flag&name=Player1&another");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params.get("name").map(String::as_str), Some("Player1"));
+        assert!(!params.contains_key("flag"));
+    }
+
+    #[test]
+    fn parse_query_params_returns_empty_without_a_query_string() {
+        assert!(parse_query_params("/").is_empty());
+        assert!(parse_query_params("").is_empty());
+        assert!(parse_query_params("/?").is_empty());
+    }
+
+    #[test]
+    fn parse_query_params_keeps_everything_after_the_first_equals_sign() {
+        let params = parse_query_params("/?token=abc=def");
+        assert_eq!(params.get("token").map(String::as_str), Some("abc=def"));
+    }
+
+    #[test]
+    fn parse_query_params_keeps_the_last_value_of_a_repeated_key() {
+        let params = parse_query_params("/?id=1&id=2");
+        assert_eq!(params.get("id").map(String::as_str), Some("2"));
+    }
+
+    #[test]
+    fn parse_query_params_only_looks_at_the_first_question_mark_segment() {
+        let params = parse_query_params("ws://127.0.0.1:5242/socket?id=7");
+        assert_eq!(params.get("id").map(String::as_str), Some("7"));
+    }
 }

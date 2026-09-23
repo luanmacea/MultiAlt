@@ -11,27 +11,32 @@ pub async fn parse_private_server_link_code(
         return Err("Failed to parse private server access code".to_string());
     }
     let encoded_link_code = urlencoding::encode(&normalized_link_code);
-    let referer = format!("https://www.roblox.com/games/{}", place_id);
+    let referer = format!("{}/games/{}", endpoints::host("www"), place_id);
 
     let candidates = [
         format!(
-            "https://www.roblox.com/games/{}?privateServerLinkCode={}",
+            "{}/games/{}?privateServerLinkCode={}",
+            endpoints::host("www"),
             place_id, encoded_link_code
         ),
         format!(
-            "https://www.roblox.com/share-links?code={}&type=Server",
+            "{}/share-links?code={}&type=Server",
+            endpoints::host("www"),
             encoded_link_code
         ),
         format!(
-            "https://www.roblox.com/share?code={}&type=Server",
+            "{}/share?code={}&type=Server",
+            endpoints::host("www"),
             encoded_link_code
         ),
         format!(
-            "https://web.roblox.com/games/{}?privateServerLinkCode={}",
+            "{}/games/{}?privateServerLinkCode={}",
+            endpoints::host("web"),
             place_id, encoded_link_code
         ),
         format!(
-            "https://web.roblox.com/share-links?code={}&type=Server",
+            "{}/share-links?code={}&type=Server",
+            endpoints::host("web"),
             encoded_link_code
         ),
     ];
@@ -60,10 +65,13 @@ pub async fn parse_private_server_link_code(
     Err("Failed to parse private server access code".to_string())
 }
 
-pub async fn resolve_share_server_link(
+/// POSTs to the share-link resolver and returns the raw payload. Shared by the
+/// private-server path below and by join_links.rs (ExperienceInvite).
+pub async fn resolve_share_link_payload(
     security_token: &str,
     link_id: &str,
-) -> Result<(Option<i64>, String), String> {
+    link_type: &str,
+) -> Result<serde_json::Value, String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = game_join_client();
 
@@ -75,15 +83,15 @@ pub async fn resolve_share_server_link(
     }
 
     let response = client
-        .post("https://apis.roblox.com/sharelinks/v1/resolve-link")
+        .post(format!("{}/sharelinks/v1/resolve-link", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
-        .header("Origin", "https://www.roblox.com")
-        .header("Referer", "https://www.roblox.com/share-links")
+        .header("Origin", endpoints::host("www"))
+        .header("Referer", format!("{}/share-links", endpoints::host("www")))
         .json(&serde_json::json!({
             "linkId": normalized_link_id,
-            "linkType": "Server",
+            "linkType": link_type,
         }))
         .send()
         .await
@@ -99,10 +107,18 @@ pub async fn resolve_share_server_link(
         ));
     }
 
-    let body: serde_json::Value = response
+    response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+pub async fn resolve_share_server_link(
+    security_token: &str,
+    link_id: &str,
+) -> Result<(Option<i64>, String), String> {
+    let body = resolve_share_link_payload(security_token, link_id, "Server").await?;
+
 
     let server_data = if body["privateServerInviteData"].is_object() {
         &body["privateServerInviteData"]
@@ -142,7 +158,8 @@ async fn get_root_place_id_from_universe(
     let client = game_join_client();
     let response = client
         .get(format!(
-            "https://games.roblox.com/v1/games?universeIds={}",
+            "{}/v1/games?universeIds={}",
+            endpoints::host("games"),
             universe_id
         ))
         .header(COOKIE, cookie_header(security_token))
@@ -315,3 +332,125 @@ fn extract_access_code(html: &str) -> Option<String> {
     None
 }
 
+
+#[cfg(test)]
+mod private_link_http_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
+    use wiremock::matchers::{body_partial_json, header, method, path, query_param};
+    use wiremock::{Mock, ResponseTemplate};
+
+    /// Mounts the share-link resolver for one account token.
+    async fn mount_resolve_link(token: &str, body: serde_json::Value) {
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of(token)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(mock_server().await)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn resolves_a_server_payload_with_invite_data() {
+        mount_csrf("share-server-ok", "csrf-share-ok").await;
+        mount_resolve_link(
+            "share-server-ok",
+            serde_json::json!({
+                "privateServerInviteData": {
+                    "status": "Valid",
+                    "placeId": 606849621,
+                    "linkCode": "link-code-abc"
+                }
+            }),
+        )
+        .await;
+
+        let (place_id, link_code) = resolve_share_server_link("share-server-ok", "code-a")
+            .await
+            .expect("resolved server link");
+        assert_eq!(place_id, Some(606849621));
+        assert_eq!(link_code, "link-code-abc");
+    }
+
+    /// Some payloads only carry the universe; the resolver must follow up with
+    /// the universe -> root place call.
+    #[tokio::test]
+    async fn falls_back_to_the_universe_root_place() {
+        let server = mock_server().await;
+        mount_csrf("share-server-universe", "csrf-share-universe").await;
+        mount_resolve_link(
+            "share-server-universe",
+            serde_json::json!({
+                "privateServerInviteData": {
+                    "status": "Valid",
+                    "universeId": 99,
+                    "linkCode": "link-code-universe"
+                }
+            }),
+        )
+        .await;
+
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games")))
+            .and(query_param("universeIds", "99"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": 99, "rootPlaceId": 424242 }]
+            })))
+            .mount(server)
+            .await;
+
+        let (place_id, link_code) =
+            resolve_share_server_link("share-server-universe", "code-universe")
+                .await
+                .expect("resolved server link");
+        assert_eq!(place_id, Some(424242));
+        assert_eq!(link_code, "link-code-universe");
+    }
+
+    #[tokio::test]
+    async fn reports_the_status_when_the_resolver_fails() {
+        let server = mock_server().await;
+        mount_csrf("share-server-fail", "csrf-share-fail").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("share-server-fail")))
+            .respond_with(ResponseTemplate::new(500).set_body_string("upstream exploded"))
+            .mount(server)
+            .await;
+
+        let err = resolve_share_server_link("share-server-fail", "code-fail")
+            .await
+            .unwrap_err();
+        assert!(err.contains("status 500"), "unexpected error: {}", err);
+        assert!(err.contains("upstream exploded"), "unexpected error: {}", err);
+    }
+
+    /// `resolve_share_link_payload` is the raw seam both the server and the
+    /// invite path go through: it must forward the link id and type verbatim.
+    #[tokio::test]
+    async fn payload_forwards_the_link_id_and_type() {
+        let server = mock_server().await;
+        mount_csrf("share-payload", "csrf-share-payload").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("share-payload")))
+            .and(body_partial_json(serde_json::json!({
+                "linkId": "payload-code",
+                "linkType": "ExperienceInvite"
+            })))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "echoed": true })),
+            )
+            .mount(server)
+            .await;
+
+        let body =
+            resolve_share_link_payload("share-payload", "payload-code", "ExperienceInvite")
+                .await
+                .expect("payload");
+        assert_eq!(body["echoed"], serde_json::json!(true));
+    }
+}

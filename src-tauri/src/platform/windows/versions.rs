@@ -434,16 +434,20 @@ impl Drop for StagingGuard {
     }
 }
 
-pub async fn install_version(
-    app: tauri::AppHandle,
-    install_id: String,
-    channel: String,
-    version_hash: String,
-    label: Option<String>,
-) -> Result<crate::data::versions::VersionEntry, String> {
-    use crate::data::versions::VersionEntry;
-
-    let target = install_target_dir(&channel, &version_hash)?;
+/// Downloads a Roblox build and installs it into `target` (staged, then moved
+/// into place atomically). Shared by the Versions UI installer and by the
+/// launcher, which uses it to install a missing production build itself
+/// instead of falling back to Roblox's own installer — that installer runs in
+/// the foreground and closes every running client.
+///
+/// `progress(stage, package, current, total)` is called as work advances.
+pub(crate) async fn install_build_to_dir(
+    channel: &str,
+    version_hash: &str,
+    target: &std::path::Path,
+    max_parallel: usize,
+    progress: &(dyn Fn(&str, Option<String>, u64, u64) + Send + Sync),
+) -> Result<(), String> {
     let staging_name = format!(
         "{}.staging-{}",
         target
@@ -471,21 +475,9 @@ pub async fn install_version(
 
     let client = http_client_versioned().await;
 
-    emit_progress(
-        &app,
-        &VersionInstallProgress {
-            install_id: install_id.clone(),
-            channel: channel.clone(),
-            version_hash: version_hash.clone(),
-            stage: "resolving".into(),
-            package: None,
-            current: 0,
-            total: 0,
-            message: None,
-        },
-    );
+    progress("resolving", None, 0, 0);
 
-    let mut base = channel_base_url(&channel);
+    let mut base = channel_base_url(channel);
     let manifest_name = format!("{}-rbxPkgManifest.txt", version_hash);
 
     let manifest_url = format!("{}{}", base, manifest_name);
@@ -504,12 +496,7 @@ pub async fn install_version(
     }
 
     let total = packages.len() as u64;
-
-    let max_parallel = app
-        .state::<crate::data::settings::SettingsStore>()
-        .get_int("Versions", "MaxParallelDownloads")
-        .unwrap_or(4)
-        .clamp(1, 8) as usize;
+    let max_parallel = max_parallel.clamp(1, 8);
 
     let mut completed: u64 = 0;
     let mut pipeline: FuturesUnordered<BoxFuture<'static, Result<String, String>>> =
@@ -549,7 +536,7 @@ pub async fn install_version(
                 entry,
                 client.clone(),
                 base.clone(),
-                version_hash.clone(),
+                version_hash.to_string(),
                 staging.clone(),
             ));
         }
@@ -558,25 +545,13 @@ pub async fn install_version(
     while let Some(result) = pipeline.next().await {
         let pkg = result?;
         completed += 1;
-        emit_progress(
-            &app,
-            &VersionInstallProgress {
-                install_id: install_id.clone(),
-                channel: channel.clone(),
-                version_hash: version_hash.clone(),
-                stage: "installing".into(),
-                package: Some(pkg),
-                current: completed,
-                total,
-                message: None,
-            },
-        );
+        progress("installing", Some(pkg), completed, total);
         if let Some(next_entry) = iter.next() {
             pipeline.push(spawn_one(
                 next_entry,
                 client.clone(),
                 base.clone(),
-                version_hash.clone(),
+                version_hash.to_string(),
                 staging.clone(),
             ));
         }
@@ -601,26 +576,71 @@ pub async fn install_version(
             target.file_name().and_then(|n| n.to_str()).unwrap_or("version"),
             stamp
         ));
-        std::fs::rename(&target, &candidate).map_err(|e| {
-            format!(
-                "Could not set aside existing version directory: {}",
-                e
-            )
+        std::fs::rename(target, &candidate).map_err(|e| {
+            format!("Could not set aside existing version directory: {}", e)
         })?;
         Some(candidate)
     } else {
         None
     };
 
-    if let Err(e) = std::fs::rename(&staging, &target) {
+    if let Err(e) = std::fs::rename(&staging, target) {
         if let Some(backup) = &backup_target {
-            let _ = std::fs::rename(backup, &target);
+            let _ = std::fs::rename(backup, target);
         }
         return Err(format!("Could not move staged install into place: {}", e));
     }
     guard.committed = true;
     if let Some(backup) = backup_target {
         let _ = std::fs::remove_dir_all(&backup);
+    }
+
+    Ok(())
+}
+
+pub async fn install_version(
+    app: tauri::AppHandle,
+    install_id: String,
+    channel: String,
+    version_hash: String,
+    label: Option<String>,
+) -> Result<crate::data::versions::VersionEntry, String> {
+    use crate::data::versions::VersionEntry;
+
+    let target = install_target_dir(&channel, &version_hash)?;
+
+    let max_parallel = app
+        .state::<crate::data::settings::SettingsStore>()
+        .get_int("Versions", "MaxParallelDownloads")
+        .unwrap_or(4)
+        .clamp(1, 8) as usize;
+
+    // Package count, captured from progress, so the final "ready" event can
+    // report the same total the UI has been counting up to.
+    let total_packages = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    {
+        let app = app.clone();
+        let install_id = install_id.clone();
+        let ev_channel = channel.clone();
+        let ev_version_hash = version_hash.clone();
+        let total_packages = total_packages.clone();
+        let progress = move |stage: &str, package: Option<String>, current: u64, total: u64| {
+            total_packages.store(total, std::sync::atomic::Ordering::SeqCst);
+            emit_progress(
+                &app,
+                &VersionInstallProgress {
+                    install_id: install_id.clone(),
+                    channel: ev_channel.clone(),
+                    version_hash: ev_version_hash.clone(),
+                    stage: stage.into(),
+                    package,
+                    current,
+                    total,
+                    message: None,
+                },
+            );
+        };
+        install_build_to_dir(&channel, &version_hash, &target, max_parallel, &progress).await?;
     }
 
     let install_size = folder_size(&target);
@@ -646,6 +666,7 @@ pub async fn install_version(
         )
     })?;
 
+    let total = total_packages.load(std::sync::atomic::Ordering::SeqCst);
     emit_progress(
         &app,
         &VersionInstallProgress {

@@ -136,6 +136,28 @@ const ALLOWED_INVOKE_COMMANDS = new Set<string>(SCRIPT_INVOKE_COMMANDS);
 
 const WS_CLOSE_REASON_MAX_CHARS = 123;
 
+// Every script receives the settings snapshot via "window:update", regardless
+// of its permissions — never hand out credentials (WebServer.Password,
+// BloxGen.ApiKey, ...) that way.
+// Keys that hold a secret value (not on/off flags like EveryRequestRequiresPassword).
+export const isSecretSettingKey = (key: string) =>
+  /(password|apikey|api_key|secret|token)$/i.test(key) && !/^(allow|every|auto|require)/i.test(key);
+
+export function redactSecretSettings<T>(settings: T): T {
+  if (!settings || typeof settings !== "object") return settings;
+  const out: Record<string, unknown> = {};
+  for (const [section, values] of Object.entries(settings as Record<string, unknown>)) {
+    if (values && typeof values === "object") {
+      out[section] = Object.fromEntries(
+        Object.entries(values as Record<string, unknown>).filter(([key]) => !isSecretSettingKey(key))
+      );
+    } else {
+      out[section] = values;
+    }
+  }
+  return out as T;
+}
+
 const DEFAULT_SCRIPT_SOURCE = `
 ram.info("Script loaded");
 
@@ -1309,7 +1331,7 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
       launchedUserIds: [...store.launchedByProgram],
       botting: store.bottingStatus,
       generator: store.generatorStatus,
-      settings: store.settings,
+      settings: redactSecretSettings(store.settings),
     };
   }, [
     store.placeId,

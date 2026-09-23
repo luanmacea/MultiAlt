@@ -16,6 +16,21 @@ async fn launch_roblox(
 ) -> Result<(), String> {
     use platform::windows;
 
+    let target_desc = if join_vip || !link_code.trim().is_empty() {
+        "servidor VIP/privado".to_string()
+    } else if !job_id.trim().is_empty() {
+        format!("servidor {}", job_id.trim())
+    } else {
+        "servidor público".to_string()
+    };
+    emit_launch_log(
+        &app,
+        user_id,
+        "info",
+        "start",
+        format!("Iniciando launch — place {place_id} ({target_desc})"),
+    );
+
     let is_teleport = settings.get_bool("Developer", "IsTeleport");
     let configured_old_join = settings.get_bool("Developer", "UseOldJoin");
     let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
@@ -43,6 +58,7 @@ async fn launch_roblox(
 
     if let Some(report) = run_pre_launch_isolation(&app, &settings).await? {
         let _ = app.emit("isolation-report", &report);
+        emit_launch_log(&app, user_id, "info", "isolation", "Isolamento pré-launch aplicado");
         if windows::has_pending_fast_flags() {
             tokio::spawn(apply_pending_fast_flags_when_ready(
                 std::time::Duration::from_secs(240),
@@ -66,6 +82,7 @@ async fn launch_roblox(
         let _ = windows::disable_multi_roblox();
     }
 
+    windows::refresh_production_version().await;
     patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
 
     let tracker = windows::tracker();
@@ -102,15 +119,35 @@ async fn launch_roblox(
     }
 
     let browser_tracker_id = get_or_create_browser_tracker_id(&state, user_id)?;
-    let ticket = run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    emit_launch_log(&app, user_id, "info", "auth", "Solicitando authentication ticket...");
+    let ticket = match run_with_session_retry(state.inner(), user_id, |cookie| async move {
         api::auth::get_auth_ticket(&cookie).await
     })
-    .await?;
+    .await
+    {
+        Ok(t) => {
+            emit_launch_log(&app, user_id, "success", "auth", "Authentication ticket obtido");
+            t
+        }
+        Err(e) => {
+            emit_launch_log(&app, user_id, "error", "auth", format!("Falha no auth ticket: {e}"));
+            if is_moderated_error(&e) {
+                mark_account_moderated(state.inner(), &app, user_id);
+                emit_launch_log(&app, user_id, "warn", "moderated", "Conta movida para o grupo 'moderadas'");
+            }
+            return Err(e);
+        }
+    };
     let private_join = run_with_session_retry(state.inner(), user_id, |cookie| {
         let resolved_launch = resolved_launch.clone();
         async move { resolve_private_join(&cookie, place_id, &resolved_launch).await }
     })
     .await?;
+    if private_join.use_private_join {
+        emit_launch_log(&app, user_id, "info", "target", "Alvo resolvido: servidor privado/VIP");
+    } else if !actual_job.trim().is_empty() {
+        emit_launch_log(&app, user_id, "info", "target", format!("Alvo resolvido: {}", actual_job.trim()));
+    }
 
     let pids_before = windows::get_roblox_pids();
 
@@ -122,8 +159,13 @@ async fn launch_roblox(
     );
 
     let spawn_result = if use_old_join {
+        let base_path = if resolved_version_id.is_none() {
+            windows::default_player_dir(&resolved_base_path).await
+        } else {
+            resolved_base_path.clone()
+        };
         windows::launch_old_join_from(
-            &resolved_base_path,
+            &base_path,
             &ticket,
             private_join.place_id,
             &actual_job,
@@ -147,9 +189,10 @@ async fn launch_roblox(
             &private_join.link_code,
             is_teleport,
         );
-        windows::launch_url(&url)
+        windows::launch_url(&url).await
     };
     if let Err(err) = spawn_result {
+        emit_launch_log(&app, user_id, "error", "spawn", format!("Falha ao abrir o cliente: {err}"));
         tracker.clear_pending_launch(pending_id);
         return Err(err);
     }
@@ -157,9 +200,11 @@ async fn launch_roblox(
     let detected_pid =
         wait_for_new_roblox_pid(&pids_before, std::time::Duration::from_secs(pid_wait_secs)).await;
     if detected_pid.is_none() && !isolation_will_wipe_install {
+        emit_launch_log(&app, user_id, "warn", "pid", "PID não detectado no tempo esperado");
         tracker.clear_pending_launch(pending_id);
     }
     if let Some(pid) = detected_pid {
+        emit_launch_log(&app, user_id, "success", "pid", format!("Cliente iniciado (PID {pid})"));
         tracker.clear_pending_launch(pending_id);
         tracker.track_with_version(
             user_id,
@@ -406,17 +451,32 @@ async fn launch_multiple(
         let iter_start = std::time::Instant::now();
 
         let account = accounts.iter().find(|a| a.user_id == uid);
-        let acct_place = account
-            .and_then(|a| a.fields.get("SavedPlaceId"))
-            .and_then(|v| v.parse::<i64>().ok())
-            .unwrap_or(place_id);
-        let acct_job = account
-            .and_then(|a| a.fields.get("SavedJobId"))
-            .map(|v| v.clone())
-            .unwrap_or_else(|| job_id.clone());
+        // Always launch into the selected place/job. Per-account "saved game"
+        // overrides were removed so every account joins exactly the game the
+        // user picked (previously a saved SavedPlaceId/SavedJobId silently sent
+        // some accounts to a different server).
+        let acct_place = place_id;
+        let acct_job = job_id.clone();
         let acct_version_override = account
             .and_then(|a| a.fields.get("RobloxVersion").cloned())
             .filter(|v| !v.trim().is_empty());
+
+        let acct_target_desc = if !acct_job.trim().is_empty() {
+            format!("servidor {}", acct_job.trim())
+        } else {
+            "servidor público".to_string()
+        };
+        emit_launch_log(
+            &app,
+            uid,
+            "info",
+            "start",
+            format!(
+                "Conta {}/{} — place {acct_place} ({acct_target_desc})",
+                i + 1,
+                user_ids.len()
+            ),
+        );
 
         let (acct_base_path, acct_version_id) = match windows::resolve_roblox_install_path(
             acct_version_override.as_deref(),
@@ -481,6 +541,7 @@ async fn launch_multiple(
             let _ = windows::disable_multi_roblox();
         }
 
+        windows::refresh_production_version().await;
         patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
@@ -493,13 +554,22 @@ async fn launch_multiple(
         }
 
         let browser_tracker_id = get_or_create_browser_tracker_id(&state, uid)?;
+        emit_launch_log(&app, uid, "info", "auth", "Solicitando authentication ticket...");
         let ticket = match run_with_session_retry(state.inner(), uid, |cookie| async move {
             api::auth::get_auth_ticket(&cookie).await
         })
         .await
         {
-            Ok(t) => t,
-            Err(_) => {
+            Ok(t) => {
+                emit_launch_log(&app, uid, "success", "auth", "Authentication ticket obtido");
+                t
+            }
+            Err(e) => {
+                emit_launch_log(&app, uid, "error", "auth", format!("Falha no auth ticket: {e}"));
+                if is_moderated_error(&e) {
+                    mark_account_moderated(state.inner(), &app, uid);
+                    emit_launch_log(&app, uid, "warn", "moderated", "Conta movida para o grupo 'moderadas'");
+                }
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
             }
@@ -517,6 +587,12 @@ async fn launch_multiple(
             }
         };
 
+        // "Close All Roblox" may have been clicked while this account was
+        // fetching its ticket; don't spawn a client right after the kill.
+        if tracker.is_launch_cancelled() {
+            break;
+        }
+
         let pids_before = windows::get_roblox_pids();
 
         let acct_pid_wait_secs = if acct_isolation_wipes_install { 180 } else { 12 };
@@ -527,8 +603,13 @@ async fn launch_multiple(
         );
 
         let launch_result = if acct_use_old_join {
+            let base_path = if acct_version_id.is_none() {
+                windows::default_player_dir(&acct_base_path).await
+            } else {
+                acct_base_path.clone()
+            };
             windows::launch_old_join_from(
-                &acct_base_path,
+                &base_path,
                 &ticket,
                 private_join.place_id,
                 &resolved_launch.job_id,
@@ -552,10 +633,11 @@ async fn launch_multiple(
                 &private_join.link_code,
                 is_teleport,
             );
-            windows::launch_url(&url)
+            windows::launch_url(&url).await
         };
 
-        if launch_result.is_err() {
+        if let Err(err) = &launch_result {
+            emit_launch_log(&app, uid, "error", "spawn", format!("Falha ao abrir o cliente: {err}"));
             tracker.clear_pending_launch(acct_pending_id);
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             continue;
@@ -567,9 +649,11 @@ async fn launch_multiple(
         )
         .await;
         if acct_detected_pid.is_none() && !acct_isolation_wipes_install {
+            emit_launch_log(&app, uid, "warn", "pid", "PID não detectado no tempo esperado");
             tracker.clear_pending_launch(acct_pending_id);
         }
         if let Some(pid) = acct_detected_pid {
+            emit_launch_log(&app, uid, "success", "pid", format!("Cliente iniciado (PID {pid})"));
             tracker.clear_pending_launch(acct_pending_id);
             tracker.track_with_version(uid, pid, browser_tracker_id, acct_version_id.clone());
             if let Some(version_id) = acct_version_id.as_deref() {
@@ -627,6 +711,13 @@ async fn launch_multiple(
                     .saturating_sub(elapsed)
                     .max(std::time::Duration::from_millis(MIN_RESIDUAL_GAP_MS))
                     + std::time::Duration::from_millis(jitter_ms);
+                emit_launch_log(
+                    &app,
+                    uid,
+                    "info",
+                    "wait",
+                    format!("Aguardando {}s antes da próxima conta (anti-captcha)", wait.as_secs()),
+                );
                 tokio::time::sleep(wait).await;
             }
         }
@@ -661,22 +752,15 @@ async fn launch_multiple(
         let tracker = macos::tracker();
         tracker.reset_launch_cancelled();
 
-        let accounts = state.get_all()?;
-
         for (i, &uid) in user_ids.iter().enumerate() {
             if tracker.is_launch_cancelled() {
                 break;
             }
 
-            let account = accounts.iter().find(|a| a.user_id == uid);
-            let acct_place = account
-                .and_then(|a| a.fields.get("SavedPlaceId"))
-                .and_then(|v| v.parse::<i64>().ok())
-                .unwrap_or(place_id);
-            let acct_job = account
-                .and_then(|a| a.fields.get("SavedJobId"))
-                .map(|v| v.clone())
-                .unwrap_or_else(|| job_id.clone());
+            // Always launch into the selected place/job (per-account saved-game
+            // overrides removed — see the Windows path for rationale).
+            let acct_place = place_id;
+            let acct_job = job_id.clone();
 
             let _ = app.emit(
                 "launch-progress",
@@ -867,6 +951,42 @@ fn focus_roblox_window(user_id: i64) -> Result<bool, String> {
     {
         let _ = user_id;
         Ok(false)
+    }
+}
+
+#[derive(serde::Serialize)]
+struct GridArrangeResult {
+    arranged: usize,
+    total: usize,
+}
+
+/// List physical monitors so the Console can offer them as grid targets.
+#[tauri::command]
+fn list_display_monitors() -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "windows")]
+    {
+        return Ok(serde_json::to_value(platform::windows::list_monitors())
+            .unwrap_or_else(|_| serde_json::json!([])));
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(serde_json::json!([]))
+    }
+}
+
+/// Arrange every open Roblox window into a grid across the selected monitors
+/// (1-based indices; empty = all monitors).
+#[tauri::command]
+fn arrange_windows_grid(monitor_indices: Vec<usize>, gap: i32) -> Result<GridArrangeResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let (arranged, total) = platform::windows::arrange_roblox_grid(&monitor_indices, gap)?;
+        return Ok(GridArrangeResult { arranged, total });
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (monitor_indices, gap);
+        Err("Grid de janelas só é suportado no Windows.".to_string())
     }
 }
 

@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -20,6 +21,18 @@ export default defineConfig({
       : undefined,
     watch: {
       ignored: ["**/src-tauri/**"],
+    },
+  },
+  test: {
+    environment: "happy-dom",
+    include: ["src/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      include: [
+        "src/scripting/**",
+        "src/components/server-list/types.ts",
+        "src/components/dialogs/ScriptsDialog.tsx",
+      ],
     },
   },
 });

@@ -10,7 +10,7 @@ pub async fn get_user_id(security_token: Option<&str>, username: &str) -> Result
     let client = reqwest::Client::new();
 
     let mut request = client
-        .post("https://users.roblox.com/v1/usernames/users")
+        .post(format!("{}/v1/usernames/users", endpoints::host("users")))
         .json(&serde_json::json!({ "usernames": [username] }));
 
     if let Some(token) = security_token {
@@ -60,7 +60,7 @@ pub async fn get_user_info(security_token: Option<&str>, user_id: i64) -> Result
     let client = reqwest::Client::new();
 
     let mut request = client
-        .get(format!("https://users.roblox.com/v1/users/{}", user_id));
+        .get(format!("{}/v1/users/{}", endpoints::host("users"), user_id));
 
     if let Some(token) = security_token {
         request = request.header(COOKIE, cookie_header(token));
@@ -85,7 +85,7 @@ pub async fn get_robux(security_token: &str) -> Result<i64, String> {
     let client = reqwest::Client::new();
 
     let response = client
-        .get("https://economy.roblox.com/v1/user/currency")
+        .get(format!("{}/v1/user/currency", endpoints::host("economy")))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
@@ -102,7 +102,7 @@ pub async fn get_robux(security_token: &str) -> Result<i64, String> {
     let client = no_redirect_client();
 
     let response = client
-        .get("https://www.roblox.com/mobileapi/userinfo")
+        .get(format!("{}/mobileapi/userinfo", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
         .header("Accept", "application/json")
         .send()
@@ -112,7 +112,7 @@ pub async fn get_robux(security_token: &str) -> Result<i64, String> {
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("Failed to get robux (status {}) {}", status, &body[..body.len().min(200)]));
+        return Err(format!("Failed to get robux (status {}) {}", status, body.chars().take(200).collect::<String>()));
     }
 
     let body: serde_json::Value = response
@@ -128,7 +128,7 @@ pub async fn get_email_info(security_token: &str) -> Result<serde_json::Value, S
     let client = reqwest::Client::new();
 
     let response = client
-        .get("https://accountsettings.roblox.com/v1/email")
+        .get(format!("{}/v1/email", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
@@ -146,12 +146,23 @@ pub async fn get_email_info(security_token: &str) -> Result<serde_json::Value, S
 
 pub async fn send_friend_request(security_token: &str, target_user_id: i64) -> Result<(), String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
+    send_friend_request_with_csrf(security_token, &csrf, target_user_id).await
+}
+
+/// Same as `send_friend_request` but uses a caller-supplied CSRF token so a
+/// batch of requests from one account can reuse a single token instead of
+/// fetching a fresh one per call.
+pub async fn send_friend_request_with_csrf(
+    security_token: &str,
+    csrf: &str,
+    target_user_id: i64,
+) -> Result<(), String> {
     let client = reqwest::Client::new();
 
     let response = client
-        .post(format!("https://friends.roblox.com/v1/users/{}/request-friendship", target_user_id))
+        .post(format!("{}/v1/users/{}/request-friendship", endpoints::host("friends"), target_user_id))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
+        .header("X-CSRF-TOKEN", csrf)
         .header("Content-Type", "application/json")
         .send()
         .await
@@ -160,9 +171,39 @@ pub async fn send_friend_request(security_token: &str, target_user_id: i64) -> R
     if response.status().is_success() {
         Ok(())
     } else {
+        let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
-        Err(format!("Failed to send friend request: {}", body))
+        Err(format!("Failed to send friend request (status {}): {}", status, body))
     }
+}
+
+/// Returns the user IDs of an account's current friends. Used to skip pairs
+/// that are already friends and to verify newly-formed friendships.
+pub async fn get_friend_ids(security_token: &str, user_id: i64) -> Result<Vec<i64>, String> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("{}/v1/users/{}/friends", endpoints::host("friends"), user_id))
+        .header(COOKIE, cookie_header(security_token))
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Failed to get friends (status {})", response.status().as_u16()));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse friends: {}", e))?;
+
+    let ids = body["data"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|u| u["id"].as_i64()).collect())
+        .unwrap_or_default();
+
+    Ok(ids)
 }
 
 pub async fn block_user(security_token: &str, target_user_id: i64) -> Result<(), String> {
@@ -170,7 +211,7 @@ pub async fn block_user(security_token: &str, target_user_id: i64) -> Result<(),
     let client = reqwest::Client::new();
 
     let response = client
-        .post(format!("https://apis.roblox.com/user-blocking-api/v1/users/{}/block-user", target_user_id))
+        .post(format!("{}/user-blocking-api/v1/users/{}/block-user", endpoints::host("apis"), target_user_id))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .send()
@@ -189,7 +230,7 @@ pub async fn unblock_user(security_token: &str, target_user_id: i64) -> Result<(
     let client = reqwest::Client::new();
 
     let response = client
-        .post(format!("https://apis.roblox.com/user-blocking-api/v1/users/{}/unblock-user", target_user_id))
+        .post(format!("{}/user-blocking-api/v1/users/{}/unblock-user", endpoints::host("apis"), target_user_id))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .send()
@@ -217,7 +258,7 @@ pub async fn get_blocked_users(security_token: &str) -> Result<Vec<BlockedUser>,
     let client = reqwest::Client::new();
 
     let response = client
-        .get("https://apis.roblox.com/user-blocking-api/v1/users/get-blocked-users")
+        .get(format!("{}/user-blocking-api/v1/users/get-blocked-users", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
@@ -226,7 +267,7 @@ pub async fn get_blocked_users(security_token: &str) -> Result<Vec<BlockedUser>,
     if !response.status().is_success() {
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("Failed to get blocked users (status {}) {}", status, &body[..body.len().min(200)]));
+        return Err(format!("Failed to get blocked users (status {}) {}", status, body.chars().take(200).collect::<String>()));
     }
 
     let body: serde_json::Value = response
@@ -268,7 +309,7 @@ async fn lookup_user_names(user_ids: &[i64]) -> Result<Vec<UserLookupResult>, St
 
     for chunk in user_ids.chunks(100) {
         let response = client
-            .post("https://users.roblox.com/v1/users")
+            .post(format!("{}/v1/users", endpoints::host("users")))
             .json(&serde_json::json!({ "userIds": chunk }))
             .send()
             .await
@@ -307,9 +348,9 @@ pub async fn set_follow_privacy(security_token: &str, privacy: &str) -> Result<(
     let client = reqwest::Client::new();
 
     let response = client
-        .post("https://www.roblox.com/account/settings/follow-me-privacy")
+        .post(format!("{}/account/settings/follow-me-privacy", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
-        .header("Referer", "https://www.roblox.com/my/account")
+        .header("Referer", format!("{}/my/account", endpoints::host("www")))
         .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(format!("FollowMePrivacy={}", privacy))
@@ -328,7 +369,7 @@ pub async fn get_private_server_invite_privacy(security_token: &str) -> Result<S
     let client = reqwest::Client::new();
 
     let response = client
-        .get("https://accountsettings.roblox.com/v1/privacy")
+        .get(format!("{}/v1/privacy", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
@@ -355,7 +396,7 @@ pub async fn set_private_server_invite_privacy(security_token: &str, privacy: &s
     let client = reqwest::Client::new();
 
     let response = client
-        .patch("https://accountsettings.roblox.com/v1/privacy")
+        .patch(format!("{}/v1/privacy", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .json(&serde_json::json!({
@@ -369,6 +410,74 @@ pub async fn set_private_server_invite_privacy(security_token: &str, privacy: &s
         Ok(())
     } else {
         let body = response.text().await.unwrap_or_default();
-        Err(format!("Failed to set privacy: {}", &body[..body.len().min(200)]))
+        Err(format!("Failed to set privacy: {}", body.chars().take(200).collect::<String>()))
+    }
+}
+
+#[cfg(test)]
+mod user_http_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server};
+    use wiremock::matchers::{body_partial_json, header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    #[tokio::test]
+    async fn looks_up_a_user_by_name() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("users", "/v1/usernames/users")))
+            .and(body_partial_json(
+                serde_json::json!({ "usernames": ["alt_one"] }),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": 1234, "name": "alt_one", "displayName": "Alt One" }]
+            })))
+            .mount(server)
+            .await;
+
+        let user = get_user_id(None, "alt_one").await.expect("user");
+        assert_eq!(user.id, 1234);
+        assert_eq!(user.name, "alt_one");
+        assert_eq!(user.display_name, "Alt One");
+    }
+
+    #[tokio::test]
+    async fn reads_user_info_with_a_cookie() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/777")))
+            .and(header("cookie", cookie_of("user-info-account")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 777,
+                "name": "seven",
+                "displayName": "Seven",
+                "description": "hi",
+                "created": "2020-01-01T00:00:00Z",
+                "isBanned": false,
+                "hasVerifiedBadge": true
+            })))
+            .mount(server)
+            .await;
+
+        let info = get_user_info(Some("user-info-account"), 777)
+            .await
+            .expect("user info");
+        assert_eq!(info.id, 777);
+        assert_eq!(info.display_name, "Seven");
+        assert!(info.has_verified_badge);
+        assert!(!info.is_banned);
+    }
+
+    #[tokio::test]
+    async fn user_info_surfaces_the_status_on_failure() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/404404")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(server)
+            .await;
+
+        let err = get_user_info(None, 404_404).await.unwrap_err();
+        assert_eq!(err, "Failed to get user info (status 404)");
     }
 }

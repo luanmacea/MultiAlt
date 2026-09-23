@@ -48,6 +48,7 @@ async fn launch_account_for_cycle(
 
     {
         let settings = app.state::<SettingsStore>();
+        windows::refresh_production_version().await;
         patch_client_settings_for_launch(&settings, launch_profile);
     }
 
@@ -111,7 +112,7 @@ async fn launch_account_for_cycle(
             &private_join.access_code,
             &private_join.link_code,
             is_teleport,
-        )
+        ).await
     } else {
         let url = windows::build_launch_url(
             &ticket,
@@ -125,7 +126,7 @@ async fn launch_account_for_cycle(
             &private_join.link_code,
             is_teleport,
         );
-        windows::launch_url(&url)
+        windows::launch_url(&url).await
     };
 
     if let Err(e) = launch_result {
@@ -681,13 +682,15 @@ fn stop_botting_mode(app: tauri::AppHandle, close_bot_accounts: bool) -> Result<
         if close_bot_accounts {
             let cfg = session.config.lock().map_err(|e| e.to_string())?.clone();
             let tracker = platform::windows::tracker();
-            let keep_player_pids: Vec<u32> = cfg
-                .player_user_ids
+            // Close only this session's bot clients — never players, and never
+            // clients the user opened outside the botting session.
+            for uid in cfg
+                .user_ids
                 .iter()
-                .filter_map(|uid| tracker.get_pid(*uid))
-                .collect();
-
-            let _ = platform::windows::kill_all_roblox_except(&keep_player_pids);
+                .filter(|uid| !cfg.player_user_ids.contains(uid))
+            {
+                let _ = tracker.kill_for_user(*uid);
+            }
             let _ = tracker.cleanup_dead_processes();
         }
         BOTTING_MANAGER.replace_session(None);

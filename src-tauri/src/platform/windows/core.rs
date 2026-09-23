@@ -1,7 +1,13 @@
 struct SendHandle(HANDLE);
 unsafe impl Send for SendHandle {}
 
-static MULTI_ROBLOX_HANDLE: Mutex<Option<SendHandle>> = Mutex::new(None);
+/// Release signal for the dedicated thread that owns `ROBLOX_singletonMutex`.
+/// Win32 mutex ownership is per-thread: ReleaseMutex only works on the thread
+/// that acquired it, and the mutex is abandoned (and can be taken by a Roblox
+/// client, re-enabling single-instance mode) if that thread exits. Tokio worker
+/// and blocking threads give neither guarantee, so one long-lived thread
+/// acquires, holds and releases it.
+static MULTI_ROBLOX_HANDLE: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None);
 static COOKIES_LOCK_HANDLE: Mutex<Option<SendHandle>> = Mutex::new(None);
 static TRACKER: LazyLock<ProcessTracker> = LazyLock::new(ProcessTracker::new);
 
@@ -26,18 +32,38 @@ pub fn generate_browser_tracker_id() -> String {
 pub fn enable_multi_roblox() -> Result<bool, String> {
     let mut handle = MULTI_ROBLOX_HANDLE.lock().map_err(|e| e.to_string())?;
     if handle.is_none() {
-        let name = encode_wide("ROBLOX_singletonMutex");
-        unsafe {
-            let h = CreateMutexW(std::ptr::null(), 1, name.as_ptr());
-            if h.is_null() {
-                return Err("Failed to create mutex".into());
-            }
-            let result = WaitForSingleObject(h, 0);
-            if result != WAIT_OBJECT_0 && result != WAIT_ABANDONED_0 {
-                CloseHandle(h);
-                return Ok(false);
-            }
-            *handle = Some(SendHandle(h));
+        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel::<Result<bool, String>>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        std::thread::Builder::new()
+            .name("multi-roblox-mutex".into())
+            .spawn(move || {
+                let name = encode_wide("ROBLOX_singletonMutex");
+                let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+                if h.is_null() {
+                    let _ = acquired_tx.send(Err("Failed to create mutex".into()));
+                    return;
+                }
+                let result = unsafe { WaitForSingleObject(h, 0) };
+                if result != WAIT_OBJECT_0 && result != WAIT_ABANDONED_0 {
+                    unsafe { CloseHandle(h) };
+                    let _ = acquired_tx.send(Ok(false));
+                    return;
+                }
+                let _ = acquired_tx.send(Ok(true));
+                // Hold ownership until asked to release (or the sender is dropped).
+                let _ = release_rx.recv();
+                unsafe {
+                    ReleaseMutex(h);
+                    CloseHandle(h);
+                }
+            })
+            .map_err(|e| format!("Failed to spawn mutex thread: {}", e))?;
+
+        match acquired_rx.recv() {
+            Ok(Ok(true)) => *handle = Some(release_tx),
+            Ok(Ok(false)) => return Ok(false),
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err("Mutex thread exited unexpectedly".into()),
         }
     }
     drop(handle);
@@ -46,15 +72,16 @@ pub fn enable_multi_roblox() -> Result<bool, String> {
     Ok(true)
 }
 
-pub fn release_multi_roblox_handle() {
+fn release_multi_roblox_mutex() {
     if let Ok(mut handle) = MULTI_ROBLOX_HANDLE.lock() {
-        if let Some(SendHandle(h)) = handle.take() {
-            unsafe {
-                ReleaseMutex(h);
-                CloseHandle(h);
-            }
+        if let Some(release) = handle.take() {
+            let _ = release.send(());
         }
     }
+}
+
+pub fn release_multi_roblox_handle() {
+    release_multi_roblox_mutex();
     if let Ok(mut cookie_handle) = COOKIES_LOCK_HANDLE.lock() {
         if let Some(SendHandle(h)) = cookie_handle.take() {
             unsafe {
@@ -72,14 +99,7 @@ pub fn this_process_holds_multi_roblox() -> bool {
 }
 
 pub fn disable_multi_roblox() -> Result<(), String> {
-    let mut handle = MULTI_ROBLOX_HANDLE.lock().map_err(|e| e.to_string())?;
-    if let Some(SendHandle(h)) = handle.take() {
-        unsafe {
-            ReleaseMutex(h);
-            CloseHandle(h);
-        }
-    }
-    drop(handle);
+    release_multi_roblox_mutex();
 
     lock_roblox_cookies()?;
     Ok(())
@@ -134,6 +154,12 @@ fn is_773_fix_disabled() -> bool {
 }
 
 pub fn get_roblox_path() -> Result<String, String> {
+    // The registry handler can point at an account test-channel build (see
+    // `launch_url`); prefer the production build once it has been resolved.
+    if let Some(dir) = cached_production_player_dir() {
+        return Ok(dir);
+    }
+
     unsafe {
         let key_name = encode_wide("roblox\\DefaultIcon");
         let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
@@ -201,4 +227,37 @@ fn get_client_settings_file() -> Result<PathBuf, String> {
     }
 
     Ok(settings_dir.join("ClientAppSettings.json"))
+}
+
+#[cfg(test)]
+mod browser_tracker_tests {
+    use super::*;
+
+    #[test]
+    fn generate_browser_tracker_id_is_digits_only_and_of_the_expected_length() {
+        for _ in 0..50 {
+            let id = generate_browser_tracker_id();
+            assert!(
+                id.chars().all(|c| c.is_ascii_digit()),
+                "expected digits only, got {id}"
+            );
+            assert!(
+                (11..=13).contains(&id.len()),
+                "unexpected length {} for {id}",
+                id.len()
+            );
+            // Both halves are built with a +100000 floor, so neither can be
+            // shorter than six digits nor start with a zero.
+            assert!(!id.starts_with('0'), "unexpected leading zero in {id}");
+        }
+    }
+
+    #[test]
+    fn generate_browser_tracker_id_varies_between_calls() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..25 {
+            seen.insert(generate_browser_tracker_id());
+        }
+        assert!(seen.len() > 1, "tracker ids should not be constant");
+    }
 }

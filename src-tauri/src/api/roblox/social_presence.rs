@@ -3,7 +3,7 @@ pub async fn join_group(security_token: &str, group_id: i64) -> Result<(), Strin
     let client = reqwest::Client::new();
 
     let response = client
-        .post(format!("https://groups.roblox.com/v1/groups/{}/users", group_id))
+        .post(format!("{}/v1/groups/{}/users", endpoints::host("groups"), group_id))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
@@ -44,7 +44,7 @@ pub async fn get_presence(user_ids: &[i64]) -> Result<Vec<UserPresence>, String>
     let client = reqwest::Client::new();
 
     let response = client
-        .post("https://presence.roblox.com/v1/presence/users")
+        .post(format!("{}/v1/presence/users", endpoints::host("presence")))
         .json(&serde_json::json!({ "userIds": user_ids }))
         .send()
         .await
@@ -60,4 +60,43 @@ pub async fn get_presence(user_ids: &[i64]) -> Result<Vec<UserPresence>, String>
         .as_array()
         .map(|arr| arr.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect())
         .unwrap_or_default())
+}
+
+#[cfg(test)]
+mod social_presence_http_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{mock_path, mock_server};
+    use wiremock::matchers::{body_partial_json, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    #[tokio::test]
+    async fn reads_user_presences() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [11, 22] })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [
+                    {
+                        "userPresenceType": 2,
+                        "lastLocation": "Jailbreak",
+                        "placeId": 606849621,
+                        "rootPlaceId": 606849621,
+                        "gameId": "job-1",
+                        "universeId": 606,
+                        "userId": 11,
+                        "lastOnline": "2024-01-01T00:00:00Z"
+                    },
+                    { "userPresenceType": 0, "userId": 22 }
+                ]
+            })))
+            .mount(server)
+            .await;
+
+        let presences = get_presence(&[11, 22]).await.expect("presences");
+        assert_eq!(presences.len(), 2);
+        assert_eq!(presences[0].user_presence_type, 2);
+        assert_eq!(presences[0].game_id.as_deref(), Some("job-1"));
+        assert_eq!(presences[1].user_id, 22);
+    }
 }

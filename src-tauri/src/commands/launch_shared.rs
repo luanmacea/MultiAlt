@@ -1,3 +1,53 @@
+/// Emit one structured line to the launch console (frontend listens on the
+/// "launch-log" event). `level` is one of "info" | "success" | "warn" | "error";
+/// `step` is a short machine code (start, isolation, auth, target, pid, spawn,
+/// wait, done) the UI can use for coloring/icons.
+pub(crate) fn emit_launch_log(
+    app: &tauri::AppHandle,
+    user_id: i64,
+    level: &str,
+    step: &str,
+    message: impl Into<String>,
+) {
+    let _ = app.emit(
+        "launch-log",
+        serde_json::json!({
+            "userId": user_id,
+            "level": level,
+            "step": step,
+            "message": message.into(),
+        }),
+    );
+}
+
+/// Group name used to bucket accounts that failed to launch because Roblox
+/// reports them as moderated/banned.
+pub(crate) const MODERATED_GROUP: &str = "moderadas";
+
+/// Returns true if an auth-ticket error string indicates the account is
+/// moderated/banned (Roblox returns 403 with `"User is moderated"`).
+pub(crate) fn is_moderated_error(err: &str) -> bool {
+    let e = err.to_lowercase();
+    e.contains("moderated") || e.contains("is banned") || e.contains("account has been")
+}
+
+/// Move an account into the "moderadas" group and persist it, then notify the
+/// frontend so it can refresh and surface a toast. No-op if already grouped.
+pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandle, user_id: i64) {
+    if let Ok(accounts) = store.get_all() {
+        if let Some(mut account) = accounts.into_iter().find(|a| a.user_id == user_id) {
+            if account.group != MODERATED_GROUP {
+                account.group = MODERATED_GROUP.to_string();
+                let _ = store.update(account);
+                let _ = app.emit(
+                    "account-moderated",
+                    serde_json::json!({ "userId": user_id, "group": MODERATED_GROUP }),
+                );
+            }
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct WindowsClientOverrides {
     max_fps: Option<u32>,
@@ -933,4 +983,222 @@ fn current_botting_status() -> BottingStatusPayload {
 #[cfg(target_os = "windows")]
 fn emit_botting_status(app: &tauri::AppHandle) {
     let _ = app.emit("botting-status", current_botting_status());
+}
+
+#[cfg(test)]
+mod launch_resolve_tests {
+    use super::*;
+
+    // ---- resolve_launch_job -------------------------------------------------
+
+    #[test]
+    fn vip_prefix_sets_join_vip_and_strips_prefix() {
+        let resolved = resolve_launch_job("vip:ABC123", false, "");
+        assert!(resolved.join_vip);
+        assert_eq!(resolved.job_id, "ABC123");
+        assert_eq!(resolved.link_code, "ABC123");
+    }
+
+    #[test]
+    fn vip_prefix_is_case_insensitive_and_trims() {
+        let resolved = resolve_launch_job("  VIP: ABC123  ", false, "");
+        assert!(resolved.join_vip);
+        assert_eq!(resolved.job_id, "ABC123");
+    }
+
+    #[test]
+    fn share_url_private_server_link_code_is_extracted() {
+        let resolved = resolve_launch_job(
+            "https://www.roblox.com/games/606849621/Jailbreak?privateServerLinkCode=1122334455",
+            false,
+            "",
+        );
+        assert_eq!(resolved.link_code, "1122334455");
+        assert!(!resolved.join_vip);
+    }
+
+    #[test]
+    fn link_code_query_param_is_extracted_from_job_id() {
+        let resolved = resolve_launch_job(
+            "https://www.roblox.com/games/start?placeId=1&linkCode=abcdef",
+            false,
+            "",
+        );
+        assert_eq!(resolved.link_code, "abcdef");
+    }
+
+    #[test]
+    fn join_vip_without_code_falls_back_to_job_id_as_link_code() {
+        let resolved = resolve_launch_job("SOMECODE", true, "");
+        assert!(resolved.join_vip);
+        assert_eq!(resolved.job_id, "SOMECODE");
+        assert_eq!(resolved.link_code, "SOMECODE");
+    }
+
+    #[test]
+    fn vip_prefix_with_empty_job_clears_join_vip() {
+        let resolved = resolve_launch_job("vip:", false, "");
+        assert!(!resolved.join_vip);
+        assert_eq!(resolved.job_id, "");
+        assert_eq!(resolved.link_code, "");
+    }
+
+    #[test]
+    fn explicit_link_code_wins_over_job_id_extraction() {
+        let resolved = resolve_launch_job(
+            "https://www.roblox.com/games/1/x?privateServerLinkCode=fromjob",
+            true,
+            "vip:explicit",
+        );
+        assert!(resolved.join_vip);
+        assert_eq!(resolved.link_code, "explicit");
+    }
+
+    #[test]
+    fn plain_job_id_without_vip_stays_untouched() {
+        let resolved = resolve_launch_job(
+            "  11111111-2222-3333-4444-555555555555  ",
+            false,
+            "",
+        );
+        assert!(!resolved.join_vip);
+        assert_eq!(resolved.job_id, "11111111-2222-3333-4444-555555555555");
+        assert_eq!(resolved.link_code, "");
+    }
+
+    // ---- extract_query_param_value -----------------------------------------
+
+    #[test]
+    fn extract_query_param_value_reads_simple_pair() {
+        assert_eq!(
+            extract_query_param_value("https://x/y?code=abc&other=1", "code").as_deref(),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn extract_query_param_value_is_case_insensitive_on_the_key() {
+        assert_eq!(
+            extract_query_param_value("?LINKCODE=abc", "linkCode").as_deref(),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn extract_query_param_value_ignores_null_and_undefined_and_empty() {
+        assert_eq!(extract_query_param_value("?code=null", "code"), None);
+        assert_eq!(extract_query_param_value("?code=UNDEFINED", "code"), None);
+        assert_eq!(extract_query_param_value("?code=", "code"), None);
+        // A later, valid occurrence still wins over the null one.
+        assert_eq!(
+            extract_query_param_value("?code=null&code=real", "code").as_deref(),
+            Some("real")
+        );
+    }
+
+    #[test]
+    fn extract_query_param_value_strips_fragment() {
+        assert_eq!(
+            extract_query_param_value("?code=abc#frag", "code").as_deref(),
+            Some("abc")
+        );
+    }
+
+    #[test]
+    fn extract_query_param_value_recursive_handles_double_encoded_urls() {
+        let raw = "https://ro.blox.com/Ebh5?af_dp=roblox%3A%2F%2Fnavigation%2Fshare_links%3Fcode%3DDEADBEEF%26type%3DServer";
+        // The non-recursive variant cannot see through the encoded inner query.
+        assert_eq!(extract_query_param_value(raw, "code"), None);
+        assert_eq!(
+            extract_query_param_value_recursive(raw, "code").as_deref(),
+            Some("DEADBEEF")
+        );
+    }
+
+    // ---- looks_like_access_code --------------------------------------------
+
+    #[test]
+    fn looks_like_access_code_requires_five_non_empty_segments() {
+        assert!(looks_like_access_code(
+            "11111111-2222-3333-4444-555555555555"
+        ));
+        assert!(looks_like_access_code("a-b-c-d-e"));
+        assert!(!looks_like_access_code("a-b-c-d"));
+        assert!(!looks_like_access_code("a-b-c-d-e-f"));
+        assert!(!looks_like_access_code("a--c-d-e"));
+        assert!(!looks_like_access_code(""));
+        assert!(!looks_like_access_code("   "));
+        assert!(!looks_like_access_code("a-b-c-d-e!"));
+    }
+
+    // ---- looks_like_share_link_code ----------------------------------------
+
+    #[test]
+    fn looks_like_share_link_code_requires_32_hex_with_a_letter() {
+        assert!(looks_like_share_link_code(
+            "0123456789abcdef0123456789abcdef"
+        ));
+        // 32 hex digits but no letter -> not a share link code.
+        assert!(!looks_like_share_link_code(
+            "01234567890123456789012345678901"
+        ));
+        // Wrong length.
+        assert!(!looks_like_share_link_code("0123456789abcdef0123456789abcde"));
+        // Non hex character.
+        assert!(!looks_like_share_link_code(
+            "0123456789abcdeg0123456789abcdef"
+        ));
+        assert!(!looks_like_share_link_code(""));
+    }
+
+    // ---- extract_place_id_from_url -----------------------------------------
+
+    #[test]
+    fn extract_place_id_from_url_reads_the_games_segment() {
+        assert_eq!(
+            extract_place_id_from_url("https://www.roblox.com/games/606849621/Jailbreak"),
+            Some(606849621)
+        );
+        assert_eq!(
+            extract_place_id_from_url("https://www.roblox.com/GAMES/42?x=1"),
+            Some(42)
+        );
+    }
+
+    #[test]
+    fn extract_place_id_from_url_rejects_zero_and_non_digits() {
+        assert_eq!(
+            extract_place_id_from_url("https://www.roblox.com/games/0/Zero"),
+            None
+        );
+        assert_eq!(
+            extract_place_id_from_url("https://www.roblox.com/games/abc"),
+            None
+        );
+        assert_eq!(extract_place_id_from_url("https://www.roblox.com/home"), None);
+    }
+
+    // ---- is_moderated_error -------------------------------------------------
+
+    #[test]
+    fn is_moderated_error_matches_known_phrases_case_insensitively() {
+        assert!(is_moderated_error("User is moderated"));
+        assert!(is_moderated_error("USER IS MODERATED"));
+        assert!(is_moderated_error("The account is banned"));
+        assert!(is_moderated_error("This account has been terminated"));
+    }
+
+    #[test]
+    fn is_moderated_error_returns_false_for_unrelated_failures() {
+        // Regression guard: transient failures must not move accounts into the
+        // "moderadas" group.
+        assert!(!is_moderated_error("network timeout"));
+        assert!(!is_moderated_error("429 Too Many Requests"));
+        assert!(!is_moderated_error(""));
+    }
+
+    #[test]
+    fn moderated_group_name_is_stable() {
+        assert_eq!(MODERATED_GROUP, "moderadas");
+    }
 }

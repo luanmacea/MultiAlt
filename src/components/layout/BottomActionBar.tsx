@@ -1,17 +1,23 @@
 import { useState, useRef, useEffect, useMemo } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
-import { usePrompt } from "../../hooks/usePrompt";
+import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { parseGroupName } from "../../types";
 import { tr, useTr } from "../../i18n/text";
-import { ChevronDown, Gamepad2, Settings2 } from "lucide-react";
+import { ChevronDown, Gamepad2, Settings2, Users } from "lucide-react";
 
 export function BottomActionBar() {
   const t = useTr();
   const store = useStore();
   const prompt = usePrompt();
+  const confirm = useConfirm();
 
   const [actionsOpen, setActionsOpen] = useState(false);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
+  const [friendMenuOpen, setFriendMenuOpen] = useState(false);
+  const [friendBusy, setFriendBusy] = useState(false);
+  const [friendProgress, setFriendProgress] = useState<{ phase: string; done: number; total: number } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
 
@@ -43,16 +49,76 @@ export function BottomActionBar() {
 
   // Close dropdown when clicking outside
   useEffect(() => {
-    if (!actionsOpen && !groupMenuOpen) return;
+    if (!actionsOpen && !groupMenuOpen && !friendMenuOpen) return;
     function handler(e: MouseEvent) {
       if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
         setActionsOpen(false);
         setGroupMenuOpen(false);
+        setFriendMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [actionsOpen, groupMenuOpen]);
+  }, [actionsOpen, groupMenuOpen, friendMenuOpen]);
+
+  // Live progress for the friend-linking batch.
+  useEffect(() => {
+    const unlisten = listen<{ phase: string; done: number; total: number }>(
+      "friend-link-progress",
+      (e) => setFriendProgress(e.payload.phase === "done" ? null : e.payload)
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  async function handleMakeFriends(mode: "mesh" | "star", mainUserId: number | null) {
+    setFriendMenuOpen(false);
+    setActionsOpen(false);
+    if (count < 2) {
+      store.addToast(t("Select at least 2 accounts."));
+      return;
+    }
+    const reqCount = mode === "mesh" ? count * (count - 1) : Math.max(0, count - 1) * 2;
+    if (
+      reqCount > 30 &&
+      !(await confirm(
+        tr(
+          "This will send {{n}} friend requests (~{{min}} min). Roblox may rate-limit new accounts. Continue?",
+          { n: reqCount, min: Math.ceil((reqCount * 2.5) / 60) }
+        )
+      ))
+    ) {
+      return;
+    }
+    setFriendBusy(true);
+    try {
+      const res = await invoke<{
+        pairsTotal: number;
+        alreadyFriends: number;
+        verifiedOk: number;
+        failed: number;
+      }>("make_selected_friends", {
+        userIds: accounts.map((a) => a.UserID),
+        mode,
+        mainUserId: mode === "star" ? mainUserId : null,
+        delayMs: null,
+      });
+      store.addToast(
+        tr("Friends linked: {{ok}} formed, {{already}} already, {{fail}} failed (of {{total}} pairs)", {
+          ok: res.verifiedOk,
+          already: res.alreadyFriends,
+          fail: res.failed,
+          total: res.pairsTotal,
+        })
+      );
+    } catch (e) {
+      store.addToast(tr("Friend linking failed: {{error}}", { error: String(e) }));
+    } finally {
+      setFriendBusy(false);
+      setFriendProgress(null);
+    }
+  }
 
   async function handleRefreshAll() {
     setActionsOpen(false);
@@ -138,6 +204,14 @@ export function BottomActionBar() {
     ? singleAccount.Alias || singleAccount.Username
     : null;
 
+  const friendPhaseLabel = friendProgress
+    ? friendProgress.phase === "checking"
+      ? t("Checking {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
+      : friendProgress.phase === "verifying"
+      ? t("Verifying {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
+      : t("Linking {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
+    : t("Linking friends...");
+
   return (
     <div className="theme-border border-t shrink-0 flex items-center gap-3 px-4 h-14 bg-[var(--app-bg)]">
       {/* Selection info */}
@@ -189,7 +263,7 @@ export function BottomActionBar() {
           onClick={() => { setActionsOpen((v) => !v); setGroupMenuOpen(false); }}
           className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg border theme-border theme-btn-ghost"
         >
-          {refreshing ? t("Refreshing...") : t("Actions")}
+          {friendBusy ? friendPhaseLabel : refreshing ? t("Refreshing...") : t("Actions")}
           <ChevronDown size={11} strokeWidth={2} className={`transition-transform ${actionsOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -213,6 +287,46 @@ export function BottomActionBar() {
             >
               📋 {t("Copy All Cookies")}
             </button>
+
+            {/* Make Friends submenu */}
+            {count >= 2 && (
+              <div className="relative">
+                <button
+                  onClick={() => setFriendMenuOpen((v) => !v)}
+                  disabled={friendBusy}
+                  className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-center justify-between gap-2"
+                >
+                  <span className="flex items-center gap-2">
+                    <Users size={13} strokeWidth={1.5} />
+                    {friendBusy ? friendPhaseLabel : t("Make Friends ({{count}})", { count })}
+                  </span>
+                  <ChevronDown size={10} className={`theme-muted transition-transform ${friendMenuOpen ? "-rotate-90" : "rotate-90"}`} />
+                </button>
+                {friendMenuOpen && (
+                  <div className="theme-panel theme-border absolute bottom-0 right-full mr-1 border rounded-xl shadow-2xl z-40 py-1 w-56 animate-scale-in max-h-72 overflow-y-auto">
+                    <button
+                      onClick={() => handleMakeFriends("mesh", null)}
+                      className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)]"
+                    >
+                      🕸 {t("Mesh - all friend all ({{n}} req)", { n: count * (count - 1) })}
+                    </button>
+                    <div className="theme-border h-px border-t my-1" />
+                    <div className="px-3 py-1 text-[9px] theme-muted uppercase tracking-widest font-semibold">
+                      {t("Star - pick main")}
+                    </div>
+                    {accounts.map((a) => (
+                      <button
+                        key={a.UserID}
+                        onClick={() => handleMakeFriends("star", a.UserID)}
+                        className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] truncate"
+                      >
+                        ⭐ {a.Alias || a.Username}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Move to Group submenu */}
             <div className="relative">

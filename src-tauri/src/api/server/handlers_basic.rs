@@ -53,7 +53,7 @@ async fn handle_get_accounts_json(
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
         && state.settings.get_bool("WebServer", "AllowGetCookie")
-        && check_password(&state, &params.password);
+        && check_password_required(&state, &params.password);
 
     let accounts = match state.accounts.get_all() {
         Ok(a) => a,
@@ -112,6 +112,10 @@ async fn handle_import_cookie(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let cookie = match params.cookie {
         Some(ref c) if !c.is_empty() => c,
         _ => return reply(400, "Missing Cookie parameter", v2),
@@ -142,7 +146,7 @@ async fn handle_get_cookie(
         return reply(401, "AllowGetCookie is disabled", v2);
     }
 
-    if !check_password(&state, &params.password) {
+    if !check_password_required(&state, &params.password) {
         return reply(401, "Invalid password", v2);
     }
 

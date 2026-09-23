@@ -969,34 +969,23 @@ pub fn apply_pre_launch(
 
     emit_isolation_progress(app, "starting", "Preparing pre-launch isolation", &report, false);
 
+    // Never close running clients to isolate a new launch: that kills every
+    // other account the user is multi-boxing. Wiping caches/registry under a
+    // live client would corrupt it, so isolation is simply skipped instead.
     let running = find_roblox_pids_all();
     if !running.is_empty() {
+        report.skipped_reason = Some(format!(
+            "{} Roblox process(es) already running. Isolation skipped so the open clients are not closed.",
+            running.len()
+        ));
         emit_isolation_progress(
             app,
-            "closing-roblox",
-            &format!(
-                "Closing {} Roblox process(es) (player, launcher, crash handler)",
-                running.len()
-            ),
+            "skipped",
+            report.skipped_reason.as_deref().unwrap_or("Isolation skipped"),
             &report,
-            false,
+            true,
         );
-        let _ = kill_all_roblox_related();
-        std::thread::sleep(std::time::Duration::from_millis(600));
-        let still_running = find_roblox_pids_all();
-        if !still_running.is_empty() {
-            report.skipped_reason = Some(
-                "Another Roblox client is still running. Isolation skipped to avoid corrupting its state.".into(),
-            );
-            emit_isolation_progress(
-                app,
-                "skipped",
-                report.skipped_reason.as_deref().unwrap_or("Isolation skipped"),
-                &report,
-                true,
-            );
-            return Ok(report);
-        }
+        return Ok(report);
     }
 
     let preserved_fast_flags = if opts.preserve_fast_flags

@@ -127,6 +127,11 @@ pub fn run() {
         .manage(UpdaterRuntimeState::default())
         .manage(chromium::ChromiumManager::new())
         .setup(|app| {
+            // Lets the launcher report progress while it installs a new Roblox
+            // production build by itself (see platform/windows/launch.rs).
+            #[cfg(target_os = "windows")]
+            platform::windows::set_build_install_app_handle(app.handle().clone());
+
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&show, &quit]).build()?;
@@ -247,6 +252,8 @@ pub fn run() {
             get_user_info,
             lookup_user,
             send_friend_request,
+            make_selected_friends,
+            resolve_join_link,
             block_user,
             unblock_user,
             get_blocked_users,
@@ -297,6 +304,8 @@ pub fn run() {
             generator_test_key,
             cmd_kill_roblox,
             focus_roblox_window,
+            list_display_monitors,
+            arrange_windows_grid,
             cmd_kill_all_roblox,
             get_running_instances,
             cmd_enable_multi_roblox,
