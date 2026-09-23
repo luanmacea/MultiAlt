@@ -204,4 +204,6 @@ Defaults criados mas sem aba na UI: `PreferredRunner=sober`, `CustomLaunchComman
 - Valores sensíveis (`WebServer.Password`, `BloxGen.ApiKey`) ficam em **texto puro** no INI.
 - Mudanças em `Developer.EnableWebServer` e `AccountControl.StartOnLaunch` só têm efeito automático no próximo startup (lidas em `setup` do [lib.rs](../../src-tauri/src/lib.rs)).
 - O arquivo é regravado por completo a cada `set`; comentários/ordem de um INI editado à mão podem ser normalizados.
+- **Default `""` não é gravado:** `IniSection::set` trata valor em branco como remoção, então as ~20 chaves documentadas com default vazio (`General.CustomClientSettings`, `BottingDraft*`, `Optimization.*FastFlagsJson`, `Versions.DefaultVersion`, `Isolation.TargetAdapter`/`Backup*`, `BloxGen.ApiKey`, `Linux.*`) simplesmente **não aparecem** no `RAMSettings.ini` — leia-as sempre com fallback.
+- `set` guarda o valor **sem** trim, mas o parser faz trim na leitura: `set("General","X"," 12 ")` volta como `" 12 "` até reiniciar o app, e como `"12"` depois. Normalize antes de gravar.
 - Para adicionar uma chave com default, inclua-a em `apply_defaults` na seção certa; o frontend deve sempre ter fallback, pois instalações antigas só recebem a chave no próximo start.

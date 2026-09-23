@@ -163,6 +163,10 @@ pub struct ManagedScript {
 pub struct ScriptStore {
     scripts: Mutex<Vec<ManagedScript>>,
     file_path: PathBuf,
+    /// Set when the file exists but could not be read (corrupt JSON, over the
+    /// size limit). While set, saving is refused so an empty in-memory list
+    /// never overwrites the user's scripts — same guard as `AccountStore`.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 impl ScriptStore {
@@ -170,8 +174,13 @@ impl ScriptStore {
         let store = Self {
             scripts: Mutex::new(Vec::new()),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(false),
         };
-        let _ = store.load_from_disk();
+        if store.file_path.exists() && store.load_from_disk().is_err() {
+            store
+                .load_failed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         store
     }
 
@@ -204,6 +213,12 @@ impl ScriptStore {
     }
 
     fn save_to_disk(&self) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Scripts file could not be read; refusing to overwrite it. Fix or restore RAMScripts.json and restart.".to_string(),
+            );
+        }
+
         let scripts = self.scripts.lock().map_err(|e| e.to_string())?;
         let bytes = serde_json::to_vec_pretty(&*scripts)
             .map_err(|e| format!("Failed to serialize scripts: {}", e))?;
@@ -700,31 +715,48 @@ mod scripts_store_tests {
     }
 
     #[test]
-    fn a_corrupt_scripts_file_is_silently_ignored_and_overwritten_by_the_next_save() {
-        // Documented current behaviour, NOT an endorsement: ScriptStore::new
-        // swallows the load error (`let _ = store.load_from_disk()`), so the
-        // store starts empty and the first successful upsert replaces the
-        // user's file. Unlike AccountStore there is no "load failed" latch.
+    fn a_corrupt_scripts_file_is_never_overwritten() {
+        // Regression guard: the store used to start empty and let the first
+        // upsert replace the user's file. Now the failed load latches and
+        // every save is refused until the file is fixed.
         let s = store("corrupt-overwrite");
         let corrupt = br#"[{"id": "important", "name": "Important"#;
         fs::write(&s.file_path, corrupt).unwrap();
 
         let reopened = ScriptStore::new(s.file_path.clone());
-        assert!(
-            reopened.get_all().unwrap().is_empty(),
-            "the corrupt file is ignored rather than surfaced"
-        );
+        assert!(reopened.get_all().unwrap().is_empty());
 
-        reopened.upsert(script("new", "New")).unwrap();
-        let on_disk = fs::read(&s.file_path).unwrap();
-        assert_ne!(on_disk, corrupt.to_vec(), "the corrupt file was overwritten");
+        let err = reopened
+            .upsert(script("new", "New"))
+            .expect_err("saving over an unreadable file must fail");
+        assert!(err.contains("refusing to overwrite"), "{err}");
         assert_eq!(
-            serde_json::from_slice::<Vec<ManagedScript>>(&on_disk)
-                .unwrap()
-                .len(),
-            1,
-            "only the new script survives"
+            fs::read(&s.file_path).unwrap(),
+            corrupt.to_vec(),
+            "the user's file is untouched"
         );
+    }
+
+    #[test]
+    fn an_oversized_scripts_file_is_never_overwritten() {
+        let s = store("oversized-overwrite");
+        let oversized = vec![b'a'; (MAX_SCRIPTS_FILE_BYTES + 1) as usize];
+        fs::write(&s.file_path, &oversized).unwrap();
+
+        let reopened = ScriptStore::new(s.file_path.clone());
+        assert!(reopened.upsert(script("new", "New")).is_err());
+        assert_eq!(fs::read(&s.file_path).unwrap().len(), oversized.len());
+    }
+
+    #[test]
+    fn a_healthy_store_still_saves() {
+        let s = store("healthy-save");
+        s.upsert(script("ok", "Ok")).expect("first save");
+
+        let reopened = ScriptStore::new(s.file_path.clone());
+        assert_eq!(reopened.get_all().unwrap().len(), 1);
+        reopened.upsert(script("two", "Two")).expect("second save");
+        assert_eq!(reopened.get_all().unwrap().len(), 2);
     }
 
     // ---- serde defaults -------------------------------------------------------
