@@ -51,5 +51,7 @@ echo (as contas e configuracoes ficam na pasta do executavel).
 echo.
 explorer /select,"%EXE%"
 
-timeout /t 8 >nul
+REM Pausa curta so para a janela nao sumir na hora (o "timeout" falha quando
+REM a entrada esta redirecionada, entao usamos ping).
+ping -n 6 127.0.0.1 >nul
 exit /b 0
