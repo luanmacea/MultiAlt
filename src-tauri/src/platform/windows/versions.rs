@@ -174,79 +174,40 @@ pub async fn fetch_remote_catalog() -> Result<RemoteCatalog, String> {
         }
     };
 
-    let mut current_out = Vec::new();
-    if let Some(v) = current.get("Windows").and_then(|v| v.as_str()) {
-        current_out.push(RemoteVersionEntry {
-            binary_type: "WindowsPlayer".into(),
-            version_hash: v.to_string(),
-            display_version: current
-                .get("WindowsResponse")
-                .and_then(|r| r.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            deploy_date: current
-                .get("WindowsDate")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            channel: "LIVE".into(),
-        });
-    }
-    if let Some(v) = current.get("Mac").and_then(|v| v.as_str()) {
-        current_out.push(RemoteVersionEntry {
-            binary_type: "MacPlayer".into(),
-            version_hash: v.to_string(),
-            display_version: current
-                .get("MacResponse")
-                .and_then(|r| r.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            deploy_date: current
-                .get("MacDate")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            channel: "LIVE".into(),
-        });
-    }
-
-    let mut past_out = Vec::new();
-    if let Some(v) = past.get("Windows").and_then(|v| v.as_str()) {
-        past_out.push(RemoteVersionEntry {
-            binary_type: "WindowsPlayer".into(),
-            version_hash: v.to_string(),
-            display_version: past
-                .get("WindowsResponse")
-                .and_then(|r| r.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            deploy_date: past
-                .get("WindowsDate")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            channel: "LIVE".into(),
-        });
-    }
-    if let Some(v) = past.get("Mac").and_then(|v| v.as_str()) {
-        past_out.push(RemoteVersionEntry {
-            binary_type: "MacPlayer".into(),
-            version_hash: v.to_string(),
-            display_version: past
-                .get("MacResponse")
-                .and_then(|r| r.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            deploy_date: past
-                .get("MacDate")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            channel: "LIVE".into(),
-        });
-    }
-
     Ok(RemoteCatalog {
-        current: current_out,
-        past: past_out,
+        current: parse_weao_entries(&current),
+        past: parse_weao_entries(&past),
         past_error,
     })
+}
+
+/// Turn one weao.xyz versions document into catalog entries. Split out of
+/// [`fetch_remote_catalog`] (which only fetches) so the shape handling can be
+/// tested without network access. Missing or non-string fields are skipped.
+fn parse_weao_entries(value: &serde_json::Value) -> Vec<RemoteVersionEntry> {
+    let mut out = Vec::new();
+    for (hash_key, response_key, date_key, binary_type) in [
+        ("Windows", "WindowsResponse", "WindowsDate", "WindowsPlayer"),
+        ("Mac", "MacResponse", "MacDate", "MacPlayer"),
+    ] {
+        if let Some(v) = value.get(hash_key).and_then(|v| v.as_str()) {
+            out.push(RemoteVersionEntry {
+                binary_type: binary_type.into(),
+                version_hash: v.to_string(),
+                display_version: value
+                    .get(response_key)
+                    .and_then(|r| r.get("version"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                deploy_date: value
+                    .get(date_key)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                channel: "LIVE".into(),
+            });
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone)]
@@ -307,7 +268,10 @@ fn verify_hash(bytes: &[u8], expected: &str) -> bool {
             let hex: String = computed.iter().map(|b| format!("{:02x}", b)).collect();
             hex.eq_ignore_ascii_case(expected)
         }
-        _ => true,
+        // An unrecognised hash length must not count as "verified": the only
+        // safe reading of a hash we cannot check is failure. Entries with no
+        // hash at all are `None` and never reach this function.
+        _ => false,
     }
 }
 
@@ -753,4 +717,571 @@ fn most_recently_used_version(
                 .exists()
         })
         .max_by_key(|entry| entry.last_launched_at.or(entry.installed_at))
+}
+
+#[cfg(test)]
+mod win_versions_tests {
+    use super::*;
+    use std::io::Write as _;
+
+    // ── temp-dir helpers ───────────────────────────────────────────────────
+    // There is no `tempfile` dev-dependency in this crate, so mirror the
+    // pattern used by `versions_atomic_tests` in data/versions.rs: a uniquely
+    // named folder under the OS temp dir, removed by a RAII guard.
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("ram4-winver-{}-{}-{}", tag, nanos, n));
+            std::fs::create_dir_all(&dir).expect("temp dir");
+            Self(dir)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn md5_hex(bytes: &[u8]) -> String {
+        use md5::Digest;
+        let mut hasher = md5::Md5::new();
+        hasher.update(bytes);
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect()
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(bytes);
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect()
+    }
+
+    /// Build a zip in memory from `(name, contents)` pairs. Names are written
+    /// verbatim so traversal payloads survive into the archive.
+    fn build_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options =
+            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        for (name, contents) in entries {
+            writer.start_file(*name, options).expect("start_file");
+            writer.write_all(contents).expect("write entry");
+        }
+        writer.finish().expect("finish zip").into_inner()
+    }
+
+    // ── parse_pkg_manifest ─────────────────────────────────────────────────
+
+    #[test]
+    fn parse_pkg_manifest_reads_a_valid_v0_manifest() {
+        let manifest = concat!(
+            "v0\n",
+            "RobloxApp.zip\n",
+            "0123456789abcdef0123456789abcdef\n",
+            "1000\n",
+            "2000\n",
+            "shaders.zip\n",
+            "fedcba9876543210fedcba9876543210\n",
+            "30\n",
+            "40\n"
+        );
+        let packages = parse_pkg_manifest(manifest).expect("valid manifest");
+        assert_eq!(packages.len(), 2);
+        assert_eq!(packages[0].filename, "RobloxApp.zip");
+        assert_eq!(
+            packages[0].hash.as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+        assert_eq!(packages[1].filename, "shaders.zip");
+        assert_eq!(
+            packages[1].hash.as_deref(),
+            Some("fedcba9876543210fedcba9876543210")
+        );
+    }
+
+    #[test]
+    fn parse_pkg_manifest_accepts_crlf_and_surrounding_whitespace() {
+        let manifest = concat!(
+            "  v0  \r\n",
+            "   RobloxApp.zip   \r\n",
+            "  0123456789abcdef0123456789abcdef  \r\n",
+            " 1000 \r\n",
+            " 2000 \r\n"
+        );
+        let packages = parse_pkg_manifest(manifest).expect("valid manifest");
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].filename, "RobloxApp.zip");
+        assert_eq!(
+            packages[0].hash.as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+    }
+
+    #[test]
+    fn parse_pkg_manifest_ignores_blank_lines_between_groups() {
+        let manifest = "v0\n\n\nRobloxApp.zip\n\n0123456789abcdef0123456789abcdef\n1\n2\n\n";
+        let packages = parse_pkg_manifest(manifest).expect("valid manifest");
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].filename, "RobloxApp.zip");
+    }
+
+    #[test]
+    fn parse_pkg_manifest_accepts_a_sha256_hash() {
+        let hash = sha256_hex(b"whatever");
+        let manifest = format!("v0\nRobloxApp.zip\n{}\n1\n2\n", hash);
+        let packages = parse_pkg_manifest(&manifest).expect("valid manifest");
+        assert_eq!(packages[0].hash.as_deref(), Some(hash.as_str()));
+    }
+
+    #[test]
+    fn parse_pkg_manifest_leaves_the_hash_empty_when_it_is_not_hex_of_the_right_length() {
+        let manifest = "v0\nRobloxApp.zip\nnot-a-hash\n1\n2\n";
+        let packages = parse_pkg_manifest(manifest).expect("valid manifest");
+        assert_eq!(packages.len(), 1);
+        assert!(
+            packages[0].hash.is_none(),
+            "a non-hex second line must not be taken as a hash"
+        );
+    }
+
+    #[test]
+    fn parse_pkg_manifest_rejects_a_wrong_header() {
+        let err = parse_pkg_manifest("v1\nRobloxApp.zip\nx\n1\n2\n").unwrap_err();
+        assert!(err.contains("Unexpected manifest header"), "got {}", err);
+    }
+
+    #[test]
+    fn parse_pkg_manifest_accepts_the_header_in_any_case() {
+        assert!(parse_pkg_manifest("V0\nRobloxApp.zip\nx\n1\n2\n").is_ok());
+    }
+
+    #[test]
+    fn parse_pkg_manifest_rejects_an_empty_manifest() {
+        assert_eq!(parse_pkg_manifest("").unwrap_err(), "Empty manifest");
+        assert_eq!(
+            parse_pkg_manifest("   \n\n\t\n").unwrap_err(),
+            "Empty manifest"
+        );
+    }
+
+    #[test]
+    fn parse_pkg_manifest_drops_a_truncated_trailing_group() {
+        // The second group is missing its last line, so there are not enough
+        // lines left for a complete record.
+        let manifest = concat!(
+            "v0\n",
+            "RobloxApp.zip\n",
+            "0123456789abcdef0123456789abcdef\n",
+            "1\n",
+            "2\n",
+            "shaders.zip\n",
+            "fedcba9876543210fedcba9876543210\n",
+            "3\n"
+        );
+        let packages = parse_pkg_manifest(manifest).expect("valid manifest");
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].filename, "RobloxApp.zip");
+    }
+
+    #[test]
+    fn parse_pkg_manifest_skips_lines_that_are_not_zip_names() {
+        let manifest = concat!(
+            "v0\n",
+            "junk-line\n",
+            "RobloxApp.ZIP\n",
+            "0123456789abcdef0123456789abcdef\n",
+            "1\n",
+            "2\n"
+        );
+        let packages = parse_pkg_manifest(manifest).expect("valid manifest");
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].filename, "RobloxApp.ZIP");
+    }
+
+    #[test]
+    fn parse_pkg_manifest_returns_no_packages_for_a_header_only_manifest() {
+        assert!(parse_pkg_manifest("v0\n").unwrap().is_empty());
+    }
+
+    // ── verify_hash ────────────────────────────────────────────────────────
+
+    #[test]
+    fn verify_hash_accepts_a_matching_md5() {
+        let data = b"roblox package bytes";
+        assert!(verify_hash(data, &md5_hex(data)));
+    }
+
+    #[test]
+    fn verify_hash_accepts_a_matching_md5_in_uppercase() {
+        let data = b"roblox package bytes";
+        assert!(verify_hash(data, &md5_hex(data).to_ascii_uppercase()));
+    }
+
+    #[test]
+    fn verify_hash_rejects_a_mismatched_md5() {
+        let data = b"roblox package bytes";
+        let other = md5_hex(b"different bytes");
+        assert_eq!(other.len(), 32);
+        assert!(!verify_hash(data, &other));
+
+        // A single flipped character is still rejected.
+        let mut flipped = md5_hex(data);
+        let replacement = if flipped.starts_with('a') { "b" } else { "a" };
+        flipped.replace_range(0..1, replacement);
+        assert!(!verify_hash(data, &flipped));
+    }
+
+    #[test]
+    fn verify_hash_uses_sha256_for_a_64_character_hash() {
+        let data = b"roblox package bytes";
+        assert!(verify_hash(data, &sha256_hex(data)));
+        assert!(!verify_hash(data, &sha256_hex(b"other")));
+    }
+
+    #[test]
+    fn verify_hash_rejects_a_hash_it_cannot_interpret() {
+        // A hash we cannot check is not a verified package: treating it as one
+        // would silently disable integrity checking for a malformed manifest.
+        // Entries with no hash at all are `None` and never reach this function.
+        assert!(!verify_hash(b"data", ""));
+        assert!(!verify_hash(b"data", "garbage"));
+        assert!(!verify_hash(b"data", &"a".repeat(40)));
+    }
+
+    // ── channel base URLs ──────────────────────────────────────────────────
+
+    #[test]
+    fn channel_base_url_uses_the_root_cdn_for_live_and_empty_channels() {
+        let root = format!("{}/", CDN_HOST);
+        assert_eq!(channel_base_url(""), root);
+        assert_eq!(channel_base_url("   "), root);
+        assert_eq!(channel_base_url("LIVE"), root);
+        assert_eq!(channel_base_url("live"), root);
+        assert_eq!(channel_base_url("  LiVe  "), root);
+    }
+
+    #[test]
+    fn channel_base_url_lowercases_a_custom_channel_and_trims_it() {
+        assert_eq!(
+            channel_base_url("ZCanary"),
+            format!("{}/channel/zcanary/", CDN_HOST)
+        );
+        assert_eq!(
+            channel_base_url("  ZIntegration  "),
+            format!("{}/channel/zintegration/", CDN_HOST)
+        );
+    }
+
+    #[test]
+    fn fallback_common_base_url_points_at_the_common_channel() {
+        assert_eq!(
+            fallback_common_base_url(),
+            format!("{}/channel/common/", CDN_HOST)
+        );
+    }
+
+    // ── extract_root_for ───────────────────────────────────────────────────
+
+    #[test]
+    fn extract_root_for_maps_every_known_package() {
+        for (name, root) in EXTRACT_ROOTS {
+            assert_eq!(
+                extract_root_for(name),
+                Some(*root),
+                "package {} should extract into {:?}",
+                name,
+                root
+            );
+        }
+    }
+
+    #[test]
+    fn extract_root_for_matches_case_insensitively() {
+        assert_eq!(extract_root_for("robloxapp.zip"), Some(""));
+        assert_eq!(
+            extract_root_for("CONTENT-TEXTURES3.ZIP"),
+            Some("PlatformContent/pc/textures/")
+        );
+    }
+
+    #[test]
+    fn extract_root_for_spot_checks_the_tricky_mappings() {
+        // textures2 shares content/textures/ with textures; textures3 does not.
+        assert_eq!(
+            extract_root_for("content-textures.zip"),
+            Some("content/textures/")
+        );
+        assert_eq!(
+            extract_root_for("content-textures2.zip"),
+            Some("content/textures/")
+        );
+        assert_eq!(
+            extract_root_for("content-textures3.zip"),
+            Some("PlatformContent/pc/textures/")
+        );
+        assert_eq!(
+            extract_root_for("content-platform-dictionaries.zip"),
+            Some("PlatformContent/pc/shared_compression_dictionaries/")
+        );
+    }
+
+    #[test]
+    fn extract_root_for_returns_none_for_an_unknown_package() {
+        assert_eq!(extract_root_for("mystery.zip"), None);
+        assert_eq!(extract_root_for(""), None);
+        assert_eq!(extract_root_for("RobloxApp.zip.bak"), None);
+    }
+
+    // ── name / hash validation and path composition ────────────────────────
+
+    #[test]
+    fn is_valid_channel_name_accepts_ordinary_channel_names() {
+        assert!(is_valid_channel_name("LIVE"));
+        assert!(is_valid_channel_name("zcanary"));
+        assert!(is_valid_channel_name("z-integration_2.1"));
+        assert!(is_valid_channel_name(&"a".repeat(64)));
+    }
+
+    #[test]
+    fn is_valid_channel_name_rejects_path_traversal_and_separators() {
+        assert!(!is_valid_channel_name(""));
+        assert!(!is_valid_channel_name("."));
+        assert!(!is_valid_channel_name(".."));
+        assert!(!is_valid_channel_name("../evil"));
+        assert!(!is_valid_channel_name("..\\evil"));
+        assert!(!is_valid_channel_name("a/b"));
+        assert!(!is_valid_channel_name("a\\b"));
+        assert!(!is_valid_channel_name("C:"));
+        assert!(!is_valid_channel_name("with space"));
+        assert!(!is_valid_channel_name(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn is_valid_version_hash_requires_the_version_prefix_and_hex_body() {
+        assert!(is_valid_version_hash("version-abc123"));
+        assert!(is_valid_version_hash("version-0"));
+        assert!(!is_valid_version_hash("version-"));
+        assert!(!is_valid_version_hash("version"));
+        assert!(!is_valid_version_hash("Version-abc123"));
+        assert!(!is_valid_version_hash("version-xyz"));
+        assert!(!is_valid_version_hash("version-../escape"));
+        assert!(!is_valid_version_hash(&format!("version-{}", "a".repeat(89))));
+    }
+
+    #[test]
+    fn install_target_dir_composes_root_channel_version() {
+        let Some(root) = versions_root_dir() else {
+            return; // no LOCALAPPDATA in this environment
+        };
+        let target = install_target_dir("LIVE", "version-abcdef01").expect("valid target");
+        assert_eq!(target, root.join("LIVE").join("version-abcdef01"));
+        assert!(target.starts_with(&root));
+    }
+
+    #[test]
+    fn install_target_dir_refuses_to_escape_the_versions_root() {
+        for channel in ["..", "../..", "..\\..", "a/b", ""] {
+            let err = install_target_dir(channel, "version-abcdef01").unwrap_err();
+            assert!(
+                err.contains("Invalid channel name"),
+                "channel {:?}: {}",
+                channel,
+                err
+            );
+        }
+        for hash in ["..", "version-../x", "notaversion", ""] {
+            let err = install_target_dir("LIVE", hash).unwrap_err();
+            assert!(
+                err.contains("Invalid version hash"),
+                "hash {:?}: {}",
+                hash,
+                err
+            );
+        }
+    }
+
+    // ── filesystem helpers ─────────────────────────────────────────────────
+
+    #[test]
+    fn ensure_dir_creates_nested_directories_and_is_idempotent() {
+        let temp = TempDir::new("ensuredir");
+        let nested = temp.path().join("a").join("b").join("c");
+        ensure_dir(&nested).expect("first create");
+        assert!(nested.is_dir());
+        ensure_dir(&nested).expect("second create is a no-op");
+        assert!(nested.is_dir());
+    }
+
+    #[test]
+    fn folder_size_sums_files_recursively_and_ignores_missing_paths() {
+        let temp = TempDir::new("foldersize");
+        assert_eq!(folder_size(&temp.path().join("missing")), 0);
+        assert_eq!(folder_size(temp.path()), 0);
+
+        std::fs::write(temp.path().join("a.bin"), vec![0u8; 10]).unwrap();
+        let sub = temp.path().join("sub").join("deeper");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("b.bin"), vec![0u8; 25]).unwrap();
+
+        assert_eq!(folder_size(temp.path()), 35);
+    }
+
+    // ── extract_package_into ───────────────────────────────────────────────
+
+    #[test]
+    fn extract_package_into_writes_files_under_the_target_root() {
+        let temp = TempDir::new("extract");
+        let target = temp.path().join("install");
+        let archive = build_zip(&[
+            ("RobloxPlayerBeta.exe", b"MZ fake exe".as_slice()),
+            ("nested/dir/file.txt", b"hello".as_slice()),
+        ]);
+
+        extract_package_into(&archive, &target, "").expect("extract");
+
+        assert_eq!(
+            std::fs::read(target.join("RobloxPlayerBeta.exe")).unwrap(),
+            b"MZ fake exe"
+        );
+        assert_eq!(
+            std::fs::read(target.join("nested").join("dir").join("file.txt")).unwrap(),
+            b"hello"
+        );
+    }
+
+    #[test]
+    fn extract_package_into_honours_the_subdir_prefix() {
+        let temp = TempDir::new("extractsub");
+        let target = temp.path().join("install");
+        let archive = build_zip(&[("pc/terrain.mesh", b"mesh".as_slice())]);
+
+        extract_package_into(&archive, &target, "PlatformContent/pc/terrain/").expect("extract");
+
+        let expected = target
+            .join("PlatformContent")
+            .join("pc")
+            .join("terrain")
+            .join("pc")
+            .join("terrain.mesh");
+        assert_eq!(std::fs::read(expected).unwrap(), b"mesh");
+    }
+
+    #[test]
+    fn extract_package_into_creates_the_subdir_even_for_an_empty_archive() {
+        let temp = TempDir::new("extractempty");
+        let target = temp.path().join("install");
+        extract_package_into(&build_zip(&[]), &target, "shaders/").expect("extract");
+        assert!(target.join("shaders").is_dir());
+    }
+
+    #[test]
+    fn extract_package_into_does_not_write_outside_the_target_root() {
+        let temp = TempDir::new("traversal");
+        let target = temp.path().join("install");
+        let archive = build_zip(&[
+            ("..\\evil.txt", b"pwned".as_slice()),
+            ("../evil2.txt", b"pwned".as_slice()),
+            ("../../evil3.txt", b"pwned".as_slice()),
+            ("good.txt", b"ok".as_slice()),
+        ]);
+
+        extract_package_into(&archive, &target, "").expect("extract");
+
+        // The only file written is the legitimate one.
+        assert_eq!(std::fs::read(target.join("good.txt")).unwrap(), b"ok");
+        for escaped in ["evil.txt", "evil2.txt", "evil3.txt"] {
+            assert!(
+                !temp.path().join(escaped).exists(),
+                "{} escaped the target root",
+                escaped
+            );
+            assert!(
+                !temp.path().parent().unwrap().join(escaped).exists(),
+                "{} escaped two levels up",
+                escaped
+            );
+            assert!(
+                !target.join(escaped).exists(),
+                "{} was written at all",
+                escaped
+            );
+        }
+    }
+
+    #[test]
+    fn extract_package_into_rejects_bytes_that_are_not_a_zip() {
+        let temp = TempDir::new("badzip");
+        let err =
+            extract_package_into(b"definitely not a zip", &temp.path().join("t"), "").unwrap_err();
+        assert!(err.starts_with("Bad zip:"), "got {}", err);
+    }
+
+    // ── remote catalog parsing ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_weao_entries_reads_windows_and_mac_builds() {
+        let value = serde_json::json!({
+            "Windows": "version-aabbccdd",
+            "WindowsDate": "2024-01-02",
+            "WindowsResponse": { "version": "0.600.1" },
+            "Mac": "version-11223344",
+            "MacDate": "2024-01-03",
+            "MacResponse": { "version": "0.600.2" },
+        });
+        let entries = parse_weao_entries(&value);
+        assert_eq!(entries.len(), 2);
+
+        assert_eq!(entries[0].binary_type, "WindowsPlayer");
+        assert_eq!(entries[0].version_hash, "version-aabbccdd");
+        assert_eq!(entries[0].display_version.as_deref(), Some("0.600.1"));
+        assert_eq!(entries[0].deploy_date.as_deref(), Some("2024-01-02"));
+        assert_eq!(entries[0].channel, "LIVE");
+
+        assert_eq!(entries[1].binary_type, "MacPlayer");
+        assert_eq!(entries[1].version_hash, "version-11223344");
+        assert_eq!(entries[1].display_version.as_deref(), Some("0.600.2"));
+        assert_eq!(entries[1].deploy_date.as_deref(), Some("2024-01-03"));
+    }
+
+    #[test]
+    fn parse_weao_entries_tolerates_missing_and_wrongly_typed_fields() {
+        let value = serde_json::json!({
+            "Windows": "version-aabbccdd",
+            "WindowsDate": 20240102,            // not a string
+            "WindowsResponse": "not-an-object", // no nested "version"
+            "Mac": 12345,                       // not a string -> entry skipped
+        });
+        let entries = parse_weao_entries(&value);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].binary_type, "WindowsPlayer");
+        assert!(entries[0].display_version.is_none());
+        assert!(entries[0].deploy_date.is_none());
+    }
+
+    #[test]
+    fn parse_weao_entries_returns_nothing_for_an_empty_document() {
+        assert!(parse_weao_entries(&serde_json::json!({})).is_empty());
+        assert!(parse_weao_entries(&serde_json::Value::Null).is_empty());
+        assert!(parse_weao_entries(&serde_json::json!([1, 2, 3])).is_empty());
+    }
 }

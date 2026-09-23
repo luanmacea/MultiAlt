@@ -88,3 +88,86 @@ pub fn kill_all_roblox() -> u32 {
     }
     killed
 }
+
+#[cfg(test)]
+mod win_process_tests {
+    use super::*;
+
+    // Enumeration only. `kill_process` / `kill_all_roblox` terminate real
+    // processes and are deliberately never called from a test.
+
+    #[test]
+    fn find_pids_for_exes_returns_nothing_for_a_name_that_cannot_exist() {
+        let pids = find_pids_for_exes(&["ram4-no-such-process-9f3c1d.exe"]);
+        assert!(pids.is_empty(), "unexpected matches: {:?}", pids);
+    }
+
+    #[test]
+    fn find_pids_for_exes_returns_nothing_for_an_empty_needle_list() {
+        assert!(find_pids_for_exes(&[]).is_empty());
+    }
+
+    #[test]
+    fn find_pids_for_exes_matches_the_current_executable_case_insensitively() {
+        let Some(name) = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        else {
+            return;
+        };
+        let self_pid = unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() };
+
+        assert!(
+            find_pids_for_exes(&[&name]).contains(&self_pid),
+            "the test runner {} should have been found",
+            name
+        );
+        assert!(
+            find_pids_for_exes(&[&name.to_ascii_uppercase()]).contains(&self_pid),
+            "matching must ignore case"
+        );
+    }
+
+    #[test]
+    fn find_pids_for_exes_does_not_report_a_pid_twice_for_one_process() {
+        // The inner loop breaks on the first matching needle, so listing the
+        // same exe twice must not double-count it.
+        let Some(name) = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        else {
+            return;
+        };
+        let self_pid = unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() };
+        let pids = find_pids_for_exes(&[&name, &name.to_ascii_uppercase()]);
+        assert_eq!(
+            pids.iter().filter(|p| **p == self_pid).count(),
+            1,
+            "the current process was counted more than once"
+        );
+    }
+
+    #[test]
+    fn get_roblox_pids_is_a_subset_of_find_roblox_pids_all() {
+        // find_roblox_pids_all widens the player match with the launcher and
+        // the crash handler, so it can only ever be a superset.
+        let players = get_roblox_pids();
+        let all = find_roblox_pids_all();
+        for pid in &players {
+            assert!(
+                all.contains(pid),
+                "pid {} is a player but missing from the full list",
+                pid
+            );
+        }
+    }
+
+    #[test]
+    fn find_legacy_ram_pids_never_reports_the_current_process() {
+        let self_pid = unsafe { windows_sys::Win32::System::Threading::GetCurrentProcessId() };
+        assert!(
+            !find_legacy_ram_pids().contains(&self_pid),
+            "the running app must never be listed as a legacy install"
+        );
+    }
+}

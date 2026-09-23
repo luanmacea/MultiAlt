@@ -301,3 +301,315 @@ impl ThemeStore {
         self.save()
     }
 }
+
+#[cfg(test)]
+mod theme_store_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("ram-theme-{name}-{nanos}.ini"))
+    }
+
+    struct TestStore {
+        store: ThemeStore,
+    }
+
+    impl Drop for TestStore {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.store.file_path);
+        }
+    }
+
+    impl std::ops::Deref for TestStore {
+        type Target = ThemeStore;
+        fn deref(&self) -> &ThemeStore {
+            &self.store
+        }
+    }
+
+    fn store(name: &str) -> TestStore {
+        TestStore {
+            store: ThemeStore::new(temp_path(name)),
+        }
+    }
+
+    fn seeded(name: &str, contents: &str) -> TestStore {
+        let path = temp_path(name);
+        fs::write(&path, contents).expect("seed theme ini");
+        TestStore {
+            store: ThemeStore::new(path),
+        }
+    }
+
+    // ---- defaults ---------------------------------------------------------------
+
+    #[test]
+    fn theme_defaults_are_the_dark_zinc_palette_with_google_fonts() {
+        let d = ThemeData::default();
+        assert_eq!(d.accounts_background, "#09090B");
+        assert_eq!(d.accounts_foreground, "#E4E4E7");
+        assert_eq!(d.buttons_background, "#27272A");
+        assert_eq!(d.buttons_foreground, "#A1A1AA");
+        assert_eq!(d.buttons_border, "#3F3F46");
+        assert_eq!(d.toggle_on_background, "#0EA5E9");
+        assert_eq!(d.toggle_off_background, "#3F3F46");
+        assert_eq!(d.toggle_knob_background, "#FFFFFF");
+        assert_eq!(d.forms_background, "#09090B");
+        assert_eq!(d.forms_foreground, "#E4E4E7");
+        assert_eq!(d.textboxes_background, "#18181B");
+        assert_eq!(d.textboxes_foreground, "#D4D4D8");
+        assert_eq!(d.textboxes_border, "#27272A");
+        assert_eq!(d.label_background, "#09090B");
+        assert_eq!(d.label_foreground, "#71717A");
+        assert!(d.label_transparent);
+        assert!(d.dark_top_bar);
+        assert!(d.show_headers);
+        assert!(!d.light_images);
+        assert_eq!(d.button_style, "Flat");
+        assert_eq!(d.font_sans, Some(default_font_sans()));
+        assert_eq!(d.font_mono, Some(default_font_mono()));
+    }
+
+    #[test]
+    fn the_default_font_specs_describe_google_families_with_fallbacks() {
+        let sans = default_font_sans();
+        assert_eq!(sans.source, "google");
+        assert_eq!(sans.family, "Outfit");
+        assert_eq!(sans.local, None);
+        assert_eq!(
+            sans.google.as_ref().map(|g| g.weights.clone()),
+            Some(vec![300, 400, 500, 600, 700])
+        );
+        assert!(sans.fallbacks.contains(&"sans-serif".to_string()));
+
+        let mono = default_font_mono();
+        assert_eq!(mono.family, "JetBrains Mono");
+        assert_eq!(
+            mono.google.as_ref().map(|g| g.weights.clone()),
+            Some(vec![400, 500])
+        );
+        assert!(mono.fallbacks.contains(&"monospace".to_string()));
+    }
+
+    #[test]
+    fn a_missing_theme_file_yields_the_defaults_without_creating_it() {
+        let s = store("missing");
+        assert_eq!(s.get().unwrap().accounts_background, "#09090B");
+        assert!(!s.file_path.exists(), "opening must not write the file");
+    }
+
+    // ---- save / load round trip ---------------------------------------------------
+
+    #[test]
+    fn update_persists_every_field_and_reloads_identically() {
+        let s = store("roundtrip");
+        let mut theme = ThemeData::default();
+        theme.accounts_background = "#101010".to_string();
+        theme.accounts_foreground = "#FAFAFA".to_string();
+        theme.buttons_background = "#202020".to_string();
+        theme.buttons_foreground = "#303030".to_string();
+        theme.buttons_border = "#404040".to_string();
+        theme.toggle_on_background = "#111111".to_string();
+        theme.toggle_off_background = "#222222".to_string();
+        theme.toggle_knob_background = "#333333".to_string();
+        theme.forms_background = "#444444".to_string();
+        theme.forms_foreground = "#555555".to_string();
+        theme.textboxes_background = "#666666".to_string();
+        theme.textboxes_foreground = "#777777".to_string();
+        theme.textboxes_border = "#888888".to_string();
+        theme.label_background = "#999999".to_string();
+        theme.label_foreground = "#AAAAAA".to_string();
+        theme.label_transparent = false;
+        theme.dark_top_bar = false;
+        theme.show_headers = false;
+        theme.light_images = true;
+        theme.button_style = "Raised".to_string();
+        theme.font_sans = Some(ThemeFontSpec {
+            source: "local".to_string(),
+            family: "My Font".to_string(),
+            fallbacks: vec!["serif".to_string()],
+            google: None,
+            local: Some(ThemeFontLocalSpec {
+                file: "abc123.ttf".to_string(),
+                weight: 500,
+                style: "normal".to_string(),
+            }),
+        });
+
+        s.update(theme.clone()).unwrap();
+        assert!(s.file_path.exists());
+
+        let reloaded = ThemeStore::new(s.file_path.clone()).get().unwrap();
+        assert_eq!(reloaded.accounts_background, "#101010");
+        assert_eq!(reloaded.buttons_border, "#404040");
+        assert_eq!(reloaded.toggle_on_background, "#111111");
+        assert_eq!(reloaded.toggle_knob_background, "#333333");
+        assert_eq!(reloaded.textboxes_border, "#888888");
+        assert_eq!(reloaded.label_foreground, "#AAAAAA");
+        assert!(!reloaded.label_transparent);
+        assert!(!reloaded.dark_top_bar);
+        assert!(!reloaded.show_headers);
+        assert!(reloaded.light_images);
+        assert_eq!(reloaded.button_style, "Raised");
+        assert_eq!(reloaded.font_sans, theme.font_sans);
+        assert_eq!(reloaded.font_mono, Some(default_font_mono()));
+    }
+
+    #[test]
+    fn save_writes_the_legacy_ini_key_names() {
+        let s = store("keys");
+        s.update(ThemeData::default()).unwrap();
+        let raw = fs::read_to_string(&s.file_path).unwrap();
+
+        assert!(raw.contains("[Roblox Account Manager]"), "{raw}");
+        for key in [
+            "AccountsBG",
+            "AccountsFG",
+            "ButtonsBG",
+            "ButtonsFG",
+            "ButtonsBC",
+            "ToggleOnBG",
+            "ToggleOffBG",
+            "ToggleKnobBG",
+            "FormsBG",
+            "FormsFG",
+            "TextBoxesBG",
+            "TextBoxesFG",
+            "TextBoxesBC",
+            "LabelsBC",
+            "LabelsFC",
+            "LabelsTransparent",
+            "DarkTopBar",
+            "ShowHeaders",
+            "LightImages",
+            "ButtonStyle",
+            "FontSans",
+            "FontMono",
+        ] {
+            assert!(raw.contains(&format!("{key}=")), "missing {key} in\n{raw}");
+        }
+    }
+
+    // ---- partial / legacy files -----------------------------------------------------
+
+    #[test]
+    fn only_the_keys_present_in_the_file_override_the_defaults() {
+        let s = seeded(
+            "partial",
+            "[Roblox Account Manager]\nAccountsBG=#123456\nButtonStyle=Outline\n",
+        );
+        let theme = s.get().unwrap();
+        assert_eq!(theme.accounts_background, "#123456");
+        assert_eq!(theme.button_style, "Outline");
+        // Everything else keeps its default.
+        assert_eq!(theme.accounts_foreground, "#E4E4E7");
+        assert_eq!(theme.toggle_on_background, "#0EA5E9");
+        assert_eq!(theme.font_sans, Some(default_font_sans()));
+    }
+
+    #[test]
+    fn a_legacy_rbx_alt_manager_theme_file_is_still_read() {
+        let s = seeded(
+            "legacy",
+            "[RBX Alt Manager]\nAccountsBG=#ABCDEF\nDarkTopBar=false\n",
+        );
+        let theme = s.get().unwrap();
+        assert_eq!(theme.accounts_background, "#ABCDEF");
+        assert!(!theme.dark_top_bar);
+    }
+
+    #[test]
+    fn theme_booleans_are_parsed_case_insensitively_and_anything_else_is_false() {
+        let s = seeded(
+            "booleans",
+            "[Roblox Account Manager]\nLabelsTransparent=TRUE\nDarkTopBar=True\n\
+             ShowHeaders=yes\nLightImages=TrUe\n",
+        );
+        let theme = s.get().unwrap();
+        assert!(theme.label_transparent);
+        assert!(theme.dark_top_bar);
+        assert!(!theme.show_headers, "only true/false are recognised");
+        assert!(theme.light_images);
+    }
+
+    #[test]
+    fn an_unparseable_font_spec_falls_back_to_the_default_instead_of_failing() {
+        let s = seeded(
+            "bad-font",
+            "[Roblox Account Manager]\nFontSans={not json}\nFontMono={\"source\":\"google\"}\n",
+        );
+        let theme = s.get().unwrap();
+        assert_eq!(theme.font_sans, Some(default_font_sans()));
+        assert_eq!(
+            theme.font_mono,
+            Some(default_font_mono()),
+            "an incomplete spec is rejected too"
+        );
+    }
+
+    #[test]
+    fn a_theme_file_without_a_known_section_is_ignored() {
+        let s = seeded("wrong-section", "[Other]\nAccountsBG=#000000\n");
+        assert_eq!(s.get().unwrap().accounts_background, "#09090B");
+    }
+
+    // ---- serde -----------------------------------------------------------------------
+
+    #[test]
+    fn theme_data_fills_in_the_toggle_colors_when_the_payload_predates_them() {
+        let json = serde_json::to_value(&ThemeData::default()).unwrap();
+        let mut object = json.as_object().unwrap().clone();
+        object.remove("toggle_on_background");
+        object.remove("toggle_off_background");
+        object.remove("toggle_knob_background");
+
+        let parsed: ThemeData =
+            serde_json::from_value(serde_json::Value::Object(object)).expect("legacy payload");
+        assert_eq!(parsed.toggle_on_background, "#0EA5E9");
+        assert_eq!(parsed.toggle_off_background, "#3F3F46");
+        assert_eq!(parsed.toggle_knob_background, "#FFFFFF");
+    }
+
+    #[test]
+    fn theme_data_requires_its_non_defaulted_colors() {
+        assert!(serde_json::from_str::<ThemeData>("{}").is_err());
+        let mut object = serde_json::to_value(&ThemeData::default())
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .clone();
+        object.remove("accounts_background");
+        assert!(serde_json::from_value::<ThemeData>(serde_json::Value::Object(object)).is_err());
+    }
+
+    #[test]
+    fn font_specs_omit_the_unused_source_variant_when_serialized() {
+        let json = serde_json::to_value(&default_font_sans()).unwrap();
+        assert!(json.get("google").is_some());
+        assert!(json.get("local").is_none(), "None is skipped: {json}");
+
+        let local = ThemeFontSpec {
+            source: "local".to_string(),
+            family: "Local".to_string(),
+            fallbacks: vec![],
+            google: None,
+            local: Some(ThemeFontLocalSpec {
+                file: "f.woff2".to_string(),
+                weight: 400,
+                style: "italic".to_string(),
+            }),
+        };
+        let json = serde_json::to_value(&local).unwrap();
+        assert!(json.get("google").is_none());
+        assert_eq!(json["local"]["file"], "f.woff2");
+
+        // Round trip through the string form used inside the INI.
+        let text = serde_json::to_string(&local).unwrap();
+        assert_eq!(serde_json::from_str::<ThemeFontSpec>(&text).unwrap(), local);
+    }
+}

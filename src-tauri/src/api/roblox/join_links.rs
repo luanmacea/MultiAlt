@@ -552,3 +552,360 @@ mod join_link_http_tests {
         assert_eq!(err, "Invite link is not usable (status: Expired)");
     }
 }
+
+/// The small parsing helpers behind `parse_join_link`, and the link shapes
+/// `join_link_tests` does not already pin.
+#[cfg(test)]
+mod join_link_helper_tests {
+    use super::*;
+
+    #[test]
+    fn values_are_decoded_and_placeholders_dropped() {
+        assert_eq!(join_link_clean_value(" a%20b ").as_deref(), Some("a b"));
+        assert!(join_link_clean_value("   ").is_none());
+        assert!(join_link_clean_value("null").is_none());
+        assert!(join_link_clean_value("UNDEFINED").is_none());
+    }
+
+    #[test]
+    fn the_first_matching_param_wins() {
+        assert_eq!(
+            join_link_first_param("?b=second&a=first", &["a", "b"]).as_deref(),
+            Some("first")
+        );
+        assert_eq!(
+            join_link_first_param("?b=second", &["a", "b"]).as_deref(),
+            Some("second")
+        );
+        assert!(join_link_first_param("?c=third", &["a", "b"]).is_none());
+    }
+
+    #[test]
+    fn the_share_link_path_form_needs_both_segments() {
+        assert_eq!(
+            join_link_share_path_segments("roblox://navigation/share_links/Server/code-1"),
+            Some(("Server".to_string(), "code-1".to_string()))
+        );
+        // Query form, not path form: no segments to read.
+        assert!(join_link_share_path_segments("roblox://navigation/share_links?code=x").is_none());
+        assert!(join_link_share_path_segments("roblox://navigation/share_links/Server").is_none());
+        assert!(join_link_share_path_segments("https://www.roblox.com/games/1").is_none());
+    }
+
+    /// The bare-code heuristic must not swallow ordinary words or ids.
+    #[test]
+    fn a_bare_share_code_is_recognised_by_shape() {
+        assert!(join_link_looks_like_share_code(
+            "_63jb88b8ck3k7p3zf8w2n7i34pdznbcnxvnczrizs6fc00qzm4"
+        ));
+        assert!(!join_link_looks_like_share_code("short"));
+        assert!(!join_link_looks_like_share_code(&"1".repeat(30)));
+        assert!(!join_link_looks_like_share_code(&"a".repeat(81)));
+        assert!(!join_link_looks_like_share_code(
+            "has spaces in it and is long enough"
+        ));
+    }
+
+    #[test]
+    fn the_place_id_is_read_from_the_param_or_the_path() {
+        assert_eq!(join_link_place_id("?placeId=1234"), Some(1234));
+        assert_eq!(join_link_place_id("?placeid=1234"), Some(1234));
+        assert_eq!(
+            join_link_place_id("https://www.roblox.com/games/606849621/Jailbreak"),
+            Some(606_849_621)
+        );
+        assert_eq!(
+            join_link_place_id("roblox://experiences/start?placeId=920587237"),
+            Some(920_587_237)
+        );
+        assert_eq!(join_link_place_id("?placeId=0"), None);
+        assert_eq!(join_link_place_id("?placeId=abc"), None);
+        assert_eq!(join_link_place_id("https://example.com/"), None);
+    }
+
+    #[test]
+    fn share_types_are_matched_case_insensitively() {
+        assert!(join_link_is_invite_type(Some("experienceinvite")));
+        assert!(!join_link_is_invite_type(Some("Server")));
+        assert!(!join_link_is_invite_type(None));
+
+        assert!(join_link_is_server_type(Some("server")));
+        assert!(join_link_is_server_type(Some("PrivateServer")));
+        assert!(!join_link_is_server_type(Some("ExperienceInvite")));
+        assert!(!join_link_is_server_type(None));
+    }
+
+    #[test]
+    fn a_vip_prefix_is_url_decoded() {
+        let parsed = parse_join_link("vip:code%20with%20spaces");
+        assert_eq!(parsed.link_code.as_deref(), Some("code with spaces"));
+    }
+
+    #[test]
+    fn the_lowercase_launch_data_spelling_is_accepted() {
+        let parsed = parse_join_link("https://www.roblox.com/games/start?placeId=12&launchdata=abc");
+        assert_eq!(parsed.launch_data.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn a_job_id_param_is_accepted_under_all_three_names() {
+        for key in ["gameInstanceId", "gameId", "jobId"] {
+            let parsed =
+                parse_join_link(&format!("https://www.roblox.com/games/start?placeId=12&{}=job-x", key));
+            assert_eq!(parsed.job_id.as_deref(), Some("job-x"), "key: {}", key);
+        }
+    }
+
+    /// `is_empty` ignores `launch_data`: a link that only carries launch data
+    /// is still "nothing to join".
+    #[test]
+    fn a_link_with_only_launch_data_counts_as_empty() {
+        let parsed = parse_join_link("https://example.com/?launchData=abc");
+        assert!(parsed.is_empty());
+        assert_eq!(parsed.launch_data.as_deref(), Some("abc"));
+    }
+}
+
+/// `resolve_join_link` end to end: the branches that need no network, plus the
+/// share-link fallbacks and the short-link redirect.
+#[cfg(test)]
+mod join_link_resolve_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
+    use wiremock::matchers::{body_partial_json, header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    /// A private-server link that carries its own place never calls Roblox.
+    #[tokio::test]
+    async fn a_private_server_link_resolves_without_a_request() {
+        let target = resolve_join_link(
+            "unused-token",
+            "https://www.roblox.com/games/606849621/Jailbreak?privateServerLinkCode=8811",
+        )
+        .await
+        .expect("target");
+        assert_eq!(target.kind, "private");
+        assert_eq!(target.place_id, 606_849_621);
+        assert_eq!(target.link_code, "8811");
+    }
+
+    #[tokio::test]
+    async fn a_link_code_without_a_place_asks_for_the_full_link() {
+        let err = resolve_join_link("unused-token", "vip:8811")
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err,
+            "Private server link without a place: paste the full link from the browser."
+        );
+    }
+
+    #[tokio::test]
+    async fn a_plain_game_link_becomes_a_place_target() {
+        let target = resolve_join_link("unused-token", "https://www.roblox.com/games/920587237")
+            .await
+            .expect("target");
+        assert_eq!(target.kind, "place");
+        assert_eq!(target.place_id, 920_587_237);
+        assert!(target.job_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_link_with_an_instance_becomes_a_job_target() {
+        let target = resolve_join_link(
+            "unused-token",
+            "https://www.roblox.com/games/start?placeId=1234&gameInstanceId=job-77&launchData=ld",
+        )
+        .await
+        .expect("target");
+        assert_eq!(target.kind, "job");
+        assert_eq!(target.place_id, 1234);
+        assert_eq!(target.job_id, "job-77");
+        assert_eq!(target.launch_data, "ld");
+    }
+
+    #[tokio::test]
+    async fn an_unrecognised_link_is_rejected() {
+        let err = resolve_join_link("unused-token", "hello there")
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err,
+            "Link not recognized. Paste a Roblox game, invite or private server link."
+        );
+    }
+
+    /// An invite payload without launch data inherits the launch data written
+    /// on the link itself.
+    #[tokio::test]
+    async fn the_links_launch_data_is_kept_when_the_invite_has_none() {
+        let server = mock_server().await;
+        mount_csrf("join-ld", "csrf-join-ld").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("join-ld")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "experienceInviteData": { "status": "Valid", "placeId": 606849621 }
+            })))
+            .mount(server)
+            .await;
+
+        let target = resolve_join_link(
+            "join-ld",
+            "https://www.roblox.com/share?code=code-ld&type=ExperienceInvite&launchData=from-link",
+        )
+        .await
+        .expect("target");
+        assert_eq!(target.launch_data, "from-link");
+    }
+
+    /// A `type=Server` share link skips the invite resolver entirely.
+    #[tokio::test]
+    async fn a_server_share_link_goes_straight_to_the_server_resolver() {
+        let server = mock_server().await;
+        mount_csrf("join-server", "csrf-join-server").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("join-server")))
+            .and(body_partial_json(
+                serde_json::json!({ "linkType": "Server" }),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "privateServerInviteData": {
+                    "status": "Valid",
+                    "placeId": 606849621,
+                    "linkCode": "server-code"
+                }
+            })))
+            .mount(server)
+            .await;
+
+        let target = resolve_join_link(
+            "join-server",
+            "https://www.roblox.com/share-links?code=code-server&type=Server",
+        )
+        .await
+        .expect("target");
+        assert_eq!(target.kind, "private");
+        assert_eq!(target.place_id, 606_849_621);
+        assert_eq!(target.link_code, "server-code");
+    }
+
+    /// An unknown share type tries the invite resolver first and falls back to
+    /// the server one when the payload holds no invite.
+    #[tokio::test]
+    async fn an_unknown_share_type_falls_back_to_the_server_resolver() {
+        let server = mock_server().await;
+        mount_csrf("join-unknown", "csrf-join-unknown").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("join-unknown")))
+            .and(body_partial_json(
+                serde_json::json!({ "linkType": "ExperienceInvite" }),
+            ))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "other": true })),
+            )
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("join-unknown")))
+            .and(body_partial_json(
+                serde_json::json!({ "linkType": "Server" }),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "privateServerInviteData": {
+                    "status": "Valid",
+                    "placeId": 4242,
+                    "linkCode": "fallback-code"
+                }
+            })))
+            .mount(server)
+            .await;
+
+        let target = resolve_join_link(
+            "join-unknown",
+            "https://www.roblox.com/share?code=code-unknown&type=Mystery",
+        )
+        .await
+        .expect("target");
+        assert_eq!(target.kind, "private");
+        assert_eq!(target.place_id, 4242);
+        assert_eq!(target.link_code, "fallback-code");
+    }
+
+    /// An invite-typed link reports the resolver's own error instead of
+    /// retrying as a server link.
+    #[tokio::test]
+    async fn an_invite_link_reports_a_failing_resolver() {
+        let server = mock_server().await;
+        mount_csrf("join-invite-500", "csrf-join-invite-500").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("join-invite-500")))
+            .respond_with(ResponseTemplate::new(500).set_body_string("resolver down"))
+            .mount(server)
+            .await;
+
+        let err = resolve_join_link(
+            "join-invite-500",
+            "https://www.roblox.com/share?code=code-500&type=ExperienceInvite",
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("status 500"), "unexpected error: {}", err);
+    }
+
+    /// A `ro.blox.com` style short link is followed once and the destination is
+    /// parsed in its place.
+    #[tokio::test]
+    async fn a_short_link_is_followed_once() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/short/join-target")))
+            .respond_with(ResponseTemplate::new(302).insert_header(
+                "location",
+                "https://www.roblox.com/games/start?placeId=555&gameInstanceId=job-short",
+            ))
+            .mount(server)
+            .await;
+
+        let target = resolve_join_link(
+            "unused-token",
+            &format!("{}/short/join-target", endpoints::host("www")),
+        )
+        .await
+        .expect("target");
+        assert_eq!(target.kind, "job");
+        assert_eq!(target.place_id, 555);
+        assert_eq!(target.job_id, "job-short");
+    }
+
+    /// A short link that does not redirect stays unrecognised.
+    #[tokio::test]
+    async fn a_short_link_without_a_location_is_rejected() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/short/dead-end")))
+            .respond_with(ResponseTemplate::new(200).set_body_string("no redirect"))
+            .mount(server)
+            .await;
+
+        let err = resolve_join_link(
+            "unused-token",
+            &format!("{}/short/dead-end", endpoints::host("www")),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            err,
+            "Link not recognized. Paste a Roblox game, invite or private server link."
+        );
+    }
+}

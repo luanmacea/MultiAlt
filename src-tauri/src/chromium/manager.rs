@@ -72,3 +72,85 @@ impl ChromiumManager {
         self.login_cookie.lock().unwrap().clone()
     }
 }
+
+#[cfg(test)]
+mod chromium_manager_tests {
+    use super::*;
+
+    // Profile keying and cookie state. Anything that owns a `Child` (track /
+    // kill / is_alive) needs a real browser process and is left to manual
+    // testing; only the states reachable without one are covered.
+
+    #[test]
+    fn a_new_manager_holds_no_cookie_and_no_children() {
+        let manager = ChromiumManager::new();
+        assert!(manager.login_cookie().is_none());
+        assert!(!manager.is_alive(LOGIN_KEY));
+        assert!(!manager.is_alive(1));
+    }
+
+    #[test]
+    fn default_matches_new() {
+        let manager = ChromiumManager::default();
+        assert!(manager.login_cookie().is_none());
+        assert!(!manager.is_alive(LOGIN_KEY));
+    }
+
+    #[test]
+    fn the_login_cookie_can_be_set_replaced_and_cleared() {
+        let manager = ChromiumManager::new();
+
+        manager.set_login_cookie(Some("token-1".into()));
+        assert_eq!(manager.login_cookie().as_deref(), Some("token-1"));
+
+        manager.set_login_cookie(Some("token-2".into()));
+        assert_eq!(manager.login_cookie().as_deref(), Some("token-2"));
+
+        manager.set_login_cookie(None);
+        assert!(manager.login_cookie().is_none());
+    }
+
+    #[test]
+    fn closing_the_login_session_clears_the_captured_cookie() {
+        // The cookie must never survive a session, otherwise the next login
+        // could import the previous account.
+        let manager = ChromiumManager::new();
+        manager.set_login_cookie(Some("token".into()));
+        manager.close_login_session();
+        assert!(manager.login_cookie().is_none());
+    }
+
+    #[test]
+    fn closing_a_session_that_never_started_is_harmless() {
+        let manager = ChromiumManager::new();
+        manager.close_login_session();
+        manager.close_login_session();
+        manager.kill(42);
+        assert!(manager.login_cookie().is_none());
+    }
+
+    #[test]
+    fn is_alive_is_false_for_an_account_that_was_never_tracked() {
+        let manager = ChromiumManager::new();
+        assert!(!manager.is_alive(0));
+        assert!(!manager.is_alive(i64::MAX));
+        assert!(!manager.is_alive(LOGIN_KEY));
+    }
+
+    #[test]
+    fn the_login_key_can_never_collide_with_a_roblox_user_id() {
+        // Roblox user ids are positive, so i64::MIN is a safe sentinel.
+        assert_eq!(LOGIN_KEY, i64::MIN);
+        assert!(LOGIN_KEY < 0);
+    }
+
+    #[test]
+    fn the_manager_is_usable_from_several_threads() {
+        let manager = std::sync::Arc::new(ChromiumManager::new());
+        let writer = manager.clone();
+        std::thread::spawn(move || writer.set_login_cookie(Some("from-thread".into())))
+            .join()
+            .unwrap();
+        assert_eq!(manager.login_cookie().as_deref(), Some("from-thread"));
+    }
+}

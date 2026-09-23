@@ -14,6 +14,8 @@ use super::manager::{ChromiumManager, LOGIN_KEY};
 const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
 const ROBLOX_HOME_URL: &str = "https://www.roblox.com/home";
 
+/// Strips the `.ROBLOSECURITY=` prefix, surrounding quotes and any cookie
+/// attributes from a raw cookie string.
 fn normalize_security_token(raw: &str) -> String {
     let trimmed = raw.trim();
     let no_name = trimmed.strip_prefix(".ROBLOSECURITY=").unwrap_or(trimmed);
@@ -289,4 +291,139 @@ pub async fn import_userpass(
         user_id: info.user_id,
         name: info.name,
     })
+}
+
+#[cfg(test)]
+mod chromium_commands_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Only the pure helpers. The Tauri commands themselves start a browser and
+    // talk to Roblox, so they stay manual.
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!("ram4-chromeprofile-{}-{}-{}", tag, nanos, n))
+    }
+
+    // ── normalize_security_token ───────────────────────────────────────────
+
+    #[test]
+    fn normalize_security_token_passes_a_bare_token_through() {
+        assert_eq!(normalize_security_token("_|WARNING:-token"), "_|WARNING:-token");
+    }
+
+    #[test]
+    fn normalize_security_token_strips_the_cookie_name() {
+        assert_eq!(
+            normalize_security_token(".ROBLOSECURITY=_|WARNING:-token"),
+            "_|WARNING:-token"
+        );
+    }
+
+    #[test]
+    fn normalize_security_token_drops_cookie_attributes() {
+        assert_eq!(
+            normalize_security_token(
+                ".ROBLOSECURITY=_|WARNING:-token; Path=/; Domain=.roblox.com; HttpOnly"
+            ),
+            "_|WARNING:-token"
+        );
+        assert_eq!(normalize_security_token("token; Secure"), "token");
+    }
+
+    #[test]
+    fn normalize_security_token_removes_wrapping_quotes_and_whitespace() {
+        assert_eq!(normalize_security_token("  token  "), "token");
+        assert_eq!(normalize_security_token("\"token\""), "token");
+        assert_eq!(
+            normalize_security_token("  .ROBLOSECURITY=\"token\"; Path=/  "),
+            "token"
+        );
+    }
+
+    #[test]
+    fn normalize_security_token_keeps_a_trailing_quote_when_a_space_follows_it() {
+        // Known quirk, pinned so a change is noticed: the quotes are trimmed
+        // BEFORE the final `.trim()`, so `"token" ; Path=/` leaves the closing
+        // quote attached (the value ends in a space, not a quote).
+        assert_eq!(
+            normalize_security_token("  .ROBLOSECURITY=\"token\" ; Path=/  "),
+            "token\""
+        );
+    }
+
+    #[test]
+    fn normalize_security_token_handles_empty_and_degenerate_input() {
+        assert_eq!(normalize_security_token(""), "");
+        assert_eq!(normalize_security_token("   "), "");
+        assert_eq!(normalize_security_token(".ROBLOSECURITY="), "");
+        assert_eq!(normalize_security_token(";"), "");
+        assert_eq!(normalize_security_token("\"\""), "");
+    }
+
+    #[test]
+    fn normalize_security_token_keeps_the_name_when_it_is_not_a_prefix() {
+        // Only a leading ".ROBLOSECURITY=" is a cookie name.
+        assert_eq!(
+            normalize_security_token("x.ROBLOSECURITY=token"),
+            "x.ROBLOSECURITY=token"
+        );
+    }
+
+    // ── wipe_profile_dir ───────────────────────────────────────────────────
+
+    #[test]
+    fn wipe_profile_dir_removes_the_profile_tree() {
+        let dir = temp_dir("wipe");
+        std::fs::create_dir_all(dir.join("Default").join("Cache")).unwrap();
+        std::fs::write(dir.join("Default").join("Cookies"), b"data").unwrap();
+
+        wipe_profile_dir(&dir).expect("wipe");
+        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn wipe_profile_dir_treats_a_missing_profile_as_success() {
+        // A first login has no profile yet; that must not be an error.
+        let dir = temp_dir("wipemissing");
+        assert!(!dir.exists());
+        wipe_profile_dir(&dir).expect("missing profile is fine");
+        wipe_profile_dir(&dir).expect("still fine on a second call");
+    }
+
+    #[test]
+    fn wipe_profile_dir_reports_the_path_when_it_cannot_delete() {
+        // A regular file is not a directory tree: remove_dir_all fails with
+        // something other than NotFound, which must surface as an error.
+        let file = temp_dir("wipefile");
+        std::fs::create_dir_all(file.parent().unwrap()).ok();
+        std::fs::write(&file, b"not a directory").unwrap();
+
+        let result = wipe_profile_dir(&file);
+        let _ = std::fs::remove_file(&file);
+
+        let err = result.expect_err("a file is not a profile directory");
+        assert!(
+            err.starts_with("Could not clear login profile at"),
+            "got {}",
+            err
+        );
+        assert!(err.contains(&file.display().to_string()));
+    }
+
+    // ── URL constants ──────────────────────────────────────────────────────
+
+    #[test]
+    fn the_login_and_home_urls_point_at_roblox_over_https() {
+        for url in [ROBLOX_LOGIN_URL, ROBLOX_HOME_URL] {
+            assert!(url.starts_with("https://www.roblox.com/"), "{}", url);
+        }
+        assert_ne!(ROBLOX_LOGIN_URL, ROBLOX_HOME_URL);
+    }
 }

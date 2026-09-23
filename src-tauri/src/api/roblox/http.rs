@@ -117,3 +117,86 @@ mod http_retry_tests {
         drop(throttled);
     }
 }
+
+/// The client builders and the transport-failure branch of `send_with_retry`,
+/// which `http_retry_tests` above does not reach.
+#[cfg(test)]
+mod http_client_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{mock_path, mock_server};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    #[test]
+    fn the_cookie_header_is_the_roblosecurity_pair() {
+        assert_eq!(cookie_header("tok"), ".ROBLOSECURITY=tok");
+        assert_eq!(cookie_header(""), ".ROBLOSECURITY=");
+    }
+
+    /// Roblox only accepts the game-join endpoints from its own client, so the
+    /// join client must keep sending the `Roblox/WinInet` user agent.
+    #[tokio::test]
+    async fn the_game_join_client_sends_the_roblox_user_agent() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("gamejoin", "/test/user-agent")))
+            .and(header("user-agent", "Roblox/WinInet"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ua-ok"))
+            .mount(server)
+            .await;
+
+        let response = game_join_client()
+            .get(format!("{}/test/user-agent", endpoints::host("gamejoin")))
+            .send()
+            .await
+            .expect("response");
+        assert_eq!(response.status().as_u16(), 200);
+        assert_eq!(response.text().await.unwrap(), "ua-ok");
+    }
+
+    /// The no-redirect client is what lets short-link resolution and the
+    /// session refresh read a `Location`/`Set-Cookie` off a 3xx instead of
+    /// silently following it.
+    #[tokio::test]
+    async fn the_no_redirect_client_stops_on_a_302() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/test/redirect-source")))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("location", "https://www.roblox.com/games/1"),
+            )
+            .mount(server)
+            .await;
+
+        let response = no_redirect_client()
+            .get(format!("{}/test/redirect-source", endpoints::host("www")))
+            .send()
+            .await
+            .expect("response");
+        assert_eq!(response.status().as_u16(), 302);
+        assert_eq!(
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
+            Some("https://www.roblox.com/games/1")
+        );
+    }
+
+    /// A transport error (nothing listening) is retried too, and the last
+    /// error is reported once the budget runs out.
+    #[tokio::test]
+    async fn a_transport_failure_is_reported_after_the_retries() {
+        let client = reqwest::Client::new();
+        // Port 1 is never a Roblox mock: the connection is refused immediately.
+        let err = send_with_retry(|| client.get("http://127.0.0.1:1/test/unreachable"))
+            .await
+            .unwrap_err();
+        assert!(
+            err.starts_with("Request failed: "),
+            "unexpected error: {}",
+            err
+        );
+    }
+}

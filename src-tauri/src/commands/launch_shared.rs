@@ -1202,3 +1202,752 @@ mod launch_resolve_tests {
         assert_eq!(MODERATED_GROUP, "moderadas");
     }
 }
+
+#[cfg(test)]
+mod launch_shared_helper_tests {
+    use super::*;
+
+    fn temp_settings(tag: &str) -> SettingsStore {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        SettingsStore::new(std::env::temp_dir().join(format!("ram-lshared-{tag}-{nanos}.ini")))
+    }
+
+    #[allow(dead_code)]
+    fn temp_accounts(tag: &str) -> AccountStore {
+        crypto::init();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        AccountStore::new(std::env::temp_dir().join(format!("ram-lshared-{tag}-{nanos}.json")))
+    }
+
+    // ---- profile_key --------------------------------------------------------
+
+    #[test]
+    fn profile_key_picks_the_setting_key_of_each_profile() {
+        assert_eq!(
+            profile_key(LaunchClientProfile::Normal, "N", "P", "B"),
+            "N"
+        );
+        assert_eq!(
+            profile_key(LaunchClientProfile::BottingPlayer, "N", "P", "B"),
+            "P"
+        );
+        assert_eq!(
+            profile_key(LaunchClientProfile::BottingBot, "N", "P", "B"),
+            "B"
+        );
+    }
+
+    // ---- botting_uses_shared_client_profile / effective_launch_profile ------
+
+    #[test]
+    fn botting_uses_shared_client_profile_defaults_to_true() {
+        let settings = temp_settings("shared-default");
+        assert!(botting_uses_shared_client_profile(&settings));
+    }
+
+    #[test]
+    fn botting_uses_shared_client_profile_is_false_only_for_the_exact_false_value() {
+        let settings = temp_settings("shared-off");
+        settings
+            .set("General", "BottingUseSharedClientProfile", "false")
+            .unwrap();
+        assert!(!botting_uses_shared_client_profile(&settings));
+
+        settings
+            .set("General", "BottingUseSharedClientProfile", "TRUE")
+            .unwrap();
+        assert!(!botting_uses_shared_client_profile(&settings));
+
+        settings
+            .set("General", "BottingUseSharedClientProfile", "true")
+            .unwrap();
+        assert!(botting_uses_shared_client_profile(&settings));
+    }
+
+    #[test]
+    fn effective_launch_profile_collapses_botting_profiles_when_sharing() {
+        let settings = temp_settings("effective-shared");
+        // Default is "share the Normal profile".
+        assert!(matches!(
+            effective_launch_profile(&settings, LaunchClientProfile::BottingBot),
+            LaunchClientProfile::Normal
+        ));
+        assert!(matches!(
+            effective_launch_profile(&settings, LaunchClientProfile::BottingPlayer),
+            LaunchClientProfile::Normal
+        ));
+        assert!(matches!(
+            effective_launch_profile(&settings, LaunchClientProfile::Normal),
+            LaunchClientProfile::Normal
+        ));
+    }
+
+    #[test]
+    fn effective_launch_profile_keeps_botting_profiles_when_not_sharing() {
+        let settings = temp_settings("effective-split");
+        settings
+            .set("General", "BottingUseSharedClientProfile", "false")
+            .unwrap();
+        assert!(matches!(
+            effective_launch_profile(&settings, LaunchClientProfile::BottingBot),
+            LaunchClientProfile::BottingBot
+        ));
+        assert!(matches!(
+            effective_launch_profile(&settings, LaunchClientProfile::BottingPlayer),
+            LaunchClientProfile::BottingPlayer
+        ));
+        assert!(matches!(
+            effective_launch_profile(&settings, LaunchClientProfile::Normal),
+            LaunchClientProfile::Normal
+        ));
+    }
+
+    // ---- start_minimized_for_profile / custom_client_settings_path ---------
+
+    #[test]
+    fn start_minimized_for_profile_reads_the_per_profile_key() {
+        let settings = temp_settings("minimized");
+        settings
+            .set("General", "BottingBotStartRobloxMinimized", "true")
+            .unwrap();
+
+        assert!(!start_minimized_for_profile(
+            &settings,
+            LaunchClientProfile::Normal
+        ));
+        assert!(!start_minimized_for_profile(
+            &settings,
+            LaunchClientProfile::BottingPlayer
+        ));
+        assert!(start_minimized_for_profile(
+            &settings,
+            LaunchClientProfile::BottingBot
+        ));
+    }
+
+    #[test]
+    fn custom_client_settings_path_reads_the_per_profile_key() {
+        let settings = temp_settings("custom-path");
+        settings
+            .set("General", "CustomClientSettings", "C:/normal.json")
+            .unwrap();
+        settings
+            .set(
+                "General",
+                "BottingPlayerCustomClientSettings",
+                "C:/player.json",
+            )
+            .unwrap();
+
+        assert_eq!(
+            custom_client_settings_path(&settings, LaunchClientProfile::Normal),
+            "C:/normal.json"
+        );
+        assert_eq!(
+            custom_client_settings_path(&settings, LaunchClientProfile::BottingPlayer),
+            "C:/player.json"
+        );
+        assert_eq!(
+            custom_client_settings_path(&settings, LaunchClientProfile::BottingBot),
+            ""
+        );
+    }
+
+    // ---- windows_client_overrides ------------------------------------------
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_are_all_off_by_default() {
+        let settings = temp_settings("overrides-default");
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+
+        assert_eq!(overrides.max_fps, None);
+        assert_eq!(overrides.master_volume, None);
+        assert_eq!(overrides.graphics_level, None);
+        assert_eq!(overrides.window_size, None);
+        assert!(overrides.fast_flags.is_none());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_reads_every_enabled_override() {
+        let settings = temp_settings("overrides-on");
+        settings.set("General", "UnlockFPS", "true").unwrap();
+        settings.set("General", "MaxFPSValue", "240").unwrap();
+        settings.set("General", "OverrideClientVolume", "true").unwrap();
+        settings.set("General", "ClientVolume", "0.25").unwrap();
+        settings.set("General", "OverrideClientGraphics", "true").unwrap();
+        settings.set("General", "ClientGraphicsLevel", "7").unwrap();
+        settings.set("General", "OverrideClientWindowSize", "true").unwrap();
+        settings.set("General", "ClientWindowWidth", "800").unwrap();
+        settings.set("General", "ClientWindowHeight", "600").unwrap();
+
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        assert_eq!(overrides.max_fps, Some(240));
+        assert_eq!(overrides.master_volume, Some(0.25));
+        assert_eq!(overrides.graphics_level, Some(7));
+        assert_eq!(overrides.window_size, Some((800, 600)));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_skips_fps_when_the_caller_disallows_it() {
+        // A valid custom ClientAppSettings file wins over the FPS unlock.
+        let settings = temp_settings("overrides-no-fps");
+        settings.set("General", "UnlockFPS", "true").unwrap();
+        settings.set("General", "MaxFPSValue", "240").unwrap();
+
+        let overrides = windows_client_overrides(&settings, false, LaunchClientProfile::Normal);
+        assert_eq!(overrides.max_fps, None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_rejects_non_positive_numbers() {
+        let settings = temp_settings("overrides-zero");
+        settings.set("General", "UnlockFPS", "true").unwrap();
+        settings.set("General", "MaxFPSValue", "0").unwrap();
+        settings.set("General", "OverrideClientGraphics", "true").unwrap();
+        settings.set("General", "ClientGraphicsLevel", "0").unwrap();
+        settings.set("General", "OverrideClientWindowSize", "true").unwrap();
+        settings.set("General", "ClientWindowWidth", "0").unwrap();
+        settings.set("General", "ClientWindowHeight", "600").unwrap();
+
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        assert_eq!(overrides.max_fps, None);
+        assert_eq!(overrides.graphics_level, None);
+        assert_eq!(overrides.window_size, None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_clamps_volume_and_graphics_into_range() {
+        let settings = temp_settings("overrides-clamp");
+        settings.set("General", "OverrideClientVolume", "true").unwrap();
+        settings.set("General", "ClientVolume", "9.5").unwrap();
+        settings.set("General", "OverrideClientGraphics", "true").unwrap();
+        settings.set("General", "ClientGraphicsLevel", "99").unwrap();
+
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        assert_eq!(overrides.master_volume, Some(1.0));
+        assert_eq!(overrides.graphics_level, Some(10));
+
+        settings.set("General", "ClientVolume", "-3").unwrap();
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        assert_eq!(overrides.master_volume, Some(0.0));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_falls_back_to_defaults_for_unparsable_numbers() {
+        let settings = temp_settings("overrides-garbage");
+        settings.set("General", "UnlockFPS", "true").unwrap();
+        settings.set("General", "MaxFPSValue", "not-a-number").unwrap();
+        settings.set("General", "OverrideClientVolume", "true").unwrap();
+        settings.set("General", "ClientVolume", "loud").unwrap();
+
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        assert_eq!(overrides.max_fps, Some(120));
+        assert_eq!(overrides.master_volume, Some(0.5));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_uses_the_bot_profile_keys() {
+        let settings = temp_settings("overrides-bot");
+        settings.set("General", "BottingBotUnlockFPS", "true").unwrap();
+        settings.set("General", "BottingBotMaxFPSValue", "30").unwrap();
+        // The Normal keys must not leak into the bot profile.
+        settings.set("General", "MaxFPSValue", "240").unwrap();
+
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::BottingBot);
+        assert_eq!(overrides.max_fps, Some(30));
+
+        let normal = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        assert_eq!(normal.max_fps, None, "Normal has UnlockFPS off");
+    }
+
+    // ---- browser tracker id -------------------------------------------------
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn get_or_create_browser_tracker_id_keeps_an_existing_id() {
+        let store = temp_accounts("btid-existing");
+        let mut account = data::accounts::Account::new("TOK".into(), "u".into(), 1);
+        account.browser_tracker_id = "  1234567  ".to_string();
+        store.add(account).unwrap();
+        // `add` only merges a few fields for an existing id, so write the
+        // tracker id through `update`.
+        let mut stored = store.get_all().unwrap().remove(0);
+        stored.browser_tracker_id = "  1234567  ".to_string();
+        store.update(stored).unwrap();
+
+        assert_eq!(get_or_create_browser_tracker_id(&store, 1).unwrap(), "1234567");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn get_or_create_browser_tracker_id_generates_and_persists_when_blank() {
+        let store = temp_accounts("btid-generate");
+        store
+            .add(data::accounts::Account::new("TOK".into(), "u".into(), 2))
+            .unwrap();
+
+        let generated = get_or_create_browser_tracker_id(&store, 2).unwrap();
+        assert!(!generated.trim().is_empty());
+        assert!(generated.chars().all(|c| c.is_ascii_digit()));
+
+        let persisted = store.get_all().unwrap()[0].browser_tracker_id.clone();
+        assert_eq!(persisted, generated);
+        // A second call must reuse the persisted id, not roll a new one.
+        assert_eq!(get_or_create_browser_tracker_id(&store, 2).unwrap(), generated);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn get_or_create_browser_tracker_id_for_an_unknown_account_does_not_persist() {
+        let store = temp_accounts("btid-unknown");
+        let generated = get_or_create_browser_tracker_id(&store, 404).unwrap();
+        assert!(!generated.is_empty());
+        assert!(store.get_all().unwrap().is_empty());
+    }
+
+    #[test]
+    fn save_browser_tracker_id_is_a_no_op_for_a_missing_account() {
+        let store = temp_accounts("btid-save-missing");
+        assert!(save_browser_tracker_id(&store, 999, "1").is_ok());
+        assert!(store.get_all().unwrap().is_empty());
+    }
+
+    // ---- now_ms -------------------------------------------------------------
+
+    #[test]
+    fn now_ms_returns_a_plausible_unix_millisecond_timestamp() {
+        let now = now_ms();
+        // 2023-01-01 .. 2100-01-01 in milliseconds.
+        assert!(now > 1_672_531_200_000, "now_ms looks too small: {now}");
+        assert!(now < 4_102_444_800_000, "now_ms looks too large: {now}");
+        assert!(now_ms() >= now, "now_ms must be monotonic in wall-clock terms");
+    }
+
+    // ---- decode_url_component / strip_ascii_prefix -------------------------
+
+    #[test]
+    fn decode_url_component_decodes_percent_escapes() {
+        assert_eq!(decode_url_component("a%20b"), "a b");
+        assert_eq!(decode_url_component("roblox%3A%2F%2F"), "roblox://");
+        assert_eq!(decode_url_component("%C3%A9"), "é");
+    }
+
+    #[test]
+    fn decode_url_component_returns_invalid_input_unchanged() {
+        assert_eq!(decode_url_component("100%"), "100%");
+        assert_eq!(decode_url_component("%ZZ"), "%ZZ");
+        assert_eq!(decode_url_component(""), "");
+        assert_eq!(decode_url_component("já-decodificado"), "já-decodificado");
+    }
+
+    #[test]
+    fn strip_ascii_prefix_is_case_insensitive_and_bounds_safe() {
+        assert_eq!(strip_ascii_prefix("vip:ABC", "vip:"), Some("ABC"));
+        assert_eq!(strip_ascii_prefix("VIP:ABC", "vip:"), Some("ABC"));
+        assert_eq!(strip_ascii_prefix("vi", "vip:"), None);
+        assert_eq!(strip_ascii_prefix("", "vip:"), None);
+        assert_eq!(strip_ascii_prefix("nope:ABC", "vip:"), None);
+        // Must not panic when the prefix length lands inside a multi-byte char.
+        assert_eq!(strip_ascii_prefix("éé", "vip:"), None);
+        assert_eq!(strip_ascii_prefix("ép:x", "vip:"), None);
+    }
+
+    // ---- looks_like_share_link ---------------------------------------------
+
+    #[test]
+    fn looks_like_share_link_matches_every_known_share_shape() {
+        assert!(looks_like_share_link("https://www.roblox.com/share?code=x"));
+        assert!(looks_like_share_link("https://ro.blox.com/share-links/abc"));
+        assert!(looks_like_share_link("roblox://navigation/share_links?code=x"));
+        assert!(looks_like_share_link("https://x/y?type=Server"));
+        assert!(looks_like_share_link("https://x/y?pid=Server"));
+        // Case-insensitive.
+        assert!(looks_like_share_link("HTTPS://WWW.ROBLOX.COM/SHARE?CODE=X"));
+    }
+
+    #[test]
+    fn looks_like_share_link_rejects_plain_game_and_vip_links() {
+        assert!(!looks_like_share_link("https://www.roblox.com/games/123/Name"));
+        assert!(!looks_like_share_link("vip:ABC"));
+        assert!(!looks_like_share_link(""));
+    }
+
+    // ---- extract_private_server_link_code ----------------------------------
+
+    #[test]
+    fn extract_private_server_link_code_reads_the_vip_prefix() {
+        assert_eq!(
+            extract_private_server_link_code("vip:ABC123").as_deref(),
+            Some("ABC123")
+        );
+        assert_eq!(
+            extract_private_server_link_code("VIP:  ABC%20123 ").as_deref(),
+            Some("ABC 123")
+        );
+        assert_eq!(extract_private_server_link_code("vip:"), None);
+        assert_eq!(extract_private_server_link_code("vip:   "), None);
+    }
+
+    #[test]
+    fn extract_private_server_link_code_prefers_private_server_link_code() {
+        assert_eq!(
+            extract_private_server_link_code(
+                "https://www.roblox.com/games/1/x?privateServerLinkCode=AAA&linkCode=BBB"
+            )
+            .as_deref(),
+            Some("AAA")
+        );
+    }
+
+    #[test]
+    fn extract_private_server_link_code_falls_back_to_link_code() {
+        assert_eq!(
+            extract_private_server_link_code("https://www.roblox.com/games/1/x?linkCode=BBB")
+                .as_deref(),
+            Some("BBB")
+        );
+    }
+
+    #[test]
+    fn extract_private_server_link_code_reads_code_only_from_share_shaped_input() {
+        // A bare `code=` query on a non-share URL is not a private server code.
+        assert_eq!(
+            extract_private_server_link_code("https://www.roblox.com/games/1/x?code=CCC"),
+            None
+        );
+        assert_eq!(
+            extract_private_server_link_code("code=CCC").as_deref(),
+            Some("CCC")
+        );
+        assert_eq!(
+            extract_private_server_link_code("https://www.roblox.com/share?code=CCC").as_deref(),
+            Some("CCC")
+        );
+    }
+
+    #[test]
+    fn extract_private_server_link_code_returns_none_for_plain_input() {
+        assert_eq!(extract_private_server_link_code(""), None);
+        assert_eq!(extract_private_server_link_code("   "), None);
+        assert_eq!(
+            extract_private_server_link_code("11111111-2222-3333-4444-555555555555"),
+            None
+        );
+    }
+
+    // ---- resolve_private_join (no network on these paths) ------------------
+
+    #[tokio::test]
+    async fn resolve_private_join_on_a_public_target_uses_the_requested_place() {
+        let launch = resolve_launch_job("", false, "");
+        let resolved = resolve_private_join("", 606849621, &launch).await.unwrap();
+
+        assert_eq!(resolved.place_id, 606849621);
+        assert!(resolved.link_code.is_empty());
+        assert!(resolved.access_code.is_empty());
+        assert!(!resolved.use_private_join);
+    }
+
+    #[tokio::test]
+    async fn resolve_private_join_moves_an_access_code_shaped_value_into_access_code() {
+        let launch = resolve_launch_job("vip:11111111-2222-3333-4444-555555555555", false, "");
+        let resolved = resolve_private_join("", 1, &launch).await.unwrap();
+
+        assert_eq!(resolved.access_code, "11111111-2222-3333-4444-555555555555");
+        assert!(resolved.link_code.is_empty());
+        assert!(resolved.use_private_join);
+    }
+
+    #[tokio::test]
+    async fn resolve_private_join_keeps_a_plain_link_code() {
+        let launch = resolve_launch_job("vip:SHORTCODE", false, "");
+        let resolved = resolve_private_join("", 42, &launch).await.unwrap();
+
+        assert_eq!(resolved.link_code, "SHORTCODE");
+        assert!(resolved.access_code.is_empty());
+        assert!(resolved.use_private_join);
+        assert_eq!(resolved.place_id, 42);
+    }
+
+    #[tokio::test]
+    async fn resolve_private_join_takes_the_place_id_from_a_games_url() {
+        let launch = resolve_launch_job(
+            "https://www.roblox.com/games/606849621/Jailbreak?privateServerLinkCode=SHORT",
+            false,
+            "",
+        );
+        let resolved = resolve_private_join("", 1, &launch).await.unwrap();
+
+        assert_eq!(
+            resolved.place_id, 606849621,
+            "the URL's place id must win over the one passed in"
+        );
+        assert_eq!(resolved.link_code, "SHORT");
+        assert!(resolved.use_private_join);
+    }
+
+    #[tokio::test]
+    async fn resolve_private_join_marks_join_vip_even_without_a_code() {
+        let launch = ResolvedLaunchJob {
+            job_id: String::new(),
+            join_vip: true,
+            link_code: String::new(),
+        };
+        let resolved = resolve_private_join("", 5, &launch).await.unwrap();
+        assert!(resolved.use_private_join);
+        assert_eq!(resolved.place_id, 5);
+    }
+
+    // ---- backoff / 429 detection -------------------------------------------
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn backoff_delay_seconds_doubles_and_clamps_to_the_5_to_300_window() {
+        assert_eq!(backoff_delay_seconds(8, 1, 6), 8);
+        assert_eq!(backoff_delay_seconds(8, 2, 6), 16);
+        assert_eq!(backoff_delay_seconds(8, 3, 6), 32);
+        assert_eq!(backoff_delay_seconds(8, 4, 6), 64);
+        assert_eq!(backoff_delay_seconds(8, 5, 6), 128);
+        assert_eq!(backoff_delay_seconds(8, 6, 6), 256);
+        // Capped at 300 seconds however many retries pile up.
+        assert_eq!(backoff_delay_seconds(8, 7, 6), 300);
+        assert_eq!(backoff_delay_seconds(8, u32::MAX, 6), 300);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn backoff_delay_seconds_never_returns_less_than_five_seconds() {
+        assert_eq!(backoff_delay_seconds(0, 1, 6), 5);
+        assert_eq!(backoff_delay_seconds(1, 1, 6), 5);
+        assert_eq!(backoff_delay_seconds(1, 3, 6), 5);
+        assert_eq!(backoff_delay_seconds(1, 4, 6), 8);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn backoff_delay_seconds_treats_retry_count_zero_as_the_first_attempt() {
+        assert_eq!(backoff_delay_seconds(10, 0, 6), 10);
+        assert_eq!(backoff_delay_seconds(10, 1, 6), 10);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn backoff_delay_seconds_handles_degenerate_retry_max_without_overflowing() {
+        assert_eq!(backoff_delay_seconds(10, 5, 0), 20);
+        assert_eq!(backoff_delay_seconds(u64::MAX, 3, 6), 300);
+        assert_eq!(backoff_delay_seconds(10, 40, u32::MAX), 300);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn is_429_related_error_matches_every_rate_limit_phrasing() {
+        assert!(is_429_related_error("HTTP 429 Too Many Requests"));
+        assert!(is_429_related_error("TOO MANY REQUESTS"));
+        assert!(is_429_related_error("Authentifizierung fehlgeschlagen"));
+        assert!(is_429_related_error("Authentication Failed"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn is_429_related_error_ignores_unrelated_failures() {
+        assert!(!is_429_related_error(""));
+        assert!(!is_429_related_error("network timeout"));
+        assert!(!is_429_related_error("User is moderated"));
+        assert!(!is_429_related_error("status 403"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn title_looks_auth_failure_matches_the_german_and_english_dialogs() {
+        assert!(title_looks_auth_failure("Authentifizierung fehlgeschlagen"));
+        assert!(title_looks_auth_failure("Authentication failed"));
+        assert!(title_looks_auth_failure("Fehlercode: 429"));
+        assert!(title_looks_auth_failure("Roblox — Error Code: 429"));
+        assert!(!title_looks_auth_failure("Roblox"));
+        assert!(!title_looks_auth_failure(""));
+        // A plain 429 in a window title is not enough on its own.
+        assert!(!title_looks_auth_failure("429"));
+    }
+
+    // ---- wait_for_launch_slot ----------------------------------------------
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn wait_for_launch_slot_does_not_wait_on_the_first_launch() {
+        // No previous launch means no spacing to honour, however large the
+        // configured delay is.
+        let start = std::time::Instant::now();
+        let mut last: Option<std::time::Instant> = None;
+        wait_for_launch_slot(&mut last, 3600).await;
+
+        assert!(last.is_some(), "the slot must be stamped for the next launch");
+        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn wait_for_launch_slot_spaces_consecutive_launches_by_the_delay() {
+        let mut last: Option<std::time::Instant> = None;
+        wait_for_launch_slot(&mut last, 1).await;
+        let first_stamp = last.expect("first launch stamps the slot");
+
+        let start = std::time::Instant::now();
+        wait_for_launch_slot(&mut last, 1).await;
+        let waited = start.elapsed();
+
+        assert!(
+            waited >= std::time::Duration::from_millis(900),
+            "expected roughly a 1s gap, waited {waited:?}"
+        );
+        assert!(
+            last.expect("second launch re-stamps the slot") > first_stamp,
+            "the slot timestamp must move forward"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn wait_for_launch_slot_with_a_zero_delay_never_blocks() {
+        let mut last: Option<std::time::Instant> = None;
+        wait_for_launch_slot(&mut last, 0).await;
+        let start = std::time::Instant::now();
+        wait_for_launch_slot(&mut last, 0).await;
+        assert!(start.elapsed() < std::time::Duration::from_millis(500));
+    }
+
+    // ---- wait_for_new_roblox_pid -------------------------------------------
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn wait_for_new_roblox_pid_times_out_when_no_new_client_appears() {
+        // Baseline = every client already running, so nothing can look "new".
+        let baseline = platform::windows::get_roblox_pids();
+        let found =
+            wait_for_new_roblox_pid(&baseline, std::time::Duration::from_millis(1)).await;
+        assert_eq!(found, None);
+    }
+
+    // ---- apply_windows_post_launch_profile ---------------------------------
+
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    async fn apply_windows_post_launch_profile_returns_early_with_no_policy_configured() {
+        // With the shipped defaults there is nothing to apply, so the function
+        // must not touch the (here: nonexistent) process at all.
+        let settings = temp_settings("post-launch-noop");
+        let started = std::time::Instant::now();
+        apply_windows_post_launch_profile(None, &settings, LaunchClientProfile::Normal, 0).await;
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    // ---- botting status payload --------------------------------------------
+
+    #[cfg(target_os = "windows")]
+    fn test_session(stopped: bool) -> BottingSession {
+        let mut players = HashSet::new();
+        players.insert(20);
+        let cfg = BottingConfig {
+            user_ids: vec![30, 10, 20],
+            place_id: 606849621,
+            job_id: "job-1".to_string(),
+            launch_data: "data".to_string(),
+            player_user_ids: players,
+            interval_minutes: 19,
+            launch_delay_seconds: 20,
+            retry_max: 6,
+            retry_base_seconds: 8,
+            player_grace_minutes: 15,
+        };
+        let mut runtime = HashMap::new();
+        for uid in [30_i64, 10, 20] {
+            runtime.insert(
+                uid,
+                BottingAccountRuntime {
+                    user_id: uid,
+                    is_player: uid == 20,
+                    disconnected: false,
+                    manual_restart_pending: false,
+                    manual_restart_keep_schedule: false,
+                    manual_restart_saved_next_restart_at_ms: None,
+                    phase: "queued",
+                    retry_count: 0,
+                    next_restart_at_ms: None,
+                    player_grace_until_ms: None,
+                    last_error: None,
+                },
+            );
+        }
+        BottingSession {
+            id: 7,
+            stop_flag: Arc::new(AtomicBool::new(stopped)),
+            stopped_notify: Arc::new(tokio::sync::Notify::new()),
+            started_at_ms: 1_700_000_000_000,
+            config: Arc::new(Mutex::new(cfg)),
+            accounts: Arc::new(Mutex::new(runtime)),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn botting_status_from_session_sorts_accounts_and_player_ids() {
+        let payload = botting_status_from_session(&test_session(false));
+
+        assert!(payload.active);
+        assert_eq!(payload.started_at_ms, Some(1_700_000_000_000));
+        assert_eq!(payload.place_id, 606849621);
+        assert_eq!(payload.job_id, "job-1");
+        assert_eq!(payload.launch_data, "data");
+        assert_eq!(payload.interval_minutes, 19);
+        assert_eq!(payload.launch_delay_seconds, 20);
+        assert_eq!(payload.player_grace_minutes, 15);
+        assert_eq!(payload.player_user_ids, vec![20]);
+        // user_ids keeps the configured order; accounts are sorted for the UI.
+        assert_eq!(payload.user_ids, vec![30, 10, 20]);
+        let ids: Vec<i64> = payload.accounts.iter().map(|a| a.user_id).collect();
+        assert_eq!(ids, vec![10, 20, 30]);
+        assert!(payload.accounts.iter().any(|a| a.user_id == 20 && a.is_player));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn botting_status_from_session_reports_a_stopping_session_as_inactive() {
+        let payload = botting_status_from_session(&test_session(true));
+        assert!(!payload.active);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn botting_status_payload_serializes_with_camel_case_keys() {
+        let payload = botting_status_from_session(&test_session(false));
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["startedAtMs"], 1_700_000_000_000_i64);
+        assert_eq!(json["intervalMinutes"], 19);
+        assert_eq!(json["launchDelaySeconds"], 20);
+        assert_eq!(json["playerGraceMinutes"], 15);
+        assert_eq!(json["playerUserIds"], serde_json::json!([20]));
+        assert_eq!(json["accounts"][0]["userId"], 10);
+        assert_eq!(json["accounts"][0]["retryCount"], 0);
+    }
+
+    #[test]
+    fn botting_status_payload_default_is_an_inactive_session() {
+        let payload = BottingStatusPayload::default();
+        assert!(!payload.active);
+        assert_eq!(payload.started_at_ms, None);
+        assert!(payload.accounts.is_empty());
+        assert!(payload.user_ids.is_empty());
+    }
+}

@@ -277,13 +277,19 @@ fn set_nexus_element_value(_name: String, _value: String) -> Result<(), String> 
     Err(NEXUS_DISABLED_ERR.into())
 }
 
+/// The Nexus.lua script shipped inside the binary and written out on demand.
+#[cfg(feature = "nexus")]
+fn nexus_lua_asset() -> &'static str {
+    include_str!("../../assets/Nexus.lua")
+}
+
 #[cfg(feature = "nexus")]
 #[tauri::command]
 fn export_nexus_lua() -> Result<String, String> {
     let out_path = std::env::current_dir()
         .map_err(|e| format!("Failed to read current directory: {}", e))?
         .join("Nexus.lua");
-    let content = include_str!("../../assets/Nexus.lua");
+    let content = nexus_lua_asset();
     std::fs::write(&out_path, content).map_err(|e| format!("Failed to write Nexus.lua: {}", e))?;
     Ok(out_path.to_string_lossy().into_owned())
 }
@@ -294,9 +300,12 @@ fn export_nexus_lua() -> Result<String, String> {
     Err(NEXUS_DISABLED_ERR.into())
 }
 
+/// Project page opened by the "repository" button.
+const REPO_URL: &str = "https://github.com/niccsprojects/Roblox-Account-Manager";
+
 #[tauri::command]
 fn open_repo_url() -> Result<(), String> {
-    let url = "https://github.com/niccsprojects/Roblox-Account-Manager";
+    let url = REPO_URL;
 
     #[cfg(target_os = "windows")]
     {
@@ -362,4 +371,69 @@ fn sync_windows_navbar_theme(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod services_command_tests {
+    use super::*;
+
+    #[test]
+    fn disabled_build_messages_name_the_feature_that_is_off() {
+        assert_eq!(WEBSERVER_DISABLED_ERR, "Web server is disabled in this build");
+        assert_eq!(NEXUS_DISABLED_ERR, "Nexus is disabled in this build");
+    }
+
+    #[test]
+    fn repo_url_points_at_the_project_over_https() {
+        assert_eq!(REPO_URL, "https://github.com/niccsprojects/Roblox-Account-Manager");
+        assert!(REPO_URL.starts_with("https://github.com/"));
+        // No shell metacharacters: the URL is handed to `cmd /C start`.
+        assert!(!REPO_URL.contains(|c: char| c.is_whitespace() || c == '&' || c == '"'));
+    }
+
+    #[cfg(feature = "nexus")]
+    #[test]
+    fn nexus_lua_asset_is_embedded_and_looks_like_the_bridge_script() {
+        let asset = nexus_lua_asset();
+        assert!(!asset.trim().is_empty(), "Nexus.lua must be embedded");
+        let lower = asset.to_ascii_lowercase();
+        assert!(
+            lower.contains("websocket") || lower.contains("nexus"),
+            "Nexus.lua does not look like the bridge script"
+        );
+    }
+
+    #[test]
+    fn web_server_status_serializes_the_fields_the_ui_reads() {
+        let json = serde_json::to_value(WebServerStatusResponse {
+            running: true,
+            port: 7963,
+        })
+        .unwrap();
+        assert_eq!(json["running"], true);
+        assert_eq!(json["port"], 7963);
+    }
+
+    #[test]
+    fn get_web_server_status_answers_without_a_running_app() {
+        // The command must be callable even before anything started the server.
+        let status = get_web_server_status().expect("status should be readable");
+        let _ = status.port;
+        assert!(status.port <= u16::MAX);
+    }
+
+    #[test]
+    fn get_nexus_status_answers_without_a_running_app() {
+        let status = get_nexus_status().expect("status should be readable");
+        let json = serde_json::to_value(&status).unwrap();
+        assert!(json.get("running").is_some(), "status payload: {json}");
+    }
+
+    #[test]
+    fn nexus_read_only_commands_return_empty_collections_when_idle() {
+        assert!(get_nexus_accounts().expect("accounts").is_empty());
+        assert!(get_nexus_elements().expect("elements").is_empty());
+        // The log may already hold startup lines; it must at least be readable.
+        assert!(get_nexus_log().is_ok());
+    }
 }

@@ -22,7 +22,15 @@ static BASE: OnceLock<String> = OnceLock::new();
 ///
 /// `sub` is the subdomain label: `"auth"`, `"apis"`, `"users"`, `"www"`, ...
 pub fn host(sub: &str) -> String {
-    match BASE.get() {
+    format_host(BASE.get().map(|s| s.as_str()), sub)
+}
+
+/// Pure half of [`host`]: the URL for `sub` given the current override.
+///
+/// Split out so the production formatting (`base == None`) stays testable —
+/// `BASE` is process-wide and every test binary sets it to the mock server.
+fn format_host(base: Option<&str>, sub: &str) -> String {
+    match base {
         Some(base) => format!("{}/{}", base, sub),
         None => format!("https://{}.roblox.com", sub),
     }
@@ -97,5 +105,62 @@ pub mod test_support {
         assert_eq!(super::host("auth"), format!("{}/auth", server.uri()));
         assert_eq!(super::host("www"), format!("{}/www", server.uri()));
         assert_eq!(mock_path("users", "/v1/users/1"), "/users/v1/users/1");
+    }
+}
+
+#[cfg(test)]
+mod endpoint_host_tests {
+    use super::format_host;
+
+    /// Production formatting: `host("auth")` must stay byte-identical to the
+    /// hardcoded `https://auth.roblox.com` every call site used to build.
+    #[test]
+    fn default_base_builds_the_roblox_subdomain() {
+        for sub in [
+            "auth",
+            "apis",
+            "users",
+            "www",
+            "web",
+            "games",
+            "gamejoin",
+            "thumbnails",
+            "economy",
+            "friends",
+            "groups",
+            "presence",
+            "avatar",
+            "develop",
+            "accountsettings",
+        ] {
+            assert_eq!(
+                format_host(None, sub),
+                format!("https://{}.roblox.com", sub)
+            );
+        }
+    }
+
+    /// In test mode the subdomain becomes a path prefix so two subdomains can
+    /// never collide on the same path of the single shared mock server.
+    #[test]
+    fn an_override_turns_the_subdomain_into_a_path_prefix() {
+        assert_eq!(
+            format_host(Some("http://127.0.0.1:8080"), "auth"),
+            "http://127.0.0.1:8080/auth"
+        );
+        assert_eq!(
+            format_host(Some("http://127.0.0.1:8080"), "www"),
+            "http://127.0.0.1:8080/www"
+        );
+    }
+
+    #[test]
+    fn the_override_is_stored_without_a_trailing_slash() {
+        // `set_base_for_tests` trims trailing slashes; formatting must not add
+        // a second one.
+        assert_eq!(
+            format_host(Some("http://127.0.0.1:8080"), "users"),
+            "http://127.0.0.1:8080/users"
+        );
     }
 }

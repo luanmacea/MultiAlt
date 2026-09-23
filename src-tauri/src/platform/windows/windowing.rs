@@ -361,3 +361,209 @@ pub fn get_process_memory_mb(pid: u32) -> Option<u64> {
         }
     }
 }
+
+#[cfg(test)]
+mod win_windowing_tests {
+    use super::*;
+
+    // Only the pure geometry is covered: `most_common_size` and `compute_grid`
+    // together are everything `arrange_roblox_grid` decides before it calls
+    // MoveWindow. Enumeration and window moving need a live desktop.
+
+    fn win(x: i32, y: i32, w: i32, h: i32) -> RobloxWin {
+        RobloxWin {
+            hwnd: 0,
+            x,
+            y,
+            w,
+            h,
+        }
+    }
+
+    fn monitor(index: usize, x: i32, y: i32, width: i32, height: i32) -> MonitorInfoDto {
+        MonitorInfoDto {
+            index,
+            x,
+            y,
+            width,
+            height,
+            primary: index == 1,
+        }
+    }
+
+    // ── most_common_size ───────────────────────────────────────────────────
+
+    #[test]
+    fn most_common_size_picks_the_modal_window_size() {
+        let wins = vec![
+            win(0, 0, 800, 600),
+            win(0, 0, 800, 600),
+            win(0, 0, 1280, 720),
+        ];
+        assert_eq!(most_common_size(&wins), (800, 600));
+    }
+
+    #[test]
+    fn most_common_size_breaks_ties_with_the_largest_area() {
+        let wins = vec![
+            win(0, 0, 800, 600),
+            win(0, 0, 1280, 720),
+            win(0, 0, 640, 480),
+        ];
+        assert_eq!(most_common_size(&wins), (1280, 720));
+    }
+
+    #[test]
+    fn most_common_size_falls_back_to_800x600_for_no_windows() {
+        assert_eq!(most_common_size(&[]), (800, 600));
+    }
+
+    #[test]
+    fn most_common_size_returns_the_only_size_when_all_windows_match() {
+        let wins = vec![win(0, 0, 1920, 1080); 5];
+        assert_eq!(most_common_size(&wins), (1920, 1080));
+    }
+
+    // ── compute_grid ───────────────────────────────────────────────────────
+
+    #[test]
+    fn compute_grid_lays_cells_out_left_to_right_then_top_to_bottom() {
+        // 1000x1000 monitor, 400x400 windows, gap 10:
+        // x: 10, 420 (830 + 400 > 1000 -> row ends)
+        // y: 10, 420 (830 + 400 > 1000 -> monitor exhausted)
+        let monitors = vec![monitor(1, 0, 0, 1000, 1000)];
+        let cells = compute_grid(&monitors, 400, 400, 4, 10);
+
+        assert_eq!(cells.len(), 4);
+        assert_eq!((cells[0].x, cells[0].y), (10, 10));
+        assert_eq!((cells[1].x, cells[1].y), (420, 10));
+        assert_eq!((cells[2].x, cells[2].y), (10, 420));
+        assert_eq!((cells[3].x, cells[3].y), (420, 420));
+    }
+
+    #[test]
+    fn compute_grid_never_returns_more_cells_than_requested() {
+        let monitors = vec![monitor(1, 0, 0, 1000, 1000)];
+        for count in 0..=4 {
+            assert_eq!(compute_grid(&monitors, 400, 400, count, 10).len(), count);
+        }
+    }
+
+    #[test]
+    fn compute_grid_stops_when_the_monitor_runs_out_of_room() {
+        // Only 4 cells fit; asking for 10 yields 4.
+        let monitors = vec![monitor(1, 0, 0, 1000, 1000)];
+        assert_eq!(compute_grid(&monitors, 400, 400, 10, 10).len(), 4);
+    }
+
+    #[test]
+    fn compute_grid_honours_the_monitor_origin() {
+        let monitors = vec![monitor(1, -1920, 120, 1000, 1000)];
+        let cells = compute_grid(&monitors, 400, 400, 2, 10);
+        assert_eq!((cells[0].x, cells[0].y), (-1910, 130));
+        assert_eq!((cells[1].x, cells[1].y), (-1500, 130));
+    }
+
+    #[test]
+    fn compute_grid_continues_onto_the_next_monitor() {
+        // First monitor fits exactly one cell, second takes the remainder.
+        let monitors = vec![
+            monitor(1, 0, 0, 500, 500),
+            monitor(2, 2000, 0, 1000, 1000),
+        ];
+        let cells = compute_grid(&monitors, 400, 400, 3, 10);
+
+        assert_eq!(cells.len(), 3);
+        assert_eq!((cells[0].x, cells[0].y), (10, 10));
+        assert_eq!((cells[1].x, cells[1].y), (2010, 10));
+        assert_eq!((cells[2].x, cells[2].y), (2420, 10));
+    }
+
+    #[test]
+    fn compute_grid_skips_a_monitor_too_small_for_even_one_window() {
+        let monitors = vec![
+            monitor(1, 0, 0, 200, 200), // 400x400 cannot fit
+            monitor(2, 1000, 0, 1000, 1000),
+        ];
+        let cells = compute_grid(&monitors, 400, 400, 2, 10);
+        assert_eq!(cells.len(), 2);
+        assert_eq!((cells[0].x, cells[0].y), (1010, 10));
+        assert_eq!((cells[1].x, cells[1].y), (1420, 10));
+    }
+
+    #[test]
+    fn compute_grid_returns_nothing_when_the_windows_are_larger_than_every_monitor() {
+        let monitors = vec![monitor(1, 0, 0, 800, 600)];
+        assert!(compute_grid(&monitors, 1920, 1080, 4, 10).is_empty());
+    }
+
+    #[test]
+    fn compute_grid_returns_nothing_without_monitors() {
+        assert!(compute_grid(&[], 400, 400, 4, 10).is_empty());
+    }
+
+    #[test]
+    fn compute_grid_with_a_zero_gap_still_leaves_no_overlap() {
+        let monitors = vec![monitor(1, 0, 0, 800, 800)];
+        let cells = compute_grid(&monitors, 400, 400, 4, 0);
+        assert_eq!(cells.len(), 4);
+        assert_eq!((cells[0].x, cells[0].y), (0, 0));
+        assert_eq!((cells[1].x, cells[1].y), (400, 0));
+        assert_eq!((cells[2].x, cells[2].y), (0, 400));
+        assert_eq!((cells[3].x, cells[3].y), (400, 400));
+
+        // No two cells of the same size may overlap.
+        for (i, a) in cells.iter().enumerate() {
+            for b in cells.iter().skip(i + 1) {
+                let overlaps_x = a.x < b.x + 400 && b.x < a.x + 400;
+                let overlaps_y = a.y < b.y + 400 && b.y < a.y + 400;
+                assert!(!(overlaps_x && overlaps_y), "cells overlap");
+            }
+        }
+    }
+
+    #[test]
+    fn a_larger_gap_fits_fewer_cells() {
+        let monitors = vec![monitor(1, 0, 0, 1000, 1000)];
+        let small_gap = compute_grid(&monitors, 400, 400, 16, 10).len();
+        let large_gap = compute_grid(&monitors, 400, 400, 16, 150).len();
+        assert_eq!(small_gap, 4);
+        assert!(
+            large_gap < small_gap,
+            "a bigger gap should fit fewer cells ({} vs {})",
+            large_gap,
+            small_gap
+        );
+    }
+
+    #[test]
+    fn every_cell_stays_inside_its_monitor_work_area() {
+        let monitors = vec![
+            monitor(1, 0, 0, 1920, 1040),
+            monitor(2, 1920, -200, 2560, 1400),
+        ];
+        let (w, h) = (640, 360);
+        let cells = compute_grid(&monitors, w, h, 40, 12);
+        assert!(!cells.is_empty());
+
+        for cell in &cells {
+            let inside = monitors.iter().any(|m| {
+                cell.x >= m.x
+                    && cell.y >= m.y
+                    && cell.x + w <= m.x + m.width
+                    && cell.y + h <= m.y + m.height
+            });
+            assert!(inside, "cell ({}, {}) escaped every monitor", cell.x, cell.y);
+        }
+    }
+
+    #[test]
+    fn monitor_info_dto_serializes_its_fields() {
+        let json = serde_json::to_value(monitor(1, -100, 0, 1920, 1080)).unwrap();
+        assert_eq!(json["index"], 1);
+        assert_eq!(json["x"], -100);
+        assert_eq!(json["width"], 1920);
+        assert_eq!(json["height"], 1080);
+        assert_eq!(json["primary"], true);
+    }
+}

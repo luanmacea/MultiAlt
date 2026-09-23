@@ -397,3 +397,310 @@ mod ini_tests {
         assert!(ini.to_map().is_empty());
     }
 }
+
+#[cfg(test)]
+mod ini_structure_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn parsed(content: &str) -> IniFile {
+        let mut ini = IniFile::new();
+        ini.parse(content);
+        ini
+    }
+
+    fn temp_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("ram-inistruct-{name}-{nanos}.ini"))
+    }
+
+    // ---- IniFile::new / section ------------------------------------------------
+
+    #[test]
+    fn a_new_ini_file_is_empty_and_writes_without_spacing() {
+        let ini = IniFile::new();
+        assert!(ini.to_map().is_empty());
+        assert!(!ini.write_spacing);
+        assert_eq!(ini.comment_char, '#');
+    }
+
+    #[test]
+    fn section_creates_once_and_then_returns_the_same_section() {
+        let mut ini = IniFile::new();
+        ini.section("General").set("A", "1", None);
+        ini.section("General").set("B", "2", None);
+        ini.section("Other").set("A", "3", None);
+
+        let map = ini.to_map();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["General"].len(), 2);
+        assert_eq!(map["General"]["A"], "1");
+        assert_eq!(map["Other"]["A"], "3");
+    }
+
+    #[test]
+    fn get_section_sees_a_section_created_through_section_even_while_empty() {
+        let mut ini = IniFile::new();
+        ini.section("Prompts");
+        let section = ini.get_section("Prompts").expect("section exists in memory");
+        assert!(section.to_map().is_empty());
+        assert!(!section.exists("anything"));
+        assert_eq!(section.get("anything"), None);
+        assert!(ini.to_map().contains_key("Prompts"));
+    }
+
+    #[test]
+    fn section_names_are_case_sensitive() {
+        let mut ini = IniFile::new();
+        ini.section("General").set("A", "1", None);
+        ini.section("general").set("A", "2", None);
+        let map = ini.to_map();
+        assert_eq!(map.len(), 2);
+        assert_eq!(map["General"]["A"], "1");
+        assert_eq!(map["general"]["A"], "2");
+    }
+
+    // ---- parse edge cases --------------------------------------------------------
+
+    #[test]
+    fn parse_ignores_lines_without_an_equals_sign() {
+        let ini = parsed("[General]\njust-a-word\nReal=1\n");
+        let general = ini.get_section("General").expect("General");
+        assert_eq!(general.to_map().len(), 1);
+        assert_eq!(general.get("Real"), Some("1"));
+    }
+
+    #[test]
+    fn parse_drops_a_line_whose_key_is_empty() {
+        let ini = parsed("[General]\n=orphan value\n   =also orphan\nReal=1\n");
+        let general = ini.get_section("General").expect("General");
+        assert_eq!(general.to_map().len(), 1);
+        assert!(!general.exists(""));
+    }
+
+    #[test]
+    fn parse_accepts_an_empty_section_header_as_a_section_named_empty_string() {
+        let ini = parsed("[]\nKey=value\n");
+        let map = ini.to_map();
+        assert_eq!(map[""]["Key"], "value");
+    }
+
+    #[test]
+    fn parse_only_treats_a_line_as_a_header_when_it_starts_and_ends_with_brackets() {
+        // A malformed header is not a header; without '=' the line is dropped
+        // and its keys stay in whatever section came before.
+        let ini = parsed("[General]\nA=1\n[Broken\nB=2\nAlso]\nC=3\n");
+        let general = ini.get_section("General").expect("General");
+        assert_eq!(general.get("A"), Some("1"));
+        assert_eq!(general.get("B"), Some("2"), "B lands in [General]");
+        assert_eq!(general.get("C"), Some("3"));
+        assert!(ini.get_section("Broken").is_none());
+    }
+
+    #[test]
+    fn parse_trims_whitespace_around_the_section_header() {
+        let ini = parsed("   [General]   \nA=1\n");
+        assert_eq!(ini.get_section("General").and_then(|s| s.get("A")), Some("1"));
+    }
+
+    #[test]
+    fn parse_only_skips_comments_that_start_the_trimmed_line() {
+        let ini = parsed("[General]\nUrl=http://x#anchor\nOther=1 ; trailing\n");
+        let general = ini.get_section("General").expect("General");
+        assert_eq!(
+            general.get("Url"),
+            Some("http://x#anchor"),
+            "an inline # is part of the value"
+        );
+        assert_eq!(general.get("Other"), Some("1 ; trailing"));
+    }
+
+    #[test]
+    fn parse_handles_crlf_line_endings() {
+        let ini = parsed("[General]\r\nLanguage=en\r\n[WebServer]\r\nWebServerPort=7963\r\n");
+        assert_eq!(
+            ini.get_section("General").and_then(|s| s.get("Language")),
+            Some("en")
+        );
+        assert_eq!(
+            ini.get_section("WebServer").and_then(|s| s.get("WebServerPort")),
+            Some("7963")
+        );
+    }
+
+    #[test]
+    fn the_legacy_section_rename_merges_into_an_existing_modern_section() {
+        let ini = parsed("[Roblox Account Manager]\nA=1\n[RBX Alt Manager]\nB=2\n");
+        let map = ini.to_map();
+        assert_eq!(map.len(), 1);
+        assert_eq!(map["Roblox Account Manager"]["A"], "1");
+        assert_eq!(map["Roblox Account Manager"]["B"], "2");
+    }
+
+    // ---- IniSection::set / remove --------------------------------------------------
+
+    #[test]
+    fn set_keeps_insertion_order_and_remove_is_tolerant_of_unknown_keys() {
+        let mut ini = IniFile::new();
+        let general = ini.section("General");
+        general.set("First", "1", None);
+        general.set("Second", "2", None);
+        general.set("Third", "3", None);
+        general.remove("NotThere");
+        general.remove("Second");
+        general.set("Fourth", "4", None);
+
+        let path = temp_path("order");
+        ini.save(&path).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        let body = raw.trim().lines().collect::<Vec<_>>();
+        assert_eq!(body, vec!["[General]", "First=1", "Third=3", "Fourth=4"]);
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn set_only_replaces_a_comment_when_a_new_one_is_supplied() {
+        let mut ini = IniFile::new();
+        let general = ini.section("General");
+        general.set("Key", "1", Some("first comment"));
+        general.set("Key", "2", None);
+
+        let path = temp_path("comments");
+        ini.save(&path).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("# first comment"), "{raw}");
+        assert!(raw.contains("Key=2"), "{raw}");
+
+        ini.section("General").set("Key", "3", Some("second comment"));
+        ini.save(&path).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("# second comment"), "{raw}");
+        assert!(!raw.contains("# first comment"), "{raw}");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_blank_value_removes_the_key_even_when_it_never_existed() {
+        let mut ini = IniFile::new();
+        let general = ini.section("General");
+        general.set("Never", "", None);
+        general.set("Also", "\t \n", None);
+        assert!(general.to_map().is_empty());
+    }
+
+    #[test]
+    fn a_value_that_is_only_visually_blank_is_stored_verbatim() {
+        let mut ini = IniFile::new();
+        let general = ini.section("General");
+        general.set("Padded", "  x  ", None);
+        assert_eq!(
+            general.get("Padded"),
+            Some("  x  "),
+            "set does not trim a non-blank value"
+        );
+    }
+
+    #[test]
+    fn section_comments_are_written_above_the_header() {
+        let mut ini = IniFile::new();
+        ini.section("General").set("A", "1", None);
+        ini.section("General").comment = Some("a section comment".to_string());
+
+        let path = temp_path("section-comment");
+        ini.save(&path).unwrap();
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(raw.starts_with("# a section comment\n[General]\n"), "{raw}");
+
+        // Comments are not read back: parse() skips comment lines entirely.
+        let reloaded = IniFile::load(&path);
+        assert!(reloaded.get_section("General").unwrap().comment.is_none());
+
+        let _ = fs::remove_file(&path);
+    }
+
+    // ---- save ---------------------------------------------------------------------
+
+    #[test]
+    fn save_replaces_the_whole_file_rather_than_appending() {
+        let path = temp_path("replace");
+        fs::write(&path, "[Stale]\nOld=1\n").unwrap();
+
+        let mut ini = IniFile::new();
+        ini.section("Fresh").set("New", "1", None);
+        ini.save(&path).unwrap();
+
+        let raw = fs::read_to_string(&path).unwrap();
+        assert!(!raw.contains("[Stale]"), "{raw}");
+        assert!(raw.contains("[Fresh]"), "{raw}");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_of_an_ini_with_no_content_produces_an_empty_file() {
+        let path = temp_path("empty-save");
+        let mut ini = IniFile::new();
+        ini.section("OnlyEmptySections");
+        ini.save(&path).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+        assert!(IniFile::load(&path).to_map().is_empty());
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn save_reports_the_io_error_instead_of_panicking() {
+        let dir = temp_path("as-dir");
+        fs::create_dir_all(&dir).unwrap();
+        let mut ini = IniFile::new();
+        ini.section("General").set("A", "1", None);
+        let err = ini.save(&dir).expect_err("writing over a directory must fail");
+        assert!(err.starts_with("Failed to save INI file:"), "{err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_saved_file_reloads_into_an_equal_map() {
+        let path = temp_path("equal-map");
+        let mut ini = IniFile::new();
+        ini.section("General").set("Language", "pt-BR", None);
+        ini.section("General").set("Url", "https://x/y?a=1&b=2", None);
+        ini.section("WebServer").set("WebServerPort", "7963", None);
+        ini.save(&path).unwrap();
+
+        assert_eq!(IniFile::load(&path).to_map(), ini.to_map());
+        let _ = fs::remove_file(&path);
+    }
+
+    // ---- IniSection typed getters on odd input ---------------------------------------
+
+    #[test]
+    fn typed_getters_cope_with_out_of_range_and_signed_values() {
+        let ini = parsed(
+            "[General]\nHuge=99999999999999999999\nMax=9223372036854775807\n\
+             Neg=-1\nSci=1e3\nInf=inf\nNan=nan\n",
+        );
+        let general = ini.get_section("General").expect("General");
+        assert_eq!(general.get_int("Huge"), 0, "an i64 overflow falls back to 0");
+        assert_eq!(general.get_int("Max"), i64::MAX);
+        assert_eq!(general.get_int("Neg"), -1);
+        assert_eq!(general.get_int("Sci"), 0);
+        assert_eq!(general.get_float("Sci"), 1000.0);
+        assert!(general.get_float("Inf").is_infinite());
+        assert!(general.get_float("Nan").is_nan());
+    }
+
+    #[test]
+    fn to_map_snapshots_the_current_values() {
+        let mut ini = IniFile::new();
+        ini.section("General").set("A", "1", None);
+        let first = ini.to_map();
+        ini.section("General").set("A", "2", None);
+        assert_eq!(first["General"]["A"], "1", "the snapshot does not alias");
+        assert_eq!(ini.to_map()["General"]["A"], "2");
+    }
+}

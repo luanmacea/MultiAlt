@@ -148,6 +148,17 @@ fn isolation_get_status(
     }
 }
 
+/// Canonical `Isolation/Mode` value written to the INI. Anything unrecognised
+/// (including an empty string) disables isolation rather than guessing.
+fn normalize_isolation_mode(mode: &str) -> &'static str {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "light" => "Light",
+        "medium" => "Medium",
+        "full" => "Full",
+        _ => "Off",
+    }
+}
+
 #[tauri::command]
 fn isolation_save(
     settings: tauri::State<'_, SettingsStore>,
@@ -159,12 +170,7 @@ fn isolation_save(
     preserve_fast_flags: bool,
     preserve_basic_settings: bool,
 ) -> Result<(), String> {
-    let mode_normalized = match mode.trim().to_ascii_lowercase().as_str() {
-        "light" => "Light",
-        "medium" => "Medium",
-        "full" => "Full",
-        _ => "Off",
-    };
+    let mode_normalized = normalize_isolation_mode(&mode);
     settings.set("Isolation", "Mode", mode_normalized)?;
     settings.set(
         "Isolation",
@@ -309,5 +315,260 @@ fn isolation_dry_run(
             preserve_basic_settings,
         );
         Err("Available on Windows only".into())
+    }
+}
+
+#[cfg(test)]
+mod isolation_command_tests {
+    use super::*;
+
+    #[allow(dead_code)]
+    fn temp_settings(tag: &str) -> SettingsStore {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        SettingsStore::new(std::env::temp_dir().join(format!("ram-isolation-{tag}-{nanos}.ini")))
+    }
+
+    #[test]
+    fn normalize_isolation_mode_canonicalizes_the_four_known_modes() {
+        assert_eq!(normalize_isolation_mode("light"), "Light");
+        assert_eq!(normalize_isolation_mode("medium"), "Medium");
+        assert_eq!(normalize_isolation_mode("full"), "Full");
+        assert_eq!(normalize_isolation_mode("off"), "Off");
+    }
+
+    #[test]
+    fn normalize_isolation_mode_ignores_case_and_surrounding_space() {
+        assert_eq!(normalize_isolation_mode("  FULL  "), "Full");
+        assert_eq!(normalize_isolation_mode("MeDiUm"), "Medium");
+        assert_eq!(normalize_isolation_mode("\tLight\n"), "Light");
+    }
+
+    #[test]
+    fn normalize_isolation_mode_falls_back_to_off_for_anything_unknown() {
+        // Fail closed: an unknown mode must never wipe more than the user asked.
+        assert_eq!(normalize_isolation_mode(""), "Off");
+        assert_eq!(normalize_isolation_mode("   "), "Off");
+        assert_eq!(normalize_isolation_mode("nuclear"), "Off");
+        assert_eq!(normalize_isolation_mode("ＦＵＬＬ"), "Off");
+        assert_eq!(normalize_isolation_mode("full "), "Full");
+        assert_eq!(normalize_isolation_mode("fullish"), "Off");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn normalize_isolation_mode_round_trips_through_isolation_mode_from_str() {
+        use platform::windows::IsolationMode;
+        for (raw, expected) in [
+            ("light", "light"),
+            ("medium", "medium"),
+            ("full", "full"),
+            ("off", "off"),
+            ("garbage", "off"),
+        ] {
+            let stored = normalize_isolation_mode(raw);
+            assert_eq!(
+                IsolationMode::from_str(stored).as_str(),
+                expected,
+                "mode {raw} did not survive the INI round-trip"
+            );
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn isolation_options_from_settings_uses_the_shipped_defaults() {
+        let settings = temp_settings("defaults");
+        let opts = isolation_options_from_settings(&settings);
+
+        assert_eq!(opts.mode.as_str(), "off");
+        assert!(!opts.spoof_machine_guid);
+        assert!(!opts.spoof_mac);
+        assert_eq!(opts.target_adapter, "");
+        assert!(!opts.include_studio);
+        // Both preserve flags default to true so a first run never drops the
+        // user's fast flags / basic settings.
+        assert!(opts.preserve_fast_flags);
+        assert!(opts.preserve_basic_settings);
+        assert!(!opts.does_anything());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn isolation_options_from_settings_maps_every_field() {
+        let settings = temp_settings("mapped");
+        settings.set("Isolation", "Mode", "Medium").unwrap();
+        settings.set("Isolation", "SpoofMachineGuid", "true").unwrap();
+        settings.set("Isolation", "SpoofMacAddress", "true").unwrap();
+        settings.set("Isolation", "TargetAdapter", "0007").unwrap();
+        settings.set("Isolation", "IncludeStudio", "true").unwrap();
+        settings.set("Isolation", "PreserveFastFlags", "false").unwrap();
+        settings.set("Isolation", "PreserveBasicSettings", "false").unwrap();
+
+        let opts = isolation_options_from_settings(&settings);
+        assert_eq!(opts.mode.as_str(), "medium");
+        assert!(opts.spoof_machine_guid);
+        assert!(opts.spoof_mac);
+        assert_eq!(opts.target_adapter, "0007");
+        assert!(opts.include_studio);
+        assert!(!opts.preserve_fast_flags);
+        assert!(!opts.preserve_basic_settings);
+        assert!(opts.does_anything());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn isolation_options_from_settings_treats_non_true_values_as_false() {
+        let settings = temp_settings("loose-bools");
+        settings.set("Isolation", "SpoofMachineGuid", "TRUE").unwrap();
+        settings.set("Isolation", "SpoofMacAddress", "1").unwrap();
+        settings.set("Isolation", "IncludeStudio", "yes").unwrap();
+
+        let opts = isolation_options_from_settings(&settings);
+        assert!(
+            !opts.spoof_machine_guid,
+            "only the exact string 'true' enables a flag"
+        );
+        assert!(!opts.spoof_mac);
+        assert!(!opts.include_studio);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn isolation_options_from_settings_defaults_preserve_flags_to_true_when_absent() {
+        let untouched = temp_settings("untouched-preserve");
+        let opts = isolation_options_from_settings(&untouched);
+        assert!(opts.preserve_fast_flags);
+        assert!(opts.preserve_basic_settings);
+
+        // Writing an empty value deletes the INI key, so the flags fall back to
+        // "preserve" rather than silently starting to wipe.
+        let settings = temp_settings("empty-preserve");
+        settings.set("Isolation", "PreserveFastFlags", "").unwrap();
+        settings.set("Isolation", "PreserveBasicSettings", "").unwrap();
+        assert_eq!(settings.get("Isolation", "PreserveFastFlags").unwrap(), None);
+        let opts = isolation_options_from_settings(&settings);
+        assert!(opts.preserve_fast_flags);
+        assert!(opts.preserve_basic_settings);
+
+        // Any stored value other than "true" means false.
+        settings.set("Isolation", "PreserveFastFlags", "0").unwrap();
+        settings.set("Isolation", "PreserveBasicSettings", "no").unwrap();
+        let opts = isolation_options_from_settings(&settings);
+        assert!(!opts.preserve_fast_flags);
+        assert!(!opts.preserve_basic_settings);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn isolation_options_does_anything_only_when_something_is_enabled() {
+        let settings = temp_settings("does-anything");
+        assert!(!isolation_options_from_settings(&settings).does_anything());
+
+        settings.set("Isolation", "SpoofMachineGuid", "true").unwrap();
+        assert!(isolation_options_from_settings(&settings).does_anything());
+
+        settings.set("Isolation", "SpoofMachineGuid", "false").unwrap();
+        settings.set("Isolation", "SpoofMacAddress", "true").unwrap();
+        assert!(isolation_options_from_settings(&settings).does_anything());
+
+        settings.set("Isolation", "SpoofMacAddress", "false").unwrap();
+        settings.set("Isolation", "Mode", "Light").unwrap();
+        assert!(isolation_options_from_settings(&settings).does_anything());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn persist_isolation_backups_stores_the_first_captured_values() {
+        let settings = temp_settings("backup-first");
+        let report = platform::windows::IsolationReport {
+            captured_machine_guid: Some("GUID-ORIGINAL".to_string()),
+            captured_adapter_subkey: Some("0007".to_string()),
+            captured_network_address: Some("AABBCCDDEEFF".to_string()),
+            ..Default::default()
+        };
+
+        persist_isolation_backups(&settings, &report);
+
+        assert_eq!(
+            settings.get_string("Isolation", "BackupMachineGuid"),
+            "GUID-ORIGINAL"
+        );
+        assert_eq!(settings.get_string("Isolation", "BackupAdapterId"), "0007");
+        assert_eq!(
+            settings.get_string("Isolation", "BackupNetworkAddress"),
+            "AABBCCDDEEFF"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn persist_isolation_backups_never_overwrites_an_existing_backup() {
+        // Regression guard: the backup is the only way back to the machine's
+        // real identifiers, so a second launch must not overwrite it with the
+        // spoofed values captured in between.
+        let settings = temp_settings("backup-keep");
+        let first = platform::windows::IsolationReport {
+            captured_machine_guid: Some("GUID-ORIGINAL".to_string()),
+            captured_adapter_subkey: Some("0007".to_string()),
+            captured_network_address: Some("AABBCCDDEEFF".to_string()),
+            ..Default::default()
+        };
+        persist_isolation_backups(&settings, &first);
+
+        let second = platform::windows::IsolationReport {
+            captured_machine_guid: Some("GUID-SPOOFED".to_string()),
+            captured_adapter_subkey: Some("0009".to_string()),
+            captured_network_address: Some("112233445566".to_string()),
+            ..Default::default()
+        };
+        persist_isolation_backups(&settings, &second);
+
+        assert_eq!(
+            settings.get_string("Isolation", "BackupMachineGuid"),
+            "GUID-ORIGINAL"
+        );
+        assert_eq!(settings.get_string("Isolation", "BackupAdapterId"), "0007");
+        assert_eq!(
+            settings.get_string("Isolation", "BackupNetworkAddress"),
+            "AABBCCDDEEFF"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn persist_isolation_backups_ignores_a_report_that_captured_nothing() {
+        let settings = temp_settings("backup-empty");
+        persist_isolation_backups(&settings, &platform::windows::IsolationReport::default());
+
+        assert_eq!(settings.get_string("Isolation", "BackupMachineGuid"), "");
+        assert_eq!(settings.get_string("Isolation", "BackupAdapterId"), "");
+        assert_eq!(settings.get_string("Isolation", "BackupNetworkAddress"), "");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn persist_isolation_backups_stores_an_empty_mac_when_the_adapter_had_none() {
+        let settings = temp_settings("backup-no-mac");
+        let report = platform::windows::IsolationReport {
+            captured_adapter_subkey: Some("0011".to_string()),
+            captured_network_address: None,
+            ..Default::default()
+        };
+        persist_isolation_backups(&settings, &report);
+
+        assert_eq!(settings.get_string("Isolation", "BackupAdapterId"), "0011");
+        assert_eq!(settings.get_string("Isolation", "BackupNetworkAddress"), "");
+    }
+
+    #[tokio::test]
+    async fn apply_pending_fast_flags_when_ready_returns_immediately_with_nothing_pending() {
+        // Nothing was queued by this test process, so the loop must exit on its
+        // first check instead of burning the whole timeout.
+        let started = std::time::Instant::now();
+        apply_pending_fast_flags_when_ready(std::time::Duration::from_secs(30)).await;
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 }

@@ -98,3 +98,25 @@ pub fn import_old_account_data(
 ) -> Result<OldAccountImportSummary, String> {
     state.import_old_account_data(&file_data, password.as_deref())
 }
+
+#[cfg(test)]
+mod account_path_tests {
+    use super::*;
+
+    #[test]
+    fn get_account_data_path_sits_next_to_the_executable() {
+        let path = get_account_data_path();
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("AccountData.json")
+        );
+        assert!(path.is_absolute(), "{}", path.display());
+
+        let exe_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .expect("the test binary has a parent directory");
+        assert_eq!(path.parent(), Some(exe_dir.as_path()));
+        assert_eq!(get_account_data_path(), path, "the path is stable");
+    }
+}

@@ -33,6 +33,32 @@ impl GeneratorProvider {
     }
 }
 
+/// Falls back to the provider's own endpoint when the user left the field
+/// blank, and drops a trailing slash so `{base}/api/...` never doubles up.
+fn normalize_generator_endpoint(provider: GeneratorProvider, endpoint: &str) -> String {
+    let trimmed = endpoint.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        provider.default_endpoint().to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Falls back to the provider's default account type when left blank.
+fn normalize_generator_account_type(provider: GeneratorProvider, account_type: &str) -> String {
+    let trimmed = account_type.trim();
+    if trimmed.is_empty() {
+        provider.default_account_type().to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Extra pause the user adds between generations, clamped to 0..=1h.
+fn generator_extra_delay_ms(extra_delay_seconds: i64) -> i64 {
+    extra_delay_seconds.clamp(0, 3600) * 1000
+}
+
 #[derive(Debug, Clone)]
 struct GeneratorConfig {
     provider: GeneratorProvider,
@@ -425,23 +451,9 @@ async fn start_generator(
         return Err("An API key is required".to_string());
     }
 
-    let endpoint = {
-        let trimmed = endpoint.trim().trim_end_matches('/');
-        if trimmed.is_empty() {
-            provider.default_endpoint().to_string()
-        } else {
-            trimmed.to_string()
-        }
-    };
-    let account_type = {
-        let trimmed = account_type.trim();
-        if trimmed.is_empty() {
-            provider.default_account_type().to_string()
-        } else {
-            trimmed.to_string()
-        }
-    };
-    let extra_delay_ms = extra_delay_seconds.clamp(0, 3600) * 1000;
+    let endpoint = normalize_generator_endpoint(provider, &endpoint);
+    let account_type = normalize_generator_account_type(provider, &account_type);
+    let extra_delay_ms = generator_extra_delay_ms(extra_delay_seconds);
     let target_group = target_group.trim().to_string();
     let max_accounts = max_accounts.max(0);
     let max_consecutive_failures = app
@@ -697,4 +709,689 @@ async fn bloxgen_test_key(endpoint: &str, api_key: &str) -> Result<f64, String> 
         .and_then(|p| p.message.or(p.error))
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| format!("Balance check failed (status {})", status.as_u16())))
+}
+
+#[cfg(test)]
+mod generator_command_tests {
+    use super::*;
+
+    // ---- GeneratorProvider --------------------------------------------------
+
+    #[test]
+    fn provider_from_id_accepts_the_known_provider_in_any_casing() {
+        assert_eq!(
+            GeneratorProvider::from_id("bloxgen").unwrap(),
+            GeneratorProvider::BloxGen
+        );
+        assert_eq!(
+            GeneratorProvider::from_id("  BloxGen  ").unwrap(),
+            GeneratorProvider::BloxGen
+        );
+        assert_eq!(
+            GeneratorProvider::from_id("BLOXGEN").unwrap(),
+            GeneratorProvider::BloxGen
+        );
+    }
+
+    #[test]
+    fn provider_from_id_rejects_anything_else_and_names_it() {
+        assert_eq!(
+            GeneratorProvider::from_id("other").unwrap_err(),
+            "Unknown generator provider: other"
+        );
+        assert_eq!(
+            GeneratorProvider::from_id("").unwrap_err(),
+            "Unknown generator provider: "
+        );
+        assert!(GeneratorProvider::from_id("блоксген").is_err());
+    }
+
+    #[test]
+    fn provider_id_round_trips_through_from_id() {
+        let provider = GeneratorProvider::BloxGen;
+        assert_eq!(provider.id(), "bloxgen");
+        assert_eq!(GeneratorProvider::from_id(provider.id()).unwrap(), provider);
+    }
+
+    #[test]
+    fn provider_defaults_are_the_documented_bloxgen_values() {
+        assert_eq!(
+            GeneratorProvider::BloxGen.default_endpoint(),
+            "https://core.bloxgen.net"
+        );
+        assert_eq!(GeneratorProvider::BloxGen.default_account_type(), "alt");
+        assert_eq!(DEFAULT_BLOXGEN_ENDPOINT, "https://core.bloxgen.net");
+    }
+
+    // ---- config normalization ------------------------------------------------
+
+    #[test]
+    fn normalize_generator_endpoint_falls_back_to_the_provider_default() {
+        let p = GeneratorProvider::BloxGen;
+        assert_eq!(
+            normalize_generator_endpoint(p, ""),
+            "https://core.bloxgen.net"
+        );
+        assert_eq!(
+            normalize_generator_endpoint(p, "   "),
+            "https://core.bloxgen.net"
+        );
+        assert_eq!(
+            normalize_generator_endpoint(p, "///"),
+            "https://core.bloxgen.net"
+        );
+    }
+
+    #[test]
+    fn normalize_generator_endpoint_trims_whitespace_and_trailing_slashes() {
+        let p = GeneratorProvider::BloxGen;
+        assert_eq!(
+            normalize_generator_endpoint(p, "  https://example.test/  "),
+            "https://example.test"
+        );
+        assert_eq!(
+            normalize_generator_endpoint(p, "https://example.test///"),
+            "https://example.test"
+        );
+        assert_eq!(
+            normalize_generator_endpoint(p, "https://example.test"),
+            "https://example.test"
+        );
+    }
+
+    #[test]
+    fn normalize_generator_account_type_falls_back_to_the_provider_default() {
+        let p = GeneratorProvider::BloxGen;
+        assert_eq!(normalize_generator_account_type(p, ""), "alt");
+        assert_eq!(normalize_generator_account_type(p, "  \t "), "alt");
+        assert_eq!(normalize_generator_account_type(p, "  premium "), "premium");
+    }
+
+    #[test]
+    fn generator_extra_delay_ms_clamps_to_zero_and_one_hour() {
+        assert_eq!(generator_extra_delay_ms(0), 0);
+        assert_eq!(generator_extra_delay_ms(1), 1_000);
+        assert_eq!(generator_extra_delay_ms(-50), 0);
+        assert_eq!(generator_extra_delay_ms(3_600), 3_600_000);
+        assert_eq!(generator_extra_delay_ms(999_999), 3_600_000);
+        assert_eq!(generator_extra_delay_ms(i64::MIN), 0);
+        assert_eq!(generator_extra_delay_ms(i64::MAX), 3_600_000);
+    }
+
+    // ---- response_snippet ----------------------------------------------------
+
+    #[test]
+    fn response_snippet_labels_an_empty_body() {
+        assert_eq!(response_snippet(""), "Empty response");
+        assert_eq!(response_snippet("   \n\t "), "Empty response");
+    }
+
+    #[test]
+    fn response_snippet_trims_and_caps_at_200_characters() {
+        assert_eq!(response_snippet("  boom  "), "boom");
+        let long = "x".repeat(500);
+        assert_eq!(response_snippet(&long).chars().count(), 200);
+    }
+
+    #[test]
+    fn response_snippet_counts_characters_not_bytes_for_unicode() {
+        // Slicing by byte index would panic or split a character in half.
+        let long = "é".repeat(500);
+        let snippet = response_snippet(&long);
+        assert_eq!(snippet.chars().count(), 200);
+        assert!(snippet.chars().all(|c| c == 'é'));
+    }
+
+    // ---- bloxgen_base --------------------------------------------------------
+
+    #[test]
+    fn bloxgen_base_falls_back_to_the_default_endpoint() {
+        assert_eq!(bloxgen_base(""), "https://core.bloxgen.net");
+        assert_eq!(bloxgen_base("   "), "https://core.bloxgen.net");
+        assert_eq!(bloxgen_base("/"), "https://core.bloxgen.net");
+    }
+
+    #[test]
+    fn bloxgen_base_strips_a_pasted_api_generate_suffix() {
+        // Users paste the full documented URL; appending /api/generate to it
+        // again would 404.
+        assert_eq!(
+            bloxgen_base("https://core.bloxgen.net/api/generate"),
+            "https://core.bloxgen.net"
+        );
+        assert_eq!(
+            bloxgen_base("https://core.bloxgen.net/api/generate/"),
+            "https://core.bloxgen.net"
+        );
+        assert_eq!(
+            bloxgen_base("  https://core.bloxgen.net/api/generate  "),
+            "https://core.bloxgen.net"
+        );
+    }
+
+    #[test]
+    fn bloxgen_base_keeps_a_custom_host_and_path_prefix() {
+        assert_eq!(bloxgen_base("http://127.0.0.1:1234"), "http://127.0.0.1:1234");
+        assert_eq!(
+            bloxgen_base("http://127.0.0.1:1234/proxy/"),
+            "http://127.0.0.1:1234/proxy"
+        );
+    }
+
+    // ---- set_generator_runtime -----------------------------------------------
+
+    fn test_runtime() -> GeneratorRuntime {
+        GeneratorRuntime {
+            active: true,
+            phase: "starting".to_string(),
+            total_generated: 0,
+            next_attempt_at_ms: None,
+            last_username: None,
+            last_user_id: None,
+            last_error: None,
+            last_generated_at_ms: None,
+        }
+    }
+
+    #[test]
+    fn set_generator_runtime_applies_the_mutation_in_place() {
+        let runtime = std::sync::Mutex::new(test_runtime());
+        set_generator_runtime(&runtime, |r| {
+            r.phase = "cooldown".to_string();
+            r.total_generated += 3;
+        });
+        let guard = runtime.lock().unwrap();
+        assert_eq!(guard.phase, "cooldown");
+        assert_eq!(guard.total_generated, 3);
+    }
+
+    // ---- sleep_interruptible --------------------------------------------------
+
+    #[tokio::test]
+    async fn sleep_interruptible_returns_at_once_for_zero_or_negative_durations() {
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        sleep_interruptible(&flag, 0).await;
+        sleep_interruptible(&flag, -5_000).await;
+        assert!(started.elapsed() < std::time::Duration::from_millis(200));
+    }
+
+    #[tokio::test]
+    async fn sleep_interruptible_gives_up_as_soon_as_the_stop_flag_is_set() {
+        // A stopped generator must not keep the app waiting for a long cooldown.
+        let flag = std::sync::atomic::AtomicBool::new(true);
+        let started = std::time::Instant::now();
+        sleep_interruptible(&flag, 60_000).await;
+        assert!(started.elapsed() < std::time::Duration::from_millis(500));
+    }
+
+    #[tokio::test]
+    async fn sleep_interruptible_waits_out_a_short_delay() {
+        let flag = std::sync::atomic::AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        sleep_interruptible(&flag, 300).await;
+        assert!(started.elapsed() >= std::time::Duration::from_millis(250));
+    }
+
+    // ---- status payload --------------------------------------------------------
+
+    fn test_session(config: GeneratorConfig, runtime: GeneratorRuntime) -> GeneratorSession {
+        GeneratorSession {
+            id: 1,
+            stop_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            stopped_notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+            started_at_ms: 1_700_000_000_000,
+            config: std::sync::Arc::new(std::sync::Mutex::new(config)),
+            runtime: std::sync::Arc::new(std::sync::Mutex::new(runtime)),
+        }
+    }
+
+    fn test_config() -> GeneratorConfig {
+        GeneratorConfig {
+            provider: GeneratorProvider::BloxGen,
+            endpoint: "https://example.test".to_string(),
+            api_key: "secret".to_string(),
+            account_type: "alt".to_string(),
+            extra_delay_ms: 5_000,
+            target_group: "BloxGen".to_string(),
+            max_accounts: 10,
+            max_consecutive_failures: 3,
+        }
+    }
+
+    #[test]
+    fn generator_status_from_session_projects_config_and_runtime() {
+        let mut runtime = test_runtime();
+        runtime.phase = "cooldown".to_string();
+        runtime.total_generated = 4;
+        runtime.last_username = Some("alt42".to_string());
+        runtime.last_user_id = Some(99);
+        runtime.next_attempt_at_ms = Some(1_700_000_010_000);
+
+        let status = generator_status_from_session(&test_session(test_config(), runtime));
+
+        assert!(status.active);
+        assert_eq!(status.started_at_ms, Some(1_700_000_000_000));
+        assert_eq!(status.provider, "bloxgen");
+        assert_eq!(status.endpoint, "https://example.test");
+        assert_eq!(status.account_type, "alt");
+        assert_eq!(status.extra_delay_seconds, 5);
+        assert_eq!(status.target_group, "BloxGen");
+        assert_eq!(status.max_accounts, 10);
+        assert_eq!(status.phase, "cooldown");
+        assert_eq!(status.total_generated, 4);
+        assert_eq!(status.last_username.as_deref(), Some("alt42"));
+        assert_eq!(status.last_user_id, Some(99));
+        assert_eq!(status.next_attempt_at_ms, Some(1_700_000_010_000));
+    }
+
+    #[test]
+    fn generator_status_never_exposes_the_api_key() {
+        // Regression guard: the status payload is emitted to the frontend.
+        let status = generator_status_from_session(&test_session(test_config(), test_runtime()));
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(!json.contains("secret"), "api key leaked into the status: {json}");
+    }
+
+    #[test]
+    fn generator_status_rounds_the_extra_delay_down_to_whole_seconds() {
+        let mut cfg = test_config();
+        cfg.extra_delay_ms = 1_999;
+        let status = generator_status_from_session(&test_session(cfg, test_runtime()));
+        assert_eq!(status.extra_delay_seconds, 1);
+    }
+
+    #[test]
+    fn get_generator_status_reports_no_session_by_default() {
+        let status = get_generator_status().expect("status should be readable");
+        assert!(!status.active);
+        assert_eq!(status.total_generated, 0);
+        assert_eq!(status.started_at_ms, None);
+        assert_eq!(status.provider, "");
+    }
+
+    #[test]
+    fn generator_status_payload_serializes_with_camel_case_keys() {
+        let status = generator_status_from_session(&test_session(test_config(), test_runtime()));
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["startedAtMs"], 1_700_000_000_000_i64);
+        assert_eq!(json["extraDelaySeconds"], 5);
+        assert_eq!(json["targetGroup"], "BloxGen");
+        assert_eq!(json["maxAccounts"], 10);
+        assert_eq!(json["totalGenerated"], 0);
+    }
+
+    // ---- generator_test_key argument validation --------------------------------
+
+    #[tokio::test]
+    async fn generator_test_key_rejects_an_unknown_provider_before_any_request() {
+        let err = generator_test_key("nope".into(), "http://127.0.0.1:1".into(), "k".into())
+            .await
+            .unwrap_err();
+        assert_eq!(err, "Unknown generator provider: nope");
+    }
+
+    #[tokio::test]
+    async fn generator_test_key_requires_a_non_blank_api_key() {
+        for key in ["", "   "] {
+            let err = generator_test_key(
+                "bloxgen".into(),
+                "http://127.0.0.1:1".into(),
+                key.into(),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err, "An API key is required");
+        }
+    }
+}
+
+#[cfg(test)]
+mod generator_http_tests {
+    use super::*;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn config_for(server: &MockServer) -> GeneratorConfig {
+        GeneratorConfig {
+            provider: GeneratorProvider::BloxGen,
+            endpoint: server.uri(),
+            api_key: "test-key".to_string(),
+            account_type: "alt".to_string(),
+            extra_delay_ms: 0,
+            target_group: "BloxGen".to_string(),
+            max_accounts: 0,
+            max_consecutive_failures: 3,
+        }
+    }
+
+    async fn mount_generate(server: &MockServer, response: ResponseTemplate) {
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .respond_with(response)
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_returns_the_account_on_a_successful_response() {
+        let server = MockServer::start().await;
+        mount_generate(
+            &server,
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": true,
+                "data": {
+                    "username": "alt_42",
+                    "password": "hunter2",
+                    "cookie": "_|WARNING:-DO-NOT-SHARE|_TOKEN",
+                    "id": 12345
+                }
+            })),
+        )
+        .await;
+
+        match provider_generate(&generator_client(), &config_for(&server)).await {
+            GenerateOutcome::Account(account) => {
+                assert_eq!(account.username, "alt_42");
+                assert_eq!(account.password, "hunter2");
+                assert_eq!(account.cookie, "_|WARNING:-DO-NOT-SHARE|_TOKEN");
+                assert_eq!(account.user_id, Some(12345));
+            }
+            other => panic!("expected an account, got {}", outcome_name(&other)),
+        }
+    }
+
+    fn outcome_name(outcome: &GenerateOutcome) -> String {
+        match outcome {
+            GenerateOutcome::Account(_) => "Account".to_string(),
+            GenerateOutcome::Cooldown(ms) => format!("Cooldown({ms})"),
+            GenerateOutcome::Transient(m) => format!("Transient({m})"),
+            GenerateOutcome::Fatal(m) => format!("Fatal({m})"),
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_treats_a_missing_cookie_as_transient() {
+        let server = MockServer::start().await;
+        mount_generate(
+            &server,
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": true,
+                "data": { "username": "alt_42", "password": "p", "cookie": "" }
+            })),
+        )
+        .await;
+
+        let outcome = bloxgen_generate(&generator_client(), &config_for(&server)).await;
+        match outcome {
+            GenerateOutcome::Transient(message) => {
+                assert!(message.contains("cookie"), "unexpected message: {message}");
+            }
+            other => panic!("expected Transient, got {}", outcome_name(&other)),
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_treats_success_without_data_as_transient() {
+        let server = MockServer::start().await;
+        mount_generate(
+            &server,
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({ "success": true })),
+        )
+        .await;
+
+        assert!(matches!(
+            bloxgen_generate(&generator_client(), &config_for(&server)).await,
+            GenerateOutcome::Transient(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_surfaces_the_api_message_on_success_false() {
+        let server = MockServer::start().await;
+        mount_generate(
+            &server,
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": false,
+                "message": "No stock available"
+            })),
+        )
+        .await;
+
+        match bloxgen_generate(&generator_client(), &config_for(&server)).await {
+            GenerateOutcome::Transient(message) => assert_eq!(message, "No stock available"),
+            other => panic!("expected Transient, got {}", outcome_name(&other)),
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_falls_back_to_a_body_snippet_for_non_json_200() {
+        let server = MockServer::start().await;
+        mount_generate(&server, ResponseTemplate::new(200).set_body_string("<html>nope</html>"))
+            .await;
+
+        match bloxgen_generate(&generator_client(), &config_for(&server)).await {
+            GenerateOutcome::Transient(message) => assert_eq!(message, "<html>nope</html>"),
+            other => panic!("expected Transient, got {}", outcome_name(&other)),
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_maps_429_with_time_remaining_to_a_cooldown() {
+        let server = MockServer::start().await;
+        mount_generate(
+            &server,
+            ResponseTemplate::new(429).set_body_json(serde_json::json!({
+                "success": false,
+                "message": "Rate limited",
+                "timeRemaining": 42_000
+            })),
+        )
+        .await;
+
+        match bloxgen_generate(&generator_client(), &config_for(&server)).await {
+            GenerateOutcome::Cooldown(ms) => assert_eq!(ms, 42_000),
+            other => panic!("expected Cooldown, got {}", outcome_name(&other)),
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_maps_429_without_a_usable_cooldown_to_transient() {
+        let server = MockServer::start().await;
+        mount_generate(
+            &server,
+            ResponseTemplate::new(429).set_body_json(serde_json::json!({
+                "success": false,
+                "message": "Slow down",
+                "timeRemaining": 0
+            })),
+        )
+        .await;
+
+        match bloxgen_generate(&generator_client(), &config_for(&server)).await {
+            GenerateOutcome::Transient(message) => assert_eq!(message, "Slow down"),
+            other => panic!("expected Transient, got {}", outcome_name(&other)),
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_treats_server_errors_as_transient() {
+        for status in [404_u16, 500, 502, 503, 504] {
+            let server = MockServer::start().await;
+            mount_generate(
+                &server,
+                ResponseTemplate::new(status)
+                    .set_body_json(serde_json::json!({ "error": "boom" })),
+            )
+            .await;
+
+            match bloxgen_generate(&generator_client(), &config_for(&server)).await {
+                GenerateOutcome::Transient(message) => assert_eq!(message, "boom"),
+                other => panic!("status {status}: expected Transient, got {}", outcome_name(&other)),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_treats_a_rejected_key_as_fatal() {
+        // A bad API key must stop the loop instead of retrying forever.
+        let server = MockServer::start().await;
+        mount_generate(
+            &server,
+            ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "message": "Invalid API key"
+            })),
+        )
+        .await;
+
+        match bloxgen_generate(&generator_client(), &config_for(&server)).await {
+            GenerateOutcome::Fatal(message) => assert_eq!(message, "Invalid API key"),
+            other => panic!("expected Fatal, got {}", outcome_name(&other)),
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_reports_a_connection_failure_as_transient() {
+        // Port 1 is reserved and refuses connections.
+        let mut config = GeneratorConfig {
+            provider: GeneratorProvider::BloxGen,
+            endpoint: "http://127.0.0.1:1".to_string(),
+            api_key: "k".to_string(),
+            account_type: "alt".to_string(),
+            extra_delay_ms: 0,
+            target_group: String::new(),
+            max_accounts: 0,
+            max_consecutive_failures: 3,
+        };
+        config.account_type = "alt".to_string();
+
+        match bloxgen_generate(&generator_client(), &config).await {
+            GenerateOutcome::Transient(message) => {
+                assert!(message.starts_with("Request failed"), "{message}");
+            }
+            other => panic!("expected Transient, got {}", outcome_name(&other)),
+        }
+    }
+
+    #[tokio::test]
+    async fn bloxgen_generate_posts_the_api_key_and_account_type() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/generate"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "apiKey": "test-key",
+                "type": "alt"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": true,
+                "data": { "username": "u", "password": "p", "cookie": "c", "id": 1 }
+            })))
+            .mount(&server)
+            .await;
+
+        assert!(matches!(
+            bloxgen_generate(&generator_client(), &config_for(&server)).await,
+            GenerateOutcome::Account(_)
+        ));
+    }
+
+    // ---- balance / key test ---------------------------------------------------
+
+    #[tokio::test]
+    async fn bloxgen_test_key_returns_the_balance_and_sends_the_key_header() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/balance"))
+            .and(header("x-api-key", "test-key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": true,
+                "data": { "balance": 12.5 }
+            })))
+            .mount(&server)
+            .await;
+
+        assert_eq!(bloxgen_test_key(&server.uri(), "test-key").await.unwrap(), 12.5);
+    }
+
+    #[tokio::test]
+    async fn bloxgen_test_key_surfaces_the_api_message_on_success_false() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/balance"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": false,
+                "error": "Unknown key"
+            })))
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            bloxgen_test_key(&server.uri(), "bad").await.unwrap_err(),
+            "Unknown key"
+        );
+    }
+
+    #[tokio::test]
+    async fn bloxgen_test_key_reports_the_status_when_the_body_is_not_json() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/balance"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("forbidden"))
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            bloxgen_test_key(&server.uri(), "bad").await.unwrap_err(),
+            "Balance check failed (status 403)"
+        );
+    }
+
+    #[tokio::test]
+    async fn bloxgen_test_key_returns_a_body_snippet_for_a_non_json_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/balance"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("<html>hi</html>"))
+            .mount(&server)
+            .await;
+
+        assert_eq!(
+            bloxgen_test_key(&server.uri(), "k").await.unwrap_err(),
+            "<html>hi</html>"
+        );
+    }
+
+    #[tokio::test]
+    async fn bloxgen_test_key_accepts_an_endpoint_pasted_with_the_generate_path() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/balance"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": true,
+                "data": { "balance": 1.0 }
+            })))
+            .mount(&server)
+            .await;
+
+        let pasted = format!("{}/api/generate", server.uri());
+        assert_eq!(bloxgen_test_key(&pasted, "k").await.unwrap(), 1.0);
+    }
+
+    #[tokio::test]
+    async fn generator_test_key_command_reaches_the_provider() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/balance"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "success": true,
+                "data": { "balance": 7.25 }
+            })))
+            .mount(&server)
+            .await;
+
+        let balance = generator_test_key("bloxgen".into(), server.uri(), "  k  ".into())
+            .await
+            .unwrap();
+        assert_eq!(balance, 7.25);
+    }
 }

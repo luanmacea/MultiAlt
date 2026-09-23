@@ -20,6 +20,33 @@ fn write_client_app_settings(
     .map_err(|e| format!("Failed to write ClientAppSettings.json: {}", e))
 }
 
+/// Merge the launcher-controlled values into an already loaded
+/// `ClientAppSettings.json` document. Keys the app does not own are left
+/// untouched so a user's hand-written flags survive a launch.
+fn merge_client_app_settings(
+    settings: &mut serde_json::Value,
+    max_fps: Option<u32>,
+    fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
+) {
+    // A hand-written file can hold valid JSON that is not an object (`[1,2]`,
+    // `"x"`); indexing into that panics, so normalise first.
+    if (max_fps.is_some() || fast_flags.is_some()) && !settings.is_object() {
+        *settings = serde_json::json!({});
+    }
+
+    if let Some(fps) = max_fps {
+        settings["DFIntTaskSchedulerTargetFps"] = serde_json::json!(fps);
+    }
+
+    if let Some(flags) = fast_flags {
+        if let Some(target) = settings.as_object_mut() {
+            for (key, value) in flags {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
 fn apply_client_app_settings_overrides(
     max_fps: Option<u32>,
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
@@ -27,20 +54,7 @@ fn apply_client_app_settings_overrides(
     let settings_file = get_client_settings_file()?;
     let mut settings = load_client_app_settings(&settings_file);
 
-    if let Some(fps) = max_fps {
-        settings["DFIntTaskSchedulerTargetFps"] = serde_json::json!(fps);
-    }
-
-    if let Some(flags) = fast_flags {
-        if !settings.is_object() {
-            settings = serde_json::json!({});
-        }
-        if let Some(target) = settings.as_object_mut() {
-            for (key, value) in flags {
-                target.insert(key.clone(), value.clone());
-            }
-        }
-    }
+    merge_client_app_settings(&mut settings, max_fps, fast_flags);
 
     write_client_app_settings(&settings_file, &settings)
 }
@@ -218,4 +232,354 @@ pub fn copy_custom_client_settings(custom_settings_path: &str) -> Result<(), Str
     let settings_file = get_client_settings_file()?;
     std::fs::write(settings_file, content)
         .map_err(|e| format!("Failed to copy custom ClientAppSettings.json: {}", e))
+}
+
+#[cfg(test)]
+mod win_client_settings_tests {
+    use super::*;
+
+    // Every test here works on a temp file or an in-memory value. Nothing may
+    // call `get_client_settings_file()`, which resolves the real Roblox install
+    // folder and would write ClientAppSettings.json into it.
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("ram4-clientset-{}-{}-{}", tag, nanos, n));
+            std::fs::create_dir_all(&dir).expect("temp dir");
+            Self(dir)
+        }
+
+        fn file(&self, name: &str) -> PathBuf {
+            self.0.join(name)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn flags(pairs: &[(&str, serde_json::Value)]) -> serde_json::Map<String, serde_json::Value> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect()
+    }
+
+    // ── load_client_app_settings ───────────────────────────────────────────
+
+    #[test]
+    fn load_client_app_settings_returns_an_empty_object_when_the_file_is_missing() {
+        let temp = TempDir::new("loadmissing");
+        let value = load_client_app_settings(&temp.file("ClientAppSettings.json"));
+        assert_eq!(value, serde_json::json!({}));
+    }
+
+    #[test]
+    fn load_client_app_settings_reads_an_existing_document() {
+        let temp = TempDir::new("loadok");
+        let path = temp.file("ClientAppSettings.json");
+        std::fs::write(&path, r#"{"FFlagUserHandMadeByMe":"True","DFIntX":7}"#).unwrap();
+
+        let value = load_client_app_settings(&path);
+        assert_eq!(value["FFlagUserHandMadeByMe"], "True");
+        assert_eq!(value["DFIntX"], 7);
+    }
+
+    #[test]
+    fn load_client_app_settings_falls_back_to_an_empty_object_for_corrupt_json() {
+        let temp = TempDir::new("loadcorrupt");
+        for (name, contents) in [
+            ("a.json", "{ this is not json"),
+            ("b.json", ""),
+            ("c.json", "\u{feff}{}"),
+            ("d.json", "{\"a\": 1,}"),
+        ] {
+            let path = temp.file(name);
+            std::fs::write(&path, contents).unwrap();
+            assert_eq!(
+                load_client_app_settings(&path),
+                serde_json::json!({}),
+                "{} should have fallen back",
+                name
+            );
+        }
+    }
+
+    // ── write_client_app_settings ──────────────────────────────────────────
+
+    #[test]
+    fn write_client_app_settings_round_trips_through_load() {
+        let temp = TempDir::new("write");
+        let path = temp.file("ClientAppSettings.json");
+        let settings = serde_json::json!({ "DFIntTaskSchedulerTargetFps": 240, "Keep": "me" });
+
+        write_client_app_settings(&path, &settings).expect("write");
+
+        assert_eq!(load_client_app_settings(&path), settings);
+    }
+
+    #[test]
+    fn write_client_app_settings_reports_an_unwritable_path() {
+        let temp = TempDir::new("writefail");
+        // A path whose parent does not exist cannot be created implicitly.
+        let path = temp.file("nope").join("ClientAppSettings.json");
+        let err = write_client_app_settings(&path, &serde_json::json!({})).unwrap_err();
+        assert!(
+            err.starts_with("Failed to write ClientAppSettings.json"),
+            "got {}",
+            err
+        );
+    }
+
+    // ── merge_client_app_settings ──────────────────────────────────────────
+
+    #[test]
+    fn merge_sets_the_fps_cap_under_the_task_scheduler_key() {
+        let mut settings = serde_json::json!({});
+        merge_client_app_settings(&mut settings, Some(240), None);
+        assert_eq!(settings["DFIntTaskSchedulerTargetFps"], 240);
+        assert_eq!(settings.as_object().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn merge_overwrites_a_previous_fps_cap() {
+        let mut settings = serde_json::json!({ "DFIntTaskSchedulerTargetFps": 60 });
+        merge_client_app_settings(&mut settings, Some(144), None);
+        assert_eq!(settings["DFIntTaskSchedulerTargetFps"], 144);
+    }
+
+    #[test]
+    fn merge_preserves_keys_the_app_does_not_own() {
+        let mut settings = serde_json::json!({
+            "FFlagSomethingTheUserSet": "True",
+            "DFIntUserTweak": 3,
+            "NestedObject": { "a": 1 },
+        });
+        merge_client_app_settings(
+            &mut settings,
+            Some(120),
+            Some(&flags(&[("DFFlagDebugSkyGray", serde_json::json!("True"))])),
+        );
+
+        assert_eq!(settings["FFlagSomethingTheUserSet"], "True");
+        assert_eq!(settings["DFIntUserTweak"], 3);
+        assert_eq!(settings["NestedObject"]["a"], 1);
+        assert_eq!(settings["DFIntTaskSchedulerTargetFps"], 120);
+        assert_eq!(settings["DFFlagDebugSkyGray"], "True");
+    }
+
+    #[test]
+    fn merge_lets_incoming_fast_flags_win_over_existing_values() {
+        let mut settings = serde_json::json!({ "DFIntRenderShadowIntensity": 9 });
+        merge_client_app_settings(
+            &mut settings,
+            None,
+            Some(&flags(&[("DFIntRenderShadowIntensity", serde_json::json!(0))])),
+        );
+        assert_eq!(settings["DFIntRenderShadowIntensity"], 0);
+    }
+
+    #[test]
+    fn merge_with_nothing_to_apply_leaves_the_document_untouched() {
+        let original = serde_json::json!({ "Keep": "me" });
+        let mut settings = original.clone();
+        merge_client_app_settings(&mut settings, None, None);
+        assert_eq!(settings, original);
+    }
+
+    #[test]
+    fn merge_with_an_empty_flag_map_only_applies_the_fps_cap() {
+        let mut settings = serde_json::json!({ "Keep": "me" });
+        merge_client_app_settings(&mut settings, Some(60), Some(&flags(&[])));
+        assert_eq!(settings["Keep"], "me");
+        assert_eq!(settings["DFIntTaskSchedulerTargetFps"], 60);
+        assert_eq!(settings.as_object().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn merge_replaces_a_non_object_document_before_writing_fast_flags() {
+        // A ClientAppSettings.json holding a valid but non-object JSON value
+        // (an array, a string, ...) is discarded rather than merged into.
+        for corrupt in [
+            serde_json::json!([1, 2, 3]),
+            serde_json::json!("a string"),
+            serde_json::json!(42),
+            serde_json::Value::Null,
+        ] {
+            let mut settings = corrupt.clone();
+            merge_client_app_settings(
+                &mut settings,
+                None,
+                Some(&flags(&[("DFFlagDebugSkyGray", serde_json::json!("True"))])),
+            );
+            assert_eq!(
+                settings,
+                serde_json::json!({ "DFFlagDebugSkyGray": "True" }),
+                "starting from {:?}",
+                corrupt
+            );
+        }
+    }
+
+    #[test]
+    fn merge_writes_the_fps_cap_into_a_null_document() {
+        // serde_json turns a Null into an object on keyed assignment, so the
+        // "file held null" case still produces a usable document.
+        let mut settings = serde_json::Value::Null;
+        merge_client_app_settings(&mut settings, Some(75), None);
+        assert_eq!(settings, serde_json::json!({ "DFIntTaskSchedulerTargetFps": 75 }));
+    }
+
+    #[test]
+    fn merge_result_survives_a_write_and_reload() {
+        let temp = TempDir::new("mergeroundtrip");
+        let path = temp.file("ClientAppSettings.json");
+        std::fs::write(&path, r#"{"FFlagMine":"True"}"#).unwrap();
+
+        let mut settings = load_client_app_settings(&path);
+        merge_client_app_settings(
+            &mut settings,
+            Some(360),
+            Some(&flags(&[("FIntDebugForceMSAASamples", serde_json::json!(0))])),
+        );
+        write_client_app_settings(&path, &settings).unwrap();
+
+        let reloaded = load_client_app_settings(&path);
+        assert_eq!(reloaded["FFlagMine"], "True");
+        assert_eq!(reloaded["DFIntTaskSchedulerTargetFps"], 360);
+        assert_eq!(reloaded["FIntDebugForceMSAASamples"], 0);
+    }
+
+    // ── GlobalBasicSettings_13.xml helpers ─────────────────────────────────
+
+    const SAMPLE_XML: &str = concat!(
+        "<roblox>\n",
+        "\t<Item class=\"Other\" referent=\"RBX0\">\n",
+        "\t\t<Properties>\n",
+        "\t\t\t<int name=\"FramerateCap\">30</int>\n",
+        "\t\t</Properties>\n",
+        "\t</Item>\n",
+        "\t<Item class=\"UserGameSettings\" referent=\"RBX1\">\n",
+        "\t\t<Properties>\n",
+        "\t\t\t<int name=\"FramerateCap\">60</int>\n",
+        "\t\t\t<float name=\"MasterVolume\">0.500000</float>\n",
+        "\t\t</Properties>\n",
+        "\t</Item>\n",
+        "</roblox>\n"
+    );
+
+    #[test]
+    fn find_user_game_settings_properties_range_selects_the_right_item() {
+        let (start, end) = find_user_game_settings_properties_range(SAMPLE_XML).expect("range");
+        let props = &SAMPLE_XML[start..end];
+        assert!(props.contains("MasterVolume"));
+        assert!(props.contains("<int name=\"FramerateCap\">60</int>"));
+        // The decoy Item that comes first must not be part of the range.
+        assert!(!props.contains("<int name=\"FramerateCap\">30</int>"));
+    }
+
+    #[test]
+    fn find_user_game_settings_properties_range_returns_none_when_the_item_is_absent() {
+        assert!(find_user_game_settings_properties_range("").is_none());
+        assert!(find_user_game_settings_properties_range("<roblox></roblox>").is_none());
+        // Class present but no enclosing <Item>.
+        assert!(find_user_game_settings_properties_range("class=\"UserGameSettings\"").is_none());
+        // <Item> present but no <Properties> block.
+        assert!(find_user_game_settings_properties_range(
+            "<Item class=\"UserGameSettings\"></Item>"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn upsert_scalar_property_replaces_an_existing_value_in_place() {
+        let mut props = String::from("\t\t\t<int name=\"FramerateCap\">60</int>\n");
+        upsert_scalar_property(&mut props, "int", "FramerateCap", "240");
+        assert_eq!(props, "\t\t\t<int name=\"FramerateCap\">240</int>\n");
+    }
+
+    #[test]
+    fn upsert_scalar_property_appends_when_the_property_is_missing() {
+        let mut props = String::from("\t\t\t<int name=\"Other\">1</int>\n");
+        upsert_scalar_property(&mut props, "bool", "Fullscreen", "false");
+        assert!(props.contains("<int name=\"Other\">1</int>"));
+        assert!(props.contains("<bool name=\"Fullscreen\">false</bool>"));
+        assert!(props.ends_with('\n'));
+    }
+
+    #[test]
+    fn upsert_scalar_property_adds_a_newline_before_appending_to_an_unterminated_block() {
+        let mut props = String::from("<int name=\"Other\">1</int>");
+        upsert_scalar_property(&mut props, "bool", "Fullscreen", "false");
+        assert!(props.starts_with("<int name=\"Other\">1</int>\n"));
+        assert!(props.contains("<bool name=\"Fullscreen\">false</bool>"));
+    }
+
+    #[test]
+    fn upsert_scalar_property_only_touches_the_matching_tag_and_name() {
+        let mut props = String::from(
+            "\t\t\t<int name=\"FramerateCap\">60</int>\n\t\t\t<float name=\"FramerateCap\">1.0</float>\n",
+        );
+        upsert_scalar_property(&mut props, "float", "FramerateCap", "2.500000");
+        assert!(props.contains("<int name=\"FramerateCap\">60</int>"));
+        assert!(props.contains("<float name=\"FramerateCap\">2.500000</float>"));
+    }
+
+    #[test]
+    fn upsert_vector2_property_replaces_an_existing_block() {
+        let mut props = String::from(
+            "\t\t\t<Vector2 name=\"StartScreenSize\">\n\t\t\t\t<X>800</X>\n\t\t\t\t<Y>600</Y>\n\t\t\t</Vector2>\n",
+        );
+        upsert_vector2_property(&mut props, "StartScreenSize", 1280, 720);
+        assert!(props.contains("<X>1280</X>"));
+        assert!(props.contains("<Y>720</Y>"));
+        assert!(!props.contains("<X>800</X>"));
+        assert_eq!(props.matches("<Vector2 name=\"StartScreenSize\">").count(), 1);
+    }
+
+    #[test]
+    fn upsert_vector2_property_appends_when_missing() {
+        let mut props = String::from("\t\t\t<int name=\"Other\">1</int>\n");
+        upsert_vector2_property(&mut props, "StartScreenSize", 1920, 1080);
+        assert!(props.contains("<Vector2 name=\"StartScreenSize\">"));
+        assert!(props.contains("<X>1920</X>"));
+        assert!(props.contains("<Y>1080</Y>"));
+        assert!(props.contains("</Vector2>"));
+    }
+
+    // ── copy_custom_client_settings: only the branches that reject early ───
+
+    #[test]
+    fn copy_custom_client_settings_rejects_a_missing_path() {
+        let temp = TempDir::new("copymissing");
+        let err =
+            copy_custom_client_settings(temp.file("nope.json").to_str().unwrap()).unwrap_err();
+        assert_eq!(err, "Custom ClientAppSettings.json path does not exist");
+    }
+
+    #[test]
+    fn copy_custom_client_settings_rejects_a_file_that_is_not_valid_json() {
+        // Rejected before the real Roblox folder is ever resolved, so this is
+        // safe to exercise in a unit test.
+        let temp = TempDir::new("copybad");
+        let path = temp.file("custom.json");
+        std::fs::write(&path, "{ not json at all").unwrap();
+
+        let err = copy_custom_client_settings(path.to_str().unwrap()).unwrap_err();
+        assert!(
+            err.starts_with("Custom settings file is not valid JSON"),
+            "got {}",
+            err
+        );
+    }
 }

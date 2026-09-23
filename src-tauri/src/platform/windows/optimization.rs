@@ -450,3 +450,462 @@ pub(crate) fn apply_optimization_to_pid(
         result
     }
 }
+
+#[cfg(test)]
+mod win_optimization_tests {
+    use super::*;
+
+    // Only the configuration side is covered here: every function below maps
+    // settings to plain values. The Win32 appliers (`apply_optimization_to_pid`
+    // and friends) need a live process handle and are left to manual testing.
+
+    struct TempSettings {
+        store: SettingsStore,
+        path: PathBuf,
+    }
+
+    impl Drop for TempSettings {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    impl std::ops::Deref for TempSettings {
+        type Target = SettingsStore;
+        fn deref(&self) -> &SettingsStore {
+            &self.store
+        }
+    }
+
+    fn settings(tag: &str) -> TempSettings {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("ram4-opt-{}-{}-{}.ini", tag, nanos, n));
+        TempSettings {
+            store: SettingsStore::new(path.clone()),
+            path,
+        }
+    }
+
+    fn policy(background: bool, eco: bool, ignore_timer: bool) -> WindowsProcessPolicy {
+        WindowsProcessPolicy {
+            enabled: true,
+            background_mode: background,
+            eco_qos: eco,
+            ignore_timer_resolution: ignore_timer,
+            ..Default::default()
+        }
+    }
+
+    // ── key composition ────────────────────────────────────────────────────
+
+    #[test]
+    fn optimization_prefix_is_distinct_per_launch_profile() {
+        assert_eq!(optimization_prefix(LaunchClientProfile::Normal), "Normal");
+        assert_eq!(
+            optimization_prefix(LaunchClientProfile::BottingPlayer),
+            "BottingPlayer"
+        );
+        assert_eq!(
+            optimization_prefix(LaunchClientProfile::BottingBot),
+            "BottingBot"
+        );
+    }
+
+    #[test]
+    fn optimization_key_concatenates_the_prefix_and_the_suffix() {
+        assert_eq!(
+            optimization_key(LaunchClientProfile::Normal, "PriorityClass"),
+            "NormalPriorityClass"
+        );
+        assert_eq!(
+            optimization_key(LaunchClientProfile::BottingBot, "EnableJobCpuLimit"),
+            "BottingBotEnableJobCpuLimit"
+        );
+    }
+
+    #[test]
+    fn the_three_profiles_never_share_a_settings_key() {
+        let profiles = [
+            LaunchClientProfile::Normal,
+            LaunchClientProfile::BottingPlayer,
+            LaunchClientProfile::BottingBot,
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for profile in profiles {
+            for suffix in [
+                "EnableProcessPolicy",
+                "ProcessPolicyDelayMs",
+                "PriorityClass",
+                "BackgroundMode",
+                "EcoQos",
+                "IgnoreTimerResolution",
+                "MemoryPriority",
+                "EnableFastFlags",
+                "FastFlagsJson",
+                "EnableJobCpuLimit",
+                "JobCpuLimitPercent",
+                "EnableJobMemoryLimit",
+                "JobMemoryLimitMb",
+            ] {
+                assert!(
+                    seen.insert(optimization_key(profile, suffix)),
+                    "duplicate key for {:?}/{}",
+                    profile,
+                    suffix
+                );
+            }
+        }
+    }
+
+    // ── enum parsing tables ────────────────────────────────────────────────
+
+    #[test]
+    fn parse_priority_class_maps_the_known_values() {
+        assert_eq!(parse_priority_class("normal"), WindowsPriorityClass::Normal);
+        assert_eq!(
+            parse_priority_class("below_normal"),
+            WindowsPriorityClass::BelowNormal
+        );
+        assert_eq!(parse_priority_class("idle"), WindowsPriorityClass::Idle);
+    }
+
+    #[test]
+    fn parse_priority_class_ignores_case_and_whitespace() {
+        assert_eq!(
+            parse_priority_class("  BELOW_NORMAL "),
+            WindowsPriorityClass::BelowNormal
+        );
+        assert_eq!(parse_priority_class("\tIdle\n"), WindowsPriorityClass::Idle);
+    }
+
+    #[test]
+    fn parse_priority_class_falls_back_to_normal() {
+        for value in ["", "   ", "high", "realtime", "below normal", "below-normal"] {
+            assert_eq!(
+                parse_priority_class(value),
+                WindowsPriorityClass::Normal,
+                "{:?} should fall back to Normal",
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn parse_memory_priority_maps_the_known_values_and_falls_back_to_normal() {
+        assert_eq!(parse_memory_priority("low"), WindowsMemoryPriority::Low);
+        assert_eq!(
+            parse_memory_priority("very_low"),
+            WindowsMemoryPriority::VeryLow
+        );
+        assert_eq!(parse_memory_priority("normal"), WindowsMemoryPriority::Normal);
+        assert_eq!(
+            parse_memory_priority("  VERY_LOW  "),
+            WindowsMemoryPriority::VeryLow
+        );
+        for value in ["", "very low", "verylow", "lowest", "5"] {
+            assert_eq!(
+                parse_memory_priority(value),
+                WindowsMemoryPriority::Normal,
+                "{:?} should fall back to Normal",
+                value
+            );
+        }
+    }
+
+    // ── power throttling mask ──────────────────────────────────────────────
+
+    #[test]
+    fn power_throttling_mask_is_the_or_of_the_two_toggles() {
+        assert_eq!(power_throttling_mask(&policy(false, false, false)), 0);
+        assert_eq!(
+            power_throttling_mask(&policy(false, true, false)),
+            PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+        );
+        assert_eq!(
+            power_throttling_mask(&policy(false, false, true)),
+            PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+        );
+        assert_eq!(
+            power_throttling_mask(&policy(false, true, true)),
+            PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+                | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION
+        );
+    }
+
+    #[test]
+    fn power_throttling_mask_is_unaffected_by_background_mode() {
+        assert_eq!(power_throttling_mask(&policy(true, false, false)), 0);
+    }
+
+    // ── defaults ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn process_policy_defaults_are_inert() {
+        let default = WindowsProcessPolicy::default();
+        assert!(!default.enabled);
+        assert_eq!(default.delay_ms, 1500);
+        assert_eq!(default.priority_class, WindowsPriorityClass::Normal);
+        assert!(!default.background_mode);
+        assert!(!default.eco_qos);
+        assert!(!default.ignore_timer_resolution);
+        assert_eq!(default.memory_priority, WindowsMemoryPriority::Normal);
+    }
+
+    #[test]
+    fn experimental_policy_defaults_are_inert() {
+        let default = WindowsExperimentalPolicy::default();
+        assert!(!default.enable_fast_flags);
+        assert!(default.fast_flags_json.is_empty());
+        assert!(!default.enable_job_cpu_limit);
+        assert_eq!(default.job_cpu_limit_percent, 25);
+        assert!(!default.enable_job_memory_limit);
+        assert_eq!(default.job_memory_limit_mb, 2048);
+    }
+
+    // ── load_optimization_profile ──────────────────────────────────────────
+
+    #[test]
+    fn load_optimization_profile_uses_defaults_for_an_untouched_settings_file() {
+        let store = settings("defaults");
+        let profile = load_optimization_profile(&store, LaunchClientProfile::Normal);
+
+        assert!(!profile.process.enabled);
+        assert_eq!(profile.process.delay_ms, 1500);
+        assert_eq!(profile.process.priority_class, WindowsPriorityClass::Normal);
+        assert_eq!(
+            profile.process.memory_priority,
+            WindowsMemoryPriority::Normal
+        );
+        assert_eq!(profile.experimental.job_cpu_limit_percent, 25);
+        assert_eq!(profile.experimental.job_memory_limit_mb, 2048);
+    }
+
+    #[test]
+    fn load_optimization_profile_reads_the_keys_of_the_requested_profile_only() {
+        let store = settings("perprofile");
+        store
+            .set("Optimization", "BottingBotEnableProcessPolicy", "true")
+            .unwrap();
+        store
+            .set("Optimization", "BottingBotPriorityClass", "idle")
+            .unwrap();
+        store
+            .set("Optimization", "BottingBotMemoryPriority", "very_low")
+            .unwrap();
+
+        let bot = load_optimization_profile(&store, LaunchClientProfile::BottingBot);
+        assert!(bot.process.enabled);
+        assert_eq!(bot.process.priority_class, WindowsPriorityClass::Idle);
+        assert_eq!(bot.process.memory_priority, WindowsMemoryPriority::VeryLow);
+
+        let normal = load_optimization_profile(&store, LaunchClientProfile::Normal);
+        assert!(!normal.process.enabled);
+        assert_eq!(normal.process.priority_class, WindowsPriorityClass::Normal);
+    }
+
+    #[test]
+    fn load_optimization_profile_clamps_the_process_policy_delay() {
+        let store = settings("clampdelay");
+        for (stored, expected) in [
+            ("-5000", 0u64),
+            ("0", 0),
+            ("1200", 1200),
+            ("15000", 15000),
+            ("999999", 15000),
+        ] {
+            store
+                .set("Optimization", "NormalProcessPolicyDelayMs", stored)
+                .unwrap();
+            let profile = load_optimization_profile(&store, LaunchClientProfile::Normal);
+            assert_eq!(profile.process.delay_ms, expected, "stored {}", stored);
+        }
+    }
+
+    #[test]
+    fn load_optimization_profile_clamps_the_cpu_limit_percentage() {
+        let store = settings("clampcpu");
+        for (stored, expected) in [
+            ("0", 5u32),
+            ("-100", 5),
+            ("5", 5),
+            ("50", 50),
+            ("100", 100),
+            ("1000", 100),
+        ] {
+            store
+                .set("Optimization", "NormalJobCpuLimitPercent", stored)
+                .unwrap();
+            let profile = load_optimization_profile(&store, LaunchClientProfile::Normal);
+            assert_eq!(
+                profile.experimental.job_cpu_limit_percent, expected,
+                "stored {}",
+                stored
+            );
+        }
+    }
+
+    #[test]
+    fn load_optimization_profile_clamps_the_memory_limit() {
+        let store = settings("clampmem");
+        for (stored, expected) in [
+            ("0", 256u64),
+            ("-1", 256),
+            ("255", 256),
+            ("256", 256),
+            ("4096", 4096),
+            ("32768", 32768),
+            ("99999999", 32768),
+        ] {
+            store
+                .set("Optimization", "NormalJobMemoryLimitMb", stored)
+                .unwrap();
+            let profile = load_optimization_profile(&store, LaunchClientProfile::Normal);
+            assert_eq!(
+                profile.experimental.job_memory_limit_mb, expected,
+                "stored {}",
+                stored
+            );
+        }
+    }
+
+    #[test]
+    fn load_optimization_profile_falls_back_to_the_default_for_an_unparsable_number() {
+        let store = settings("badnumber");
+        store
+            .set("Optimization", "NormalProcessPolicyDelayMs", "soon")
+            .unwrap();
+        store
+            .set("Optimization", "NormalJobMemoryLimitMb", "lots")
+            .unwrap();
+
+        let profile = load_optimization_profile(&store, LaunchClientProfile::Normal);
+        assert_eq!(profile.process.delay_ms, 1500);
+        assert_eq!(profile.experimental.job_memory_limit_mb, 2048);
+    }
+
+    #[test]
+    fn load_optimization_profile_carries_the_experimental_toggles_through() {
+        let store = settings("experimental");
+        store
+            .set("Optimization", "BottingPlayerEnableFastFlags", "true")
+            .unwrap();
+        store
+            .set(
+                "Optimization",
+                "BottingPlayerFastFlagsJson",
+                r#"{"FFlagDebugSkyGray":"True"}"#,
+            )
+            .unwrap();
+        store
+            .set("Optimization", "BottingPlayerEnableJobCpuLimit", "true")
+            .unwrap();
+        store
+            .set("Optimization", "BottingPlayerEnableJobMemoryLimit", "true")
+            .unwrap();
+
+        let profile = load_optimization_profile(&store, LaunchClientProfile::BottingPlayer);
+        assert!(profile.experimental.enable_fast_flags);
+        assert_eq!(
+            profile.experimental.fast_flags_json,
+            r#"{"FFlagDebugSkyGray":"True"}"#
+        );
+        assert!(profile.experimental.enable_job_cpu_limit);
+        assert!(profile.experimental.enable_job_memory_limit);
+    }
+
+    // ── fast flag allowlist ────────────────────────────────────────────────
+
+    #[test]
+    fn the_fastflag_allowlist_has_no_duplicates() {
+        let unique: std::collections::HashSet<&&str> =
+            WINDOWS_FASTFLAG_ALLOWLIST.iter().collect();
+        assert_eq!(unique.len(), WINDOWS_FASTFLAG_ALLOWLIST.len());
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_accepts_every_allowlisted_key() {
+        let object: serde_json::Map<String, serde_json::Value> = WINDOWS_FASTFLAG_ALLOWLIST
+            .iter()
+            .map(|k| ((*k).to_string(), serde_json::json!("True")))
+            .collect();
+        let payload = serde_json::to_string(&object).unwrap();
+
+        let parsed = parse_allowlisted_fast_flags_json(&payload).expect("allowlisted payload");
+        assert_eq!(parsed.len(), WINDOWS_FASTFLAG_ALLOWLIST.len());
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_accepts_surrounding_whitespace() {
+        let parsed =
+            parse_allowlisted_fast_flags_json("  \n {\"FFlagDebugSkyGray\": \"True\"} \t ")
+                .expect("valid payload");
+        assert_eq!(parsed["FFlagDebugSkyGray"], "True");
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_accepts_an_empty_object() {
+        let parsed = parse_allowlisted_fast_flags_json("{}").expect("empty object is valid");
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_rejects_an_empty_payload() {
+        for payload in ["", "   ", "\n\t"] {
+            let err = parse_allowlisted_fast_flags_json(payload).unwrap_err();
+            assert_eq!(err, "Allowlisted fast flags JSON cannot be empty while enabled");
+        }
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_rejects_malformed_json() {
+        let err = parse_allowlisted_fast_flags_json("{not json").unwrap_err();
+        assert!(
+            err.starts_with("Invalid allowlisted fast flags JSON"),
+            "got {}",
+            err
+        );
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_rejects_a_non_object_document() {
+        for payload in ["[]", "\"a string\"", "42", "null", "true"] {
+            let err = parse_allowlisted_fast_flags_json(payload).unwrap_err();
+            assert_eq!(
+                err, "Allowlisted fast flags JSON must be a JSON object",
+                "payload {}",
+                payload
+            );
+        }
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_rejects_keys_outside_the_allowlist() {
+        // Security boundary: arbitrary fast flags must not reach the client.
+        let err = parse_allowlisted_fast_flags_json(
+            r#"{"FFlagDebugSkyGray":"True","FFlagArbitraryThing":"True"}"#,
+        )
+        .unwrap_err();
+        assert!(err.starts_with("Only Roblox allowlisted keys are accepted:"));
+        assert!(err.contains("FFlagArbitraryThing"));
+        assert!(!err.contains("FFlagDebugSkyGray"));
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_lists_every_rejected_key() {
+        let err =
+            parse_allowlisted_fast_flags_json(r#"{"BadOne":"1","BadTwo":"2"}"#).unwrap_err();
+        assert!(err.contains("BadOne"), "got {}", err);
+        assert!(err.contains("BadTwo"), "got {}", err);
+    }
+
+    #[test]
+    fn parse_allowlisted_fast_flags_json_is_case_sensitive_about_key_names() {
+        let err = parse_allowlisted_fast_flags_json(r#"{"fflagdebugskygray":"True"}"#).unwrap_err();
+        assert!(err.contains("fflagdebugskygray"), "got {}", err);
+    }
+}

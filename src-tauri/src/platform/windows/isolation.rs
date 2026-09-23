@@ -1197,3 +1197,756 @@ pub fn restore_network_identifiers(
 pub fn write_machine_guid_unelevated(value: &str) -> bool {
     write_machine_guid_directly(value)
 }
+
+#[cfg(test)]
+mod win_isolation_tests {
+    use super::*;
+
+    // ── helpers ────────────────────────────────────────────────────────────
+    //
+    // Nothing here may touch a real Roblox path or the registry: every
+    // filesystem test runs inside a uniquely named folder under the OS temp
+    // dir, and the registry is only ever exercised through the *dry-run*
+    // branches, which build strings instead of calling RegDeleteTreeW.
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("ram4-iso-{}-{}-{}", tag, nanos, n));
+            std::fs::create_dir_all(&dir).expect("temp dir");
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn base_options(mode: IsolationMode) -> IsolationOptions {
+        IsolationOptions {
+            mode,
+            spoof_machine_guid: false,
+            spoof_mac: false,
+            target_adapter: String::new(),
+            include_studio: false,
+            preserve_fast_flags: true,
+            preserve_basic_settings: true,
+        }
+    }
+
+    fn adapter(subkey: &str, description: &str, instance: Option<&str>) -> AdapterInfo {
+        AdapterInfo {
+            subkey: subkey.to_string(),
+            description: description.to_string(),
+            current_mac: None,
+            net_cfg_instance_id: instance.map(|s| s.to_string()),
+        }
+    }
+
+    // ── IsolationMode ──────────────────────────────────────────────────────
+
+    #[test]
+    fn isolation_mode_from_str_maps_every_known_value() {
+        assert_eq!(IsolationMode::from_str("off"), IsolationMode::Off);
+        assert_eq!(IsolationMode::from_str("light"), IsolationMode::Light);
+        assert_eq!(IsolationMode::from_str("medium"), IsolationMode::Medium);
+        assert_eq!(IsolationMode::from_str("full"), IsolationMode::Full);
+    }
+
+    #[test]
+    fn isolation_mode_from_str_ignores_case_and_surrounding_whitespace() {
+        assert_eq!(IsolationMode::from_str("  FULL  "), IsolationMode::Full);
+        assert_eq!(IsolationMode::from_str("Medium"), IsolationMode::Medium);
+        assert_eq!(IsolationMode::from_str("\tLiGhT\n"), IsolationMode::Light);
+    }
+
+    #[test]
+    fn isolation_mode_from_str_falls_back_to_off_for_anything_unknown() {
+        // Fail safe: an unrecognised setting must never silently enable a wipe.
+        for value in ["", "   ", "nuclear", "ful", "light2", "0", "true"] {
+            assert_eq!(
+                IsolationMode::from_str(value),
+                IsolationMode::Off,
+                "{:?} should fall back to Off",
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn isolation_mode_as_str_round_trips_through_from_str() {
+        for mode in [
+            IsolationMode::Off,
+            IsolationMode::Light,
+            IsolationMode::Medium,
+            IsolationMode::Full,
+        ] {
+            assert_eq!(IsolationMode::from_str(mode.as_str()), mode);
+        }
+        assert_eq!(IsolationMode::Off.as_str(), "off");
+        assert_eq!(IsolationMode::Light.as_str(), "light");
+        assert_eq!(IsolationMode::Medium.as_str(), "medium");
+        assert_eq!(IsolationMode::Full.as_str(), "full");
+    }
+
+    #[test]
+    fn isolation_mode_serializes_in_lowercase() {
+        let json = serde_json::to_string(&IsolationMode::Full).unwrap();
+        assert_eq!(json, "\"full\"");
+        let back: IsolationMode = serde_json::from_str("\"medium\"").unwrap();
+        assert_eq!(back, IsolationMode::Medium);
+    }
+
+    // ── IsolationOptions::does_anything ────────────────────────────────────
+
+    #[test]
+    fn does_anything_is_the_or_of_mode_and_the_two_spoof_flags() {
+        // Full truth table over (mode != Off, spoof_machine_guid, spoof_mac).
+        for mode in [
+            IsolationMode::Off,
+            IsolationMode::Light,
+            IsolationMode::Medium,
+            IsolationMode::Full,
+        ] {
+            for guid in [false, true] {
+                for mac in [false, true] {
+                    let mut opts = base_options(mode);
+                    opts.spoof_machine_guid = guid;
+                    opts.spoof_mac = mac;
+                    let expected = mode != IsolationMode::Off || guid || mac;
+                    assert_eq!(
+                        opts.does_anything(),
+                        expected,
+                        "mode={:?} guid={} mac={}",
+                        mode,
+                        guid,
+                        mac
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn does_anything_is_false_only_for_a_fully_disabled_configuration() {
+        let mut opts = base_options(IsolationMode::Off);
+        assert!(!opts.does_anything());
+        // Options that do not by themselves cause any work.
+        opts.include_studio = true;
+        opts.preserve_fast_flags = false;
+        opts.preserve_basic_settings = false;
+        opts.target_adapter = "0007".into();
+        assert!(!opts.does_anything());
+    }
+
+    #[test]
+    fn isolation_options_defaults_preserve_user_settings() {
+        // Missing flags must default to "preserve", never to "wipe".
+        let opts: IsolationOptions = serde_json::from_str(r#"{"mode":"full"}"#).unwrap();
+        assert_eq!(opts.mode, IsolationMode::Full);
+        assert!(opts.preserve_fast_flags);
+        assert!(opts.preserve_basic_settings);
+        assert!(!opts.spoof_machine_guid);
+        assert!(!opts.spoof_mac);
+        assert!(!opts.include_studio);
+        assert_eq!(opts.target_adapter, "");
+    }
+
+    // ── validators ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_valid_machine_guid_accepts_canonical_guids() {
+        assert!(is_valid_machine_guid("0123abcd-4567-89ef-0123-456789abcdef"));
+        assert!(is_valid_machine_guid("FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"));
+    }
+
+    #[test]
+    fn is_valid_machine_guid_rejects_anything_that_is_not_a_guid() {
+        for value in [
+            "",
+            "0123abcd-4567-89ef-0123-456789abcde",   // too short
+            "0123abcd-4567-89ef-0123-456789abcdeff", // too long
+            "0123abcd456789ef0123456789abcdef", // no separators
+            "0123abcd-4567-89ef-0123-456789abcdeg", // non hex
+            "0123abc'-4567-89ef-0123-456789abcdef", // quote injection
+            "0123abcd_4567_89ef_0123_456789abcdef", // wrong separator
+            "{0123abcd-4567-89ef-0123-456789abcd}",
+            "0123abcd-4567-89ef-0123456789abcdef-", // wrong grouping, right length
+        ] {
+            assert!(!is_valid_machine_guid(value), "{:?} must be rejected", value);
+        }
+    }
+
+    #[test]
+    fn is_valid_mac_hex_requires_exactly_twelve_hex_digits() {
+        assert!(is_valid_mac_hex("02AABBCCDDEE"));
+        assert!(is_valid_mac_hex("02aabbccddee"));
+        assert!(!is_valid_mac_hex(""));
+        assert!(!is_valid_mac_hex("02AABBCCDDE"));
+        assert!(!is_valid_mac_hex("02AABBCCDDEEF"));
+        assert!(!is_valid_mac_hex("02-AA-BB-CC-DD"));
+        assert!(!is_valid_mac_hex("02AABBCCDDEG"));
+        assert!(!is_valid_mac_hex("02AABBCC'DEE"));
+    }
+
+    #[test]
+    fn is_valid_adapter_subkey_requires_exactly_four_digits() {
+        assert!(is_valid_adapter_subkey("0000"));
+        assert!(is_valid_adapter_subkey("0007"));
+        assert!(is_valid_adapter_subkey("9999"));
+        assert!(!is_valid_adapter_subkey(""));
+        assert!(!is_valid_adapter_subkey("007"));
+        assert!(!is_valid_adapter_subkey("00007"));
+        assert!(!is_valid_adapter_subkey("000a"));
+        assert!(!is_valid_adapter_subkey("..\\.."));
+        assert!(!is_valid_adapter_subkey("00'1"));
+    }
+
+    // ── random identifier generation (BCryptGenRandom, read-only) ──────────
+
+    #[test]
+    fn new_random_mac_is_a_locally_administered_unicast_address() {
+        for _ in 0..40 {
+            let mac = new_random_mac().expect("BCryptGenRandom");
+            assert!(is_valid_mac_hex(&mac), "malformed MAC {}", mac);
+            let first = u8::from_str_radix(&mac[0..2], 16).unwrap();
+            assert_eq!(first & 0x02, 0x02, "{} is not locally administered", mac);
+            assert_eq!(first & 0x01, 0x00, "{} is a multicast address", mac);
+        }
+    }
+
+    #[test]
+    fn new_random_mac_does_not_repeat() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..50 {
+            assert!(
+                seen.insert(new_random_mac().expect("BCryptGenRandom")),
+                "new_random_mac repeated a value"
+            );
+        }
+    }
+
+    #[test]
+    fn new_random_machine_guid_is_a_valid_v4_uuid() {
+        for _ in 0..40 {
+            let guid = new_random_machine_guid().expect("BCryptGenRandom");
+            assert!(is_valid_machine_guid(&guid), "malformed GUID {}", guid);
+            // Version nibble (4) and RFC 4122 variant (8/9/a/b).
+            let bytes: Vec<&str> = guid.split('-').collect();
+            assert!(bytes[2].starts_with('4'), "{} is not version 4", guid);
+            assert!(
+                matches!(bytes[3].chars().next(), Some('8' | '9' | 'a' | 'b')),
+                "{} has the wrong variant nibble",
+                guid
+            );
+            assert_eq!(guid, guid.to_ascii_lowercase(), "{} should be lowercase", guid);
+        }
+    }
+
+    #[test]
+    fn new_random_machine_guid_does_not_repeat() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..50 {
+            assert!(
+                seen.insert(new_random_machine_guid().expect("BCryptGenRandom")),
+                "new_random_machine_guid repeated a value"
+            );
+        }
+    }
+
+    #[test]
+    fn generated_identifiers_are_always_accepted_by_the_script_builders() {
+        // Regression guard: a generator change that broke the validators would
+        // make every spoof fail at runtime instead of at build time.
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_machine_guid = true;
+        opts.spoof_mac = true;
+        for _ in 0..25 {
+            let guid = new_random_machine_guid().unwrap();
+            let mac = new_random_mac().unwrap();
+            build_spoof_script(&opts, Some(&guid), Some("0007"), Some(&mac))
+                .expect("generated values must pass validation");
+        }
+    }
+
+    // ── build_spoof_script ─────────────────────────────────────────────────
+
+    #[test]
+    fn build_spoof_script_is_empty_apart_from_the_preamble_when_nothing_is_enabled() {
+        let opts = base_options(IsolationMode::Full);
+        let script = build_spoof_script(&opts, None, None, None).unwrap();
+        assert_eq!(script, "$ErrorActionPreference = 'Stop'\n");
+    }
+
+    #[test]
+    fn build_spoof_script_writes_the_machine_guid_when_requested() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_machine_guid = true;
+        let guid = "0123abcd-4567-89ef-0123-456789abcdef";
+        let script = build_spoof_script(&opts, Some(guid), None, None).unwrap();
+
+        assert!(script.starts_with("$ErrorActionPreference = 'Stop'\n"));
+        assert!(script.contains(
+            "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography' -Name 'MachineGuid'"
+        ));
+        assert!(script.contains(&format!("-Value '{}'", guid)));
+        assert!(!script.contains("NetworkAddress"));
+    }
+
+    #[test]
+    fn build_spoof_script_ignores_a_guid_when_the_flag_is_off() {
+        let opts = base_options(IsolationMode::Off); // spoof_machine_guid = false
+        let script =
+            build_spoof_script(&opts, Some("0123abcd-4567-89ef-0123-456789abcdef"), None, None)
+                .unwrap();
+        assert!(!script.contains("MachineGuid"));
+    }
+
+    #[test]
+    fn build_spoof_script_writes_the_mac_and_bounces_the_adapter() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_mac = true;
+        let script =
+            build_spoof_script(&opts, None, Some("0012"), Some("02AABBCCDDEE")).unwrap();
+
+        let expected_path = format!(
+            "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{}\\0012",
+            NETWORK_ADAPTER_CLASS_GUID
+        );
+        assert!(script.contains(&expected_path), "script was: {}", script);
+        assert!(script.contains("-Name 'NetworkAddress' -Value '02AABBCCDDEE'"));
+        assert!(script.contains("Disable-NetAdapter"));
+        assert!(script.contains("Enable-NetAdapter"));
+        assert!(script.contains("ipconfig /release"));
+        assert!(script.contains("ipconfig /renew"));
+        assert!(!script.contains("MachineGuid"));
+    }
+
+    #[test]
+    fn build_spoof_script_can_do_both_rotations_at_once() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_machine_guid = true;
+        opts.spoof_mac = true;
+        let script = build_spoof_script(
+            &opts,
+            Some("0123abcd-4567-89ef-0123-456789abcdef"),
+            Some("0012"),
+            Some("02AABBCCDDEE"),
+        )
+        .unwrap();
+        assert!(script.contains("MachineGuid"));
+        assert!(script.contains("NetworkAddress"));
+    }
+
+    #[test]
+    fn build_spoof_script_skips_the_mac_block_when_a_piece_is_missing() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_mac = true;
+        assert!(!build_spoof_script(&opts, None, None, Some("02AABBCCDDEE"))
+            .unwrap()
+            .contains("NetworkAddress"));
+        assert!(!build_spoof_script(&opts, None, Some("0012"), None)
+            .unwrap()
+            .contains("NetworkAddress"));
+    }
+
+    // ── build_spoof_script: PowerShell injection safety ────────────────────
+    //
+    // Every value interpolated into the script is inside a single-quoted
+    // PowerShell literal, so a value containing `'` would terminate it and let
+    // the rest run as code. The builders must reject such values outright
+    // rather than emit them. These are regression tests: do not "fix" them by
+    // relaxing a validator.
+
+    #[test]
+    fn build_spoof_script_refuses_a_machine_guid_that_could_break_out_of_the_quoting() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_machine_guid = true;
+        for hostile in [
+            "'; Remove-Item C:\\ -Recurse -Force; '",
+            "aaaaaaaa-bbbb-cccc-dddd-ee'; calc; '",
+            "$(calc)",
+            "a'-b",
+            "",
+        ] {
+            let err = build_spoof_script(&opts, Some(hostile), None, None).unwrap_err();
+            assert!(
+                err.contains("Refusing to run spoof script"),
+                "{:?} produced {}",
+                hostile,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn build_spoof_script_refuses_a_hostile_adapter_subkey_or_mac() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_mac = true;
+
+        let err =
+            build_spoof_script(&opts, None, Some("00'; calc; '"), Some("02AABBCCDDEE")).unwrap_err();
+        assert!(err.contains("4-digit identifier"), "got {}", err);
+
+        let err = build_spoof_script(&opts, None, Some("0012"), Some("'; calc; '")).unwrap_err();
+        assert!(err.contains("12 hex characters"), "got {}", err);
+
+        // ..and traversal-flavoured subkeys are rejected too.
+        for subkey in ["..\\..", "../..", "0012\\x", "0012'"] {
+            assert!(
+                build_spoof_script(&opts, None, Some(subkey), Some("02AABBCCDDEE")).is_err(),
+                "subkey {:?} must be rejected",
+                subkey
+            );
+        }
+    }
+
+    #[test]
+    fn a_built_spoof_script_never_contains_an_unbalanced_single_quote() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_machine_guid = true;
+        opts.spoof_mac = true;
+        let script = build_spoof_script(
+            &opts,
+            Some(&new_random_machine_guid().unwrap()),
+            Some("0007"),
+            Some(&new_random_mac().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(
+            script.matches('\'').count() % 2,
+            0,
+            "odd number of single quotes means a literal was left open:\n{}",
+            script
+        );
+    }
+
+    // ── build_restore_script ───────────────────────────────────────────────
+
+    #[test]
+    fn build_restore_script_restores_the_machine_guid() {
+        let guid = "0123abcd-4567-89ef-0123-456789abcdef";
+        let script = build_restore_script(Some(guid), None, None).unwrap();
+        assert!(script.contains("HKLM:\\SOFTWARE\\Microsoft\\Cryptography"));
+        assert!(script.contains(&format!("-Value '{}'", guid)));
+        assert!(!script.contains("NetworkAddress"));
+    }
+
+    #[test]
+    fn build_restore_script_puts_the_previous_mac_back_when_there_was_one() {
+        let script = build_restore_script(None, Some("0012"), Some("AABBCCDDEEFF")).unwrap();
+        assert!(script.contains("-Name 'NetworkAddress' -Value 'AABBCCDDEEFF'"));
+        assert!(!script.contains("Remove-ItemProperty"));
+    }
+
+    #[test]
+    fn build_restore_script_removes_the_override_when_there_was_no_previous_mac() {
+        for previous in [None, Some(""), Some("   "), Some("not-a-mac"), Some("AABBCC")] {
+            let script = build_restore_script(None, Some("0012"), previous).unwrap();
+            assert!(
+                script.contains("Remove-ItemProperty"),
+                "previous {:?} should clear the override, got:\n{}",
+                previous,
+                script
+            );
+            assert!(!script.contains("-Name 'NetworkAddress' -Value"));
+        }
+    }
+
+    #[test]
+    fn build_restore_script_refuses_corrupt_backups_instead_of_interpolating_them() {
+        let err = build_restore_script(Some("'; calc; '"), None, None).unwrap_err();
+        assert!(err.contains("Refusing to run restore script"), "got {}", err);
+
+        let err = build_restore_script(None, Some("00'; calc; '"), None).unwrap_err();
+        assert!(err.contains("4-digit identifier"), "got {}", err);
+    }
+
+    #[test]
+    fn build_restore_script_with_no_values_is_just_the_preamble() {
+        let script = build_restore_script(None, None, None).unwrap();
+        assert_eq!(script, "$ErrorActionPreference = 'Stop'\n");
+    }
+
+    #[test]
+    fn a_built_restore_script_never_contains_an_unbalanced_single_quote() {
+        for previous in [None, Some("AABBCCDDEEFF"), Some("garbage")] {
+            let script = build_restore_script(
+                Some("0123abcd-4567-89ef-0123-456789abcdef"),
+                Some("0007"),
+                previous,
+            )
+            .unwrap();
+            assert_eq!(
+                script.matches('\'').count() % 2,
+                0,
+                "odd number of single quotes for previous={:?}:\n{}",
+                previous,
+                script
+            );
+        }
+    }
+
+    // ── select_adapter ─────────────────────────────────────────────────────
+
+    #[test]
+    fn select_adapter_prefers_an_explicit_subkey_description_or_instance_id() {
+        let adapters = vec![
+            adapter("0001", "Intel Ethernet", Some("{AAA}")),
+            adapter("0002", "Realtek Wi-Fi", Some("{BBB}")),
+        ];
+        assert_eq!(select_adapter(&adapters, "0002").unwrap().subkey, "0002");
+        assert_eq!(
+            select_adapter(&adapters, "realtek wi-fi").unwrap().subkey,
+            "0002"
+        );
+        assert_eq!(select_adapter(&adapters, "{bbb}").unwrap().subkey, "0002");
+        assert_eq!(select_adapter(&adapters, "  0002  ").unwrap().subkey, "0002");
+    }
+
+    #[test]
+    fn select_adapter_skips_virtual_and_loopback_adapters_by_default() {
+        let adapters = vec![
+            adapter("0001", "VMware Virtual Ethernet Adapter", None),
+            adapter("0002", "Microsoft Loopback Adapter", None),
+            adapter("0003", "Intel Ethernet", None),
+        ];
+        assert_eq!(select_adapter(&adapters, "").unwrap().subkey, "0003");
+    }
+
+    #[test]
+    fn select_adapter_falls_back_to_the_first_adapter_when_all_are_virtual() {
+        let adapters = vec![
+            adapter("0001", "VMware Virtual Ethernet Adapter", None),
+            adapter("0002", "Hyper-V Virtual Switch", None),
+        ];
+        assert_eq!(select_adapter(&adapters, "").unwrap().subkey, "0001");
+    }
+
+    #[test]
+    fn select_adapter_falls_back_to_the_heuristic_when_the_preference_matches_nothing() {
+        let adapters = vec![
+            adapter("0001", "VMware Virtual Ethernet Adapter", None),
+            adapter("0003", "Intel Ethernet", None),
+        ];
+        assert_eq!(select_adapter(&adapters, "9999").unwrap().subkey, "0003");
+    }
+
+    #[test]
+    fn select_adapter_returns_none_when_there_are_no_adapters() {
+        let empty: Vec<AdapterInfo> = Vec::new();
+        assert!(select_adapter(&empty, "").is_none());
+        assert!(select_adapter(&empty, "0001").is_none());
+    }
+
+    // ── filesystem wipe helpers (temp dirs only) ───────────────────────────
+
+    #[test]
+    fn dir_size_sums_recursively_and_is_zero_for_a_missing_path() {
+        let temp = TempDir::new("dirsize");
+        assert_eq!(dir_size(&temp.path().join("nope")), 0);
+        std::fs::write(temp.path().join("a"), vec![0u8; 7]).unwrap();
+        let nested = temp.path().join("x").join("y");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(nested.join("b"), vec![0u8; 13]).unwrap();
+        assert_eq!(dir_size(temp.path()), 20);
+    }
+
+    #[test]
+    fn wipe_path_deletes_a_file_and_accounts_for_it() {
+        let temp = TempDir::new("wipefile");
+        let file = temp.path().join("cache.bin");
+        std::fs::write(&file, vec![0u8; 128]).unwrap();
+
+        let mut report = IsolationReport::default();
+        wipe_path(&file, &mut report, None);
+
+        assert!(!file.exists());
+        assert_eq!(report.paths_cleaned, 1);
+        assert_eq!(report.bytes_freed, 128);
+    }
+
+    #[test]
+    fn wipe_path_deletes_a_directory_tree_and_accounts_for_its_size() {
+        let temp = TempDir::new("wipedir");
+        let dir = temp.path().join("http");
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a"), vec![0u8; 100]).unwrap();
+        std::fs::write(dir.join("sub").join("b"), vec![0u8; 50]).unwrap();
+
+        let mut report = IsolationReport::default();
+        wipe_path(&dir, &mut report, None);
+
+        assert!(!dir.exists());
+        assert_eq!(report.paths_cleaned, 1);
+        assert_eq!(report.bytes_freed, 150);
+    }
+
+    #[test]
+    fn wipe_path_is_a_no_op_for_a_path_that_does_not_exist() {
+        let temp = TempDir::new("wipemissing");
+        let mut report = IsolationReport::default();
+        wipe_path(&temp.path().join("missing"), &mut report, None);
+        assert_eq!(report.paths_cleaned, 0);
+        assert_eq!(report.bytes_freed, 0);
+    }
+
+    #[test]
+    fn wipe_path_in_dry_mode_lists_the_path_and_deletes_nothing() {
+        let temp = TempDir::new("wipedry");
+        let file = temp.path().join("cache.bin");
+        std::fs::write(&file, vec![0u8; 64]).unwrap();
+
+        let mut report = IsolationReport::default();
+        let mut listed = Vec::new();
+        wipe_path(&file, &mut report, Some(&mut listed));
+
+        assert!(file.exists(), "dry run must not delete anything");
+        assert_eq!(listed, vec![file.display().to_string()]);
+        assert_eq!(report.paths_cleaned, 0);
+        assert_eq!(report.bytes_freed, 0);
+    }
+
+    #[test]
+    fn wipe_path_in_dry_mode_does_not_list_a_missing_path() {
+        let temp = TempDir::new("wipedrymissing");
+        let mut report = IsolationReport::default();
+        let mut listed = Vec::new();
+        wipe_path(&temp.path().join("missing"), &mut report, Some(&mut listed));
+        assert!(listed.is_empty());
+    }
+
+    #[test]
+    fn wipe_glob_in_dir_matches_the_prefix_case_insensitively_and_leaves_the_rest() {
+        let temp = TempDir::new("wipeglob");
+        for name in [
+            "RobloxCache1",
+            "robloxcache2",
+            "ROBLOXCACHE3",
+            "KeepMe",
+            "NotRoblox",
+        ] {
+            std::fs::write(temp.path().join(name), vec![0u8; 10]).unwrap();
+        }
+
+        let mut report = IsolationReport::default();
+        wipe_glob_in_dir(temp.path(), "Roblox", &mut report, None);
+
+        assert!(!temp.path().join("RobloxCache1").exists());
+        assert!(!temp.path().join("robloxcache2").exists());
+        assert!(!temp.path().join("ROBLOXCACHE3").exists());
+        assert!(temp.path().join("KeepMe").exists());
+        assert!(temp.path().join("NotRoblox").exists());
+        assert_eq!(report.paths_cleaned, 3);
+        assert_eq!(report.bytes_freed, 30);
+    }
+
+    #[test]
+    fn wipe_glob_in_dir_in_dry_mode_lists_matches_without_deleting() {
+        let temp = TempDir::new("wipeglobdry");
+        std::fs::write(temp.path().join("RobloxA"), b"x").unwrap();
+        std::fs::write(temp.path().join("Other"), b"x").unwrap();
+
+        let mut report = IsolationReport::default();
+        let mut listed = Vec::new();
+        wipe_glob_in_dir(temp.path(), "roblox", &mut report, Some(&mut listed));
+
+        assert!(temp.path().join("RobloxA").exists());
+        assert_eq!(listed.len(), 1);
+        assert!(listed[0].ends_with("RobloxA"));
+    }
+
+    #[test]
+    fn wipe_glob_in_dir_is_a_no_op_for_an_unreadable_directory() {
+        let temp = TempDir::new("wipeglobmissing");
+        let mut report = IsolationReport::default();
+        wipe_glob_in_dir(&temp.path().join("nope"), "Roblox", &mut report, None);
+        assert_eq!(report.paths_cleaned, 0);
+    }
+
+    #[test]
+    fn is_under_ram_managed_only_matches_paths_inside_the_managed_versions_root() {
+        let Some(root) = crate::data::versions::ram_managed_versions_root() else {
+            return; // no LOCALAPPDATA in this environment
+        };
+        assert!(is_under_ram_managed(&root));
+        assert!(is_under_ram_managed(&root.join("LIVE").join("version-aabb")));
+        assert!(!is_under_ram_managed(Path::new(
+            "C:\\Users\\x\\AppData\\Local\\Roblox\\Versions\\version-aabb"
+        )));
+        assert!(!is_under_ram_managed(Path::new("C:\\")));
+        assert!(!is_under_ram_managed(&std::env::temp_dir()));
+    }
+
+    // ── registry helpers: dry-run branch only ──────────────────────────────
+
+    #[test]
+    fn delete_hkcu_roblox_in_dry_mode_only_names_the_key() {
+        let mut report = IsolationReport::default();
+        let mut keys = Vec::new();
+        delete_hkcu_roblox(&mut report, Some(&mut keys));
+        assert_eq!(keys, vec![format!("HKCU\\{}", ROBLOX_HKCU_KEY)]);
+        assert_eq!(report.paths_cleaned, 0);
+    }
+
+    #[test]
+    fn dry_run_with_isolation_off_reports_nothing_to_do() {
+        let report = dry_run(&base_options(IsolationMode::Off)).unwrap();
+        assert!(report.paths.is_empty());
+        assert!(report.registry_keys.is_empty());
+    }
+
+    #[test]
+    fn dry_run_lists_the_machine_guid_value_when_the_spoof_is_enabled() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_machine_guid = true;
+        let report = dry_run(&opts).unwrap();
+        assert!(report.paths.is_empty());
+        assert_eq!(
+            report.registry_keys,
+            vec![format!("HKLM\\{}\\{}", MACHINE_GUID_KEY, MACHINE_GUID_VALUE)]
+        );
+    }
+
+    // ── report/failure plumbing ────────────────────────────────────────────
+
+    #[test]
+    fn isolation_failure_from_a_message_carries_an_empty_partial_report() {
+        let failure: IsolationFailure = "boom".into();
+        assert_eq!(failure.message, "boom");
+        assert_eq!(failure.partial.paths_cleaned, 0);
+        assert!(!failure.partial.machine_guid_rotated);
+
+        let failure: IsolationFailure = String::from("kaboom").into();
+        assert_eq!(failure.message, "kaboom");
+        assert_eq!(failure.partial.bytes_freed, 0);
+    }
+
+    #[test]
+    fn isolation_report_serializes_in_camel_case() {
+        let report = IsolationReport {
+            paths_cleaned: 3,
+            bytes_freed: 42,
+            machine_guid_rotated: true,
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["pathsCleaned"], 3);
+        assert_eq!(json["bytesFreed"], 42);
+        assert_eq!(json["machineGuidRotated"], true);
+        assert!(json["skippedReason"].is_null());
+    }
+}

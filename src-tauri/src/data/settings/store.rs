@@ -407,3 +407,666 @@ impl SettingsStore {
         self.save()
     }
 }
+
+#[cfg(test)]
+mod settings_store_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("ram-settings-{name}-{nanos}.ini"))
+    }
+
+    struct TestStore {
+        store: SettingsStore,
+    }
+
+    impl Drop for TestStore {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.store.file_path);
+        }
+    }
+
+    impl std::ops::Deref for TestStore {
+        type Target = SettingsStore;
+        fn deref(&self) -> &SettingsStore {
+            &self.store
+        }
+    }
+
+    fn fresh(name: &str) -> TestStore {
+        TestStore {
+            store: SettingsStore::new(temp_path(name)),
+        }
+    }
+
+    fn from_existing(name: &str, contents: &str) -> TestStore {
+        let path = temp_path(name);
+        fs::write(&path, contents).expect("seed ini");
+        TestStore {
+            store: SettingsStore::new(path),
+        }
+    }
+
+    /// Every key documented in `docs/features/settings.md` that has a non-empty
+    /// backend default. Keys documented as "—" (no default) or as `""` are
+    /// handled by their own tests below.
+    fn documented_defaults() -> Vec<(&'static str, String, String)> {
+        fn push(
+            out: &mut Vec<(&'static str, String, String)>,
+            section: &'static str,
+            pairs: &[(&str, &str)],
+        ) {
+            for (key, value) in pairs {
+                out.push((section, key.to_string(), value.to_string()));
+            }
+        }
+
+        let mut out: Vec<(&'static str, String, String)> = Vec::new();
+
+        push(
+            &mut out,
+            "General",
+            &[
+                ("CheckForUpdates", "true"),
+                ("UpdaterReleaseChannel", "beta"),
+                ("UpdaterFeatureChannel", "standard"),
+                ("AccountJoinDelay", "8"),
+                ("AsyncJoin", "false"),
+                ("DisableAgingAlert", "false"),
+                ("HideUsernames", "false"),
+                ("ServerRegionFormat", "<city>, <countryCode>"),
+                ("MaxRecentGames", "8"),
+                ("Language", "en"),
+                ("AutoCookieRefresh", "true"),
+                ("AutoCloseLastProcess", "false"),
+                ("AutoCloseRobloxForMultiRbx", "false"),
+                ("ShowPresence", "true"),
+                ("PresenceUpdateRate", "5"),
+                ("WarnOnOnlineJoin", "true"),
+                ("UnlockFPS", "false"),
+                ("MaxFPSValue", "120"),
+                ("OverrideClientVolume", "false"),
+                ("ClientVolume", "0.5"),
+                ("OverrideClientGraphics", "false"),
+                ("ClientGraphicsLevel", "10"),
+                ("OverrideClientWindowSize", "false"),
+                ("ClientWindowWidth", "1280"),
+                ("ClientWindowHeight", "720"),
+                ("StartRobloxMinimized", "false"),
+                ("StartOnPCStartup", "false"),
+                ("MinimizeToTray", "false"),
+                ("ThemeWindowsNavbar", "true"),
+                ("ThemeWindowsNavbarAutoEnabledV1", "true"),
+                ("RestrictedBackgroundStyle", "warp"),
+                ("BottingEnabled", "false"),
+                ("BottingUseSharedClientProfile", "true"),
+                ("BottingAutoShareLaunchFields", "true"),
+                ("BottingDualPanelDialog", "true"),
+                ("BottingDefaultIntervalMinutes", "19"),
+                ("BottingLaunchDelaySeconds", "20"),
+                ("BottingRetryMax", "6"),
+                ("BottingRetryBaseSeconds", "8"),
+                ("BottingPlayerGraceMinutes", "15"),
+                ("EncryptionMethod", "default"),
+                ("EncryptionOnboardingState", "pending"),
+                ("FirstRunWalkthroughState", "pending"),
+            ],
+        );
+
+        // The Botting client profiles mirror the Normal one key for key.
+        let client_profile: &[(&str, &str)] = &[
+            ("UnlockFPS", "false"),
+            ("MaxFPSValue", "120"),
+            ("OverrideClientVolume", "false"),
+            ("ClientVolume", "0.5"),
+            ("OverrideClientGraphics", "false"),
+            ("ClientGraphicsLevel", "10"),
+            ("OverrideClientWindowSize", "false"),
+            ("ClientWindowWidth", "1280"),
+            ("ClientWindowHeight", "720"),
+            ("StartRobloxMinimized", "false"),
+        ];
+        for prefix in ["BottingPlayer", "BottingBot"] {
+            for (key, value) in client_profile {
+                out.push(("General", format!("{prefix}{key}"), value.to_string()));
+            }
+        }
+
+        push(
+            &mut out,
+            "Developer",
+            &[
+                ("DevMode", "false"),
+                ("EnableWebServer", "false"),
+                ("IsTeleport", "false"),
+                ("UseOldJoin", "false"),
+            ],
+        );
+
+        push(
+            &mut out,
+            "WebServer",
+            &[
+                ("WebServerPort", "7963"),
+                ("AllowGetCookie", "false"),
+                ("AllowGetAccounts", "false"),
+                ("AllowLaunchAccount", "false"),
+                ("AllowAccountEditing", "false"),
+                ("EveryRequestRequiresPassword", "false"),
+                ("AllowExternalConnections", "false"),
+            ],
+        );
+
+        push(
+            &mut out,
+            "AccountControl",
+            &[
+                ("AllowExternalConnections", "false"),
+                ("StartOnLaunch", "false"),
+                ("RelaunchDelay", "60"),
+                ("LauncherDelay", "9"),
+                ("NexusPort", "5242"),
+                ("AutoMinimizeEnabled", "false"),
+                ("AutoCloseEnabled", "false"),
+                ("InternetCheck", "false"),
+                ("UsePresence", "false"),
+                ("AutoMinimizeInterval", "15"),
+                ("AutoCloseInterval", "5"),
+                ("MaxInstances", "3"),
+                ("AutoCloseType", "0"),
+            ],
+        );
+
+        push(
+            &mut out,
+            "Watcher",
+            &[
+                ("Enabled", "false"),
+                ("ScanInterval", "6"),
+                ("ReadInterval", "250"),
+                ("ExitIfNoConnection", "false"),
+                ("NoConnectionTimeout", "60"),
+                ("ExitOnBeta", "false"),
+                ("CloseRbxMemory", "false"),
+                ("MemoryLowValue", "200"),
+                ("CloseRbxWindowTitle", "false"),
+                ("ExpectedWindowTitle", "Roblox"),
+                ("SaveWindowPositions", "false"),
+            ],
+        );
+
+        // Three optimization profiles sharing the same 13 suffixes.
+        let optimization: &[(&str, &str, &str, &str)] = &[
+            ("EnableProcessPolicy", "false", "false", "false"),
+            ("ProcessPolicyDelayMs", "1500", "1500", "1500"),
+            ("PriorityClass", "normal", "normal", "below_normal"),
+            ("BackgroundMode", "false", "false", "true"),
+            ("EcoQos", "false", "false", "true"),
+            ("IgnoreTimerResolution", "false", "false", "true"),
+            ("MemoryPriority", "normal", "normal", "low"),
+            ("EnableFastFlags", "false", "false", "false"),
+            ("EnableJobCpuLimit", "false", "false", "false"),
+            ("JobCpuLimitPercent", "25", "25", "20"),
+            ("EnableJobMemoryLimit", "false", "false", "false"),
+            ("JobMemoryLimitMb", "2048", "2048", "1536"),
+        ];
+        for (suffix, normal, player, bot) in optimization {
+            out.push(("Optimization", format!("Normal{suffix}"), normal.to_string()));
+            out.push((
+                "Optimization",
+                format!("BottingPlayer{suffix}"),
+                player.to_string(),
+            ));
+            out.push(("Optimization", format!("BottingBot{suffix}"), bot.to_string()));
+        }
+
+        push(
+            &mut out,
+            "Versions",
+            &[
+                ("MaxParallelDownloads", "4"),
+                ("CatalogCacheMinutes", "10"),
+                ("PreferOldJoinForVersioned", "true"),
+                ("ShowPreReleaseVersions", "false"),
+            ],
+        );
+
+        push(
+            &mut out,
+            "Isolation",
+            &[
+                ("Mode", "Off"),
+                ("SpoofMachineGuid", "false"),
+                ("SpoofMacAddress", "false"),
+                ("IncludeStudio", "false"),
+                ("PreserveFastFlags", "true"),
+                ("PreserveBasicSettings", "true"),
+            ],
+        );
+
+        push(
+            &mut out,
+            "Login",
+            &[("PersistentProfile", "true"), ("StealthMode", "true")],
+        );
+
+        push(
+            &mut out,
+            "Generator",
+            &[
+                ("Provider", "bloxgen"),
+                ("ExtraDelaySeconds", "1"),
+                ("TargetGroup", "BloxGen"),
+                ("MaxAccounts", "0"),
+                ("MaxConsecutiveFailures", "3"),
+            ],
+        );
+
+        push(
+            &mut out,
+            "BloxGen",
+            &[
+                ("Endpoint", "https://core.bloxgen.net"),
+                ("AccountType", "alt"),
+            ],
+        );
+
+        push(
+            &mut out,
+            "Linux",
+            &[
+                ("PreferredRunner", "sober"),
+                (
+                    "CustomProcessMatch",
+                    "sober,flatpak,roblox,robloxplayerbeta",
+                ),
+                ("EnableExperimentalMultiRbx", "false"),
+                ("WindowControlBackend", "auto"),
+            ],
+        );
+
+        out
+    }
+
+    /// Keys the docs list with a `""` default. `IniSection::set` removes a key
+    /// whose value is blank, so these never reach the file at all.
+    const EMPTY_STRING_DEFAULTS: &[(&str, &str)] = &[
+        ("General", "CustomClientSettings"),
+        ("General", "BottingPlayerCustomClientSettings"),
+        ("General", "BottingBotCustomClientSettings"),
+        ("General", "BottingDraftPlaceId"),
+        ("General", "BottingDraftJobId"),
+        ("General", "BottingDraftLaunchData"),
+        ("General", "BottingDraftPlayerAccountId"),
+        ("General", "BottingDraftPlayerAccountIds"),
+        ("General", "BottingDraftSelectedUserIds"),
+        ("Optimization", "NormalFastFlagsJson"),
+        ("Optimization", "BottingPlayerFastFlagsJson"),
+        ("Optimization", "BottingBotFastFlagsJson"),
+        ("Versions", "DefaultVersion"),
+        ("Isolation", "TargetAdapter"),
+        ("Isolation", "BackupMachineGuid"),
+        ("Isolation", "BackupNetworkAddress"),
+        ("Isolation", "BackupAdapterId"),
+        ("BloxGen", "ApiKey"),
+        ("Linux", "CustomLaunchCommand"),
+        ("Linux", "CustomLogDir"),
+    ];
+
+    // ---- defaults --------------------------------------------------------------
+
+    #[test]
+    fn every_documented_default_is_applied_on_a_fresh_install() {
+        let s = fresh("defaults");
+        let all = s.get_all().unwrap();
+
+        let mut missing = Vec::new();
+        let mut wrong = Vec::new();
+        for (section, key, expected) in documented_defaults() {
+            match all.get(section).and_then(|sec| sec.get(&key)) {
+                None => missing.push(format!("{section}.{key}")),
+                Some(actual) if actual != &expected => {
+                    wrong.push(format!("{section}.{key}: {actual:?} != {expected:?}"))
+                }
+                Some(_) => {}
+            }
+        }
+        assert!(missing.is_empty(), "missing defaults: {missing:?}");
+        assert!(wrong.is_empty(), "wrong defaults: {wrong:?}");
+    }
+
+    #[test]
+    fn the_store_applies_no_defaults_beyond_the_documented_ones() {
+        let s = fresh("defaults-extra");
+        let all = s.get_all().unwrap();
+
+        let documented: std::collections::HashSet<String> = documented_defaults()
+            .into_iter()
+            .map(|(section, key, _)| format!("{section}.{key}"))
+            .collect();
+
+        let mut undocumented = Vec::new();
+        for (section, keys) in &all {
+            for key in keys.keys() {
+                let id = format!("{section}.{key}");
+                if !documented.contains(&id) {
+                    undocumented.push(id);
+                }
+            }
+        }
+        undocumented.sort();
+        assert!(
+            undocumented.is_empty(),
+            "undocumented defaults (update docs/features/settings.md): {undocumented:?}"
+        );
+    }
+
+    #[test]
+    fn defaults_documented_as_an_empty_string_are_never_written() {
+        // `IniSection::set` treats a blank value as a removal, so these keys are
+        // absent from a fresh RAMSettings.ini despite being listed with a `""`
+        // default in the docs. Consumers must keep their own fallback.
+        let s = fresh("defaults-empty");
+        let all = s.get_all().unwrap();
+        for (section, key) in EMPTY_STRING_DEFAULTS {
+            assert_eq!(
+                s.get(section, key).unwrap(),
+                None,
+                "{section}.{key} unexpectedly has a value"
+            );
+            assert!(
+                all.get(*section).map(|sec| !sec.contains_key(*key)).unwrap_or(true),
+                "{section}.{key} unexpectedly present in get_all"
+            );
+            assert_eq!(s.get_string(section, key), "");
+        }
+    }
+
+    #[test]
+    fn an_empty_prompts_section_is_created_but_not_persisted() {
+        let s = fresh("prompts");
+        // It exists in memory (get_all maps every section)...
+        assert_eq!(
+            s.get_all().unwrap().get("Prompts").map(|sec| sec.len()),
+            Some(0)
+        );
+        // ...but an empty section is skipped by IniFile::save.
+        assert!(!fs::read_to_string(&s.file_path).unwrap().contains("[Prompts]"));
+
+        // Writing a key into it makes the section real.
+        s.set("Prompts", "SomePrompt", "seen").unwrap();
+        assert_eq!(s.get("Prompts", "SomePrompt").unwrap().as_deref(), Some("seen"));
+        assert!(fs::read_to_string(&s.file_path).unwrap().contains("[Prompts]"));
+    }
+
+    #[test]
+    fn existing_values_are_never_overwritten_by_defaults() {
+        let s = from_existing(
+            "defaults-keep",
+            "[General]\nLanguage=de\nMaxRecentGames=42\nThemeWindowsNavbarAutoEnabledV1=true\n\
+             [Watcher]\nEnabled=true\nExpectedWindowTitle=My Window\n\
+             [Optimization]\nBottingBotPriorityClass=idle\n",
+        );
+
+        assert_eq!(s.get_string("General", "Language"), "de");
+        assert_eq!(s.get_string("General", "MaxRecentGames"), "42");
+        assert_eq!(s.get_string("Watcher", "Enabled"), "true");
+        assert_eq!(s.get_string("Watcher", "ExpectedWindowTitle"), "My Window");
+        assert_eq!(s.get_string("Optimization", "BottingBotPriorityClass"), "idle");
+        // Untouched keys still receive their defaults.
+        assert_eq!(s.get_string("General", "CheckForUpdates"), "true");
+        assert_eq!(s.get_string("Watcher", "ScanInterval"), "6");
+    }
+
+    #[test]
+    fn onboarding_flags_are_pending_on_a_new_install_and_completed_on_an_upgrade() {
+        let new_install = fresh("onboarding-new");
+        assert_eq!(
+            new_install.get_string("General", "EncryptionOnboardingState"),
+            "pending"
+        );
+        assert_eq!(
+            new_install.get_string("General", "FirstRunWalkthroughState"),
+            "pending"
+        );
+
+        // An INI that already existed means the user is upgrading, not installing.
+        let upgrade = from_existing("onboarding-upgrade", "[General]\nLanguage=en\n");
+        assert_eq!(
+            upgrade.get_string("General", "EncryptionOnboardingState"),
+            "completed"
+        );
+        assert_eq!(
+            upgrade.get_string("General", "FirstRunWalkthroughState"),
+            "completed"
+        );
+
+        // A stored value always wins over both branches.
+        let stored = from_existing(
+            "onboarding-stored",
+            "[General]\nEncryptionOnboardingState=pending\nFirstRunWalkthroughState=skipped\n",
+        );
+        assert_eq!(
+            stored.get_string("General", "EncryptionOnboardingState"),
+            "pending"
+        );
+        assert_eq!(
+            stored.get_string("General", "FirstRunWalkthroughState"),
+            "skipped"
+        );
+    }
+
+    #[test]
+    fn the_navbar_migration_forces_the_flag_on_once_and_then_respects_the_user() {
+        // No marker yet: ThemeWindowsNavbar is forced back to true.
+        let migrated = from_existing(
+            "navbar-migrate",
+            "[General]\nThemeWindowsNavbar=false\n",
+        );
+        assert_eq!(migrated.get_string("General", "ThemeWindowsNavbar"), "true");
+        assert_eq!(
+            migrated.get_string("General", "ThemeWindowsNavbarAutoEnabledV1"),
+            "true"
+        );
+
+        // Marker present: the user's choice is kept.
+        let respected = from_existing(
+            "navbar-respected",
+            "[General]\nThemeWindowsNavbar=false\nThemeWindowsNavbarAutoEnabledV1=true\n",
+        );
+        assert_eq!(respected.get_string("General", "ThemeWindowsNavbar"), "false");
+    }
+
+    #[test]
+    fn apply_defaults_writes_the_file_immediately_and_it_reloads_identically() {
+        let s = fresh("persist-defaults");
+        assert!(s.file_path.exists(), "the INI is created on first start");
+
+        let reopened = SettingsStore::new(s.file_path.clone());
+        assert_eq!(reopened.get_all().unwrap(), s.get_all().unwrap());
+        // Reopening an existing file must not flip the onboarding flags.
+        assert_eq!(
+            reopened.get_string("General", "EncryptionOnboardingState"),
+            "pending"
+        );
+    }
+
+    #[test]
+    fn the_legacy_rbx_alt_manager_section_is_migrated_on_load() {
+        let s = from_existing(
+            "legacy-section",
+            "[RBX Alt Manager]\nLanguage=de\nMaxRecentGames=3\n",
+        );
+        assert!(!s.get_all().unwrap().contains_key("RBX Alt Manager"));
+        assert_eq!(s.get_string("Roblox Account Manager", "Language"), "de");
+        // The values did NOT move into [General]; the defaults still apply there.
+        assert_eq!(s.get_string("General", "Language"), "en");
+    }
+
+    // ---- typed accessors --------------------------------------------------------
+
+    #[test]
+    fn get_returns_none_for_unknown_sections_and_keys() {
+        let s = fresh("get-missing");
+        assert_eq!(s.get("NoSuchSection", "Key").unwrap(), None);
+        assert_eq!(s.get("General", "NoSuchKey").unwrap(), None);
+        assert_eq!(s.get("General", "language").unwrap(), None, "keys are case sensitive");
+        assert_eq!(s.get("general", "Language").unwrap(), None, "sections too");
+    }
+
+    #[test]
+    fn get_bool_is_true_only_for_the_exact_string_true() {
+        let s = fresh("get-bool");
+        assert!(s.get_bool("General", "CheckForUpdates"));
+        assert!(!s.get_bool("General", "AsyncJoin"));
+        assert!(!s.get_bool("General", "NoSuchKey"));
+        assert!(!s.get_bool("NoSuchSection", "NoSuchKey"));
+
+        for value in ["True", "TRUE", "1", "yes", "on", " true"] {
+            s.set("General", "Probe", value).unwrap();
+            assert!(!s.get_bool("General", "Probe"), "{value:?} must not be true");
+        }
+        s.set("General", "Probe", "true").unwrap();
+        assert!(s.get_bool("General", "Probe"));
+    }
+
+    #[test]
+    fn get_int_and_get_float_return_none_when_the_value_does_not_parse() {
+        let s = fresh("get-numbers");
+        assert_eq!(s.get_int("General", "MaxRecentGames"), Some(8));
+        assert_eq!(s.get_int("General", "ClientVolume"), None, "0.5 is not an int");
+        assert_eq!(s.get_int("General", "Language"), None);
+        assert_eq!(s.get_int("General", "NoSuchKey"), None);
+
+        assert_eq!(s.get_float("General", "ClientVolume"), Some(0.5));
+        assert_eq!(s.get_float("General", "MaxRecentGames"), Some(8.0));
+        assert_eq!(s.get_float("General", "Language"), None);
+
+        s.set("General", "Probe", "-12").unwrap();
+        assert_eq!(s.get_int("General", "Probe"), Some(-12));
+        // `set` stores the value verbatim, but the INI parser trims it on the
+        // way back in, so a padded value changes meaning after a restart.
+        s.set("General", "Probe", " 12 ").unwrap();
+        assert_eq!(s.get("General", "Probe").unwrap().as_deref(), Some(" 12 "));
+        assert_eq!(s.get_int("General", "Probe"), None);
+        let reopened = SettingsStore::new(s.file_path.clone());
+        assert_eq!(reopened.get("General", "Probe").unwrap().as_deref(), Some("12"));
+        assert_eq!(reopened.get_int("General", "Probe"), Some(12));
+    }
+
+    #[test]
+    fn get_string_falls_back_to_an_empty_string() {
+        let s = fresh("get-string");
+        assert_eq!(s.get_string("General", "Language"), "en");
+        assert_eq!(s.get_string("General", "NoSuchKey"), "");
+        assert_eq!(s.get_string("NoSuchSection", "NoSuchKey"), "");
+    }
+
+    // ---- set --------------------------------------------------------------------
+
+    #[test]
+    fn set_creates_sections_updates_values_and_persists_every_time() {
+        let s = fresh("set");
+        s.set("BrandNew", "Key", "value").unwrap();
+        assert_eq!(s.get("BrandNew", "Key").unwrap().as_deref(), Some("value"));
+
+        s.set("BrandNew", "Key", "changed").unwrap();
+        assert_eq!(s.get("BrandNew", "Key").unwrap().as_deref(), Some("changed"));
+        assert_eq!(
+            s.get_all().unwrap()["BrandNew"].len(),
+            1,
+            "updating must not duplicate the key"
+        );
+
+        let reopened = SettingsStore::new(s.file_path.clone());
+        assert_eq!(reopened.get_string("BrandNew", "Key"), "changed");
+    }
+
+    #[test]
+    fn set_with_a_blank_value_removes_the_key_instead_of_storing_it() {
+        let s = fresh("set-blank");
+        s.set("General", "SavedPlaceId", "606849621").unwrap();
+        assert_eq!(s.get_string("General", "SavedPlaceId"), "606849621");
+
+        s.set("General", "SavedPlaceId", "").unwrap();
+        assert_eq!(s.get("General", "SavedPlaceId").unwrap(), None);
+
+        s.set("General", "SavedPlaceId", "1").unwrap();
+        s.set("General", "SavedPlaceId", "   ").unwrap();
+        assert_eq!(s.get("General", "SavedPlaceId").unwrap(), None);
+
+        let reopened = SettingsStore::new(s.file_path.clone());
+        assert_eq!(reopened.get("General", "SavedPlaceId").unwrap(), None);
+    }
+
+    #[test]
+    fn set_does_not_validate_anything_it_is_given() {
+        // Documented trap: update_setting writes any section/key/value pair.
+        let s = fresh("set-unvalidated");
+        s.set("Script.my-script", "Weird Key", "value with spaces = and equals")
+            .unwrap();
+        s.set("WebServer", "Password", "plain-text-secret").unwrap();
+
+        let reopened = SettingsStore::new(s.file_path.clone());
+        assert_eq!(
+            reopened.get_string("Script.my-script", "Weird Key"),
+            "value with spaces = and equals"
+        );
+        assert_eq!(
+            reopened.get_string("WebServer", "Password"),
+            "plain-text-secret",
+            "secrets are stored in clear text"
+        );
+    }
+
+    #[test]
+    fn get_all_exposes_every_section_as_a_flat_string_map() {
+        let s = fresh("get-all");
+        let all = s.get_all().unwrap();
+        for section in [
+            "General",
+            "Developer",
+            "WebServer",
+            "AccountControl",
+            "Watcher",
+            "Optimization",
+            "Linux",
+            "Generator",
+            "BloxGen",
+            "Versions",
+            "Isolation",
+            "Login",
+        ] {
+            assert!(all.contains_key(section), "missing section {section}");
+            assert!(!all[section].is_empty(), "empty section {section}");
+        }
+        assert_eq!(all["General"]["Language"], "en");
+    }
+
+    // ---- save --------------------------------------------------------------------
+
+    #[test]
+    fn save_reports_an_error_when_the_file_cannot_be_written() {
+        let s = fresh("save-error");
+        let dir_path = s.file_path.with_extension("dir");
+        fs::create_dir_all(&dir_path).unwrap();
+
+        let blocked = SettingsStore {
+            ini: Mutex::new(IniFile::new()),
+            file_path: dir_path.clone(),
+        };
+        {
+            let mut ini = blocked.ini.lock().unwrap();
+            ini.section("General").set("Language", "en", None);
+        }
+        let err = blocked.save().expect_err("writing over a directory must fail");
+        assert!(err.starts_with("Failed to save INI file:"), "{err}");
+
+        let _ = fs::remove_dir_all(&dir_path);
+    }
+}

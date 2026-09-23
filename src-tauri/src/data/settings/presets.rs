@@ -416,3 +416,532 @@ impl ThemePresetStore {
         }
     }
 }
+
+#[cfg(test)]
+mod theme_preset_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn nanos() -> u128 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    }
+
+    fn temp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("ram-presets-{name}-{}.json", nanos()))
+    }
+
+    struct TestStore {
+        store: ThemePresetStore,
+    }
+
+    impl Drop for TestStore {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.store.file_path);
+        }
+    }
+
+    impl std::ops::Deref for TestStore {
+        type Target = ThemePresetStore;
+        fn deref(&self) -> &ThemePresetStore {
+            &self.store
+        }
+    }
+
+    fn store(name: &str) -> TestStore {
+        TestStore {
+            store: ThemePresetStore::new(temp_path(name)),
+        }
+    }
+
+    fn themed(color: &str) -> ThemeData {
+        let mut theme = ThemeData::default();
+        theme.accounts_background = color.to_string();
+        theme
+    }
+
+    fn local_font_theme(file: &str) -> ThemeData {
+        let mut theme = ThemeData::default();
+        theme.font_sans = Some(ThemeFontSpec {
+            source: "local".to_string(),
+            family: "Local Sans".to_string(),
+            fallbacks: vec![],
+            google: None,
+            local: Some(ThemeFontLocalSpec {
+                file: file.to_string(),
+                weight: 400,
+                style: "normal".to_string(),
+            }),
+        });
+        theme
+    }
+
+    // ---- name / id / file stem helpers -------------------------------------------
+
+    #[test]
+    fn sanitize_preset_name_trims_and_falls_back_to_custom_preset() {
+        assert_eq!(ThemePresetStore::sanitize_preset_name("  Neon  "), "Neon");
+        assert_eq!(ThemePresetStore::sanitize_preset_name("Neon"), "Neon");
+        assert_eq!(ThemePresetStore::sanitize_preset_name(""), "Custom Preset");
+        assert_eq!(ThemePresetStore::sanitize_preset_name("   "), "Custom Preset");
+        assert_eq!(
+            ThemePresetStore::sanitize_preset_name("\t\n"),
+            "Custom Preset"
+        );
+    }
+
+    #[test]
+    fn make_preset_id_slugifies_the_name_and_appends_a_timestamp() {
+        let id = ThemePresetStore::make_preset_id("My Neon Theme!");
+        let (slug, stamp) = id.rsplit_once('-').expect("id has a timestamp suffix");
+        assert_eq!(slug, "my-neon-theme");
+        assert!(stamp.parse::<i64>().is_ok(), "{id}");
+
+        // Separators collapse and are trimmed from both ends.
+        assert!(ThemePresetStore::make_preset_id("  --a__b  ").starts_with("a-b-"));
+        assert!(ThemePresetStore::make_preset_id("A B  C").starts_with("a-b-c-"));
+        // Nothing sluggable falls back to "preset".
+        assert!(ThemePresetStore::make_preset_id("!!!").starts_with("preset-"));
+        assert!(ThemePresetStore::make_preset_id("\u{00e7}\u{00e3}\u{00f5}").starts_with("preset-"));
+        // Non-ASCII letters are dropped; ASCII ones beside them survive.
+        assert!(ThemePresetStore::make_preset_id("A\u{00e7}\u{00e3}o").starts_with("ao-"));
+        // Digits survive.
+        assert!(ThemePresetStore::make_preset_id("Theme 2").starts_with("theme-2-"));
+    }
+
+    #[test]
+    fn sanitize_file_stem_keeps_only_filename_safe_characters() {
+        assert_eq!(ThemePresetStore::sanitize_file_stem("My Theme"), "My-Theme");
+        assert_eq!(ThemePresetStore::sanitize_file_stem("keep_me-2"), "keep_me-2");
+        assert_eq!(ThemePresetStore::sanitize_file_stem("a/b\\c:d*e?"), "abcde");
+        assert_eq!(ThemePresetStore::sanitize_file_stem("..\\escape"), "escape");
+        assert_eq!(ThemePresetStore::sanitize_file_stem("---"), "theme-preset");
+        assert_eq!(ThemePresetStore::sanitize_file_stem(""), "theme-preset");
+        assert_eq!(
+            ThemePresetStore::sanitize_file_stem("\u{00e7}\u{00e3}\u{00f5}"),
+            "theme-preset"
+        );
+        assert_eq!(ThemePresetStore::sanitize_file_stem("A\u{00e7}\u{00e3}o"), "Ao");
+    }
+
+    // ---- font helpers --------------------------------------------------------------
+
+    #[test]
+    fn normalize_font_spec_uses_the_fallback_only_when_the_slot_is_empty() {
+        let fallback = default_font_mono();
+        assert_eq!(
+            ThemePresetStore::normalize_font_spec(&None, fallback.clone()),
+            fallback
+        );
+        let custom = default_font_sans();
+        assert_eq!(
+            ThemePresetStore::normalize_font_spec(&Some(custom.clone()), fallback),
+            custom
+        );
+    }
+
+    #[test]
+    fn uses_default_fonts_treats_none_as_the_default_and_strip_clears_them() {
+        let mut default_theme = ThemeData::default();
+        assert!(ThemePresetStore::uses_default_fonts(&default_theme));
+
+        default_theme.font_sans = None;
+        default_theme.font_mono = None;
+        assert!(
+            ThemePresetStore::uses_default_fonts(&default_theme),
+            "an absent spec is normalized to the default"
+        );
+
+        let custom = local_font_theme("abc.ttf");
+        assert!(!ThemePresetStore::uses_default_fonts(&custom));
+
+        let stripped = ThemePresetStore::strip_default_fonts(ThemeData::default());
+        assert_eq!(stripped.font_sans, None);
+        assert_eq!(stripped.font_mono, None);
+
+        let kept = ThemePresetStore::strip_default_fonts(local_font_theme("abc.ttf"));
+        assert!(kept.font_sans.is_some());
+    }
+
+    #[test]
+    fn local_font_files_lists_only_non_empty_local_sources_sorted_and_deduped() {
+        assert!(ThemePresetStore::local_font_files(&ThemeData::default()).is_empty());
+
+        let mut theme = local_font_theme("bbb.ttf");
+        assert_eq!(
+            ThemePresetStore::local_font_files(&theme),
+            vec!["bbb.ttf".to_string()]
+        );
+
+        // Both slots pointing at the same file collapse to one entry.
+        theme.font_mono = theme.font_sans.clone();
+        assert_eq!(
+            ThemePresetStore::local_font_files(&theme),
+            vec!["bbb.ttf".to_string()]
+        );
+
+        // Two different files come back sorted.
+        theme.font_mono = Some(ThemeFontSpec {
+            source: "local".to_string(),
+            family: "Mono".to_string(),
+            fallbacks: vec![],
+            google: None,
+            local: Some(ThemeFontLocalSpec {
+                file: "  aaa.otf  ".to_string(),
+                weight: 400,
+                style: "normal".to_string(),
+            }),
+        });
+        assert_eq!(
+            ThemePresetStore::local_font_files(&theme),
+            vec!["aaa.otf".to_string(), "bbb.ttf".to_string()]
+        );
+
+        // A local source without a usable file name is skipped.
+        theme.font_mono = Some(ThemeFontSpec {
+            source: "local".to_string(),
+            family: "Mono".to_string(),
+            fallbacks: vec![],
+            google: None,
+            local: Some(ThemeFontLocalSpec {
+                file: "   ".to_string(),
+                weight: 400,
+                style: "normal".to_string(),
+            }),
+        });
+        assert_eq!(
+            ThemePresetStore::local_font_files(&theme),
+            vec!["bbb.ttf".to_string()]
+        );
+    }
+
+    // ---- save / delete ----------------------------------------------------------------
+
+    #[test]
+    fn save_preset_adds_normalizes_and_persists() {
+        let s = store("save");
+        assert!(s.get_all().unwrap().is_empty());
+
+        let saved = s.save_preset("  Neon  ", themed("#FF00FF")).unwrap();
+        assert_eq!(saved.name, "Neon");
+        assert!(saved.id.starts_with("neon-"));
+        assert_eq!(saved.theme.accounts_background, "#FF00FF");
+
+        let reloaded = ThemePresetStore::new(s.file_path.clone());
+        let all = reloaded.get_all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, saved.id);
+        assert_eq!(all[0].theme.accounts_background, "#FF00FF");
+    }
+
+    #[test]
+    fn save_preset_replaces_a_same_name_preset_case_insensitively_and_keeps_its_id() {
+        let s = store("save-replace");
+        let first = s.save_preset("Neon", themed("#111111")).unwrap();
+        let second = s.save_preset("  nEoN  ", themed("#222222")).unwrap();
+
+        assert_eq!(second.id, first.id, "the id is stable across an overwrite");
+        assert_eq!(second.name, "nEoN", "the new spelling wins");
+        assert_eq!(second.theme.accounts_background, "#222222");
+        assert_eq!(s.get_all().unwrap().len(), 1, "no duplicate preset");
+
+        // A different name really does add a second preset.
+        s.save_preset("Other", themed("#333333")).unwrap();
+        assert_eq!(s.get_all().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn save_preset_falls_back_to_custom_preset_for_a_blank_name() {
+        let s = store("save-blank");
+        let saved = s.save_preset("   ", ThemeData::default()).unwrap();
+        assert_eq!(saved.name, "Custom Preset");
+        assert!(saved.id.starts_with("custom-preset-"));
+    }
+
+    #[test]
+    fn delete_preset_removes_it_and_errors_for_an_unknown_id() {
+        let s = store("delete");
+        let saved = s.save_preset("Neon", ThemeData::default()).unwrap();
+
+        assert_eq!(
+            s.delete_preset("nope").unwrap_err(),
+            "Preset 'nope' not found"
+        );
+        assert_eq!(s.get_all().unwrap().len(), 1);
+
+        s.delete_preset(&saved.id).unwrap();
+        assert!(s.get_all().unwrap().is_empty());
+        assert!(ThemePresetStore::new(s.file_path.clone())
+            .get_all()
+            .unwrap()
+            .is_empty());
+
+        assert!(s.delete_preset(&saved.id).is_err(), "deleting twice errors");
+    }
+
+    // ---- loading --------------------------------------------------------------------
+
+    #[test]
+    fn a_missing_or_corrupt_preset_file_loads_as_an_empty_list() {
+        // Same silent-fallback pattern as the versions catalog: a preset file
+        // that cannot be parsed is replaced on the next save.
+        let s = store("load-corrupt");
+        assert!(s.get_all().unwrap().is_empty(), "missing file");
+
+        let corrupt = b"[{\"id\": \"x\", \"name\"";
+        fs::write(&s.file_path, corrupt).unwrap();
+        let reopened = ThemePresetStore::new(s.file_path.clone());
+        assert!(reopened.get_all().unwrap().is_empty());
+
+        reopened.save_preset("New", ThemeData::default()).unwrap();
+        assert_ne!(fs::read(&s.file_path).unwrap(), corrupt.to_vec());
+        assert_eq!(
+            ThemePresetStore::new(s.file_path.clone())
+                .get_all()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_preset_file_of_the_wrong_shape_also_loads_as_empty() {
+        let s = store("load-wrong-shape");
+        fs::write(&s.file_path, br#"{"presets": []}"#).unwrap();
+        assert!(ThemePresetStore::new(s.file_path.clone())
+            .get_all()
+            .unwrap()
+            .is_empty());
+    }
+
+    // ---- import ----------------------------------------------------------------------
+
+    #[test]
+    fn import_preset_file_accepts_the_wrapped_export_format() {
+        let s = store("import-wrapped");
+        let payload = serde_json::json!({
+            "format": "ram-theme-preset-v1",
+            "name": "Exported Neon",
+            "theme": serde_json::to_value(themed("#ABCDEF")).unwrap(),
+        });
+        let file = temp_path("import-wrapped-src");
+        fs::write(&file, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
+
+        let imported = s.import_preset_file(file.to_str().unwrap()).unwrap();
+        assert_eq!(imported.name, "Exported Neon");
+        assert_eq!(imported.theme.accounts_background, "#ABCDEF");
+        assert_eq!(s.get_all().unwrap().len(), 1);
+
+        let _ = fs::remove_file(&file);
+    }
+
+    #[test]
+    fn import_preset_file_accepts_a_bare_theme_and_names_it_after_the_file() {
+        let s = store("import-bare");
+        let file = temp_path("MyBareTheme");
+        fs::write(&file, serde_json::to_vec(&themed("#010203")).unwrap()).unwrap();
+
+        let imported = s.import_preset_file(file.to_str().unwrap()).unwrap();
+        let expected_name = file.file_stem().unwrap().to_str().unwrap();
+        assert_eq!(imported.name, expected_name);
+        assert_eq!(imported.theme.accounts_background, "#010203");
+
+        let _ = fs::remove_file(&file);
+    }
+
+    #[test]
+    fn import_preset_file_falls_back_to_the_file_stem_when_the_name_is_blank() {
+        let s = store("import-blank-name");
+        let payload = serde_json::json!({
+            "name": "   ",
+            "theme": serde_json::to_value(ThemeData::default()).unwrap(),
+        });
+        let file = temp_path("FallbackName");
+        fs::write(&file, serde_json::to_vec(&payload).unwrap()).unwrap();
+
+        let imported = s.import_preset_file(file.to_str().unwrap()).unwrap();
+        assert_eq!(imported.name, file.file_stem().unwrap().to_str().unwrap());
+
+        let _ = fs::remove_file(&file);
+    }
+
+    #[test]
+    fn import_preset_file_reports_missing_files_and_bad_payloads() {
+        let s = store("import-errors");
+
+        let missing = temp_path("does-not-exist");
+        let err = s.import_preset_file(missing.to_str().unwrap()).unwrap_err();
+        assert!(err.starts_with("Failed to read preset file:"), "{err}");
+
+        let file = temp_path("import-bad");
+        fs::write(&file, b"{not json").unwrap();
+        let err = s.import_preset_file(file.to_str().unwrap()).unwrap_err();
+        assert!(err.starts_with("Invalid preset JSON:"), "{err}");
+
+        fs::write(&file, br#"{"theme": {"nope": 1}}"#).unwrap();
+        let err = s.import_preset_file(file.to_str().unwrap()).unwrap_err();
+        assert!(err.starts_with("Invalid preset theme payload:"), "{err}");
+
+        fs::write(&file, br#"{"unrelated": 1}"#).unwrap();
+        let err = s.import_preset_file(file.to_str().unwrap()).unwrap_err();
+        assert!(err.starts_with("Invalid theme data:"), "{err}");
+
+        assert!(s.get_all().unwrap().is_empty());
+        let _ = fs::remove_file(&file);
+    }
+
+    #[test]
+    fn importing_a_bundle_validates_the_zip_and_its_manifest() {
+        let s = store("import-bundle");
+
+        // Not a zip at all.
+        let not_zip = std::env::temp_dir().join(format!("ram-presets-fake-{}.zip", nanos()));
+        fs::write(&not_zip, b"definitely not a zip").unwrap();
+        let err = s.import_preset_file(not_zip.to_str().unwrap()).unwrap_err();
+        assert!(err.starts_with("Invalid theme bundle zip:"), "{err}");
+        let _ = fs::remove_file(&not_zip);
+
+        // A zip without the manifest.
+        let no_manifest = std::env::temp_dir().join(format!("ram-presets-nomf-{}.zip", nanos()));
+        {
+            let file = fs::File::create(&no_manifest).unwrap();
+            let mut writer = ZipWriter::new(file);
+            let opts = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            writer.start_file("readme.txt", opts).unwrap();
+            writer.write_all(b"hello").unwrap();
+            writer.finish().unwrap();
+        }
+        let err = s.import_preset_file(no_manifest.to_str().unwrap()).unwrap_err();
+        assert_eq!(err, "Missing theme.json in bundle");
+        let _ = fs::remove_file(&no_manifest);
+
+        // A manifest declaring an unsupported format.
+        let wrong_format = std::env::temp_dir().join(format!("ram-presets-fmt-{}.zip", nanos()));
+        {
+            let manifest = serde_json::json!({
+                "format": "ram-theme-bundle-v999",
+                "name": "Future",
+                "theme": serde_json::to_value(ThemeData::default()).unwrap(),
+            });
+            let file = fs::File::create(&wrong_format).unwrap();
+            let mut writer = ZipWriter::new(file);
+            let opts = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            writer.start_file("theme.json", opts).unwrap();
+            writer
+                .write_all(serde_json::to_vec(&manifest).unwrap().as_slice())
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        let err = s.import_preset_file(wrong_format.to_str().unwrap()).unwrap_err();
+        assert_eq!(err, "Unsupported theme bundle format");
+        let _ = fs::remove_file(&wrong_format);
+
+        // A manifest that is not JSON at all.
+        let bad_manifest = std::env::temp_dir().join(format!("ram-presets-badmf-{}.zip", nanos()));
+        {
+            let file = fs::File::create(&bad_manifest).unwrap();
+            let mut writer = ZipWriter::new(file);
+            let opts = FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            writer.start_file("theme.json", opts).unwrap();
+            writer.write_all(b"{not json").unwrap();
+            writer.finish().unwrap();
+        }
+        let err = s.import_preset_file(bad_manifest.to_str().unwrap()).unwrap_err();
+        assert!(err.starts_with("Invalid theme bundle manifest:"), "{err}");
+        let _ = fs::remove_file(&bad_manifest);
+
+        assert!(s.get_all().unwrap().is_empty(), "no preset may be created");
+    }
+
+    // ---- export -----------------------------------------------------------------------
+
+    #[test]
+    fn export_writes_json_for_a_font_free_theme_and_never_overwrites() {
+        let name = format!("RamExportProbe{}", nanos());
+
+        let first = ThemePresetStore::export_preset_file(&name, themed("#0A0B0C"))
+            .expect("first export");
+        assert!(first.ends_with(".ram-theme.json"), "{first}");
+
+        let raw = fs::read_to_string(&first).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed["format"], "ram-theme-preset-v1");
+        assert_eq!(parsed["name"], name);
+        assert_eq!(parsed["theme"]["accounts_background"], "#0A0B0C");
+
+        // A second export of the same name gets a timestamped file instead of
+        // clobbering the first one.
+        let second = ThemePresetStore::export_preset_file(&name, ThemeData::default())
+            .expect("second export");
+        assert_ne!(second, first);
+        assert!(fs::metadata(&first).is_ok(), "the first export must survive");
+
+        let _ = fs::remove_file(&first);
+        let _ = fs::remove_file(&second);
+    }
+
+    #[test]
+    fn export_writes_a_zip_bundle_when_the_theme_references_local_fonts() {
+        let name = format!("RamExportBundle{}", nanos());
+        let path = ThemePresetStore::export_preset_file(&name, local_font_theme("missing.ttf"))
+            .expect("export");
+        assert!(path.ends_with(".ram-theme.zip"), "{path}");
+
+        let mut archive = ZipArchive::new(fs::File::open(&path).unwrap()).unwrap();
+        let mut manifest = String::new();
+        {
+            use std::io::Read;
+            archive
+                .by_name("theme.json")
+                .unwrap()
+                .read_to_string(&mut manifest)
+                .unwrap();
+        }
+        let parsed: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(parsed["format"], "ram-theme-bundle-v1");
+        assert_eq!(parsed["name"], name);
+        // The referenced font does not exist on disk, so it is simply skipped.
+        assert_eq!(archive.len(), 1, "only the manifest is in the bundle");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn exported_names_are_sanitized_into_the_file_name() {
+        let unique = nanos();
+        let name = format!("Ram/Export:Probe {unique}");
+        let path = ThemePresetStore::export_preset_file(&name, ThemeData::default())
+            .expect("export");
+        let file_name = Path::new(&path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap()
+            .to_string();
+        assert_eq!(file_name, format!("RamExportProbe-{unique}.ram-theme.json"));
+
+        // The unsanitized name is still what gets stored inside the file.
+        let parsed: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(parsed["name"], name);
+
+        let _ = fs::remove_file(&path);
+    }
+
+    // ---- serde -------------------------------------------------------------------------
+
+    #[test]
+    fn preset_data_round_trips_through_json() {
+        let preset = ThemePresetData {
+            id: "neon-1".to_string(),
+            name: "Neon".to_string(),
+            theme: themed("#FEFEFE"),
+        };
+        let json = serde_json::to_string(&preset).unwrap();
+        let parsed: ThemePresetData = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, "neon-1");
+        assert_eq!(parsed.name, "Neon");
+        assert_eq!(parsed.theme.accounts_background, "#FEFEFE");
+    }
+}

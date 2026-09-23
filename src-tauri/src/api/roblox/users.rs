@@ -481,3 +481,611 @@ mod user_http_tests {
         assert_eq!(err, "Failed to get user info (status 404)");
     }
 }
+
+/// The rest of `users.rs`: robux fallback, friends, blocking and the privacy
+/// switches. Each test owns a `.ROBLOSECURITY` token so its mocks cannot match
+/// another test on the shared mock server.
+#[cfg(test)]
+mod user_api_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
+    use wiremock::matchers::{body_string_contains, header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    #[tokio::test]
+    async fn an_empty_lookup_result_names_the_username() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("users", "/v1/usernames/users")))
+            .and(body_string_contains("ghost_user"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": [] })),
+            )
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_user_id(None, "ghost_user").await.unwrap_err(),
+            "User 'ghost_user' not found"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_lookup_reports_the_status() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("users", "/v1/usernames/users")))
+            .and(body_string_contains("throttled_user"))
+            .respond_with(ResponseTemplate::new(429))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_user_id(None, "throttled_user").await.unwrap_err(),
+            "Failed to look up user (status 429)"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_non_json_lookup_body_is_reported_as_a_parse_error() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("users", "/v1/usernames/users")))
+            .and(body_string_contains("html_user"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw("<html/>", "text/html"))
+            .mount(server)
+            .await;
+
+        let err = get_user_id(None, "html_user").await.unwrap_err();
+        assert!(
+            err.starts_with("Failed to parse response: "),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    /// The economy endpoint is the happy path (covered in `economy_http_tests`);
+    /// when it refuses the cookie the mobile API answers instead.
+    #[tokio::test]
+    async fn robux_falls_back_to_the_mobile_api() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("economy", "/v1/user/currency")))
+            .and(header("cookie", cookie_of("robux-fallback")))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/mobileapi/userinfo")))
+            .and(header("cookie", cookie_of("robux-fallback")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "RobuxBalance": 55 })),
+            )
+            .mount(server)
+            .await;
+
+        assert_eq!(get_robux("robux-fallback").await.expect("robux"), 55);
+    }
+
+    #[tokio::test]
+    async fn robux_is_zero_when_the_payload_has_no_balance() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("economy", "/v1/user/currency")))
+            .and(header("cookie", cookie_of("robux-empty")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .mount(server)
+            .await;
+
+        assert_eq!(get_robux("robux-empty").await.expect("robux"), 0);
+    }
+
+    #[tokio::test]
+    async fn robux_reports_both_endpoints_failing() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("economy", "/v1/user/currency")))
+            .and(header("cookie", cookie_of("robux-dead")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/mobileapi/userinfo")))
+            .and(header("cookie", cookie_of("robux-dead")))
+            .respond_with(ResponseTemplate::new(401).set_body_string("logged out"))
+            .mount(server)
+            .await;
+
+        let err = get_robux("robux-dead").await.unwrap_err();
+        assert!(err.starts_with("Failed to get robux (status 401)"), "{}", err);
+        assert!(err.contains("logged out"), "{}", err);
+    }
+
+    #[tokio::test]
+    async fn email_info_is_returned_verbatim() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("accountsettings", "/v1/email")))
+            .and(header("cookie", cookie_of("email-info")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "emailAddress": "a***@example.com",
+                "verified": true
+            })))
+            .mount(server)
+            .await;
+
+        let info = get_email_info("email-info").await.expect("email info");
+        assert_eq!(info["verified"], serde_json::json!(true));
+    }
+
+    #[tokio::test]
+    async fn email_info_reports_the_status() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("accountsettings", "/v1/email")))
+            .and(header("cookie", cookie_of("email-info-bad")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_email_info("email-info-bad").await.unwrap_err(),
+            "Failed to get email info (status 401)"
+        );
+    }
+
+    /// The `_with_csrf` variant exists so a batch of friend requests reuses one
+    /// token: it must send exactly the token it was handed and never fetch one.
+    #[tokio::test]
+    async fn a_friend_request_reuses_the_supplied_csrf_token() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/501/request-friendship")))
+            .and(header("cookie", cookie_of("friend-reuse")))
+            .and(header("x-csrf-token", "reused-token"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(server)
+            .await;
+
+        assert!(
+            send_friend_request_with_csrf("friend-reuse", "reused-token", 501)
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_friend_request_reports_status_and_body() {
+        let server = mock_server().await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/502/request-friendship")))
+            .and(header("cookie", cookie_of("friend-reject")))
+            .respond_with(ResponseTemplate::new(429).set_body_string("Too many requests"))
+            .mount(server)
+            .await;
+
+        let err = send_friend_request_with_csrf("friend-reject", "tok", 502)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err,
+            "Failed to send friend request (status 429): Too many requests"
+        );
+    }
+
+    /// The plain entry point fetches its own CSRF token first.
+    #[tokio::test]
+    async fn send_friend_request_fetches_a_csrf_token_first() {
+        let server = mock_server().await;
+        mount_csrf("friend-csrf", "csrf-friend").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/503/request-friendship")))
+            .and(header("cookie", cookie_of("friend-csrf")))
+            .and(header("x-csrf-token", "csrf-friend"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(server)
+            .await;
+
+        assert!(send_friend_request("friend-csrf", 503).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn friend_ids_are_read_off_the_data_array() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("friends", "/v1/users/600/friends")))
+            .and(header("cookie", cookie_of("friends-list")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": 1 }, { "id": 2 }, { "name": "no id" }]
+            })))
+            .mount(server)
+            .await;
+
+        let ids = get_friend_ids("friends-list", 600).await.expect("friends");
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn a_missing_friends_array_is_an_empty_list() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("friends", "/v1/users/601/friends")))
+            .and(header("cookie", cookie_of("friends-empty")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .mount(server)
+            .await;
+
+        assert!(get_friend_ids("friends-empty", 601)
+            .await
+            .expect("friends")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn friends_reports_the_status() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("friends", "/v1/users/602/friends")))
+            .and(header("cookie", cookie_of("friends-error")))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_friend_ids("friends-error", 602).await.unwrap_err(),
+            "Failed to get friends (status 403)"
+        );
+    }
+
+    #[tokio::test]
+    async fn blocking_maps_the_status_to_a_result() {
+        let server = mock_server().await;
+        mount_csrf("block-ok", "csrf-block-ok").await;
+        Mock::given(method("POST"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/700/block-user",
+            )))
+            .and(header("cookie", cookie_of("block-ok")))
+            .and(header("x-csrf-token", "csrf-block-ok"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(server)
+            .await;
+
+        assert!(block_user("block-ok", 700).await.is_ok());
+
+        mount_csrf("block-bad", "csrf-block-bad").await;
+        Mock::given(method("POST"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/701/block-user",
+            )))
+            .and(header("cookie", cookie_of("block-bad")))
+            .respond_with(ResponseTemplate::new(400))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            block_user("block-bad", 701).await.unwrap_err(),
+            "Failed to block user (status 400)"
+        );
+    }
+
+    #[tokio::test]
+    async fn unblocking_maps_the_status_to_a_result() {
+        let server = mock_server().await;
+        mount_csrf("unblock-ok", "csrf-unblock-ok").await;
+        Mock::given(method("POST"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/710/unblock-user",
+            )))
+            .and(header("cookie", cookie_of("unblock-ok")))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(server)
+            .await;
+
+        assert!(unblock_user("unblock-ok", 710).await.is_ok());
+
+        mount_csrf("unblock-bad", "csrf-unblock-bad").await;
+        Mock::given(method("POST"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/711/unblock-user",
+            )))
+            .and(header("cookie", cookie_of("unblock-bad")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            unblock_user("unblock-bad", 711).await.unwrap_err(),
+            "Failed to unblock user (status 500)"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_blocked_list_keeps_the_names_it_is_given() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/get-blocked-users",
+            )))
+            .and(header("cookie", cookie_of("blocked-named")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "blockedUsers": [
+                    { "userId": 801, "name": "eight_o_one", "displayName": "Eight" },
+                    { "userId": 802, "name": "eight_o_two", "displayName": "Two" },
+                    { "displayName": "no id at all" }
+                ]
+            })))
+            .mount(server)
+            .await;
+
+        let blocked = get_blocked_users("blocked-named").await.expect("blocked");
+        assert_eq!(blocked.len(), 2);
+        assert_eq!(blocked[0].user_id, 801);
+        assert_eq!(blocked[0].name, "eight_o_one");
+        assert_eq!(blocked[1].display_name, "Two");
+    }
+
+    /// Roblox sometimes returns ids only; the names are then filled in with a
+    /// second lookup.
+    #[tokio::test]
+    async fn the_blocked_list_fills_in_missing_names() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/get-blocked-users",
+            )))
+            .and(header("cookie", cookie_of("blocked-nameless")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "blockedUsers": [{ "userId": 811 }, { "userId": 812 }]
+            })))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("users", "/v1/users")))
+            .and(body_string_contains("811"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    { "id": 811, "name": "eleven", "displayName": "Eleven" },
+                    { "id": 812, "name": "twelve", "displayName": "Twelve" }
+                ]
+            })))
+            .mount(server)
+            .await;
+
+        let blocked = get_blocked_users("blocked-nameless")
+            .await
+            .expect("blocked");
+        assert_eq!(blocked.len(), 2);
+        assert_eq!(blocked[0].name, "eleven");
+        assert_eq!(blocked[1].display_name, "Twelve");
+    }
+
+    #[tokio::test]
+    async fn a_payload_without_blocked_users_is_an_empty_list() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/get-blocked-users",
+            )))
+            .and(header("cookie", cookie_of("blocked-none")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .mount(server)
+            .await;
+
+        assert!(get_blocked_users("blocked-none")
+            .await
+            .expect("blocked")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_blocked_list_reports_status_and_body() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/get-blocked-users",
+            )))
+            .and(header("cookie", cookie_of("blocked-error")))
+            .respond_with(ResponseTemplate::new(403).set_body_string("nope"))
+            .mount(server)
+            .await;
+
+        let err = get_blocked_users("blocked-error").await.unwrap_err();
+        assert!(err.starts_with("Failed to get blocked users (status 403)"), "{}", err);
+        assert!(err.contains("nope"), "{}", err);
+    }
+
+    /// Unblocking everyone counts only the calls that actually succeeded.
+    #[tokio::test]
+    async fn unblock_everyone_counts_the_successful_calls() {
+        let server = mock_server().await;
+        mount_csrf("unblock-all", "csrf-unblock-all").await;
+
+        Mock::given(method("GET"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/get-blocked-users",
+            )))
+            .and(header("cookie", cookie_of("unblock-all")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "blockedUsers": [
+                    { "userId": 901, "name": "ok_one" },
+                    { "userId": 902, "name": "fails" }
+                ]
+            })))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/901/unblock-user",
+            )))
+            .and(header("cookie", cookie_of("unblock-all")))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path(
+                "apis",
+                "/user-blocking-api/v1/users/902/unblock-user",
+            )))
+            .and(header("cookie", cookie_of("unblock-all")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(server)
+            .await;
+
+        assert_eq!(unblock_all_users("unblock-all").await.expect("count"), 1);
+    }
+
+    #[tokio::test]
+    async fn follow_privacy_is_sent_as_a_form_field() {
+        let server = mock_server().await;
+        mount_csrf("follow-privacy", "csrf-follow-privacy").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("www", "/account/settings/follow-me-privacy")))
+            .and(header("cookie", cookie_of("follow-privacy")))
+            .and(body_string_contains("FollowMePrivacy=NoOne"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(server)
+            .await;
+
+        assert!(set_follow_privacy("follow-privacy", "NoOne").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn follow_privacy_reports_the_status() {
+        let server = mock_server().await;
+        mount_csrf("follow-privacy-bad", "csrf-follow-privacy-bad").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("www", "/account/settings/follow-me-privacy")))
+            .and(header("cookie", cookie_of("follow-privacy-bad")))
+            .respond_with(ResponseTemplate::new(400))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            set_follow_privacy("follow-privacy-bad", "NoOne")
+                .await
+                .unwrap_err(),
+            "Failed to set follow privacy (status 400)"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_invite_privacy_setting_is_read_off_its_field() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("accountsettings", "/v1/privacy")))
+            .and(header("cookie", cookie_of("privacy-field")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "privateServerInvitePrivacy": "AllUsers" }),
+            ))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_private_server_invite_privacy("privacy-field")
+                .await
+                .expect("privacy"),
+            "AllUsers"
+        );
+    }
+
+    /// Without the field the whole payload is handed back so the caller can at
+    /// least show something.
+    #[tokio::test]
+    async fn a_payload_without_the_field_is_returned_as_json_text() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("accountsettings", "/v1/privacy")))
+            .and(header("cookie", cookie_of("privacy-other")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "other": "value" })),
+            )
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_private_server_invite_privacy("privacy-other")
+                .await
+                .expect("privacy"),
+            "{\"other\":\"value\"}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reading_the_invite_privacy_reports_the_status() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("accountsettings", "/v1/privacy")))
+            .and(header("cookie", cookie_of("privacy-error")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_private_server_invite_privacy("privacy-error")
+                .await
+                .unwrap_err(),
+            "Failed to get privacy settings (status 500)"
+        );
+    }
+
+    #[tokio::test]
+    async fn writing_the_invite_privacy_patches_the_field() {
+        let server = mock_server().await;
+        mount_csrf("privacy-set", "csrf-privacy-set").await;
+
+        Mock::given(method("PATCH"))
+            .and(path(mock_path("accountsettings", "/v1/privacy")))
+            .and(header("cookie", cookie_of("privacy-set")))
+            .and(body_string_contains("privateServerInvitePrivacy"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(server)
+            .await;
+
+        assert!(
+            set_private_server_invite_privacy("privacy-set", "Friends")
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn writing_the_invite_privacy_echoes_the_error_body() {
+        let server = mock_server().await;
+        mount_csrf("privacy-set-bad", "csrf-privacy-set-bad").await;
+
+        Mock::given(method("PATCH"))
+            .and(path(mock_path("accountsettings", "/v1/privacy")))
+            .and(header("cookie", cookie_of("privacy-set-bad")))
+            .respond_with(ResponseTemplate::new(400).set_body_string("invalid value"))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            set_private_server_invite_privacy("privacy-set-bad", "Nobody")
+                .await
+                .unwrap_err(),
+            "Failed to set privacy: invalid value"
+        );
+    }
+}

@@ -124,3 +124,138 @@ mod economy_http_tests {
         assert_eq!(details.creator.id, 1);
     }
 }
+
+/// Asset details error paths and the purchase call.
+#[cfg(test)]
+mod economy_extra_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
+    use wiremock::matchers::{body_string_contains, header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    /// Free items have no price and no product id; they must still parse.
+    #[tokio::test]
+    async fn asset_details_allow_a_missing_price_and_product() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("economy", "/v2/assets/4243/details")))
+            .and(header("cookie", cookie_of("asset-free")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "Id": 4243,
+                "Creator": { "Id": 1 }
+            })))
+            .mount(server)
+            .await;
+
+        let details = get_asset_details(4243, Some("asset-free"))
+            .await
+            .expect("asset details");
+        assert_eq!(details.id, 4243);
+        assert!(details.name.is_empty());
+        assert!(!details.is_for_sale);
+        assert!(details.price_in_robux.is_none());
+        assert!(details.product_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn asset_details_report_the_status() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("economy", "/v2/assets/4244/details")))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            get_asset_details(4244, None).await.unwrap_err(),
+            "Failed to get asset details (status 404)"
+        );
+    }
+
+    /// A payload without the mandatory `Creator` cannot be used downstream.
+    #[tokio::test]
+    async fn asset_details_without_a_creator_are_a_parse_error() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("economy", "/v2/assets/4245/details")))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "Id": 4245 })),
+            )
+            .mount(server)
+            .await;
+
+        let err = get_asset_details(4245, None).await.unwrap_err();
+        assert!(
+            err.starts_with("Failed to parse asset details: "),
+            "unexpected error: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn a_purchase_sends_the_expected_price_and_seller() {
+        let server = mock_server().await;
+        mount_csrf("buy-ok", "csrf-buy-ok").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("economy", "/v1/purchases/products/9001")))
+            .and(header("cookie", cookie_of("buy-ok")))
+            .and(header("x-csrf-token", "csrf-buy-ok"))
+            .and(body_string_contains("\"expectedPrice\":25"))
+            .and(body_string_contains("\"expectedSellerId\":77"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({ "purchased": true, "errorMsg": serde_json::Value::Null }),
+            ))
+            .mount(server)
+            .await;
+
+        let result = purchase_product("buy-ok", 9001, 25, 77)
+            .await
+            .expect("purchase");
+        assert!(result.purchased);
+        assert!(result.error_msg.is_none());
+        assert!(result.title.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_declined_purchase_is_parsed_from_a_200_body() {
+        let server = mock_server().await;
+        mount_csrf("buy-declined", "csrf-buy-declined").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("economy", "/v1/purchases/products/9002")))
+            .and(header("cookie", cookie_of("buy-declined")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "purchased": false,
+                "errorMsg": "InsufficientFunds",
+                "title": "Not enough Robux"
+            })))
+            .mount(server)
+            .await;
+
+        let result = purchase_product("buy-declined", 9002, 10, 1)
+            .await
+            .expect("purchase");
+        assert!(!result.purchased);
+        assert_eq!(result.error_msg.as_deref(), Some("InsufficientFunds"));
+        assert_eq!(result.title.as_deref(), Some("Not enough Robux"));
+    }
+
+    #[tokio::test]
+    async fn a_failing_purchase_echoes_the_body() {
+        let server = mock_server().await;
+        mount_csrf("buy-error", "csrf-buy-error").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("economy", "/v1/purchases/products/9003")))
+            .and(header("cookie", cookie_of("buy-error")))
+            .respond_with(ResponseTemplate::new(429).set_body_string("Too many purchases"))
+            .mount(server)
+            .await;
+
+        assert_eq!(
+            purchase_product("buy-error", 9003, 1, 1).await.unwrap_err(),
+            "Purchase failed: Too many purchases"
+        );
+    }
+}

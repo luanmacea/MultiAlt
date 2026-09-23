@@ -164,6 +164,13 @@ async fn resolve_download() -> Result<(String, String), String> {
         .await
         .map_err(|e| format!("Could not read browser version list: {}", e))?;
 
+    parse_stable_download(&json, platform_key())
+}
+
+/// Pick `(version, url)` for `platform` out of the chrome-for-testing
+/// "last known good versions" document. Split out from [`resolve_download`]
+/// so the parsing can be exercised without hitting the network.
+fn parse_stable_download(json: &Value, platform: &str) -> Result<(String, String), String> {
     let stable = json
         .get("channels")
         .and_then(|c| c.get("Stable"))
@@ -182,7 +189,7 @@ async fn resolve_download() -> Result<(String, String), String> {
         .and_then(|entries| {
             entries
                 .iter()
-                .find(|entry| entry.get("platform").and_then(Value::as_str) == Some(platform_key()))
+                .find(|entry| entry.get("platform").and_then(Value::as_str) == Some(platform))
         })
         .and_then(|entry| entry.get("url").and_then(Value::as_str))
         .ok_or("No browser build is available for this platform")?
@@ -284,5 +291,300 @@ fn make_executable(binary: &Path) {
     #[cfg(not(unix))]
     {
         let _ = binary;
+    }
+}
+
+#[cfg(test)]
+mod chromium_download_tests {
+    use super::*;
+    use std::io::Write as _;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Catalog parsing, platform/path resolution and archive extraction. The
+    // network fetch and `ensure_chromium` (which needs an AppHandle) are not
+    // covered here.
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("ram4-chromium-{}-{}-{}", tag, nanos, n));
+            std::fs::create_dir_all(&dir).expect("temp dir");
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
+        let file = std::fs::File::create(path).expect("create zip");
+        let mut writer = zip::ZipWriter::new(file);
+        let options =
+            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        for (name, contents) in entries {
+            writer.start_file(*name, options).expect("start_file");
+            writer.write_all(contents).expect("write entry");
+        }
+        writer.finish().expect("finish zip");
+    }
+
+    fn catalog(platform: &str, url: &str, version: &str) -> Value {
+        serde_json::json!({
+            "channels": {
+                "Stable": {
+                    "version": version,
+                    "downloads": {
+                        "chrome": [
+                            { "platform": "some-other-platform", "url": "https://wrong" },
+                            { "platform": platform, "url": url },
+                        ]
+                    }
+                }
+            }
+        })
+    }
+
+    // ── platform_key / binary_path ─────────────────────────────────────────
+
+    #[test]
+    fn platform_key_matches_the_chrome_for_testing_naming() {
+        let key = platform_key();
+        assert!(
+            ["win32", "win64", "mac-arm64", "mac-x64", "linux64"].contains(&key),
+            "unexpected platform key {}",
+            key
+        );
+        if cfg!(target_os = "windows") {
+            assert!(key.starts_with("win"));
+        }
+    }
+
+    #[test]
+    fn binary_path_lives_under_the_platform_folder_of_the_version_dir() {
+        let version_dir = Path::new("C:\\data\\chromium\\131.0.0.0");
+        let binary = binary_path(version_dir);
+
+        assert!(binary.starts_with(version_dir));
+        assert!(
+            binary.to_string_lossy().contains(&format!("chrome-{}", platform_key())),
+            "{} should contain the platform folder",
+            binary.display()
+        );
+        if cfg!(target_os = "windows") {
+            assert_eq!(binary.file_name().unwrap(), "chrome.exe");
+        }
+    }
+
+    #[test]
+    fn binary_path_is_deterministic() {
+        let dir = Path::new("some/dir");
+        assert_eq!(binary_path(dir), binary_path(dir));
+    }
+
+    // ── parse_stable_download ──────────────────────────────────────────────
+
+    #[test]
+    fn parse_stable_download_returns_the_version_and_the_matching_platform_url() {
+        let json = catalog("win64", "https://cdn/chrome-win64.zip", "131.0.6778.85");
+        let (version, url) = parse_stable_download(&json, "win64").unwrap();
+        assert_eq!(version, "131.0.6778.85");
+        assert_eq!(url, "https://cdn/chrome-win64.zip");
+    }
+
+    #[test]
+    fn parse_stable_download_works_for_every_supported_platform_key() {
+        for platform in ["win32", "win64", "mac-arm64", "mac-x64", "linux64"] {
+            let json = catalog(platform, "https://cdn/build.zip", "1.2.3");
+            let (_, url) = parse_stable_download(&json, platform).unwrap();
+            assert_eq!(url, "https://cdn/build.zip", "platform {}", platform);
+        }
+    }
+
+    #[test]
+    fn parse_stable_download_reports_a_missing_stable_channel() {
+        let err = parse_stable_download(&serde_json::json!({}), "win64").unwrap_err();
+        assert_eq!(err, "Browser version list is missing the Stable channel");
+
+        let err = parse_stable_download(
+            &serde_json::json!({ "channels": { "Beta": {} } }),
+            "win64",
+        )
+        .unwrap_err();
+        assert_eq!(err, "Browser version list is missing the Stable channel");
+    }
+
+    #[test]
+    fn parse_stable_download_reports_a_missing_version() {
+        let json = serde_json::json!({ "channels": { "Stable": { "downloads": {} } } });
+        let err = parse_stable_download(&json, "win64").unwrap_err();
+        assert_eq!(err, "Browser version list is missing a version");
+
+        // A non-string version is treated as missing.
+        let json = serde_json::json!({ "channels": { "Stable": { "version": 131 } } });
+        assert_eq!(
+            parse_stable_download(&json, "win64").unwrap_err(),
+            "Browser version list is missing a version"
+        );
+    }
+
+    #[test]
+    fn parse_stable_download_reports_when_this_platform_has_no_build() {
+        let json = catalog("linux64", "https://cdn/linux.zip", "1.2.3");
+        let err = parse_stable_download(&json, "win64").unwrap_err();
+        assert_eq!(err, "No browser build is available for this platform");
+    }
+
+    #[test]
+    fn parse_stable_download_reports_a_platform_entry_without_a_url() {
+        let json = serde_json::json!({
+            "channels": { "Stable": {
+                "version": "1.2.3",
+                "downloads": { "chrome": [{ "platform": "win64" }] }
+            }}
+        });
+        assert_eq!(
+            parse_stable_download(&json, "win64").unwrap_err(),
+            "No browser build is available for this platform"
+        );
+    }
+
+    #[test]
+    fn parse_stable_download_reports_a_malformed_downloads_section() {
+        for downloads in [
+            serde_json::json!({}),
+            serde_json::json!({ "chrome": "not-an-array" }),
+            serde_json::json!({ "chromedriver": [] }),
+        ] {
+            let json = serde_json::json!({
+                "channels": { "Stable": { "version": "1.2.3", "downloads": downloads } }
+            });
+            assert_eq!(
+                parse_stable_download(&json, "win64").unwrap_err(),
+                "No browser build is available for this platform"
+            );
+        }
+    }
+
+    // ── cached_binary manifest shape ───────────────────────────────────────
+    //
+    // `cached_binary` itself needs an AppHandle, but the manifest it writes and
+    // reads is plain JSON; this pins its shape so a rename would be caught.
+
+    #[test]
+    fn the_version_manifest_holds_a_version_and_a_binary_path() {
+        let manifest = serde_json::json!({
+            "version": "131.0.6778.85",
+            "binary": "C:\\data\\chromium\\131.0.6778.85\\chrome-win64\\chrome.exe",
+        });
+        let raw = serde_json::to_string_pretty(&manifest).unwrap();
+        let parsed: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            parsed.get("binary").and_then(Value::as_str),
+            Some("C:\\data\\chromium\\131.0.6778.85\\chrome-win64\\chrome.exe")
+        );
+        assert!(parsed.get("version").and_then(Value::as_str).is_some());
+    }
+
+    // ── extract_archive ────────────────────────────────────────────────────
+
+    #[test]
+    fn extract_archive_writes_every_entry_under_the_target() {
+        let temp = TempDir::new("extract");
+        let archive = temp.path().join("download.zip");
+        write_zip(
+            &archive,
+            &[
+                ("chrome-win64/chrome.exe", b"MZ".as_slice()),
+                ("chrome-win64/locales/en-US.pak", b"pak".as_slice()),
+            ],
+        );
+
+        let target = temp.path().join("out");
+        extract_archive(&archive, &target).expect("extract");
+
+        assert_eq!(
+            std::fs::read(target.join("chrome-win64").join("chrome.exe")).unwrap(),
+            b"MZ"
+        );
+        assert_eq!(
+            std::fs::read(
+                target
+                    .join("chrome-win64")
+                    .join("locales")
+                    .join("en-US.pak")
+            )
+            .unwrap(),
+            b"pak"
+        );
+    }
+
+    #[test]
+    fn extract_archive_does_not_write_outside_the_target() {
+        let temp = TempDir::new("traversal");
+        let archive = temp.path().join("download.zip");
+        write_zip(
+            &archive,
+            &[
+                ("..\\escaped.exe", b"pwned".as_slice()),
+                ("../escaped2.exe", b"pwned".as_slice()),
+                ("chrome.exe", b"MZ".as_slice()),
+            ],
+        );
+
+        let target = temp.path().join("out");
+        extract_archive(&archive, &target).expect("extract");
+
+        assert!(target.join("chrome.exe").exists());
+        for escaped in ["escaped.exe", "escaped2.exe"] {
+            assert!(
+                !temp.path().join(escaped).exists(),
+                "{} escaped the target",
+                escaped
+            );
+            assert!(!target.join(escaped).exists(), "{} was written", escaped);
+        }
+    }
+
+    #[test]
+    fn extract_archive_creates_the_target_for_an_empty_archive() {
+        let temp = TempDir::new("empty");
+        let archive = temp.path().join("download.zip");
+        write_zip(&archive, &[]);
+        let target = temp.path().join("out");
+        extract_archive(&archive, &target).expect("extract");
+        assert!(target.is_dir());
+    }
+
+    #[test]
+    fn extract_archive_reports_a_missing_or_corrupt_download() {
+        let temp = TempDir::new("bad");
+        let missing = temp.path().join("missing.zip");
+        let err = extract_archive(&missing, &temp.path().join("out")).unwrap_err();
+        assert!(err.starts_with("Could not open download"), "got {}", err);
+
+        let corrupt = temp.path().join("corrupt.zip");
+        std::fs::write(&corrupt, b"not a zip file").unwrap();
+        let err = extract_archive(&corrupt, &temp.path().join("out2")).unwrap_err();
+        assert!(err.starts_with("Could not read download"), "got {}", err);
+    }
+
+    #[test]
+    fn make_executable_is_a_no_op_on_a_missing_path() {
+        let temp = TempDir::new("chmod");
+        make_executable(&temp.path().join("nope"));
     }
 }

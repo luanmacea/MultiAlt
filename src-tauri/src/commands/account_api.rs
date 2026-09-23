@@ -210,14 +210,14 @@ async fn test_auth(cookie: String) -> Result<String, String> {
     }
 
     match api::auth::get_csrf_token(&cookie).await {
-        Ok(token) => results.push(format!("CSRF: OK - {}...", &token[..token.len().min(16)])),
+        Ok(token) => results.push(format!("CSRF: OK - {}...", token.chars().take(16).collect::<String>())),
         Err(e) => results.push(format!("CSRF: FAILED - {}", e)),
     }
 
     match api::auth::get_auth_ticket(&cookie).await {
         Ok(ticket) => results.push(format!(
             "Ticket: OK - {}...",
-            &ticket[..ticket.len().min(20)]
+            ticket.chars().take(20).collect::<String>()
         )),
         Err(e) => results.push(format!("Ticket: FAILED - {}", e)),
     }
@@ -235,6 +235,94 @@ async fn send_friend_request(
         api::roblox::send_friend_request(&cookie, target_user_id).await
     })
     .await
+}
+
+/// One linking run at a time: the UI can remount and start a second batch,
+/// doubling requests and the rate-limit/captcha risk.
+static FRIEND_LINK_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Releases the friend-linking lock when the run ends, however it ends.
+struct FriendLinkRunGuard;
+
+impl Drop for FriendLinkRunGuard {
+    fn drop(&mut self) {
+        FRIEND_LINK_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Takes the friend-linking lock, or reports that a run is already in progress.
+fn try_begin_friend_link() -> Result<FriendLinkRunGuard, String> {
+    if FRIEND_LINK_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("Já existe uma vinculação de amizades em andamento.".to_string());
+    }
+    Ok(FriendLinkRunGuard)
+}
+
+/// Drops non-positive and repeated ids while preserving the selection order.
+fn dedupe_friend_ids(user_ids: Vec<i64>) -> Vec<i64> {
+    let mut ids: Vec<i64> = Vec::new();
+    for id in user_ids {
+        if id > 0 && !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
+/// The unordered pairs to link.
+///
+/// - `mesh`: every combination of the selected accounts.
+/// - `star`: every account paired only with `main_user_id`.
+fn build_friend_pairs(
+    ids: &[i64],
+    mode: &str,
+    main_user_id: Option<i64>,
+) -> Result<Vec<(i64, i64)>, String> {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "mesh" => {
+            let mut out = Vec::new();
+            for i in 0..ids.len() {
+                for j in (i + 1)..ids.len() {
+                    out.push((ids[i], ids[j]));
+                }
+            }
+            Ok(out)
+        }
+        "star" => {
+            let main = main_user_id
+                .filter(|m| ids.contains(m))
+                .ok_or_else(|| "Star mode requires a main account within the selection.".to_string())?;
+            Ok(ids
+                .iter()
+                .copied()
+                .filter(|&id| id != main)
+                .map(|id| (main, id))
+                .collect())
+        }
+        other => Err(format!("Unknown mode: {}", other)),
+    }
+}
+
+/// Delay between friend requests: the explicit argument wins, else the
+/// `Friends/RequestDelayMs` setting, else 2.5s. Clamped to a sane range so a
+/// misconfigured value cannot hammer (or stall) the endpoint.
+fn resolve_friend_delay_ms(explicit: Option<u64>, setting: Option<i64>) -> u64 {
+    explicit
+        .or_else(|| setting.and_then(|v| u64::try_from(v).ok()))
+        .unwrap_or(2500)
+        .clamp(500, 60_000)
+}
+
+/// True when either side already lists the other as a friend. Checking both
+/// directions keeps a one-sided fetch failure from re-sending requests.
+fn friend_sets_contain(
+    sets: &std::collections::HashMap<i64, std::collections::HashSet<i64>>,
+    a: i64,
+    b: i64,
+) -> bool {
+    sets.get(&a).map(|s| s.contains(&b)).unwrap_or(false)
+        || sets.get(&b).map(|s| s.contains(&a)).unwrap_or(false)
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -340,62 +428,17 @@ async fn make_selected_friends(
     main_user_id: Option<i64>,
     delay_ms: Option<u64>,
 ) -> Result<FriendLinkResult, String> {
-    // One linking run at a time: the UI can remount and start a second batch,
-    // doubling requests and the rate-limit/captcha risk.
-    static FRIEND_LINK_RUNNING: std::sync::atomic::AtomicBool =
-        std::sync::atomic::AtomicBool::new(false);
-    struct RunningGuard;
-    impl Drop for RunningGuard {
-        fn drop(&mut self) {
-            FRIEND_LINK_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-    if FRIEND_LINK_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return Err("Já existe uma vinculação de amizades em andamento.".to_string());
-    }
-    let _running = RunningGuard;
+    let _running = try_begin_friend_link()?;
 
-    // Dedupe while preserving order.
-    let mut ids: Vec<i64> = Vec::new();
-    for id in user_ids {
-        if id > 0 && !ids.contains(&id) {
-            ids.push(id);
-        }
-    }
+    let ids = dedupe_friend_ids(user_ids);
     if ids.len() < 2 {
         return Err("Select at least 2 accounts.".to_string());
     }
 
-    // Build the list of unordered pairs based on the mode.
-    let pairs: Vec<(i64, i64)> = match mode.trim().to_ascii_lowercase().as_str() {
-        "mesh" => {
-            let mut out = Vec::new();
-            for i in 0..ids.len() {
-                for j in (i + 1)..ids.len() {
-                    out.push((ids[i], ids[j]));
-                }
-            }
-            out
-        }
-        "star" => {
-            let main = main_user_id
-                .filter(|m| ids.contains(m))
-                .ok_or_else(|| "Star mode requires a main account within the selection.".to_string())?;
-            ids.iter().copied().filter(|&id| id != main).map(|id| (main, id)).collect()
-        }
-        other => return Err(format!("Unknown mode: {}", other)),
-    };
+    let pairs = build_friend_pairs(&ids, &mode, main_user_id)?;
 
-    // Delay per request: explicit arg wins, else the "Friends/RequestDelayMs"
-    // setting, else 2.5s. Clamped to a sane range.
-    let resolved_delay = delay_ms
-        .or_else(|| {
-            settings
-                .get_int("Friends", "RequestDelayMs")
-                .and_then(|v| u64::try_from(v).ok())
-        })
-        .unwrap_or(2500)
-        .clamp(500, 60_000);
+    let resolved_delay =
+        resolve_friend_delay_ms(delay_ms, settings.get_int("Friends", "RequestDelayMs"));
     let delay = std::time::Duration::from_millis(resolved_delay);
     let store = state.inner();
 
@@ -408,17 +451,10 @@ async fn make_selected_friends(
         emit_friend_progress(&app, "checking", i + 1, ids.len());
     }
 
-    let is_friends = |sets: &std::collections::HashMap<i64, std::collections::HashSet<i64>>,
-                      a: i64,
-                      b: i64| {
-        sets.get(&a).map(|s| s.contains(&b)).unwrap_or(false)
-            || sets.get(&b).map(|s| s.contains(&a)).unwrap_or(false)
-    };
-
     let needed: Vec<(i64, i64)> = pairs
         .iter()
         .copied()
-        .filter(|&(a, b)| !is_friends(&friend_sets, a, b))
+        .filter(|&(a, b)| !friend_sets_contain(&friend_sets, a, b))
         .collect();
     let already_friends = pairs.len() - needed.len();
 
@@ -465,7 +501,7 @@ async fn make_selected_friends(
         }
         verified_ok = needed
             .iter()
-            .filter(|&&(a, b)| is_friends(&after, a, b))
+            .filter(|&&(a, b)| friend_sets_contain(&after, a, b))
             .count();
     }
     let failed = needed.len() - verified_ok;
@@ -812,4 +848,751 @@ async fn quick_login_validate_code(
         async move { api::auth::quick_login_validate_code(&cookie, &code).await }
     })
     .await
+}
+
+#[cfg(test)]
+mod account_api_tests {
+    use super::*;
+
+    fn temp_store(tag: &str) -> AccountStore {
+        crypto::init();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        AccountStore::new(std::env::temp_dir().join(format!("ram-apitests-{tag}-{nanos}.json")))
+    }
+
+    fn account(user_id: i64, token: &str) -> crate::data::accounts::Account {
+        crate::data::accounts::Account::new(token.to_string(), format!("user{user_id}"), user_id)
+    }
+
+    // ---- is_auth_session_error ----------------------------------------------
+
+    #[test]
+    fn is_auth_session_error_matches_every_known_signal() {
+        for message in [
+            "Request failed with status 401",
+            "[401 Unauthorized] body",
+            "Unauthorized",
+            "User is not authenticated",
+            "not authenticated",
+            "Invalid cookie",
+            "Authorization has been denied for this request",
+            "{\"errors\":[{\"code\":9002}]}",
+            "error code 9002",
+        ] {
+            assert!(is_auth_session_error(message), "should match: {message}");
+        }
+    }
+
+    #[test]
+    fn is_auth_session_error_is_case_insensitive() {
+        assert!(is_auth_session_error("STATUS 401"));
+        assert!(is_auth_session_error("UNAUTHORIZED"));
+        assert!(is_auth_session_error("Invalid Cookie"));
+    }
+
+    #[test]
+    fn is_auth_session_error_ignores_unrelated_failures() {
+        // Regression guard: a false positive here triggers a session refresh,
+        // which signs the account out of every running client.
+        for message in [
+            "",
+            "network timeout",
+            "Failed to send friend request (status 429): too many requests",
+            "status 403 Token Validation Failed",
+            "User is moderated",
+            "status 500",
+        ] {
+            assert!(!is_auth_session_error(message), "should not match: {message}");
+        }
+    }
+
+    #[test]
+    fn session_relogin_error_is_the_message_the_ui_shows() {
+        assert_eq!(
+            session_relogin_error(),
+            "Roblox invalidated this session. Re-login required."
+        );
+        assert!(!is_auth_session_error(&session_relogin_error()));
+    }
+
+    // ---- store helpers -------------------------------------------------------
+
+    #[test]
+    fn get_account_finds_the_account_or_names_the_missing_id() {
+        let store = temp_store("get-account");
+        store.add(account(11, "TOK")).unwrap();
+
+        assert_eq!(get_account(&store, 11).unwrap().security_token, "TOK");
+        assert_eq!(
+            get_account(&store, 12).unwrap_err(),
+            "Account 12 not found"
+        );
+    }
+
+    #[test]
+    fn mark_refresh_attempt_stamps_and_persists_the_attempt_time() {
+        let store = temp_store("mark-refresh");
+        let mut original = account(21, "TOK");
+        original.last_attempted_refresh = chrono::DateTime::parse_from_rfc3339(
+            "2000-01-01T00:00:00Z",
+        )
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+        store.add(original.clone()).unwrap();
+        store.update(original.clone()).unwrap();
+
+        let before = store.get_all().unwrap()[0].last_attempted_refresh;
+        let returned = mark_refresh_attempt(&store, 21).unwrap();
+        let stored = store.get_all().unwrap()[0].last_attempted_refresh;
+
+        assert!(returned.last_attempted_refresh > before);
+        assert_eq!(stored, returned.last_attempted_refresh);
+    }
+
+    #[test]
+    fn mark_refresh_attempt_fails_for_an_unknown_account() {
+        let store = temp_store("mark-refresh-missing");
+        assert_eq!(
+            mark_refresh_attempt(&store, 5).unwrap_err(),
+            "Account 5 not found"
+        );
+    }
+
+    #[test]
+    fn persist_cookie_update_replaces_the_token_and_revalidates() {
+        let store = temp_store("persist-cookie");
+        let mut acc = account(31, "OLD");
+        acc.valid = false;
+        store.add(acc.clone()).unwrap();
+        store.update(acc).unwrap();
+
+        persist_cookie_update(&store, 31, "NEW").unwrap();
+
+        let stored = store.get_all().unwrap().remove(0);
+        assert_eq!(stored.security_token, "NEW");
+        assert!(stored.valid);
+    }
+
+    #[test]
+    fn persist_cookie_update_fails_for_an_unknown_account() {
+        let store = temp_store("persist-cookie-missing");
+        assert!(persist_cookie_update(&store, 7, "NEW").is_err());
+    }
+
+    // ---- dedupe_friend_ids ---------------------------------------------------
+
+    #[test]
+    fn dedupe_friend_ids_keeps_the_first_occurrence_in_order() {
+        assert_eq!(dedupe_friend_ids(vec![3, 1, 3, 2, 1]), vec![3, 1, 2]);
+    }
+
+    #[test]
+    fn dedupe_friend_ids_drops_zero_and_negative_ids() {
+        // A zero/negative id is never a real Roblox account.
+        assert_eq!(dedupe_friend_ids(vec![0, -1, 5, i64::MIN]), vec![5]);
+        assert_eq!(dedupe_friend_ids(vec![]), Vec::<i64>::new());
+        assert_eq!(dedupe_friend_ids(vec![0]), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn dedupe_friend_ids_keeps_large_ids() {
+        assert_eq!(dedupe_friend_ids(vec![i64::MAX, i64::MAX]), vec![i64::MAX]);
+    }
+
+    // ---- build_friend_pairs --------------------------------------------------
+
+    #[test]
+    fn build_friend_pairs_mesh_covers_every_combination_once() {
+        let pairs = build_friend_pairs(&[1, 2, 3], "mesh", None).unwrap();
+        assert_eq!(pairs, vec![(1, 2), (1, 3), (2, 3)]);
+    }
+
+    #[test]
+    fn build_friend_pairs_mesh_grows_quadratically() {
+        for n in 2..=8_usize {
+            let ids: Vec<i64> = (1..=n as i64).collect();
+            let pairs = build_friend_pairs(&ids, "mesh", None).unwrap();
+            assert_eq!(pairs.len(), n * (n - 1) / 2, "n = {n}");
+        }
+    }
+
+    #[test]
+    fn build_friend_pairs_mesh_of_fewer_than_two_accounts_is_empty() {
+        assert!(build_friend_pairs(&[], "mesh", None).unwrap().is_empty());
+        assert!(build_friend_pairs(&[1], "mesh", None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn build_friend_pairs_star_pairs_everyone_with_the_main_account() {
+        let pairs = build_friend_pairs(&[1, 2, 3], "star", Some(2)).unwrap();
+        assert_eq!(pairs, vec![(2, 1), (2, 3)]);
+        assert_eq!(pairs.len(), 2);
+    }
+
+    #[test]
+    fn build_friend_pairs_star_requires_a_main_inside_the_selection() {
+        let expected = "Star mode requires a main account within the selection.";
+        assert_eq!(
+            build_friend_pairs(&[1, 2, 3], "star", None).unwrap_err(),
+            expected
+        );
+        assert_eq!(
+            build_friend_pairs(&[1, 2, 3], "star", Some(99)).unwrap_err(),
+            expected
+        );
+    }
+
+    #[test]
+    fn build_friend_pairs_star_never_pairs_the_main_with_itself() {
+        let pairs = build_friend_pairs(&[7], "star", Some(7)).unwrap();
+        assert!(pairs.is_empty());
+    }
+
+    #[test]
+    fn build_friend_pairs_accepts_any_casing_and_padding_of_the_mode() {
+        assert_eq!(
+            build_friend_pairs(&[1, 2], "  MESH  ", None).unwrap(),
+            vec![(1, 2)]
+        );
+        assert_eq!(
+            build_friend_pairs(&[1, 2], "Star", Some(1)).unwrap(),
+            vec![(1, 2)]
+        );
+    }
+
+    #[test]
+    fn build_friend_pairs_rejects_an_unknown_mode_and_echoes_it() {
+        assert_eq!(
+            build_friend_pairs(&[1, 2], "ring", None).unwrap_err(),
+            "Unknown mode: ring"
+        );
+        assert_eq!(
+            build_friend_pairs(&[1, 2], "", None).unwrap_err(),
+            "Unknown mode: "
+        );
+    }
+
+    // ---- resolve_friend_delay_ms ---------------------------------------------
+
+    #[test]
+    fn resolve_friend_delay_ms_defaults_to_2500_ms() {
+        assert_eq!(resolve_friend_delay_ms(None, None), 2500);
+    }
+
+    #[test]
+    fn resolve_friend_delay_ms_prefers_the_explicit_argument() {
+        assert_eq!(resolve_friend_delay_ms(Some(1000), Some(9000)), 1000);
+    }
+
+    #[test]
+    fn resolve_friend_delay_ms_falls_back_to_the_setting() {
+        assert_eq!(resolve_friend_delay_ms(None, Some(4000)), 4000);
+    }
+
+    #[test]
+    fn resolve_friend_delay_ms_clamps_into_the_500_to_60000_window() {
+        // Too fast trips Roblox's rate limiter; too slow stalls the run.
+        assert_eq!(resolve_friend_delay_ms(Some(0), None), 500);
+        assert_eq!(resolve_friend_delay_ms(Some(1), None), 500);
+        assert_eq!(resolve_friend_delay_ms(Some(u64::MAX), None), 60_000);
+        assert_eq!(resolve_friend_delay_ms(None, Some(1)), 500);
+        assert_eq!(resolve_friend_delay_ms(None, Some(i64::MAX)), 60_000);
+    }
+
+    #[test]
+    fn resolve_friend_delay_ms_ignores_a_negative_setting() {
+        // `u64::try_from` fails, so the default applies instead of wrapping.
+        assert_eq!(resolve_friend_delay_ms(None, Some(-1)), 2500);
+        assert_eq!(resolve_friend_delay_ms(None, Some(i64::MIN)), 2500);
+    }
+
+    // ---- friend_sets_contain --------------------------------------------------
+
+    fn sets(entries: &[(i64, &[i64])]) -> std::collections::HashMap<i64, std::collections::HashSet<i64>> {
+        entries
+            .iter()
+            .map(|(id, friends)| (*id, friends.iter().copied().collect()))
+            .collect()
+    }
+
+    #[test]
+    fn friend_sets_contain_matches_in_either_direction() {
+        let map = sets(&[(1, &[2]), (2, &[])]);
+        assert!(friend_sets_contain(&map, 1, 2));
+        assert!(friend_sets_contain(&map, 2, 1));
+    }
+
+    #[test]
+    fn friend_sets_contain_is_false_when_neither_side_lists_the_other() {
+        let map = sets(&[(1, &[3]), (2, &[4])]);
+        assert!(!friend_sets_contain(&map, 1, 2));
+    }
+
+    #[test]
+    fn friend_sets_contain_treats_a_missing_entry_as_not_friends() {
+        // A failed friend-list fetch must not make us skip the pair.
+        let map = sets(&[]);
+        assert!(!friend_sets_contain(&map, 1, 2));
+        let map = sets(&[(1, &[])]);
+        assert!(!friend_sets_contain(&map, 1, 2));
+    }
+
+    // ---- the one-run-at-a-time guard ------------------------------------------
+
+    #[test]
+    fn friend_link_guard_allows_one_run_at_a_time_and_releases_on_drop() {
+        // Regression guard: a remounted dialog starting a second batch doubles
+        // the requests and the rate-limit/captcha risk.
+        {
+            let _first = try_begin_friend_link().expect("first run should start");
+            assert_eq!(
+                try_begin_friend_link().err(),
+                Some("Já existe uma vinculação de amizades em andamento.".to_string())
+            );
+        }
+        // The guard released the lock, so a later run is allowed again.
+        let _again = try_begin_friend_link().expect("a later run should start");
+    }
+
+    // ---- payload shapes --------------------------------------------------------
+
+    #[test]
+    fn friend_link_result_serializes_with_the_camel_case_keys_the_ui_reads() {
+        let json = serde_json::to_value(FriendLinkResult {
+            pairs_total: 3,
+            already_friends: 1,
+            attempted: 2,
+            verified_ok: 2,
+            failed: 0,
+            requests_sent: 4,
+            errors: vec!["1->2: boom".to_string()],
+        })
+        .unwrap();
+
+        assert_eq!(json["pairsTotal"], 3);
+        assert_eq!(json["alreadyFriends"], 1);
+        assert_eq!(json["attempted"], 2);
+        assert_eq!(json["verifiedOk"], 2);
+        assert_eq!(json["failed"], 0);
+        assert_eq!(json["requestsSent"], 4);
+        assert_eq!(json["errors"][0], "1->2: boom");
+    }
+
+    #[test]
+    fn friend_link_progress_serializes_with_the_camel_case_keys_the_ui_reads() {
+        let json = serde_json::to_value(FriendLinkProgress {
+            phase: "linking".to_string(),
+            done: 2,
+            total: 5,
+        })
+        .unwrap();
+        assert_eq!(json["phase"], "linking");
+        assert_eq!(json["done"], 2);
+        assert_eq!(json["total"], 5);
+    }
+}
+
+#[cfg(test)]
+mod account_api_http_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    fn temp_store(tag: &str) -> AccountStore {
+        crypto::init();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        AccountStore::new(std::env::temp_dir().join(format!("ram-apihttp-{tag}-{nanos}.json")))
+    }
+
+    fn store_with(user_id: i64, token: &str, tag: &str) -> AccountStore {
+        let store = temp_store(tag);
+        store
+            .add(crate::data::accounts::Account::new(
+                token.to_string(),
+                format!("user{user_id}"),
+                user_id,
+            ))
+            .unwrap();
+        store
+    }
+
+    /// Mounts the sign-out endpoint `refresh_account_session` calls, optionally
+    /// handing back a fresh `.ROBLOSECURITY`.
+    async fn mount_signout(token: &str, new_cookie: Option<&str>, status: u16) {
+        let mut response = ResponseTemplate::new(status);
+        if let Some(cookie) = new_cookie {
+            response = response.insert_header(
+                "set-cookie",
+                format!(".ROBLOSECURITY={}; path=/; HttpOnly", cookie).as_str(),
+            );
+        }
+        Mock::given(method("POST"))
+            .and(path(mock_path(
+                "www",
+                "/authentication/signoutfromallsessionsandreauthenticate",
+            )))
+            .and(header("cookie", cookie_of(token)))
+            .respond_with(response)
+            .mount(mock_server().await)
+            .await;
+    }
+
+    // ---- refresh_account_session ---------------------------------------------
+
+    #[tokio::test]
+    async fn refresh_account_session_stores_the_new_cookie() {
+        mount_csrf("refresh-ok", "CSRF-REFRESH-OK").await;
+        mount_signout("refresh-ok", Some("REFRESHED-COOKIE"), 200).await;
+        let store = store_with(9001, "refresh-ok", "refresh-ok");
+
+        let cookie = refresh_account_session(&store, 9001).await.unwrap();
+
+        assert_eq!(cookie, "REFRESHED-COOKIE");
+        let stored = store.get_all().unwrap().remove(0);
+        assert_eq!(stored.security_token, "REFRESHED-COOKIE");
+        assert!(stored.valid);
+    }
+
+    #[tokio::test]
+    async fn refresh_account_session_reports_relogin_when_no_cookie_comes_back() {
+        mount_csrf("refresh-nocookie", "CSRF-REFRESH-NOCOOKIE").await;
+        mount_signout("refresh-nocookie", None, 200).await;
+        let store = store_with(9002, "refresh-nocookie", "refresh-nocookie");
+
+        assert_eq!(
+            refresh_account_session(&store, 9002).await.unwrap_err(),
+            session_relogin_error()
+        );
+        // The old cookie must stay untouched so the user can still re-login.
+        assert_eq!(
+            store.get_all().unwrap()[0].security_token,
+            "refresh-nocookie"
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_account_session_surfaces_a_failing_signout() {
+        mount_csrf("refresh-fail", "CSRF-REFRESH-FAIL").await;
+        mount_signout("refresh-fail", None, 500).await;
+        let store = store_with(9003, "refresh-fail", "refresh-fail");
+
+        let err = refresh_account_session(&store, 9003).await.unwrap_err();
+        assert!(err.contains("sign out other sessions"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn refresh_account_session_fails_for_an_unknown_account() {
+        let store = temp_store("refresh-unknown");
+        assert_eq!(
+            refresh_account_session(&store, 4242).await.unwrap_err(),
+            "Account 4242 not found"
+        );
+    }
+
+    // ---- run_with_session_retry ------------------------------------------------
+
+    #[tokio::test]
+    async fn run_with_session_retry_passes_the_cookie_through_on_success() {
+        let store = store_with(9010, "plain-cookie", "retry-ok");
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let recorder = seen.clone();
+
+        let value = run_with_session_retry(&store, 9010, move |cookie| {
+            let recorder = recorder.clone();
+            async move {
+                recorder.lock().unwrap().push(cookie);
+                Ok::<_, String>(7)
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(value, 7);
+        assert_eq!(*seen.lock().unwrap(), vec!["plain-cookie".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn run_with_session_retry_never_refreshes_on_an_unrelated_error() {
+        // Regression guard: refreshing signs the account out of every session,
+        // so a 429 or a network blip must not trigger it.
+        let store = store_with(9011, "no-refresh", "retry-unrelated");
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = calls.clone();
+
+        let err = run_with_session_retry(&store, 9011, move |_cookie| {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err::<(), String>("status 429 too many requests".to_string())
+            }
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(err, "status 429 too many requests");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(store.get_all().unwrap()[0].security_token, "no-refresh");
+    }
+
+    #[tokio::test]
+    async fn run_with_session_retry_refreshes_once_and_retries_with_the_new_cookie() {
+        mount_csrf("retry-stale", "CSRF-RETRY-STALE").await;
+        mount_signout("retry-stale", Some("retry-fresh"), 200).await;
+        let store = store_with(9012, "retry-stale", "retry-refresh");
+
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let recorder = seen.clone();
+
+        let value = run_with_session_retry(&store, 9012, move |cookie| {
+            let recorder = recorder.clone();
+            async move {
+                recorder.lock().unwrap().push(cookie.clone());
+                if cookie == "retry-stale" {
+                    Err("Request failed with status 401".to_string())
+                } else {
+                    Ok(42)
+                }
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(value, 42);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec!["retry-stale".to_string(), "retry-fresh".to_string()]
+        );
+        assert_eq!(store.get_all().unwrap()[0].security_token, "retry-fresh");
+    }
+
+    #[tokio::test]
+    async fn run_with_session_retry_reports_relogin_when_the_retry_also_fails() {
+        mount_csrf("retry-doomed", "CSRF-RETRY-DOOMED").await;
+        mount_signout("retry-doomed", Some("retry-doomed-2"), 200).await;
+        let store = store_with(9013, "retry-doomed", "retry-doomed");
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = calls.clone();
+
+        let err = run_with_session_retry(&store, 9013, move |_cookie| {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err::<(), String>("user is not authenticated".to_string())
+            }
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(err, session_relogin_error());
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "the operation must be attempted exactly twice"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_with_session_retry_reports_relogin_when_the_refresh_itself_is_unauthorized() {
+        mount_csrf("retry-refresh-401", "CSRF-RETRY-R401").await;
+        mount_signout("retry-refresh-401", None, 401).await;
+        let store = store_with(9014, "retry-refresh-401", "retry-refresh-401");
+
+        let err = run_with_session_retry(&store, 9014, |_cookie| async move {
+            Err::<(), String>("invalid cookie".to_string())
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(err, session_relogin_error());
+    }
+
+    #[tokio::test]
+    async fn run_with_session_retry_fails_before_running_for_an_unknown_account() {
+        let store = temp_store("retry-unknown");
+        let err = run_with_session_retry(&store, 777, |_cookie| async move {
+            panic!("the operation must not run without a cookie");
+            #[allow(unreachable_code)]
+            Ok::<(), String>(())
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(err, "Account 777 not found");
+    }
+
+    // ---- fetch_friend_set --------------------------------------------------------
+
+    #[tokio::test]
+    async fn fetch_friend_set_collects_the_friend_ids() {
+        Mock::given(method("GET"))
+            .and(path(mock_path("friends", "/v1/users/9020/friends")))
+            .and(header("cookie", cookie_of("friends-ok")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": 1 }, { "id": 2 }, { "name": "no id" }]
+            })))
+            .mount(mock_server().await)
+            .await;
+        let store = store_with(9020, "friends-ok", "friends-ok");
+
+        let set = fetch_friend_set(&store, 9020).await;
+        assert_eq!(set.len(), 2);
+        assert!(set.contains(&1));
+        assert!(set.contains(&2));
+    }
+
+    #[tokio::test]
+    async fn fetch_friend_set_is_empty_when_the_lookup_fails() {
+        // Tolerated failure: an empty set only means "link this pair anyway".
+        Mock::given(method("GET"))
+            .and(path(mock_path("friends", "/v1/users/9021/friends")))
+            .and(header("cookie", cookie_of("friends-fail")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(mock_server().await)
+            .await;
+        let store = store_with(9021, "friends-fail", "friends-fail");
+
+        assert!(fetch_friend_set(&store, 9021).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fetch_friend_set_is_empty_for_an_account_without_a_cookie() {
+        let store = temp_store("friends-unknown");
+        assert!(fetch_friend_set(&store, 9022).await.is_empty());
+    }
+
+    // ---- send_directed_friend -----------------------------------------------------
+
+    #[tokio::test]
+    async fn send_directed_friend_fetches_the_csrf_once_and_caches_it() {
+        mount_csrf("directed-ok", "CSRF-DIRECTED-OK").await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/9031/request-friendship")))
+            .and(header("cookie", cookie_of("directed-ok")))
+            .and(header("x-csrf-token", "CSRF-DIRECTED-OK"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(mock_server().await)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/9032/request-friendship")))
+            .and(header("cookie", cookie_of("directed-ok")))
+            .and(header("x-csrf-token", "CSRF-DIRECTED-OK"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(mock_server().await)
+            .await;
+
+        let store = store_with(9030, "directed-ok", "directed-ok");
+        let mut cookies = std::collections::HashMap::new();
+        let mut csrfs = std::collections::HashMap::new();
+
+        send_directed_friend(&store, &mut cookies, &mut csrfs, 9030, 9031)
+            .await
+            .unwrap();
+        assert_eq!(cookies.get(&9030).map(String::as_str), Some("directed-ok"));
+        assert_eq!(csrfs.get(&9030).map(String::as_str), Some("CSRF-DIRECTED-OK"));
+
+        // Second call reuses the cached cookie and token.
+        send_directed_friend(&store, &mut cookies, &mut csrfs, 9030, 9032)
+            .await
+            .unwrap();
+        assert_eq!(csrfs.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn send_directed_friend_refetches_a_stale_csrf_and_retries_once() {
+        mount_csrf("directed-stale", "CSRF-FRESH").await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/9041/request-friendship")))
+            .and(header("cookie", cookie_of("directed-stale")))
+            .and(header("x-csrf-token", "CSRF-STALE"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("Token Validation Failed"))
+            .mount(mock_server().await)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/9041/request-friendship")))
+            .and(header("cookie", cookie_of("directed-stale")))
+            .and(header("x-csrf-token", "CSRF-FRESH"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(mock_server().await)
+            .await;
+
+        let store = store_with(9040, "directed-stale", "directed-stale");
+        let mut cookies = std::collections::HashMap::new();
+        let mut csrfs = std::collections::HashMap::new();
+        csrfs.insert(9040_i64, "CSRF-STALE".to_string());
+
+        send_directed_friend(&store, &mut cookies, &mut csrfs, 9040, 9041)
+            .await
+            .unwrap();
+
+        assert_eq!(csrfs.get(&9040).map(String::as_str), Some("CSRF-FRESH"));
+    }
+
+    #[tokio::test]
+    async fn send_directed_friend_reports_an_invalid_session_without_refreshing_it() {
+        // Refreshing here would sign the account out of every running client,
+        // so the error is surfaced with a hint instead.
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/9051/request-friendship")))
+            .and(header("cookie", cookie_of("directed-401")))
+            .respond_with(ResponseTemplate::new(401).set_body_string("Unauthorized"))
+            .mount(mock_server().await)
+            .await;
+
+        let store = store_with(9050, "directed-401", "directed-401");
+        let mut cookies = std::collections::HashMap::new();
+        let mut csrfs = std::collections::HashMap::new();
+        cookies.insert(9050_i64, "directed-401".to_string());
+        csrfs.insert(9050_i64, "CSRF-ANY".to_string());
+
+        let err = send_directed_friend(&store, &mut cookies, &mut csrfs, 9050, 9051)
+            .await
+            .unwrap_err();
+
+        assert!(err.contains("status 401"), "{err}");
+        assert!(err.contains("sessão inválida"), "{err}");
+        assert_eq!(store.get_all().unwrap()[0].security_token, "directed-401");
+    }
+
+    #[tokio::test]
+    async fn send_directed_friend_passes_other_errors_through_unchanged() {
+        Mock::given(method("POST"))
+            .and(path(mock_path("friends", "/v1/users/9061/request-friendship")))
+            .and(header("cookie", cookie_of("directed-429")))
+            .respond_with(ResponseTemplate::new(429).set_body_string("Too many requests"))
+            .mount(mock_server().await)
+            .await;
+
+        let store = store_with(9060, "directed-429", "directed-429");
+        let mut cookies = std::collections::HashMap::new();
+        let mut csrfs = std::collections::HashMap::new();
+        cookies.insert(9060_i64, "directed-429".to_string());
+        csrfs.insert(9060_i64, "CSRF-ANY".to_string());
+
+        let err = send_directed_friend(&store, &mut cookies, &mut csrfs, 9060, 9061)
+            .await
+            .unwrap_err();
+
+        assert!(err.contains("status 429"), "{err}");
+        assert!(!err.contains("sessão inválida"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn send_directed_friend_fails_for_a_source_account_that_is_gone() {
+        let store = temp_store("directed-missing");
+        let mut cookies = std::collections::HashMap::new();
+        let mut csrfs = std::collections::HashMap::new();
+
+        assert_eq!(
+            send_directed_friend(&store, &mut cookies, &mut csrfs, 8888, 1)
+                .await
+                .unwrap_err(),
+            "Account 8888 not found"
+        );
+    }
 }

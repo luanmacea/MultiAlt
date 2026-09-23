@@ -130,3 +130,132 @@ pub fn import_theme_preset_file(
 pub fn export_theme_preset_file(name: String, theme: ThemeData) -> Result<String, String> {
     ThemePresetStore::export_preset_file(&name, theme)
 }
+
+#[cfg(test)]
+mod theme_font_command_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn nanos() -> u128 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    }
+
+    /// `ext` is appended after the unique suffix so the probe really carries it.
+    fn temp_file(stem: &str, ext: &str, bytes: &[u8]) -> PathBuf {
+        let name = if ext.is_empty() {
+            format!("ram-font-{stem}-{}", nanos())
+        } else {
+            format!("ram-font-{stem}-{}.{ext}", nanos())
+        };
+        let path = std::env::temp_dir().join(name);
+        fs::write(&path, bytes).expect("write font probe");
+        path
+    }
+
+    // ---- import_theme_font_asset: rejection paths (no side effects) ------------
+
+    #[test]
+    fn importing_a_font_rejects_missing_paths_directories_and_wrong_extensions() {
+        let missing = std::env::temp_dir().join(format!("ram-font-missing-{}.ttf", nanos()));
+        assert_eq!(
+            import_theme_font_asset(missing.to_string_lossy().into_owned()).unwrap_err(),
+            "Font file does not exist"
+        );
+
+        let dir = std::env::temp_dir().join(format!("ram-font-dir-{}.ttf", nanos()));
+        fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            import_theme_font_asset(dir.to_string_lossy().into_owned()).unwrap_err(),
+            "Font path is not a file"
+        );
+        let _ = fs::remove_dir_all(&dir);
+
+        let wrong_ext = temp_file("wrong-ext", "exe", b"MZ");
+        let err = import_theme_font_asset(wrong_ext.to_string_lossy().into_owned()).unwrap_err();
+        assert!(err.starts_with("Unsupported font extension"), "{err}");
+        let _ = fs::remove_file(&wrong_ext);
+
+        // No extension at all is rejected the same way.
+        let no_ext = temp_file("no-ext", "", b"data");
+        assert!(import_theme_font_asset(no_ext.to_string_lossy().into_owned()).is_err());
+        let _ = fs::remove_file(&no_ext);
+
+        let empty = temp_file("empty", "woff2", b"");
+        assert_eq!(
+            import_theme_font_asset(empty.to_string_lossy().into_owned()).unwrap_err(),
+            "Font file is empty"
+        );
+        let _ = fs::remove_file(&empty);
+    }
+
+    #[test]
+    fn importing_a_font_is_content_addressed_and_idempotent() {
+        let source = temp_file("MyFamily", "ttf", b"fake font bytes for hashing");
+        let first = import_theme_font_asset(source.to_string_lossy().into_owned())
+            .expect("first import");
+
+        assert_eq!(first.suggested_family, {
+            // The family is the trimmed file stem of the imported path.
+            source.file_stem().and_then(|s| s.to_str()).unwrap().to_string()
+        });
+        assert!(first.file.ends_with(".ttf"), "{}", first.file);
+        let hash_part = first.file.trim_end_matches(".ttf");
+        assert_eq!(hash_part.len(), 64, "sha256 hex is 64 chars: {}", first.file);
+        assert!(hash_part.chars().all(|c| c.is_ascii_hexdigit()));
+
+        let stored = get_theme_fonts_dir().join(&first.file);
+        assert!(stored.exists(), "{}", stored.display());
+        assert_eq!(fs::read(&stored).unwrap(), b"fake font bytes for hashing");
+
+        // Re-importing the same bytes reuses the same asset name.
+        let again = import_theme_font_asset(source.to_string_lossy().into_owned())
+            .expect("second import");
+        assert_eq!(again.file, first.file);
+
+        // The stored name is resolvable, with or without a leading directory.
+        let resolved = resolve_theme_font_asset(first.file.clone()).expect("resolve");
+        assert_eq!(PathBuf::from(&resolved), stored);
+        assert_eq!(
+            resolve_theme_font_asset(format!("  {}  ", first.file)).unwrap(),
+            resolved,
+            "the name is trimmed"
+        );
+
+        let _ = fs::remove_file(&stored);
+        let _ = fs::remove_file(&source);
+        let _ = fs::remove_dir(get_theme_fonts_dir());
+    }
+
+    // ---- resolve_theme_font_asset ---------------------------------------------
+
+    #[test]
+    fn resolving_a_font_asset_rejects_paths_and_unknown_names() {
+        let err = resolve_theme_font_asset("no-such-font-asset.ttf".to_string()).unwrap_err();
+        assert_eq!(err, "Font asset not found: no-such-font-asset.ttf");
+
+        // Only the file name survives, so traversal attempts become a plain
+        // "not found" for the last component.
+        let err = resolve_theme_font_asset("../../etc/passwd".to_string()).unwrap_err();
+        assert_eq!(err, "Font asset not found: passwd");
+
+        let err = resolve_theme_font_asset("..\\..\\secrets.ttf".to_string()).unwrap_err();
+        assert_eq!(err, "Font asset not found: secrets.ttf");
+
+        // A name that has no final component at all is refused outright.
+        assert_eq!(
+            resolve_theme_font_asset("".to_string()).unwrap_err(),
+            "Invalid font file name"
+        );
+        assert_eq!(
+            resolve_theme_font_asset("   ".to_string()).unwrap_err(),
+            "Invalid font file name"
+        );
+        assert_eq!(
+            resolve_theme_font_asset("..".to_string()).unwrap_err(),
+            "Invalid font file name"
+        );
+    }
+}
