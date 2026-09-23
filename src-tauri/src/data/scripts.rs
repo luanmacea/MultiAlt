@@ -163,6 +163,10 @@ pub struct ManagedScript {
 pub struct ScriptStore {
     scripts: Mutex<Vec<ManagedScript>>,
     file_path: PathBuf,
+    /// Set when the file exists but could not be read (corrupt JSON, over the
+    /// size limit). While set, saving is refused so an empty in-memory list
+    /// never overwrites the user's scripts — same guard as `AccountStore`.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 impl ScriptStore {
@@ -170,8 +174,13 @@ impl ScriptStore {
         let store = Self {
             scripts: Mutex::new(Vec::new()),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(false),
         };
-        let _ = store.load_from_disk();
+        if store.file_path.exists() && store.load_from_disk().is_err() {
+            store
+                .load_failed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         store
     }
 
@@ -204,6 +213,12 @@ impl ScriptStore {
     }
 
     fn save_to_disk(&self) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Scripts file could not be read; refusing to overwrite it. Fix or restore RAMScripts.json and restart.".to_string(),
+            );
+        }
+
         let scripts = self.scripts.lock().map_err(|e| e.to_string())?;
         let bytes = serde_json::to_vec_pretty(&*scripts)
             .map_err(|e| format!("Failed to serialize scripts: {}", e))?;
