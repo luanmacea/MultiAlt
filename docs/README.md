@@ -53,6 +53,8 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ## Registro de mudanças (2026-09-22)
 
+0. **O app segue o canal do Roblox em vez de fixá-lo.** Forçar `production` fazia o launch pelo *site* divergir e chamar o instalador do Roblox (que fecha os clientes abertos). Agora `launch_url`/`default_player_dir` leem o canal do registro, garantem que a build daquele canal esteja instalada (baixando-a em silêncio) e abrem ela direto — app e site concordam, e cada build é baixada uma única vez — [launch.md](features/launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix).
+
 1. **Atualização do Roblox não abre mais o instalador dele:** quando a build production não está instalada, o launcher baixa e instala essa build sozinho (`ensure_production_player_exe` + `install_build_to_dir`, progresso no evento `roblox-build-install`) — [launch.md](features/launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix).
 2. **Join links:** campo único na aba Follow aceita convite de experiência, link VIP/privado, `vip:<código>`, link de jogo, servidor específico, deep link e link curto — [join-links.md](features/join-links.md).
 3. **Testes:** 160 testes Rust (incluindo API do Roblox com HTTP mockado via wiremock e a costura `api/endpoints.rs`) e 164 no frontend (vitest); portão único `bun run check` — [development.md](development.md#testes).

@@ -80,8 +80,11 @@ const PRODUCTION_VERSION_URL: &str =
     "https://clientsettingscdn.roblox.com/v2/client-version/WindowsPlayer";
 const PRODUCTION_VERSION_CACHE_TTL: Duration = Duration::from_secs(60);
 
-static PRODUCTION_VERSION_CACHE: LazyLock<Mutex<Option<(std::time::Instant, String)>>> =
-    LazyLock::new(|| Mutex::new(None));
+/// Cache of "channel -> (fetched at, build)".
+static CHANNEL_VERSION_CACHE: LazyLock<Mutex<HashMap<String, (std::time::Instant, String)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Build resolved by the last lookup, for sync callers (`get_roblox_path`).
+static LAST_RESOLVED_BUILD: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 /// Why launches used to "update Roblox" and close the other clients:
 ///
@@ -95,17 +98,18 @@ static PRODUCTION_VERSION_CACHE: LazyLock<Mutex<Option<(std::time::Instant, Stri
 /// foreground installer — and that installer closes every running
 /// `RobloxPlayerBeta.exe`, killing the other accounts.
 ///
-/// To make every launch deterministic we pin the channel to production and
-/// start the production build's `RobloxPlayerBeta.exe` directly with the
-/// protocol URL (exactly what the official installer does), bypassing the
-/// flip-flopping protocol handler. When Roblox ships a new production build we
-/// download and install it ourselves (silently, without touching running
-/// clients) instead of letting Roblox's installer do it; the protocol handler
-/// is only a last resort if that install fails.
+/// We deliberately do NOT force a channel of our own: writing `production`
+/// over the value Roblox set makes every *website* launch mismatch and run the
+/// foreground installer again. Instead we follow whatever channel the registry
+/// currently holds, make sure that channel's build is installed — downloading
+/// it ourselves, silently, when it is not — and start its
+/// `RobloxPlayerBeta.exe` directly with the protocol URL (exactly what the
+/// official installer does). App and website then agree on the same build, so
+/// neither triggers Roblox's installer and each build downloads at most once.
+///
+/// The protocol handler is only a last resort, if that install fails.
 pub async fn launch_url(url: &str) -> Result<(), String> {
-    pin_player_channel_to_production();
-
-    if let Some(player_exe) = ensure_production_player_exe().await {
+    if let Some(player_exe) = ensure_current_player_exe().await {
         std::process::Command::new(&player_exe)
             .arg(url)
             .creation_flags(CREATE_NO_WINDOW)
@@ -122,21 +126,71 @@ pub async fn launch_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Install folder to use when no RAM-managed version was chosen: pins the
-/// channel and returns the production build folder, falling back to
-/// `fallback` (the registry-resolved install) when it is not installed.
-/// See `launch_url` for why the registry handler must not be trusted.
+/// Install folder to use when no RAM-managed version was chosen: the build of
+/// the channel Roblox is currently on, installed if missing, falling back to
+/// `fallback` (the registry-resolved install). See `launch_url`.
 pub async fn default_player_dir(fallback: &str) -> String {
-    pin_player_channel_to_production();
-    ensure_production_player_exe()
+    ensure_current_player_exe()
         .await
         .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
         .unwrap_or_else(|| fallback.to_string())
 }
 
-/// Writes `production` as the Roblox player channel so the client checks its
-/// build against the production CDN entry instead of an account test channel.
-fn pin_player_channel_to_production() {
+/// Deployment channel the Roblox client will use, read from the registry value
+/// that Roblox itself maintains. Empty/missing means production.
+fn current_player_channel() -> String {
+    use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
+
+    let value = read_string_value(
+        HKEY_CURRENT_USER as isize,
+        ROBLOX_PLAYER_CHANNEL_KEY,
+        "www.roblox.com",
+    )
+    .unwrap_or_default();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        PRODUCTION_CHANNEL.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn channel_is_production(channel: &str) -> bool {
+    channel.trim().is_empty()
+        || channel.eq_ignore_ascii_case(PRODUCTION_CHANNEL)
+        || channel.eq_ignore_ascii_case("live")
+}
+
+/// clientsettings endpoint for a channel. The literal "production" has no
+/// `/channel/` route (it answers 401), so it uses the default URL.
+fn channel_version_url(channel: &str) -> String {
+    if channel_is_production(channel) {
+        PRODUCTION_VERSION_URL.to_string()
+    } else {
+        format!(
+            "{}/channel/{}",
+            PRODUCTION_VERSION_URL,
+            channel.to_ascii_lowercase()
+        )
+    }
+}
+
+/// Channel name understood by the setup CDN (`install_build_to_dir`), which
+/// calls production "LIVE" and serves test-channel builds from
+/// `/channel/common/` (its own fallback handles that).
+fn channel_for_cdn(channel: &str) -> String {
+    if channel_is_production(channel) {
+        PRODUCTION_CHANNEL_CDN.to_string()
+    } else {
+        channel.to_string()
+    }
+}
+
+/// Writes the channel Roblox should use. Only called to repair an inconsistent
+/// state (a channel whose version endpoint no longer answers): without it we
+/// would start a production build while the client still reads the dead
+/// channel, which is exactly the mismatch that makes Roblox's installer run.
+fn set_player_channel(channel: &str) {
     use windows_sys::Win32::System::Registry::{
         RegCreateKeyExW, RegSetValueExW, HKEY_CURRENT_USER, KEY_SET_VALUE,
         REG_OPTION_NON_VOLATILE,
@@ -144,7 +198,7 @@ fn pin_player_channel_to_production() {
 
     let key_name = encode_wide(ROBLOX_PLAYER_CHANNEL_KEY);
     let value_name = encode_wide("www.roblox.com");
-    let value = encode_wide(PRODUCTION_CHANNEL);
+    let value = encode_wide(channel);
     unsafe {
         let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
         let created = RegCreateKeyExW(
@@ -173,12 +227,22 @@ fn pin_player_channel_to_production() {
     }
 }
 
+fn remember_resolved_build(version: &str) {
+    if let Ok(mut guard) = LAST_RESOLVED_BUILD.lock() {
+        *guard = Some(version.to_string());
+    }
+}
+
 /// `%LOCALAPPDATA%\Roblox\Versions\<production build>\RobloxPlayerBeta.exe`,
-/// if that build is installed.
-async fn production_player_exe() -> Option<PathBuf> {
-    let version = production_version_guid().await?;
+/// for the current channel's build, if that build is installed.
+async fn current_player_exe() -> Option<PathBuf> {
+    let version = current_build_version().await?;
+    installed_player_exe(&version)
+}
+
+fn installed_player_exe(version: &str) -> Option<PathBuf> {
     let exe = roblox_versions_dir()?
-        .join(&version)
+        .join(version)
         .join("RobloxPlayerBeta.exe");
     exe.exists().then_some(exe)
 }
@@ -224,17 +288,19 @@ fn emit_build_install(version: &str, stage: &str, current: u64, total: u64, mess
     }
 }
 
-/// Production build's exe, installing the build first when Roblox has shipped
-/// a new one. Returns `None` only if we could neither find nor install it.
-async fn ensure_production_player_exe() -> Option<PathBuf> {
-    if let Some(exe) = production_player_exe().await {
+/// Exe of the current channel's build, installing that build first when it is
+/// missing (a fresh Roblox release, or a channel Roblox just switched to).
+/// Returns `None` only if we could neither find nor install it.
+async fn ensure_current_player_exe() -> Option<PathBuf> {
+    if let Some(exe) = current_player_exe().await {
         return Some(exe);
     }
 
-    let version = production_version_guid().await?;
+    let channel = current_player_channel();
+    let version = current_build_version().await?;
     let _serialize = BUILD_INSTALL_LOCK.lock().await;
     // Another launch may have installed it while we waited for the lock.
-    if let Some(exe) = production_player_exe().await {
+    if let Some(exe) = installed_player_exe(&version) {
         return Some(exe);
     }
 
@@ -243,15 +309,14 @@ async fn ensure_production_player_exe() -> Option<PathBuf> {
     let progress = |stage: &str, _package: Option<String>, current: u64, total: u64| {
         emit_build_install(&version, stage, current, total, None);
     };
-    match install_build_to_dir(PRODUCTION_CHANNEL_CDN, &version, &target, 4, &progress).await {
+    match install_build_to_dir(&channel_for_cdn(&channel), &version, &target, 4, &progress).await {
         Ok(()) => {
             emit_build_install(&version, "ready", 0, 0, None);
-            let exe = target.join("RobloxPlayerBeta.exe");
-            exe.exists().then_some(exe)
+            installed_player_exe(&version)
         }
         Err(e) => {
             emit_build_install(&version, "error", 0, 0, Some(e.clone()));
-            eprintln!("Could not install Roblox production build {version}: {e}");
+            eprintln!("Could not install Roblox build {version} (channel {channel}): {e}");
             None
         }
     }
@@ -262,27 +327,33 @@ fn roblox_versions_dir() -> Option<PathBuf> {
     Some(PathBuf::from(local).join("Roblox").join("Versions"))
 }
 
-/// Resolves (and caches) the production build so sync helpers such as
+/// Resolves (and caches) the current channel's build so sync helpers such as
 /// `get_roblox_path` — used to write ClientSettings — target the same folder
 /// that `launch_url` will start.
 pub async fn refresh_production_version() {
-    let _ = production_version_guid().await;
+    let _ = current_build_version().await;
 }
 
-/// Production build folder from the cache filled by `production_version_guid`.
+/// Build folder resolved by the last lookup, if it is installed.
 fn cached_production_player_dir() -> Option<String> {
-    let (_, version) = PRODUCTION_VERSION_CACHE.lock().ok()?.clone()?;
-    let local = std::env::var_os("LOCALAPPDATA")?;
-    let dir = PathBuf::from(local).join("Roblox").join("Versions").join(version);
+    let version = LAST_RESOLVED_BUILD.lock().ok()?.clone()?;
+    let dir = roblox_versions_dir()?.join(version);
     dir.join("RobloxPlayerBeta.exe")
         .exists()
         .then(|| dir.to_string_lossy().into_owned())
 }
 
-async fn production_version_guid() -> Option<String> {
-    let cached = PRODUCTION_VERSION_CACHE.lock().ok().and_then(|c| c.clone());
+/// Build the Roblox client requires right now: what the clientsettings
+/// endpoint reports for the channel currently in the registry.
+async fn current_build_version() -> Option<String> {
+    let channel = current_player_channel();
+    let cached = CHANNEL_VERSION_CACHE
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&channel).cloned());
     if let Some((at, version)) = &cached {
         if at.elapsed() < PRODUCTION_VERSION_CACHE_TTL {
+            remember_resolved_build(version);
             return Some(version.clone());
         }
     }
@@ -298,23 +369,52 @@ async fn production_version_guid() -> Option<String> {
             .timeout(Duration::from_secs(6))
             .build()
             .ok()?;
-        let resp = client.get(PRODUCTION_VERSION_URL).send().await.ok()?;
-        let body: ClientVersion = resp.error_for_status().ok()?.json().await.ok()?;
-        let version = body.client_version_upload.trim().to_string();
-        version.starts_with("version-").then_some(version)
+        let mut urls = vec![(channel_version_url(&channel), false)];
+        if !channel_is_production(&channel) {
+            // A channel Roblox retired answers 401/404. Falling back to the
+            // production build is only safe if the client reads the same
+            // channel, so that fallback also repairs the registry value.
+            urls.push((PRODUCTION_VERSION_URL.to_string(), true));
+        }
+        for (url, repair_channel) in urls {
+            let Ok(resp) = client.get(&url).send().await else {
+                continue;
+            };
+            let Ok(resp) = resp.error_for_status() else {
+                continue;
+            };
+            let Ok(body) = resp.json::<ClientVersion>().await else {
+                continue;
+            };
+            let version = body.client_version_upload.trim().to_string();
+            if version.starts_with("version-") {
+                if repair_channel {
+                    set_player_channel(PRODUCTION_CHANNEL);
+                }
+                return Some(version);
+            }
+        }
+        None
     }
     .await;
 
     match fetched {
         Some(version) => {
-            if let Ok(mut cache) = PRODUCTION_VERSION_CACHE.lock() {
-                *cache = Some((std::time::Instant::now(), version.clone()));
+            if let Ok(mut cache) = CHANNEL_VERSION_CACHE.lock() {
+                cache.insert(channel, (std::time::Instant::now(), version.clone()));
             }
+            remember_resolved_build(&version);
             Some(version)
         }
         // Network hiccup: a stale answer is still far better than the protocol
-        // handler, which may point at an account test-channel build.
-        None => cached.map(|(_, version)| version),
+        // handler, whose build may not match the channel.
+        None => {
+            let stale = cached.map(|(_, version)| version);
+            if let Some(version) = &stale {
+                remember_resolved_build(version);
+            }
+            stale
+        }
     }
 }
 
@@ -592,5 +692,70 @@ mod launch_url_tests {
 
         let vip = place_launcher_url(&build("", "a b&c", false, true, "", "abc", false));
         assert!(vip.contains("&launchData=a%20b%26c"), "{vip}");
+    }
+}
+
+#[cfg(test)]
+mod channel_follow_tests {
+    use super::*;
+
+    // The app follows the channel Roblox set instead of pinning its own; these
+    // guard the mapping from that channel to the version endpoint and the CDN.
+
+    #[test]
+    fn production_is_recognised_by_every_spelling() {
+        assert!(channel_is_production(""));
+        assert!(channel_is_production("   "));
+        assert!(channel_is_production("production"));
+        assert!(channel_is_production("PRODUCTION"));
+        assert!(channel_is_production("live"));
+        assert!(channel_is_production("LIVE"));
+        assert!(!channel_is_production("ztestlinkerset"));
+        assert!(!channel_is_production("zswocc-500-c"));
+    }
+
+    #[test]
+    fn production_uses_the_default_version_endpoint() {
+        // clientsettings answers 401 for /channel/production, so it must not
+        // be used for the production channel.
+        assert_eq!(channel_version_url("production"), PRODUCTION_VERSION_URL);
+        assert_eq!(channel_version_url(""), PRODUCTION_VERSION_URL);
+        assert_eq!(channel_version_url("LIVE"), PRODUCTION_VERSION_URL);
+    }
+
+    #[test]
+    fn a_test_channel_uses_its_own_version_endpoint_in_lowercase() {
+        assert_eq!(
+            channel_version_url("ZTestLinkerSet"),
+            format!("{}/channel/ztestlinkerset", PRODUCTION_VERSION_URL)
+        );
+    }
+
+    #[test]
+    fn the_cdn_calls_production_live_and_keeps_other_channel_names() {
+        assert_eq!(channel_for_cdn("production"), "LIVE");
+        assert_eq!(channel_for_cdn(""), "LIVE");
+        assert_eq!(channel_for_cdn("ztestlinkerset"), "ztestlinkerset");
+    }
+
+    #[test]
+    fn the_current_channel_is_never_empty() {
+        // Missing/blank registry value means production.
+        let channel = current_player_channel();
+        assert!(!channel.trim().is_empty());
+    }
+
+    #[test]
+    fn a_resolved_build_is_remembered_for_sync_callers() {
+        remember_resolved_build("version-deadbeefdeadbeef");
+        let remembered = LAST_RESOLVED_BUILD.lock().unwrap().clone();
+        assert_eq!(remembered.as_deref(), Some("version-deadbeefdeadbeef"));
+        // Not installed, so the sync helper must not hand out a bogus folder.
+        assert!(cached_production_player_dir().is_none());
+    }
+
+    #[test]
+    fn an_installed_build_is_found_and_a_missing_one_is_not() {
+        assert!(installed_player_exe("version-does-not-exist-0000").is_none());
     }
 }
