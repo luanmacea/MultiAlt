@@ -8,7 +8,7 @@ Roblox Account Manager 4 é um gerenciador desktop de múltiplas contas Roblox �
 
 **Decisões de arquitetura relevantes:**
 - Divisão clara IPC: frontend (React) só fala com o backend via comandos Tauri (`src-tauri/src/commands/*`), nunca acessa arquivos ou rede diretamente.
-- Estado de contas/settings no backend usa stores em `Arc<Mutex<_>>`, persistidos em arquivo (contas encriptadas com sodiumoxide, settings em INI, scripts/versões em JSON).
+- Estado de contas/settings no backend usa stores com `Mutex<_>` gerenciados pelo Tauri (`tauri::State`), persistidos em arquivo (contas encriptadas com sodiumoxide quando há senha — sem senha o `AccountData.json` é JSON puro, settings em INI, scripts/versões em JSON).
 - Existe um servidor HTTP local opcional (feature `webserver`, baseado em axum) e um servidor WebSocket (feature `nexus`) para integração com scripts Lua externos (Nexus.lua) — ambos atrás de feature flags no Cargo, não sempre compilados.
 - Lógica específica de OS isolada em `platform/windows/` e `platform/macos/` para manter o resto do backend portável.
 - "Isolamento pré-launch" (cache wipe, limpeza de registro, MAC rotation) existe deliberadamente para permitir múltiplas contas rodando sem colisão de sessão/cache do Roblox — é tratado como feature central, não hack pontual.
@@ -20,6 +20,17 @@ Roblox Account Manager 4 é um gerenciador desktop de múltiplas contas Roblox �
 - Servidores VIP/privados usam Job ID com prefixo `vip:` ou decodificação de URL para acesso.
 
 **Limitações conhecidas:** suporte macOS incompleto; funcionalidades de isolamento/registro são Windows-only.
+
+**Regras críticas (não quebrar):**
+- Launch no Windows **nunca** usa o handler `roblox-player:` cru: `launch_url` / `default_player_dir` (`platform/windows/launch.rs`) fixam o canal em `production` no registro e abrem direto o `RobloxPlayerBeta.exe` da build de produção. Sem isso, o canal de teste por conta do Roblox faz o instalador rodar em primeiro plano e fechar todos os clientes abertos. Ver `docs/features/launch.md`.
+- Nada no fluxo de launch pode fechar clientes de outras contas (isolamento pula em vez de matar; botting só fecha as próprias contas bot). Quando o Roblox publica uma versão nova, o app baixa e instala a build production ele mesmo (`ensure_production_player_exe`) em vez de deixar o instalador do Roblox rodar.
+- Não usar `run_with_session_retry` / `refresh_account_session` em leituras não críticas: o refresh chama `signoutfromallsessionsandreauthenticate` e derruba as sessões abertas da conta.
+
+**Testes:** `bun run check` (typecheck + vitest + `cargo test --all-features`) antes de commit/PR. Testes Rust ficam em `#[cfg(test)] mod <nome>_tests` **dentro** de cada arquivo (submódulos são `include!()`, não módulos), com nome único. URLs da API do Roblox sempre via `endpoints::host(...)` — literal `https://*.roblox.com` em `api/` quebra os testes mockados. Ao corrigir bug, escreva o teste que falha primeiro. Ver `docs/development.md#testes`.
+
+**Git (padrão do projeto):** ao terminar uma tarefa, **commitar imediatamente** — um commit por tarefa, mensagem em português descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes. Não fazer push sem o usuário pedir.
+
+**Documentação:** `docs/README.md` (índice), `docs/architecture.md` e um `.md` por funcionalidade em `docs/features/`. Mantenha-os atualizados ao mudar regras de negócio.
 
 ## 2. Tecnologias, comandos e mapa de estrutura
 
@@ -93,12 +104,12 @@ src-tauri/src/                - Backend Rust
     server.rs, server/        - Servidor HTTP local opcional (axum, feature `webserver`): handlers, middleware de auth, state
   commands/                   - Comandos Tauri (IPC frontend→backend)
     launch.rs, launch_shared.rs - Lançamento do Roblox com credenciais/place/job ID
-    botting.rs                - Modo botting: timers de auto-rejoin, exemptions
+    botting.rs                - Modo botting: timers de auto-rejoin, papéis player/bot
     isolation.rs              - Isolamento pré-launch: cache wipe, limpeza de registro, proteção de processo
     versions.rs               - Instalação/seleção de versão Roblox
     watcher.rs                - Monitoramento de processo: timeout, memória, detecção de beta
     diagnostics.rs            - Diagnóstico de mutex, detecção de app legado
-    generators.rs             - Geração de código (Nexus.lua, links rbx-player)
+    generators.rs             - Gerador de contas (BloxGen); o Nexus.lua é um asset embutido exportado por `commands/services.rs` (`export_nexus_lua`)
     updater.rs                - Checagem de atualização do app
   platform/
     windows/                  - Implementação Windows-only: launch (proxy/VPN), tracking de processo, isolation, registry, windowing
