@@ -20,6 +20,33 @@ fn write_client_app_settings(
     .map_err(|e| format!("Failed to write ClientAppSettings.json: {}", e))
 }
 
+/// Merge the launcher-controlled values into an already loaded
+/// `ClientAppSettings.json` document. Keys the app does not own are left
+/// untouched so a user's hand-written flags survive a launch.
+fn merge_client_app_settings(
+    settings: &mut serde_json::Value,
+    max_fps: Option<u32>,
+    fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
+) {
+    // A hand-written file can hold valid JSON that is not an object (`[1,2]`,
+    // `"x"`); indexing into that panics, so normalise first.
+    if (max_fps.is_some() || fast_flags.is_some()) && !settings.is_object() {
+        *settings = serde_json::json!({});
+    }
+
+    if let Some(fps) = max_fps {
+        settings["DFIntTaskSchedulerTargetFps"] = serde_json::json!(fps);
+    }
+
+    if let Some(flags) = fast_flags {
+        if let Some(target) = settings.as_object_mut() {
+            for (key, value) in flags {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
 fn apply_client_app_settings_overrides(
     max_fps: Option<u32>,
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
@@ -27,20 +54,7 @@ fn apply_client_app_settings_overrides(
     let settings_file = get_client_settings_file()?;
     let mut settings = load_client_app_settings(&settings_file);
 
-    if let Some(fps) = max_fps {
-        settings["DFIntTaskSchedulerTargetFps"] = serde_json::json!(fps);
-    }
-
-    if let Some(flags) = fast_flags {
-        if !settings.is_object() {
-            settings = serde_json::json!({});
-        }
-        if let Some(target) = settings.as_object_mut() {
-            for (key, value) in flags {
-                target.insert(key.clone(), value.clone());
-            }
-        }
-    }
+    merge_client_app_settings(&mut settings, max_fps, fast_flags);
 
     write_client_app_settings(&settings_file, &settings)
 }

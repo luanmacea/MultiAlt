@@ -8,6 +8,25 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
+/// Command line handed to the browser. Split out of [`spawn_chrome`] so the
+/// flag set can be asserted without actually starting a browser.
+fn chrome_args(profile: &Path, start_url: &str, debug: bool, stealth: bool) -> Vec<String> {
+    let mut args = vec![
+        format!("--user-data-dir={}", profile.to_string_lossy()),
+        "--no-first-run".to_string(),
+        "--no-default-browser-check".to_string(),
+        "--disable-features=Translate".to_string(),
+    ];
+    if stealth {
+        args.push("--lang=en-US".to_string());
+    }
+    if debug {
+        args.push("--remote-debugging-port=0".to_string());
+    }
+    args.push(start_url.to_string());
+    args
+}
+
 pub async fn spawn_chrome(
     binary: &Path,
     profile: &Path,
@@ -22,17 +41,7 @@ pub async fn spawn_chrome(
     }
 
     let mut cmd = Command::new(binary);
-    cmd.arg(format!("--user-data-dir={}", profile.to_string_lossy()));
-    cmd.arg("--no-first-run");
-    cmd.arg("--no-default-browser-check");
-    cmd.arg("--disable-features=Translate");
-    if stealth {
-        cmd.arg("--lang=en-US");
-    }
-    if debug {
-        cmd.arg("--remote-debugging-port=0");
-    }
-    cmd.arg(start_url);
+    cmd.args(chrome_args(profile, start_url, debug, stealth));
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
 
     let child = cmd.spawn().map_err(|e| format!("Could not start browser: {}", e))?;
@@ -43,7 +52,7 @@ pub async fn spawn_chrome(
 
     for _ in 0..160 {
         if let Ok(contents) = std::fs::read_to_string(&active_port_file) {
-            if let Some(port) = contents.lines().next().and_then(|l| l.trim().parse::<u16>().ok()) {
+            if let Some(port) = parse_active_port(&contents) {
                 return Ok((child, Some(port)));
             }
         }
@@ -51,6 +60,99 @@ pub async fn spawn_chrome(
     }
 
     Ok((child, None))
+}
+
+/// First line of `DevToolsActivePort`, which holds the port the browser
+/// actually bound to when it was started with `--remote-debugging-port=0`.
+fn parse_active_port(contents: &str) -> Option<u16> {
+    contents
+        .lines()
+        .next()
+        .and_then(|l| l.trim().parse::<u16>().ok())
+}
+
+/// WebSocket debugger URL of the first `page` target in a `/json` listing.
+fn page_ws_url_from_targets(targets: &Value) -> Option<String> {
+    targets.as_array().and_then(|arr| {
+        arr.iter()
+            .find(|t| t.get("type").and_then(Value::as_str) == Some("page"))
+            .and_then(|t| t.get("webSocketDebuggerUrl").and_then(Value::as_str))
+            .map(|s| s.to_string())
+    })
+}
+
+/// Outgoing CDP frame for `method`/`params` under the given request id.
+fn cdp_request_payload(id: i64, method: &str, params: Value) -> Value {
+    json!({ "id": id, "method": method, "params": params })
+}
+
+/// Classify an incoming CDP frame against the request id we are waiting on.
+/// `None` means "not our frame, keep reading".
+fn cdp_response_for_id(value: &Value, id: i64) -> Option<Result<Value, String>> {
+    if value.get("id").and_then(Value::as_i64) != Some(id) {
+        return None;
+    }
+    if let Some(error) = value.get("error") {
+        let message = error
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("Browser command failed");
+        return Some(Err(message.to_string()));
+    }
+    Some(Ok(value.get("result").cloned().unwrap_or(Value::Null)))
+}
+
+/// Value of the first non-empty `.ROBLOSECURITY` cookie in a
+/// `Network.getAllCookies` result.
+fn roblosecurity_from_cookies(result: &Value) -> Option<String> {
+    result
+        .get("cookies")
+        .and_then(Value::as_array)
+        .and_then(|cookies| {
+            cookies
+                .iter()
+                .find(|c| {
+                    c.get("name").and_then(Value::as_str) == Some(".ROBLOSECURITY")
+                        && c.get("value")
+                            .and_then(Value::as_str)
+                            .map(|v| !v.is_empty())
+                            .unwrap_or(false)
+                })
+                .and_then(|c| c.get("value").and_then(Value::as_str))
+                .map(|s| s.to_string())
+        })
+}
+
+/// JS expression testing whether `selector` currently matches an element.
+/// The selector is embedded as a JSON string literal, never concatenated raw.
+fn selector_exists_expression(selector: &str) -> String {
+    format!(
+        "document.querySelector({}) ? true : false",
+        serde_json::to_string(selector).unwrap_or_default()
+    )
+}
+
+/// JS snippet that types the credentials into the Roblox login form.
+/// `username`/`password` are serialized as JSON string literals so quotes,
+/// backslashes and control characters cannot terminate the literal and run as
+/// code.
+fn login_fill_script(username: &str, password: &str) -> String {
+    let user = serde_json::to_string(username).unwrap_or_default();
+    let pass = serde_json::to_string(password).unwrap_or_default();
+    format!(
+        "(function(){{\
+var u=document.querySelector('#login-username');\
+var p=document.querySelector('#login-password');\
+var b=document.querySelector('#login-button');\
+if(!u||!p)return 'no-fields';\
+var s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;\
+s.call(u,{user});u.dispatchEvent(new Event('input',{{bubbles:true}}));\
+s.call(p,{pass});p.dispatchEvent(new Event('input',{{bubbles:true}}));\
+if(b){{b.disabled=false;b.click();return 'clicked';}}\
+return 'filled';}})()",
+        user = user,
+        pass = pass
+    )
 }
 
 pub struct CdpClient {
@@ -64,12 +166,7 @@ impl CdpClient {
         for _ in 0..40 {
             if let Ok(resp) = reqwest::get(format!("http://127.0.0.1:{}/json", port)).await {
                 if let Ok(targets) = resp.json::<Value>().await {
-                    ws_url = targets.as_array().and_then(|arr| {
-                        arr.iter()
-                            .find(|t| t.get("type").and_then(Value::as_str) == Some("page"))
-                            .and_then(|t| t.get("webSocketDebuggerUrl").and_then(Value::as_str))
-                            .map(|s| s.to_string())
-                    });
+                    ws_url = page_ws_url_from_targets(&targets);
                     if ws_url.is_some() {
                         break;
                     }
@@ -91,7 +188,7 @@ impl CdpClient {
     pub async fn send(&mut self, method: &str, params: Value) -> Result<Value, String> {
         self.next_id += 1;
         let id = self.next_id;
-        let payload = json!({ "id": id, "method": method, "params": params });
+        let payload = cdp_request_payload(id, method, params);
         self.socket
             .send(Message::Text(payload.to_string().into()))
             .await
@@ -116,15 +213,8 @@ impl CdpClient {
                     Err(_) => continue,
                 };
 
-                if value.get("id").and_then(Value::as_i64) == Some(id) {
-                    if let Some(error) = value.get("error") {
-                        let message = error
-                            .get("message")
-                            .and_then(Value::as_str)
-                            .unwrap_or("Browser command failed");
-                        return Err(message.to_string());
-                    }
-                    return Ok(value.get("result").cloned().unwrap_or(Value::Null));
+                if let Some(outcome) = cdp_response_for_id(&value, id) {
+                    return outcome;
                 }
             }
         };
@@ -193,29 +283,11 @@ impl CdpClient {
 
     pub async fn get_roblosecurity(&mut self) -> Result<Option<String>, String> {
         let result = self.send("Network.getAllCookies", json!({})).await?;
-        Ok(result
-            .get("cookies")
-            .and_then(Value::as_array)
-            .and_then(|cookies| {
-                cookies
-                    .iter()
-                    .find(|c| {
-                        c.get("name").and_then(Value::as_str) == Some(".ROBLOSECURITY")
-                            && c.get("value")
-                                .and_then(Value::as_str)
-                                .map(|v| !v.is_empty())
-                                .unwrap_or(false)
-                    })
-                    .and_then(|c| c.get("value").and_then(Value::as_str))
-                    .map(|s| s.to_string())
-            }))
+        Ok(roblosecurity_from_cookies(&result))
     }
 
     pub async fn wait_for_selector(&mut self, selector: &str, attempts: u32) -> bool {
-        let expression = format!(
-            "document.querySelector({}) ? true : false",
-            serde_json::to_string(selector).unwrap_or_default()
-        );
+        let expression = selector_exists_expression(selector);
         for _ in 0..attempts {
             if let Ok(Value::Bool(true)) = self.eval(&expression).await {
                 return true;
@@ -226,22 +298,7 @@ impl CdpClient {
     }
 
     pub async fn fill_login(&mut self, username: &str, password: &str) -> Result<(), String> {
-        let user = serde_json::to_string(username).unwrap_or_default();
-        let pass = serde_json::to_string(password).unwrap_or_default();
-        let script = format!(
-            "(function(){{\
-var u=document.querySelector('#login-username');\
-var p=document.querySelector('#login-password');\
-var b=document.querySelector('#login-button');\
-if(!u||!p)return 'no-fields';\
-var s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;\
-s.call(u,{user});u.dispatchEvent(new Event('input',{{bubbles:true}}));\
-s.call(p,{pass});p.dispatchEvent(new Event('input',{{bubbles:true}}));\
-if(b){{b.disabled=false;b.click();return 'clicked';}}\
-return 'filled';}})()",
-            user = user,
-            pass = pass
-        );
+        let script = login_fill_script(username, password);
         self.eval(&script).await?;
         Ok(())
     }

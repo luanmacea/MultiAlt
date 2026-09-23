@@ -1,3 +1,108 @@
+/// Captcha-safety floor. Roblox issues a "verify you're not a robot" challenge
+/// when authentication-ticket redemptions from the same IP arrive too close
+/// together, so never let the target spacing drop below this, regardless of
+/// AccountJoinDelay / EnableMultiRbx.
+const MIN_JOIN_GAP_SECS: u64 = 8;
+
+/// Minimum residual gap between two consecutive account launches, even when the
+/// account's own work (auth + PID wait) already ate the whole join delay.
+const MIN_RESIDUAL_GAP_MS: u64 = 5000;
+
+/// Human-readable launch target for the console log line.
+fn launch_target_description(join_vip: bool, link_code: &str, job_id: &str) -> String {
+    if join_vip || !link_code.trim().is_empty() {
+        "servidor VIP/privado".to_string()
+    } else if !job_id.trim().is_empty() {
+        format!("servidor {}", job_id.trim())
+    } else {
+        "servidor público".to_string()
+    }
+}
+
+/// Full isolation wipes the default Roblox install, so a launch on the default
+/// install has to re-download the client first. A pinned catalog version lives
+/// outside that folder and is therefore untouched.
+fn isolation_wipes_install(isolation_mode: &str, version_id: Option<&str>) -> bool {
+    isolation_mode.eq_ignore_ascii_case("Full") && version_id.is_none()
+}
+
+/// Old-join launches the exe directly from a known folder. That folder is about
+/// to be wiped when isolation runs in Full mode on the default install, so the
+/// protocol handler is used instead; a pinned version always uses old join.
+fn resolve_use_old_join(
+    isolation_wipes_install: bool,
+    configured_old_join: bool,
+    version_id: Option<&str>,
+) -> bool {
+    if isolation_wipes_install {
+        false
+    } else {
+        configured_old_join || version_id.is_some()
+    }
+}
+
+/// True when a client is already running on a *different* Roblox version than
+/// the one about to launch. Concurrent multi-version clients are not supported.
+fn has_version_conflict(
+    running_keys: &HashSet<Option<String>>,
+    target_version_id: &Option<String>,
+) -> bool {
+    running_keys.iter().any(|k| k != target_version_id)
+}
+
+/// How long to wait for the new client's PID. A Full-isolation launch has to
+/// download Roblox again first, which is far slower than a normal start.
+fn pid_wait_seconds(isolation_wipes_install: bool) -> u64 {
+    if isolation_wipes_install {
+        180
+    } else {
+        12
+    }
+}
+
+/// Seconds to space multi-account launches by, never below the captcha floor.
+fn effective_join_delay_seconds(configured: Option<i64>) -> u64 {
+    let delay = configured.unwrap_or(8) as u64;
+    delay.max(MIN_JOIN_GAP_SECS)
+}
+
+/// A small randomized tail on the inter-account gap, so launches are neither
+/// back-to-back nor perfectly periodic.
+fn launch_jitter_ms(subsec_millis: u32) -> u64 {
+    300 + (subsec_millis as u64) % 1200
+}
+
+/// Gap before the next account: the configured delay measured from the *start*
+/// of this account's launch, minus the time already spent, but never below
+/// `MIN_RESIDUAL_GAP_MS`, plus jitter.
+fn next_account_wait(
+    delay_seconds: u64,
+    elapsed: std::time::Duration,
+    jitter_ms: u64,
+) -> std::time::Duration {
+    std::time::Duration::from_secs(delay_seconds)
+        .saturating_sub(elapsed)
+        .max(std::time::Duration::from_millis(MIN_RESIDUAL_GAP_MS))
+        + std::time::Duration::from_millis(jitter_ms)
+}
+
+/// Picks a pseudo-random public server from the list (no RNG dependency).
+fn shuffle_server_index(nanos: u128, server_count: usize) -> usize {
+    (nanos as usize) % server_count
+}
+
+/// The saved window rectangle of an account, or `None` when any part is
+/// missing or unparsable (a half-applied rectangle would misplace the window).
+fn window_rect_from_fields(
+    fields: &std::collections::HashMap<String, String>,
+) -> Option<(i32, i32, i32, i32)> {
+    let x = fields.get("Window_Position_X")?.parse::<i32>().ok()?;
+    let y = fields.get("Window_Position_Y")?.parse::<i32>().ok()?;
+    let w = fields.get("Window_Width")?.parse::<i32>().ok()?;
+    let h = fields.get("Window_Height")?.parse::<i32>().ok()?;
+    Some((x, y, w, h))
+}
+
 #[cfg(target_os = "windows")]
 #[tauri::command]
 async fn launch_roblox(
@@ -16,13 +121,7 @@ async fn launch_roblox(
 ) -> Result<(), String> {
     use platform::windows;
 
-    let target_desc = if join_vip || !link_code.trim().is_empty() {
-        "servidor VIP/privado".to_string()
-    } else if !job_id.trim().is_empty() {
-        format!("servidor {}", job_id.trim())
-    } else {
-        "servidor público".to_string()
-    };
+    let target_desc = launch_target_description(join_vip, &link_code, &job_id);
     emit_launch_log(
         &app,
         user_id,
@@ -46,15 +145,15 @@ async fn launch_roblox(
 
     let (resolved_base_path, resolved_version_id) =
         windows::resolve_roblox_install_path(account_version_override.as_deref(), &settings, &versions)?;
-    let isolation_will_wipe_install = settings
-        .get_string("Isolation", "Mode")
-        .eq_ignore_ascii_case("Full")
-        && resolved_version_id.is_none();
-    let use_old_join = if isolation_will_wipe_install {
-        false
-    } else {
-        configured_old_join || resolved_version_id.is_some()
-    };
+    let isolation_will_wipe_install = isolation_wipes_install(
+        &settings.get_string("Isolation", "Mode"),
+        resolved_version_id.as_deref(),
+    );
+    let use_old_join = resolve_use_old_join(
+        isolation_will_wipe_install,
+        configured_old_join,
+        resolved_version_id.as_deref(),
+    );
 
     if let Some(report) = run_pre_launch_isolation(&app, &settings).await? {
         let _ = app.emit("isolation-report", &report);
@@ -69,7 +168,7 @@ async fn launch_roblox(
     let tracker_check = windows::tracker();
     let _ = tracker_check.cleanup_dead_processes();
     let running_keys = tracker_check.running_version_keys();
-    if running_keys.iter().any(|k| k != &resolved_version_id) {
+    if has_version_conflict(&running_keys, &resolved_version_id) {
         return Err(
             "A Roblox client is already running on a different version. Close it before launching this account on a different Roblox version. Concurrent multi-version support is planned for a future update.".into(),
         );
@@ -108,11 +207,13 @@ async fn launch_roblox(
         .await
         {
             if !response.data.is_empty() {
-                let idx = (std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos() as usize)
-                    % response.data.len();
+                let idx = shuffle_server_index(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos(),
+                    response.data.len(),
+                );
                 actual_job = response.data[idx].id.clone();
             }
         }
@@ -151,7 +252,7 @@ async fn launch_roblox(
 
     let pids_before = windows::get_roblox_pids();
 
-    let pid_wait_secs = if isolation_will_wipe_install { 180 } else { 12 };
+    let pid_wait_secs = pid_wait_seconds(isolation_will_wipe_install);
     let pending_id = tracker.add_pending_launch(
         user_id,
         resolved_version_id.clone(),
@@ -222,24 +323,7 @@ async fn launch_roblox(
 
         let accounts = state.get_all()?;
         if let Some(account) = accounts.iter().find(|a| a.user_id == user_id) {
-            let x = account
-                .fields
-                .get("Window_Position_X")
-                .and_then(|v| v.parse::<i32>().ok());
-            let y = account
-                .fields
-                .get("Window_Position_Y")
-                .and_then(|v| v.parse::<i32>().ok());
-            let w = account
-                .fields
-                .get("Window_Width")
-                .and_then(|v| v.parse::<i32>().ok());
-            let h = account
-                .fields
-                .get("Window_Height")
-                .and_then(|v| v.parse::<i32>().ok());
-
-            if let (Some(x), Some(y), Some(w), Some(h)) = (x, y, w, h) {
+            if let Some((x, y, w, h)) = window_rect_from_fields(&account.fields) {
                 let target_pid = pid;
                 tokio::spawn(async move {
                     for _ in 0..45 {
@@ -415,14 +499,8 @@ async fn launch_multiple(
 ) -> Result<(), String> {
     use platform::windows;
 
-    let delay = settings.get_int("General", "AccountJoinDelay").unwrap_or(8) as u64;
+    let delay = effective_join_delay_seconds(settings.get_int("General", "AccountJoinDelay"));
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
-    // Captcha-safety floor. Roblox issues a "verify you're not a robot"
-    // challenge when authentication-ticket redemptions from the same IP arrive
-    // too close together, so never let the target spacing drop below this,
-    // regardless of AccountJoinDelay / EnableMultiRbx.
-    const MIN_JOIN_GAP_SECS: u64 = 8;
-    let delay = delay.max(MIN_JOIN_GAP_SECS);
     let async_join = settings.get_bool("General", "AsyncJoin");
     let is_teleport = settings.get_bool("Developer", "IsTeleport");
     let configured_old_join = settings.get_bool("Developer", "UseOldJoin");
@@ -461,11 +539,7 @@ async fn launch_multiple(
             .and_then(|a| a.fields.get("RobloxVersion").cloned())
             .filter(|v| !v.trim().is_empty());
 
-        let acct_target_desc = if !acct_job.trim().is_empty() {
-            format!("servidor {}", acct_job.trim())
-        } else {
-            "servidor público".to_string()
-        };
+        let acct_target_desc = launch_target_description(false, "", &acct_job);
         emit_launch_log(
             &app,
             uid,
@@ -499,19 +573,19 @@ async fn launch_multiple(
                 continue;
             }
         };
-        let acct_isolation_wipes_install = settings
-            .get_string("Isolation", "Mode")
-            .eq_ignore_ascii_case("Full")
-            && acct_version_id.is_none();
-        let acct_use_old_join = if acct_isolation_wipes_install {
-            false
-        } else {
-            configured_old_join || acct_version_id.is_some()
-        };
+        let acct_isolation_wipes_install = isolation_wipes_install(
+            &settings.get_string("Isolation", "Mode"),
+            acct_version_id.as_deref(),
+        );
+        let acct_use_old_join = resolve_use_old_join(
+            acct_isolation_wipes_install,
+            configured_old_join,
+            acct_version_id.as_deref(),
+        );
 
         let _ = tracker.cleanup_dead_processes();
         let running_keys = tracker.running_version_keys();
-        if running_keys.iter().any(|k| k != &acct_version_id) {
+        if has_version_conflict(&running_keys, &acct_version_id) {
             let _ = app.emit(
                 "launch-progress",
                 serde_json::json!({
@@ -595,7 +669,7 @@ async fn launch_multiple(
 
         let pids_before = windows::get_roblox_pids();
 
-        let acct_pid_wait_secs = if acct_isolation_wipes_install { 180 } else { 12 };
+        let acct_pid_wait_secs = pid_wait_seconds(acct_isolation_wipes_install);
         let acct_pending_id = tracker.add_pending_launch(
             uid,
             acct_version_id.clone(),
@@ -699,18 +773,13 @@ async fn launch_multiple(
                 // what trips Roblox's captcha. A non-zero, slightly randomized
                 // gap avoids both back-to-back requests and a perfectly
                 // periodic cadence.
-                const MIN_RESIDUAL_GAP_MS: u64 = 5000;
-                let jitter_ms = 300
-                    + std::time::SystemTime::now()
+                let jitter_ms = launch_jitter_ms(
+                    std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| (d.subsec_millis() as u64) % 1200)
-                        .unwrap_or(0);
-                let target = std::time::Duration::from_secs(delay);
-                let elapsed = iter_start.elapsed();
-                let wait = target
-                    .saturating_sub(elapsed)
-                    .max(std::time::Duration::from_millis(MIN_RESIDUAL_GAP_MS))
-                    + std::time::Duration::from_millis(jitter_ms);
+                        .map(|d| d.subsec_millis())
+                        .unwrap_or(0),
+                );
+                let wait = next_account_wait(delay, iter_start.elapsed(), jitter_ms);
                 emit_launch_log(
                     &app,
                     uid,

@@ -171,6 +171,10 @@ async fn handle_get_csrf_token(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -191,4 +195,3 @@ async fn handle_get_csrf_token(
         Err(e) => reply(400, &e, v2),
     }
 }
-

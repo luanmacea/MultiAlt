@@ -158,4 +158,3 @@ async fn v1_unblock_everyone(ext: Extension<AppState>, q: Query<AccountQuery>) -
 async fn v2_unblock_everyone(ext: Extension<AppState>, q: Query<AccountQuery>) -> Response {
     handle_unblock_everyone(ext, q, true).await
 }
-

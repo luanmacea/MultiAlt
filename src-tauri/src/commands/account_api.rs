@@ -210,14 +210,14 @@ async fn test_auth(cookie: String) -> Result<String, String> {
     }
 
     match api::auth::get_csrf_token(&cookie).await {
-        Ok(token) => results.push(format!("CSRF: OK - {}...", &token[..token.len().min(16)])),
+        Ok(token) => results.push(format!("CSRF: OK - {}...", token.chars().take(16).collect::<String>())),
         Err(e) => results.push(format!("CSRF: FAILED - {}", e)),
     }
 
     match api::auth::get_auth_ticket(&cookie).await {
         Ok(ticket) => results.push(format!(
             "Ticket: OK - {}...",
-            &ticket[..ticket.len().min(20)]
+            ticket.chars().take(20).collect::<String>()
         )),
         Err(e) => results.push(format!("Ticket: FAILED - {}", e)),
     }
@@ -235,6 +235,94 @@ async fn send_friend_request(
         api::roblox::send_friend_request(&cookie, target_user_id).await
     })
     .await
+}
+
+/// One linking run at a time: the UI can remount and start a second batch,
+/// doubling requests and the rate-limit/captcha risk.
+static FRIEND_LINK_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Releases the friend-linking lock when the run ends, however it ends.
+struct FriendLinkRunGuard;
+
+impl Drop for FriendLinkRunGuard {
+    fn drop(&mut self) {
+        FRIEND_LINK_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Takes the friend-linking lock, or reports that a run is already in progress.
+fn try_begin_friend_link() -> Result<FriendLinkRunGuard, String> {
+    if FRIEND_LINK_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("Já existe uma vinculação de amizades em andamento.".to_string());
+    }
+    Ok(FriendLinkRunGuard)
+}
+
+/// Drops non-positive and repeated ids while preserving the selection order.
+fn dedupe_friend_ids(user_ids: Vec<i64>) -> Vec<i64> {
+    let mut ids: Vec<i64> = Vec::new();
+    for id in user_ids {
+        if id > 0 && !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
+/// The unordered pairs to link.
+///
+/// - `mesh`: every combination of the selected accounts.
+/// - `star`: every account paired only with `main_user_id`.
+fn build_friend_pairs(
+    ids: &[i64],
+    mode: &str,
+    main_user_id: Option<i64>,
+) -> Result<Vec<(i64, i64)>, String> {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "mesh" => {
+            let mut out = Vec::new();
+            for i in 0..ids.len() {
+                for j in (i + 1)..ids.len() {
+                    out.push((ids[i], ids[j]));
+                }
+            }
+            Ok(out)
+        }
+        "star" => {
+            let main = main_user_id
+                .filter(|m| ids.contains(m))
+                .ok_or_else(|| "Star mode requires a main account within the selection.".to_string())?;
+            Ok(ids
+                .iter()
+                .copied()
+                .filter(|&id| id != main)
+                .map(|id| (main, id))
+                .collect())
+        }
+        other => Err(format!("Unknown mode: {}", other)),
+    }
+}
+
+/// Delay between friend requests: the explicit argument wins, else the
+/// `Friends/RequestDelayMs` setting, else 2.5s. Clamped to a sane range so a
+/// misconfigured value cannot hammer (or stall) the endpoint.
+fn resolve_friend_delay_ms(explicit: Option<u64>, setting: Option<i64>) -> u64 {
+    explicit
+        .or_else(|| setting.and_then(|v| u64::try_from(v).ok()))
+        .unwrap_or(2500)
+        .clamp(500, 60_000)
+}
+
+/// True when either side already lists the other as a friend. Checking both
+/// directions keeps a one-sided fetch failure from re-sending requests.
+fn friend_sets_contain(
+    sets: &std::collections::HashMap<i64, std::collections::HashSet<i64>>,
+    a: i64,
+    b: i64,
+) -> bool {
+    sets.get(&a).map(|s| s.contains(&b)).unwrap_or(false)
+        || sets.get(&b).map(|s| s.contains(&a)).unwrap_or(false)
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -340,62 +428,17 @@ async fn make_selected_friends(
     main_user_id: Option<i64>,
     delay_ms: Option<u64>,
 ) -> Result<FriendLinkResult, String> {
-    // One linking run at a time: the UI can remount and start a second batch,
-    // doubling requests and the rate-limit/captcha risk.
-    static FRIEND_LINK_RUNNING: std::sync::atomic::AtomicBool =
-        std::sync::atomic::AtomicBool::new(false);
-    struct RunningGuard;
-    impl Drop for RunningGuard {
-        fn drop(&mut self) {
-            FRIEND_LINK_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-    if FRIEND_LINK_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return Err("Já existe uma vinculação de amizades em andamento.".to_string());
-    }
-    let _running = RunningGuard;
+    let _running = try_begin_friend_link()?;
 
-    // Dedupe while preserving order.
-    let mut ids: Vec<i64> = Vec::new();
-    for id in user_ids {
-        if id > 0 && !ids.contains(&id) {
-            ids.push(id);
-        }
-    }
+    let ids = dedupe_friend_ids(user_ids);
     if ids.len() < 2 {
         return Err("Select at least 2 accounts.".to_string());
     }
 
-    // Build the list of unordered pairs based on the mode.
-    let pairs: Vec<(i64, i64)> = match mode.trim().to_ascii_lowercase().as_str() {
-        "mesh" => {
-            let mut out = Vec::new();
-            for i in 0..ids.len() {
-                for j in (i + 1)..ids.len() {
-                    out.push((ids[i], ids[j]));
-                }
-            }
-            out
-        }
-        "star" => {
-            let main = main_user_id
-                .filter(|m| ids.contains(m))
-                .ok_or_else(|| "Star mode requires a main account within the selection.".to_string())?;
-            ids.iter().copied().filter(|&id| id != main).map(|id| (main, id)).collect()
-        }
-        other => return Err(format!("Unknown mode: {}", other)),
-    };
+    let pairs = build_friend_pairs(&ids, &mode, main_user_id)?;
 
-    // Delay per request: explicit arg wins, else the "Friends/RequestDelayMs"
-    // setting, else 2.5s. Clamped to a sane range.
-    let resolved_delay = delay_ms
-        .or_else(|| {
-            settings
-                .get_int("Friends", "RequestDelayMs")
-                .and_then(|v| u64::try_from(v).ok())
-        })
-        .unwrap_or(2500)
-        .clamp(500, 60_000);
+    let resolved_delay =
+        resolve_friend_delay_ms(delay_ms, settings.get_int("Friends", "RequestDelayMs"));
     let delay = std::time::Duration::from_millis(resolved_delay);
     let store = state.inner();
 
@@ -408,17 +451,10 @@ async fn make_selected_friends(
         emit_friend_progress(&app, "checking", i + 1, ids.len());
     }
 
-    let is_friends = |sets: &std::collections::HashMap<i64, std::collections::HashSet<i64>>,
-                      a: i64,
-                      b: i64| {
-        sets.get(&a).map(|s| s.contains(&b)).unwrap_or(false)
-            || sets.get(&b).map(|s| s.contains(&a)).unwrap_or(false)
-    };
-
     let needed: Vec<(i64, i64)> = pairs
         .iter()
         .copied()
-        .filter(|&(a, b)| !is_friends(&friend_sets, a, b))
+        .filter(|&(a, b)| !friend_sets_contain(&friend_sets, a, b))
         .collect();
     let already_friends = pairs.len() - needed.len();
 
@@ -465,7 +501,7 @@ async fn make_selected_friends(
         }
         verified_ok = needed
             .iter()
-            .filter(|&&(a, b)| is_friends(&after, a, b))
+            .filter(|&&(a, b)| friend_sets_contain(&after, a, b))
             .count();
     }
     let failed = needed.len() - verified_ok;

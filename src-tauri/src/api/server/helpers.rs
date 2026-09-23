@@ -29,4 +29,3 @@ fn find_account(accounts: &[crate::data::accounts::Account], identifier: &str) -
         .find(|a| a.username == identifier || a.user_id.to_string() == identifier)
         .cloned()
 }
-

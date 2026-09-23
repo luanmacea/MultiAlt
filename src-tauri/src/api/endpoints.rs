@@ -22,7 +22,15 @@ static BASE: OnceLock<String> = OnceLock::new();
 ///
 /// `sub` is the subdomain label: `"auth"`, `"apis"`, `"users"`, `"www"`, ...
 pub fn host(sub: &str) -> String {
-    match BASE.get() {
+    format_host(BASE.get().map(|s| s.as_str()), sub)
+}
+
+/// Pure half of [`host`]: the URL for `sub` given the current override.
+///
+/// Split out so the production formatting (`base == None`) stays testable —
+/// `BASE` is process-wide and every test binary sets it to the mock server.
+fn format_host(base: Option<&str>, sub: &str) -> String {
+    match base {
         Some(base) => format!("{}/{}", base, sub),
         None => format!("https://{}.roblox.com", sub),
     }

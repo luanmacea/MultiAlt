@@ -1,3 +1,57 @@
+/// Catalog key for a Roblox build: `"<channel>:<hash>"`. Used as the account
+/// override value, the default-version setting and the tracker's version key.
+fn version_id_of(channel: &str, version_hash: &str) -> String {
+    format!("{}:{}", channel, version_hash)
+}
+
+/// Empty channel means the production channel.
+fn normalize_install_channel(channel: &str) -> String {
+    if channel.trim().is_empty() {
+        "LIVE".to_string()
+    } else {
+        channel.trim().to_string()
+    }
+}
+
+/// The version hash is what identifies the build; without it there is nothing
+/// to download.
+fn normalize_install_version_hash(version_hash: &str) -> Result<String, String> {
+    let trimmed = version_hash.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("Version hash is required".into());
+    }
+    Ok(trimmed)
+}
+
+/// Blank install ids get a time-based one so two installs never share a folder.
+fn normalize_install_id(install_id: &str, now: i64) -> String {
+    if install_id.trim().is_empty() {
+        format!("install-{}", now)
+    } else {
+        install_id.trim().to_string()
+    }
+}
+
+/// True when a client is currently running on the version being uninstalled.
+/// `None` entries are clients on the default install, which is never a catalog
+/// version and therefore never blocks an uninstall.
+fn version_is_running(running_keys: &HashSet<Option<String>>, version_id: &str) -> bool {
+    running_keys.contains(&Some(version_id.to_string()))
+}
+
+/// The value stored in `Versions/DefaultVersion` (empty clears the default).
+fn normalize_default_version(version_id: Option<String>) -> String {
+    version_id.unwrap_or_default().trim().to_string()
+}
+
+/// `Some(id)` sets the account's `RobloxVersion` field, `None` removes it.
+fn normalize_account_version_override(version_id: Option<String>) -> Option<String> {
+    match version_id.map(|v| v.trim().to_string()) {
+        Some(v) if !v.is_empty() => Some(v),
+        _ => None,
+    }
+}
+
 #[tauri::command]
 fn versions_list_installed(
     catalog: tauri::State<'_, data::versions::VersionsCatalogStore>,
@@ -32,20 +86,9 @@ async fn versions_install(
 ) -> Result<data::versions::VersionEntry, String> {
     #[cfg(target_os = "windows")]
     {
-        let channel_normalized = if channel.trim().is_empty() {
-            "LIVE".to_string()
-        } else {
-            channel.trim().to_string()
-        };
-        let version_hash_normalized = version_hash.trim().to_string();
-        if version_hash_normalized.is_empty() {
-            return Err("Version hash is required".into());
-        }
-        let install_id = if install_id.trim().is_empty() {
-            format!("install-{}", now_ms())
-        } else {
-            install_id.trim().to_string()
-        };
+        let channel_normalized = normalize_install_channel(&channel);
+        let version_hash_normalized = normalize_install_version_hash(&version_hash)?;
+        let install_id = normalize_install_id(&install_id, now_ms());
         platform::windows::install_version(
             app,
             install_id,
@@ -70,15 +113,12 @@ fn versions_uninstall(
     channel: String,
     version_hash: String,
 ) -> Result<(), String> {
-    let version_id = format!("{}:{}", channel, version_hash);
+    let version_id = version_id_of(&channel, &version_hash);
     #[cfg(target_os = "windows")]
     {
         let tracker = platform::windows::tracker();
         let _ = tracker.cleanup_dead_processes();
-        if tracker
-            .running_version_keys()
-            .contains(&Some(version_id.clone()))
-        {
+        if version_is_running(&tracker.running_version_keys(), &version_id) {
             return Err(
                 "Cannot uninstall: this Roblox version is currently running. Close all accounts using it first.".into(),
             );
@@ -111,8 +151,8 @@ fn versions_set_default(
     settings: tauri::State<'_, SettingsStore>,
     version_id: Option<String>,
 ) -> Result<(), String> {
-    let value = version_id.unwrap_or_default();
-    settings.set("Versions", "DefaultVersion", value.trim())
+    let value = normalize_default_version(version_id);
+    settings.set("Versions", "DefaultVersion", &value)
 }
 
 #[tauri::command]
@@ -125,11 +165,11 @@ fn versions_set_account_override(
     let Some(mut account) = snapshot.into_iter().find(|a| a.user_id == user_id) else {
         return Err("Account not found".into());
     };
-    match version_id.map(|v| v.trim().to_string()) {
-        Some(v) if !v.is_empty() => {
+    match normalize_account_version_override(version_id) {
+        Some(v) => {
             account.fields.insert("RobloxVersion".to_string(), v);
         }
-        _ => {
+        None => {
             account.fields.remove("RobloxVersion");
         }
     }
@@ -154,7 +194,7 @@ fn versions_open_folder(
     version_hash: String,
 ) -> Result<(), String> {
     let entry = catalog
-        .find(&format!("{}:{}", channel, version_hash))
+        .find(&version_id_of(&channel, &version_hash))
         .ok_or("Version not found")?;
     #[cfg(target_os = "windows")]
     {

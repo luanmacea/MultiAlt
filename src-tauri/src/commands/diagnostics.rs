@@ -29,6 +29,24 @@ fn kill_legacy_ram_processes() -> Result<u32, String> {
     }
 }
 
+/// Who owns the Roblox singleton mutex, in priority order: this app first (it
+/// holds the handle itself), then a running client, then the legacy manager.
+fn mutex_holder_label(
+    this_process_holds: bool,
+    roblox_pids: &[u32],
+    legacy_ram_pids: &[u32],
+) -> &'static str {
+    if this_process_holds {
+        "thisProcess"
+    } else if !roblox_pids.is_empty() {
+        "roblox"
+    } else if !legacy_ram_pids.is_empty() {
+        "legacyRam"
+    } else {
+        "free"
+    }
+}
+
 #[tauri::command]
 fn diagnose_mutex_holder() -> Result<MutexDiagnosis, String> {
     #[cfg(target_os = "windows")]
@@ -37,15 +55,7 @@ fn diagnose_mutex_holder() -> Result<MutexDiagnosis, String> {
         let legacy_ram_pids = platform::windows::find_legacy_ram_pids();
         let this_process_holds = platform::windows::this_process_holds_multi_roblox();
 
-        let holder = if this_process_holds {
-            "thisProcess"
-        } else if !roblox_pids.is_empty() {
-            "roblox"
-        } else if !legacy_ram_pids.is_empty() {
-            "legacyRam"
-        } else {
-            "free"
-        };
+        let holder = mutex_holder_label(this_process_holds, &roblox_pids, &legacy_ram_pids);
 
         Ok(MutexDiagnosis {
             holder,

@@ -320,7 +320,9 @@ fn extract_access_code(html: &str) -> Option<String> {
 
     for (marker, terminator) in [
         ("\"accessCode\":\"", '"'),
-        ("\\\"accessCode\\\":\\\"", '"'),
+        // Escaped JSON: the value is terminated by \" , so stop at the
+        // backslash or it ends up inside the code.
+        ("\\\"accessCode\\\":\\\"", '\\'),
         ("accessCode=\"", '"'),
         ("accessCode='", '\''),
     ] {

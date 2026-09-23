@@ -148,6 +148,17 @@ fn isolation_get_status(
     }
 }
 
+/// Canonical `Isolation/Mode` value written to the INI. Anything unrecognised
+/// (including an empty string) disables isolation rather than guessing.
+fn normalize_isolation_mode(mode: &str) -> &'static str {
+    match mode.trim().to_ascii_lowercase().as_str() {
+        "light" => "Light",
+        "medium" => "Medium",
+        "full" => "Full",
+        _ => "Off",
+    }
+}
+
 #[tauri::command]
 fn isolation_save(
     settings: tauri::State<'_, SettingsStore>,
@@ -159,12 +170,7 @@ fn isolation_save(
     preserve_fast_flags: bool,
     preserve_basic_settings: bool,
 ) -> Result<(), String> {
-    let mode_normalized = match mode.trim().to_ascii_lowercase().as_str() {
-        "light" => "Light",
-        "medium" => "Medium",
-        "full" => "Full",
-        _ => "Off",
-    };
+    let mode_normalized = normalize_isolation_mode(&mode);
     settings.set("Isolation", "Mode", mode_normalized)?;
     settings.set(
         "Isolation",

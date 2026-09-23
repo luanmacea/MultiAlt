@@ -1,3 +1,4 @@
+use crate::api::endpoints;
 use reqwest::header::COOKIE;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -153,7 +154,8 @@ impl ImageCache {
     ) -> Option<i64> {
         let client = reqwest::Client::new();
         let url = format!(
-            "https://games.roblox.com/v1/games/multiget-place-details?placeIds={}",
+            "{}/v1/games/multiget-place-details?placeIds={}",
+            endpoints::host("games"),
             place_id
         );
 
@@ -239,7 +241,7 @@ impl ImageCache {
                         .collect();
 
                     let response = client
-                        .post("https://thumbnails.roblox.com/v1/batch")
+                        .post(format!("{}/v1/batch", endpoints::host("thumbnails")))
                         .json(&batch_body)
                         .send()
                         .await;
@@ -381,7 +383,8 @@ async fn get_asset_image_fallback(
     let client = reqwest::Client::new();
 
     let mut request = client.get(format!(
-        "https://thumbnails.roblox.com/v1/assets?assetIds={}&returnPolicy=PlaceHolder&size=150x150&format=Png&isCircular=false",
+        "{}/v1/assets?assetIds={}&returnPolicy=PlaceHolder&size=150x150&format=Png&isCircular=false",
+        endpoints::host("thumbnails"),
         asset_id
     ));
 

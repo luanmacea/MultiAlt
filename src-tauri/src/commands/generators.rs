@@ -33,6 +33,32 @@ impl GeneratorProvider {
     }
 }
 
+/// Falls back to the provider's own endpoint when the user left the field
+/// blank, and drops a trailing slash so `{base}/api/...` never doubles up.
+fn normalize_generator_endpoint(provider: GeneratorProvider, endpoint: &str) -> String {
+    let trimmed = endpoint.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        provider.default_endpoint().to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Falls back to the provider's default account type when left blank.
+fn normalize_generator_account_type(provider: GeneratorProvider, account_type: &str) -> String {
+    let trimmed = account_type.trim();
+    if trimmed.is_empty() {
+        provider.default_account_type().to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Extra pause the user adds between generations, clamped to 0..=1h.
+fn generator_extra_delay_ms(extra_delay_seconds: i64) -> i64 {
+    extra_delay_seconds.clamp(0, 3600) * 1000
+}
+
 #[derive(Debug, Clone)]
 struct GeneratorConfig {
     provider: GeneratorProvider,
@@ -425,23 +451,9 @@ async fn start_generator(
         return Err("An API key is required".to_string());
     }
 
-    let endpoint = {
-        let trimmed = endpoint.trim().trim_end_matches('/');
-        if trimmed.is_empty() {
-            provider.default_endpoint().to_string()
-        } else {
-            trimmed.to_string()
-        }
-    };
-    let account_type = {
-        let trimmed = account_type.trim();
-        if trimmed.is_empty() {
-            provider.default_account_type().to_string()
-        } else {
-            trimmed.to_string()
-        }
-    };
-    let extra_delay_ms = extra_delay_seconds.clamp(0, 3600) * 1000;
+    let endpoint = normalize_generator_endpoint(provider, &endpoint);
+    let account_type = normalize_generator_account_type(provider, &account_type);
+    let extra_delay_ms = generator_extra_delay_ms(extra_delay_seconds);
     let target_group = target_group.trim().to_string();
     let max_accounts = max_accounts.max(0);
     let max_consecutive_failures = app

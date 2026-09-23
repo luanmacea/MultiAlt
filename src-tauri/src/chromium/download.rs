@@ -164,6 +164,13 @@ async fn resolve_download() -> Result<(String, String), String> {
         .await
         .map_err(|e| format!("Could not read browser version list: {}", e))?;
 
+    parse_stable_download(&json, platform_key())
+}
+
+/// Pick `(version, url)` for `platform` out of the chrome-for-testing
+/// "last known good versions" document. Split out from [`resolve_download`]
+/// so the parsing can be exercised without hitting the network.
+fn parse_stable_download(json: &Value, platform: &str) -> Result<(String, String), String> {
     let stable = json
         .get("channels")
         .and_then(|c| c.get("Stable"))
@@ -182,7 +189,7 @@ async fn resolve_download() -> Result<(String, String), String> {
         .and_then(|entries| {
             entries
                 .iter()
-                .find(|entry| entry.get("platform").and_then(Value::as_str) == Some(platform_key()))
+                .find(|entry| entry.get("platform").and_then(Value::as_str) == Some(platform))
         })
         .and_then(|entry| entry.get("url").and_then(Value::as_str))
         .ok_or("No browser build is available for this platform")?

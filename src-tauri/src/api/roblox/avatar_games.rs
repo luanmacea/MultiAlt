@@ -257,6 +257,10 @@ pub async fn join_game_instance(
     response.json().await.map_err(|e| format!("Failed to parse join response: {}", e))
 }
 
+/// Requests a join for a specific game instance.
+///
+/// Note: the response body is only trusted on a success status — Roblox
+/// answers 403 with an error payload that would otherwise parse as a join.
 pub async fn join_game(security_token: &str, place_id: i64) -> Result<serde_json::Value, String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = game_join_client();
@@ -270,6 +274,16 @@ pub async fn join_game(security_token: &str, place_id: i64) -> Result<serde_json
         .send()
         .await
         .map_err(|e| format!("Request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Failed to join game (status {}) {}",
+            status,
+            body.chars().take(200).collect::<String>()
+        ));
+    }
 
     response.json().await.map_err(|e| format!("Failed to parse join response: {}", e))
 }

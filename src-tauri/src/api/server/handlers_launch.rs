@@ -302,6 +302,10 @@ async fn handle_set_server(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -338,6 +342,10 @@ async fn handle_set_recommended_server(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -378,4 +386,3 @@ async fn handle_set_recommended_server(
 
     reply(400, "Failed to join any available server", v2)
 }
-

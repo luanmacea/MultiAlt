@@ -14,6 +14,8 @@ use super::manager::{ChromiumManager, LOGIN_KEY};
 const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
 const ROBLOX_HOME_URL: &str = "https://www.roblox.com/home";
 
+/// Strips the `.ROBLOSECURITY=` prefix, surrounding quotes and any cookie
+/// attributes from a raw cookie string.
 fn normalize_security_token(raw: &str) -> String {
     let trimmed = raw.trim();
     let no_name = trimmed.strip_prefix(".ROBLOSECURITY=").unwrap_or(trimmed);

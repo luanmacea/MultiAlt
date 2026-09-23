@@ -277,13 +277,19 @@ fn set_nexus_element_value(_name: String, _value: String) -> Result<(), String> 
     Err(NEXUS_DISABLED_ERR.into())
 }
 
+/// The Nexus.lua script shipped inside the binary and written out on demand.
+#[cfg(feature = "nexus")]
+fn nexus_lua_asset() -> &'static str {
+    include_str!("../../assets/Nexus.lua")
+}
+
 #[cfg(feature = "nexus")]
 #[tauri::command]
 fn export_nexus_lua() -> Result<String, String> {
     let out_path = std::env::current_dir()
         .map_err(|e| format!("Failed to read current directory: {}", e))?
         .join("Nexus.lua");
-    let content = include_str!("../../assets/Nexus.lua");
+    let content = nexus_lua_asset();
     std::fs::write(&out_path, content).map_err(|e| format!("Failed to write Nexus.lua: {}", e))?;
     Ok(out_path.to_string_lossy().into_owned())
 }
@@ -294,9 +300,12 @@ fn export_nexus_lua() -> Result<String, String> {
     Err(NEXUS_DISABLED_ERR.into())
 }
 
+/// Project page opened by the "repository" button.
+const REPO_URL: &str = "https://github.com/niccsprojects/Roblox-Account-Manager";
+
 #[tauri::command]
 fn open_repo_url() -> Result<(), String> {
-    let url = "https://github.com/niccsprojects/Roblox-Account-Manager";
+    let url = REPO_URL;
 
     #[cfg(target_os = "windows")]
     {

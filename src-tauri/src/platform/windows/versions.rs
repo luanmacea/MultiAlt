@@ -174,79 +174,40 @@ pub async fn fetch_remote_catalog() -> Result<RemoteCatalog, String> {
         }
     };
 
-    let mut current_out = Vec::new();
-    if let Some(v) = current.get("Windows").and_then(|v| v.as_str()) {
-        current_out.push(RemoteVersionEntry {
-            binary_type: "WindowsPlayer".into(),
-            version_hash: v.to_string(),
-            display_version: current
-                .get("WindowsResponse")
-                .and_then(|r| r.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            deploy_date: current
-                .get("WindowsDate")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            channel: "LIVE".into(),
-        });
-    }
-    if let Some(v) = current.get("Mac").and_then(|v| v.as_str()) {
-        current_out.push(RemoteVersionEntry {
-            binary_type: "MacPlayer".into(),
-            version_hash: v.to_string(),
-            display_version: current
-                .get("MacResponse")
-                .and_then(|r| r.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            deploy_date: current
-                .get("MacDate")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            channel: "LIVE".into(),
-        });
-    }
-
-    let mut past_out = Vec::new();
-    if let Some(v) = past.get("Windows").and_then(|v| v.as_str()) {
-        past_out.push(RemoteVersionEntry {
-            binary_type: "WindowsPlayer".into(),
-            version_hash: v.to_string(),
-            display_version: past
-                .get("WindowsResponse")
-                .and_then(|r| r.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            deploy_date: past
-                .get("WindowsDate")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            channel: "LIVE".into(),
-        });
-    }
-    if let Some(v) = past.get("Mac").and_then(|v| v.as_str()) {
-        past_out.push(RemoteVersionEntry {
-            binary_type: "MacPlayer".into(),
-            version_hash: v.to_string(),
-            display_version: past
-                .get("MacResponse")
-                .and_then(|r| r.get("version"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            deploy_date: past
-                .get("MacDate")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            channel: "LIVE".into(),
-        });
-    }
-
     Ok(RemoteCatalog {
-        current: current_out,
-        past: past_out,
+        current: parse_weao_entries(&current),
+        past: parse_weao_entries(&past),
         past_error,
     })
+}
+
+/// Turn one weao.xyz versions document into catalog entries. Split out of
+/// [`fetch_remote_catalog`] (which only fetches) so the shape handling can be
+/// tested without network access. Missing or non-string fields are skipped.
+fn parse_weao_entries(value: &serde_json::Value) -> Vec<RemoteVersionEntry> {
+    let mut out = Vec::new();
+    for (hash_key, response_key, date_key, binary_type) in [
+        ("Windows", "WindowsResponse", "WindowsDate", "WindowsPlayer"),
+        ("Mac", "MacResponse", "MacDate", "MacPlayer"),
+    ] {
+        if let Some(v) = value.get(hash_key).and_then(|v| v.as_str()) {
+            out.push(RemoteVersionEntry {
+                binary_type: binary_type.into(),
+                version_hash: v.to_string(),
+                display_version: value
+                    .get(response_key)
+                    .and_then(|r| r.get("version"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                deploy_date: value
+                    .get(date_key)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                channel: "LIVE".into(),
+            });
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone)]
@@ -307,7 +268,10 @@ fn verify_hash(bytes: &[u8], expected: &str) -> bool {
             let hex: String = computed.iter().map(|b| format!("{:02x}", b)).collect();
             hex.eq_ignore_ascii_case(expected)
         }
-        _ => true,
+        // An unrecognised hash length must not count as "verified": the only
+        // safe reading of a hash we cannot check is failure. Entries with no
+        // hash at all are `None` and never reach this function.
+        _ => false,
     }
 }
 

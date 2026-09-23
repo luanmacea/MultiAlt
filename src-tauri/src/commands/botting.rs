@@ -1,3 +1,136 @@
+/// Keeps the first occurrence of every id, in the order the user selected them.
+/// Botting launches follow this order, so it must stay stable.
+fn dedupe_preserving_order(ids: Vec<i64>) -> Vec<i64> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for id in ids {
+        if seen.insert(id) {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// Player accounts must be part of the botting selection; anything else is a
+/// UI bug that would silently never be launched.
+#[cfg(target_os = "windows")]
+fn botting_player_set(selected: &[i64], player_user_ids: Vec<i64>) -> Result<HashSet<i64>, String> {
+    let mut player_set = HashSet::new();
+    for uid in player_user_ids {
+        if !selected.contains(&uid) {
+            return Err("Player Account must be one of the selected accounts".into());
+        }
+        player_set.insert(uid);
+    }
+    Ok(player_set)
+}
+
+/// `(retry_max, retry_base_seconds, default_player_grace_minutes)` read from
+/// settings and clamped to the ranges the cycle loop expects.
+#[cfg(target_os = "windows")]
+fn botting_retry_config(settings: &SettingsStore) -> (u32, u64, i64) {
+    let retry_max = settings
+        .get_int("General", "BottingRetryMax")
+        .unwrap_or(6)
+        .clamp(1, 20) as u32;
+    let retry_base_seconds = settings
+        .get_int("General", "BottingRetryBaseSeconds")
+        .unwrap_or(8)
+        .clamp(5, 120) as u64;
+    let default_player_grace_minutes = settings
+        .get_int("General", "BottingPlayerGraceMinutes")
+        .unwrap_or(15)
+        .clamp(1, 90);
+    (retry_max, retry_base_seconds, default_player_grace_minutes)
+}
+
+/// Rejoin interval, in minutes. Too short and Roblox rate-limits the account.
+#[cfg(target_os = "windows")]
+fn clamp_botting_interval_minutes(interval_minutes: i64) -> u64 {
+    interval_minutes.clamp(10, 120) as u64
+}
+
+/// Spacing between two launches of the session, in seconds.
+#[cfg(target_os = "windows")]
+fn clamp_botting_launch_delay_seconds(launch_delay_seconds: i64) -> u64 {
+    launch_delay_seconds.clamp(5, 120) as u64
+}
+
+/// Grace period a demoted player account keeps its client before the loop
+/// takes it over. Zero or negative means "use the configured default".
+#[cfg(target_os = "windows")]
+fn resolve_player_grace_minutes(requested: i64, default_minutes: i64) -> u64 {
+    if requested <= 0 {
+        default_minutes as u64
+    } else {
+        requested.clamp(1, 90) as u64
+    }
+}
+
+/// Backoff after a 429: never shorter than 45s, and never shorter than two
+/// launch slots, so the retry does not walk straight back into the rate limit.
+#[cfg(target_os = "windows")]
+fn botting_429_delay_seconds(delay: i64, launch_delay_seconds: u64) -> i64 {
+    delay
+        .max(45)
+        .max((launch_delay_seconds as i64).saturating_mul(2))
+}
+
+/// Backoff after the previous client refused to close: at least two launch
+/// slots, and always within 6..=300 seconds.
+#[cfg(target_os = "windows")]
+fn botting_close_failure_delay_seconds(
+    retry_base_seconds: u64,
+    retry_count: u32,
+    retry_max: u32,
+    launch_delay_seconds: u64,
+) -> u64 {
+    backoff_delay_seconds(retry_base_seconds, retry_count, retry_max)
+        .max(launch_delay_seconds.saturating_mul(2))
+        .clamp(6, 300)
+}
+
+/// Phase and next-restart time for an account added to a running session: one
+/// already running waits a full interval, a queued one only a launch slot.
+#[cfg(target_os = "windows")]
+fn botting_add_schedule(
+    has_running_client: bool,
+    now: i64,
+    interval_ms: i64,
+    launch_delay_ms: i64,
+) -> (&'static str, Option<i64>) {
+    if has_running_client {
+        ("running", Some(now.saturating_add(interval_ms)))
+    } else {
+        ("queued", Some(now.saturating_add(launch_delay_ms)))
+    }
+}
+
+/// `(disconnect, close, restart_client, restart_loop)` for a context-menu
+/// action on one botting account.
+#[cfg(target_os = "windows")]
+fn botting_action_flags(action: &BottingAccountAction) -> (bool, bool, bool, bool) {
+    let should_disconnect = matches!(
+        action,
+        BottingAccountAction::Disconnect | BottingAccountAction::CloseDisconnect
+    );
+    let should_close = matches!(
+        action,
+        BottingAccountAction::Close
+            | BottingAccountAction::CloseDisconnect
+            | BottingAccountAction::RestartClient
+            | BottingAccountAction::RestartLoop
+    );
+    let should_restart_client = matches!(action, BottingAccountAction::RestartClient);
+    let should_restart_loop = matches!(action, BottingAccountAction::RestartLoop);
+    (
+        should_disconnect,
+        should_close,
+        should_restart_client,
+        should_restart_loop,
+    )
+}
+
 async fn launch_account_for_cycle(
     app: &tauri::AppHandle,
     user_id: i64,
@@ -268,9 +401,7 @@ async fn run_botting_session(
                         .map(|e| is_429_related_error(e))
                         .unwrap_or(false);
                     if is_429 {
-                        delay = delay
-                            .max(45)
-                            .max((cfg.launch_delay_seconds as i64).saturating_mul(2));
+                        delay = botting_429_delay_seconds(delay, cfg.launch_delay_seconds);
                         auth429_cooldowns.insert(
                             *uid,
                             std::time::Instant::now()
@@ -391,13 +522,12 @@ async fn run_botting_session(
                 if let Ok(mut map) = accounts.lock() {
                     if let Some(entry) = map.get_mut(&uid) {
                         entry.retry_count = entry.retry_count.saturating_add(1);
-                        let retry_delay_seconds = backoff_delay_seconds(
+                        let retry_delay_seconds = botting_close_failure_delay_seconds(
                             cfg.retry_base_seconds,
                             entry.retry_count,
                             cfg.retry_max,
-                        )
-                        .max(cfg.launch_delay_seconds.saturating_mul(2))
-                        .clamp(6, 300);
+                            cfg.launch_delay_seconds,
+                        );
                         entry.phase = "retry-backoff";
                         entry.last_error = Some(format!(
                             "Previous Roblox instance did not close before relaunch{}",
@@ -468,9 +598,7 @@ async fn run_botting_session(
                             .map(|e| is_429_related_error(e))
                             .unwrap_or(false);
                         if is_429 {
-                            delay = delay
-                                .max(45)
-                                .max((cfg.launch_delay_seconds as i64).saturating_mul(2));
+                            delay = botting_429_delay_seconds(delay, cfg.launch_delay_seconds);
                             auth429_cooldowns.insert(
                                 uid,
                                 std::time::Instant::now()
@@ -538,24 +666,12 @@ async fn start_botting_mode(
         return Err("Botting Mode currently requires Multi Roblox to be enabled".into());
     }
 
-    let mut dedup = Vec::new();
-    let mut seen = HashSet::new();
-    for id in user_ids {
-        if seen.insert(id) {
-            dedup.push(id);
-        }
-    }
+    let dedup = dedupe_preserving_order(user_ids);
     if dedup.len() < 2 {
         return Err("Select at least two unique accounts for Botting Mode".into());
     }
 
-    let mut player_set = HashSet::new();
-    for uid in player_user_ids {
-        if !dedup.contains(&uid) {
-            return Err("Player Account must be one of the selected accounts".into());
-        }
-        player_set.insert(uid);
-    }
+    let player_set = botting_player_set(&dedup, player_user_ids)?;
 
     if let Some(existing) = BOTTING_MANAGER.get_session() {
         existing.stop_flag.store(true, Ordering::Relaxed);
@@ -573,26 +689,13 @@ async fn start_botting_mode(
         }
     }
 
-    let retry_max = settings
-        .get_int("General", "BottingRetryMax")
-        .unwrap_or(6)
-        .clamp(1, 20) as u32;
-    let retry_base_seconds = settings
-        .get_int("General", "BottingRetryBaseSeconds")
-        .unwrap_or(8)
-        .clamp(5, 120) as u64;
-    let default_player_grace_minutes = settings
-        .get_int("General", "BottingPlayerGraceMinutes")
-        .unwrap_or(15)
-        .clamp(1, 90);
+    let (retry_max, retry_base_seconds, default_player_grace_minutes) =
+        botting_retry_config(&settings);
 
-    let interval_minutes = interval_minutes.clamp(10, 120) as u64;
-    let launch_delay_seconds = launch_delay_seconds.clamp(5, 120) as u64;
-    let player_grace_minutes = if player_grace_minutes <= 0 {
-        default_player_grace_minutes as u64
-    } else {
-        player_grace_minutes.clamp(1, 90) as u64
-    };
+    let interval_minutes = clamp_botting_interval_minutes(interval_minutes);
+    let launch_delay_seconds = clamp_botting_launch_delay_seconds(launch_delay_seconds);
+    let player_grace_minutes =
+        resolve_player_grace_minutes(player_grace_minutes, default_player_grace_minutes);
 
     let cfg = BottingConfig {
         user_ids: dedup.clone(),
@@ -735,13 +838,7 @@ fn add_botting_accounts(
     let all_accounts = state.get_all()?;
     let known_ids: HashSet<i64> = all_accounts.iter().map(|a| a.user_id).collect();
 
-    let mut requested = Vec::new();
-    let mut seen = HashSet::new();
-    for uid in user_ids {
-        if seen.insert(uid) {
-            requested.push(uid);
-        }
-    }
+    let requested = dedupe_preserving_order(user_ids);
 
     for uid in &requested {
         if !known_ids.contains(uid) {
@@ -773,16 +870,8 @@ fn add_botting_accounts(
         cfg.user_ids.push(uid);
 
         let has_running_client = tracker.get_pid(uid).is_some();
-        let next_restart_at_ms = if has_running_client {
-            Some(now.saturating_add(interval_ms))
-        } else {
-            Some(now.saturating_add(launch_delay_ms))
-        };
-        let phase = if has_running_client {
-            "running"
-        } else {
-            "queued"
-        };
+        let (phase, next_restart_at_ms) =
+            botting_add_schedule(has_running_client, now, interval_ms, launch_delay_ms);
 
         runtime_map.insert(
             uid,
@@ -924,19 +1013,8 @@ fn botting_account_action(
         return Err("Botting Mode is not running".into());
     };
 
-    let should_disconnect = matches!(
-        action,
-        BottingAccountAction::Disconnect | BottingAccountAction::CloseDisconnect
-    );
-    let should_close = matches!(
-        action,
-        BottingAccountAction::Close
-            | BottingAccountAction::CloseDisconnect
-            | BottingAccountAction::RestartClient
-            | BottingAccountAction::RestartLoop
-    );
-    let should_restart_client = matches!(action, BottingAccountAction::RestartClient);
-    let should_restart_loop = matches!(action, BottingAccountAction::RestartLoop);
+    let (should_disconnect, should_close, should_restart_client, should_restart_loop) =
+        botting_action_flags(&action);
 
     let tracker = platform::windows::tracker();
 
