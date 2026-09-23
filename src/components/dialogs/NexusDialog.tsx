@@ -131,17 +131,23 @@ export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => v
   useEffect(() => {
     if (!open) return;
     const unlisteners: (() => void)[] = [];
+    let disposed = false;
+    // Unsubscribe right away if the dialog closed before listen() resolved.
+    const track = (u: () => void) => (disposed ? u() : unlisteners.push(u));
 
     listen<{ message: string }>("nexus-log", (e) => {
       setLog((prev) => [...prev, e.payload.message]);
-    }).then((u) => unlisteners.push(u));
+    }).then(track);
 
-    listen("nexus-account-connected", () => refresh()).then((u) => unlisteners.push(u));
-    listen("nexus-account-disconnected", () => refresh()).then((u) => unlisteners.push(u));
-    listen("nexus-element-created", () => refresh()).then((u) => unlisteners.push(u));
-    listen("nexus-element-newline", () => refresh()).then((u) => unlisteners.push(u));
+    listen("nexus-account-connected", () => refresh()).then(track);
+    listen("nexus-account-disconnected", () => refresh()).then(track);
+    listen("nexus-element-created", () => refresh()).then(track);
+    listen("nexus-element-newline", () => refresh()).then(track);
 
-    return () => unlisteners.forEach((u) => u());
+    return () => {
+      disposed = true;
+      unlisteners.forEach((u) => u());
+    };
   }, [open, refresh]);
 
   useEffect(() => {

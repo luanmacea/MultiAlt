@@ -39,6 +39,7 @@ async fn handle_launch_account(
     {
         use crate::platform::windows;
 
+        windows::refresh_production_version().await;
         patch_client_settings_for_launch(state.settings);
         let is_teleport = state.settings.get_bool("Developer", "IsTeleport");
         let use_old_join = state.settings.get_bool("Developer", "UseOldJoin");
@@ -118,7 +119,7 @@ async fn handle_launch_account(
                 &access_code,
                 &link_code,
                 is_teleport,
-            )
+            ).await
         } else {
             let url = windows::build_launch_url(
                 &ticket,
@@ -132,7 +133,7 @@ async fn handle_launch_account(
                 &link_code,
                 is_teleport,
             );
-            windows::launch_url(&url)
+            windows::launch_url(&url).await
         };
 
         if let Err(e) = launch_result {
@@ -204,6 +205,7 @@ async fn handle_follow_user(
     {
         use crate::platform::windows;
 
+        windows::refresh_production_version().await;
         patch_client_settings_for_launch(state.settings);
         let is_teleport = state.settings.get_bool("Developer", "IsTeleport");
         let use_old_join = state.settings.get_bool("Developer", "UseOldJoin");
@@ -251,7 +253,7 @@ async fn handle_follow_user(
                 "",
                 "",
                 is_teleport,
-            )
+            ).await
         } else {
             let url = windows::build_launch_url(
                 &ticket,
@@ -265,7 +267,7 @@ async fn handle_follow_user(
                 "",
                 is_teleport,
             );
-            windows::launch_url(&url)
+            windows::launch_url(&url).await
         };
 
         if let Err(e) = launch_result {

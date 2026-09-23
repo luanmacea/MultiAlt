@@ -11,27 +11,32 @@ pub async fn parse_private_server_link_code(
         return Err("Failed to parse private server access code".to_string());
     }
     let encoded_link_code = urlencoding::encode(&normalized_link_code);
-    let referer = format!("https://www.roblox.com/games/{}", place_id);
+    let referer = format!("{}/games/{}", endpoints::host("www"), place_id);
 
     let candidates = [
         format!(
-            "https://www.roblox.com/games/{}?privateServerLinkCode={}",
+            "{}/games/{}?privateServerLinkCode={}",
+            endpoints::host("www"),
             place_id, encoded_link_code
         ),
         format!(
-            "https://www.roblox.com/share-links?code={}&type=Server",
+            "{}/share-links?code={}&type=Server",
+            endpoints::host("www"),
             encoded_link_code
         ),
         format!(
-            "https://www.roblox.com/share?code={}&type=Server",
+            "{}/share?code={}&type=Server",
+            endpoints::host("www"),
             encoded_link_code
         ),
         format!(
-            "https://web.roblox.com/games/{}?privateServerLinkCode={}",
+            "{}/games/{}?privateServerLinkCode={}",
+            endpoints::host("web"),
             place_id, encoded_link_code
         ),
         format!(
-            "https://web.roblox.com/share-links?code={}&type=Server",
+            "{}/share-links?code={}&type=Server",
+            endpoints::host("web"),
             encoded_link_code
         ),
     ];
@@ -60,10 +65,13 @@ pub async fn parse_private_server_link_code(
     Err("Failed to parse private server access code".to_string())
 }
 
-pub async fn resolve_share_server_link(
+/// POSTs to the share-link resolver and returns the raw payload. Shared by the
+/// private-server path below and by join_links.rs (ExperienceInvite).
+pub async fn resolve_share_link_payload(
     security_token: &str,
     link_id: &str,
-) -> Result<(Option<i64>, String), String> {
+    link_type: &str,
+) -> Result<serde_json::Value, String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = game_join_client();
 
@@ -75,15 +83,15 @@ pub async fn resolve_share_server_link(
     }
 
     let response = client
-        .post("https://apis.roblox.com/sharelinks/v1/resolve-link")
+        .post(format!("{}/sharelinks/v1/resolve-link", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
-        .header("Origin", "https://www.roblox.com")
-        .header("Referer", "https://www.roblox.com/share-links")
+        .header("Origin", endpoints::host("www"))
+        .header("Referer", format!("{}/share-links", endpoints::host("www")))
         .json(&serde_json::json!({
             "linkId": normalized_link_id,
-            "linkType": "Server",
+            "linkType": link_type,
         }))
         .send()
         .await
@@ -99,10 +107,18 @@ pub async fn resolve_share_server_link(
         ));
     }
 
-    let body: serde_json::Value = response
+    response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+        .map_err(|e| format!("Failed to parse response: {}", e))
+}
+
+pub async fn resolve_share_server_link(
+    security_token: &str,
+    link_id: &str,
+) -> Result<(Option<i64>, String), String> {
+    let body = resolve_share_link_payload(security_token, link_id, "Server").await?;
+
 
     let server_data = if body["privateServerInviteData"].is_object() {
         &body["privateServerInviteData"]
@@ -142,7 +158,8 @@ async fn get_root_place_id_from_universe(
     let client = game_join_client();
     let response = client
         .get(format!(
-            "https://games.roblox.com/v1/games?universeIds={}",
+            "{}/v1/games?universeIds={}",
+            endpoints::host("games"),
             universe_id
         ))
         .header(COOKIE, cookie_header(security_token))
@@ -314,4 +331,3 @@ fn extract_access_code(html: &str) -> Option<String> {
 
     None
 }
-

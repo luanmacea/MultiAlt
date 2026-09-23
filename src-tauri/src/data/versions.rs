@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 #[cfg(target_os = "windows")]
-fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
+pub(crate) fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
 
@@ -25,7 +25,7 @@ fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
+pub(crate) fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
     std::fs::rename(src, dst).map_err(|e| e.to_string())
 }
 

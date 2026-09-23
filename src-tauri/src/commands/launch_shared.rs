@@ -1,3 +1,53 @@
+/// Emit one structured line to the launch console (frontend listens on the
+/// "launch-log" event). `level` is one of "info" | "success" | "warn" | "error";
+/// `step` is a short machine code (start, isolation, auth, target, pid, spawn,
+/// wait, done) the UI can use for coloring/icons.
+pub(crate) fn emit_launch_log(
+    app: &tauri::AppHandle,
+    user_id: i64,
+    level: &str,
+    step: &str,
+    message: impl Into<String>,
+) {
+    let _ = app.emit(
+        "launch-log",
+        serde_json::json!({
+            "userId": user_id,
+            "level": level,
+            "step": step,
+            "message": message.into(),
+        }),
+    );
+}
+
+/// Group name used to bucket accounts that failed to launch because Roblox
+/// reports them as moderated/banned.
+pub(crate) const MODERATED_GROUP: &str = "moderadas";
+
+/// Returns true if an auth-ticket error string indicates the account is
+/// moderated/banned (Roblox returns 403 with `"User is moderated"`).
+pub(crate) fn is_moderated_error(err: &str) -> bool {
+    let e = err.to_lowercase();
+    e.contains("moderated") || e.contains("is banned") || e.contains("account has been")
+}
+
+/// Move an account into the "moderadas" group and persist it, then notify the
+/// frontend so it can refresh and surface a toast. No-op if already grouped.
+pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandle, user_id: i64) {
+    if let Ok(accounts) = store.get_all() {
+        if let Some(mut account) = accounts.into_iter().find(|a| a.user_id == user_id) {
+            if account.group != MODERATED_GROUP {
+                account.group = MODERATED_GROUP.to_string();
+                let _ = store.update(account);
+                let _ = app.emit(
+                    "account-moderated",
+                    serde_json::json!({ "userId": user_id, "group": MODERATED_GROUP }),
+                );
+            }
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct WindowsClientOverrides {
     max_fps: Option<u32>,

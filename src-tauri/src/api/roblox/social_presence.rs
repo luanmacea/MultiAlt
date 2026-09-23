@@ -3,7 +3,7 @@ pub async fn join_group(security_token: &str, group_id: i64) -> Result<(), Strin
     let client = reqwest::Client::new();
 
     let response = client
-        .post(format!("https://groups.roblox.com/v1/groups/{}/users", group_id))
+        .post(format!("{}/v1/groups/{}/users", endpoints::host("groups"), group_id))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
@@ -44,7 +44,7 @@ pub async fn get_presence(user_ids: &[i64]) -> Result<Vec<UserPresence>, String>
     let client = reqwest::Client::new();
 
     let response = client
-        .post("https://presence.roblox.com/v1/presence/users")
+        .post(format!("{}/v1/presence/users", endpoints::host("presence")))
         .json(&serde_json::json!({ "userIds": user_ids }))
         .send()
         .await

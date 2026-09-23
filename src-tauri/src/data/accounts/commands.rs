@@ -39,8 +39,20 @@ pub fn remove_account(state: tauri::State<'_, AccountStore>, user_id: i64) -> Re
 #[tauri::command]
 pub fn update_account(
     state: tauri::State<'_, AccountStore>,
-    account: Account,
+    mut account: Account,
 ) -> Result<bool, String> {
+    // The webview holds a snapshot that goes stale whenever the backend
+    // rotates a cookie (session refresh, webserver SetField...). Editing an
+    // alias/group from that snapshot must not write the old, invalidated
+    // cookie back, so credentials always come from the store.
+    if let Some(stored) = state
+        .get_all()?
+        .into_iter()
+        .find(|a| a.user_id == account.user_id)
+    {
+        account.security_token = stored.security_token;
+        account.password = stored.password;
+    }
     state.update(account)
 }
 

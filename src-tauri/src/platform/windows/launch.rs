@@ -68,7 +68,52 @@ pub fn build_launch_url(
     )
 }
 
-pub fn launch_url(url: &str) -> Result<(), String> {
+/// Registry key where the Roblox client reads its deployment channel at startup
+/// (`www.roblox.com` value). Confirmed via client logs: "RobloxChannel has been
+/// set to <value>" followed by a version query against that channel.
+const ROBLOX_PLAYER_CHANNEL_KEY: &str =
+    "Software\\ROBLOX Corporation\\Environments\\RobloxPlayer\\Channel";
+const PRODUCTION_CHANNEL: &str = "production";
+/// The CDN uses "LIVE" for what the client calls the production channel.
+const PRODUCTION_CHANNEL_CDN: &str = "LIVE";
+const PRODUCTION_VERSION_URL: &str =
+    "https://clientsettingscdn.roblox.com/v2/client-version/WindowsPlayer";
+const PRODUCTION_VERSION_CACHE_TTL: Duration = Duration::from_secs(60);
+
+static PRODUCTION_VERSION_CACHE: LazyLock<Mutex<Option<(std::time::Instant, String)>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// Why launches used to "update Roblox" and close the other clients:
+///
+/// Roblox enrolls each *account* in a deployment channel (e.g. `ztestlinkerset`,
+/// `zswocc-500-c`) that may point at a different client build than production.
+/// After an account joins a game, its client spawns a background installer
+/// (`-channel <account channel>`) that installs that build and rewrites both the
+/// `roblox-player:` protocol handler and the channel stored in the registry.
+/// The next `roblox-player:` launch then starts a client whose build does not
+/// match the channel it reads, which reports `updateRequired TRUE` and runs the
+/// foreground installer — and that installer closes every running
+/// `RobloxPlayerBeta.exe`, killing the other accounts.
+///
+/// To make every launch deterministic we pin the channel to production and
+/// start the production build's `RobloxPlayerBeta.exe` directly with the
+/// protocol URL (exactly what the official installer does), bypassing the
+/// flip-flopping protocol handler. When Roblox ships a new production build we
+/// download and install it ourselves (silently, without touching running
+/// clients) instead of letting Roblox's installer do it; the protocol handler
+/// is only a last resort if that install fails.
+pub async fn launch_url(url: &str) -> Result<(), String> {
+    pin_player_channel_to_production();
+
+    if let Some(player_exe) = ensure_production_player_exe().await {
+        std::process::Command::new(&player_exe)
+            .arg(url)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| format!("Failed to launch {}: {}", player_exe.display(), e))?;
+        return Ok(());
+    }
+
     std::process::Command::new("cmd")
         .args(["/C", "start", "", url])
         .creation_flags(CREATE_NO_WINDOW)
@@ -77,7 +122,203 @@ pub fn launch_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn launch_old_join(
+/// Install folder to use when no RAM-managed version was chosen: pins the
+/// channel and returns the production build folder, falling back to
+/// `fallback` (the registry-resolved install) when it is not installed.
+/// See `launch_url` for why the registry handler must not be trusted.
+pub async fn default_player_dir(fallback: &str) -> String {
+    pin_player_channel_to_production();
+    ensure_production_player_exe()
+        .await
+        .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+/// Writes `production` as the Roblox player channel so the client checks its
+/// build against the production CDN entry instead of an account test channel.
+fn pin_player_channel_to_production() {
+    use windows_sys::Win32::System::Registry::{
+        RegCreateKeyExW, RegSetValueExW, HKEY_CURRENT_USER, KEY_SET_VALUE,
+        REG_OPTION_NON_VOLATILE,
+    };
+
+    let key_name = encode_wide(ROBLOX_PLAYER_CHANNEL_KEY);
+    let value_name = encode_wide("www.roblox.com");
+    let value = encode_wide(PRODUCTION_CHANNEL);
+    unsafe {
+        let mut hkey: windows_sys::Win32::System::Registry::HKEY = std::ptr::null_mut();
+        let created = RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            key_name.as_ptr(),
+            0,
+            std::ptr::null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            std::ptr::null(),
+            &mut hkey,
+            std::ptr::null_mut(),
+        );
+        if created != 0 {
+            return;
+        }
+        RegSetValueExW(
+            hkey,
+            value_name.as_ptr(),
+            0,
+            REG_SZ,
+            value.as_ptr() as *const u8,
+            (value.len() * 2) as u32,
+        );
+        RegCloseKey(hkey);
+    }
+}
+
+/// `%LOCALAPPDATA%\Roblox\Versions\<production build>\RobloxPlayerBeta.exe`,
+/// if that build is installed.
+async fn production_player_exe() -> Option<PathBuf> {
+    let version = production_version_guid().await?;
+    let exe = roblox_versions_dir()?
+        .join(&version)
+        .join("RobloxPlayerBeta.exe");
+    exe.exists().then_some(exe)
+}
+
+/// Progress of a launcher-initiated production build install, mirrored to the
+/// frontend as the `roblox-build-install` event.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildInstallProgress {
+    pub version: String,
+    pub stage: String,
+    pub current: u64,
+    pub total: u64,
+    pub message: Option<String>,
+}
+
+static BUILD_INSTALL_APP: LazyLock<Mutex<Option<tauri::AppHandle>>> =
+    LazyLock::new(|| Mutex::new(None));
+/// Serializes installs so a multi-account launch downloads a new build once.
+static BUILD_INSTALL_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+/// Lets the launcher report build-install progress to the UI.
+pub fn set_build_install_app_handle(app: tauri::AppHandle) {
+    if let Ok(mut guard) = BUILD_INSTALL_APP.lock() {
+        *guard = Some(app);
+    }
+}
+
+fn emit_build_install(version: &str, stage: &str, current: u64, total: u64, message: Option<String>) {
+    let app = BUILD_INSTALL_APP.lock().ok().and_then(|g| g.clone());
+    if let Some(app) = app {
+        let _ = app.emit(
+            "roblox-build-install",
+            BuildInstallProgress {
+                version: version.to_string(),
+                stage: stage.to_string(),
+                current,
+                total,
+                message,
+            },
+        );
+    }
+}
+
+/// Production build's exe, installing the build first when Roblox has shipped
+/// a new one. Returns `None` only if we could neither find nor install it.
+async fn ensure_production_player_exe() -> Option<PathBuf> {
+    if let Some(exe) = production_player_exe().await {
+        return Some(exe);
+    }
+
+    let version = production_version_guid().await?;
+    let _serialize = BUILD_INSTALL_LOCK.lock().await;
+    // Another launch may have installed it while we waited for the lock.
+    if let Some(exe) = production_player_exe().await {
+        return Some(exe);
+    }
+
+    let target = roblox_versions_dir()?.join(&version);
+    emit_build_install(&version, "starting", 0, 0, None);
+    let progress = |stage: &str, _package: Option<String>, current: u64, total: u64| {
+        emit_build_install(&version, stage, current, total, None);
+    };
+    match install_build_to_dir(PRODUCTION_CHANNEL_CDN, &version, &target, 4, &progress).await {
+        Ok(()) => {
+            emit_build_install(&version, "ready", 0, 0, None);
+            let exe = target.join("RobloxPlayerBeta.exe");
+            exe.exists().then_some(exe)
+        }
+        Err(e) => {
+            emit_build_install(&version, "error", 0, 0, Some(e.clone()));
+            eprintln!("Could not install Roblox production build {version}: {e}");
+            None
+        }
+    }
+}
+
+fn roblox_versions_dir() -> Option<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA")?;
+    Some(PathBuf::from(local).join("Roblox").join("Versions"))
+}
+
+/// Resolves (and caches) the production build so sync helpers such as
+/// `get_roblox_path` — used to write ClientSettings — target the same folder
+/// that `launch_url` will start.
+pub async fn refresh_production_version() {
+    let _ = production_version_guid().await;
+}
+
+/// Production build folder from the cache filled by `production_version_guid`.
+fn cached_production_player_dir() -> Option<String> {
+    let (_, version) = PRODUCTION_VERSION_CACHE.lock().ok()?.clone()?;
+    let local = std::env::var_os("LOCALAPPDATA")?;
+    let dir = PathBuf::from(local).join("Roblox").join("Versions").join(version);
+    dir.join("RobloxPlayerBeta.exe")
+        .exists()
+        .then(|| dir.to_string_lossy().into_owned())
+}
+
+async fn production_version_guid() -> Option<String> {
+    let cached = PRODUCTION_VERSION_CACHE.lock().ok().and_then(|c| c.clone());
+    if let Some((at, version)) = &cached {
+        if at.elapsed() < PRODUCTION_VERSION_CACHE_TTL {
+            return Some(version.clone());
+        }
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ClientVersion {
+        client_version_upload: String,
+    }
+
+    let fetched = async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(6))
+            .build()
+            .ok()?;
+        let resp = client.get(PRODUCTION_VERSION_URL).send().await.ok()?;
+        let body: ClientVersion = resp.error_for_status().ok()?.json().await.ok()?;
+        let version = body.client_version_upload.trim().to_string();
+        version.starts_with("version-").then_some(version)
+    }
+    .await;
+
+    match fetched {
+        Some(version) => {
+            if let Ok(mut cache) = PRODUCTION_VERSION_CACHE.lock() {
+                *cache = Some((std::time::Instant::now(), version.clone()));
+            }
+            Some(version)
+        }
+        // Network hiccup: a stale answer is still far better than the protocol
+        // handler, which may point at an account test-channel build.
+        None => cached.map(|(_, version)| version),
+    }
+}
+
+pub async fn launch_old_join(
     ticket: &str,
     place_id: i64,
     job_id: &str,
@@ -88,7 +329,7 @@ pub fn launch_old_join(
     link_code: &str,
     is_teleport: bool,
 ) -> Result<(), String> {
-    let version_folder = get_roblox_path()?;
+    let version_folder = default_player_dir(&get_roblox_path()?).await;
     launch_old_join_from(
         &version_folder,
         ticket,

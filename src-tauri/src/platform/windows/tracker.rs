@@ -179,6 +179,12 @@ impl ProcessTracker {
 
     pub fn kill_for_user(&self, user_id: i64) -> bool {
         if let Some(pid) = self.get_pid(user_id) {
+            // The tracked client may have exited long ago and Windows may have
+            // reused its PID for an unrelated process: never kill that.
+            if !is_roblox_pid_alive(pid) {
+                self.untrack(user_id);
+                return true;
+            }
             if kill_process(pid).is_ok() {
                 let exited = wait_for_process_exit(pid, Duration::from_millis(1200));
                 if exited {
@@ -200,6 +206,10 @@ impl ProcessTracker {
         let Some(pid) = self.get_pid(user_id) else {
             return true;
         };
+        if !is_roblox_pid_alive(pid) {
+            self.untrack(user_id);
+            return true;
+        }
 
         let exited = if kill_process(pid).is_ok() {
             wait_for_process_exit(pid, Duration::from_millis(timeout_ms.max(250)))

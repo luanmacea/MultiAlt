@@ -89,6 +89,27 @@ export interface PlatformCapabilities {
   warnings: string[];
 }
 
+/** Kind of target a pasted join link resolved to. */
+export type JoinTargetKind = "invite" | "private" | "job" | "place";
+
+/**
+ * Launchable target resolved from a pasted Roblox link by the
+ * `resolve_join_link` command (experience invites, VIP/private servers,
+ * plain game links, `roblox://` deep links and `ro.blox.com` short links).
+ */
+export interface JoinTarget {
+  kind: JoinTargetKind;
+  placeId: number;
+  /** Roblox `gameInstanceId`; empty when the link carries none. */
+  jobId: string;
+  accessCode: string;
+  linkCode: string;
+  launchData: string;
+  inviterId: number | null;
+  /** Non-fatal warning, e.g. "Expired" / "InviterNotInExperience". */
+  note: string | null;
+}
+
 export function parseGroupName(group: string): { sortKey: number; displayName: string } {
   const match = group.match(/^(\d{1,3})\s*/);
   if (match) {

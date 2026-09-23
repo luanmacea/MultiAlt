@@ -24,7 +24,7 @@ pub async fn get_asset_details(asset_id: i64, security_token: Option<&str>) -> R
     let client = reqwest::Client::new();
 
     let mut request = client
-        .get(format!("https://economy.roblox.com/v2/assets/{}/details", asset_id))
+        .get(format!("{}/v2/assets/{}/details", endpoints::host("economy"), asset_id))
         .header("Accept", "application/json");
 
     if let Some(token) = security_token {
@@ -59,7 +59,7 @@ pub async fn purchase_product(
     let client = reqwest::Client::new();
 
     let response = client
-        .post(format!("https://economy.roblox.com/v1/purchases/products/{}", product_id))
+        .post(format!("{}/v1/purchases/products/{}", endpoints::host("economy"), product_id))
         .header(COOKIE, cookie_header(security_token))
         .header("X-CSRF-Token", &csrf)
         .json(&serde_json::json!({

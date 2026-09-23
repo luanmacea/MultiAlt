@@ -98,6 +98,10 @@ async fn handle_set_field(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -139,6 +143,10 @@ async fn handle_remove_field(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -176,6 +184,10 @@ async fn handle_set_alias(
     body: String,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -212,6 +224,10 @@ async fn handle_set_description(
     body: String,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -248,6 +264,10 @@ async fn handle_append_description(
     body: String,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
         return reply(401, "AllowAccountEditing is disabled", v2);
     }
@@ -284,6 +304,10 @@ async fn handle_set_avatar(
     body: String,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -315,6 +339,10 @@ async fn handle_block_user(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -346,6 +374,10 @@ async fn handle_unblock_user(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -377,6 +409,10 @@ async fn handle_get_blocked_list(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -422,6 +458,10 @@ async fn handle_unblock_everyone(
     Query(params): Query<AccountQuery>,
     v2: bool,
 ) -> Response {
+    if !check_password(&state, &params.password) {
+        return reply(401, "Invalid password", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -443,6 +483,13 @@ async fn handle_unblock_everyone(
     }
 }
 
+/// Strict variant for secrets (cookies): the configured password must be sent,
+/// even when EveryRequestRequiresPassword is off.
+fn check_password_required(state: &AppState, password: &Option<String>) -> bool {
+    let ws_password = state.settings.get_string("WebServer", "Password");
+    ws_password.len() >= 6 && matches!(password, Some(p) if *p == ws_password)
+}
+
 fn check_password(state: &AppState, password: &Option<String>) -> bool {
     let ws_password = state.settings.get_string("WebServer", "Password");
     let every_request_requires_password = state
@@ -462,4 +509,3 @@ fn check_password(state: &AppState, password: &Option<String>) -> bool {
         None => true,
     }
 }
-

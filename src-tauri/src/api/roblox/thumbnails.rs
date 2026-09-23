@@ -35,7 +35,7 @@ pub async fn batch_thumbnails(requests: Vec<ThumbnailRequest>) -> Result<Vec<Thu
     for chunk in requests.chunks(100) {
         let response = send_with_retry(|| {
             client
-                .post("https://thumbnails.roblox.com/v1/batch")
+                .post(format!("{}/v1/batch", endpoints::host("thumbnails")))
                 .json(&chunk)
         })
         .await?;
@@ -67,7 +67,8 @@ pub async fn get_avatar_headshots(user_ids: &[i64], size: &str) -> Result<Vec<Th
     let ids: String = user_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
 
     let url = format!(
-        "https://thumbnails.roblox.com/v1/users/avatar-headshot?size={}&format=png&userIds={}",
+        "{}/v1/users/avatar-headshot?size={}&format=png&userIds={}",
+        endpoints::host("thumbnails"),
         size, ids
     );
     let response = send_with_retry(|| client.get(&url)).await?;
@@ -97,7 +98,8 @@ pub async fn get_asset_thumbnails(
     let ids: String = asset_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
 
     let mut request = client.get(format!(
-        "https://thumbnails.roblox.com/v1/assets?assetIds={}&returnPolicy=PlaceHolder&size={}&format=Png&isCircular=false",
+        "{}/v1/assets?assetIds={}&returnPolicy=PlaceHolder&size={}&format=Png&isCircular=false",
+        endpoints::host("thumbnails"),
         ids, size
     ));
 

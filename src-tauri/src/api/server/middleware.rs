@@ -7,6 +7,21 @@ async fn external_check(
     let is_v2 = path.starts_with("/v2/");
     let is_running = path.eq_ignore_ascii_case("/Running") || path.eq_ignore_ascii_case("/v2/Running");
 
+    // Block requests issued by web pages (CSRF): any site could otherwise hit
+    // http://127.0.0.1:<port>/... via <img>/fetch and read or edit accounts.
+    // Browsers always tag those with Origin and/or Sec-Fetch-Site; Lua
+    // executors, curl and scripts don't send either header.
+    let from_browser_page = req.headers().contains_key("origin")
+        || req
+            .headers()
+            .get("sec-fetch-site")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| !v.eq_ignore_ascii_case("none"))
+            .unwrap_or(false);
+    if from_browser_page {
+        return reply(403, "Requests from web pages are not allowed", is_v2);
+    }
+
     let allow_external = state.settings.get_bool("WebServer", "AllowExternalConnections");
 
     if !allow_external {
@@ -46,4 +61,3 @@ async fn external_check(
 
     next.run(req).await
 }
-

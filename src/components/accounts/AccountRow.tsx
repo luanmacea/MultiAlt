@@ -97,24 +97,30 @@ export function AccountRow({ account }: { account: Account }) {
       style={selected ? { borderLeftColor: "var(--accent-color)" } : undefined}
       onClick={handleClick}
       onContextMenu={handleContext}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", String(account.UserID));
-        store.setDragState({ userId: account.UserID, sourceGroup: account.Group || "Default" });
-      }}
       onDragOver={(e) => {
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
       }}
       onDrop={handleDrop}
     >
-      {/* Drag handle — visible on hover, communicates reorderability */}
+      {/* Drag handle — the reorder drag starts here (not the whole row) so it
+          doesn't conflict with the list's marquee multi-select on the row body. */}
       <div
-        className="shrink-0 opacity-0 group-hover/row:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", String(account.UserID));
+          store.setDragState({ userId: account.UserID, sourceGroup: account.Group || "Default" });
+        }}
+        // Cancelled drags (Esc / drop outside) must not leave a stale dragState
+        // that a later cookie-text drop would act on.
+        onDragEnd={() => store.setDragState(null)}
+        onClick={(e) => e.stopPropagation()}
+        className="shrink-0 opacity-30 group-hover/row:opacity-100 transition-opacity cursor-grab active:cursor-grabbing -ml-1 px-0.5 py-1"
         title={t("Drag to reorder")}
       >
-        <GripVertical size={12} strokeWidth={1.5} className="theme-muted" />
+        <GripVertical size={13} strokeWidth={1.5} className="theme-muted" />
       </div>
 
       <div className={`shrink-0 overflow-hidden transition-all duration-150 ease-out ${

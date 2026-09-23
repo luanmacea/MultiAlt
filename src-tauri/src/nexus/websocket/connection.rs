@@ -9,6 +9,15 @@ async fn handle_connection(
         stream,
         |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
          res: tokio_tungstenite::tungstenite::handshake::server::Response| {
+            // Web pages can open ws://127.0.0.1 too; browsers always send an
+            // Origin header, Roblox executors connecting from Lua don't.
+            if req.headers().contains_key("origin") {
+                let reject = tokio_tungstenite::tungstenite::http::Response::builder()
+                    .status(403)
+                    .body(Some("Connections from web pages are not allowed".to_string()))
+                    .unwrap_or_default();
+                return Err(reject);
+            }
             uri_path = req.uri().to_string();
             Ok(res)
         },
@@ -60,6 +69,8 @@ async fn handle_connection(
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    // Kept to recognise *this* connection on cleanup (see below).
+    let own_sender = tx.clone();
 
     {
         let mut conns = server.connections.lock().unwrap();
@@ -95,7 +106,11 @@ async fn handle_connection(
         };
         if let Some(sender) = tx_clone {
             tokio::spawn(async move {
+                let deadline = Instant::now() + Duration::from_secs(60);
                 loop {
+                    if sender.is_closed() || Instant::now() >= deadline {
+                        break;
+                    }
                     let ready = {
                         let accounts = nexus().accounts.lock().unwrap();
                         accounts
@@ -149,9 +164,21 @@ async fn handle_connection(
         }
     }
 
-    {
+    // On a rejoin the new socket registers under the same name before the old
+    // one closes; only clean up if the entry is still ours.
+    let still_current = {
         let mut conns = server.connections.lock().unwrap();
-        conns.remove(&name);
+        let ours = conns
+            .get(&name)
+            .map(|c| c.sender.same_channel(&own_sender))
+            .unwrap_or(false);
+        if ours {
+            conns.remove(&name);
+        }
+        ours
+    };
+    if !still_current {
+        return;
     }
 
     {
