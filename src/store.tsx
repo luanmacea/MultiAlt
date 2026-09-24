@@ -969,6 +969,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         placeId: pid,
         jobId: vipCode ? `vip:${vipCode}` : rawJobId,
         launchData: target?.launchData ?? launchData,
+        // Cada conta sorteia o próprio servidor público (o backend ignora o
+        // shuffle quando há Job ID ou VIP).
+        shuffleJob: shuffleJobId,
       });
       await loadAccounts();
       void recordRecentGame(pid, userIds[0], parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});

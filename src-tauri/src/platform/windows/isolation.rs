@@ -811,27 +811,82 @@ fn build_restore_script(
     Ok(script)
 }
 
-fn run_elevated_powershell(script: &str) -> Result<(), String> {
-    let script_dir = ram_isolation_backup_dir()
-        .ok_or("Could not resolve LOCALAPPDATA for isolation scripts")?
-        .join("Scripts");
-    std::fs::create_dir_all(&script_dir)
-        .map_err(|e| format!("Failed to create isolation script dir: {}", e))?;
-    let mut seed = [0u8; 16];
-    fill_secure_random(&mut seed)?;
-    let token: String = seed.iter().map(|b| format!("{:02x}", b)).collect();
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let script_path = script_dir.join(format!("ram_isolation_{}_{}.ps1", stamp, token));
-    std::fs::write(&script_path, script)
-        .map_err(|e| format!("Failed to write isolation script: {}", e))?;
+/// Base64 padrão (RFC 4648) — usado só para o `-EncodedCommand`, que precisa
+/// do alfabeto clássico com padding. Escrito à mão para não acrescentar uma
+/// dependência ao Cargo.toml por causa de ~1 KB de script.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((triple >> 18) & 0x3f) as usize] as char);
+        out.push(ALPHABET[((triple >> 12) & 0x3f) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            ALPHABET[((triple >> 6) & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[(triple & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// Teto conservador para `lpParameters`: o limite real de `CreateProcess` é
+/// 32 767 caracteres para a linha de comando inteira.
+const MAX_ELEVATED_PARAMETERS_CHARS: usize = 30_000;
+
+/// Monta a linha de comando do PowerShell elevado com o script embutido.
+///
+/// O script **não** é gravado em disco: antes ele ia para um `.ps1` em
+/// `%LOCALAPPDATA%\Roblox Account Manager\IsolationBackup\Scripts\` (pasta
+/// gravável por qualquer processo do usuário) e só depois era elevado — outro
+/// processo podia trocar o arquivo nessa janela e rodar código como admin
+/// (TOCTOU). Com `-EncodedCommand` (base64 de UTF-16LE) o conteúdo viaja na
+/// própria linha de comando, que só o processo que chama controla.
+///
+/// Como não há mais `-File`, o `exit` precisa ser explícito: `powershell.exe
+/// -EncodedCommand` sai com 0 mesmo depois de um erro terminante, então o
+/// corpo vai dentro de um `try`/`catch` que devolve 1.
+fn build_elevated_powershell_parameters(script: &str) -> Result<String, String> {
+    let wrapped = format!("try {{\n{}\n}} catch {{ exit 1 }}\nexit 0\n", script);
+    let mut utf16 = Vec::with_capacity(wrapped.len() * 2);
+    for unit in wrapped.encode_utf16() {
+        utf16.extend_from_slice(&unit.to_le_bytes());
+    }
 
     let parameters = format!(
-        "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"",
-        script_path.display()
+        "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand {}",
+        base64_encode(&utf16)
     );
+    if parameters.len() > MAX_ELEVATED_PARAMETERS_CHARS {
+        return Err(format!(
+            "Refusing to run elevated PowerShell: the script is too large for the command line ({} of {} chars)",
+            parameters.len(),
+            MAX_ELEVATED_PARAMETERS_CHARS
+        ));
+    }
+    Ok(parameters)
+}
+
+fn run_elevated_powershell(script: &str) -> Result<(), String> {
+    let parameters = build_elevated_powershell_parameters(script)?;
+
+    // Versões antigas gravavam `ram_isolation_<ts>_<token>.ps1` aqui; limpa o
+    // que tiver sobrado (nada mais é executado a partir do disco).
+    if let Some(stale) = ram_isolation_backup_dir().map(|dir| dir.join("Scripts")) {
+        if stale.exists() {
+            let _ = std::fs::remove_dir_all(&stale);
+        }
+    }
+
     let verb = encode_wide("runas");
     let file = encode_wide("powershell.exe");
     let params = encode_wide(&parameters);
@@ -846,7 +901,6 @@ fn run_elevated_powershell(script: &str) -> Result<(), String> {
 
     let ok = unsafe { ShellExecuteExW(&mut sei) };
     if ok == 0 {
-        let _ = std::fs::remove_file(&script_path);
         return Err("UAC prompt was denied or PowerShell could not be launched".into());
     }
 
@@ -856,7 +910,6 @@ fn run_elevated_powershell(script: &str) -> Result<(), String> {
             let wait_rc = WaitForSingleObject(sei.hProcess, 60_000);
             if wait_rc != WAIT_OBJECT_0 && wait_rc != WAIT_ABANDONED_0 {
                 CloseHandle(sei.hProcess);
-                let _ = std::fs::remove_file(&script_path);
                 return Err(
                     "Elevated PowerShell did not finish within 60s. Accept the UAC prompt sooner or close the running script.".into(),
                 );
@@ -880,7 +933,6 @@ fn run_elevated_powershell(script: &str) -> Result<(), String> {
         exit_status = Err("Elevated PowerShell did not return a process handle".into());
     }
 
-    let _ = std::fs::remove_file(&script_path);
     exit_status
 }
 
@@ -1632,6 +1684,135 @@ mod win_isolation_tests {
             "odd number of single quotes means a literal was left open:\n{}",
             script
         );
+    }
+
+    // ── linha de comando elevada (sem arquivo intermediário) ───────────────
+
+    /// Desfaz o `-EncodedCommand`: base64 → UTF-16LE → String.
+    fn decode_encoded_command(parameters: &str) -> String {
+        let marker = "-EncodedCommand ";
+        let start = parameters
+            .find(marker)
+            .expect("parameters must carry -EncodedCommand")
+            + marker.len();
+        let b64 = parameters[start..].trim();
+
+        let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut bits: Vec<u8> = Vec::new();
+        let mut acc: u32 = 0;
+        let mut acc_bits = 0u32;
+        for ch in b64.bytes() {
+            if ch == b'=' {
+                break;
+            }
+            let value = alphabet
+                .iter()
+                .position(|c| *c == ch)
+                .unwrap_or_else(|| panic!("character outside the base64 alphabet: {}", ch as char))
+                as u32;
+            acc = (acc << 6) | value;
+            acc_bits += 6;
+            if acc_bits >= 8 {
+                acc_bits -= 8;
+                bits.push(((acc >> acc_bits) & 0xff) as u8);
+            }
+        }
+
+        assert_eq!(bits.len() % 2, 0, "UTF-16LE payload must have even length");
+        let units: Vec<u16> = bits
+            .chunks(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        String::from_utf16(&units).expect("valid UTF-16")
+    }
+
+    #[test]
+    fn base64_encode_matches_the_reference_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64_encode(&[0xfb, 0xff, 0xfe]), "+//+");
+    }
+
+    #[test]
+    fn the_elevated_command_line_never_points_at_a_file_on_disk() {
+        // TOCTOU: um arquivo .ps1 em pasta gravável pelo usuário podia ser
+        // trocado entre a gravação e a elevação. O script agora viaja inteiro
+        // na linha de comando.
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_machine_guid = true;
+        opts.spoof_mac = true;
+        let script = build_spoof_script(
+            &opts,
+            Some(&new_random_machine_guid().unwrap()),
+            Some("0007"),
+            Some(&new_random_mac().unwrap()),
+        )
+        .unwrap();
+
+        let parameters = build_elevated_powershell_parameters(&script).unwrap();
+        assert!(!parameters.contains("-File"), "got {}", parameters);
+        assert!(!parameters.to_ascii_lowercase().contains(".ps1"), "got {}", parameters);
+        assert!(parameters.contains("-NoProfile"));
+        assert!(parameters.contains("-NonInteractive"));
+        assert!(parameters.contains("-ExecutionPolicy Bypass"));
+        assert!(parameters.contains("-WindowStyle Hidden"));
+        assert!(parameters.contains("-EncodedCommand "));
+    }
+
+    #[test]
+    fn the_encoded_command_carries_the_whole_script_and_reports_failures() {
+        let mut opts = base_options(IsolationMode::Off);
+        opts.spoof_machine_guid = true;
+        let guid = "0123abcd-4567-89ef-0123-456789abcdef";
+        let script = build_spoof_script(&opts, Some(guid), None, None).unwrap();
+
+        let decoded = decode_encoded_command(&build_elevated_powershell_parameters(&script).unwrap());
+        assert!(decoded.contains(&format!("-Value '{}'", guid)), "got {}", decoded);
+        assert!(decoded.contains("$ErrorActionPreference = 'Stop'"));
+        // Sem -File, o exit code precisa ser explícito: erro = 1, sucesso = 0.
+        assert!(decoded.contains("exit 1"), "got {}", decoded);
+        assert!(decoded.trim_end().ends_with("exit 0"), "got {}", decoded);
+    }
+
+    #[test]
+    fn the_real_spoof_and_restore_scripts_fit_in_the_command_line() {
+        let mut opts = base_options(IsolationMode::Full);
+        opts.spoof_machine_guid = true;
+        opts.spoof_mac = true;
+        let spoof = build_spoof_script(
+            &opts,
+            Some(&new_random_machine_guid().unwrap()),
+            Some("0007"),
+            Some(&new_random_mac().unwrap()),
+        )
+        .unwrap();
+        let restore = build_restore_script(
+            Some("0123abcd-4567-89ef-0123-456789abcdef"),
+            Some("0007"),
+            Some("AABBCCDDEEFF"),
+        )
+        .unwrap();
+
+        for script in [spoof, restore] {
+            let parameters = build_elevated_powershell_parameters(&script).unwrap();
+            assert!(
+                parameters.len() < MAX_ELEVATED_PARAMETERS_CHARS / 2,
+                "o script real precisa caber com folga na linha de comando: {} chars",
+                parameters.len()
+            );
+        }
+    }
+
+    #[test]
+    fn a_script_too_large_for_the_command_line_is_refused_instead_of_written_to_disk() {
+        let huge = "Write-Output 'x'\n".repeat(4096);
+        let err = build_elevated_powershell_parameters(&huge).unwrap_err();
+        assert!(err.contains("too large"), "got {}", err);
     }
 
     // ── build_restore_script ───────────────────────────────────────────────

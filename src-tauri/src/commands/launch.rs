@@ -60,10 +60,19 @@ fn pid_wait_seconds(isolation_wipes_install: bool) -> u64 {
     }
 }
 
+/// `AccountJoinDelay` as seconds, with no floor applied yet.
+///
+/// A negative value (a hand-edited INI, or a UI that wrote one) used to wrap
+/// around in the `i64 -> u64` cast and become `u64::MAX`, freezing the
+/// multi-launch queue between two accounts. An invalid value falls back to the
+/// default, exactly like a missing key.
+fn configured_join_delay_seconds(configured: Option<i64>) -> u64 {
+    configured.filter(|value| *value >= 0).unwrap_or(8) as u64
+}
+
 /// Seconds to space multi-account launches by, never below the captcha floor.
 fn effective_join_delay_seconds(configured: Option<i64>) -> u64 {
-    let delay = configured.unwrap_or(8) as u64;
-    delay.max(MIN_JOIN_GAP_SECS)
+    configured_join_delay_seconds(configured).max(MIN_JOIN_GAP_SECS)
 }
 
 /// A small randomized tail on the inter-account gap, so launches are neither
@@ -89,6 +98,19 @@ fn next_account_wait(
 /// Picks a pseudo-random public server from the list (no RNG dependency).
 fn shuffle_server_index(nanos: u128, server_count: usize) -> usize {
     (nanos as usize) % server_count
+}
+
+/// Did the frontend ask for `shuffleJob`? The argument is optional so older
+/// callers (and any `invoke` that omits the field) keep working — a missing
+/// value means "don't shuffle".
+fn shuffle_job_requested(shuffle_job: Option<bool>) -> bool {
+    shuffle_job.unwrap_or(false)
+}
+
+/// Shuffling only makes sense when the user did not pick a server: an explicit
+/// Job ID wins, and "follow user" resolves the server on its own.
+fn should_shuffle_server(shuffle_job: bool, follow_user: bool, job_id: &str) -> bool {
+    shuffle_job && !follow_user && job_id.trim().is_empty()
 }
 
 /// The saved window rectangle of an account, or `None` when any part is
@@ -117,7 +139,9 @@ async fn launch_roblox(
     follow_user: bool,
     join_vip: bool,
     link_code: String,
-    shuffle_job: bool,
+    // Opcional para aceitar chamadas que não mandam o campo (Tauri trata a
+    // chave ausente como `None`); `None` = não sortear.
+    shuffle_job: Option<bool>,
 ) -> Result<(), String> {
     use platform::windows;
 
@@ -200,22 +224,9 @@ async fn launch_roblox(
     }
 
     let mut actual_job = resolved_launch.job_id.clone();
-    if shuffle_job && !follow_user && actual_job.trim().is_empty() {
-        if let Ok(response) = run_with_session_retry(state.inner(), user_id, |cookie| async move {
-            api::roblox::get_servers(place_id, "Public", None, Some(&cookie)).await
-        })
-        .await
-        {
-            if !response.data.is_empty() {
-                let idx = shuffle_server_index(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_nanos(),
-                    response.data.len(),
-                );
-                actual_job = response.data[idx].id.clone();
-            }
+    if should_shuffle_server(shuffle_job_requested(shuffle_job), follow_user, &actual_job) {
+        if let Some(job) = pick_shuffled_public_job(state.inner(), user_id, place_id).await {
+            actual_job = job;
         }
     }
 
@@ -361,7 +372,9 @@ async fn launch_roblox(
     follow_user: bool,
     join_vip: bool,
     link_code: String,
-    shuffle_job: bool,
+    // Opcional para aceitar chamadas que não mandam o campo (Tauri trata a
+    // chave ausente como `None`); `None` = não sortear.
+    shuffle_job: Option<bool>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -399,21 +412,9 @@ async fn launch_roblox(
         }
 
         let mut actual_job = resolved_launch.job_id.clone();
-        if shuffle_job && !follow_user && actual_job.trim().is_empty() {
-            if let Ok(response) =
-                run_with_session_retry(state.inner(), user_id, |cookie| async move {
-                    api::roblox::get_servers(place_id, "Public", None, Some(&cookie)).await
-                })
-                .await
-            {
-                if !response.data.is_empty() {
-                    let idx = (std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_nanos() as usize)
-                        % response.data.len();
-                    actual_job = response.data[idx].id.clone();
-                }
+        if should_shuffle_server(shuffle_job_requested(shuffle_job), follow_user, &actual_job) {
+            if let Some(job) = pick_shuffled_public_job(state.inner(), user_id, place_id).await {
+                actual_job = job;
             }
         }
 
@@ -496,9 +497,13 @@ async fn launch_multiple(
     place_id: i64,
     job_id: String,
     launch_data: String,
+    // Opcional para aceitar chamadas que não mandam o campo (Tauri trata a
+    // chave ausente como `None`); `None` = não sortear.
+    shuffle_job: Option<bool>,
 ) -> Result<(), String> {
     use platform::windows;
 
+    let shuffle_job = shuffle_job_requested(shuffle_job);
     let delay = effective_join_delay_seconds(settings.get_int("General", "AccountJoinDelay"));
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
     let async_join = settings.get_bool("General", "AsyncJoin");
@@ -607,7 +612,23 @@ async fn launch_multiple(
             }),
         );
 
-        let resolved_launch = resolve_launch_job(&acct_job, false, "");
+        let mut resolved_launch = resolve_launch_job(&acct_job, false, "");
+
+        // Sorteio por conta: cada conta busca a lista de servidores públicos e
+        // escolhe o seu, então o lote se espalha em vez de empilhar todo mundo
+        // no mesmo servidor. `follow_user` não existe no multi launch.
+        if should_shuffle_server(shuffle_job, false, &resolved_launch.job_id) {
+            if let Some(job) = pick_shuffled_public_job(state.inner(), uid, acct_place).await {
+                emit_launch_log(
+                    &app,
+                    uid,
+                    "info",
+                    "target",
+                    format!("Servidor sorteado para esta conta: {job}"),
+                );
+                resolved_launch.job_id = job;
+            }
+        }
 
         if multi_rbx {
             ensure_multi_roblox_enabled(auto_close_multi_conflicts).await?;
@@ -806,12 +827,18 @@ async fn launch_multiple(
     place_id: i64,
     job_id: String,
     launch_data: String,
+    // Opcional para aceitar chamadas que não mandam o campo (Tauri trata a
+    // chave ausente como `None`); `None` = não sortear.
+    shuffle_job: Option<bool>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use platform::macos;
 
-        let delay = settings.get_int("General", "AccountJoinDelay").unwrap_or(8) as u64;
+        let shuffle_job = shuffle_job_requested(shuffle_job);
+        // macOS mantém o espaçamento próprio (sem o piso de 8 s do Windows),
+        // mas já sem o cast que fazia um valor negativo virar `u64::MAX`.
+        let delay = configured_join_delay_seconds(settings.get_int("General", "AccountJoinDelay"));
         let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
         let delay = if multi_rbx { delay.max(12) } else { delay };
         let async_join = settings.get_bool("General", "AsyncJoin");
@@ -840,7 +867,15 @@ async fn launch_multiple(
                 }),
             );
 
-            let resolved_launch = resolve_launch_job(&acct_job, false, "");
+            let mut resolved_launch = resolve_launch_job(&acct_job, false, "");
+
+            // Sorteio por conta (ver o caminho Windows): cada conta escolhe o
+            // seu servidor público, não o mesmo para todas.
+            if should_shuffle_server(shuffle_job, false, &resolved_launch.job_id) {
+                if let Some(job) = pick_shuffled_public_job(state.inner(), uid, acct_place).await {
+                    resolved_launch.job_id = job;
+                }
+            }
 
             if multi_rbx {
                 let enabled = macos::enable_multi_roblox()?;
@@ -950,7 +985,16 @@ async fn launch_multiple(
 
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
-        let _ = (app, state, settings, user_ids, place_id, job_id, launch_data);
+        let _ = (
+            app,
+            state,
+            settings,
+            user_ids,
+            place_id,
+            job_id,
+            launch_data,
+            shuffle_job,
+        );
         Err("Launching is only supported on Windows and macOS".into())
     }
 }
@@ -1363,12 +1407,26 @@ mod launch_command_tests {
     }
 
     #[test]
-    fn effective_join_delay_seconds_turns_a_negative_setting_into_a_huge_delay() {
-        // Documented quirk: the i64 -> u64 cast wraps, so a negative
-        // AccountJoinDelay produces an effectively infinite gap rather than a
-        // short one. It errs on the safe side for the captcha, but the UI
-        // should never write a negative value here.
-        assert_eq!(effective_join_delay_seconds(Some(-1)), u64::MAX);
+    fn effective_join_delay_seconds_treats_a_negative_setting_as_the_default() {
+        // Regressão: o cast i64 -> u64 dava a volta e um AccountJoinDelay
+        // negativo (INI editado à mão) virava `u64::MAX` — a fila do multi
+        // launch parava para sempre entre duas contas. Valor inválido agora
+        // cai no default, igual a chave ausente.
+        assert_eq!(effective_join_delay_seconds(Some(-1)), 8);
+        assert_eq!(effective_join_delay_seconds(Some(-8)), 8);
+        assert_eq!(effective_join_delay_seconds(Some(i64::MIN)), 8);
+        assert_eq!(effective_join_delay_seconds(Some(-1)), effective_join_delay_seconds(None));
+    }
+
+    #[test]
+    fn configured_join_delay_seconds_sanitizes_without_applying_the_floor() {
+        // O caminho macOS usa o valor cru (piso próprio de 12 s só com
+        // EnableMultiRbx), então a sanitização tem que viver fora do piso.
+        assert_eq!(configured_join_delay_seconds(None), 8);
+        assert_eq!(configured_join_delay_seconds(Some(3)), 3);
+        assert_eq!(configured_join_delay_seconds(Some(0)), 0);
+        assert_eq!(configured_join_delay_seconds(Some(-1)), 8);
+        assert_eq!(configured_join_delay_seconds(Some(i64::MIN)), 8);
     }
 
     // ---- launch_jitter_ms / next_account_wait -------------------------------
@@ -1425,6 +1483,40 @@ mod launch_command_tests {
                 );
             }
         }
+    }
+
+    // ---- shuffle_job_requested / should_shuffle_server -----------------------
+
+    #[test]
+    fn shuffle_job_requested_defaults_to_off_when_the_frontend_omits_the_flag() {
+        // Compatibilidade: chamadas antigas de `launch_multiple` não mandam
+        // `shuffleJob`. Campo ausente chega como `None` e não pode virar
+        // "sortear" nem estourar a desserialização do comando.
+        assert!(!shuffle_job_requested(None));
+        assert!(!shuffle_job_requested(Some(false)));
+        assert!(shuffle_job_requested(Some(true)));
+    }
+
+    #[test]
+    fn should_shuffle_server_only_when_no_job_was_chosen() {
+        assert!(should_shuffle_server(true, false, ""));
+        assert!(should_shuffle_server(true, false, "   \t "));
+        // Job ID explícito manda: o usuário escolheu o servidor.
+        assert!(!should_shuffle_server(true, false, "job-123"));
+        assert!(!should_shuffle_server(true, false, "vip:abc"));
+    }
+
+    #[test]
+    fn should_shuffle_server_never_fights_follow_user() {
+        // Seguir alguém já resolve o servidor; sortear aqui mandaria a conta
+        // para outro lugar.
+        assert!(!should_shuffle_server(true, true, ""));
+    }
+
+    #[test]
+    fn should_shuffle_server_is_off_when_the_setting_is_off() {
+        assert!(!should_shuffle_server(false, false, ""));
+        assert!(!should_shuffle_server(false, true, "job-123"));
     }
 
     // ---- shuffle_server_index ------------------------------------------------

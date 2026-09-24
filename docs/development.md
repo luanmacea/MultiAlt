@@ -42,6 +42,21 @@ Antes de abrir PR, rode ao menos `bun run build` e `cargo check` nas duas config
 
 ## Testes
 
+### Suítes por funcionalidade (o dia a dia)
+
+Rodar os ~1.800 testes a cada edição é lento. O mapa em [scripts/test-suites.ts](../scripts/test-suites.ts) divide-os por funcionalidade:
+
+```bash
+bun run t --list      # lista as suítes e o que cada uma cobre
+bun run t launch      # só o que cobre launch (frontend + backend)
+bun run t join-links  # links de convite/VIP
+bun run t --audit     # acusa teste que não está em nenhuma suíte
+```
+
+Fluxo: enquanto mexe numa funcionalidade, rode **só a suíte dela**; antes de commitar, rode `bun run check` (typecheck + auditoria + vitest + `cargo test --all-features`). Só a suíte completa pega quebra cruzada entre áreas.
+
+Ao criar um `mod ..._tests` ou um `*.test.ts(x)` novo, **encaixe-o numa suíte** — `bun run check` roda a auditoria e falha se algo ficar órfão.
+
 ### Onde ficam
 
 - **Rust:** módulos `#[cfg(test)] mod <nome>_tests` **dentro** de cada arquivo fonte. Os submódulos são incluídos com `include!()` (não são módulos de verdade), então testes em `src-tauri/tests/` não conseguem enxergar o código — e **cada `mod` de teste precisa de um nome único** em todo o projeto.

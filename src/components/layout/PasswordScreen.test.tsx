@@ -147,13 +147,43 @@ describe("EncryptionSetupScreen", () => {
     expect(store.applyEncryptionMethod).toHaveBeenCalledWith("password", "longenough1");
   });
 
-  it("applies the default method without asking for a password", async () => {
+  it("applies the no-password method without asking for a password", async () => {
     const store = renderSetup();
-    await userEvent.click(screen.getByRole("button", { name: /Default Encryption/ }));
+    await userEvent.click(screen.getByRole("button", { name: /No Password/ }));
     expect(screen.queryByPlaceholderText("Create Encryption Password")).not.toBeInTheDocument();
 
     await userEvent.click(applyButton());
     expect(store.applyEncryptionMethod).toHaveBeenCalledWith("default", undefined);
+  });
+
+  // Regressão: a opção sem senha se chamava "Default Encryption" / "local
+  // default protection", mas grava AccountData.json em JSON puro. O texto
+  // precisa dizer isso, senão o usuário escolhe achando que está protegido.
+  it("says out loud that the no-password option is not encrypted", async () => {
+    renderSetup();
+    expect(screen.queryByText(/Default Encryption/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/local default protection/i)).not.toBeInTheDocument();
+
+    const plainOption = screen.getByRole("button", { name: /No Password/ });
+    expect(plainOption).toHaveTextContent(/Not Encrypted/i);
+    expect(plainOption).toHaveTextContent(/plain JSON/i);
+    expect(plainOption).toHaveTextContent(/cookies and passwords/i);
+  });
+
+  it("warns about plain text once the no-password option is picked", async () => {
+    renderSetup();
+    await userEvent.click(screen.getByRole("button", { name: /No Password/ }));
+    expect(screen.getByText(/there is no encryption/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("You can continue without a password, but your accounts will not be encrypted.")
+    ).toBeInTheDocument();
+  });
+
+  it("describes the current method honestly when nothing is encrypted", () => {
+    renderSetup({ encryptionSetupMode: "settings", accountsEncrypted: false });
+    expect(
+      screen.getByText("Current method: No password (AccountData.json is plain text)")
+    ).toBeInTheDocument();
   });
 
   it("surfaces the store's encryption error", () => {

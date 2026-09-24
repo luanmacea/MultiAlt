@@ -129,24 +129,41 @@ impl Default for ThemeData {
 pub struct ThemeStore {
     data: Mutex<ThemeData>,
     file_path: PathBuf,
+    /// Ligado quando o arquivo de tema existe mas não pôde ser lido (permissão,
+    /// bytes inválidos, arquivo travado). `IniFile::load` engole o erro de I/O e
+    /// devolve um INI vazio, então sem este latch o tema voltaria ao default e a
+    /// primeira gravação apagaria as cores do usuário — mesmo latch do
+    /// `ScriptStore`.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 impl ThemeStore {
     pub fn new(file_path: PathBuf) -> Self {
-        let data = if file_path.exists() {
-            Self::load_from_file(&file_path)
+        let (data, failed) = if file_path.exists() {
+            match Self::load_from_file(&file_path) {
+                Ok(data) => (data, false),
+                Err(_) => (ThemeData::default(), true),
+            }
         } else {
-            ThemeData::default()
+            (ThemeData::default(), false)
         };
 
         Self {
             data: Mutex::new(data),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(failed),
         }
     }
 
-    fn load_from_file(path: &Path) -> ThemeData {
-        let ini = IniFile::load(path);
+    fn load_from_file(path: &Path) -> Result<ThemeData, String> {
+        // O parser de INI nunca falha (ignora linhas que não entende), mas a
+        // leitura sim — e é justamente ela que precisa virar erro em vez de
+        // devolver um tema default. `IniFile::load` engole o erro de I/O, então
+        // lemos aqui e só depois entregamos o conteúdo ao parser.
+        let raw =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read theme file: {}", e))?;
+        let mut ini = IniFile::new();
+        ini.parse(&raw);
         let mut data = ThemeData::default();
 
         let section = ini
@@ -226,7 +243,7 @@ impl ThemeStore {
             }
         }
 
-        data
+        Ok(data)
     }
 
     pub fn get(&self) -> Result<ThemeData, String> {
@@ -235,6 +252,12 @@ impl ThemeStore {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Theme file could not be read; refusing to overwrite it. Fix or restore the theme file and restart.".to_string(),
+            );
+        }
+
         let data = self.data.lock().map_err(|e| e.to_string())?;
         let mut ini = IniFile::new();
         let section = ini.section("Roblox Account Manager");
@@ -401,6 +424,52 @@ mod theme_store_tests {
         let s = store("missing");
         assert_eq!(s.get().unwrap().accounts_background, "#09090B");
         assert!(!s.file_path.exists(), "opening must not write the file");
+    }
+
+    #[test]
+    fn an_unreadable_theme_file_is_never_overwritten() {
+        // `IniFile::load` engole erros de I/O, então um arquivo ilegível virava
+        // silenciosamente o tema default e a primeira gravação apagava as cores
+        // do usuário. Agora a falha fica latcheada e `save` é recusado.
+        let s = store("unreadable");
+        // Bytes que não são UTF-8 fazem `read_to_string` falhar.
+        let broken = b"[Roblox Account Manager]\nAccountsBG=\xff\xfe\xfd\n";
+        fs::write(&s.file_path, broken).unwrap();
+
+        let reopened = ThemeStore::new(s.file_path.clone());
+        assert_eq!(
+            reopened.get().unwrap().accounts_background,
+            "#09090B",
+            "em memória ficam os defaults"
+        );
+
+        let err = reopened
+            .update(ThemeData::default())
+            .expect_err("gravar sobre um tema ilegível deve falhar");
+        assert!(err.contains("refusing to overwrite"), "{err}");
+        assert_eq!(
+            fs::read(&s.file_path).unwrap(),
+            broken.to_vec(),
+            "o arquivo do usuário fica intacto"
+        );
+    }
+
+    #[test]
+    fn a_readable_theme_file_keeps_saving() {
+        let s = store("readable-latch");
+        s.update(ThemeData::default()).unwrap();
+
+        let reopened = ThemeStore::new(s.file_path.clone());
+        let mut theme = ThemeData::default();
+        theme.accounts_background = "#123456".to_string();
+        reopened.update(theme).expect("um tema legível continua gravável");
+        assert_eq!(
+            ThemeStore::new(s.file_path.clone())
+                .get()
+                .unwrap()
+                .accounts_background,
+            "#123456"
+        );
     }
 
     // ---- save / load round trip ---------------------------------------------------

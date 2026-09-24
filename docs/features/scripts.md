@@ -27,7 +27,7 @@ Permitir que o usuário escreva pequenos programas JavaScript que automatizam o 
 | `enabled` | `true` | desabilitar para o runtime |
 | `trusted` | `false` | exigido por ações sensíveis |
 | `autoStart` | `false` | inicia automaticamente |
-| `permissions` | tudo `false` | `allowInvoke`, `allowHttp`, `allowWebSocket`, `allowWindow`, `allowModal`, `allowSettings`, `allowUi` |
+| `permissions` | tudo `false` | `allowInvoke`, `allowHttp`, `allowWebSocket`, `allowWindow`, `allowModal`, `allowSettings`, `allowUi`, `allowPrivateNetwork` |
 | `createdAtMs` / `updatedAtMs` | agora | `createdAtMs` é preservado em updates |
 
 Comandos: `get_scripts` (ordenado por nome, case-insensitive), `save_script` (upsert), `delete_script`.
@@ -58,9 +58,15 @@ Comandos: `get_scripts` (ordenado por nome, case-insensitive), `save_script` (up
 | `ram.settings.set` | `settings.set` | `allowSettings` | **sim** |
 | `ram.ui.set/patch/clear`, `ram.ui.on` | `ui.*` | `allowUi` | não |
 
+Além dessas, `allowPrivateNetwork` não habilita nenhuma chamada nova: ela libera alvos de localhost/rede privada dentro de `ram.http.*` e `ram.ws.*` (ver "Rede privada" abaixo).
+
 ### Allowlist de `ram.invoke`
 
-Somente estes comandos (`SCRIPT_INVOKE_COMMANDS`): `get_accounts`, `update_account`, `add_account`, `remove_account`, `validate_cookie`, `launch_roblox`, `launch_multiple`, `cmd_kill_roblox`, `cmd_kill_all_roblox`, `get_presence`, `start_botting_mode`, `stop_botting_mode`, `get_botting_mode_status`, `add_botting_accounts`, `set_botting_player_accounts`, `botting_account_action`, `start_generator`, `stop_generator`, `get_generator_status`, `generator_test_key`, `start_web_server`, `stop_web_server`, `start_nexus_server`, `stop_nexus_server`, `nexus_send_command`, `get_theme`.
+Somente estes comandos (`SCRIPT_INVOKE_COMMANDS`): `update_account`, `add_account`, `remove_account`, `validate_cookie`, `launch_roblox`, `launch_multiple`, `cmd_kill_roblox`, `cmd_kill_all_roblox`, `get_presence`, `start_botting_mode`, `stop_botting_mode`, `get_botting_mode_status`, `add_botting_accounts`, `set_botting_player_accounts`, `botting_account_action`, `start_generator`, `stop_generator`, `get_generator_status`, `generator_test_key`, `start_web_server`, `stop_web_server`, `start_nexus_server`, `stop_nexus_server`, `nexus_send_command`, `get_theme`.
+
+**`get_accounts` é a exceção filtrada.** Ele não está em `SCRIPT_INVOKE_COMMANDS` (passagem direta) porque devolve `SecurityToken` (cookie) e `Password` de todas as contas. Ele continua chamável via `ram.invoke("get_accounts", {})`, mas passa por `SCRIPT_INVOKE_SANITIZERS` em [scripting/security.ts](../../src/scripting/security.ts): `redactAccountSecrets` remove `SecurityToken`/`Password`/`Cookie`/`RobloSecurity` e, dentro de `Fields`, qualquer chave com `password`, `cookie`, `secret`, `token` ou `apikey` no nome. O resto (`UserID`, `Username`, `Alias`, `Group`, `Valid`, `LastUse`, `Fields` não secretos, ...) chega intacto.
+
+O ciclo ler → editar → gravar continua funcionando: `update_account` no backend **sempre** relê cookie e senha da store antes de gravar ([data/accounts/commands.rs](../../src-tauri/src/data/accounts/commands.rs)), então devolver a conta filtrada não apaga credencial nenhuma.
 
 ## Regras de negócio
 
@@ -68,7 +74,8 @@ Somente estes comandos (`SCRIPT_INVOKE_COMMANDS`): `get_accounts`, `update_accou
 - **Sandbox** (Worker): bloqueia `import()`, `importScripts`, `eval` (direto, opcional e indireto) e construtores `Function`/`AsyncFunction`/`GeneratorFunction`/`AsyncGeneratorFunction` por regex no fonte; sombreia `globalThis`, `self`, `window`, `document`, `navigator`, `location`, `fetch`, `WebSocket`, `XMLHttpRequest`, `Worker`, `indexedDB`, `caches`, `localStorage`, `WebTransport`, `WebSocketStream`, `RTCPeerConnection`, `webkitRTCPeerConnection`, `RTCDataChannel`, etc. (`lockDownDangerousGlobals` também redefine esses globais como `undefined` não configurável em `self`, incluindo `caches` e `indexedDB`). Eventos permitidos em `ram.on`: `window:update`, `ws`, `ui` (máx. 32 handlers por evento, 96 no total).
 - **HTTP**: só `http:`/`https:`; métodos `GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS`; timeout ≤ 30 s; ≤ 64 headers; corpo ≤ 256 KiB; resposta ≤ 512 KiB. Executado com `fetch` no WebView.
 - **WebSocket**: só `ws:`/`wss:`; ≤ 8 conexões por script; mensagem ≤ 256 KiB.
-- **Rede privada bloqueada por padrão** (`isPrivateOrLoopbackHost`): `localhost`, `*.localhost`, 10/8, 127/8, 0/8, 169.254/16, 172.16/12, 192.168/16, IPv6 loopback/ULA/link-local, IPv4-mapeado privado, hosts numéricos ambíguos (hex/octal) e hosts com `%`. Liberar exige `allowPrivateNetwork: true` na chamada.
+- **Rede privada bloqueada por padrão** (`isPrivateOrLoopbackHost`): `localhost`, `*.localhost`, 10/8, 127/8, 0/8, 169.254/16, 172.16/12, 192.168/16, IPv6 loopback/ULA/link-local, IPv4-mapeado privado, hosts numéricos ambíguos (hex/octal) e hosts com `%`. Liberar exige a **permissão** `allowPrivateNetwork` no script, concedida pelo usuário no diálogo ("Private Network (localhost/LAN)"). O campo `allowPrivateNetwork` no payload de `ram.http.request`/`ram.ws.connect` é **ignorado** (`resolvePrivateNetworkAccess`) — antes era ele que liberava o acesso, ou seja, o script se autoconcedia a permissão.
+- **Onde o grant mora:** o backend (`RAMScripts.json`) não persiste `allowPrivateNetwork`; ele fica em `RAMSettings.ini`, seção `[ScriptPrivateNetwork]`, com o id do script como chave (`true`/`false`). Como `ram.settings` só enxerga seções `Script.<id>`, nenhum script consegue se autoconceder o acesso. O grant é lido junto com `get_scripts`, gravado após `save_script` e zerado no `delete_script`.
 - **Settings de script**: cada script só enxerga a seção `Script.<id>` (ou `Script.id-<fnv1a>-<hex>` se o id tiver caracteres fora do padrão); chave ≤ 80 chars, valor ≤ 4096 bytes.
 - **UI**: ≤ 80 elementos; tipos `button, text, number, toggle, select, textarea, badge, divider`; ≤ 120 opções por select; texto ≤ 2048 chars; patch ≤ 16 KiB.
 - **Logs**: mensagem truncada em 4000 chars; ≤ 64 host requests pendentes.
@@ -85,7 +92,8 @@ Somente estes comandos (`SCRIPT_INVOKE_COMMANDS`): `get_accounts`, `update_accou
 ## Armadilhas / cuidados
 
 - As verificações de permissão existem **apenas no frontend**. O backend não sabe quem chamou um comando; `save_script` aceita qualquer combinação de `trusted`/`permissions`.
-- Um script `trusted` com `allowInvoke` pode chamar `get_accounts`, que devolve **cookies e senhas** — trate "trusted" como acesso total às contas. A redação de settings no `window:update` não muda isso.
+- Um script `trusted` com `allowInvoke` ainda pode **usar** as contas (lançar, remover, trocar grupo) e pedir `validate_cookie` com um cookie que ele mesmo forneça; o que ele não consegue mais é **ler** o cookie/senha das contas já cadastradas. Trate "trusted + allowInvoke" como controle total do app, não como leitura de credenciais.
+- Ao acrescentar um comando à allowlist, confira o que ele **devolve**: se a resposta carrega segredo, ele precisa de um filtro em `SCRIPT_INVOKE_SANITIZERS`, não de uma entrada em `SCRIPT_INVOKE_COMMANDS`.
 - `ram.settings.all` só devolve a seção do próprio script, mas o evento `window:update` é enviado a **todo** script em execução (no start e a cada mudança, via `postEventToAll`), sem checar `allowWindow`, e inclui todas as settings **exceto** as chaves secretas filtradas por `redactSecretSettings`. Uma chave secreta nova com nome fora do padrão (ex.: `...Key`, `...Pass`) **vaza** — siga os sufixos `Password`/`ApiKey`/`Secret`/`Token` ou atualize `isSecretSettingKey`. A permissão `allowWindow` só protege as chamadas `ram.window.*`.
 - Os bloqueios do sandbox são por regex e sombreamento de nomes — não são um isolamento de processo. Não rode scripts de terceiros sem ler.
 - Ao adicionar um comando Tauri que scripts devem usar, é preciso incluí-lo em `SCRIPT_INVOKE_COMMANDS`; comandos fora da lista são recusados.

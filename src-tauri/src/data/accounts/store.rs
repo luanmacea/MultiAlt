@@ -1,6 +1,72 @@
+/// Material de criptografia derivado uma única vez por unlock.
+///
+/// Por quê: `crypto::encrypt` sorteia um salt novo e chama `derive_key`
+/// (argon2i, `OPSLIMIT_MODERATE`/`MEMLIMIT_MODERATE` ≈ 256 MiB) **a cada**
+/// chamada. Como `save()` segura o lock de contas e os comandos Tauri síncronos
+/// rodam na thread principal, mover N contas de grupo congelava a interface N
+/// vezes. Agora o argon2 roda uma vez, no unlock.
+///
+/// Formato e segurança: o arquivo continua sendo
+/// `RAM_HEADER | salt(16) | nonce(24) | ciphertext`, byte a byte igual ao que
+/// `crypto::encrypt` produzia, e `crypto::decrypt` segue lendo normalmente. A
+/// única diferença é que o salt passa a ser sorteado uma vez por unlock em vez
+/// de uma vez por gravação. Isso não enfraquece nada: o salt existe para impedir
+/// pré-computação de dicionário entre alvos diferentes (e ele continua aleatório
+/// e rotacionado a cada unlock/mudança de senha); o valor que jamais pode se
+/// repetir sob a mesma chave é o **nonce**, e esse continua sendo sorteado a
+/// cada gravação. Reaproveitar a chave sem duplicar a montagem aqui exigiria um
+/// `encrypt_with_key` em `data/crypto.rs`; enquanto aquele arquivo não puder ser
+/// tocado, a montagem fica neste módulo.
+struct SessionKey {
+    /// SHA-512 da senha. Barato, e ainda necessário para decriptar arquivos
+    /// gravados com outros salts (o próprio arquivo lido no unlock, por ex.).
+    password_hash: Vec<u8>,
+    salt: sodiumoxide::crypto::pwhash::argon2i13::Salt,
+    key: sodiumoxide::crypto::secretbox::Key,
+}
+
+impl SessionKey {
+    /// Espera a senha já normalizada (com trim) pelo chamador, do mesmo jeito
+    /// que `crypto::hash_password`.
+    fn derive(password: &str) -> Result<Self, String> {
+        use sodiumoxide::crypto::pwhash::argon2i13;
+
+        let password_hash = crypto::hash_password(password);
+        let salt = argon2i13::gen_salt();
+        let key = crypto::derive_key(&password_hash, salt.as_ref())
+            .map_err(|e| format!("Failed to derive key: {}", e))?;
+        Ok(Self {
+            password_hash,
+            salt,
+            key,
+        })
+    }
+
+    fn encrypt(&self, content: &str) -> Result<Vec<u8>, String> {
+        use sodiumoxide::crypto::secretbox;
+
+        if content.is_empty() {
+            return Err("Failed to encrypt: Invalid encrypted data".to_string());
+        }
+
+        let nonce = secretbox::gen_nonce();
+        let ciphertext = secretbox::seal(content.as_bytes(), &nonce, &self.key);
+
+        let mut output =
+            Vec::with_capacity(crypto::RAM_HEADER.len() + 16 + 24 + ciphertext.len());
+        output.extend_from_slice(crypto::RAM_HEADER);
+        output.extend_from_slice(self.salt.as_ref());
+        output.extend_from_slice(nonce.as_ref());
+        output.extend_from_slice(&ciphertext);
+        Ok(output)
+    }
+}
+
 pub struct AccountStore {
     accounts: Mutex<Vec<Account>>,
-    password_hash: Mutex<Option<Vec<u8>>>,
+    /// `None` = sem senha (arquivo em texto puro) ou ainda trancado.
+    /// Ordem de lock em todo o arquivo: `accounts` → `session`.
+    session: Mutex<Option<SessionKey>>,
     file_path: PathBuf,
     /// Set when the on-disk file exists but could not be decoded. While set,
     /// `save()` refuses to write so an empty in-memory list never overwrites
@@ -23,7 +89,7 @@ impl AccountStore {
     pub fn new(file_path: PathBuf) -> Self {
         Self {
             accounts: Mutex::new(Vec::new()),
-            password_hash: Mutex::new(None),
+            session: Mutex::new(None),
             file_path,
             load_failed: std::sync::atomic::AtomicBool::new(false),
         }
@@ -41,10 +107,11 @@ impl AccountStore {
     }
 
     pub fn needs_password(&self) -> Result<bool, String> {
-        let password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
-        if password_hash.is_some() {
+        let session = self.session.lock().map_err(|e| e.to_string())?;
+        if session.is_some() {
             return Ok(false);
         }
+        drop(session);
         self.is_encrypted()
     }
 
@@ -78,10 +145,15 @@ impl AccountStore {
     }
 
     pub fn load_with_password(&self, password: &str) -> Result<(), String> {
-        let hash = crypto::hash_password(password.trim());
+        // O unlock é o único ponto que paga o argon2: a chave derivada aqui é
+        // reutilizada por todas as gravações da sessão.
+        let trimmed = password.trim();
+        let hash = crypto::hash_password(trimmed);
+
         if !self.file_path.exists() {
-            let mut password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
-            *password_hash = Some(hash);
+            let session = SessionKey::derive(trimmed)?;
+            let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+            *slot = Some(session);
             return Ok(());
         }
 
@@ -89,11 +161,12 @@ impl AccountStore {
             fs::read(&self.file_path).map_err(|e| format!("Failed to read account file: {}", e))?;
 
         if data.is_empty() {
+            let session = SessionKey::derive(trimmed)?;
             let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
             *accounts = Vec::new();
             drop(accounts);
-            let mut password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
-            *password_hash = Some(hash);
+            let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+            *slot = Some(session);
             return Ok(());
         }
 
@@ -105,39 +178,54 @@ impl AccountStore {
             Self::decode_plain_or_legacy_accounts(&data)?
         };
 
+        // Derivado só depois da senha ser aceita, para uma senha errada não
+        // custar um argon2 extra.
+        let session = SessionKey::derive(trimmed)?;
+
         let mut store = self.accounts.lock().map_err(|e| e.to_string())?;
         *store = accounts;
         drop(store);
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
 
-        let mut password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
-        *password_hash = Some(hash);
+        let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+        *slot = Some(session);
         Ok(())
     }
 
     pub fn save(&self) -> Result<(), String> {
-        self.save_inner(false)
+        let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        self.save_locked(&accounts, false)
     }
 
+    /// Serializa e grava o snapshot **que o chamador ainda está segurando**.
+    ///
+    /// `add`/`remove`/`update`/`reorder` soltavam o lock antes de `save()`
+    /// reobtê-lo, então duas escritas concorrentes podiam intercalar e deixar o
+    /// arquivo uma entrada atrás da memória. Mantendo o guard vivo até o
+    /// `atomic_replace`, o que vai para o disco é sempre o estado que acabou de
+    /// ser produzido.
+    ///
     /// `replace_encrypted_with_plain`: only for deliberately removing encryption
     /// from an already-unlocked store (see `set_password`).
-    fn save_inner(&self, replace_encrypted_with_plain: bool) -> Result<(), String> {
+    fn save_locked(
+        &self,
+        accounts: &[Account],
+        replace_encrypted_with_plain: bool,
+    ) -> Result<(), String> {
         if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(
                 "Account file could not be loaded; refusing to overwrite it. Fix or restore AccountData.json and restart.".to_string(),
             );
         }
 
-        let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-
-        let json = serde_json::to_string_pretty(&*accounts)
+        let json = serde_json::to_string_pretty(accounts)
             .map_err(|e| format!("Failed to serialize accounts: {}", e))?;
 
-        let password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
+        let session = self.session.lock().map_err(|e| e.to_string())?;
 
-        let data = if let Some(hash) = password_hash.as_ref() {
-            crypto::encrypt(&json, hash).map_err(|e| format!("Failed to encrypt: {}", e))?
+        let data = if let Some(session) = session.as_ref() {
+            session.encrypt(&json)?
         } else {
             // Still locked: never replace an encrypted file with plaintext (it
             // would drop every account the user has not unlocked yet).
@@ -167,16 +255,23 @@ impl AccountStore {
                 return Err("Password must be at least 8 characters".to_string());
             }
         }
-        let mut password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
-        let was_unlocked = password_hash.is_some();
+        let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+        let was_unlocked = slot.is_some();
         if !was_unlocked && self.is_encrypted()? {
             // Re-keying a file we never decrypted would encrypt an empty list
             // over the user's accounts.
             return Err("Accounts are locked; unlock them before changing the password.".to_string());
         }
-        *password_hash = password.map(|p| crypto::hash_password(p.trim()));
-        drop(password_hash);
-        self.save_inner(was_unlocked)
+        *slot = match password {
+            Some(p) => Some(SessionKey::derive(p.trim())?),
+            None => None,
+        };
+        // Solta `session` antes de pegar `accounts`: a ordem de lock do resto do
+        // arquivo é accounts → session, e inverter aqui criaria deadlock.
+        drop(slot);
+
+        let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        self.save_locked(&accounts, was_unlocked)
     }
 
     pub fn get_all(&self) -> Result<Vec<Account>, String> {
@@ -199,8 +294,8 @@ impl AccountStore {
             accounts.push(account);
         }
 
-        drop(accounts);
-        self.save()
+        // O guard continua vivo: o arquivo recebe exatamente este snapshot.
+        self.save_locked(&accounts, false)
     }
 
     pub fn remove(&self, user_id: i64) -> Result<bool, String> {
@@ -209,9 +304,8 @@ impl AccountStore {
         accounts.retain(|a| a.user_id != user_id);
         let removed = accounts.len() < initial_len;
 
-        drop(accounts);
         if removed {
-            self.save()?;
+            self.save_locked(&accounts, false)?;
         }
 
         Ok(removed)
@@ -222,8 +316,7 @@ impl AccountStore {
 
         if let Some(existing) = accounts.iter_mut().find(|a| a.user_id == account.user_id) {
             *existing = account;
-            drop(accounts);
-            self.save()?;
+            self.save_locked(&accounts, false)?;
             Ok(true)
         } else {
             Ok(false)
@@ -248,8 +341,7 @@ impl AccountStore {
         ordered.append(&mut accounts);
         *accounts = ordered;
 
-        drop(accounts);
-        self.save()
+        self.save_locked(&accounts, false)
     }
 
     fn decode_plain_or_legacy_accounts(data: &[u8]) -> Result<Vec<Account>, String> {
@@ -270,9 +362,10 @@ impl AccountStore {
         }
 
         if crypto::is_encrypted(data) {
-            let password_hash = self.password_hash.lock().map_err(|e| e.to_string())?;
-            let hash = password_hash
+            let session = self.session.lock().map_err(|e| e.to_string())?;
+            let hash = session
                 .as_ref()
+                .map(|s| s.password_hash.as_slice())
                 .ok_or_else(|| "Password required for encrypted file".to_string())?;
             let decrypted =
                 crypto::decrypt(data, hash).map_err(|e| format!("Failed to decrypt: {}", e))?;
@@ -295,7 +388,9 @@ impl AccountStore {
             let Some(password) = import_password else {
                 return Err(IMPORT_PASSWORD_REQUIRED.to_string());
             };
-            let hash = crypto::hash_password(password);
+            // Mesmo trim de `load_with_password`: a senha colada com espaço no
+            // fim desbloqueava o app mas era recusada no import.
+            let hash = crypto::hash_password(password.trim());
             let decrypted = crypto::decrypt(data, &hash)
                 .map_err(|_| "Import password is incorrect".to_string())?;
             return Self::parse_accounts_json(&decrypted);
@@ -364,11 +459,10 @@ impl AccountStore {
         let mut seen_user_ids = HashSet::new();
         accounts.retain(|account| seen_user_ids.insert(account.user_id));
 
-        drop(accounts);
-
         if added > 0 || replaced > 0 {
-            self.save()?;
+            self.save_locked(&accounts, false)?;
         }
+        drop(accounts);
 
         Ok(OldAccountImportSummary {
             total,
@@ -629,7 +723,7 @@ mod account_store_tests {
 
         // Once a password is held, it is no longer "needs password" even
         // though the file is still encrypted.
-        *s.password_hash.lock().unwrap() = Some(crypto::hash_password(SAMPLE_PASSWORD));
+        *s.session.lock().unwrap() = Some(SessionKey::derive(SAMPLE_PASSWORD).unwrap());
         assert!(s.is_encrypted().unwrap());
         assert!(!s.needs_password().unwrap());
     }
@@ -722,7 +816,11 @@ mod account_store_tests {
         assert!(ids(&s).is_empty());
         // The password is trimmed before hashing.
         assert_eq!(
-            s.password_hash.lock().unwrap().clone(),
+            s.session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|k| k.password_hash.clone()),
             Some(crypto::hash_password("some-password"))
         );
     }
@@ -736,7 +834,7 @@ mod account_store_tests {
         s.load_with_password("another-password").unwrap();
 
         assert!(ids(&s).is_empty());
-        assert!(s.password_hash.lock().unwrap().is_some());
+        assert!(s.session.lock().unwrap().is_some());
     }
 
     #[test]
@@ -764,7 +862,7 @@ mod account_store_tests {
         assert!(err.contains("Failed to decrypt"), "{err}");
         assert!(ids(&s).is_empty(), "a failed unlock must not load anything");
         assert!(
-            s.password_hash.lock().unwrap().is_none(),
+            s.session.lock().unwrap().is_none(),
             "a failed unlock must not arm the wrong password"
         );
 
@@ -1174,13 +1272,26 @@ mod account_store_tests {
     }
 
     #[test]
-    fn import_does_not_trim_the_import_password_the_way_unlocking_does() {
-        // `load_with_password` trims, `decode_accounts_for_import` does not.
+    fn import_trims_the_import_password_just_like_unlocking() {
+        // Este teste fixava o comportamento antigo: `load_with_password` fazia
+        // trim e `decode_accounts_for_import` não, então a mesma senha colada
+        // com espaço no fim desbloqueava o app mas era recusada no import.
+        // Agora as duas normalizam igual.
         let s = store("import-trim");
-        let err = s
-            .import_old_account_data(encrypted_sample(), Some(&format!(" {SAMPLE_PASSWORD} ")))
-            .unwrap_err();
-        assert_eq!(err, "Import password is incorrect");
+        let summary = s
+            .import_old_account_data(encrypted_sample(), Some(&format!("  {SAMPLE_PASSWORD}\t\n")))
+            .expect("a senha com espaços em volta deve ser aceita");
+        assert_eq!(summary.added, 1);
+        assert_eq!(ids(&s), vec![111]);
+
+        // Uma senha realmente diferente continua sendo recusada.
+        let other = store("import-trim-wrong");
+        assert_eq!(
+            other
+                .import_old_account_data(encrypted_sample(), Some(" not-the-password "))
+                .unwrap_err(),
+            "Import password is incorrect"
+        );
     }
 
     #[test]
@@ -1230,7 +1341,7 @@ mod account_store_tests {
         let err = s.decode_accounts_for_load(encrypted_sample()).unwrap_err();
         assert!(err.contains("Password required"), "{err}");
 
-        *s.password_hash.lock().unwrap() = Some(crypto::hash_password("nope-not-it"));
+        *s.session.lock().unwrap() = Some(SessionKey::derive("nope-not-it").unwrap());
         let err = s.decode_accounts_for_load(encrypted_sample()).unwrap_err();
         assert!(err.contains("Failed to decrypt"), "{err}");
     }
@@ -1257,13 +1368,125 @@ mod account_store_tests {
         got.sort();
         assert_eq!(got.len(), 20, "every add must survive: {got:?}");
 
-        // The file is always valid JSON; it may lag the in-memory list because
-        // save() re-locks after the mutation, so only check it is a subset.
-        let on_disk: Vec<Account> =
-            serde_json::from_slice(&fs::read(&s.file_path).unwrap()).expect("file stays valid");
-        for entry in &on_disk {
-            assert!(got.contains(&entry.user_id));
-        }
+        // Este teste aceitava que o arquivo ficasse atrás da memória ("only
+        // check it is a subset") porque `save()` reobtinha o lock depois da
+        // mutação. Agora a serialização acontece sob o mesmo guard, então o
+        // arquivo tem exatamente o que está em memória.
+        let mut on_disk: Vec<i64> = serde_json::from_slice::<Vec<Account>>(
+            &fs::read(&s.file_path).unwrap(),
+        )
+        .expect("file stays valid")
+        .iter()
+        .map(|a| a.user_id)
+        .collect();
+        on_disk.sort();
+        assert_eq!(on_disk, got, "o arquivo não pode ficar atrás da memória");
         assert!(!s.file_path.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn every_mutation_leaves_the_file_equal_to_the_in_memory_list() {
+        // Invariante nova: quando `add`/`update`/`remove`/`reorder` retornam,
+        // o arquivo já contém exatamente o snapshot que a mutação produziu —
+        // não existe mais janela entre soltar o lock e gravar.
+        let s = store("snapshot-invariant");
+
+        let on_disk = |s: &AccountStore| -> Vec<i64> {
+            serde_json::from_slice::<Vec<Account>>(&fs::read(&s.file_path).unwrap())
+                .expect("arquivo válido")
+                .iter()
+                .map(|a| a.user_id)
+                .collect()
+        };
+
+        for id in 1..=4 {
+            s.add(account(id, &format!("U{id}"))).unwrap();
+            assert_eq!(on_disk(&s), ids(&s));
+        }
+
+        assert!(s.update(account(2, "Renamed")).unwrap());
+        assert_eq!(on_disk(&s), ids(&s));
+
+        s.reorder(&[4, 1]).unwrap();
+        assert_eq!(on_disk(&s), ids(&s));
+
+        assert!(s.remove(1).unwrap());
+        assert_eq!(on_disk(&s), ids(&s));
+    }
+
+    // ---- derivação de chave ---------------------------------------------------
+
+    #[test]
+    fn unlocking_derives_the_key_once_and_every_save_reuses_it() {
+        // `save()` chamava `crypto::encrypt`, que sorteia salt e roda argon2i
+        // MODERATE (256 MiB) a cada gravação, segurando o lock — mover N contas
+        // de grupo congelava a UI N vezes. Agora o argon2 roda só no unlock.
+        //
+        // O observável direto disso é o salt no arquivo: se a chave fosse
+        // re-derivada, cada gravação traria um salt novo.
+        let salt_of = |bytes: &[u8]| bytes[crypto::RAM_HEADER.len()..crypto::RAM_HEADER.len() + 16].to_vec();
+
+        let s = store("key-reuse");
+        s.load_with_password(SAMPLE_PASSWORD).unwrap();
+
+        s.add(account(1, "One")).unwrap();
+        let first = fs::read(&s.file_path).unwrap();
+        s.add(account(2, "Two")).unwrap();
+        let second = fs::read(&s.file_path).unwrap();
+        s.update(account(2, "Two Renamed")).unwrap();
+        let third = fs::read(&s.file_path).unwrap();
+
+        assert!(crypto::is_encrypted(&first));
+        assert_eq!(salt_of(&first), salt_of(&second), "o salt da sessão é estável");
+        assert_eq!(salt_of(&second), salt_of(&third));
+        // O nonce, esse sim, continua sorteado a cada gravação.
+        let nonce_of = |b: &[u8]| b[crypto::RAM_HEADER.len() + 16..crypto::RAM_HEADER.len() + 40].to_vec();
+        assert_ne!(nonce_of(&second), nonce_of(&third), "nonce nunca se repete");
+
+        // O formato do arquivo não mudou: `crypto::decrypt` com o hash da senha
+        // continua abrindo, e um store novo relê tudo.
+        let decrypted =
+            crypto::decrypt(&third, &crypto::hash_password(SAMPLE_PASSWORD)).unwrap();
+        let parsed: Vec<Account> = serde_json::from_slice(&decrypted).unwrap();
+        assert_eq!(parsed.len(), 2);
+
+        let reloaded = AccountStore::new(s.file_path.clone());
+        reloaded.load_with_password(SAMPLE_PASSWORD).unwrap();
+        assert_eq!(ids(&reloaded), vec![1, 2]);
+        assert_eq!(reloaded.get_all().unwrap()[1].username, "Two Renamed");
+
+        // Cada unlock sorteia um salt novo, então ele não vira uma constante.
+        reloaded.add(account(3, "Three")).unwrap();
+        assert_ne!(
+            salt_of(&fs::read(&s.file_path).unwrap()),
+            salt_of(&third),
+            "um unlock novo rotaciona o salt"
+        );
+    }
+
+    #[test]
+    fn saving_many_times_costs_far_less_than_one_key_derivation() {
+        // Guarda de regressão para a UI travada: um argon2i MODERATE custa
+        // centenas de milissegundos; várias gravações juntas têm que custar uma
+        // fração disso. A margem é folgada de propósito.
+        let s = store("save-cost");
+        s.load_with_password(SAMPLE_PASSWORD).unwrap();
+        s.add(account(1, "One")).unwrap();
+
+        let derive_started = std::time::Instant::now();
+        SessionKey::derive(SAMPLE_PASSWORD).unwrap();
+        let one_derivation = derive_started.elapsed();
+
+        let saves_started = std::time::Instant::now();
+        for id in 2..=11 {
+            s.add(account(id, &format!("U{id}"))).unwrap();
+        }
+        let ten_saves = saves_started.elapsed();
+
+        assert_eq!(ids(&s).len(), 11);
+        assert!(
+            ten_saves < one_derivation,
+            "10 gravações ({ten_saves:?}) não podem custar mais que uma derivação ({one_derivation:?})"
+        );
     }
 }

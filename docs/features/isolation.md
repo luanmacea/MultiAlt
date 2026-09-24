@@ -39,7 +39,7 @@ sequenceDiagram
     I->>I: wipe_light → delete HKCU (Medium+) → wipe_full_versions (Full)
     I->>I: restore backups
     opt SpoofMachineGuid / SpoofMacAddress
-        I->>PS: ram_isolation_<ts>_<token>.ps1 (runas, espera 60 s)
+        I->>PS: powershell -EncodedCommand <script> (runas, espera 60 s)
         PS-->>I: exit code
     end
     I-->>L: IsolationReport / IsolationFailure
@@ -71,7 +71,10 @@ Exceções no Full:
 - **Spoof MachineGuid:** novo GUID v4 aleatório (`BCryptGenRandom`), escrito em `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid` via script elevado. Valor original capturado em `Isolation.BackupMachineGuid`.
 - **Spoof MAC:** adaptador escolhido por `TargetAdapter` (subkey de 4 dígitos, descrição ou `NetCfgInstanceId`); sem preferência, o primeiro sem "virtual"/"loopback" na descrição. Novo MAC aleatório localmente administrado (bit `0x02`, unicast). Script grava `NetworkAddress` em `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-E325-11CE-BFC1-08002BE10318}\<subkey>`, desabilita/reabilita o adaptador (600 ms) e faz `ipconfig /release` + `/renew`. Valores anteriores ficam em `BackupAdapterId` / `BackupNetworkAddress`.
 - **Adaptadores listados** ignoram WAN Miniport, Kernel Debugger, Microsoft Hosted Network e Packet Scheduler.
-- **PowerShell elevado:** script em `%LOCALAPPDATA%\Roblox Account Manager\IsolationBackup\Scripts\ram_isolation_<ms>_<token>.ps1`, executado com `ShellExecuteExW` verbo `runas`, `-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden`. Espera até 60 s; UAC negado, timeout ou exit code ≠ 0 = erro. O arquivo é apagado ao final.
+- **PowerShell elevado:** o script **não toca o disco**. `build_elevated_powershell_parameters` embute o corpo em `-EncodedCommand` (base64 de UTF-16LE) e `ShellExecuteExW` verbo `runas` roda `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand <b64>`. Espera até 60 s; UAC negado, timeout ou exit code ≠ 0 = erro.
+  - **Por quê:** antes o script ia para `%LOCALAPPDATA%\Roblox Account Manager\IsolationBackup\Scripts\ram_isolation_<ms>_<token>.ps1` — pasta gravável por qualquer processo do usuário — e só depois era elevado. Outro processo podia trocar o arquivo nessa janela (TOCTOU) e executar o que quisesse como administrador. A pasta `Scripts\` legada é apagada na próxima elevação.
+  - Sem `-File`, o corpo vai dentro de `try { ... } catch { exit 1 }` + `exit 0`: `powershell -EncodedCommand` sai com 0 mesmo depois de um erro terminante, e o exit code é como o isolamento detecta falha.
+  - Teto de `MAX_ELEVATED_PARAMETERS_CHARS` (30 000 chars, contra o limite real de 32 767 do `CreateProcess`); acima disso o spoof é **recusado** em vez de voltar a gravar arquivo. Os scripts reais (spoof completo e restore) ficam bem abaixo disso.
 - **Validação antes de executar:** GUID precisa ter formato 8-4-4-4-12 hex, subkey 4 dígitos, MAC 12 hex — senão o script é recusado.
 - **Backups só são gravados se vazios** (preserva o valor original de fábrica, não o último spoof).
 - **Restore (`isolation_restore_network_identifiers`):** exige ao menos GUID ou adapter no backup; regrava GUID, regrava ou remove `NetworkAddress`, reinicia o adaptador e limpa as três chaves de backup.

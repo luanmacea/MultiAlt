@@ -9,6 +9,13 @@ export interface ScriptPermissions {
   allowModal: boolean;
   allowSettings: boolean;
   allowUi: boolean;
+  /**
+   * Libera alvos de localhost/rede privada em `ram.http.*` e `ram.ws.*`.
+   * Opcional porque o backend (RAMScripts.json) não persiste este campo: o
+   * grant fica no RAMSettings.ini (ver PRIVATE_NETWORK_SECTION em
+   * ScriptsDialog). Ausente = negado.
+   */
+  allowPrivateNetwork?: boolean;
 }
 
 export interface ManagedScript {
@@ -129,12 +136,10 @@ export interface ScriptHttpRequestInput {
   headers?: Record<string, string>;
   body?: unknown;
   timeoutMs?: number;
-  allowPrivateNetwork?: boolean;
 }
 
 export interface ScriptWebSocketConnectInput {
   url: string;
   connectionId?: string;
   protocols?: string[] | string;
-  allowPrivateNetwork?: boolean;
 }

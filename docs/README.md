@@ -42,6 +42,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ### Integrações
 - [features/webserver.md](features/webserver.md) — API HTTP local (feature `webserver`).
+- [features/chromium.md](features/chromium.md) — navegador Chromium via CDP: login por janela/senha, captura do cookie e o que foi mitigado na porta de debug.
 - [features/nexus.md](features/nexus.md) — servidor WebSocket para Nexus.lua (feature `nexus`).
 - [features/scripts.md](features/scripts.md) — scripts do usuário e sandbox do frontend.
 

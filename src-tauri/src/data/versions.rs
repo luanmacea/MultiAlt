@@ -54,6 +54,29 @@ impl VersionEntry {
     }
 }
 
+/// Mesmo critério de `is_valid_channel_name` em `platform/windows/versions.rs`
+/// (que já valida o canal antes de criar a pasta de instalação). Repetido aqui
+/// porque aquele arquivo é Windows-only e o catálogo é multiplataforma.
+///
+/// Por que validar: `version_id()` junta canal e hash com `:`. Se o canal
+/// contiver `:`, o id deixa de ser decomponível de forma única e a entrada some
+/// das buscas. Trocar o separador não é opção — `channel:hash` já está gravado
+/// em `RAMSettings.ini` (versão padrão / override por conta) e é remontado no
+/// frontend (`VersionsDialog.tsx`) e no launch (`split_once(':')`), então mudar
+/// o formato invalidaria catálogos e settings existentes. A saída é recusar o
+/// canal inválido na entrada do catálogo e deixar `find` casar pelo próprio
+/// `version_id()` (veja `VersionsCatalogStore::find`), o que ainda encontra
+/// entradas legadas gravadas antes desta validação.
+fn is_valid_catalog_channel(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        && value != "."
+        && value != ".."
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VersionsCatalogFile {
     #[serde(default)]
@@ -63,26 +86,51 @@ pub struct VersionsCatalogFile {
 pub struct VersionsCatalogStore {
     catalog: Mutex<VersionsCatalogFile>,
     file_path: PathBuf,
+    /// Ligado quando o arquivo existe mas não pôde ser lido/parseado. Enquanto
+    /// ligado, gravar é recusado para que um catálogo vazio em memória nunca
+    /// sobrescreva as versões do usuário — mesmo latch do `ScriptStore` e do
+    /// `AccountStore`.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 impl VersionsCatalogStore {
     pub fn new(file_path: PathBuf) -> Self {
-        let loaded = if file_path.exists() {
-            std::fs::read_to_string(&file_path)
-                .ok()
-                .and_then(|s| serde_json::from_str::<VersionsCatalogFile>(&s).ok())
-                .unwrap_or_default()
-        } else {
-            VersionsCatalogFile::default()
-        };
+        let mut loaded = VersionsCatalogFile::default();
+        let mut failed = false;
+
+        if file_path.exists() {
+            match Self::read_catalog_file(&file_path) {
+                Ok(catalog) => loaded = catalog,
+                Err(_) => failed = true,
+            }
+        }
 
         Self {
             catalog: Mutex::new(loaded),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(failed),
         }
     }
 
+    fn read_catalog_file(path: &Path) -> Result<VersionsCatalogFile, String> {
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read versions catalog: {}", e))?;
+        // Arquivo de 0 byte é um catálogo vazio legítimo (primeira gravação
+        // interrompida), não corrupção.
+        if raw.trim().is_empty() {
+            return Ok(VersionsCatalogFile::default());
+        }
+        serde_json::from_str::<VersionsCatalogFile>(&raw)
+            .map_err(|e| format!("Failed to parse versions catalog: {}", e))
+    }
+
     fn save_locked(&self, catalog: &VersionsCatalogFile) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Versions catalog could not be read; refusing to overwrite it. Fix or restore RAMVersions.json and restart.".to_string(),
+            );
+        }
+
         let json = serde_json::to_string_pretty(catalog).map_err(|e| e.to_string())?;
         if let Some(parent) = self.file_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -99,22 +147,28 @@ impl VersionsCatalogStore {
             .unwrap_or_default()
     }
 
+    /// Busca pelo próprio `version_id()` de cada entrada em vez de dividir a
+    /// string no primeiro `:`. Assim a comparação é exatamente o inverso da
+    /// montagem e entradas legadas com `:` no canal — gravadas antes de
+    /// `is_valid_catalog_channel` existir — voltam a ser encontradas, sem mudar
+    /// o formato do id nem do arquivo.
     pub fn find(&self, version_id: &str) -> Option<VersionEntry> {
-        let mut parts = version_id.splitn(2, ':');
-        let channel = parts.next()?;
-        let hash = parts.next()?;
-        self.catalog
-            .lock()
-            .ok()
-            .and_then(|c| {
-                c.installed
-                    .iter()
-                    .find(|e| e.channel == channel && e.version_hash == hash)
-                    .cloned()
-            })
+        self.catalog.lock().ok().and_then(|c| {
+            c.installed
+                .iter()
+                .find(|e| e.version_id() == version_id)
+                .cloned()
+        })
     }
 
     pub fn upsert(&self, entry: VersionEntry) -> Result<(), String> {
+        if !is_valid_catalog_channel(&entry.channel) {
+            return Err(format!(
+                "Invalid channel name: must be alphanumeric, underscore, hyphen, or dot (got {:?})",
+                entry.channel
+            ));
+        }
+
         let mut catalog = self.catalog.lock().map_err(|e| e.to_string())?;
         if let Some(existing) = catalog
             .installed
@@ -373,23 +427,57 @@ mod versions_catalog_tests {
         let s = store("find-colon");
         s.upsert(entry("LIVE", "weird:hash")).unwrap();
 
-        // splitn(2, ':') => channel "LIVE", hash "weird:hash".
+        // find() compara o version_id() inteiro, então um hash com ':' continua
+        // encontrável e um prefixo qualquer continua não casando.
         assert!(s.find("LIVE:weird:hash").is_some());
         assert!(s.find("LIVE:weird").is_none());
     }
 
     #[test]
-    fn a_channel_containing_a_colon_does_not_survive_the_version_id_round_trip() {
-        // Documented limitation: version_id() joins with ':' and find() splits
-        // on the FIRST ':', so a channel with a colon can never be found again.
-        let s = store("find-bad-channel");
-        let e = entry("weird:channel", "hash1");
-        let id = e.version_id();
-        s.upsert(e).unwrap();
+    fn upsert_rejects_a_channel_that_would_break_the_version_id_round_trip() {
+        // Antes: o canal com ':' entrava no catálogo e nunca mais era achado
+        // (version_id() monta "canal:hash" e find() dividia no primeiro ':').
+        // Agora a entrada é recusada, e o formato "canal:hash" — que já está
+        // gravado em settings e é remontado no frontend — fica intacto.
+        let s = store("upsert-bad-channel");
 
-        assert_eq!(id, "weird:channel:hash1");
-        assert!(s.find(&id).is_none(), "known limitation");
-        assert_eq!(s.list().len(), 1, "the entry is still in the catalog");
+        for bad in ["weird:channel", "", "a/b", "..", ".", "a b", "canal\u{00e7}"] {
+            let err = match s.upsert(entry(bad, "hash1")) {
+                Ok(()) => panic!("{bad:?} deve ser recusado"),
+                Err(e) => e,
+            };
+            assert!(err.starts_with("Invalid channel name:"), "{err}");
+        }
+        assert!(s.list().is_empty(), "nada inválido entra no catálogo");
+        assert!(!s.file_path.exists(), "um upsert recusado não grava");
+
+        // Um canal longo demais também é recusado; no limite ainda passa.
+        assert!(s.upsert(entry(&"a".repeat(65), "hash1")).is_err());
+        s.upsert(entry(&"a".repeat(64), "hash1")).unwrap();
+        for good in ["LIVE", "zcanary", "z-integration_2.1"] {
+            s.upsert(entry(good, "hash1")).unwrap();
+            assert!(s.find(&format!("{good}:hash1")).is_some());
+        }
+    }
+
+    #[test]
+    fn find_still_matches_a_legacy_entry_whose_channel_contains_a_colon() {
+        // Catálogos gravados antes da validação podem ter um canal com ':'.
+        // A busca por version_id() inteiro recupera essas entradas em vez de
+        // escondê-las para sempre.
+        let s = store("find-legacy-colon");
+        std::fs::write(
+            &s.file_path,
+            br#"{"installed":[{"channel":"weird:channel","versionHash":"hash1","binaryType":"WindowsPlayer","installPath":"C:\\x"}]}"#,
+        )
+        .unwrap();
+
+        let reopened = VersionsCatalogStore::new(s.file_path.clone());
+        let found = reopened
+            .find("weird:channel:hash1")
+            .expect("a entrada legada precisa ser encontrada");
+        assert_eq!(found.channel, "weird:channel");
+        assert_eq!(found.version_hash, "hash1");
     }
 
     #[test]
@@ -590,11 +678,11 @@ mod versions_catalog_tests {
     }
 
     #[test]
-    fn a_corrupt_catalog_file_is_silently_replaced_by_an_empty_one() {
-        // Documented current behaviour: `new` falls back to an empty catalog
-        // (`.ok().and_then(...).unwrap_or_default()`), so the next upsert
-        // rewrites the file and any unreadable entries are lost. There is no
-        // "load failed" latch here like the one in AccountStore.
+    fn a_corrupt_catalog_file_is_never_overwritten() {
+        // Comportamento antigo (corrigido): `new` caía em `unwrap_or_default()`
+        // e a primeira gravação apagava as versões do usuário. Agora a falha de
+        // leitura fica latcheada e toda gravação é recusada até o arquivo ser
+        // consertado.
         let s = store("load-corrupt");
         let corrupt = br#"{"installed": [ broken"#;
         std::fs::write(&s.file_path, corrupt).unwrap();
@@ -602,22 +690,60 @@ mod versions_catalog_tests {
         let reopened = VersionsCatalogStore::new(s.file_path.clone());
         assert!(reopened.list().is_empty(), "corrupt catalog is ignored");
 
-        reopened.upsert(entry("LIVE", "hash1")).unwrap();
-        assert_ne!(std::fs::read(&s.file_path).unwrap(), corrupt.to_vec());
+        let err = reopened
+            .upsert(entry("LIVE", "hash1"))
+            .expect_err("gravar sobre um catálogo ilegível deve falhar");
+        assert!(err.contains("refusing to overwrite"), "{err}");
+        assert_eq!(
+            std::fs::read(&s.file_path).unwrap(),
+            corrupt.to_vec(),
+            "o arquivo do usuário fica intacto"
+        );
+
+        // set_label e remove passam pelo mesmo latch.
+        std::fs::write(&s.file_path, br#"{"installed":[{"channel":"LIVE","versionHash":"hash1","binaryType":"WindowsPlayer","installPath":"C:\\x"}]}"#).unwrap();
+        let healthy = VersionsCatalogStore::new(s.file_path.clone());
+        healthy.set_label("LIVE", "hash1", Some("ok".into())).unwrap();
+        assert_eq!(healthy.list().len(), 1);
+    }
+
+    #[test]
+    fn a_catalog_with_the_wrong_shape_latches_instead_of_starting_empty() {
+        let s = store("load-wrong-shape");
+        let wrong = br#"{"installed": "not-an-array"}"#;
+        std::fs::write(&s.file_path, wrong).unwrap();
+
+        let reopened = VersionsCatalogStore::new(s.file_path.clone());
+        assert!(reopened.list().is_empty());
+        assert!(
+            reopened.remove("LIVE", "hash1").is_ok(),
+            "um remove que não acha nada não grava, então não falha"
+        );
+        assert!(reopened.upsert(entry("LIVE", "hash1")).is_err());
+        assert_eq!(std::fs::read(&s.file_path).unwrap(), wrong.to_vec());
+
+        // `[]` não é corrupção: o serde aceita uma sequência para uma struct e
+        // `installed` cai no default, então isso é um catálogo vazio gravável.
+        std::fs::write(&s.file_path, b"[]").unwrap();
+        let as_array = VersionsCatalogStore::new(s.file_path.clone());
+        assert!(as_array.list().is_empty());
+        as_array.upsert(entry("LIVE", "hash1")).expect("deve gravar");
+    }
+
+    #[test]
+    fn an_empty_catalog_file_is_not_treated_as_corrupt() {
+        // Uma gravação interrompida pode deixar 0 byte; isso é um catálogo
+        // vazio legítimo e precisa continuar gravável.
+        let s = store("load-empty-file");
+        std::fs::write(&s.file_path, b"").unwrap();
+
+        let reopened = VersionsCatalogStore::new(s.file_path.clone());
+        assert!(reopened.list().is_empty());
+        reopened.upsert(entry("LIVE", "hash1")).expect("deve gravar");
         assert_eq!(
             VersionsCatalogStore::new(s.file_path.clone()).list().len(),
             1
         );
-    }
-
-    #[test]
-    fn a_catalog_with_the_wrong_shape_also_falls_back_to_empty() {
-        let s = store("load-wrong-shape");
-        std::fs::write(&s.file_path, br#"{"installed": "not-an-array"}"#).unwrap();
-        assert!(VersionsCatalogStore::new(s.file_path.clone()).list().is_empty());
-
-        std::fs::write(&s.file_path, b"[]").unwrap();
-        assert!(VersionsCatalogStore::new(s.file_path.clone()).list().is_empty());
     }
 
     // ---- serde -----------------------------------------------------------------

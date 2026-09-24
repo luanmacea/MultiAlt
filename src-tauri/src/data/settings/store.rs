@@ -1,20 +1,33 @@
 pub struct SettingsStore {
     ini: Mutex<IniFile>,
     file_path: PathBuf,
+    /// Ligado quando o INI existe mas não pôde ser lido. `IniFile::load` engole
+    /// o erro de I/O, então sem este latch `apply_defaults` gravaria um arquivo
+    /// só com os defaults por cima das settings do usuário — mesmo latch do
+    /// `ScriptStore`.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 impl SettingsStore {
     pub fn new(file_path: PathBuf) -> Self {
         let file_existed = file_path.exists();
-        let ini = if file_existed {
-            IniFile::load(&file_path)
+        let (ini, failed) = if file_existed {
+            match fs::read_to_string(&file_path) {
+                Ok(raw) => {
+                    let mut ini = IniFile::new();
+                    ini.parse(&raw);
+                    (ini, false)
+                }
+                Err(_) => (IniFile::new(), true),
+            }
         } else {
-            IniFile::new()
+            (IniFile::new(), false)
         };
 
         let store = Self {
             ini: Mutex::new(ini),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(failed),
         };
 
         store.apply_defaults(file_existed);
@@ -357,6 +370,12 @@ impl SettingsStore {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Settings file could not be read; refusing to overwrite it. Fix or restore RAMSettings.ini and restart.".to_string(),
+            );
+        }
+
         let ini = self.ini.lock().map_err(|e| e.to_string())?;
         ini.save(&self.file_path)
     }
@@ -1059,6 +1078,7 @@ mod settings_store_tests {
         let blocked = SettingsStore {
             ini: Mutex::new(IniFile::new()),
             file_path: dir_path.clone(),
+            load_failed: std::sync::atomic::AtomicBool::new(false),
         };
         {
             let mut ini = blocked.ini.lock().unwrap();
@@ -1068,5 +1088,29 @@ mod settings_store_tests {
         assert!(err.starts_with("Failed to save INI file:"), "{err}");
 
         let _ = fs::remove_dir_all(&dir_path);
+    }
+
+    #[test]
+    fn an_unreadable_settings_file_is_never_overwritten() {
+        // `IniFile::load` engole erros de I/O, então um RAMSettings.ini ilegível
+        // virava um INI vazio e `apply_defaults` gravava só os defaults por cima
+        // das settings do usuário. Agora a falha fica latcheada e `save` recusa.
+        let path = temp_path("unreadable");
+        // Bytes que não são UTF-8 fazem `read_to_string` falhar.
+        let broken = b"[General]\nLanguage=\xff\xfe\xfd\n";
+        fs::write(&path, broken).unwrap();
+
+        let store = SettingsStore::new(path.clone());
+        let err = store
+            .save()
+            .expect_err("gravar sobre um INI ilegível deve falhar");
+        assert!(err.contains("refusing to overwrite"), "{err}");
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            broken.to_vec(),
+            "nem o construtor nem o save tocam no arquivo do usuário"
+        );
+
+        let _ = fs::remove_file(&path);
     }
 }

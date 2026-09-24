@@ -26,8 +26,12 @@ import {
   assertScriptPermission,
   buildScriptSettingsSection,
   getScriptSecuritySignature,
+  isSanitizedInvokeCommand,
   normalizeScriptHttpUrl,
+  SANITIZED_INVOKE_COMMAND_NAMES,
   normalizeWebSocketUrl,
+  resolvePrivateNetworkAccess,
+  sanitizeInvokeResult,
   sanitizeScriptSourceForSave,
   truncateForLog,
   utf8ByteLength,
@@ -103,8 +107,11 @@ const ALLOWED_HTTP_METHODS = new Set([
   "OPTIONS",
 ]);
 
-const SCRIPT_INVOKE_COMMANDS = [
-  "get_accounts",
+// Allow-list de passagem direta: a resposta destes comandos vai crua para o
+// script. `get_accounts` saiu daqui de propósito — ele devolve SecurityToken e
+// Password de todas as contas. Ele continua chamável, mas pela rota filtrada
+// (SCRIPT_INVOKE_SANITIZERS em scripting/security.ts).
+export const SCRIPT_INVOKE_COMMANDS = [
   "update_account",
   "add_account",
   "remove_account",
@@ -133,6 +140,20 @@ const SCRIPT_INVOKE_COMMANDS = [
 ] as const;
 
 const ALLOWED_INVOKE_COMMANDS = new Set<string>(SCRIPT_INVOKE_COMMANDS);
+
+/** Tudo que `ram.invoke` aceita: passagem direta + rota filtrada. */
+export const SCRIPT_INVOKE_COMMAND_LIST = [...SCRIPT_INVOKE_COMMANDS, ...SANITIZED_INVOKE_COMMAND_NAMES].sort(
+  (a, b) => a.localeCompare(b)
+);
+
+/**
+ * Seção do RAMSettings.ini com o grant de rede privada por script.
+ *
+ * O backend (`RAMScripts.json`) não persiste esta permissão, e `ram.settings`
+ * só enxerga seções `Script.<id>` — como esta não começa com "Script.", nenhum
+ * script consegue se auto-conceder o acesso.
+ */
+const PRIVATE_NETWORK_SECTION = "ScriptPrivateNetwork";
 
 const WS_CLOSE_REASON_MAX_CHARS = 123;
 
@@ -192,7 +213,7 @@ ram.info("Discord bridge started", endpoint);
 
 if (wsEndpoint) {
   try {
-    const ws = await ram.ws.connect({ url: wsEndpoint, allowPrivateNetwork: true });
+    const ws = await ram.ws.connect({ url: wsEndpoint });
     wsConnectionId = ws.connectionId;
     ram.info("Connected to websocket bridge", wsConnectionId);
   } catch (error) {
@@ -240,7 +261,6 @@ async function postStatus() {
   const response = await ram.http.request({
     url: endpoint + "/status",
     method: "POST",
-    allowPrivateNetwork: true,
     headers: {
       "content-type": "application/json",
       ...(authToken ? { authorization: "Bearer " + authToken } : {}),
@@ -863,6 +883,7 @@ function defaultPermissions(): ScriptPermissions {
     allowModal: false,
     allowSettings: false,
     allowUi: false,
+    allowPrivateNetwork: false,
   };
 }
 
@@ -875,6 +896,7 @@ function allPermissions(): ScriptPermissions {
     allowModal: true,
     allowSettings: true,
     allowUi: true,
+    allowPrivateNetwork: true,
   };
 }
 
@@ -899,7 +921,33 @@ function ensureScriptSourceSize(source: string): void {
   }
 }
 
-function normalizeScript(input: ManagedScript): ManagedScript {
+/**
+ * Lê os grants de rede privada (RAMSettings.ini → [ScriptPrivateNetwork]).
+ * Falha de leitura = nenhum grant, ou seja, nega por padrão.
+ */
+export async function loadPrivateNetworkGrants(): Promise<Record<string, boolean>> {
+  try {
+    const all = await invoke<Record<string, Record<string, string>>>("get_all_settings");
+    const section = (all && all[PRIVATE_NETWORK_SECTION]) || {};
+    const out: Record<string, boolean> = {};
+    for (const [scriptId, value] of Object.entries(section)) {
+      out[scriptId] = String(value).trim().toLowerCase() === "true";
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+async function savePrivateNetworkGrant(scriptId: string, granted: boolean): Promise<void> {
+  await invoke("update_setting", {
+    section: PRIVATE_NETWORK_SECTION,
+    key: scriptId,
+    value: granted ? "true" : "false",
+  });
+}
+
+function normalizeScript(input: ManagedScript, privateNetworkGrant?: boolean): ManagedScript {
   const id = trimToLength(String(input.id || ""), SCRIPT_SECURITY_LIMITS.maxScriptIdChars);
   const normalizedName = trimToLength(
     String(input.name || "Unnamed Script"),
@@ -921,6 +969,9 @@ function normalizeScript(input: ManagedScript): ManagedScript {
     permissions: {
       ...defaultPermissions(),
       ...(input.permissions || {}),
+      // O backend não persiste esta permissão (ver PRIVATE_NETWORK_SECTION).
+      allowPrivateNetwork:
+        privateNetworkGrant ?? input.permissions?.allowPrivateNetwork === true,
     },
     createdAtMs: Number(input.createdAtMs || nowMs()),
     updatedAtMs: Number(input.updatedAtMs || nowMs()),
@@ -1545,20 +1596,34 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
       if (!command) {
         throw new Error("Missing invoke command");
       }
-      if (!ALLOWED_INVOKE_COMMANDS.has(command)) {
+      const sanitized = isSanitizedInvokeCommand(command);
+      if (!sanitized && !ALLOWED_INVOKE_COMMANDS.has(command)) {
         throw new Error(`Invoke command is not allowed: ${command}`);
       }
       const args = asRecord(data.args);
       requireActiveRequest(scriptId, runtimeId, requestId);
       const result = await invoke(command, args);
       requireActiveRequest(scriptId, runtimeId, requestId);
-      return result;
+      // Credenciais (cookie/senha) nunca saem do host: ver
+      // SCRIPT_INVOKE_SANITIZERS em scripting/security.ts.
+      return sanitizeInvokeResult(command, result);
     }
 
     if (action === "http.request") {
-      requirePermissionForRequest(scriptId, runtimeId, requestId, "allowHttp", "http.request", true);
-      const allowPrivateNetwork = data.allowPrivateNetwork === true;
-      const url = normalizeScriptHttpUrl(String(data.url || ""), allowPrivateNetwork);
+      const httpScript = requirePermissionForRequest(
+        scriptId,
+        runtimeId,
+        requestId,
+        "allowHttp",
+        "http.request",
+        true
+      );
+      // A flag vinha no payload, ou seja, o próprio script decidia se podia
+      // falar com localhost/LAN. Agora é permissão concedida pelo usuário.
+      const url = normalizeScriptHttpUrl(
+        String(data.url || ""),
+        resolvePrivateNetworkAccess(httpScript, data.allowPrivateNetwork)
+      );
 
       const method = String(data.method || "GET").toUpperCase();
       if (!ALLOWED_HTTP_METHODS.has(method)) {
@@ -1677,7 +1742,14 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
     }
 
     if (action === "ws.connect") {
-      requirePermissionForRequest(scriptId, runtimeId, requestId, "allowWebSocket", "ws.connect", true);
+      const wsScript = requirePermissionForRequest(
+        scriptId,
+        runtimeId,
+        requestId,
+        "allowWebSocket",
+        "ws.connect",
+        true
+      );
       const runtime = requireActiveRequest(scriptId, runtimeId, requestId);
       if (runtime.sockets.size >= SCRIPT_SECURITY_LIMITS.maxWebSocketConnections) {
         throw new Error(
@@ -1685,8 +1757,10 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
         );
       }
 
-      const allowPrivateNetwork = data.allowPrivateNetwork === true;
-      const url = normalizeWebSocketUrl(String(data.url || ""), allowPrivateNetwork);
+      const url = normalizeWebSocketUrl(
+        String(data.url || ""),
+        resolvePrivateNetworkAccess(wsScript, data.allowPrivateNetwork)
+      );
       const requestedId = String(data.connectionId || "").trim();
       const connectionId = requestedId || buildId("ws");
       if (!/^[A-Za-z0-9._:-]{1,96}$/.test(connectionId)) {
@@ -2319,8 +2393,11 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
 
   async function loadScripts() {
     try {
-      const fetched = await invoke<ManagedScript[]>("get_scripts");
-      const normalized = fetched.map(normalizeScript);
+      const [fetched, grants] = await Promise.all([
+        invoke<ManagedScript[]>("get_scripts"),
+        loadPrivateNetworkGrants(),
+      ]);
+      const normalized = fetched.map((item) => normalizeScript(item, grants[item.id] === true));
       setScripts(normalized);
       if (!selectedRef.current && normalized.length > 0) {
         selectedRef.current = normalized[0].id;
@@ -2362,7 +2439,9 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
       ensureScriptSourceSize(prepared.source);
 
       const saved = await invoke<ManagedScript>("save_script", { script: prepared });
-      const normalized = normalizeScript(saved);
+      const privateNetworkGrant = prepared.permissions.allowPrivateNetwork === true;
+      await savePrivateNetworkGrant(prepared.id, privateNetworkGrant);
+      const normalized = normalizeScript(saved, privateNetworkGrant);
       const existing = scriptsRef.current.find((item) => item.id === normalized.id) || null;
       const prevSignature = existing ? getScriptSecuritySignature(existing) : null;
       const nextSignature = getScriptSecuritySignature(normalized);
@@ -2613,8 +2692,8 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
 
   const commandList = useMemo(() => {
     const q = apiSearch.trim().toLowerCase();
-    if (!q) return [...SCRIPT_INVOKE_COMMANDS];
-    return SCRIPT_INVOKE_COMMANDS.filter((command) => command.toLowerCase().includes(q));
+    if (!q) return [...SCRIPT_INVOKE_COMMAND_LIST];
+    return SCRIPT_INVOKE_COMMAND_LIST.filter((command) => command.toLowerCase().includes(q));
   }, [apiSearch]);
 
   async function handleCreate(kind: "blank" | "monitor" | "discord" | "hub") {
@@ -2683,6 +2762,8 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
 
     try {
       await invoke<boolean>("delete_script", { scriptId });
+      // Sem isso, recriar um script com o mesmo id herdaria o grant antigo.
+      await savePrivateNetworkGrant(scriptId, false).catch(() => {});
       setScripts((prev) => prev.filter((script) => script.id !== scriptId));
       setLogsByScript((prev) => {
         const next = { ...prev };
@@ -2848,10 +2929,11 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
 
   async function handleCopyApiSnippet() {
 const snippet = `
+// get_accounts comes back without SecurityToken/Password.
 await ram.invoke("get_accounts", {});
 const snapshot = await ram.window.snapshot();
-const response = await ram.http.request({ url: "http://127.0.0.1:3847/health", allowPrivateNetwork: true });
-const socket = await ram.ws.connect({ url: "ws://127.0.0.1:3847/ram", allowPrivateNetwork: true });
+const response = await ram.http.request({ url: "http://127.0.0.1:3847/health" });
+const socket = await ram.ws.connect({ url: "ws://127.0.0.1:3847/ram" });
 await ram.ws.send(socket.connectionId, { type: "ping" });
 await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
 `;
@@ -3367,6 +3449,16 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                             }));
                           }}
                         />
+                        <PermissionRow
+                          label={t("Private Network (localhost/LAN)")}
+                          enabled={draft.permissions.allowPrivateNetwork === true}
+                          onChange={(value) => {
+                            updateDraft((prev) => ({
+                              ...prev,
+                              permissions: { ...prev.permissions, allowPrivateNetwork: value },
+                            }));
+                          }}
+                        />
                       </div>
 
                       <div
@@ -3398,6 +3490,14 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                             <div>{t("Settings write")}</div>
                             <div className={`${draft.trusted && draft.permissions.allowSettings ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
                               {draft.permissions.allowSettings ? (draft.trusted ? t("Allowed") : t("Blocked (untrusted)")) : t("Disabled")}
+                            </div>
+                            <div>{t("Private network (localhost/LAN)")}</div>
+                            <div className={`${draft.permissions.allowPrivateNetwork ? "text-emerald-300" : "text-amber-300"} transition-colors duration-200`}>
+                              {draft.permissions.allowPrivateNetwork ? t("Allowed") : t("Blocked")}
+                            </div>
+                            <div>{t("Account credentials")}</div>
+                            <div className="text-emerald-300 transition-colors duration-200">
+                              {t("Never (get_accounts is filtered)")}
                             </div>
                           </div>
                         </div>
@@ -3620,7 +3720,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
 
                       <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[11px] text-zinc-500 leading-relaxed">
                         <div className="mb-1 text-zinc-300 font-medium">{t("WebSocket helper")}</div>
-                        <div>{t("Connect with ram.ws.connect({ url, protocols?, allowPrivateNetwork? }).")}</div>
+                        <div>{t("Connect with ram.ws.connect({ url, protocols? }).")}</div>
                         <div>{t("Subscribe with ram.ws.on((evt) => ...).")}</div>
                         <div>{t("Events: open, message, error, close.")}</div>
                         <div>{t("Send data with ram.ws.send(connectionId, payload).")}</div>
@@ -3633,10 +3733,10 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                           {t("Untrusted scripts keep read-only behavior. Trusted scripts can invoke commands, use HTTP/WebSocket, and write script-scoped settings.")}
                         </div>
                         <div>
-                          {t("HTTP requests block localhost/private-network targets by default. Use allowPrivateNetwork: true in ram.http.request(...) only when intentionally needed.")}
+                          {t("HTTP requests block localhost/private-network targets. Only the \"Private Network (localhost/LAN)\" permission unblocks them — a script cannot unblock itself.")}
                         </div>
                         <div>
-                          {t("WebSocket connections also block localhost/private-network targets by default unless allowPrivateNetwork: true is set in ram.ws.connect(...).")}
+                          {t("WebSocket connections follow the same rule: localhost/private-network targets need the \"Private Network (localhost/LAN)\" permission.")}
                         </div>
                       </div>
                     </div>

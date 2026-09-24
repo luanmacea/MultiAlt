@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  SANITIZED_INVOKE_COMMAND_NAMES,
   SCRIPT_SECURITY_LIMITS,
   assertScriptPermission,
   buildScriptSettingsSection,
   getScriptSecuritySignature,
   isPrivateOrLoopbackHost,
+  isSanitizedInvokeCommand,
   normalizeScriptHttpUrl,
   normalizeWebSocketUrl,
+  redactAccountSecrets,
+  resolvePrivateNetworkAccess,
+  sanitizeInvokeResult,
   sanitizeScriptSourceForSave,
   truncateForLog,
   utf8ByteLength,
@@ -22,6 +27,23 @@ function permissions(overrides: Partial<ScriptPermissions> = {}): ScriptPermissi
     allowModal: false,
     allowSettings: false,
     allowUi: false,
+    allowPrivateNetwork: false,
+    ...overrides,
+  };
+}
+
+/** Uma conta como `get_accounts` devolve (PascalCase, com cookie e senha). */
+function account(overrides: Record<string, unknown> = {}) {
+  return {
+    Valid: true,
+    SecurityToken: "_|WARNING:-DO-NOT-SHARE-THIS...|_COOKIE",
+    Username: "alt1",
+    Password: "hunter2",
+    Alias: "main",
+    Group: "Default",
+    UserID: 123,
+    Fields: { Note: "hello", RobloxVersion: "version-abc" },
+    BrowserTrackerID: "77",
     ...overrides,
   };
 }
@@ -306,7 +328,7 @@ describe("assertScriptPermission", () => {
 describe("getScriptSecuritySignature", () => {
   it("is all zeros for an untrusted script without permissions", () => {
     expect(getScriptSecuritySignature({ trusted: false, permissions: permissions() })).toBe(
-      "00000000"
+      "000000000"
     );
   });
 
@@ -324,13 +346,23 @@ describe("getScriptSecuritySignature", () => {
           allowUi: true,
         }),
       })
-    ).toBe("11111111");
+    ).toBe("111111110");
   });
 
   it("encodes trusted first, then the permission order", () => {
     expect(
       getScriptSecuritySignature({ trusted: false, permissions: permissions({ allowHttp: true }) })
-    ).toBe("00100000");
+    ).toBe("001000000");
+  });
+
+  it("changes when the private-network permission changes", () => {
+    const base = getScriptSecuritySignature({ trusted: false, permissions: permissions() });
+    const withPrivateNetwork = getScriptSecuritySignature({
+      trusted: false,
+      permissions: permissions({ allowPrivateNetwork: true }),
+    });
+    expect(withPrivateNetwork).not.toBe(base);
+    expect(withPrivateNetwork).toBe("000000001");
   });
 
   it("changes when any single flag changes", () => {
@@ -382,5 +414,96 @@ describe("SCRIPT_SECURITY_LIMITS", () => {
       expect(Number.isInteger(value), `${key} should be an integer`).toBe(true);
       expect(value, `${key} should be positive`).toBeGreaterThan(0);
     }
+  });
+});
+
+
+describe("redactAccountSecrets", () => {
+  it("drops the cookie and the password of every account", () => {
+    const redacted = redactAccountSecrets([account(), account({ UserID: 456 })]) as Array<
+      Record<string, unknown>
+    >;
+
+    expect(redacted).toHaveLength(2);
+    for (const entry of redacted) {
+      expect(entry).not.toHaveProperty("SecurityToken");
+      expect(entry).not.toHaveProperty("Password");
+      expect(JSON.stringify(entry)).not.toContain("WARNING");
+      expect(JSON.stringify(entry)).not.toContain("hunter2");
+    }
+  });
+
+  it("keeps everything a script legitimately needs", () => {
+    const [redacted] = redactAccountSecrets([account()]) as Array<Record<string, unknown>>;
+    expect(redacted.UserID).toBe(123);
+    expect(redacted.Username).toBe("alt1");
+    expect(redacted.Alias).toBe("main");
+    expect(redacted.Group).toBe("Default");
+    expect(redacted.Valid).toBe(true);
+    expect(redacted.Fields).toEqual({ Note: "hello", RobloxVersion: "version-abc" });
+  });
+
+  it("filters secrets hidden inside the free-form Fields map", () => {
+    const [redacted] = redactAccountSecrets([
+      account({ Fields: { Note: "ok", BackupCookie: "x", ApiToken: "y", MySecret: "z" } }),
+    ]) as Array<Record<string, unknown>>;
+    expect(redacted.Fields).toEqual({ Note: "ok" });
+  });
+
+  it("handles a single account object and non-objects", () => {
+    const single = redactAccountSecrets(account()) as Record<string, unknown>;
+    expect(single).not.toHaveProperty("SecurityToken");
+    expect(redactAccountSecrets(null)).toBeNull();
+    expect(redactAccountSecrets("nope")).toBe("nope");
+  });
+});
+
+describe("sanitizeInvokeResult", () => {
+  it("filters get_accounts", () => {
+    expect(isSanitizedInvokeCommand("get_accounts")).toBe(true);
+    expect(SANITIZED_INVOKE_COMMAND_NAMES).toContain("get_accounts");
+
+    const result = sanitizeInvokeResult("get_accounts", [account()]) as Array<
+      Record<string, unknown>
+    >;
+    expect(result[0]).not.toHaveProperty("SecurityToken");
+  });
+
+  it("leaves other commands untouched", () => {
+    expect(isSanitizedInvokeCommand("get_theme")).toBe(false);
+    const payload = { anything: 1 };
+    expect(sanitizeInvokeResult("get_theme", payload)).toBe(payload);
+  });
+});
+
+describe("resolvePrivateNetworkAccess", () => {
+  it("ignores the flag the script sends in the payload", () => {
+    const script = { permissions: permissions({ allowHttp: true, allowWebSocket: true }) };
+    expect(resolvePrivateNetworkAccess(script, true)).toBe(false);
+    expect(resolvePrivateNetworkAccess(script, "true")).toBe(false);
+    expect(resolvePrivateNetworkAccess(script, 1)).toBe(false);
+  });
+
+  it("only follows the permission the user granted", () => {
+    const granted = { permissions: permissions({ allowPrivateNetwork: true }) };
+    expect(resolvePrivateNetworkAccess(granted, undefined)).toBe(true);
+    expect(resolvePrivateNetworkAccess(granted, false)).toBe(true);
+  });
+
+  it("keeps localhost blocked for a script without the permission", () => {
+    const script = { permissions: permissions({ allowHttp: true }) };
+    expect(() =>
+      normalizeScriptHttpUrl("http://127.0.0.1:3847/health", resolvePrivateNetworkAccess(script, true))
+    ).toThrow(/Private-network and localhost/);
+    expect(() =>
+      normalizeWebSocketUrl("ws://localhost:3847/ram", resolvePrivateNetworkAccess(script, true))
+    ).toThrow(/Private-network and localhost/);
+  });
+
+  it("lets a granted script reach localhost", () => {
+    const script = { permissions: permissions({ allowHttp: true, allowPrivateNetwork: true }) };
+    expect(
+      normalizeScriptHttpUrl("http://127.0.0.1:3847/health", resolvePrivateNetworkAccess(script))
+    ).toBe("http://127.0.0.1:3847/health");
   });
 });

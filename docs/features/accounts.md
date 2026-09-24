@@ -57,7 +57,7 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 
 1. No startup ([lib.rs](../../src-tauri/src/lib.rs)) o backend verifica `needs_password()`: `true` se o arquivo começa com um header RAM (criptografado) e ainda não há hash de senha em memória. Nesse caso as contas não são carregadas.
 2. O frontend chama `needs_password`; se `true`, [App.tsx](../../src/App.tsx) mostra `PasswordScreen`.
-3. O usuário digita a senha → `unlock_accounts(password)` → `load_with_password`: calcula `sha512(senha.trim())`, descriptografa, parseia e **guarda o hash em memória** (usado nos próximos saves).
+3. O usuário digita a senha → `unlock_accounts(password)` → `load_with_password`: calcula `sha512(senha.trim())`, descriptografa, parseia e **guarda em memória o hash e a chave já derivada** (`SessionKey`), reutilizados por todos os saves da sessão.
 4. Se o arquivo não for criptografado, `load()` tenta JSON puro e, se falhar, DPAPI legado (Windows).
 
 ### Onboarding / troca de método de criptografia
@@ -66,7 +66,7 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 2. Também acessível por Settings → Misc → "Change Encryption Method".
 3. Opções:
    - **Pass Lock**: senha com pelo menos 8 caracteres (validado na UI e no backend) → `set_encryption_password(password)`.
-   - **Default Encryption**: `set_encryption_password(null)`.
+   - **No Password (Not Encrypted)**: `set_encryption_password(null)` — a UI chama assim desde que o rótulo antigo ("Default Encryption") escondia que o arquivo fica em texto puro.
 4. `set_password` troca o hash em memória e re-grava o arquivo imediatamente no novo formato. Se o store está **bloqueado** (nenhum hash em memória) e o arquivo é criptografado → erro "Accounts are locked; unlock them before changing the password." (re-cifrar um arquivo nunca decifrado gravaria uma lista vazia por cima). `set_password(None)` a partir de um store **desbloqueado** é permitido e grava o arquivo em texto puro (remove a criptografia de propósito).
 5. O frontend grava `General.EncryptionOnboardingState = completed` e `General.EncryptionMethod = password|default`.
 
@@ -92,14 +92,17 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 - **`UserID` é a identidade**: `add` com um `UserID` existente **atualiza** `SecurityToken`, `Username`, `Valid`, `LastUse` (e `Password` só se a nova não for vazia); alias, grupo, campos e descrição são preservados.
 - `reorder`: IDs listados vão na ordem pedida; contas não listadas são anexadas no final na ordem atual.
 - Toda mutação (`add`, `remove` efetivo, `update` efetivo, `reorder`, `set_password`, import com mudanças) regrava o arquivo inteiro.
-- **Save atômico:** `save()` grava em `AccountData.json.tmp` e troca pelo arquivo final com `atomic_replace` (`MoveFileExW` com `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` no Windows, `rename` nos demais). Crash ou disco cheio nunca deixam o arquivo truncado.
+- **Save atômico e sob o mesmo lock:** as mutações chamam `save_locked(&accounts, …)` **ainda segurando o guard do `Mutex` de contas**, então o que vai para o disco é exatamente o snapshot que a mutação acabou de produzir — não existe janela entre mutar e gravar em que outra escrita possa intercalar. A gravação em si vai para `AccountData.json.tmp` e troca pelo arquivo final com `atomic_replace` (`MoveFileExW` com `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` no Windows, `rename` nos demais). Crash ou disco cheio nunca deixam o arquivo truncado.
+- **Ordem de lock:** `accounts` → `session`, sempre. `set_password` solta o guard de `session` antes de pegar o de `accounts` justamente para não inverter essa ordem.
+- **Argon2 só no unlock:** a chave de gravação (`SessionKey`) é derivada uma única vez por unlock/`set_password` e reutilizada. O salt de 16 bytes passa a ser sorteado por sessão em vez de por gravação; o **nonce** continua sorteado a cada gravação, e o layout do arquivo é o mesmo de antes. Antes, cada `save()` rodava um Argon2i MODERATE (256 MiB) segurando o lock na thread principal — mover N contas de grupo congelava a UI N vezes.
 - **Save recusado após load com falha:** se o arquivo existe mas não pôde ser decodificado, o store marca `load_failed` e todo `save()` retorna erro ("Account file could not be loaded; refusing to overwrite it…") até um load bem-sucedido — uma lista vazia em memória nunca sobrescreve as contas do usuário.
 - **Sem texto puro por cima de arquivo criptografado:** com o store bloqueado (sem hash) e o arquivo criptografado, `save()` recusa ("Accounts are locked; unlock them before making changes."). A única exceção é `set_password(None)` a partir de um store desbloqueado.
 - **Import de arquivo antigo** (`import_old_account_data`):
   - contas com `UserID <= 0` são ignoradas (`skipped`);
   - `UserID` duplicado dentro do arquivo importado conta como `skipped` e o **último** vence;
   - `UserID` já existente é **substituído integralmente** (`replaced`); novos são anexados (`added`);
-  - duplicatas na lista final são removidas; só salva se `added > 0 || replaced > 0`.
+  - duplicatas na lista final são removidas; só salva se `added > 0 || replaced > 0`;
+  - a senha de import é `trim()`-ada, igual à de unlock — a mesma senha colada com espaço no fim serve para os dois.
 - **Grupos**:
   - string livre; vazio é tratado como `"Default"`;
   - prefixo numérico de 1–3 dígitos define a ordem (`"01 Main"` → sortKey 1, exibido como `Main`); sem prefixo → sortKey 999999, depois ordem alfabética ([types.ts](../../src/types.ts) `parseGroupName`);
@@ -119,6 +122,7 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 | KDF | Argon2i13 (`OPSLIMIT_MODERATE`, `MEMLIMIT_MODERATE`) com salt de 16 bytes |
 | Cifra | `secretbox` (XSalsa20-Poly1305), nonce de 24 bytes |
 | Layout | `RAM_HEADER` + salt(16) + nonce(24) + ciphertext |
+| Quando o salt e a chave são sorteados/derivados | Uma vez por unlock ou `set_password` (`SessionKey` em [accounts/store.rs](../../src-tauri/src/data/accounts/store.rs)); o **nonce** continua novo a cada gravação |
 | Headers aceitos | `RAM_HEADER` (ic3w0lf22) e `TRANSITION_RAM_HEADER` (niccdevs); gravação sempre com `RAM_HEADER` |
 | Legado | Windows: `CryptUnprotectData` (DPAPI) com entropia fixa, só para **leitura** |
 
@@ -157,12 +161,12 @@ Os que usam o cookie da conta passam por `run_with_session_retry` (ver [authenti
 
 ## Armadilhas / cuidados
 
-- **"Default Encryption" grava texto puro.** Com `password_hash = None`, `save()` escreve o JSON sem criptografia — a única proteção "default" existente é a leitura de arquivos DPAPI legados. O texto da UI ("local default protection") não corresponde ao que o backend faz.
+- **Sem senha = texto puro, e a UI diz isso.** Sem senha em memória (`session = None`), `save()` escreve o JSON sem criptografia; a única proteção "default" existente é a leitura de arquivos DPAPI legados. A opção se chama **"No Password (Not Encrypted)"** e avisa que cookies e senhas ficam legíveis no PC.
 - Esquecer a senha = perda do arquivo; não há recuperação no código.
-- A senha é `trim()`-ada ao derivar o hash no load e no `set_password`, mas **não** no import (`decode_accounts_for_import` usa a senha como veio).
+- A senha é `trim()`-ada em todos os caminhos que a consomem: `load_with_password`, `set_password` e `decode_accounts_for_import`.
 - Não altere `RAM_HEADER`, parâmetros do Argon2 ou o layout sem migração: quebra a leitura de todos os arquivos existentes.
 - `update_account` substitui o objeto inteiro (menos `SecurityToken`/`Password`, que vêm do store) — sempre envie a conta completa (o frontend faz `{ ...account, Campo: valor }`). Para trocar o cookie use `add_account` (mesmo `UserID`) ou os fluxos de refresh; `update_account` ignora cookie/senha enviados.
-- Se o `AccountData.json` estiver corrompido, o app não grava nada até ele ser corrigido/restaurado e o app reiniciado — mudanças feitas nessa sessão retornam erro.
+- **Latch de arquivo ilegível (vale para todas as stores de dados).** Quando um arquivo de persistência existe mas não pôde ser lido ou parseado, a store carrega vazia/no default, marca `load_failed` e **recusa toda gravação** até o arquivo ser corrigido/restaurado e o app reiniciado — assim a primeira gravação não apaga os dados do usuário. Mudanças feitas nessa sessão retornam erro. Hoje aplicam o latch: `AccountStore` (`AccountData.json`), `ScriptStore` (`RAMScripts.json`), `VersionsCatalogStore` (`RAMVersions.json`), `ThemePresetStore`, `ThemeStore` e `SettingsStore` (`RAMSettings.ini`). Um arquivo de 0 byte **não** conta como corrupção (é um estado vazio legítimo e continua gravável).
 - `LastUse` só é definido ao criar/atualizar via `add`; o backend não o atualiza no launch. O indicador de idade e o auto-refresh dependem dele.
 - `MultiSelectSidebar.tsx` existe mas não é importado em lugar nenhum; as ações em lote reais estão em [BottomActionBar.tsx](../../src/components/layout/BottomActionBar.tsx).
 - O botão "Copy cookies" coloca cookies em texto na área de transferência.

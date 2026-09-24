@@ -7,20 +7,68 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::data::accounts::{Account, AccountStore};
 use crate::data::settings::SettingsStore;
 
-use super::cdp::{spawn_chrome, CdpClient};
+use super::cdp::{persistent_cookie_expiry, spawn_chrome, CdpClient};
 use super::download::{ensure_chromium, is_installed};
 use super::manager::{ChromiumManager, LOGIN_KEY};
 
 const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
 const ROBLOX_HOME_URL: &str = "https://www.roblox.com/home";
 
+/// Quanto esperamos o browser de setup sair sozinho antes de matá-lo.
+const BROWSER_EXIT_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Strips the `.ROBLOSECURITY=` prefix, surrounding quotes and any cookie
 /// attributes from a raw cookie string.
+///
+/// A ordem importa: o espaço em volta sai **antes** das aspas, senão
+/// `.ROBLOSECURITY="token" ; Path=/` devolve `token"` e o cookie vai para o
+/// Roblox com uma aspa grudada.
 fn normalize_security_token(raw: &str) -> String {
     let trimmed = raw.trim();
     let no_name = trimmed.strip_prefix(".ROBLOSECURITY=").unwrap_or(trimmed);
     let no_attrs = no_name.split(';').next().unwrap_or(no_name);
-    no_attrs.trim_matches('"').trim().to_string()
+    no_attrs.trim().trim_matches('"').trim().to_string()
+}
+
+/// Segundos desde a época, para a validade do cookie plantado.
+fn unix_now_secs() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+/// Página em que o browser de login abre.
+///
+/// Com perfil persistente é preciso apagar o cookie antigo antes de chegar ao
+/// Roblox, e em stealth é preciso injetar o script antes do primeiro
+/// documento; nos dois casos começamos em branco e navegamos via CDP.
+fn login_start_url(persistent: bool, stealth: bool) -> &'static str {
+    if persistent || stealth {
+        "about:blank"
+    } else {
+        ROBLOX_LOGIN_URL
+    }
+}
+
+/// Espera o processo sair sozinho; `true` se saiu dentro do limite.
+async fn wait_for_exit(child: &mut std::process::Child, timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Derruba um processo que ainda não está sob o [`ChromiumManager`].
+fn kill_untracked(mut child: std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 #[derive(Serialize)]
@@ -63,32 +111,68 @@ pub async fn open_account_browser(
     let binary = ensure_chromium(&app).await?;
     let profile = ChromiumManager::account_profile(&app, user_id)?;
 
-    let (child, port) = spawn_chrome(&binary, &profile, "about:blank", true, stealth).await?;
+    // Duas instâncias no mesmo perfil brigam pelo lock do Chromium: a janela
+    // antiga desta conta tem que sair antes de plantarmos o cookie de novo.
+    chromium.kill(user_id);
+
+    // Fase 1 — browser de setup. É o único momento em que a porta de debug
+    // existe: ele fica em `about:blank`, sem nenhuma página do Roblox aberta,
+    // e vive só o tempo de gravar o cookie no perfil.
+    let (mut setup, port) = spawn_chrome(&binary, &profile, "about:blank", true, stealth).await?;
 
     let Some(port) = port else {
-        let mut child = child;
-        if !matches!(child.try_wait(), Ok(Some(_))) {
-            chromium.track(user_id, child);
-        }
-        return Ok(());
+        // Sem porta não há como plantar o cookie — e um browser de debug sem
+        // ninguém do nosso lado é exatamente a exposição que queremos evitar.
+        kill_untracked(setup);
+        return Err("Could not attach to the browser".into());
     };
 
-    match CdpClient::connect(port).await {
-        Ok(mut cdp) => {
-            if stealth {
-                let _ = cdp.inject_stealth().await;
-            }
-            let _ = cdp.set_roblosecurity(&token, ".roblox.com").await;
-            let _ = cdp.set_roblosecurity(&token, "www.roblox.com").await;
-            let _ = cdp.navigate(ROBLOX_HOME_URL).await;
-            chromium.track(user_id, child);
-            Ok(())
-        }
+    let mut cdp = match CdpClient::connect(port).await {
+        Ok(cdp) => cdp,
         Err(e) => {
-            chromium.track(user_id, child);
-            Err(e)
+            kill_untracked(setup);
+            return Err(e);
         }
+    };
+
+    if let Err(e) = plant_account_cookie(&mut cdp, &token, stealth).await {
+        let _ = cdp.close_browser().await;
+        kill_untracked(setup);
+        return Err(e);
     }
+
+    // Fecha o browser de setup graciosamente (é o shutdown do Chromium que
+    // grava o cookie persistente no perfil) e, com ele, a porta de debug.
+    let _ = cdp.close_browser().await;
+    drop(cdp);
+    if !wait_for_exit(&mut setup, BROWSER_EXIT_TIMEOUT).await {
+        let _ = setup.kill();
+    }
+    let _ = setup.wait();
+
+    // Fase 2 — a janela que o usuário realmente usa, já autenticada pelo
+    // cookie do perfil e **sem** porta de debug. Sem CDP anexado o
+    // `navigator.webdriver` já nasce indefinido, então o stealth continua
+    // valendo sem precisarmos injetar nada.
+    let (child, _) = spawn_chrome(&binary, &profile, ROBLOX_HOME_URL, false, stealth).await?;
+    chromium.track(user_id, child);
+    Ok(())
+}
+
+/// Grava o cookie da conta no perfil, com validade, para que ele sobreviva ao
+/// restart entre a fase 1 e a fase 2.
+async fn plant_account_cookie(
+    cdp: &mut CdpClient,
+    token: &str,
+    stealth: bool,
+) -> Result<(), String> {
+    if stealth {
+        let _ = cdp.inject_stealth().await;
+    }
+    let expires = Some(persistent_cookie_expiry(unix_now_secs()));
+    cdp.set_roblosecurity(token, ".roblox.com", expires).await?;
+    cdp.set_roblosecurity(token, "www.roblox.com", expires).await?;
+    Ok(())
 }
 
 fn wipe_profile_dir(profile: &Path) -> Result<(), String> {
@@ -139,11 +223,7 @@ pub async fn open_login_browser(
         wipe_profile_dir(&profile)?;
     }
 
-    let start_url = if persistent || stealth {
-        "about:blank"
-    } else {
-        ROBLOX_LOGIN_URL
-    };
+    let start_url = login_start_url(persistent, stealth);
     let (child, port) = spawn_chrome(&binary, &profile, start_url, true, stealth).await?;
     chromium.track(LOGIN_KEY, child);
 
@@ -170,6 +250,15 @@ pub async fn open_login_browser(
             }
             if let Ok(Some(cookie)) = cdp.get_roblosecurity().await {
                 chromium.set_login_cookie(Some(cookie));
+                // A janela (e com ela a porta de debug) fecha no instante em
+                // que o cookie aparece: é o único ponto do fluxo em que uma
+                // sessão autenticada e um endpoint CDP aberto coexistem.
+                chromium.close_login_window();
+                if !persistent {
+                    if let Ok(profile) = ChromiumManager::login_profile(&app_task) {
+                        let _ = wipe_profile_dir(&profile);
+                    }
+                }
                 let _ = app_task.emit("browser-login-detected", ());
                 return;
             }
@@ -197,7 +286,7 @@ pub async fn close_login_browser(
     chromium.close_login_session();
     if !settings.get_bool("Login", "PersistentProfile") {
         if let Ok(profile) = ChromiumManager::login_profile(&app) {
-            let _ = std::fs::remove_dir_all(profile);
+            let _ = wipe_profile_dir(&profile);
         }
     }
     Ok(())
@@ -227,11 +316,7 @@ pub async fn import_userpass(
         wipe_profile_dir(&profile)?;
     }
 
-    let start_url = if persistent || stealth {
-        "about:blank"
-    } else {
-        ROBLOX_LOGIN_URL
-    };
+    let start_url = login_start_url(persistent, stealth);
     let (child, port) = spawn_chrome(&binary, &profile, start_url, true, stealth).await?;
     chromium.track(LOGIN_KEY, child);
 
@@ -277,7 +362,7 @@ pub async fn import_userpass(
 
     chromium.close_login_session();
     if !persistent {
-        let _ = std::fs::remove_dir_all(&profile);
+        let _ = wipe_profile_dir(&profile);
     }
 
     let cookie = captured.ok_or("Timed out waiting for sign-in")?;
@@ -348,14 +433,15 @@ mod chromium_commands_tests {
     }
 
     #[test]
-    fn normalize_security_token_keeps_a_trailing_quote_when_a_space_follows_it() {
-        // Known quirk, pinned so a change is noticed: the quotes are trimmed
-        // BEFORE the final `.trim()`, so `"token" ; Path=/` leaves the closing
-        // quote attached (the value ends in a space, not a quote).
+    fn normalize_security_token_strips_quotes_padded_by_spaces() {
+        // Regression: the padding has to go before the quotes, otherwise
+        // `"token" ; Path=/` keeps the closing quote glued to the value and
+        // the cookie is sent to Roblox as `token"`.
         assert_eq!(
             normalize_security_token("  .ROBLOSECURITY=\"token\" ; Path=/  "),
-            "token\""
+            "token"
         );
+        assert_eq!(normalize_security_token(" \" token \" ; Secure"), "token");
     }
 
     #[test]
@@ -415,6 +501,100 @@ mod chromium_commands_tests {
             err
         );
         assert!(err.contains(&file.display().to_string()));
+    }
+
+    // ── login_start_url ────────────────────────────────────────────────────
+
+    #[test]
+    fn login_start_url_goes_straight_to_the_login_page_when_nothing_needs_setup() {
+        assert_eq!(login_start_url(false, false), ROBLOX_LOGIN_URL);
+    }
+
+    #[test]
+    fn login_start_url_starts_blank_whenever_cdp_has_work_to_do_first() {
+        // Perfil persistente: o cookie antigo precisa sumir antes de carregar
+        // o Roblox. Stealth: o script tem que entrar antes do 1º documento.
+        assert_eq!(login_start_url(true, false), "about:blank");
+        assert_eq!(login_start_url(false, true), "about:blank");
+        assert_eq!(login_start_url(true, true), "about:blank");
+    }
+
+    // ── unix_now_secs ──────────────────────────────────────────────────────
+
+    #[test]
+    fn unix_now_secs_is_a_plausible_epoch_timestamp() {
+        // Serve de base para a validade do cookie plantado; um zero silencioso
+        // faria o cookie nascer expirado.
+        let now = unix_now_secs();
+        assert!(now > 1_700_000_000.0, "got {}", now);
+    }
+
+    // ── wait_for_exit ──────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn wait_for_exit_reports_a_process_that_already_ended() {
+        let mut child = std::process::Command::new(exit_immediately_program())
+            .args(exit_immediately_args())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn helper process");
+
+        assert!(wait_for_exit(&mut child, Duration::from_secs(10)).await);
+        assert!(matches!(child.try_wait(), Ok(Some(_))));
+    }
+
+    #[tokio::test]
+    async fn wait_for_exit_gives_up_on_a_process_that_will_not_die() {
+        let mut child = std::process::Command::new(sleep_program())
+            .args(sleep_args())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn helper process");
+
+        // O timeout curto é o que garante que o browser de setup nunca fica
+        // vivo (com a porta de debug aberta) por travar no shutdown.
+        assert!(!wait_for_exit(&mut child, Duration::from_millis(300)).await);
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[cfg(target_os = "windows")]
+    fn exit_immediately_program() -> &'static str {
+        "cmd"
+    }
+    #[cfg(target_os = "windows")]
+    fn exit_immediately_args() -> Vec<&'static str> {
+        vec!["/C", "exit"]
+    }
+    #[cfg(target_os = "windows")]
+    fn sleep_program() -> &'static str {
+        "cmd"
+    }
+    #[cfg(target_os = "windows")]
+    fn sleep_args() -> Vec<&'static str> {
+        // `ping` é o "sleep" do cmd que sobrevive a um stdin fechado.
+        vec!["/C", "ping", "-n", "31", "127.0.0.1"]
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn exit_immediately_program() -> &'static str {
+        "true"
+    }
+    #[cfg(not(target_os = "windows"))]
+    fn exit_immediately_args() -> Vec<&'static str> {
+        vec![]
+    }
+    #[cfg(not(target_os = "windows"))]
+    fn sleep_program() -> &'static str {
+        "sleep"
+    }
+    #[cfg(not(target_os = "windows"))]
+    fn sleep_args() -> Vec<&'static str> {
+        vec!["30"]
     }
 
     // ── URL constants ──────────────────────────────────────────────────────

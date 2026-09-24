@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { KeyRound, Lock } from "lucide-react";
+import { Lock, Unlock } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 
@@ -32,7 +32,7 @@ export function EncryptionSetupScreen() {
     if (store.accountsEncrypted === null) return "";
     return store.accountsEncrypted
       ? t("Current method: Password Lock")
-      : t("Current method: Default Encryption");
+      : t("Current method: No password (AccountData.json is plain text)");
   }, [store.accountsEncrypted, t]);
 
   async function handleApply() {
@@ -66,7 +66,7 @@ export function EncryptionSetupScreen() {
               {isFirstRun ? t("Set Up Encryption") : t("Change Encryption Method")}
             </h1>
             <p className="text-[12px] theme-muted mt-0.5">
-              {t("Choose how AccountData.json is encrypted on this device.")}
+              {t("Choose how AccountData.json is protected on this device.")}
             </p>
           </div>
           {!isFirstRun && currentMethodLabel ? (
@@ -123,14 +123,14 @@ export function EncryptionSetupScreen() {
               style={{ animationDelay: "0.15s" }}
             >
               <div className="flex items-start gap-3">
-                <div className={["mt-0.5", method === "default" ? "theme-accent" : "theme-muted"].join(" ")}><KeyRound size={16} strokeWidth={1.8} /></div>
+                <div className={["mt-0.5", method === "default" ? "theme-accent" : "theme-muted"].join(" ")}><Unlock size={16} strokeWidth={1.8} /></div>
                 <div className="flex-1">
-                  <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("Default Encryption")}</div>
+                  <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("No Password (Not Encrypted)")}</div>
                   <div className={[
                     "text-[11px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
                     method === "default" ? "max-h-24 opacity-100" : "max-h-10 opacity-90",
                   ].join(" ")}>
-                    {t("Use local default protection without a custom password.")}
+                    {t("AccountData.json is saved as plain JSON: cookies and passwords stay readable on this PC.")}
                   </div>
                 </div>
                 <div className={[
@@ -177,8 +177,8 @@ export function EncryptionSetupScreen() {
                   <div className="text-[11px] theme-muted">{t("At least 8 characters.")}</div>
                 </div>
               ) : (
-                <div className="text-[12px] theme-muted pt-0.5">
-                  {t("This can be changed later in Settings.")}
+                <div className="text-[12px] text-amber-300/90 pt-0.5">
+                  {t("Without a password there is no encryption: anyone who opens the file — or any program running as you — can read your cookies and passwords. You can change this later in Settings.")}
                 </div>
               )}
             </div>
@@ -194,8 +194,12 @@ export function EncryptionSetupScreen() {
         <div className="px-6 py-4 border-t theme-border flex items-center justify-between gap-4 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
           <div className="text-[11px] theme-muted max-w-[62%]">
             {isFirstRun
-              ? t("Required on first setup to secure your account vault.")
-              : t("Re-encrypts your current AccountData.json with the selected method.")}
+              ? method === "password"
+                ? t("Required on first setup to secure your account vault.")
+                : t("You can continue without a password, but your accounts will not be encrypted.")
+              : method === "password"
+                ? t("Re-encrypts your current AccountData.json with the selected method.")
+                : t("Removes the password and rewrites AccountData.json as plain text.")}
           </div>
           <div className={["grid gap-2 shrink-0", canClose ? "grid-cols-2" : "grid-cols-1"].join(" ")}>
             {canClose ? (

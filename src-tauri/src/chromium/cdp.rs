@@ -8,8 +8,21 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
+/// Endereço ao qual a porta de debug fica presa.
+///
+/// O padrão do Chromium já é a loopback, mas passamos explicitamente para que
+/// uma policy corporativa, um `CHROME_FLAGS` herdado ou uma mudança de default
+/// não consigam expor o endpoint CDP para a rede — aí o roubo do cookie
+/// deixaria de exigir sequer um processo local.
+const DEBUG_BIND_ADDRESS: &str = "127.0.0.1";
+
 /// Command line handed to the browser. Split out of [`spawn_chrome`] so the
 /// flag set can be asserted without actually starting a browser.
+///
+/// `debug` abre o endpoint CDP, que **não tem autenticação**: enquanto ele
+/// existir, qualquer processo do mesmo usuário pode se conectar e ler o
+/// cookie de sessão. Só passe `true` na janela em que o CDP é realmente
+/// necessário e feche o browser assim que terminar.
 fn chrome_args(profile: &Path, start_url: &str, debug: bool, stealth: bool) -> Vec<String> {
     let mut args = vec![
         format!("--user-data-dir={}", profile.to_string_lossy()),
@@ -22,6 +35,7 @@ fn chrome_args(profile: &Path, start_url: &str, debug: bool, stealth: bool) -> V
     }
     if debug {
         args.push("--remote-debugging-port=0".to_string());
+        args.push(format!("--remote-debugging-address={}", DEBUG_BIND_ADDRESS));
     }
     args.push(start_url.to_string());
     args
@@ -155,6 +169,39 @@ return 'filled';}})()",
     )
 }
 
+/// Parâmetros de `Network.setCookie` para o cookie de sessão do Roblox.
+///
+/// Com `expires`, o Chromium grava o cookie no perfil (cookie persistente);
+/// sem ele, o cookie vive só na memória do processo e some no restart — que é
+/// justamente o que o fluxo de duas fases do browser de conta precisa que
+/// **não** aconteça.
+fn set_cookie_params(value: &str, domain: &str, expires: Option<f64>) -> Value {
+    let mut params = json!({
+        "name": ".ROBLOSECURITY",
+        "value": value,
+        "domain": domain,
+        "path": "/",
+        "secure": true,
+        "httpOnly": true,
+        "sameSite": "None",
+    });
+    if let Some(expires) = expires {
+        params["expires"] = json!(expires);
+    }
+    params
+}
+
+/// Validade dada ao cookie plantado, em segundos desde a época.
+pub fn persistent_cookie_expiry(now_secs: f64) -> f64 {
+    now_secs + 365.0 * 24.0 * 60.0 * 60.0
+}
+
+/// `true` quando o erro veio do socket ter sumido, e não do comando em si.
+/// Ao mandar o browser fechar isso é o resultado esperado, não uma falha.
+fn is_disconnect(message: &str) -> bool {
+    message.contains("connection closed") || message.contains("connection lost")
+}
+
 pub struct CdpClient {
     socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
     next_id: i64,
@@ -264,21 +311,34 @@ impl CdpClient {
         Ok(())
     }
 
-    pub async fn set_roblosecurity(&mut self, value: &str, domain: &str) -> Result<(), String> {
-        self.send(
-            "Network.setCookie",
-            json!({
-                "name": ".ROBLOSECURITY",
-                "value": value,
-                "domain": domain,
-                "path": "/",
-                "secure": true,
-                "httpOnly": true,
-                "sameSite": "None",
-            }),
-        )
-        .await?;
+    pub async fn set_roblosecurity(
+        &mut self,
+        value: &str,
+        domain: &str,
+        expires: Option<f64>,
+    ) -> Result<(), String> {
+        self.send("Network.setCookie", set_cookie_params(value, domain, expires))
+            .await?;
         Ok(())
+    }
+
+    /// Pede ao browser que se encerre sozinho.
+    ///
+    /// O shutdown gracioso é o que faz o Chromium gravar os cookies
+    /// persistentes no perfil antes de sair; um `kill()` seco pode perder a
+    /// gravação. `Browser.close` não existe em toda sessão de página, então
+    /// caímos para `Page.close` (fechar a última aba também encerra o
+    /// browser). Perder o socket no meio é sucesso: o browser já foi embora.
+    pub async fn close_browser(&mut self) -> Result<(), String> {
+        match self.send("Browser.close", json!({})).await {
+            Ok(_) => Ok(()),
+            Err(e) if is_disconnect(&e) => Ok(()),
+            Err(_) => match self.send("Page.close", json!({})).await {
+                Ok(_) => Ok(()),
+                Err(e) if is_disconnect(&e) => Ok(()),
+                Err(e) => Err(e),
+            },
+        }
     }
 
     pub async fn get_roblosecurity(&mut self) -> Result<Option<String>, String> {
@@ -350,6 +410,34 @@ mod chromium_cdp_tests {
             true,
         );
         assert_eq!(args.last().unwrap(), "https://www.roblox.com/login");
+    }
+
+    #[test]
+    fn chrome_args_pin_the_debugging_port_to_the_loopback() {
+        // A porta CDP não tem autenticação: se ela sair da loopback, qualquer
+        // máquina da rede rouba o cookie de sessão.
+        let on = chrome_args(Path::new("p"), "about:blank", true, false);
+        assert!(on.contains(&"--remote-debugging-address=127.0.0.1".to_string()));
+        assert_eq!(on.last().unwrap(), "about:blank");
+
+        let off = chrome_args(Path::new("p"), "about:blank", false, false);
+        assert!(!off.iter().any(|a| a.starts_with("--remote-debugging-address")));
+    }
+
+    #[test]
+    fn chrome_args_never_hand_a_web_origin_permission_to_attach() {
+        // Desde o Chrome 111 um handshake WebSocket com cabeçalho `Origin` é
+        // recusado, a menos que a origem esteja em `--remote-allow-origins`.
+        // Esse default é o que impede uma página aberta no próprio browser de
+        // falar CDP; nenhuma variação de argumentos pode afrouxá-lo.
+        for (debug, stealth) in [(false, false), (true, false), (false, true), (true, true)] {
+            let args = chrome_args(Path::new("p"), "https://www.roblox.com/login", debug, stealth);
+            assert!(
+                !args.iter().any(|a| a.starts_with("--remote-allow-origins")),
+                "args were: {:?}",
+                args
+            );
+        }
     }
 
     // ── parse_active_port ──────────────────────────────────────────────────
@@ -512,6 +600,55 @@ mod chromium_cdp_tests {
             "cookies": [{ "name": ".roblosecurity", "value": "wrong-case" }]
         });
         assert!(roblosecurity_from_cookies(&result).is_none());
+    }
+
+    // ── set_cookie_params / persistent_cookie_expiry ───────────────────────
+
+    #[test]
+    fn set_cookie_params_always_mark_the_session_cookie_as_secure() {
+        let params = set_cookie_params("token", ".roblox.com", None);
+        assert_eq!(params["name"], ".ROBLOSECURITY");
+        assert_eq!(params["value"], "token");
+        assert_eq!(params["domain"], ".roblox.com");
+        assert_eq!(params["path"], "/");
+        assert_eq!(params["secure"], true);
+        assert_eq!(params["httpOnly"], true);
+        assert_eq!(params["sameSite"], "None");
+    }
+
+    #[test]
+    fn set_cookie_params_only_carry_an_expiry_when_one_is_given() {
+        // Sem `expires` o cookie é de sessão e morre com o processo; o fluxo
+        // de duas fases depende de ele sobreviver ao restart do browser.
+        assert!(set_cookie_params("token", ".roblox.com", None)
+            .get("expires")
+            .is_none());
+
+        let params = set_cookie_params("token", ".roblox.com", Some(1_700_000_000.0));
+        assert_eq!(params["expires"], 1_700_000_000.0);
+    }
+
+    #[test]
+    fn persistent_cookie_expiry_is_about_a_year_ahead() {
+        let now = 1_700_000_000.0;
+        let expiry = persistent_cookie_expiry(now);
+        assert!(expiry > now);
+        assert_eq!(expiry - now, 365.0 * 24.0 * 60.0 * 60.0);
+    }
+
+    // ── is_disconnect ──────────────────────────────────────────────────────
+
+    #[test]
+    fn is_disconnect_recognises_the_socket_going_away() {
+        assert!(is_disconnect("Browser connection closed"));
+        assert!(is_disconnect("Browser connection lost: reset"));
+    }
+
+    #[test]
+    fn is_disconnect_does_not_swallow_a_real_command_failure() {
+        assert!(!is_disconnect("'Browser.close' wasn't found"));
+        assert!(!is_disconnect("Browser command failed"));
+        assert!(!is_disconnect("Browser stopped responding"));
     }
 
     // ── selector_exists_expression (script-injection safety) ───────────────

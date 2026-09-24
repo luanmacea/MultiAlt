@@ -9,7 +9,8 @@ Abrir **um** cliente Roblox (`RobloxPlayerBeta.exe`) autenticado como uma conta 
 | Arquivo | Papel |
 |---|---|
 | [launch.rs](../../src-tauri/src/commands/launch.rs) | Comando Tauri `launch_roblox` (Windows e macOS), `cancel_launch`, `cmd_kill_roblox`, `cmd_kill_all_roblox`, `cmd_enable_multi_roblox`, etc. |
-| [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) | Helpers compartilhados: `emit_launch_log`, detecção de conta moderada, `patch_client_settings_for_launch`, `get_or_create_browser_tracker_id`, `wait_for_new_roblox_pid`, `ensure_multi_roblox_enabled`, `resolve_launch_job`, `resolve_private_join` |
+| [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) | Helpers compartilhados: `emit_launch_log`, detecção de conta moderada, `patch_client_settings_for_launch`, `get_or_create_browser_tracker_id`, `wait_for_new_roblox_pid`, `ensure_multi_roblox_enabled`, `resolve_launch_job`, `resolve_private_join`, `pick_shuffled_public_job` |
+| [platform_info.rs](../../src-tauri/src/commands/platform_info.rs) | `get_platform_capabilities`: o que este SO suporta (o frontend usa para bloquear multi launch/botting fora do Windows) |
 | [platform/windows/launch.rs](../../src-tauri/src/platform/windows/launch.rs) | `build_launch_url`, `launch_url` (fix de canal), `default_player_dir`, `refresh_production_version`, `cached_production_player_dir`, `launch_old_join` / `launch_old_join_from` |
 | [platform/windows/core.rs](../../src-tauri/src/platform/windows/core.rs) | Mutex `ROBLOX_singletonMutex` (Multi Roblox, thread dedicada `multi-roblox-mutex`), lock do `RobloxCookies.dat` (fix 773), `generate_browser_tracker_id`, `get_roblox_path` (prefere a build production em cache) |
 | [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | `ProcessTracker`: PID por conta, launches pendentes, flag de cancelamento, `kill_for_user` / `kill_for_user_graceful` (só matam se o PID ainda for Roblox) |
@@ -19,7 +20,7 @@ Abrir **um** cliente Roblox (`RobloxPlayerBeta.exe`) autenticado como uma conta 
 
 ## Fluxo
 
-1. Frontend chama `launch_roblox(userId, placeId, jobId, launchData, followUser, joinVip, linkCode, shuffleJob)`.
+1. Frontend chama `launch_roblox(userId, placeId, jobId, launchData, followUser, joinVip, linkCode, shuffleJob)`. `shuffleJob` é opcional no backend (`Option<bool>`, ausente = `false`).
 2. Emite `launch-log` `start` ("Iniciando launch — place …").
 3. Lê settings (`IsTeleport`, `UseOldJoin`, `AutoCloseLastProcess`, `AutoCloseRobloxForMultiRbx`, `StartRobloxMinimized`).
 4. Resolve a instalação: `resolve_roblox_install_path(account.fields["RobloxVersion"], …)` → `(base_path, version_id)` (ver [roblox-versions.md](roblox-versions.md)).
@@ -30,7 +31,7 @@ Abrir **um** cliente Roblox (`RobloxPlayerBeta.exe`) autenticado como uma conta 
 9. `refresh_production_version().await` (resolve/atualiza o cache da build production) e em seguida `patch_client_settings_for_launch(Normal)` (FPS, volume, gráficos, tamanho de janela, fast flags da allowlist ou arquivo custom). Como `get_roblox_path()` prefere a build production em cache, o `ClientAppSettings.json` é gravado na mesma pasta que será lançada.
 10. Se `AutoCloseLastProcess` e a conta já tem PID → fecha (timeout 4500 ms); se não fechar, aborta.
 11. `resolve_launch_job` (prefixo `vip:`, link de share, `linkCode`); com `followUser` o VIP é descartado.
-12. `shuffleJob` (sem job e sem follow): busca servidores públicos e escolhe um índice baseado no relógio (nanos % n).
+12. `shuffleJob` (sem job e sem follow, ver `should_shuffle_server`): `pick_shuffled_public_job` busca servidores públicos e escolhe um índice baseado no relógio (`shuffle_server_index`, nanos % n). Falha ou lista vazia → segue com o Job ID vazio.
 13. `browserTrackerId`: reutiliza o da conta ou gera e persiste um novo.
 14. Auth ticket via `run_with_session_retry` (`launch-log` `auth`). Erro com "moderated"/"is banned"/"account has been" → conta movida para o grupo `moderadas` + evento `account-moderated`.
 15. `resolve_private_join` → `place_id` final, `access_code` ou `link_code`, `use_private_join`.
@@ -146,7 +147,7 @@ Checklist:
 - **Sessão expirada:** `run_with_session_retry` tenta `log_out_other_sessions` para obter novo cookie, persiste e repete a operação uma vez.
 - **Conta moderada:** erro de auth ticket contendo `moderated` / `is banned` / `account has been` move a conta para o grupo `moderadas` (não duplica se já estiver).
 - **VIP/privado:** `vip:<código>` no Job ID força VIP; links com `privateServerLinkCode`, `linkCode` ou `code` (share links) são extraídos; códigos de share (32 hex) são resolvidos via API; código no formato de 5 partes separadas por `-` é tratado como `accessCode`, o resto como `linkCode`. Se o link tiver `/games/<id>`, o place do link prevalece.
-- **Follow user:** desliga VIP e link code; o parâmetro `placeId` é usado como `userId` no `RequestFollowUser`.
+- **Follow user:** desliga VIP e link code; o parâmetro `placeId` é usado como `userId` no `RequestFollowUser`. Follow e shuffle nunca coexistem (`should_shuffle_server` devolve `false` com `followUser`).
 - **PID:** detectado como "primeiro `RobloxPlayerBeta.exe` que não estava no snapshot anterior". Se não aparecer no tempo, emite `warn` `pid` e a conta não é rastreada (sem posição de janela, sem minimizar).
 - **Posição de janela:** só restaurada se a conta tiver os 4 campos `Window_Position_X/Y`, `Window_Width`, `Window_Height` (gravados pelo Watcher com `SaveWindowPositions`).
 - **Eventos `launch-log`:** payload `{userId, level: info|success|warn|error, step, message}`; steps usados: `start`, `isolation`, `auth`, `moderated`, `target`, `spawn`, `pid`, `wait`. O frontend guarda no máximo 500 entradas.
@@ -179,6 +180,34 @@ Campos por conta (`account.fields`): `RobloxVersion`, `Window_Position_X`, `Wind
 - `get_roblox_path()` é síncrono e só usa a build production se o cache já tiver sido preenchido (por `refresh_production_version`, `launch_url` ou `default_player_dir`). Por isso todos os caminhos de launch (incluindo o web server) chamam `refresh_production_version().await` antes de `patch_client_settings_for_launch`.
 - O web server (`/LaunchAccount`, `/FollowUser`) e o botting **não** passam por `resolve_roblox_install_path`, isolamento nem pela guarda de versão; quando `UseOldJoin` usam `launch_old_join` (build production via `default_player_dir`, fallback para a pasta do registro).
 - Com isolamento ativo e algum processo Roblox já aberto, `apply_pre_launch` **não fecha** os clientes: o isolamento é pulado (`skipped`) e o launch segue normalmente. Ou seja, o isolamento só é efetivo quando nenhum Roblox está rodando (ver [isolation.md](isolation.md)).
-- Shuffle usa `SystemTime` como "aleatório"; não é uniforme de verdade.
+- Shuffle usa `SystemTime` como "aleatório"; não é uniforme de verdade. `pick_shuffled_public_job` é o mesmo helper do [launch múltiplo](multi-launch.md), onde ele roda **uma vez por conta**.
 - A detecção de PID por diff de snapshot pode pegar o PID errado se outro cliente abrir ao mesmo tempo (ex.: launches concorrentes fora do fluxo sequencial).
 - macOS: caminho simplificado (sem isolamento, sem versões, sem logs de launch, sem posição de janela).
+
+## Capacidades da plataforma (`get_platform_capabilities`)
+
+O frontend (`src/store.tsx`) chama `get_platform_capabilities` no boot e de novo
+quando uma chave de `[Linux]` muda; `src/utils/platform.ts` usa o campo `os` em
+`isWindowsPlatform` (sem ele, sobrava o palpite pelo user agent).
+
+Implementado em [platform_info.rs](../../src-tauri/src/commands/platform_info.rs);
+o formato é o tipo `PlatformCapabilities` de `src/types.ts` (camelCase, todos os
+campos obrigatórios). A função pura `build_platform_capabilities(os,
+session_type, preferred_runner)` é quem decide:
+
+| Campo | `windows` | `macos` | `linux` / outros |
+|---|---|---|---|
+| `supportsSingleLaunch` / `supportsMultiLaunch` | sim | sim | não |
+| `supportsWatcher` | sim | sim | não |
+| `supportsWatcherMemory` | sim | não | não |
+| `supportsWindowControls` | sim | não (sem grid) | não |
+| `supportsBotting` | sim | não | não |
+| `supportsUpdater` | sim | sim | sim |
+| `supportsClientSettings` | sim | sim | não |
+| `preferredRunner` / `detectedRunner` | `native` | `native` | `[Linux] PreferredRunner` / `none` |
+| `reasons` / `warnings` | vazios | 1 + 1 | 1 + 1 |
+
+`reasons[0]` é o texto que o frontend mostra ao bloquear multi launch ou
+botting, então a lista nunca fica vazia quando algo está desligado.
+`sessionType` é `desktop` no Windows/macOS e `$XDG_SESSION_TYPE` (ou `unknown`)
+no resto. `runnerPath` é sempre `null` hoje — não há backend de launch em Linux.

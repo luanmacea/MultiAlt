@@ -819,6 +819,42 @@ fn extract_place_id_from_url(value: &str) -> Option<i64> {
     digits.parse::<i64>().ok().filter(|id| *id > 0)
 }
 
+/// Picks a random public server for **this** account.
+///
+/// Cada conta chama este helper por conta própria: num launch múltiplo com
+/// `shuffleJob` ligado, as contas acabam espalhadas por servidores diferentes
+/// (a lista é buscada de novo e o índice é sorteado por conta), em vez de todas
+/// caírem no mesmo servidor. Devolve `None` — e o chamador mantém o Job ID
+/// vazio, entrando num servidor público qualquer — quando a listagem falha ou
+/// vem vazia.
+async fn pick_shuffled_public_job(
+    accounts: &AccountStore,
+    user_id: i64,
+    place_id: i64,
+) -> Option<String> {
+    // Sem `run_with_session_retry` de propósito: o refresh dele chama
+    // `signoutfromallsessionsandreauthenticate`, que derruba as sessões abertas
+    // da conta. Sortear servidor é leitura opcional — se falhar, o launch segue
+    // com o Job vazio (servidor público qualquer).
+    let cookie = get_cookie(accounts, user_id).ok()?;
+    let response = api::roblox::get_servers(place_id, "Public", None, Some(&cookie))
+        .await
+        .ok()?;
+
+    if response.data.is_empty() {
+        return None;
+    }
+
+    let index = shuffle_server_index(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+        response.data.len(),
+    );
+    Some(response.data[index].id.clone())
+}
+
 #[derive(Debug, Clone)]
 struct ResolvedPrivateJoin {
     place_id: i64,

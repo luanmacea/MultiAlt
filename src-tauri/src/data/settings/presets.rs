@@ -22,31 +22,48 @@ struct ThemeBundleExportFile {
 pub struct ThemePresetStore {
     presets: Mutex<Vec<ThemePresetData>>,
     file_path: PathBuf,
+    /// Ligado quando o arquivo existe mas não pôde ser lido/parseado. Enquanto
+    /// ligado, gravar é recusado para que uma lista vazia em memória nunca
+    /// sobrescreva os presets do usuário — mesmo latch do `ScriptStore`.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 impl ThemePresetStore {
     pub fn new(file_path: PathBuf) -> Self {
-        let presets = Self::load_from_file(&file_path);
+        let (presets, failed) = match Self::load_from_file(&file_path) {
+            Ok(presets) => (presets, false),
+            Err(_) => (Vec::new(), true),
+        };
         Self {
             presets: Mutex::new(presets),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(failed),
         }
     }
 
-    fn load_from_file(path: &Path) -> Vec<ThemePresetData> {
+    fn load_from_file(path: &Path) -> Result<Vec<ThemePresetData>, String> {
         if !path.exists() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
-        let raw = match fs::read_to_string(path) {
-            Ok(v) => v,
-            Err(_) => return Vec::new(),
-        };
+        let raw =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read preset file: {}", e))?;
+        // Arquivo de 0 byte é uma lista vazia legítima, não corrupção.
+        if raw.trim().is_empty() {
+            return Ok(Vec::new());
+        }
 
-        serde_json::from_str::<Vec<ThemePresetData>>(&raw).unwrap_or_default()
+        serde_json::from_str::<Vec<ThemePresetData>>(&raw)
+            .map_err(|e| format!("Failed to parse preset file: {}", e))
     }
 
     fn save_all(&self, presets: &[ThemePresetData]) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Preset file could not be read; refusing to overwrite it. Fix or restore the preset file and restart.".to_string(),
+            );
+        }
+
         let payload = serde_json::to_string_pretty(presets)
             .map_err(|e| format!("Failed to serialize presets: {}", e))?;
         fs::write(&self.file_path, payload).map_err(|e| {
@@ -684,9 +701,10 @@ mod theme_preset_tests {
     // ---- loading --------------------------------------------------------------------
 
     #[test]
-    fn a_missing_or_corrupt_preset_file_loads_as_an_empty_list() {
-        // Same silent-fallback pattern as the versions catalog: a preset file
-        // that cannot be parsed is replaced on the next save.
+    fn a_corrupt_preset_file_is_never_overwritten() {
+        // Comportamento antigo (corrigido): `load_from_file` caía em
+        // `unwrap_or_default()` e o próximo `save_preset` apagava os presets do
+        // usuário. Agora a falha de leitura fica latcheada, como no ScriptStore.
         let s = store("load-corrupt");
         assert!(s.get_all().unwrap().is_empty(), "missing file");
 
@@ -695,8 +713,41 @@ mod theme_preset_tests {
         let reopened = ThemePresetStore::new(s.file_path.clone());
         assert!(reopened.get_all().unwrap().is_empty());
 
-        reopened.save_preset("New", ThemeData::default()).unwrap();
-        assert_ne!(fs::read(&s.file_path).unwrap(), corrupt.to_vec());
+        let err = reopened
+            .save_preset("New", ThemeData::default())
+            .expect_err("gravar sobre um arquivo ilegível deve falhar");
+        assert!(err.contains("refusing to overwrite"), "{err}");
+        assert_eq!(
+            fs::read(&s.file_path).unwrap(),
+            corrupt.to_vec(),
+            "o arquivo do usuário fica intacto"
+        );
+    }
+
+    #[test]
+    fn a_preset_file_of_the_wrong_shape_also_latches() {
+        let s = store("load-wrong-shape");
+        let wrong = br#"{"presets": []}"#;
+        fs::write(&s.file_path, wrong).unwrap();
+
+        let reopened = ThemePresetStore::new(s.file_path.clone());
+        assert!(reopened.get_all().unwrap().is_empty());
+        assert!(reopened.save_preset("New", ThemeData::default()).is_err());
+        assert_eq!(fs::read(&s.file_path).unwrap(), wrong.to_vec());
+    }
+
+    #[test]
+    fn an_empty_preset_file_is_not_treated_as_corrupt() {
+        // Uma gravação interrompida pode deixar 0 byte; isso é uma lista vazia
+        // legítima e precisa continuar gravável.
+        let s = store("load-empty-file");
+        fs::write(&s.file_path, b"").unwrap();
+
+        let reopened = ThemePresetStore::new(s.file_path.clone());
+        assert!(reopened.get_all().unwrap().is_empty());
+        reopened
+            .save_preset("New", ThemeData::default())
+            .expect("deve gravar");
         assert_eq!(
             ThemePresetStore::new(s.file_path.clone())
                 .get_all()
@@ -704,16 +755,6 @@ mod theme_preset_tests {
                 .len(),
             1
         );
-    }
-
-    #[test]
-    fn a_preset_file_of_the_wrong_shape_also_loads_as_empty() {
-        let s = store("load-wrong-shape");
-        fs::write(&s.file_path, br#"{"presets": []}"#).unwrap();
-        assert!(ThemePresetStore::new(s.file_path.clone())
-            .get_all()
-            .unwrap()
-            .is_empty());
     }
 
     // ---- import ----------------------------------------------------------------------

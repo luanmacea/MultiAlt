@@ -14,7 +14,10 @@
     "test:coverage": "vitest run --coverage",
     "test:rust": "cd src-tauri && cargo test --all-features",
     "typecheck": "tsc --noEmit",
-    "check": "bun run typecheck && bun run test && bun run test:rust"
+    "check": "bun run typecheck && bun run test:audit && bun run test && bun run test:rust",
+    "t": "bun scripts/test-suite.ts",
+    "test:suite": "bun scripts/test-suite.ts",
+    "test:audit": "bun scripts/test-suite.ts --audit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

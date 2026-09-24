@@ -663,6 +663,7 @@ describe("launchMultiple", () => {
       placeId: 777,
       jobId: "job-1",
       launchData: "data",
+      shuffleJob: false,
     });
   });
 
@@ -735,6 +736,26 @@ describe("launchMultiple", () => {
     });
 
     expect(lastArgs("launch_multiple")).toMatchObject({ jobId: "abc-123-def" });
+  });
+
+  it("passa o shuffleJob para o backend sortear um servidor por conta", async () => {
+    const { result } = await setup({ ShuffleJobId: "true" });
+
+    await act(async () => {
+      await result.current.launchMultiple([1, 2]);
+    });
+
+    expect(lastArgs("launch_multiple")).toMatchObject({ shuffleJob: true });
+  });
+
+  it("manda shuffleJob desligado quando a opção está desmarcada", async () => {
+    const { result } = await setup();
+
+    await act(async () => {
+      await result.current.launchMultiple([1]);
+    });
+
+    expect(lastArgs("launch_multiple")).toMatchObject({ shuffleJob: false });
   });
 
   it("falls back to placeId 5315046213", async () => {
