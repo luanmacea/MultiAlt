@@ -145,3 +145,47 @@ export function getFreshnessColor(lastUse: string): string | null {
   const b = Math.round(77 + (13 - 77) * t);
   return `rgb(${r},${g},${b})`;
 }
+
+/**
+ * Um arquivo de backup gravado na pasta de backups.
+ * Espelha `BackupEntry` em `src-tauri/src/commands/backups.rs` (serde camelCase).
+ */
+export interface BackupEntry {
+  id: string;
+  fileName: string;
+  /** ISO-8601 de quando o backup foi criado. */
+  createdAt: string;
+  /** Rótulo do usuário; `null` quando o backup foi criado sem nome. */
+  label: string | null;
+  sizeBytes: number;
+  /** Nomes dos arquivos de dados guardados dentro do backup. */
+  files: string[];
+  /** `false` quando o arquivo está corrompido/incompleto — não pode ser restaurado. */
+  valid: boolean;
+  /** `true` para backups criados pelo próprio app (segurança / retenção). */
+  automatic?: boolean;
+}
+
+/** Resultado de `restore_backup`. */
+export interface RestoreReport {
+  backupId: string;
+  /** Backup automático dos dados substituídos; `null` se não deu para criar. */
+  safetyBackupId: string | null;
+  /** Arquivos efetivamente gravados de volta. */
+  restored: string[];
+  /** Arquivos do zip que foram ignorados (caminho inesperado, falha de escrita). */
+  skipped: string[];
+  accountsReloaded: boolean;
+  requiresRestart: boolean;
+  /** Por que o reinício é necessário (um motivo por arquivo). */
+  restartReasons: string[];
+}
+
+/** Onde os backups moram e quanto ocupam (`backups_info`). */
+export interface BackupsInfo {
+  dir: string;
+  /** `true` quando os dados ainda vivem ao lado do executável. */
+  portable: boolean;
+  totalBytes: number;
+  count: number;
+}

@@ -12,11 +12,9 @@ impl NexusServer {
     }
 
     fn data_path() -> PathBuf {
-        std::env::current_exe()
-            .unwrap_or_default()
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("AccountControlData.json")
+        // Mesma pasta de dados do resto do app, para o executável poder ser
+        // movido sem deixar a lista de contas do Nexus para trás.
+        crate::data::settings::get_runtime_data_dir().join("AccountControlData.json")
     }
 
     fn load_accounts(&self) {
