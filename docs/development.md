@@ -109,7 +109,16 @@ Comandos relacionados em [services.rs](../src-tauri/src/commands/services.rs) t�
 
 ## Dados em desenvolvimento
 
-Os arquivos de dados (`AccountData.json`, `RAMSettings.ini`, `RAMScripts.json`, ...) ficam **ao lado do executável** (ver [architecture.md](architecture.md#arquivos-de-persistência)). Em `tauri dev`, isso é `src-tauri/target/debug/`. Para testar do zero, apague esses arquivos lá; `RAMSettings.ini` é recriado com defaults e, como não existia, `EncryptionOnboardingState` e `FirstRunWalkthroughState` ficam `pending` (o app abre o onboarding).
+Os arquivos de dados (`AccountData.json`, `RAMSettings.ini`, `RAMScripts.json`, ...) ficam na **pasta de dados do usuário** — `%LOCALAPPDATA%\Roblox Account Manager` no Windows (ver [architecture.md](architecture.md#arquivos-de-persistência)). Isso vale também em `tauri dev`: a mesma pasta do app instalado.
+
+Para testar do zero **sem tocar nos seus dados reais**, aponte outra pasta:
+
+```bash
+# PowerShell
+$env:RAM_DATA_DIR = "$env:TEMP\ram-dev"; bun run tauri dev
+```
+
+`RAMSettings.ini` é recriado com defaults e, como não existia, `EncryptionOnboardingState` e `FirstRunWalkthroughState` ficam `pending` (o app abre o onboarding).
 
 ## i18n
 

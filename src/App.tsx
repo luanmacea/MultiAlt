@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StoreProvider, useStore } from "./store";
 import { PromptProvider } from "./hooks/usePrompt";
 import { PasswordScreen } from "./components/layout/PasswordScreen";
@@ -26,6 +26,7 @@ import { NexusDialog } from "./components/dialogs/NexusDialog";
 import { BottingDialog } from "./components/dialogs/BottingDialog";
 import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
+import { BackupsDialog } from "./components/dialogs/BackupsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { ScriptsDialog } from "./components/dialogs/ScriptsDialog";
 import { useTr } from "./i18n/text";
@@ -35,6 +36,9 @@ function AppContent() {
   const t = useTr();
   const store = useStore();
   const hasCheckedForUpdatesRef = useRef(false);
+  // O diálogo de backups é aberto pelas Settings; o estado mora aqui porque a
+  // store não expõe um flag para ele.
+  const [backupsOpen, setBackupsOpen] = useState(false);
   const errorLower = (store.error || "").toLowerCase();
   const showCloseRobloxAction =
     errorLower.includes("failed to enable multi roblox") ||
@@ -52,6 +56,7 @@ function AppContent() {
     (ENABLE_NEXUS && store.nexusOpen) ||
     store.scriptsOpen ||
     store.updateDialogOpen ||
+    backupsOpen ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
 
@@ -146,6 +151,10 @@ function AppContent() {
           store.setSettingsOpen(false);
           store.openEncryptionSetupFromSettings();
         }}
+        onRequestBackups={() => {
+          store.setSettingsOpen(false);
+          setBackupsOpen(true);
+        }}
       />
 
       <ServerListDialog
@@ -190,6 +199,8 @@ function AppContent() {
         open={store.versionsDialogOpen}
         onClose={() => store.setVersionsDialogOpen(false)}
       />
+
+      <BackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
 
       <IsolationProgressOverlay />
 

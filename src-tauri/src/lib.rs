@@ -10,10 +10,10 @@ mod platform;
 use api::batch::ImageCache;
 use data::accounts::{get_account_data_path, AccountStore};
 use data::crypto;
-use data::scripts::{get_scripts_path, ScriptStore};
+use data::scripts::ScriptStore;
 use data::settings::{
-    get_settings_path, get_theme_path, get_theme_presets_path, SettingsStore, ThemePresetStore,
-    ThemeStore,
+    get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path, SettingsStore,
+    ThemePresetStore, ThemeStore,
 };
 use data::versions::{get_versions_catalog_path, VersionsCatalogStore};
 use std::collections::{HashMap, HashSet};
@@ -40,6 +40,7 @@ include!("commands/versions.rs");
 include!("commands/watcher.rs");
 include!("commands/services.rs");
 include!("commands/updater.rs");
+include!("commands/backups.rs");
 
 #[cfg(target_os = "windows")]
 fn cleanup_multi_roblox_on_exit(app: &AppHandle<Wry>) {
@@ -239,6 +240,12 @@ pub fn run() {
             data::settings::export_theme_preset_file,
             data::settings::import_theme_font_asset,
             data::settings::resolve_theme_font_asset,
+            list_backups,
+            create_backup,
+            restore_backup,
+            delete_backup,
+            open_backups_folder,
+            backups_info,
             check_for_updates_with_channels,
             download_selected_update,
             install_selected_update,

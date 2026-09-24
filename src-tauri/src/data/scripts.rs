@@ -299,14 +299,6 @@ impl ScriptStore {
     }
 }
 
-pub fn get_scripts_path() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
-        .join("RAMScripts.json")
-}
-
 #[tauri::command]
 pub fn get_scripts(state: tauri::State<'_, ScriptStore>) -> Result<Vec<ManagedScript>, String> {
     state.get_all()
@@ -811,15 +803,4 @@ mod scripts_store_tests {
 
     // ---- path helper ----------------------------------------------------------
 
-    #[test]
-    fn get_scripts_path_points_at_ramscripts_json_next_to_the_executable() {
-        let path = get_scripts_path();
-        assert_eq!(path.file_name().and_then(|n| n.to_str()), Some("RAMScripts.json"));
-        assert!(path.is_absolute(), "{}", path.display());
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .unwrap();
-        assert_eq!(path.parent(), Some(exe_dir.as_path()));
-    }
 }

@@ -22,7 +22,7 @@ Servidor WebSocket local ao qual o script `Nexus.lua` (rodando dentro do cliente
 ## Fluxo
 
 1. Servidor sobe no setup do app se `AccountControl.StartOnLaunch`, ou via `start_nexus_server`. Bind em `127.0.0.1:<NexusPort>` (ou `0.0.0.0` com `AllowExternalConnections`).
-2. O usuário adiciona o username da conta à lista de controle (`add_nexus_account`) — persistida em `AccountControlData.json` ao lado do executável.
+2. O usuário adiciona o username da conta à lista de controle (`add_nexus_account`) — persistida em `AccountControlData.json` na pasta de dados do usuário (`get_runtime_data_dir`, ver [architecture.md](../architecture.md#arquivos-de-persistência)).
 3. No jogo, `Nexus.lua` conecta em `ws://<host>/Nexus?name=<LocalPlayer.Name>&id=<UserId>&jobId=<game.JobId>` (host default `localhost:5242`; em falha tenta de novo a cada 12 s).
 4. Handshake: se a requisição tiver header `Origin` (conexão vinda de página web no navegador), é recusada com **403** ("Connections from web pages are not allowed"); executores Lua não mandam `Origin`. Depois o servidor valida: `name` e `id` presentes, `id` numérico, `name` **precisa estar na lista de controle** — senão fecha sem mensagem. Marca `Online`, grava `in_game_job_id`, emite `nexus-account-connected`.
 5. Cliente manda `ping` a cada 1 s; o primeiro ping seta `client_can_receive = true`. Se a conta tiver `AutoExecute`, uma task aguarda esse flag (polling 80 ms) e envia `execute <script>`; ela desiste após **60 s** ou assim que o socket fechar (`sender.is_closed()`).
@@ -107,6 +107,6 @@ Seção `[AccountControl]`:
 
 - **Sem autenticação:** qualquer processo local (ou da rede, com `AllowExternalConnections`) que saiba um username da lista pode conectar e receber comandos/`Echo`; `execute` roda Lua arbitrário no cliente. O bloqueio de `Origin` só impede páginas web no navegador, não processos locais.
 - `AutoRelaunch`/`RelaunchDelay` são apenas armazenados: não existe lógica no backend que relance contas a partir deles.
-- `AccountControlData.json` fica ao lado do executável (pasta de instalação), não em `%LOCALAPPDATA%` — pode falhar em instalação sem permissão de escrita.
+- `AccountControlData.json` fica na pasta de dados do usuário (junto dos outros arquivos do app) e entra nos backups; antes ficava ao lado do executável e sumia ao mover o `.exe`.
 - `export_nexus_lua` grava no **diretório de trabalho atual** do processo, que pode não ser a pasta esperada.
 - O `Nexus.lua` depende de APIs de executor (`WebSocket.connect`, `loadstring`, `getgenv`, `setfpscap`).

@@ -8,9 +8,11 @@ import { useTr } from "../../i18n/text";
 export function MiscellaneousTab({
   s,
   onRequestEncryptionSetup,
+  onRequestBackups,
 }: {
   s: UseSettingsReturn;
   onRequestEncryptionSetup?: () => void;
+  onRequestBackups?: () => void;
 }) {
   const t = useTr();
 
@@ -62,6 +64,24 @@ export function MiscellaneousTab({
         max={9999}
         suffix="min"
       />
+
+      <Divider />
+      <SectionLabel>Data</SectionLabel>
+      <div className="flex items-center justify-between gap-3 py-2 px-1 rounded-lg border border-zinc-800/70 bg-zinc-900/35">
+        <div className="min-w-0">
+          <div className="text-[13px] text-zinc-200">{t("Backups")}</div>
+          <div className="text-[11px] text-zinc-500 mt-0.5">
+            {t("Save and restore a copy of your accounts, settings, scripts and themes.")}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRequestBackups}
+          className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/70 text-[12px] text-zinc-200 font-medium transition-colors"
+        >
+          {t("Manage")}
+        </button>
+      </div>
 
       <Divider />
       <SectionLabel>Security</SectionLabel>

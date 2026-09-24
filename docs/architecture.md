@@ -77,18 +77,27 @@ Observação: as stores de dados usam `Mutex<_>` simples; o `Arc` fica por conta
 
 ## Arquivos de persistência
 
-O diretório base é o **diretório do executável** (`get_runtime_data_dir()` em [data/settings/paths.rs](../src-tauri/src/data/settings/paths.rs): `current_exe().parent()`, com fallback para `current_dir()`).
+O diretório base é a **pasta de dados do usuário**, resolvida uma vez por processo em `get_runtime_data_dir()` ([data/settings/paths.rs](../src-tauri/src/data/settings/paths.rs)), nesta ordem:
+
+1. variável de ambiente `RAM_DATA_DIR` (pasta própria; usada também nos testes);
+2. **modo portátil** — arquivo `portable.txt` ao lado do executável → a pasta do executável (comportamento das versões antigas, útil para pendrive);
+3. `%LOCALAPPDATA%\Roblox Account Manager` no Windows (`~/Library/Application Support/...` no macOS, `$XDG_DATA_HOME` no Linux);
+4. pasta do executável, se o perfil do usuário não existir.
+
+**Migração:** na primeira execução, os arquivos que estavam ao lado do executável são **copiados** para a pasta nova (`migrate_data_files`). A cópia nunca sobrescreve um arquivo já existente no destino e **nunca apaga a origem** — voltar para uma versão antiga do app continua funcionando.
 
 | Arquivo | Onde | Formato | Código |
 |---|---|---|---|
-| `AccountData.json` | pasta do exe | JSON (PascalCase, compatível com RAM v3) ou binário criptografado com header RAM | [data/accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `get_account_data_path` |
-| `RAMSettings.ini` | pasta do exe | INI | [paths.rs](../src-tauri/src/data/settings/paths.rs) `get_settings_path` |
-| `RAMTheme.ini` | pasta do exe | INI (seção `Roblox Account Manager`, fallback `RBX Alt Manager`) | [paths.rs](../src-tauri/src/data/settings/paths.rs), [theme.rs](../src-tauri/src/data/settings/theme.rs) |
-| `RAMThemePresets.json` | pasta do exe | JSON | [paths.rs](../src-tauri/src/data/settings/paths.rs) |
-| `RAMThemeFonts/` | pasta do exe | fontes importadas, nomeadas por SHA-256 | [commands.rs](../src-tauri/src/data/settings/commands.rs) `import_theme_font_asset` |
-| `RAMScripts.json` | pasta do exe | JSON (camelCase) | [data/scripts.rs](../src-tauri/src/data/scripts.rs) `get_scripts_path` |
+| `AccountData.json` | pasta de dados | JSON (PascalCase, compatível com RAM v3) ou binário criptografado com header RAM | [data/accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `get_account_data_path` |
+| `RAMSettings.ini` | pasta de dados | INI | [paths.rs](../src-tauri/src/data/settings/paths.rs) `get_settings_path` |
+| `RAMTheme.ini` | pasta de dados | INI (seção `Roblox Account Manager`, fallback `RBX Alt Manager`) | [paths.rs](../src-tauri/src/data/settings/paths.rs), [theme.rs](../src-tauri/src/data/settings/theme.rs) |
+| `RAMThemePresets.json` | pasta de dados | JSON | [paths.rs](../src-tauri/src/data/settings/paths.rs) |
+| `RAMThemeFonts/` | pasta de dados | fontes importadas, nomeadas por SHA-256 | [commands.rs](../src-tauri/src/data/settings/commands.rs) `import_theme_font_asset` |
+| `RAMScripts.json` | pasta de dados | JSON (camelCase) | [data/scripts.rs](../src-tauri/src/data/scripts.rs) `get_scripts_path` |
 | `RAMVersions.json` | `%LOCALAPPDATA%\Roblox Account Manager\` (se `LOCALAPPDATA` não existir: pasta do exe) | JSON, escrita atômica via `.json.tmp` | [data/versions.rs](../src-tauri/src/data/versions.rs) `get_versions_catalog_path` |
 | `RobloxVersions/` | `%LOCALAPPDATA%\Roblox Account Manager\` | versões do cliente instaladas | [data/versions.rs](../src-tauri/src/data/versions.rs) `ram_managed_versions_root` |
+| `AccountControlData.json` | pasta de dados | JSON (lista de contas do Nexus) | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) `data_path` |
+| `backups/*.zip` | pasta de dados | zip com os arquivos acima + manifesto | [commands/backups.rs](../src-tauri/src/commands/backups.rs) |
 
 Regras:
 - Na primeira execução com `%LOCALAPPDATA%` disponível, se existir um `RAMVersions.json` legado ao lado do exe, ele é **copiado** para o novo local.

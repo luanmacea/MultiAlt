@@ -12,6 +12,7 @@ interface SettingsDialogProps {
   onClose: () => void;
   onSettingsChanged?: () => void;
   onRequestEncryptionSetup?: () => void;
+  onRequestBackups?: () => void;
 }
 
 export type TabId =
@@ -41,6 +42,7 @@ export function SettingsDialog({
   onClose,
   onSettingsChanged,
   onRequestEncryptionSetup,
+  onRequestBackups,
 }: SettingsDialogProps) {
   const t = useTr();
   const closeAndNotify = useCallback(() => {
@@ -171,6 +173,7 @@ export function SettingsDialog({
             s={s}
             loaded={s.loaded}
             onRequestEncryptionSetup={onRequestEncryptionSetup}
+            onRequestBackups={onRequestBackups}
           />
         </div>
 

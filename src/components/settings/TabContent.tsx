@@ -18,11 +18,13 @@ export function TabContent({
   s,
   loaded,
   onRequestEncryptionSetup,
+  onRequestBackups,
 }: {
   activeTab: TabId;
   s: UseSettingsReturn;
   loaded: boolean;
   onRequestEncryptionSetup?: () => void;
+  onRequestBackups?: () => void;
 }) {
   const t = useTr();
   const prevTab = useRef(activeTab);
@@ -73,7 +75,11 @@ export function TabContent({
             {tab === "versions" && <VersionsTab s={s} />}
             {tab === "optimization" && <OptimizationTab s={s} />}
             {tab === "miscellaneous" && (
-              <MiscellaneousTab s={s} onRequestEncryptionSetup={onRequestEncryptionSetup} />
+              <MiscellaneousTab
+                s={s}
+                onRequestEncryptionSetup={onRequestEncryptionSetup}
+                onRequestBackups={onRequestBackups}
+              />
             )}
           </div>
         );

@@ -1,9 +1,5 @@
 pub fn get_account_data_path() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
-        .join("AccountData.json")
+    crate::data::settings::get_runtime_data_dir().join("AccountData.json")
 }
 
 #[tauri::command]
@@ -104,19 +100,19 @@ mod account_path_tests {
     use super::*;
 
     #[test]
-    fn get_account_data_path_sits_next_to_the_executable() {
+    fn get_account_data_path_lives_in_the_runtime_data_dir() {
+        // Deixou de ser "ao lado do exe": os dados agora ficam no perfil do
+        // usuário, para o executável poder ser movido de pasta.
         let path = get_account_data_path();
         assert_eq!(
             path.file_name().and_then(|n| n.to_str()),
             Some("AccountData.json")
         );
         assert!(path.is_absolute(), "{}", path.display());
-
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .expect("the test binary has a parent directory");
-        assert_eq!(path.parent(), Some(exe_dir.as_path()));
+        assert_eq!(
+            path.parent(),
+            Some(crate::data::settings::get_runtime_data_dir().as_path())
+        );
         assert_eq!(get_account_data_path(), path, "the path is stable");
     }
 }

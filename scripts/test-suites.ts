@@ -139,6 +139,11 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/dialogs/ScriptsDialog.test.tsx",
     ],
   },
+  backups: {
+    description: "Backup e restauração dos dados, e onde a pasta de dados fica",
+    rust: ["backups_tests", "settings_paths_tests"],
+    front: ["src/components/dialogs/BackupsDialog.test.tsx"],
+  },
   settings: {
     description: "RAMSettings.ini, defaults, temas e presets",
     rust: [

@@ -29,6 +29,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 ## Funcionalidades
 
 ### Contas e sessão
+- [features/backups.md](features/backups.md) — backup/restauração dos dados pelo app e onde a pasta de dados fica (o `.exe` é portátil).
 - [features/accounts.md](features/accounts.md) — modelo de conta, adicionar/remover/importar, criptografia do `AccountData.json`, tela de senha, grupos (incl. `moderadas`), campos, comandos de API por conta.
 - [features/authentication.md](features/authentication.md) — cookie, CSRF, auth ticket, retry de sessão (`run_with_session_retry`), refresh de cookie.
 
@@ -51,6 +52,12 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/join-links.md](features/join-links.md) — campo único de "Join link": convites de experiência, links VIP/privados, links de jogo e deep links.
 - [features/settings.md](features/settings.md) — abas de configuração e chaves do `RAMSettings.ini`.
 - [features/ui-layout.md](features/ui-layout.md) — shell da UI, temas/fontes, diálogos, lista de contas, barra de ações, tela "Choose Game".
+
+## Registro de mudanças (2026-09-24)
+
+1. **Dados saíram da pasta do executável** para `%LOCALAPPDATA%\Roblox Account Manager`, com migração que copia (sem apagar a origem nem sobrescrever o destino), modo portátil por `portable.txt` e override por `RAM_DATA_DIR` — [architecture.md](architecture.md#arquivos-de-persistência).
+2. **Backups dentro do app**: criar, listar, restaurar e apagar, com backup automático de segurança antes de restaurar — [backups.md](features/backups.md).
+3. **Suítes de teste por funcionalidade** (`bun run t <suite>`) com auditoria no `bun run check` — [development.md](development.md#suítes-por-funcionalidade-o-dia-a-dia).
 
 ## Registro de mudanças (2026-09-22)
 
