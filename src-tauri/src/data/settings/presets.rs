@@ -22,31 +22,48 @@ struct ThemeBundleExportFile {
 pub struct ThemePresetStore {
     presets: Mutex<Vec<ThemePresetData>>,
     file_path: PathBuf,
+    /// Ligado quando o arquivo existe mas não pôde ser lido/parseado. Enquanto
+    /// ligado, gravar é recusado para que uma lista vazia em memória nunca
+    /// sobrescreva os presets do usuário — mesmo latch do `ScriptStore`.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 impl ThemePresetStore {
     pub fn new(file_path: PathBuf) -> Self {
-        let presets = Self::load_from_file(&file_path);
+        let (presets, failed) = match Self::load_from_file(&file_path) {
+            Ok(presets) => (presets, false),
+            Err(_) => (Vec::new(), true),
+        };
         Self {
             presets: Mutex::new(presets),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(failed),
         }
     }
 
-    fn load_from_file(path: &Path) -> Vec<ThemePresetData> {
+    fn load_from_file(path: &Path) -> Result<Vec<ThemePresetData>, String> {
         if !path.exists() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
-        let raw = match fs::read_to_string(path) {
-            Ok(v) => v,
-            Err(_) => return Vec::new(),
-        };
+        let raw =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read preset file: {}", e))?;
+        // Arquivo de 0 byte é uma lista vazia legítima, não corrupção.
+        if raw.trim().is_empty() {
+            return Ok(Vec::new());
+        }
 
-        serde_json::from_str::<Vec<ThemePresetData>>(&raw).unwrap_or_default()
+        serde_json::from_str::<Vec<ThemePresetData>>(&raw)
+            .map_err(|e| format!("Failed to parse preset file: {}", e))
     }
 
     fn save_all(&self, presets: &[ThemePresetData]) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Preset file could not be read; refusing to overwrite it. Fix or restore the preset file and restart.".to_string(),
+            );
+        }
+
         let payload = serde_json::to_string_pretty(presets)
             .map_err(|e| format!("Failed to serialize presets: {}", e))?;
         fs::write(&self.file_path, payload).map_err(|e| {

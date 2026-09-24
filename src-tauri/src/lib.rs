@@ -34,6 +34,7 @@ include!("commands/botting.rs");
 include!("commands/generators.rs");
 include!("commands/launch.rs");
 include!("commands/diagnostics.rs");
+include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
 include!("commands/versions.rs");
 include!("commands/watcher.rs");
@@ -314,6 +315,7 @@ pub fn run() {
             cmd_apply_fps_unlock,
             kill_legacy_ram_processes,
             diagnose_mutex_holder,
+            get_platform_capabilities,
             isolation_get_status,
             isolation_save,
             isolation_list_adapters,

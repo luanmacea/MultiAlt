@@ -368,7 +368,87 @@ export function getScriptSecuritySignature(script: {
     p.allowModal ? "1" : "0",
     p.allowSettings ? "1" : "0",
     p.allowUi ? "1" : "0",
+    p.allowPrivateNetwork ? "1" : "0",
   ].join("");
+}
+
+/**
+ * Campos de conta que jamais podem chegar a um script: o cookie
+ * (`SecurityToken`) e a senha do Roblox.
+ */
+const SECRET_ACCOUNT_KEY_PATTERN = /^(securitytoken|password|cookie|roblosecurity)$/i;
+
+/**
+ * `Fields` é um mapa livre (o web server permite gravar qualquer chave), então
+ * o filtro ali é por nome — mesma ideia do `redactSecretSettings`.
+ */
+const SECRET_ACCOUNT_FIELD_PATTERN = /(password|cookie|secret|token|apikey|api_key)/i;
+
+function redactOneAccount(account: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(account)) {
+    if (SECRET_ACCOUNT_KEY_PATTERN.test(key)) {
+      continue;
+    }
+    if (key.toLowerCase() === "fields" && value && typeof value === "object" && !Array.isArray(value)) {
+      out[key] = Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).filter(
+          ([fieldName]) => !SECRET_ACCOUNT_FIELD_PATTERN.test(fieldName)
+        )
+      );
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * Remove credenciais de uma conta (ou lista de contas) antes de entregá-la a um
+ * script. `update_account` no backend sempre relê cookie/senha da store, então
+ * o ciclo ler → editar → gravar continua funcionando sem o segredo.
+ */
+export function redactAccountSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactAccountSecrets(entry));
+  }
+  if (value && typeof value === "object") {
+    return redactOneAccount(value as Record<string, unknown>);
+  }
+  return value;
+}
+
+/**
+ * Comandos que os scripts podem chamar, mas cuja resposta passa por um filtro
+ * antes de sair do host — eles **não** estão na allow-list de passagem direta.
+ */
+export const SCRIPT_INVOKE_SANITIZERS: Record<string, (result: unknown) => unknown> = {
+  get_accounts: redactAccountSecrets,
+};
+
+export const SANITIZED_INVOKE_COMMAND_NAMES = Object.keys(SCRIPT_INVOKE_SANITIZERS);
+
+export function isSanitizedInvokeCommand(command: string): boolean {
+  return Object.prototype.hasOwnProperty.call(SCRIPT_INVOKE_SANITIZERS, command);
+}
+
+/**
+ * Decide se uma chamada pode falar com localhost/rede privada.
+ *
+ * O pedido do script (`allowPrivateNetwork` no payload) é ignorado de
+ * propósito: antes era ele que liberava o acesso, ou seja, o script se
+ * autoconcedia a permissão. Só vale o que o usuário marcou no script.
+ */
+export function resolvePrivateNetworkAccess(
+  script: { permissions: ScriptPermissions },
+  _requestedByScript?: unknown
+): boolean {
+  return script.permissions.allowPrivateNetwork === true;
+}
+
+export function sanitizeInvokeResult(command: string, result: unknown): unknown {
+  const sanitizer = SCRIPT_INVOKE_SANITIZERS[command];
+  return sanitizer ? sanitizer(result) : result;
 }
 
 export function assertScriptPermission(

@@ -811,27 +811,82 @@ fn build_restore_script(
     Ok(script)
 }
 
-fn run_elevated_powershell(script: &str) -> Result<(), String> {
-    let script_dir = ram_isolation_backup_dir()
-        .ok_or("Could not resolve LOCALAPPDATA for isolation scripts")?
-        .join("Scripts");
-    std::fs::create_dir_all(&script_dir)
-        .map_err(|e| format!("Failed to create isolation script dir: {}", e))?;
-    let mut seed = [0u8; 16];
-    fill_secure_random(&mut seed)?;
-    let token: String = seed.iter().map(|b| format!("{:02x}", b)).collect();
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let script_path = script_dir.join(format!("ram_isolation_{}_{}.ps1", stamp, token));
-    std::fs::write(&script_path, script)
-        .map_err(|e| format!("Failed to write isolation script: {}", e))?;
+/// Base64 padrão (RFC 4648) — usado só para o `-EncodedCommand`, que precisa
+/// do alfabeto clássico com padding. Escrito à mão para não acrescentar uma
+/// dependência ao Cargo.toml por causa de ~1 KB de script.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(ALPHABET[((triple >> 18) & 0x3f) as usize] as char);
+        out.push(ALPHABET[((triple >> 12) & 0x3f) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            ALPHABET[((triple >> 6) & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            ALPHABET[(triple & 0x3f) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// Teto conservador para `lpParameters`: o limite real de `CreateProcess` é
+/// 32 767 caracteres para a linha de comando inteira.
+const MAX_ELEVATED_PARAMETERS_CHARS: usize = 30_000;
+
+/// Monta a linha de comando do PowerShell elevado com o script embutido.
+///
+/// O script **não** é gravado em disco: antes ele ia para um `.ps1` em
+/// `%LOCALAPPDATA%\Roblox Account Manager\IsolationBackup\Scripts\` (pasta
+/// gravável por qualquer processo do usuário) e só depois era elevado — outro
+/// processo podia trocar o arquivo nessa janela e rodar código como admin
+/// (TOCTOU). Com `-EncodedCommand` (base64 de UTF-16LE) o conteúdo viaja na
+/// própria linha de comando, que só o processo que chama controla.
+///
+/// Como não há mais `-File`, o `exit` precisa ser explícito: `powershell.exe
+/// -EncodedCommand` sai com 0 mesmo depois de um erro terminante, então o
+/// corpo vai dentro de um `try`/`catch` que devolve 1.
+fn build_elevated_powershell_parameters(script: &str) -> Result<String, String> {
+    let wrapped = format!("try {{\n{}\n}} catch {{ exit 1 }}\nexit 0\n", script);
+    let mut utf16 = Vec::with_capacity(wrapped.len() * 2);
+    for unit in wrapped.encode_utf16() {
+        utf16.extend_from_slice(&unit.to_le_bytes());
+    }
 
     let parameters = format!(
-        "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"",
-        script_path.display()
+        "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand {}",
+        base64_encode(&utf16)
     );
+    if parameters.len() > MAX_ELEVATED_PARAMETERS_CHARS {
+        return Err(format!(
+            "Refusing to run elevated PowerShell: the script is too large for the command line ({} of {} chars)",
+            parameters.len(),
+            MAX_ELEVATED_PARAMETERS_CHARS
+        ));
+    }
+    Ok(parameters)
+}
+
+fn run_elevated_powershell(script: &str) -> Result<(), String> {
+    let parameters = build_elevated_powershell_parameters(script)?;
+
+    // Versões antigas gravavam `ram_isolation_<ts>_<token>.ps1` aqui; limpa o
+    // que tiver sobrado (nada mais é executado a partir do disco).
+    if let Some(stale) = ram_isolation_backup_dir().map(|dir| dir.join("Scripts")) {
+        if stale.exists() {
+            let _ = std::fs::remove_dir_all(&stale);
+        }
+    }
+
     let verb = encode_wide("runas");
     let file = encode_wide("powershell.exe");
     let params = encode_wide(&parameters);
@@ -846,7 +901,6 @@ fn run_elevated_powershell(script: &str) -> Result<(), String> {
 
     let ok = unsafe { ShellExecuteExW(&mut sei) };
     if ok == 0 {
-        let _ = std::fs::remove_file(&script_path);
         return Err("UAC prompt was denied or PowerShell could not be launched".into());
     }
 
@@ -856,7 +910,6 @@ fn run_elevated_powershell(script: &str) -> Result<(), String> {
             let wait_rc = WaitForSingleObject(sei.hProcess, 60_000);
             if wait_rc != WAIT_OBJECT_0 && wait_rc != WAIT_ABANDONED_0 {
                 CloseHandle(sei.hProcess);
-                let _ = std::fs::remove_file(&script_path);
                 return Err(
                     "Elevated PowerShell did not finish within 60s. Accept the UAC prompt sooner or close the running script.".into(),
                 );
@@ -880,7 +933,6 @@ fn run_elevated_powershell(script: &str) -> Result<(), String> {
         exit_status = Err("Elevated PowerShell did not return a process handle".into());
     }
 
-    let _ = std::fs::remove_file(&script_path);
     exit_status
 }
 

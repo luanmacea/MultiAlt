@@ -54,6 +54,29 @@ impl VersionEntry {
     }
 }
 
+/// Mesmo critério de `is_valid_channel_name` em `platform/windows/versions.rs`
+/// (que já valida o canal antes de criar a pasta de instalação). Repetido aqui
+/// porque aquele arquivo é Windows-only e o catálogo é multiplataforma.
+///
+/// Por que validar: `version_id()` junta canal e hash com `:`. Se o canal
+/// contiver `:`, o id deixa de ser decomponível de forma única e a entrada some
+/// das buscas. Trocar o separador não é opção — `channel:hash` já está gravado
+/// em `RAMSettings.ini` (versão padrão / override por conta) e é remontado no
+/// frontend (`VersionsDialog.tsx`) e no launch (`split_once(':')`), então mudar
+/// o formato invalidaria catálogos e settings existentes. A saída é recusar o
+/// canal inválido na entrada do catálogo e deixar `find` casar pelo próprio
+/// `version_id()` (veja `VersionsCatalogStore::find`), o que ainda encontra
+/// entradas legadas gravadas antes desta validação.
+fn is_valid_catalog_channel(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        && value != "."
+        && value != ".."
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VersionsCatalogFile {
     #[serde(default)]
@@ -63,26 +86,51 @@ pub struct VersionsCatalogFile {
 pub struct VersionsCatalogStore {
     catalog: Mutex<VersionsCatalogFile>,
     file_path: PathBuf,
+    /// Ligado quando o arquivo existe mas não pôde ser lido/parseado. Enquanto
+    /// ligado, gravar é recusado para que um catálogo vazio em memória nunca
+    /// sobrescreva as versões do usuário — mesmo latch do `ScriptStore` e do
+    /// `AccountStore`.
+    load_failed: std::sync::atomic::AtomicBool,
 }
 
 impl VersionsCatalogStore {
     pub fn new(file_path: PathBuf) -> Self {
-        let loaded = if file_path.exists() {
-            std::fs::read_to_string(&file_path)
-                .ok()
-                .and_then(|s| serde_json::from_str::<VersionsCatalogFile>(&s).ok())
-                .unwrap_or_default()
-        } else {
-            VersionsCatalogFile::default()
-        };
+        let mut loaded = VersionsCatalogFile::default();
+        let mut failed = false;
+
+        if file_path.exists() {
+            match Self::read_catalog_file(&file_path) {
+                Ok(catalog) => loaded = catalog,
+                Err(_) => failed = true,
+            }
+        }
 
         Self {
             catalog: Mutex::new(loaded),
             file_path,
+            load_failed: std::sync::atomic::AtomicBool::new(failed),
         }
     }
 
+    fn read_catalog_file(path: &Path) -> Result<VersionsCatalogFile, String> {
+        let raw = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read versions catalog: {}", e))?;
+        // Arquivo de 0 byte é um catálogo vazio legítimo (primeira gravação
+        // interrompida), não corrupção.
+        if raw.trim().is_empty() {
+            return Ok(VersionsCatalogFile::default());
+        }
+        serde_json::from_str::<VersionsCatalogFile>(&raw)
+            .map_err(|e| format!("Failed to parse versions catalog: {}", e))
+    }
+
     fn save_locked(&self, catalog: &VersionsCatalogFile) -> Result<(), String> {
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Versions catalog could not be read; refusing to overwrite it. Fix or restore RAMVersions.json and restart.".to_string(),
+            );
+        }
+
         let json = serde_json::to_string_pretty(catalog).map_err(|e| e.to_string())?;
         if let Some(parent) = self.file_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -99,22 +147,28 @@ impl VersionsCatalogStore {
             .unwrap_or_default()
     }
 
+    /// Busca pelo próprio `version_id()` de cada entrada em vez de dividir a
+    /// string no primeiro `:`. Assim a comparação é exatamente o inverso da
+    /// montagem e entradas legadas com `:` no canal — gravadas antes de
+    /// `is_valid_catalog_channel` existir — voltam a ser encontradas, sem mudar
+    /// o formato do id nem do arquivo.
     pub fn find(&self, version_id: &str) -> Option<VersionEntry> {
-        let mut parts = version_id.splitn(2, ':');
-        let channel = parts.next()?;
-        let hash = parts.next()?;
-        self.catalog
-            .lock()
-            .ok()
-            .and_then(|c| {
-                c.installed
-                    .iter()
-                    .find(|e| e.channel == channel && e.version_hash == hash)
-                    .cloned()
-            })
+        self.catalog.lock().ok().and_then(|c| {
+            c.installed
+                .iter()
+                .find(|e| e.version_id() == version_id)
+                .cloned()
+        })
     }
 
     pub fn upsert(&self, entry: VersionEntry) -> Result<(), String> {
+        if !is_valid_catalog_channel(&entry.channel) {
+            return Err(format!(
+                "Invalid channel name: must be alphanumeric, underscore, hyphen, or dot (got {:?})",
+                entry.channel
+            ));
+        }
+
         let mut catalog = self.catalog.lock().map_err(|e| e.to_string())?;
         if let Some(existing) = catalog
             .installed

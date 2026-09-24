@@ -1,14 +1,136 @@
 use crate::api::endpoints;
 use reqwest::header::COOKIE;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{oneshot, Mutex};
 
 const BATCH_WINDOW_MS: u64 = 50;
 const MAX_BATCH_SIZE: usize = 100;
 #[allow(dead_code)]
 const MAX_PLACE_BATCH_SIZE: usize = 50;
+
+/// Teto de URLs de thumbnail guardadas. O app mostra avatar + ícone de jogo por
+/// conta e por servidor listado; algumas centenas cobrem a tela inteira com
+/// folga, o resto é histórico de navegação.
+const MAX_CACHED_THUMBNAILS: usize = 2_000;
+
+/// Validade de uma URL de thumbnail. O CDN do Roblox assina as URLs e elas
+/// param de servir depois de algumas horas — guardá-las além disso só entrega
+/// link quebrado para a UI.
+const THUMBNAIL_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// Teto do mapa place -> universe.
+const MAX_CACHED_PLACE_UNIVERSES: usize = 1_000;
+
+/// `placeId -> universeId` não muda na prática; o TTL existe só para o mapa não
+/// segurar para sempre um place aberto uma única vez.
+const PLACE_UNIVERSE_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Cache em memória com teto de tamanho e validade por entrada.
+///
+/// **Política (escolhida por ser previsível, não por taxa de acerto):**
+/// - *TTL*: uma entrada vence `ttl` depois de ter sido escrita. Uma leitura
+///   vencida é um miss e descarta a entrada na hora.
+/// - *Teto duro*: passando de `capacity` entradas, sai a **mais antiga por
+///   ordem de escrita** (FIFO). Deliberadamente não é LRU: ler não mexe em
+///   nada, então a leitura continua O(1) e dá para prever o que será despejado
+///   só olhando a ordem em que as coisas entraram.
+///
+/// Reescrever uma chave existente renova o carimbo de tempo, mas **não** muda o
+/// lugar dela na fila de despejo.
+struct BoundedCache<K, V> {
+    capacity: usize,
+    ttl: Duration,
+    entries: HashMap<K, (V, Instant)>,
+    insertion_order: VecDeque<K>,
+}
+
+impl<K, V> BoundedCache<K, V>
+where
+    K: Eq + std::hash::Hash + Clone,
+    V: Clone,
+{
+    fn new(capacity: usize, ttl: Duration) -> Self {
+        Self {
+            // `0` desligaria o cache e faria cada escrita se auto-despejar;
+            // trate como "guarde ao menos uma".
+            capacity: capacity.max(1),
+            ttl,
+            entries: HashMap::new(),
+            insertion_order: VecDeque::new(),
+        }
+    }
+
+    fn get_at(&mut self, key: &K, now: Instant) -> Option<V> {
+        match self.entries.get(key) {
+            Some((value, stored_at)) if now.duration_since(*stored_at) < self.ttl => {
+                Some(value.clone())
+            }
+            Some(_) => {
+                self.entries.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn get(&mut self, key: &K) -> Option<V> {
+        self.get_at(key, Instant::now())
+    }
+
+    fn insert_at(&mut self, key: K, value: V, now: Instant) {
+        if self.entries.insert(key.clone(), (value, now)).is_none() {
+            self.insertion_order.push_back(key);
+        }
+        self.evict_overflow();
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        self.insert_at(key, value, Instant::now());
+    }
+
+    fn evict_overflow(&mut self) {
+        while self.entries.len() > self.capacity {
+            match self.insertion_order.pop_front() {
+                Some(oldest) => {
+                    self.entries.remove(&oldest);
+                }
+                None => break,
+            }
+        }
+        // Entradas descartadas por TTL deixam chaves órfãs na fila de ordem;
+        // compacta quando ela passa do dobro do teto, para a fila não crescer
+        // sozinha numa sessão longa.
+        if self.insertion_order.len() > self.capacity.saturating_mul(2) {
+            let entries = &self.entries;
+            self.insertion_order.retain(|key| entries.contains_key(key));
+        }
+    }
+
+    fn fresh_entries_at(&self, now: Instant) -> Vec<(K, V)> {
+        self.entries
+            .iter()
+            .filter(|(_, (_, stored_at))| now.duration_since(*stored_at) < self.ttl)
+            .map(|(key, (value, _))| (key.clone(), value.clone()))
+            .collect()
+    }
+
+    #[allow(dead_code)]
+    fn fresh_entries(&self) -> Vec<(K, V)> {
+        self.fresh_entries_at(Instant::now())
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.insertion_order.clear();
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
 
 fn cookie_header(security_token: &str) -> String {
     format!(".ROBLOSECURITY={}", security_token)
@@ -42,8 +164,8 @@ pub struct ImageCache {
     thumbnail_queue: Arc<Mutex<Vec<PendingRequest>>>,
     #[allow(dead_code)]
     place_queue: Arc<Mutex<Vec<PendingPlaceRequest>>>,
-    cache: Arc<Mutex<HashMap<String, String>>>,
-    place_universe_cache: Arc<Mutex<HashMap<i64, i64>>>,
+    cache: Arc<Mutex<BoundedCache<String, String>>>,
+    place_universe_cache: Arc<Mutex<BoundedCache<i64, i64>>>,
     batch_active: Arc<Mutex<bool>>,
     #[allow(dead_code)]
     place_batch_active: Arc<Mutex<bool>>,
@@ -54,8 +176,14 @@ impl ImageCache {
         Self {
             thumbnail_queue: Arc::new(Mutex::new(Vec::new())),
             place_queue: Arc::new(Mutex::new(Vec::new())),
-            cache: Arc::new(Mutex::new(HashMap::new())),
-            place_universe_cache: Arc::new(Mutex::new(HashMap::new())),
+            cache: Arc::new(Mutex::new(BoundedCache::new(
+                MAX_CACHED_THUMBNAILS,
+                THUMBNAIL_CACHE_TTL,
+            ))),
+            place_universe_cache: Arc::new(Mutex::new(BoundedCache::new(
+                MAX_CACHED_PLACE_UNIVERSES,
+                PLACE_UNIVERSE_CACHE_TTL,
+            ))),
             batch_active: Arc::new(Mutex::new(false)),
             place_batch_active: Arc::new(Mutex::new(false)),
         }
@@ -75,9 +203,9 @@ impl ImageCache {
         let key = Self::cache_key(target_id, thumbnail_type, size);
 
         {
-            let cache = self.cache.lock().await;
+            let mut cache = self.cache.lock().await;
             if let Some(url) = cache.get(&key) {
-                return Some(url.clone());
+                return Some(url);
             }
         }
 
@@ -106,15 +234,15 @@ impl ImageCache {
         let key = Self::cache_key(place_id, "GameIcon", "512x512");
 
         {
-            let cache = self.cache.lock().await;
+            let mut cache = self.cache.lock().await;
             if let Some(url) = cache.get(&key) {
-                return Some(url.clone());
+                return Some(url);
             }
         }
 
         let universe_id = {
-            let pu_cache = self.place_universe_cache.lock().await;
-            pu_cache.get(&place_id).copied()
+            let mut pu_cache = self.place_universe_cache.lock().await;
+            pu_cache.get(&place_id)
         };
 
         let universe_id = match universe_id {
@@ -277,9 +405,9 @@ impl ImageCache {
                 }
 
                 {
-                    let c = cache.lock().await;
+                    let mut c = cache.lock().await;
                     for (key, senders) in requests_by_key {
-                        let url = c.get(&key).cloned();
+                        let url = c.get(&key);
                         for req in senders {
                             let _ = req.sender.send(url.clone());
                         }
@@ -302,13 +430,14 @@ impl ImageCache {
     pub async fn get_cached_thumbnails(&self) -> Vec<CachedThumbnail> {
         let cache = self.cache.lock().await;
         cache
-            .iter()
+            .fresh_entries()
+            .into_iter()
             .map(|(key, url)| {
                 let parts: Vec<&str> = key.splitn(3, ':').collect();
                 CachedThumbnail {
                     target_id: parts.first().and_then(|s| s.parse().ok()).unwrap_or(0),
                     thumbnail_type: parts.get(1).unwrap_or(&"").to_string(),
-                    image_url: Some(url.clone()),
+                    image_url: Some(url),
                 }
             })
             .collect()
@@ -328,8 +457,8 @@ impl ImageCache {
         size: &str,
     ) -> Option<String> {
         let key = Self::cache_key(target_id, thumbnail_type, size);
-        let cache = self.cache.lock().await;
-        cache.get(&key).cloned()
+        let mut cache = self.cache.lock().await;
+        cache.get(&key)
     }
 
     pub async fn get_images_batch(
@@ -340,12 +469,12 @@ impl ImageCache {
 
         {
             let mut queue = self.thumbnail_queue.lock().await;
-            let cache = self.cache.lock().await;
+            let mut cache = self.cache.lock().await;
 
             for (target_id, thumbnail_type, size, format) in &requests {
                 let key = Self::cache_key(*target_id, thumbnail_type, size);
                 if let Some(url) = cache.get(&key) {
-                    receivers.push((*target_id, None, Some(url.clone())));
+                    receivers.push((*target_id, None, Some(url)));
                 } else {
                     let (tx, rx) = oneshot::channel();
                     queue.push(PendingRequest {
