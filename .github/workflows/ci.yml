@@ -3,18 +3,24 @@ name: CI
 on:
   pull_request:
     branches:
+      - main
       - v4
     paths:
       - "src/**"
       - "src-tauri/**"
       - "package.json"
+      - "vite.config.ts"
+      - ".github/workflows/ci.yml"
   push:
     branches:
+      - main
       - v4
     paths:
       - "src/**"
       - "src-tauri/**"
       - "package.json"
+      - "vite.config.ts"
+      - ".github/workflows/ci.yml"
 
 jobs:
   verify:
@@ -33,6 +39,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
 
       - name: Build frontend (full)
         env:
