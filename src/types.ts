@@ -189,3 +189,27 @@ export interface BackupsInfo {
   totalBytes: number;
   count: number;
 }
+
+/**
+ * Fila de launch (Painel de Sessão).
+ *
+ * O backend mantém uma entrada por conta do lote atual e emite o evento
+ * `launch-queue` com o payload completo a cada mudança de estado.
+ */
+export type LaunchQueueState = "queued" | "launching" | "done" | "failed" | "cancelled";
+
+export interface LaunchQueueEntry {
+  userId: number;
+  state: LaunchQueueState;
+  /** Mensagem de erro quando `state === "failed"`; `null` nos demais estados. */
+  error: string | null;
+  updatedAtMs: number;
+}
+
+export interface LaunchQueuePayload {
+  entries: LaunchQueueEntry[];
+  /** `true` enquanto a fila está processando contas. */
+  active: boolean;
+  placeId: number;
+  jobId: string;
+}

@@ -42,6 +42,7 @@ const MONITORINFOF_PRIMARY: u32 = 1;
 
 include!("windows/core.rs");
 include!("windows/process.rs");
+include!("windows/singleton.rs");
 include!("windows/launch.rs");
 include!("windows/client_settings.rs");
 include!("windows/optimization.rs");

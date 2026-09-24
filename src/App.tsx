@@ -29,6 +29,7 @@ import { VersionsDialog } from "./components/dialogs/VersionsDialog";
 import { BackupsDialog } from "./components/dialogs/BackupsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { ScriptsDialog } from "./components/dialogs/ScriptsDialog";
+import { SessionDialog } from "./components/dialogs/SessionDialog";
 import { useTr } from "./i18n/text";
 import { ENABLE_NEXUS } from "./featureFlags";
 
@@ -56,6 +57,7 @@ function AppContent() {
     (ENABLE_NEXUS && store.nexusOpen) ||
     store.scriptsOpen ||
     store.updateDialogOpen ||
+    store.sessionDialogOpen ||
     backupsOpen ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
@@ -201,6 +203,11 @@ function AppContent() {
       />
 
       <BackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
+
+      <SessionDialog
+        open={store.sessionDialogOpen}
+        onClose={() => store.setSessionDialogOpen(false)}
+      />
 
       <IsolationProgressOverlay />
 

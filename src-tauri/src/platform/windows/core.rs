@@ -29,45 +29,105 @@ pub fn generate_browser_tracker_id() -> String {
     format!("{}{}", a, b)
 }
 
-pub fn enable_multi_roblox() -> Result<bool, String> {
-    let mut handle = MULTI_ROBLOX_HANDLE.lock().map_err(|e| e.to_string())?;
-    if handle.is_none() {
-        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel::<Result<bool, String>>();
-        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
-        std::thread::Builder::new()
-            .name("multi-roblox-mutex".into())
-            .spawn(move || {
-                let name = encode_wide("ROBLOX_singletonMutex");
-                let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
-                if h.is_null() {
-                    let _ = acquired_tx.send(Err("Failed to create mutex".into()));
-                    return;
-                }
-                let result = unsafe { WaitForSingleObject(h, 0) };
-                if result != WAIT_OBJECT_0 && result != WAIT_ABANDONED_0 {
-                    unsafe { CloseHandle(h) };
-                    let _ = acquired_tx.send(Ok(false));
-                    return;
-                }
-                let _ = acquired_tx.send(Ok(true));
-                // Hold ownership until asked to release (or the sender is dropped).
-                let _ = release_rx.recv();
-                unsafe {
-                    ReleaseMutex(h);
-                    CloseHandle(h);
-                }
-            })
-            .map_err(|e| format!("Failed to spawn mutex thread: {}", e))?;
+/// Sobe a thread dedicada e tenta tomar posse de `ROBLOX_singletonMutex`.
+/// `Ok(None)` = o mutex está com outro processo (cliente aberto, RAM legado,
+/// outra ferramenta). A thread só sobrevive se a posse for conquistada.
+fn spawn_singleton_mutex_owner() -> Result<Option<std::sync::mpsc::Sender<()>>, String> {
+    let (acquired_tx, acquired_rx) = std::sync::mpsc::channel::<Result<bool, String>>();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    std::thread::Builder::new()
+        .name("multi-roblox-mutex".into())
+        .spawn(move || {
+            let name = encode_wide("ROBLOX_singletonMutex");
+            let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+            if h.is_null() {
+                let _ = acquired_tx.send(Err("Failed to create mutex".into()));
+                return;
+            }
+            let result = unsafe { WaitForSingleObject(h, 0) };
+            if result != WAIT_OBJECT_0 && result != WAIT_ABANDONED_0 {
+                unsafe { CloseHandle(h) };
+                let _ = acquired_tx.send(Ok(false));
+                return;
+            }
+            let _ = acquired_tx.send(Ok(true));
+            // Hold ownership until asked to release (or the sender is dropped).
+            let _ = release_rx.recv();
+            unsafe {
+                ReleaseMutex(h);
+                CloseHandle(h);
+            }
+        })
+        .map_err(|e| format!("Failed to spawn mutex thread: {}", e))?;
 
-        match acquired_rx.recv() {
-            Ok(Ok(true)) => *handle = Some(release_tx),
-            Ok(Ok(false)) => return Ok(false),
-            Ok(Err(e)) => return Err(e),
-            Err(_) => return Err("Mutex thread exited unexpectedly".into()),
-        }
+    match acquired_rx.recv() {
+        Ok(Ok(true)) => Ok(Some(release_tx)),
+        Ok(Ok(false)) => Ok(None),
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err("Mutex thread exited unexpectedly".into()),
     }
-    drop(handle);
+}
 
+/// Garante que a thread dedicada esteja segurando `ROBLOX_singletonMutex`.
+/// `Ok(true)` = já segurávamos ou acabamos de conquistar.
+fn acquire_multi_roblox_mutex() -> Result<bool, String> {
+    let mut handle = MULTI_ROBLOX_HANDLE.lock().map_err(|e| e.to_string())?;
+    if handle.is_some() {
+        return Ok(true);
+    }
+    match spawn_singleton_mutex_owner()? {
+        Some(release_tx) => {
+            *handle = Some(release_tx);
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// Habilita vários clientes Roblox simultâneos.
+///
+/// São duas travas diferentes, e elas **não** se substituem:
+///
+/// 1. `ROBLOX_singletonMutex` — trava legada. Só funciona preventivamente: se o
+///    app pegar o mutex **antes** de qualquer cliente, os clientes seguintes
+///    sobem sem instalar o modo instância única. Se um cliente já estiver
+///    aberto (o usuário entrou pelo site), o mutex é dele e não há como tomá-lo
+///    sem matar o processo — era exatamente aí que o app dizia "A Roblox client
+///    is already running" ou matava os clientes do usuário.
+/// 2. `ROBLOX_singletonEvent` — é o que o cliente **moderno** consulta ao subir:
+///    se o nome existe, ele sinaliza a instância antiga e sai. Fechar esse
+///    handle de fora (`singleton.rs`) apaga o nome sem tocar no processo: o
+///    cliente aberto continua jogando e o próximo sobe normal. Verificado na
+///    máquina do usuário, sem elevação.
+///
+/// Conclusão: para o cliente atual o **Event é o que importa**; o mutex fica
+/// porque continua sendo a trava barata e preventiva (e builds antigas ainda
+/// dependem dele). Por isso o mutex é mantido como estava e o fechamento do
+/// Event entrou como etapa extra — inclusive no caminho de sucesso, para cobrir
+/// o caso "app já segurava o mutex e o usuário abriu o jogo pelo site depois".
+/// Sem cliente Roblox aberto a etapa nova não custa nada (sai na checagem de
+/// pids) e o comportamento antigo é idêntico.
+pub fn enable_multi_roblox() -> Result<bool, String> {
+    if acquire_multi_roblox_mutex()? {
+        // Um cliente aberto fora do app pode ter publicado o Event mesmo com o
+        // mutex na nossa mão; limpar é barato e não fecha ninguém.
+        let _ = close_roblox_singleton_handles();
+        lock_roblox_cookies()?;
+        return Ok(true);
+    }
+
+    // Mutex ocupado. Antes de desistir (e antes que o chamador caia no último
+    // recurso de matar clientes com `AutoCloseRobloxForMultiRbx`), destrava
+    // pelo Event.
+    if close_roblox_singleton_handles() == 0 {
+        // Nada de Roblox para destravar: quem segura o mutex é outra coisa
+        // (RAM legado, outra ferramenta). Caminho antigo.
+        return Ok(false);
+    }
+
+    // O mutex pode ter sido liberado nesse meio tempo; se não foi, seguimos
+    // assim mesmo — sem o Event o cliente novo não desiste mais.
+    let _ = acquire_multi_roblox_mutex()?;
     lock_roblox_cookies()?;
     Ok(true)
 }

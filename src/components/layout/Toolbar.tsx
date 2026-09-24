@@ -5,6 +5,7 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { ENABLE_NEXUS } from "../../featureFlags";
+import { SessionToolbarButton } from "../dialogs/SessionDialog";
 import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package } from "lucide-react";
 
 export function Toolbar() {
@@ -221,6 +222,8 @@ export function Toolbar() {
             </div>
           )}
         </div>
+
+        <SessionToolbarButton />
 
         <Tooltip content={t("Theme")} side="bottom">
           <button
