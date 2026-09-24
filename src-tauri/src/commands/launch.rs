@@ -125,6 +125,284 @@ fn window_rect_from_fields(
     Some((x, y, w, h))
 }
 
+// ---------------------------------------------------------------------------
+// Fila de launch observável
+// ---------------------------------------------------------------------------
+//
+// O launch múltiplo sempre foi uma caixa preta: a UI só sabia "conta 3 de 16".
+// Para pular uma conta ou parar o resto da fila, o usuário precisava do
+// "Close All Roblox" — que mata também os clientes que já entraram.
+//
+// A fila abaixo publica o estado de cada conta do lote (evento `launch-queue`)
+// e aceita dois cancelamentos que **nunca** fecham cliente nenhum:
+//
+// * `cancel_account_launch` — pula UMA conta que ainda não foi lançada;
+// * `stop_launch_queue`     — pula todas as que ainda estão na fila.
+//
+// Uma conta em andamento (`launching`) não é abortada — não dá para desfazer o
+// auth ticket no meio — e uma que já entrou (`done`) continua aberta. Isso é
+// deliberadamente diferente de `cancel_launch` / `cmd_kill_all_roblox`, que
+// seguem matando tudo.
+//
+// A lógica é pura (`LaunchQueue`, sem `AppHandle`) e a emissão do evento fica
+// nos wrappers `launch_queue_*`, para os testes não precisarem de um app Tauri.
+
+/// Estado de uma conta dentro do lote atual.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+enum LaunchQueueState {
+    Queued,
+    Launching,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+impl LaunchQueueState {
+    /// Estados finais: uma vez neles, a conta não volta atrás. É a guarda
+    /// contra transição fora de ordem (ex.: o `failed` do wrapper do launch
+    /// único chegando depois do `done` que o corpo já marcou).
+    fn is_terminal(self) -> bool {
+        matches!(self, Self::Done | Self::Failed | Self::Cancelled)
+    }
+}
+
+/// Uma conta da fila, do jeito que o frontend lê (`LaunchQueueEntry`).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchQueueEntry {
+    user_id: i64,
+    state: LaunchQueueState,
+    error: Option<String>,
+    updated_at_ms: u64,
+}
+
+/// Snapshot completo da fila (`LaunchQueuePayload`): é o retorno de
+/// `get_launch_queue` e o payload do evento `launch-queue`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchQueuePayload {
+    entries: Vec<LaunchQueueEntry>,
+    active: bool,
+    place_id: i64,
+    job_id: String,
+}
+
+/// Estado puro da fila. Sem I/O, sem Tauri — tudo aqui é testável direto.
+#[derive(Debug, Default)]
+struct LaunchQueue {
+    entries: Vec<LaunchQueueEntry>,
+    active: bool,
+    place_id: i64,
+    job_id: String,
+}
+
+impl LaunchQueue {
+    /// Começa um lote novo. A fila é **por execução**: o lote anterior é
+    /// descartado inteiro, porque a UI mostra sempre o lote atual.
+    fn start(&mut self, user_ids: &[i64], place_id: i64, job_id: &str, now_ms: u64) {
+        self.entries = user_ids
+            .iter()
+            .map(|&user_id| LaunchQueueEntry {
+                user_id,
+                state: LaunchQueueState::Queued,
+                error: None,
+                updated_at_ms: now_ms,
+            })
+            .collect();
+        self.active = true;
+        self.place_id = place_id;
+        self.job_id = job_id.to_string();
+    }
+
+    fn state_of(&self, user_id: i64) -> Option<LaunchQueueState> {
+        self.entries
+            .iter()
+            .find(|entry| entry.user_id == user_id)
+            .map(|entry| entry.state)
+    }
+
+    /// Transição guardada. Devolve `false` — sem tocar em nada — para uma conta
+    /// fora da fila, para a transição ao mesmo estado, para qualquer volta a
+    /// `queued` e para qualquer tentativa de sair de um estado final.
+    fn set_state(
+        &mut self,
+        user_id: i64,
+        state: LaunchQueueState,
+        error: Option<String>,
+        now_ms: u64,
+    ) -> bool {
+        if state == LaunchQueueState::Queued {
+            return false;
+        }
+        let Some(entry) = self.entries.iter_mut().find(|entry| entry.user_id == user_id) else {
+            return false;
+        };
+        if entry.state.is_terminal() || entry.state == state {
+            return false;
+        }
+        entry.state = state;
+        entry.error = error;
+        entry.updated_at_ms = now_ms;
+        true
+    }
+
+    /// Cancelamento pedido pelo usuário para UMA conta. Só vale para quem ainda
+    /// não foi lançada: `launching` não dá para abortar no meio do auth e
+    /// `done` já tem cliente aberto — cancelar **nunca** fecha cliente.
+    fn request_cancel(&mut self, user_id: i64, now_ms: u64) -> bool {
+        if self.state_of(user_id) != Some(LaunchQueueState::Queued) {
+            return false;
+        }
+        self.set_state(user_id, LaunchQueueState::Cancelled, None, now_ms)
+    }
+
+    /// Cancela todas as contas que ainda estão `queued` e devolve quantas
+    /// foram. Não toca na conta em andamento nem nas que já entraram.
+    fn cancel_queued(&mut self, now_ms: u64) -> usize {
+        let mut cancelled = 0;
+        for entry in self.entries.iter_mut() {
+            if entry.state == LaunchQueueState::Queued {
+                entry.state = LaunchQueueState::Cancelled;
+                entry.error = None;
+                entry.updated_at_ms = now_ms;
+                cancelled += 1;
+            }
+        }
+        cancelled
+    }
+
+    /// Fim do lote: a UI para de mostrar a fila como ativa, mas as entradas
+    /// continuam lá para o usuário ver o resultado conta a conta.
+    fn finish(&mut self) {
+        self.active = false;
+    }
+
+    fn snapshot(&self) -> LaunchQueuePayload {
+        LaunchQueuePayload {
+            entries: self.entries.clone(),
+            active: self.active,
+            place_id: self.place_id,
+            job_id: self.job_id.clone(),
+        }
+    }
+}
+
+static LAUNCH_QUEUE: std::sync::LazyLock<std::sync::Mutex<LaunchQueue>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(LaunchQueue::default()));
+
+fn launch_queue_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Roda `f` com o lock da fila e devolve o resultado junto com o snapshot já
+/// pronto. O lock é solto **antes** de qualquer emissão e nunca atravessa um
+/// `.await`: todos os chamadores são síncronos e só emitem depois daqui.
+fn with_launch_queue<R>(f: impl FnOnce(&mut LaunchQueue) -> R) -> (R, LaunchQueuePayload) {
+    let mut queue = match LAUNCH_QUEUE.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let result = f(&mut queue);
+    let snapshot = queue.snapshot();
+    drop(queue);
+    (result, snapshot)
+}
+
+fn emit_launch_queue(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
+    let _ = app.emit("launch-queue", payload);
+}
+
+/// Substitui a fila pelo lote que está começando e publica o estado inicial.
+fn launch_queue_start(app: &tauri::AppHandle, user_ids: &[i64], place_id: i64, job_id: &str) {
+    let (_, payload) =
+        with_launch_queue(|queue| queue.start(user_ids, place_id, job_id, launch_queue_now_ms()));
+    emit_launch_queue(app, &payload);
+}
+
+/// Aplica uma transição e publica o evento. Devolve `false` quando a transição
+/// foi recusada (conta fora da fila ou já num estado final).
+fn launch_queue_mark(
+    app: &tauri::AppHandle,
+    user_id: i64,
+    state: LaunchQueueState,
+    error: Option<String>,
+) -> bool {
+    let (changed, payload) =
+        with_launch_queue(|queue| queue.set_state(user_id, state, error, launch_queue_now_ms()));
+    if changed {
+        emit_launch_queue(app, &payload);
+    }
+    changed
+}
+
+/// O loop pergunta isto antes de trabalhar numa conta. Só devolve `true` para
+/// quem foi explicitamente cancelado: se a entrada sumiu (um lote novo
+/// substituiu a fila), o launch em andamento segue normalmente.
+fn launch_queue_is_cancelled(user_id: i64) -> bool {
+    with_launch_queue(|queue| queue.state_of(user_id)).0 == Some(LaunchQueueState::Cancelled)
+}
+
+/// Cancela tudo que ainda está `queued` e devolve a contagem.
+fn launch_queue_cancel_remaining(app: &tauri::AppHandle) -> usize {
+    let (cancelled, payload) = with_launch_queue(|queue| queue.cancel_queued(launch_queue_now_ms()));
+    if cancelled > 0 {
+        emit_launch_queue(app, &payload);
+    }
+    cancelled
+}
+
+fn launch_queue_finish(app: &tauri::AppHandle) {
+    let (_, payload) = with_launch_queue(|queue| queue.finish());
+    emit_launch_queue(app, &payload);
+}
+
+/// Aborta o lote inteiro por um erro fatal: a conta em andamento (quando há
+/// uma) vira `failed` com a mensagem e quem nunca chegou a ser tentado vira
+/// `cancelled`.
+fn launch_queue_abort(app: &tauri::AppHandle, user_id: Option<i64>, error: &str) {
+    if let Some(user_id) = user_id {
+        launch_queue_mark(
+            app,
+            user_id,
+            LaunchQueueState::Failed,
+            Some(error.to_string()),
+        );
+    }
+    launch_queue_cancel_remaining(app);
+    launch_queue_finish(app);
+}
+
+/// Estado atual da fila, para a UI montar a lista ao abrir.
+#[tauri::command]
+fn get_launch_queue() -> LaunchQueuePayload {
+    with_launch_queue(|_| ()).1
+}
+
+/// Cancela UMA conta que ainda não foi lançada; o loop a pula quando chegar
+/// nela. Nunca fecha cliente: uma conta em andamento (`launching`) ou que já
+/// entrou (`done`) devolve `false` e nada muda.
+#[tauri::command]
+fn cancel_account_launch(app: tauri::AppHandle, user_id: i64) -> bool {
+    let (cancelled, payload) =
+        with_launch_queue(|queue| queue.request_cancel(user_id, launch_queue_now_ms()));
+    if cancelled {
+        emit_launch_queue(&app, &payload);
+    }
+    cancelled
+}
+
+/// Para o resto da fila: cancela só quem ainda está `queued` e devolve quantas
+/// contas foram canceladas. A conta em andamento termina e quem já entrou
+/// continua aberto — ao contrário do "Close All Roblox".
+#[tauri::command]
+fn stop_launch_queue(app: tauri::AppHandle) -> usize {
+    launch_queue_cancel_remaining(&app)
+}
+
 #[cfg(target_os = "windows")]
 #[tauri::command]
 async fn launch_roblox(
@@ -143,7 +421,52 @@ async fn launch_roblox(
     // chave ausente como `None`); `None` = não sortear.
     shuffle_job: Option<bool>,
 ) -> Result<(), String> {
+    // O launch de uma conta única também alimenta a fila (com uma entrada só),
+    // para a UI mostrar e cancelar do mesmo jeito que num lote.
+    launch_queue_start(&app, &[user_id], place_id, &job_id);
+    let result = launch_roblox_windows(
+        app.clone(),
+        state,
+        settings,
+        versions,
+        user_id,
+        place_id,
+        job_id,
+        launch_data,
+        follow_user,
+        join_vip,
+        link_code,
+        shuffle_job,
+    )
+    .await;
+    if let Err(err) = &result {
+        // `set_state` ignora quem já está num estado final, então isto só pega
+        // os erros que escaparam do corpo sem marcar nada.
+        launch_queue_mark(&app, user_id, LaunchQueueState::Failed, Some(err.clone()));
+    }
+    launch_queue_finish(&app);
+    result
+}
+
+#[cfg(target_os = "windows")]
+#[allow(clippy::too_many_arguments)]
+async fn launch_roblox_windows(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AccountStore>,
+    settings: tauri::State<'_, SettingsStore>,
+    versions: tauri::State<'_, data::versions::VersionsCatalogStore>,
+    user_id: i64,
+    place_id: i64,
+    job_id: String,
+    launch_data: String,
+    follow_user: bool,
+    join_vip: bool,
+    link_code: String,
+    shuffle_job: Option<bool>,
+) -> Result<(), String> {
     use platform::windows;
+
+    launch_queue_mark(&app, user_id, LaunchQueueState::Launching, None);
 
     let target_desc = launch_target_description(join_vip, &link_code, &job_id);
     emit_launch_log(
@@ -315,8 +638,19 @@ async fn launch_roblox(
         emit_launch_log(&app, user_id, "warn", "pid", "PID não detectado no tempo esperado");
         tracker.clear_pending_launch(pending_id);
     }
+    if detected_pid.is_none() {
+        // Sem PID não dá para afirmar que a conta entrou (nem rastreá-la), e a
+        // fila não deve mostrar um "done" que não aconteceu.
+        launch_queue_mark(
+            &app,
+            user_id,
+            LaunchQueueState::Failed,
+            Some("PID não detectado no tempo esperado".to_string()),
+        );
+    }
     if let Some(pid) = detected_pid {
         emit_launch_log(&app, user_id, "success", "pid", format!("Cliente iniciado (PID {pid})"));
+        launch_queue_mark(&app, user_id, LaunchQueueState::Done, None);
         tracker.clear_pending_launch(pending_id);
         tracker.track_with_version(
             user_id,
@@ -362,7 +696,7 @@ async fn launch_roblox(
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 async fn launch_roblox(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     state: tauri::State<'_, AccountStore>,
     settings: tauri::State<'_, SettingsStore>,
     user_id: i64,
@@ -374,6 +708,48 @@ async fn launch_roblox(
     link_code: String,
     // Opcional para aceitar chamadas que não mandam o campo (Tauri trata a
     // chave ausente como `None`); `None` = não sortear.
+    shuffle_job: Option<bool>,
+) -> Result<(), String> {
+    // O launch de uma conta única também alimenta a fila (com uma entrada só),
+    // para a UI mostrar e cancelar do mesmo jeito que num lote.
+    launch_queue_start(&app, &[user_id], place_id, &job_id);
+    launch_queue_mark(&app, user_id, LaunchQueueState::Launching, None);
+    let result = launch_roblox_other(
+        app.clone(),
+        state,
+        settings,
+        user_id,
+        place_id,
+        job_id,
+        launch_data,
+        follow_user,
+        join_vip,
+        link_code,
+        shuffle_job,
+    )
+    .await;
+    if let Err(err) = &result {
+        // `set_state` ignora quem já está num estado final, então isto só pega
+        // os erros que escaparam do corpo sem marcar nada.
+        launch_queue_mark(&app, user_id, LaunchQueueState::Failed, Some(err.clone()));
+    }
+    launch_queue_finish(&app);
+    result
+}
+
+#[cfg(not(target_os = "windows"))]
+#[allow(clippy::too_many_arguments)]
+async fn launch_roblox_other(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AccountStore>,
+    settings: tauri::State<'_, SettingsStore>,
+    user_id: i64,
+    place_id: i64,
+    job_id: String,
+    launch_data: String,
+    follow_user: bool,
+    join_vip: bool,
+    link_code: String,
     shuffle_job: Option<bool>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -463,6 +839,15 @@ async fn launch_roblox(
             wait_for_new_roblox_pid(&pids_before, std::time::Duration::from_secs(12)).await
         {
             tracker.track(user_id, pid, browser_tracker_id);
+            launch_queue_mark(&app, user_id, LaunchQueueState::Done, None);
+        } else {
+            // Sem PID não dá para afirmar que a conta entrou.
+            launch_queue_mark(
+                &app,
+                user_id,
+                LaunchQueueState::Failed,
+                Some("PID não detectado no tempo esperado".to_string()),
+            );
         }
 
         return Ok(());
@@ -471,6 +856,7 @@ async fn launch_roblox(
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let _ = (
+            app,
             state,
             settings,
             user_id,
@@ -515,7 +901,17 @@ async fn launch_multiple(
     let tracker = windows::tracker();
     tracker.reset_launch_cancelled();
 
-    if let Some(report) = run_pre_launch_isolation(&app, &settings).await? {
+    // A fila é por execução: este lote substitui o anterior.
+    launch_queue_start(&app, &user_ids, place_id, &job_id);
+
+    let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
+        Ok(value) => value,
+        Err(err) => {
+            launch_queue_abort(&app, None, &err);
+            return Err(err);
+        }
+    };
+    if let Some(report) = isolation_report {
         let _ = app.emit("isolation-report", &report);
         if windows::has_pending_fast_flags() {
             tokio::spawn(apply_pending_fast_flags_when_ready(
@@ -524,12 +920,28 @@ async fn launch_multiple(
         }
     }
 
-    let accounts = state.get_all()?;
+    let accounts = match state.get_all() {
+        Ok(value) => value,
+        Err(err) => {
+            launch_queue_abort(&app, None, &err);
+            return Err(err);
+        }
+    };
 
     for (i, &uid) in user_ids.iter().enumerate() {
         if tracker.is_launch_cancelled() {
+            // "Close All Roblox": nada do que sobrou vai ser tentado.
+            launch_queue_cancel_remaining(&app);
             break;
         }
+
+        // A conta pode ter sido cancelada (`cancel_account_launch` ou
+        // `stop_launch_queue`) enquanto a fila andava: pular é só não fazer
+        // nada por ela — nenhum cliente já aberto é tocado.
+        if launch_queue_is_cancelled(uid) {
+            continue;
+        }
+        launch_queue_mark(&app, uid, LaunchQueueState::Launching, None);
 
         let iter_start = std::time::Instant::now();
 
@@ -564,6 +976,7 @@ async fn launch_multiple(
         ) {
             Ok(value) => value,
             Err(err) => {
+                launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some(err.clone()));
                 let _ = app.emit(
                     "launch-progress",
                     serde_json::json!({
@@ -591,6 +1004,12 @@ async fn launch_multiple(
         let _ = tracker.cleanup_dead_processes();
         let running_keys = tracker.running_version_keys();
         if has_version_conflict(&running_keys, &acct_version_id) {
+            launch_queue_mark(
+                &app,
+                uid,
+                LaunchQueueState::Failed,
+                Some("version-conflict".to_string()),
+            );
             let _ = app.emit(
                 "launch-progress",
                 serde_json::json!({
@@ -631,7 +1050,12 @@ async fn launch_multiple(
         }
 
         if multi_rbx {
-            ensure_multi_roblox_enabled(auto_close_multi_conflicts).await?;
+            // Falha de Multi Roblox aborta a fila inteira (diferente dos erros
+            // por conta): sem o mutex, todo cliente novo derruba o anterior.
+            if let Err(err) = ensure_multi_roblox_enabled(auto_close_multi_conflicts).await {
+                launch_queue_abort(&app, Some(uid), &err);
+                return Err(err);
+            }
         } else {
             let _ = windows::disable_multi_roblox();
         }
@@ -642,13 +1066,25 @@ async fn launch_multiple(
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;
             if !closed {
+                launch_queue_mark(
+                    &app,
+                    uid,
+                    LaunchQueueState::Failed,
+                    Some("Previous Roblox instance did not close before relaunch".to_string()),
+                );
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
             }
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
 
-        let browser_tracker_id = get_or_create_browser_tracker_id(&state, uid)?;
+        let browser_tracker_id = match get_or_create_browser_tracker_id(&state, uid) {
+            Ok(value) => value,
+            Err(err) => {
+                launch_queue_abort(&app, Some(uid), &err);
+                return Err(err);
+            }
+        };
         emit_launch_log(&app, uid, "info", "auth", "Solicitando authentication ticket...");
         let ticket = match run_with_session_retry(state.inner(), uid, |cookie| async move {
             api::auth::get_auth_ticket(&cookie).await
@@ -665,6 +1101,7 @@ async fn launch_multiple(
                     mark_account_moderated(state.inner(), &app, uid);
                     emit_launch_log(&app, uid, "warn", "moderated", "Conta movida para o grupo 'moderadas'");
                 }
+                launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some(e));
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
             }
@@ -676,7 +1113,8 @@ async fn launch_multiple(
         .await
         {
             Ok(value) => value,
-            Err(_) => {
+            Err(err) => {
+                launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some(err));
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
             }
@@ -685,6 +1123,10 @@ async fn launch_multiple(
         // "Close All Roblox" may have been clicked while this account was
         // fetching its ticket; don't spawn a client right after the kill.
         if tracker.is_launch_cancelled() {
+            // Esta conta não chegou a abrir cliente, então vira `cancelled`
+            // (e não `failed`); o resto da fila também.
+            launch_queue_mark(&app, uid, LaunchQueueState::Cancelled, None);
+            launch_queue_cancel_remaining(&app);
             break;
         }
 
@@ -733,6 +1175,7 @@ async fn launch_multiple(
 
         if let Err(err) = &launch_result {
             emit_launch_log(&app, uid, "error", "spawn", format!("Falha ao abrir o cliente: {err}"));
+            launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some(err.clone()));
             tracker.clear_pending_launch(acct_pending_id);
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             continue;
@@ -747,8 +1190,13 @@ async fn launch_multiple(
             emit_launch_log(&app, uid, "warn", "pid", "PID não detectado no tempo esperado");
             tracker.clear_pending_launch(acct_pending_id);
         }
+        if acct_detected_pid.is_none() {
+            // Sem PID não dá para afirmar que a conta entrou (nem rastreá-la).
+            launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some("PID não detectado no tempo esperado".to_string()));
+        }
         if let Some(pid) = acct_detected_pid {
             emit_launch_log(&app, uid, "success", "pid", format!("Cliente iniciado (PID {pid})"));
+            launch_queue_mark(&app, uid, LaunchQueueState::Done, None);
             tracker.clear_pending_launch(acct_pending_id);
             tracker.track_with_version(uid, pid, browser_tracker_id, acct_version_id.clone());
             if let Some(version_id) = acct_version_id.as_deref() {
@@ -813,6 +1261,7 @@ async fn launch_multiple(
         }
     }
 
+    launch_queue_finish(&app);
     let _ = app.emit("launch-complete", serde_json::json!({}));
     Ok(())
 }
@@ -848,10 +1297,21 @@ async fn launch_multiple(
         let tracker = macos::tracker();
         tracker.reset_launch_cancelled();
 
+        // A fila é por execução: este lote substitui o anterior.
+        launch_queue_start(&app, &user_ids, place_id, &job_id);
+
         for (i, &uid) in user_ids.iter().enumerate() {
             if tracker.is_launch_cancelled() {
+                launch_queue_cancel_remaining(&app);
                 break;
             }
+
+            // Conta cancelada pela UI enquanto a fila andava: pular é só não
+            // fazer nada por ela — nenhum cliente já aberto é tocado.
+            if launch_queue_is_cancelled(uid) {
+                continue;
+            }
+            launch_queue_mark(&app, uid, LaunchQueueState::Launching, None);
 
             // Always launch into the selected place/job (per-account saved-game
             // overrides removed — see the Windows path for rationale).
@@ -878,12 +1338,19 @@ async fn launch_multiple(
             }
 
             if multi_rbx {
-                let enabled = macos::enable_multi_roblox()?;
+                let enabled = match macos::enable_multi_roblox() {
+                    Ok(value) => value,
+                    Err(err) => {
+                        launch_queue_abort(&app, Some(uid), &err);
+                        return Err(err);
+                    }
+                };
                 if !enabled {
-                    return Err(
+                    let err =
                         "Failed to enable Multi Roblox. Close all Roblox processes and try again."
-                            .into(),
-                    );
+                            .to_string();
+                    launch_queue_abort(&app, Some(uid), &err);
+                    return Err(err);
                 }
             } else {
                 let _ = macos::disable_multi_roblox();
@@ -896,14 +1363,21 @@ async fn launch_multiple(
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
 
-            let browser_tracker_id = get_or_create_browser_tracker_id(&state, uid)?;
+            let browser_tracker_id = match get_or_create_browser_tracker_id(&state, uid) {
+                Ok(value) => value,
+                Err(err) => {
+                    launch_queue_abort(&app, Some(uid), &err);
+                    return Err(err);
+                }
+            };
             let ticket = match run_with_session_retry(state.inner(), uid, |cookie| async move {
                 api::auth::get_auth_ticket(&cookie).await
             })
             .await
             {
                 Ok(t) => t,
-                Err(_) => {
+                Err(err) => {
+                    launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some(err));
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     continue;
                 }
@@ -916,11 +1390,19 @@ async fn launch_multiple(
                 .await
                 {
                 Ok(value) => value,
-                Err(_) => {
+                Err(err) => {
+                    launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some(err));
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     continue;
                 }
             };
+
+            // Cancelado durante o auth: esta conta não chega a abrir cliente.
+            if tracker.is_launch_cancelled() {
+                launch_queue_mark(&app, uid, LaunchQueueState::Cancelled, None);
+                launch_queue_cancel_remaining(&app);
+                break;
+            }
 
             let pids_before = macos::get_roblox_pids();
 
@@ -952,7 +1434,8 @@ async fn launch_multiple(
                 macos::launch_url(&url)
             };
 
-            if launch_result.is_err() {
+            if let Err(err) = &launch_result {
+                launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some(err.clone()));
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 continue;
             }
@@ -961,6 +1444,10 @@ async fn launch_multiple(
                 wait_for_new_roblox_pid(&pids_before, std::time::Duration::from_secs(12)).await
             {
                 tracker.track(uid, pid, browser_tracker_id);
+                launch_queue_mark(&app, uid, LaunchQueueState::Done, None);
+            } else {
+                // Sem PID não dá para afirmar que a conta entrou.
+                launch_queue_mark(&app, uid, LaunchQueueState::Failed, Some("PID não detectado no tempo esperado".to_string()));
             }
 
             if i < user_ids.len() - 1 {
@@ -979,6 +1466,7 @@ async fn launch_multiple(
             }
         }
 
+        launch_queue_finish(&app);
         let _ = app.emit("launch-complete", serde_json::json!({}));
         return Ok(());
     }
@@ -999,8 +1487,9 @@ async fn launch_multiple(
     }
 }
 
-#[tauri::command]
-fn cancel_launch() -> Result<(), String> {
+/// Levanta a flag de cancelamento no tracker. Separada do comando para poder
+/// ser testada sem `AppHandle`.
+fn signal_cancel_launch() {
     #[cfg(target_os = "windows")]
     {
         platform::windows::tracker().cancel_launch();
@@ -1009,6 +1498,15 @@ fn cancel_launch() -> Result<(), String> {
     {
         platform::macos::tracker().cancel_launch();
     }
+}
+
+#[tauri::command]
+fn cancel_launch(app: tauri::AppHandle) -> Result<(), String> {
+    signal_cancel_launch();
+    // O loop só marcaria as restantes como `cancelled` no próximo checkpoint,
+    // que pode levar mais de 8 s (o intervalo anti-captcha). Quem apertou
+    // "Close All" precisa ver a fila esvaziar na hora.
+    launch_queue_cancel_remaining(&app);
     Ok(())
 }
 
@@ -1234,6 +1732,348 @@ fn cmd_apply_fps_unlock(max_fps: u32) -> Result<(), String> {
     {
         let _ = max_fps;
         Err("Not supported on this platform".into())
+    }
+}
+
+// Máquina de estados da fila de launch observável. Tudo aqui roda sobre
+// `LaunchQueue` (lógica pura) — os wrappers `launch_queue_*` só acrescentam o
+// `AppHandle` e a emissão do evento, que não dá para instanciar em teste.
+#[cfg(test)]
+mod launch_queue_tests {
+    use super::*;
+
+    /// Fila pronta com as contas todas em `queued`.
+    fn queue_with(user_ids: &[i64]) -> LaunchQueue {
+        let mut queue = LaunchQueue::default();
+        queue.start(user_ids, 123, "job-abc", 1_000);
+        queue
+    }
+
+    fn states(queue: &LaunchQueue) -> Vec<LaunchQueueState> {
+        queue.entries.iter().map(|entry| entry.state).collect()
+    }
+
+    // ---- início / substituição do lote --------------------------------------
+
+    #[test]
+    fn a_fresh_queue_is_inactive_and_empty() {
+        let queue = LaunchQueue::default();
+        let snapshot = queue.snapshot();
+        assert!(snapshot.entries.is_empty());
+        assert!(!snapshot.active);
+        assert_eq!(snapshot.place_id, 0);
+        assert_eq!(snapshot.job_id, "");
+    }
+
+    #[test]
+    fn starting_a_batch_queues_every_account_and_activates_the_queue() {
+        let queue = queue_with(&[10, 20, 30]);
+        let snapshot = queue.snapshot();
+        assert!(snapshot.active);
+        assert_eq!(snapshot.place_id, 123);
+        assert_eq!(snapshot.job_id, "job-abc");
+        assert_eq!(
+            states(&queue),
+            vec![
+                LaunchQueueState::Queued,
+                LaunchQueueState::Queued,
+                LaunchQueueState::Queued
+            ]
+        );
+        assert!(snapshot.entries.iter().all(|entry| entry.error.is_none()));
+        assert!(snapshot
+            .entries
+            .iter()
+            .all(|entry| entry.updated_at_ms == 1_000));
+    }
+
+    #[test]
+    fn the_snapshot_keeps_the_original_account_order() {
+        // Ordem de launch = ordem recebida do frontend; nada aqui reordena.
+        let queue = queue_with(&[30, 10, 20, 7]);
+        let ids: Vec<i64> = queue
+            .snapshot()
+            .entries
+            .iter()
+            .map(|entry| entry.user_id)
+            .collect();
+        assert_eq!(ids, vec![30, 10, 20, 7]);
+    }
+
+    #[test]
+    fn starting_a_new_batch_replaces_the_previous_queue() {
+        let mut queue = queue_with(&[1, 2, 3]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        queue.finish();
+
+        queue.start(&[9, 8], 777, "outro-job", 2_000);
+
+        let snapshot = queue.snapshot();
+        assert!(snapshot.active);
+        assert_eq!(snapshot.place_id, 777);
+        assert_eq!(snapshot.job_id, "outro-job");
+        let ids: Vec<i64> = snapshot.entries.iter().map(|entry| entry.user_id).collect();
+        assert_eq!(ids, vec![9, 8]);
+        assert_eq!(queue.state_of(1), None);
+    }
+
+    // ---- cancelar UMA conta --------------------------------------------------
+
+    #[test]
+    fn cancelling_a_queued_account_marks_it_cancelled() {
+        let mut queue = queue_with(&[1, 2, 3]);
+        assert!(queue.request_cancel(2, 1_500));
+        assert_eq!(queue.state_of(2), Some(LaunchQueueState::Cancelled));
+        // As vizinhas não são tocadas.
+        assert_eq!(queue.state_of(1), Some(LaunchQueueState::Queued));
+        assert_eq!(queue.state_of(3), Some(LaunchQueueState::Queued));
+    }
+
+    #[test]
+    fn the_loop_skips_an_account_cancelled_while_it_was_queued() {
+        // É assim que o loop decide pular: a transição para `launching` de uma
+        // conta cancelada é recusada.
+        let mut queue = queue_with(&[1, 2]);
+        queue.request_cancel(2, 1_500);
+        assert!(!queue.set_state(2, LaunchQueueState::Launching, None, 1_600));
+        assert_eq!(queue.state_of(2), Some(LaunchQueueState::Cancelled));
+    }
+
+    #[test]
+    fn cancelling_a_launching_account_changes_nothing() {
+        // Não dá para abortar no meio do auth ticket.
+        let mut queue = queue_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        assert!(!queue.request_cancel(1, 1_200));
+        assert_eq!(queue.state_of(1), Some(LaunchQueueState::Launching));
+        assert_eq!(queue.entries[0].updated_at_ms, 1_100);
+    }
+
+    #[test]
+    fn cancelling_an_account_that_already_launched_never_touches_its_client() {
+        let mut queue = queue_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        assert!(!queue.request_cancel(1, 1_300));
+        assert_eq!(queue.state_of(1), Some(LaunchQueueState::Done));
+        assert_eq!(queue.entries[0].updated_at_ms, 1_200);
+    }
+
+    #[test]
+    fn cancelling_an_account_outside_the_queue_returns_false() {
+        let mut queue = queue_with(&[1, 2]);
+        assert!(!queue.request_cancel(404, 1_500));
+        assert_eq!(states(&queue).len(), 2);
+    }
+
+    #[test]
+    fn cancelling_twice_only_counts_once() {
+        let mut queue = queue_with(&[1]);
+        assert!(queue.request_cancel(1, 1_500));
+        assert!(!queue.request_cancel(1, 1_600));
+        assert_eq!(queue.entries[0].updated_at_ms, 1_500);
+    }
+
+    // ---- parar a fila --------------------------------------------------------
+
+    #[test]
+    fn stopping_the_queue_only_cancels_the_accounts_still_queued() {
+        let mut queue = queue_with(&[1, 2, 3, 4, 5]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        queue.set_state(2, LaunchQueueState::Launching, None, 1_300);
+        queue.set_state(3, LaunchQueueState::Launching, None, 1_310);
+        queue.set_state(3, LaunchQueueState::Failed, Some("boom".into()), 1_320);
+
+        assert_eq!(queue.cancel_queued(1_400), 2);
+
+        assert_eq!(queue.state_of(1), Some(LaunchQueueState::Done));
+        assert_eq!(queue.state_of(2), Some(LaunchQueueState::Launching));
+        assert_eq!(queue.state_of(3), Some(LaunchQueueState::Failed));
+        assert_eq!(queue.state_of(4), Some(LaunchQueueState::Cancelled));
+        assert_eq!(queue.state_of(5), Some(LaunchQueueState::Cancelled));
+    }
+
+    #[test]
+    fn stopping_an_already_stopped_queue_cancels_nothing() {
+        let mut queue = queue_with(&[1, 2]);
+        assert_eq!(queue.cancel_queued(1_400), 2);
+        assert_eq!(queue.cancel_queued(1_500), 0);
+        assert_eq!(queue.entries[0].updated_at_ms, 1_400);
+    }
+
+    #[test]
+    fn stopping_an_empty_queue_cancels_nothing() {
+        let mut queue = LaunchQueue::default();
+        assert_eq!(queue.cancel_queued(1_400), 0);
+    }
+
+    #[test]
+    fn stopping_the_queue_keeps_the_error_of_an_account_that_already_failed() {
+        let mut queue = queue_with(&[1, 2]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Failed, Some("sem ticket".into()), 1_200);
+        queue.cancel_queued(1_300);
+        assert_eq!(queue.entries[0].error.as_deref(), Some("sem ticket"));
+    }
+
+    // ---- transições inválidas ------------------------------------------------
+
+    #[test]
+    fn a_terminal_state_is_never_overwritten() {
+        for terminal in [
+            LaunchQueueState::Done,
+            LaunchQueueState::Failed,
+            LaunchQueueState::Cancelled,
+        ] {
+            let mut queue = queue_with(&[1]);
+            assert!(queue.set_state(1, terminal, Some("final".into()), 1_100));
+            for attempt in [
+                LaunchQueueState::Launching,
+                LaunchQueueState::Done,
+                LaunchQueueState::Failed,
+                LaunchQueueState::Cancelled,
+            ] {
+                assert!(
+                    !queue.set_state(1, attempt, Some("depois".into()), 1_200),
+                    "{terminal:?} nao pode virar {attempt:?}"
+                );
+            }
+            assert_eq!(queue.state_of(1), Some(terminal));
+            assert_eq!(queue.entries[0].error.as_deref(), Some("final"));
+            assert_eq!(queue.entries[0].updated_at_ms, 1_100);
+        }
+    }
+
+    #[test]
+    fn an_account_never_goes_back_to_queued() {
+        let mut queue = queue_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        assert!(!queue.set_state(1, LaunchQueueState::Queued, None, 1_200));
+        assert_eq!(queue.state_of(1), Some(LaunchQueueState::Launching));
+        // Nem mesmo quem ainda está `queued` conta como transição.
+        let mut fresh = queue_with(&[2]);
+        assert!(!fresh.set_state(2, LaunchQueueState::Queued, None, 1_200));
+    }
+
+    #[test]
+    fn a_repeated_state_is_not_a_transition() {
+        let mut queue = queue_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        assert!(!queue.set_state(1, LaunchQueueState::Launching, None, 1_200));
+        assert_eq!(queue.entries[0].updated_at_ms, 1_100);
+    }
+
+    #[test]
+    fn marking_an_account_outside_the_queue_does_not_create_an_entry() {
+        let mut queue = queue_with(&[1]);
+        assert!(!queue.set_state(404, LaunchQueueState::Launching, None, 1_100));
+        assert_eq!(queue.entries.len(), 1);
+    }
+
+    // ---- erro / fim ----------------------------------------------------------
+
+    #[test]
+    fn a_failed_account_keeps_its_error_message() {
+        let mut queue = queue_with(&[1, 2]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        assert!(queue.set_state(
+            1,
+            LaunchQueueState::Failed,
+            Some("Falha no auth ticket: 401".into()),
+            1_200
+        ));
+        assert_eq!(
+            queue.entries[0].error.as_deref(),
+            Some("Falha no auth ticket: 401")
+        );
+        assert_eq!(queue.entries[0].updated_at_ms, 1_200);
+        // A conta seguinte continua limpa.
+        assert!(queue.entries[1].error.is_none());
+    }
+
+    #[test]
+    fn a_successful_launch_has_no_error() {
+        let mut queue = queue_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        assert!(queue.entries[0].error.is_none());
+    }
+
+    #[test]
+    fn finishing_the_batch_deactivates_the_queue_but_keeps_the_entries() {
+        let mut queue = queue_with(&[1, 2]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        queue.finish();
+
+        let snapshot = queue.snapshot();
+        assert!(!snapshot.active);
+        assert_eq!(snapshot.entries.len(), 2);
+        assert_eq!(snapshot.entries[0].state, LaunchQueueState::Done);
+    }
+
+    // ---- contrato com o frontend ---------------------------------------------
+
+    #[test]
+    fn the_payload_serializes_with_the_names_the_ui_reads() {
+        let mut queue = queue_with(&[42, 43]);
+        queue.set_state(42, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(42, LaunchQueueState::Failed, Some("boom".into()), 1_200);
+        queue.request_cancel(43, 1_300);
+
+        let json = serde_json::to_value(queue.snapshot()).unwrap();
+        assert_eq!(json["active"], true);
+        assert_eq!(json["placeId"], 123);
+        assert_eq!(json["jobId"], "job-abc");
+        assert_eq!(json["entries"][0]["userId"], 42);
+        assert_eq!(json["entries"][0]["state"], "failed");
+        assert_eq!(json["entries"][0]["error"], "boom");
+        assert_eq!(json["entries"][0]["updatedAtMs"], 1_200);
+        assert_eq!(json["entries"][1]["state"], "cancelled");
+        assert!(json["entries"][1]["error"].is_null());
+    }
+
+    #[test]
+    fn every_state_serializes_lowercase() {
+        for (state, expected) in [
+            (LaunchQueueState::Queued, "queued"),
+            (LaunchQueueState::Launching, "launching"),
+            (LaunchQueueState::Done, "done"),
+            (LaunchQueueState::Failed, "failed"),
+            (LaunchQueueState::Cancelled, "cancelled"),
+        ] {
+            assert_eq!(serde_json::to_value(state).unwrap(), expected);
+        }
+    }
+
+    // ---- lote completo de ponta a ponta --------------------------------------
+
+    #[test]
+    fn a_stopped_batch_ends_with_done_launching_and_cancelled_side_by_side() {
+        // Lote de 4: a 1 entrou, a 2 está no auth quando o usuário aperta
+        // "parar a fila". A 2 termina normalmente; 3 e 4 são puladas.
+        let mut queue = queue_with(&[1, 2, 3, 4]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        queue.set_state(2, LaunchQueueState::Launching, None, 1_300);
+
+        assert_eq!(queue.cancel_queued(1_400), 2);
+        // A 2 segue e termina.
+        assert!(queue.set_state(2, LaunchQueueState::Done, None, 1_500));
+        queue.finish();
+
+        assert_eq!(
+            states(&queue),
+            vec![
+                LaunchQueueState::Done,
+                LaunchQueueState::Done,
+                LaunchQueueState::Cancelled,
+                LaunchQueueState::Cancelled
+            ]
+        );
+        assert!(!queue.snapshot().active);
     }
 }
 
@@ -1626,8 +2466,10 @@ mod launch_command_tests {
         // Both only flip tracker flags; calling them with nothing running is a
         // no-op that must still succeed.
         assert!(next_account().is_ok());
-        assert!(cancel_launch().is_ok());
-        assert!(cancel_launch().is_ok());
+        // `cancel_launch` em si precisa de AppHandle; o que dá para exercitar
+        // aqui é o sinal que ele levanta no tracker.
+        signal_cancel_launch();
+        signal_cancel_launch();
     }
 
     #[test]

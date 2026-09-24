@@ -33,12 +33,22 @@ async function openAddMenu() {
  * query is active, and the Nexus button only exists behind its feature flag.
  */
 function iconButton(
-  name: "clear" | "selectAll" | "names" | "panel" | "add" | "theme" | "nexus" | "scripts" | "settings",
+  name:
+    | "clear"
+    | "selectAll"
+    | "names"
+    | "panel"
+    | "add"
+    | "session"
+    | "theme"
+    | "nexus"
+    | "scripts"
+    | "settings",
   hasQuery = false
 ): HTMLElement {
   const order: string[] = [];
   if (hasQuery) order.push("clear");
-  order.push("selectAll", "names", "panel", "add", "theme");
+  order.push("selectAll", "names", "panel", "add", "session", "theme");
   if (ENABLE_NEXUS) order.push("nexus");
   order.push("scripts", "settings");
   return screen.getAllByRole("button")[order.indexOf(name)];

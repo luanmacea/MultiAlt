@@ -16,6 +16,7 @@ import type {
   ThumbnailData,
   ParsedGroup,
   PlatformCapabilities,
+  LaunchQueuePayload,
 } from "./types";
 import { parseGroupName } from "./types";
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
@@ -254,7 +255,17 @@ export interface StoreValue {
   launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
   restartRobloxClients: (userIds: number[]) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
+  /** Fecha os clientes das contas informadas; devolve quantos foram fechados. */
+  closeRobloxClients: (userIds: number[]) => Promise<number>;
   killAllRobloxProcesses: () => Promise<void>;
+
+  /** Fila de launch do lote atual (Painel de Sessão). */
+  launchQueue: LaunchQueuePayload | null;
+  refreshLaunchQueue: () => Promise<void>;
+  /** Tira UMA conta da fila. Nunca fecha um cliente já aberto. */
+  cancelAccountLaunch: (userId: number) => Promise<boolean>;
+  /** Esvazia a fila; devolve quantas contas saíram. Não fecha clientes. */
+  stopLaunchQueue: () => Promise<number>;
   startBottingMode: (config: BottingStartConfig) => Promise<void>;
   stopBottingMode: (closeBotAccounts: boolean) => Promise<void>;
   addBottingAccounts: (userIds: number[]) => Promise<void>;
@@ -332,6 +343,8 @@ export interface StoreValue {
   generatorStatus: GeneratorStatus | null;
   versionsDialogOpen: boolean;
   setVersionsDialogOpen: (open: boolean) => void;
+  sessionDialogOpen: boolean;
+  setSessionDialogOpen: (open: boolean) => void;
   setDefaultVersion: (versionId: string | null) => void;
   missingAssets: { userId: number; username: string; assetIds: number[] } | null;
   setMissingAssets: (v: { userId: number; username: string; assetIds: number[] } | null) => void;
@@ -438,6 +451,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
   const [missingAssets, setMissingAssets] = useState<{ userId: number; username: string; assetIds: number[] } | null>(null);
   const [nexusOpen, setNexusOpen] = useState(false);
   const [scriptsOpen, setScriptsOpen] = useState(false);
@@ -1008,6 +1023,56 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setError(String(e));
       throw e;
     }
+  }
+
+  /**
+   * Fecha os clientes das contas informadas, uma a uma. Diferente de
+   * `killAllRobloxProcesses`, não toca em clientes de contas fora da lista.
+   */
+  async function closeRobloxClients(userIds: number[]): Promise<number> {
+    const uniqueIds = Array.from(new Set(userIds));
+    let closed = 0;
+    let failures = 0;
+    for (const userId of uniqueIds) {
+      try {
+        if (await invoke<boolean>("cmd_kill_roblox", { userId })) closed += 1;
+        else failures += 1;
+      } catch {
+        failures += 1;
+      }
+    }
+    if (failures > 0) {
+      addToast(
+        tr("{{count}} client(s) could not be closed", { count: failures })
+      );
+    }
+    return closed;
+  }
+
+  async function refreshLaunchQueue(): Promise<void> {
+    try {
+      const payload = await invoke<LaunchQueuePayload>("get_launch_queue");
+      setLaunchQueue(payload ?? null);
+    } catch {
+      // Backend sem fila ativa (ou comando indisponível): não é erro de usuário.
+    }
+  }
+
+  /**
+   * Cancela a entrada de UMA conta. Regra do produto: cancelar nunca fecha um
+   * cliente que já abriu — por isso aqui não há `cmd_kill_roblox`.
+   */
+  async function cancelAccountLaunch(userId: number): Promise<boolean> {
+    const ok = await invoke<boolean>("cancel_account_launch", { userId });
+    await refreshLaunchQueue();
+    return ok;
+  }
+
+  /** Para a fila inteira. Também não fecha nenhum cliente já aberto. */
+  async function stopLaunchQueue(): Promise<number> {
+    const removed = await invoke<number>("stop_launch_queue");
+    await refreshLaunchQueue();
+    return removed;
   }
 
   async function restartRobloxClients(userIds: number[]) {
@@ -1791,6 +1856,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (needsPassword || !initialized) return;
 
+    // Fila de launch: estado inicial + evento. O Painel de Sessão (Console e
+    // diálogo da barra) lê daqui, então os dois mostram sempre a mesma coisa.
+    let disposed = false;
+    const unsubs: Array<() => void> = [];
+    invoke<LaunchQueuePayload>("get_launch_queue")
+      .then((payload) => {
+        if (!disposed) setLaunchQueue(payload ?? null);
+      })
+      .catch(() => {});
+    // listen() resolve de forma assíncrona: se o cleanup já rodou, desinscreve
+    // na hora em vez de deixar um handler duplicado vivo.
+    listen<LaunchQueuePayload>("launch-queue", (e) => {
+      setLaunchQueue(e.payload ?? null);
+    })
+      .then((fn) => (disposed ? fn() : unsubs.push(fn)))
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      unsubs.forEach((fn) => fn());
+    };
+  }, [needsPassword, initialized]);
+
+  useEffect(() => {
+    if (needsPassword || !initialized) return;
+
     let cancelled = false;
     const refreshRunningInstances = async () => {
       try {
@@ -2122,7 +2213,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     launchMultiple,
     restartRobloxClients,
     focusRobloxClient,
+    closeRobloxClients,
     killAllRobloxProcesses,
+    launchQueue,
+    refreshLaunchQueue,
+    cancelAccountLaunch,
+    stopLaunchQueue,
     startBottingMode,
     stopBottingMode,
     addBottingAccounts,
@@ -2191,6 +2287,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     generatorStatus,
     versionsDialogOpen,
     setVersionsDialogOpen,
+    sessionDialogOpen,
+    setSessionDialogOpen,
     setDefaultVersion,
     missingAssets,
     setMissingAssets,

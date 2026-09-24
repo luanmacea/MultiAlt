@@ -12,6 +12,7 @@ import { tr, useTr } from "../i18n/text";
 import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle } from "lucide-react";
 import type { LaunchLogLevel, LaunchTarget } from "../store";
 import type { JoinTarget } from "../types";
+import { SessionPanel } from "./session/SessionPanel";
 
 type TabId = "favorites" | "games" | "recent" | "follow" | "console";
 
@@ -538,6 +539,12 @@ function ConsoleTab() {
   return (
     <div className="flex flex-col h-full">
       <GridControls />
+
+      {/* Painel de Sessão acima do log: cancelar quem está entrando e
+          achar/fechar quem já está em jogo sem sair da tela. */}
+      <div className="shrink-0 pb-3">
+        <SessionPanel />
+      </div>
 
       <div className="shrink-0 flex items-center justify-between px-1 pb-2">
         <span className="text-[11px] theme-muted">

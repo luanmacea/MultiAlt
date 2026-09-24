@@ -78,6 +78,29 @@ sequenceDiagram
 - **Eventos:** `launch-progress {userId, index, total[, error, message]}` (UI mostra "Launching account i/N"), `launch-log`, `launch-complete` (UI limpa estado após 1,5 s).
 - **Restart de clientes** (`restartRobloxClients` no store): fecha cada cliente lançado pelo app com `cmd_kill_roblox`, espera 250 ms e relança via `launchMultiple` (ou `joinServer` se for 1).
 
+## Fila observável e cancelamento
+
+O lote deixou de ser uma caixa-preta: o backend mantém a fila como estado e emite o evento `launch-queue` a cada transição, com uma entrada por conta.
+
+| Estado | Quando |
+|---|---|
+| `queued` | ainda não chegou a vez |
+| `launching` | entre o início do trabalho da conta e o spawn |
+| `done` | PID do cliente confirmado |
+| `failed` | erro (mensagem em `error`), inclusive "PID não detectado no tempo esperado" |
+| `cancelled` | pulada por cancelamento |
+
+Comandos: `get_launch_queue()` (snapshot para montar a UI), `cancel_account_launch(userId)` e `stop_launch_queue()`.
+
+**Regras (decididas com o usuário):**
+
+- **Cancelar nunca fecha cliente.** Conta já lançada (`done`) não é afetada; cancelar devolve `false`.
+- `stop_launch_queue` cancela só quem está `queued`. Quem está `launching` termina — não dá para abortar no meio do auth — e quem já entrou continua jogando.
+- Isso é **diferente** do "Close All Roblox" (`cancel_launch` + matar clientes). São ações distintas na UI de propósito. O `cancel_launch` também esvazia a fila na hora, para o painel não ficar mostrando contas que não vão mais entrar.
+- Um lote novo substitui a fila anterior; `launch_roblox` (conta única) alimenta a mesma fila com uma entrada, para a UI ser uniforme.
+
+A interface disso é o **Painel de Sessão** — ver [ui-layout.md](ui-layout.md#painel-de-sessão).
+
 ## Configurações relacionadas
 
 | Seção | Chave | Default | Efeito |

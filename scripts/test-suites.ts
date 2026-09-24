@@ -27,6 +27,8 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "launch_url_tests",
       "launch_command_tests",
+      "launch_queue_tests",
+      "singleton_event_tests",
       "launch_resolve_tests",
       "launch_shared_helper_tests",
       "channel_follow_tests",
@@ -36,7 +38,12 @@ export const SUITES: Record<string, TestSuite> = {
       "win_tracker_tests",
       "win_client_settings_tests",
     ],
-    front: ["src/store.test.ts", "src/components/ChooseGameScreen.test.tsx"],
+    front: [
+      "src/store.test.ts",
+      "src/components/ChooseGameScreen.test.tsx",
+      "src/components/session",
+      "src/components/dialogs/SessionDialog.test.tsx",
+    ],
   },
   "join-links": {
     description: "Links de convite, VIP/privado, deep links e share links",

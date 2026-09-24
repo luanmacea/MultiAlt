@@ -91,6 +91,22 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 
 Controles de grade (Console): o campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior.
 
+### Painel de Sessão (`SessionPanel`)
+
+Resolve duas dores de quem joga com muitas contas: cancelar entradas no meio do caminho e achar/fechar uma conta específica sem caçar janela por janela no Windows.
+
+Aparece em dois lugares, com o mesmo estado vindo do store:
+
+1. na aba **Console** do Choose Game, acima do log ([ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx));
+2. num diálogo aberto pelo botão da **barra principal** ([SessionDialog.tsx](../../src/components/dialogs/SessionDialog.tsx), `SessionToolbarButton`), disponível a qualquer momento, com contador de clientes rodando.
+
+| Seção | Fonte | Ações |
+|---|---|---|
+| **Joining** | evento `launch-queue` ([multi-launch.md](multi-launch.md#fila-observável-e-cancelamento)) | ✕ por conta (`cancel_account_launch`), "Stop queue" (`stop_launch_queue`) |
+| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`), **Close** (`cmd_kill_roblox`), seleção múltipla com uma confirmação só |
+
+Regras: cancelar **nunca** chama `cmd_kill_roblox` (há teste de regressão para isso); os nomes respeitam o mascaramento de `hideUsernames`; linhas terminais (`done`/`failed`/`cancelled`) continuam visíveis até a próxima fila substituir.
+
 ### Tema e fontes
 
 1. No startup a store aplica `DEFAULT_THEME` e depois o tema salvo (`get_theme`).
