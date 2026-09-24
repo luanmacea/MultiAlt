@@ -98,18 +98,21 @@ static LAST_RESOLVED_BUILD: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| M
 /// foreground installer — and that installer closes every running
 /// `RobloxPlayerBeta.exe`, killing the other accounts.
 ///
-/// We deliberately do NOT force a channel of our own: writing `production`
-/// over the value Roblox set makes every *website* launch mismatch and run the
-/// foreground installer again. Instead we follow whatever channel the registry
-/// currently holds, make sure that channel's build is installed — downloading
-/// it ourselves, silently, when it is not — and start its
-/// `RobloxPlayerBeta.exe` directly with the protocol URL (exactly what the
-/// official installer does). App and website then agree on the same build, so
-/// neither triggers Roblox's installer and each build downloads at most once.
+/// **A build aberta tem que casar com o `channel:` que vai dentro da URL.**
+/// Provado nos logs do cliente (24/09/2026): com o registro em
+/// `ztestlinkerset` e a URL com `channel:` vazio, o cliente consultou o
+/// endpoint de *produção* (`versionQueryUrl: .../client-version/WindowsPlayer`,
+/// `channel: ""`) e pediu update — o campo da URL **vence o registro**. A mesma
+/// URL com a build de produção dá `updateRequired FALSE`.
 ///
-/// The protocol handler is only a last resort, if that install fails.
+/// Como `build_launch_url` sempre emite `channel:` vazio (igual ao site e ao
+/// launcher oficial), aqui a build é sempre a de **produção**, instalada em
+/// silêncio quando faltar. O registro não é lido nem escrito neste caminho —
+/// quem joga pelo site continua com o que o Roblox configurou.
+///
+/// O handler do protocolo só entra como último recurso, se o download falhar.
 pub async fn launch_url(url: &str) -> Result<(), String> {
-    if let Some(player_exe) = ensure_current_player_exe().await {
+    if let Some(player_exe) = ensure_player_exe_for_channel(PRODUCTION_CHANNEL).await {
         std::process::Command::new(&player_exe)
             .arg(url)
             .creation_flags(CREATE_NO_WINDOW)
@@ -126,11 +129,12 @@ pub async fn launch_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Install folder to use when no RAM-managed version was chosen: the build of
-/// the channel Roblox is currently on, installed if missing, falling back to
-/// `fallback` (the registry-resolved install). See `launch_url`.
+/// Pasta usada pelo *old join* (`RobloxPlayerBeta.exe --app -t -j`), que não
+/// passa URL nenhuma: sem `channel:` na linha de comando o cliente cai no canal
+/// do **registro**, então aqui a build tem que ser a daquele canal — o oposto
+/// do `launch_url`. Instala se faltar; em último caso devolve `fallback`.
 pub async fn default_player_dir(fallback: &str) -> String {
-    ensure_current_player_exe()
+    ensure_player_exe_for_channel(&current_player_channel())
         .await
         .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
         .unwrap_or_else(|| fallback.to_string())
@@ -233,10 +237,10 @@ fn remember_resolved_build(version: &str) {
     }
 }
 
-/// `%LOCALAPPDATA%\Roblox\Versions\<production build>\RobloxPlayerBeta.exe`,
-/// for the current channel's build, if that build is installed.
-async fn current_player_exe() -> Option<PathBuf> {
-    let version = current_build_version().await?;
+/// `%LOCALAPPDATA%\Roblox\Versions\<build>\RobloxPlayerBeta.exe` da build
+/// daquele canal, se estiver instalada.
+async fn player_exe_for_channel(channel: &str) -> Option<PathBuf> {
+    let version = build_version_for_channel(channel).await?;
     installed_player_exe(&version)
 }
 
@@ -288,16 +292,16 @@ fn emit_build_install(version: &str, stage: &str, current: u64, total: u64, mess
     }
 }
 
-/// Exe of the current channel's build, installing that build first when it is
-/// missing (a fresh Roblox release, or a channel Roblox just switched to).
-/// Returns `None` only if we could neither find nor install it.
-async fn ensure_current_player_exe() -> Option<PathBuf> {
-    if let Some(exe) = current_player_exe().await {
+/// Exe da build de `channel`, instalando-a antes quando faltar (versão nova do
+/// Roblox, ou canal para o qual o Roblox acabou de trocar). `None` só quando
+/// não foi possível nem achar nem instalar.
+async fn ensure_player_exe_for_channel(channel: &str) -> Option<PathBuf> {
+    if let Some(exe) = player_exe_for_channel(channel).await {
         return Some(exe);
     }
 
-    let channel = current_player_channel();
-    let version = current_build_version().await?;
+    let channel = channel.to_string();
+    let version = build_version_for_channel(&channel).await?;
     let _serialize = BUILD_INSTALL_LOCK.lock().await;
     // Another launch may have installed it while we waited for the lock.
     if let Some(exe) = installed_player_exe(&version) {
@@ -327,11 +331,11 @@ fn roblox_versions_dir() -> Option<PathBuf> {
     Some(PathBuf::from(local).join("Roblox").join("Versions"))
 }
 
-/// Resolves (and caches) the current channel's build so sync helpers such as
-/// `get_roblox_path` — used to write ClientSettings — target the same folder
-/// that `launch_url` will start.
+/// Resolve (e guarda em cache) a build de **produção** — a mesma que
+/// `launch_url` abre — para os helpers síncronos como `get_roblox_path`, usado
+/// ao gravar o ClientSettings, apontarem para a pasta certa.
 pub async fn refresh_production_version() {
-    let _ = current_build_version().await;
+    let _ = build_version_for_channel(PRODUCTION_CHANNEL).await;
 }
 
 /// Build folder resolved by the last lookup, if it is installed.
@@ -343,10 +347,10 @@ fn cached_production_player_dir() -> Option<String> {
         .then(|| dir.to_string_lossy().into_owned())
 }
 
-/// Build the Roblox client requires right now: what the clientsettings
-/// endpoint reports for the channel currently in the registry.
-async fn current_build_version() -> Option<String> {
-    let channel = current_player_channel();
+/// Build que o cliente vai exigir para `channel`: o que o endpoint
+/// clientsettings reporta para ele.
+async fn build_version_for_channel(channel: &str) -> Option<String> {
+    let channel = channel.to_string();
     let cached = CHANNEL_VERSION_CACHE
         .lock()
         .ok()
@@ -757,5 +761,52 @@ mod channel_follow_tests {
     #[test]
     fn an_installed_build_is_found_and_a_missing_one_is_not() {
         assert!(installed_player_exe("version-does-not-exist-0000").is_none());
+    }
+}
+
+#[cfg(test)]
+mod channel_build_pairing_tests {
+    use super::*;
+
+    // Regressão do bug que voltou duas vezes: a build aberta tem que casar com
+    // o canal que o cliente vai consultar. Quem manda nisso é o campo
+    // `channel:` DENTRO da URL de launch — provado nos logs do cliente:
+    // build 0.739 (canal de teste) + `channel:` vazio => updateRequired TRUE
+    // (instalador em primeiro plano, fecha os outros clientes);
+    // build 0.740 (produção) + `channel:` vazio => updateRequired FALSE.
+
+    #[test]
+    fn the_launch_url_always_declares_the_production_channel() {
+        // `channel:` vazio = produção, igual ao site e ao launcher oficial.
+        // Se algum dia isso mudar, `launch_url` precisa mudar junto.
+        let url = build_launch_url("t", 1, "", "btid", "", false, false, "", "", false);
+        assert!(
+            url.contains("+channel:+"),
+            "a URL deixou de mandar channel vazio: {url}"
+        );
+    }
+
+    #[test]
+    fn the_protocol_path_resolves_the_production_build() {
+        // `launch_url` usa PRODUCTION_CHANNEL, que tem que bater com o campo
+        // vazio da URL acima.
+        assert!(channel_is_production(PRODUCTION_CHANNEL));
+        assert_eq!(channel_version_url(PRODUCTION_CHANNEL), PRODUCTION_VERSION_URL);
+    }
+
+    #[test]
+    fn the_old_join_path_follows_the_registry_channel() {
+        // Old join não passa URL: o cliente lê o canal do registro, então a
+        // build tem que ser a daquele canal (o oposto do caminho do protocolo).
+        let channel = current_player_channel();
+        assert!(!channel.trim().is_empty());
+        if channel_is_production(&channel) {
+            assert_eq!(channel_version_url(&channel), PRODUCTION_VERSION_URL);
+        } else {
+            assert_eq!(
+                channel_version_url(&channel),
+                format!("{}/channel/{}", PRODUCTION_VERSION_URL, channel.to_ascii_lowercase())
+            );
+        }
     }
 }

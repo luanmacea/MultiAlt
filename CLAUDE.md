@@ -22,7 +22,10 @@ Roblox Account Manager 4 é um gerenciador desktop de múltiplas contas Roblox �
 **Limitações conhecidas:** suporte macOS incompleto; funcionalidades de isolamento/registro são Windows-only.
 
 **Regras críticas (não quebrar):**
-- Launch no Windows **nunca** usa o handler `roblox-player:` cru: `launch_url` / `default_player_dir` (`platform/windows/launch.rs`) **seguem** o canal que está no registro (`current_player_channel`), garantem que a build daquele canal esteja instalada (`ensure_current_player_exe`, baixando-a em silêncio se faltar) e abrem o `RobloxPlayerBeta.exe` dela direto. Ver `docs/features/launch.md`.
+- Launch no Windows **nunca** usa o handler `roblox-player:` cru. **A build aberta tem que casar com o canal que o cliente vai consultar**, e quem decide isso é o campo `channel:` de dentro da URL de launch (ele vence o registro — provado nos logs do cliente):
+  - `launch_url` (protocolo): `build_launch_url` emite `channel:` vazio = produção → abre sempre a build de **produção** (`ensure_player_exe_for_channel(PRODUCTION_CHANNEL)`), baixando-a em silêncio se faltar;
+  - `default_player_dir` (old join, sem URL): o cliente lê o canal do **registro** → build daquele canal.
+  Ver `docs/features/launch.md`.
 - **Não sobrescrever o canal do Roblox.** O usuário também joga pelo site; forçar `production` faz o launch do site divergir e acionar o instalador do Roblox, que fecha todos os clientes. A única escrita permitida é o reparo em `set_player_channel` quando o canal atual não responde mais.
 - Nada no fluxo de launch pode fechar clientes de outras contas (isolamento pula em vez de matar; botting só fecha as próprias contas bot). Build faltando é baixada pelo app, nunca pelo instalador do Roblox.
 - Não usar `run_with_session_retry` / `refresh_account_session` em leituras não críticas: o refresh chama `signoutfromallsessionsandreauthenticate` e derruba as sessões abertas da conta.
