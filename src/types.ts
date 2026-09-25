@@ -146,8 +146,15 @@ export interface FriendsOnlineProgress {
   total: number;
 }
 
+/**
+ * Um numero no comeco do nome do grupo ordena o grupo e some da exibicao
+ * (`1 Main` mostra `Main`) — convencao herdada do RAM antigo.
+ *
+ * Pega a sequencia INTEIRA de digitos, nao um pedaco dela: parando em 3, o nome
+ * "2024 Alts" aparecia como "4 Alts" e o usuario via o proprio texto partido.
+ */
 export function parseGroupName(group: string): { sortKey: number; displayName: string } {
-  const match = group.match(/^(\d{1,3})\s*/);
+  const match = group.match(/^(\d+)\s*/);
   if (match) {
     const remainder = group.slice(match[0].length);
     return { sortKey: parseInt(match[1], 10), displayName: remainder || group };
