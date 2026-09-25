@@ -30,6 +30,12 @@ export default defineConfig({
         },
       }
     : undefined,
+  // O alias troca um pacote por arquivo nosso, e o Vite pre-empacota pacote em
+  // `node_modules/.vite/deps` — cache que NAO invalida quando o dublê muda. Sem
+  // este `exclude` o navegador recebe um harness velho sem avisar ninguém.
+  optimizeDeps: uiHarness
+    ? { exclude: ["@tauri-apps/api/core", "@tauri-apps/api/event", "@tauri-apps/api/window"] }
+    : undefined,
   server: {
     port: 1420,
     strictPort: true,
