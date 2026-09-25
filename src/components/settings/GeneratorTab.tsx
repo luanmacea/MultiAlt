@@ -108,7 +108,7 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
 
       <SectionLabel>Provider</SectionLabel>
       <div className="flex items-center gap-3 py-2 px-1">
-        <span className="text-[13px] text-zinc-300 shrink-0">{t("Generator")}</span>
+        <span className="text-[13px] text-zinc-300 shrink-0">{t("Account Generator")}</span>
         <Select
           value={provider}
           options={PROVIDER_OPTIONS}
@@ -209,7 +209,7 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
       </div>
 
       <Divider />
-      <SectionLabel>Generator</SectionLabel>
+      <SectionLabel>Account Generator</SectionLabel>
       <div className="flex items-center justify-between px-3 py-2">
         <div className="flex flex-col min-w-0">
           <span className="text-[13px] text-zinc-300">
