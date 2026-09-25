@@ -109,14 +109,25 @@ describe("DetailSidebar", () => {
   it("hides the version override when nothing is installed", async () => {
     renderSidebar();
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("versions_list_installed"));
-    expect(screen.queryByText("Roblox Version")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Roblox Version/)).not.toBeInTheDocument();
+  });
+
+  it("says the version override is global instead of per account", async () => {
+    setInvokeHandler((cmd) => (cmd === "versions_list_installed" ? [VERSION] : undefined));
+    renderSidebar();
+
+    expect(await screen.findByText("Roblox Version (all accounts)")).toBeInTheDocument();
+    expect(
+      screen.getByText("Global setting — every account launches with this version, not just this one.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/this account launches/i)).not.toBeInTheDocument();
   });
 
   it("offers the installed versions as a launch override", async () => {
     setInvokeHandler((cmd) => (cmd === "versions_list_installed" ? [VERSION] : undefined));
     const store = renderSidebar();
 
-    expect(await screen.findByText("Roblox Version")).toBeInTheDocument();
+    expect(await screen.findByText("Roblox Version (all accounts)")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Latest installed" }));
     await userEvent.click(screen.getByRole("button", { name: "LIVE · 1.2.3" }));
     expect(store.setDefaultVersion).toHaveBeenCalledWith("LIVE:version-abcdef0123456789");

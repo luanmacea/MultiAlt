@@ -72,7 +72,11 @@ export const SUITES: Record<string, TestSuite> = {
       "model_tests",
       "data::accounts::tests",
     ],
-    front: ["src/components/accounts", "src/components/dialogs/AddAccountDialog.test.tsx"],
+    front: [
+      "src/components/accounts",
+      "src/components/dialogs/AddAccountDialog.test.tsx",
+      "src/components/dialogs/AccountUtilsDialog.test.tsx",
+    ],
   },
   botting: {
     description: "Modo botting e watcher de processos",

@@ -121,6 +121,8 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
   if (!visible || !account) return null;
 
   const avatarUrl = store.avatarUrls.get(account.UserID);
+  // Nome que aparece nas confirmações: o mesmo rótulo do cabeçalho do diálogo.
+  const accountLabel = account.Alias || account.Username;
 
   async function handleSetDisplayName() {
     if (!displayName.trim()) return;
@@ -161,6 +163,16 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
 
   async function handleChangePassword() {
     if (!currentPassword || !newPassword) return;
+    // Troca de credencial acontece na conta Roblox de verdade: confirma antes,
+    // no mesmo padrão destrutivo do resto do app.
+    const confirmed = await confirm(
+      t(
+        'Change the Roblox password for "{{account}}"? This changes the password on the real Roblox account, not just in this app, and cannot be undone from here.',
+        { account: accountLabel }
+      ),
+      true
+    );
+    if (!confirmed) return;
     setLoading("password");
     try {
       await invoke("change_password", {
@@ -180,6 +192,16 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
 
   async function handleChangeEmail() {
     if (!emailInput || !currentPassword) return;
+    // Idem senha: o e-mail muda na conta Roblox, e é por ele que passa a
+    // recuperação da conta — confirma antes de disparar.
+    const confirmed = await confirm(
+      t(
+        'Change the Roblox email for "{{account}}" to {{email}}? This changes the email on the real Roblox account, not just in this app, and future account recovery goes to the new address.',
+        { account: accountLabel, email: emailInput }
+      ),
+      true
+    );
+    if (!confirmed) return;
     setLoading("email");
     try {
       await invoke("change_email", {
@@ -470,37 +492,6 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
 
           <SectionHeader>Security</SectionHeader>
           <div className="space-y-2">
-            <UtilInput
-              value={currentPassword}
-              onChange={setCurrentPassword}
-              placeholder="Current Password"
-              type="password"
-            />
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                <UtilInput
-                  value={newPassword}
-                  onChange={setNewPassword}
-                  placeholder="New Password"
-                  type="password"
-                />
-              </div>
-              <UtilButton onClick={handleChangePassword} disabled={loading === "password"}>
-                Change Password
-              </UtilButton>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1">
-                <UtilInput
-                  value={emailInput}
-                  onChange={setEmailInput}
-                  placeholder="New Email (requires current password)"
-                />
-              </div>
-              <UtilButton onClick={handleChangeEmail} disabled={loading === "email"}>
-                Change Email
-              </UtilButton>
-            </div>
             <div className="flex items-center gap-2">
               <div className="flex-1">
                 <UtilInput
@@ -517,6 +508,57 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
             <UtilButton onClick={handleSignOut} disabled={loading === "signout"} variant="danger">
               Sign out of other sessions
             </UtilButton>
+          </div>
+
+          {/* Senha e e-mail mudam a conta Roblox de verdade — peso visual de
+              Danger Zone, igual ao que a sidebar de multi-seleção já usa. */}
+          <SectionHeader>Danger Zone</SectionHeader>
+          <div className="space-y-2 rounded-xl border border-red-500/20 bg-red-500/[0.04] p-2.5">
+            <p className="text-[11px] text-red-400/80">
+              {t(
+                'These change the real Roblox account "{{account}}", not just this app.',
+                { account: accountLabel }
+              )}
+            </p>
+            <UtilInput
+              value={currentPassword}
+              onChange={setCurrentPassword}
+              placeholder="Current Password"
+              type="password"
+            />
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <UtilInput
+                  value={newPassword}
+                  onChange={setNewPassword}
+                  placeholder="New Password"
+                  type="password"
+                />
+              </div>
+              <UtilButton
+                onClick={handleChangePassword}
+                disabled={loading === "password"}
+                variant="danger"
+              >
+                Change Password
+              </UtilButton>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <UtilInput
+                  value={emailInput}
+                  onChange={setEmailInput}
+                  placeholder="New Email (requires current password)"
+                />
+              </div>
+              <UtilButton
+                onClick={handleChangeEmail}
+                disabled={loading === "email"}
+                variant="danger"
+              >
+                Change Email
+              </UtilButton>
+            </div>
           </div>
 
           <SectionHeader>Social</SectionHeader>

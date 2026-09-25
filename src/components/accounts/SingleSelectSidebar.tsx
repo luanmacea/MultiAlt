@@ -165,9 +165,13 @@ export function SingleSelectSidebar() {
           </button>
         </SidebarSection>
 
+        {/* A versão gravada aqui é a global (Settings > Versions, chave
+            Versions.DefaultVersion) — não existe versão por conta. A seção
+            continua no painel da conta por ser onde se lança, mas o rótulo e a
+            descrição precisam dizer que o ajuste vale para todas as contas. */}
         {installedVersions.length > 0 && (
-          <SidebarSection title={t("Roblox Version")}>
-            <p className="text-[10px] theme-muted mb-1.5">{t("Override the Roblox version used when this account launches")}</p>
+          <SidebarSection title={t("Roblox Version (all accounts)")}>
+            <p className="text-[10px] theme-muted mb-1.5">{t("Global setting — every account launches with this version, not just this one.")}</p>
             <Select
               value={store.settings?.Versions?.DefaultVersion ?? ""}
               options={[
