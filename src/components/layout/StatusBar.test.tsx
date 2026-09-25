@@ -14,6 +14,7 @@ import {
   makeGeneratorStatus,
   setStore,
 } from "../../test-utils/renderWithStore";
+import { TONE_STYLES } from "../../utils/toastTone";
 import type { StoreValue } from "../../store";
 
 const ACCOUNTS = [
@@ -203,6 +204,44 @@ describe("StatusBar", () => {
     renderBar();
     expect(screen.queryByText("aged")).not.toBeInTheDocument();
     expect(screen.getByText("idle 20d+")).toBeInTheDocument();
+  });
+});
+
+/**
+ * `actionStatus` é o canal do "está acontecendo agora" — progresso de download,
+ * conta N de M, Settings saved. Dezesseis chamadas escreviam nele e nenhum
+ * componente lia: a mensagem nunca chegava à tela.
+ */
+describe("StatusBar — actionStatus", () => {
+  const status = (overrides: Partial<NonNullable<StoreValue["actionStatus"]>> = {}) => ({
+    message: "Downloading the new Roblox version...",
+    tone: "info" as const,
+    at: Date.now(),
+    ...overrides,
+  });
+
+  it("stays out of the way while there is no action running", () => {
+    renderBar();
+    expect(screen.queryByTestId("action-status")).not.toBeInTheDocument();
+  });
+
+  it("shows the current action message", () => {
+    renderBar({ actionStatus: status({ message: "Launching account 2/5..." }) });
+    expect(screen.getByTestId("action-status")).toHaveTextContent("Launching account 2/5...");
+  });
+
+  it("paints the dot with the tone of the message", () => {
+    renderBar({ actionStatus: status({ message: "New Roblox version installed", tone: "success" }) });
+    expect(screen.getByTestId("action-status").className).toContain(TONE_STYLES.success.text);
+    expect(
+      screen.getByTestId("action-status").querySelector(`.${CSS.escape(TONE_STYLES.success.dot)}`)
+    ).not.toBeNull();
+
+    cleanup();
+    renderBar({ actionStatus: status({ message: "Botting rejoin failed for 4", tone: "warn" }) });
+    expect(
+      screen.getByTestId("action-status").querySelector(`.${CSS.escape(TONE_STYLES.warn.dot)}`)
+    ).not.toBeNull();
   });
 });
 

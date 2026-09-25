@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
 import App from "./App";
 import { makeAccount, setStore } from "./test-utils/renderWithStore";
 import { resetTauriMocks, setInvokeHandler } from "./test-utils/tauriMocks";
+import { TONE_STYLES } from "./utils/toastTone";
 import type { StoreValue } from "./store";
 
 const A = makeAccount({ UserID: 1, Username: "ann" });
@@ -174,9 +175,62 @@ describe("App — error banner, toasts and the generic modal", () => {
   });
 
   it("stacks the toasts", () => {
-    renderApp({ toasts: ["Copied 2 cookies", "Added roboduck"] });
+    renderApp({
+      toasts: [
+        { id: 1, message: "Copied 2 cookies", tone: "success" },
+        { id: 2, message: "Added roboduck", tone: "info" },
+      ],
+    });
     expect(screen.getByText("Copied 2 cookies")).toBeInTheDocument();
     expect(screen.getByText("Added roboduck")).toBeInTheDocument();
+  });
+
+  /**
+   * Toda a fila saía com `theme-panel theme-border` e mais nada, então "Launch
+   * failed" e "Accounts saved" eram visualmente a mesma coisa. A cor vem do
+   * mesmo mapa do Console de launch (`TONE_STYLES`).
+   */
+  it("paints each toast with the colour of its tone", () => {
+    renderApp({
+      toasts: [
+        { id: 1, message: "Launch failed", tone: "error" },
+        { id: 2, message: "Accounts saved", tone: "success" },
+        { id: 3, message: "Low memory warning", tone: "warn" },
+        { id: 4, message: "Launching game...", tone: "info" },
+      ],
+    });
+
+    const toastOf = (text: string) => screen.getByText(text).closest("div") as HTMLElement;
+    expect(toastOf("Launch failed").className).toContain(TONE_STYLES.error.text);
+    expect(toastOf("Accounts saved").className).toContain(TONE_STYLES.success.text);
+    expect(toastOf("Low memory warning").className).toContain(TONE_STYLES.warn.text);
+    expect(toastOf("Launching game...").className).toContain(TONE_STYLES.info.text);
+
+    // A bolinha repete o padrão do rodapé e do Console.
+    expect(toastOf("Launch failed").querySelector(`.${CSS.escape(TONE_STYLES.error.dot)}`)).not.toBeNull();
+  });
+
+  /**
+   * Com `key={i}` a saída do primeiro toast renumerava os que sobraram e o
+   * React remontava cada um — a animação de entrada reiniciava sozinha. O `id`
+   * do toast é a chave estável.
+   */
+  it("keeps a toast mounted when an older one leaves the queue", () => {
+    const second = { id: 2, message: "second toast", tone: "info" as const };
+    setStore({
+      accounts: [A, B],
+      toasts: [{ id: 1, message: "first toast", tone: "info" }, second],
+    });
+    const { rerender } = render(<App />);
+    const survivor = screen.getByText("second toast");
+
+    setStore({ accounts: [A, B], toasts: [second] });
+    rerender(<App />);
+
+    // Com `key={i}` o React reaproveitaria o nó do toast que saiu e descartaria
+    // este, reiniciando a animação de entrada do que ficou.
+    expect(survivor).toBeInTheDocument();
+    expect(screen.queryByText("first toast")).not.toBeInTheDocument();
   });
 
   it("renders the generic text modal and closes it", async () => {

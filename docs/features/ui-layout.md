@@ -124,14 +124,28 @@ Regras: cancelar **nunca** chama `cmd_kill_roblox` (há teste de regressão para
 
 ### Status bar
 
-Total/filtradas, selecionadas, contas online e em jogo (se `ShowPresence`), contas lançadas pelo app e status do Botting.
+Total/filtradas, selecionadas, contas online e em jogo (se `ShowPresence`), contas lançadas pelo app, status do Botting/gerador e a linha de `actionStatus` (ver abaixo).
+
+### Feedback de ação: toast vs. `actionStatus`
+
+São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
+
+| Canal | Significa | Onde aparece | Quem escreve |
+| --- | --- | --- | --- |
+| `toasts` | "isto **acabou de acontecer**" | pilha no canto inferior direito ([App.tsx](../../src/App.tsx)), 2500 ms | `addToast(frase)` |
+| `actionStatus` | "isto **está acontecendo agora**" (substituível) | linha única na `StatusBar`, com o timeout de cada chamada | `setActionStatusMessage(frase, tom, timeoutMs)` |
+
+- `addToast` calcula o tom **uma vez** (`toneFromMessage` em [toastTone.ts](../../src/utils/toastTone.ts)) e o guarda no item da fila junto com um `id` — o `id` é a chave de lista, para que a saída de um toast não remonte os que ficaram. `addToast` **não** escreve em `actionStatus`: escrevia, e depois que a `StatusBar` passou a desenhar `actionStatus` a mesma frase apareceria duas vezes na tela.
+- A cor dos dois canais (e do Console de launch) vem do **mesmo** mapa `TONE_STYLES` de [toastTone.ts](../../src/utils/toastTone.ts): `info` neutro (cores do painel), `success` esmeralda, `warn` âmbar, `error` vermelho. Não criar paleta paralela.
+- O tom é deduzido do **texto**, porque quase todo call site entrega a frase já traduzida; por isso o catálogo tem de preservar o marcador em cada idioma — contrato travado por [locales.test.ts](../../src/i18n/locales.test.ts).
+- Progresso vai para `actionStatus`, nunca para toast: download do Chromium, download/instalação da build do Roblox (`timeoutMs` de 60 s), `Launching account N/M...`, `Settings saved` (evento `ram-action-status` disparado por [useSettings.ts](../../src/hooks/useSettings.ts)) e a falha de ciclo do Botting (`warn`).
 
 ## Regras de negócio
 
 - O sidebar de detalhes só existe para **uma** conta; com múltiplas seleções as ações ficam na barra inferior/Choose Game.
 - Se o único grupo for `Default`, a lista não mostra cabeçalho de grupo.
 - Presença é atualizada a cada `max(1, PresenceUpdateRate)` minutos (mínimo 30 s), em lotes de 100 IDs; `0` = offline, `1` = online, `2` = em jogo, `3` = no Studio.
-- Toasts ficam empilhados no canto inferior direito; erros persistentes vão para a faixa vermelha até o usuário fechar.
+- Toasts ficam empilhados no canto inferior direito, cada um pintado com o tom da própria mensagem; erros persistentes vão para a faixa vermelha até o usuário fechar.
 - Diálogos fecham com Esc (Settings, Server List, Choose Game).
 - Export de tema grava `<nome>.ram-theme.json` na pasta do exe; se o tema usa fontes locais, grava `<nome>.ram-theme.zip` incluindo os arquivos das fontes.
 - Fontes importadas aceitam só `.ttf`, `.otf`, `.woff`, `.woff2` e são deduplicadas pelo SHA-256 do conteúdo.

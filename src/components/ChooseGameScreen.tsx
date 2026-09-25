@@ -13,6 +13,7 @@ import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
 import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle, X } from "lucide-react";
 import type { LaunchLogLevel, LaunchTarget } from "../store";
+import { TONE_STYLES, type ToneStyle } from "../utils/toastTone";
 import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
 
@@ -579,12 +580,12 @@ function GridControls() {
 }
 
 // ── Console Tab ───────────────────────────────────────────────────────────────
-const LEVEL_STYLES: Record<LaunchLogLevel, { dot: string; text: string }> = {
-  info: { dot: "bg-[var(--panel-muted)]", text: "text-[var(--panel-fg)]" },
-  success: { dot: "bg-emerald-500", text: "text-emerald-400" },
-  warn: { dot: "bg-amber-500", text: "text-amber-400" },
-  error: { dot: "bg-red-500", text: "text-red-400" },
-};
+/**
+ * Os níveis do log de launch são os mesmos tons do feedback de ação, então a
+ * paleta é a compartilhada (`TONE_STYLES`) — o toast e o rodapé combinam com
+ * este Console em vez de cada tela ter a sua cor.
+ */
+const LEVEL_STYLES: Record<LaunchLogLevel, ToneStyle> = TONE_STYLES;
 
 function ConsoleTab() {
   const t = useTr();

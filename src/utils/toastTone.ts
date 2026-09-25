@@ -45,3 +45,26 @@ export function toneFromMessage(message: string): ToastTone {
   if (WARN.some((m) => lower.includes(m))) return "warn";
   return "info";
 }
+
+/** Classes Tailwind de um tom: a bolinha e o texto. */
+export interface ToneStyle {
+  dot: string;
+  text: string;
+}
+
+/**
+ * A paleta do feedback de ação, uma só para todo o app: o Console de launch
+ * (`ChooseGameScreen`), a fila de toasts (`App`) e a linha de estado do rodapé
+ * (`StatusBar`) pintam o mesmo tom com a mesma cor. Enquanto este mapa vivia
+ * dentro do Console, o toast não tinha condicional de estilo nenhuma — erro e
+ * sucesso saíam visualmente idênticos.
+ *
+ * `info` é deliberadamente neutro (as cores do painel): a maioria das mensagens
+ * cai nele, e colorir tudo tiraria o sentido de colorir as outras.
+ */
+export const TONE_STYLES: Record<ToastTone, ToneStyle> = {
+  info: { dot: "bg-[var(--panel-muted)]", text: "text-[var(--panel-fg)]" },
+  success: { dot: "bg-emerald-500", text: "text-emerald-400" },
+  warn: { dot: "bg-amber-500", text: "text-amber-400" },
+  error: { dot: "bg-red-500", text: "text-red-400" },
+};

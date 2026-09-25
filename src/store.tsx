@@ -116,6 +116,18 @@ interface ActionStatusState {
   at: number;
 }
 
+/**
+ * Um toast na fila. O tom é calculado uma vez, em `addToast`, e viaja junto —
+ * quem desenha (`App`) não precisa reinspecionar o texto. O `id` é a chave
+ * estável da lista: com `key={i}` a saída do primeiro toast renumerava os que
+ * sobravam e reiniciava a animação de entrada deles.
+ */
+export interface Toast {
+  id: number;
+  message: string;
+  tone: ToastTone;
+}
+
 export interface BottingAccountStatus {
   userId: number;
   isPlayer: boolean;
@@ -344,7 +356,7 @@ export interface StoreValue {
   dragState: { userId: number; sourceGroup: string } | null;
   setDragState: (s: { userId: number; sourceGroup: string } | null) => void;
 
-  toasts: string[];
+  toasts: Toast[];
   addToast: (msg: string) => void;
   actionStatus: ActionStatusState | null;
   modal: { title: string; content: string } | null;
@@ -534,7 +546,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [firstRunWalkthroughMode, setFirstRunWalkthroughMode] = useState<"firstRun" | "manual">("firstRun");
   const [initialized, setInitialized] = useState(false);
   const [dragState, setDragState] = useState<{ userId: number; sourceGroup: string } | null>(null);
-  const [toasts, setToasts] = useState<string[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
   const [modal, setModal] = useState<{ title: string; content: string } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [serverListOpen, setServerListOpen] = useState(false);
@@ -767,6 +780,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /**
+   * A linha de estado do rodapé (`StatusBar`): "isto **está acontecendo
+   * agora**" — progresso de download, conta N de M, o que o `useSettings`
+   * anuncia por `ram-action-status`. É substituível: a mensagem seguinte troca
+   * a anterior, e o timeout apaga.
+   *
+   * Não confundir com `addToast`, que é "isto **acabou de acontecer**". Os dois
+   * escreviam a mesma frase (com durações diferentes), então depois que o
+   * rodapé passou a desenhar `actionStatus` cada toast apareceria duas vezes na
+   * tela — por isso `addToast` não escreve mais aqui.
+   */
   const setActionStatusMessage = useCallback(
     (message: string, tone: ActionStatusTone = "info", timeoutMs = 3500) => {
       // `message` is usually an i18n key, but some call sites pass an already-localized string.
@@ -790,13 +814,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  /**
+   * A fila de toasts: "isto **acabou de acontecer**". O tom sai do texto uma
+   * única vez, aqui, e vai junto no item — os ~200 call sites continuam
+   * chamando `addToast(frase)` e nada mais.
+   *
+   * O tom é deduzido de `msg` (não do texto localizado) porque o catálogo
+   * garante que a tradução preserva o marcador — ver `src/i18n/locales.test.ts`.
+   */
   const addToast = useCallback((msg: string) => {
     // `msg` is usually an i18n key, but some call sites pass an already-localized string (interpolated).
     const localized = i18n.exists(msg) ? tr(msg) : msg;
-    setToasts((prev) => [...prev, localized]);
-    setTimeout(() => setToasts((prev) => prev.slice(1)), 2500);
-    setActionStatusMessage(msg, toneFromMessage(msg));
-  }, [setActionStatusMessage]);
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, message: localized, tone: toneFromMessage(msg) }]);
+    // Remover por `id`, não por posição: dois toasts com vidas sobrepostas
+    // fariam o `slice(1)` derrubar o vizinho errado.
+    setTimeout(() => setToasts((prev) => prev.filter((toast) => toast.id !== id)), 2500);
+  }, []);
 
   function clearLaunchTimeout() {
     if (launchClearTimeoutRef.current !== null) {
@@ -1772,7 +1806,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
 
       if (cookie.trim().length === 0) {
-        addToast("No .ROBLOSECURITY cookie found after login. Please try again.");
+        // A frase antiga ("No .ROBLOSECURITY cookie found after login...") não
+        // casava com nenhum marcador de `toneFromMessage`, então uma falha de
+        // login saía cinza de `info`. O "Login failed" à frente é o que dá o
+        // tom — em inglês, em português ("Falha") e em alemão ("Fehler").
+        addToast("Login failed: no .ROBLOSECURITY cookie found. Please try again.");
         await invoke("close_login_browser").catch(() => {});
         return;
       }

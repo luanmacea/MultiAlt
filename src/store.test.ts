@@ -663,8 +663,10 @@ describe("joinServer", () => {
       await pending;
     });
 
-    // the success toast replaces the per-account message once the launch returns
-    expect(result.current.actionStatus?.message).toBe("Launching game...");
+    // O launch que voltou é um fato: vira toast. `actionStatus` continua
+    // mostrando o que está em curso (esta conta) até o próprio timeout dele.
+    expect(result.current.toasts.map((toast) => toast.message)).toContain("Launching game...");
+    expect(result.current.actionStatus?.message).toContain("Main");
   });
 });
 
@@ -861,7 +863,7 @@ describe("restartRobloxClients", () => {
     });
 
     expect(invokeCalls("cmd_kill_roblox")).toHaveLength(0);
-    expect(result.current.toasts.join(" ")).toMatch(/No launched Roblox clients/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/No launched Roblox clients/i);
   });
 
   it("closes and relaunches the launched clients", async () => {
@@ -908,7 +910,7 @@ describe("account mutations", () => {
       username: "Cookie",
       userId: 7,
     });
-    expect(result.current.toasts.join(" ")).toContain("Added Cookie");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Added Cookie");
   });
 
   it("says 'Updated' when the account already exists", async () => {
@@ -920,7 +922,7 @@ describe("account mutations", () => {
       await result.current.addAccountByCookie("token");
     });
 
-    expect(result.current.toasts.join(" ")).toContain("Updated Cookie");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Updated Cookie");
   });
 
   it("removes accounts and drops them from the selection", async () => {
@@ -960,7 +962,7 @@ describe("account mutations", () => {
 
     expect(result.current.accounts[0].Group).toBe("10 Bots");
     expect(invokeCalls("update_account")).toHaveLength(1);
-    expect(result.current.toasts.join(" ")).toContain("Bots");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Bots");
   });
 
   it("sorts a group alphabetically by alias or username and persists the order", async () => {
@@ -1034,36 +1036,47 @@ describe("saved launch fields", () => {
 });
 
 describe("toasts and action status", () => {
+  /** Tom de cada toast da fila, na ordem em que entraram. */
+  const tones = (result: { current: StoreValue }) => result.current.toasts.map((toast) => toast.tone);
+
   it("derives an error tone from the message and clears after the timeout", async () => {
     const { result } = await renderStore();
     vi.useFakeTimers();
 
     act(() => result.current.addToast("Something failed"));
-    expect(result.current.toasts).toEqual(["Something failed"]);
-    expect(result.current.actionStatus).toMatchObject({ tone: "error" });
+    expect(result.current.toasts).toMatchObject([{ message: "Something failed", tone: "error" }]);
+    // O toast diz "isto acabou de acontecer"; `actionStatus` é só progresso, e
+    // um toast não escreve mais nele (a frase apareceria duas vezes na tela).
+    expect(result.current.actionStatus).toBeNull();
 
     await act(async () => {
       vi.advanceTimersByTime(2500);
     });
     expect(result.current.toasts).toEqual([]);
+  });
 
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-    expect(result.current.actionStatus).toBeNull();
+  it("gives every toast an id of its own so the queue keeps its identity", async () => {
+    const { result } = await renderStore();
+
+    act(() => result.current.addToast("Accounts saved"));
+    act(() => result.current.addToast("Alias updated"));
+
+    const ids = result.current.toasts.map((toast) => toast.id);
+    expect(new Set(ids).size).toBe(2);
+    expect(result.current.toasts.map((toast) => toast.message)).toEqual([
+      "Accounts saved",
+      "Alias updated",
+    ]);
   });
 
   it("uses a success tone for saved/updated/launched and a warn tone for warnings", async () => {
     const { result } = await renderStore();
 
     act(() => result.current.addToast("Accounts saved"));
-    expect(result.current.actionStatus?.tone).toBe("success");
-
     act(() => result.current.addToast("Some warning here"));
-    expect(result.current.actionStatus?.tone).toBe("warn");
-
     act(() => result.current.addToast("Neutral message"));
-    expect(result.current.actionStatus?.tone).toBe("info");
+
+    expect(tones(result)).toEqual(["success", "warn", "info"]);
   });
 
   it("keeps the tone when the call site already localized the message", async () => {
@@ -1073,22 +1086,13 @@ describe("toasts and action status", () => {
     const { result } = await renderStore();
 
     act(() => result.current.addToast("Não foi possível fechar o Roblox: acesso negado"));
-    expect(result.current.actionStatus?.tone).toBe("error");
-
     act(() => result.current.addToast("A busca falhou: tempo esgotado"));
-    expect(result.current.actionStatus?.tone).toBe("error");
-
     act(() => result.current.addToast("Configurações salvas"));
-    expect(result.current.actionStatus?.tone).toBe("success");
-
     act(() => result.current.addToast("Apelido atualizado"));
-    expect(result.current.actionStatus?.tone).toBe("success");
-
     act(() => result.current.addToast("Aviso de otimização: memória baixa"));
-    expect(result.current.actionStatus?.tone).toBe("warn");
-
     act(() => result.current.addToast("Iniciando o jogo..."));
-    expect(result.current.actionStatus?.tone).toBe("info");
+
+    expect(tones(result)).toEqual(["error", "error", "success", "success", "warn", "info"]);
   });
 
   it("reacts to the ram-action-status window event", async () => {
@@ -1191,8 +1195,30 @@ describe("backend events", () => {
       emit("account-moderated", { userId: 1 });
     });
 
-    expect(result.current.toasts.join(" ")).toContain("Alpha");
-    expect(result.current.toasts.join(" ")).toContain("moderadas");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Alpha");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("moderadas");
+  });
+
+  /**
+   * O login pelo navegador termina sem cookie quando o Roblox não devolveu a
+   * sessão — é falha, e a frase antiga não tinha marcador nenhum: o toast saía
+   * cinza de `info`, igual a um "Iniciando o jogo...".
+   */
+  it("reports a browser login that produced no cookie as a failure", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("browser-login-detected")).toBe(true));
+    results.set("extract_browser_cookie", "");
+
+    vi.useFakeTimers();
+    await act(async () => {
+      emit("browser-login-detected", {});
+      // O handler tenta 8 vezes, 350ms entre elas, antes de desistir.
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+
+    const toast = result.current.toasts[result.current.toasts.length - 1];
+    expect(toast?.message).toMatch(/cookie/i);
+    expect(toast?.tone).toBe("error");
   });
 
   it("surfaces roblox build install progress", async () => {
@@ -1206,7 +1232,7 @@ describe("backend events", () => {
     expect(result.current.actionStatus).toMatchObject({ tone: "success" });
 
     act(() => emit("roblox-build-install", { stage: "error", current: 0, total: 0, message: "nope" }));
-    expect(result.current.toasts.join(" ")).toContain("nope");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("nope");
   });
 
   it("turns a chromium download event into a percentage status", async () => {
@@ -1266,10 +1292,10 @@ describe("backend events", () => {
     await waitFor(() => expect(listenHandlers.has("roblox-optimization-warning")).toBe(true));
 
     act(() => emit("roblox-optimization-warning", { pid: 4242, message: "high cpu" }));
-    expect(result.current.toasts.join(" ")).toContain("4242");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("4242");
 
     act(() => emit("roblox-optimization-warning", { message: "  " }));
-    expect(result.current.toasts.join(" ")).toContain("Unknown");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Unknown");
   });
 });
 
@@ -1367,7 +1393,7 @@ describe("botting and generator commands", () => {
       await result.current.stopBottingMode(true);
     });
     expect(lastArgs("stop_botting_mode")).toEqual({ closeBotAccounts: true });
-    expect(result.current.toasts.join(" ")).toMatch(/bot accounts closed/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/bot accounts closed/i);
   });
 
   it("adds botting accounts and ignores an empty list", async () => {
@@ -1390,12 +1416,12 @@ describe("botting and generator commands", () => {
       await result.current.setBottingPlayerAccounts([]);
     });
     expect(lastArgs("set_botting_player_accounts")).toEqual({ playerUserIds: [] });
-    expect(result.current.toasts.join(" ")).toMatch(/cleared/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/cleared/i);
 
     await act(async () => {
       await result.current.setBottingPlayerAccounts([1]);
     });
-    expect(result.current.toasts.join(" ")).toMatch(/updated/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/updated/i);
   });
 
   it("forwards per-account botting actions", async () => {
@@ -1468,7 +1494,7 @@ describe("process control", () => {
       await result.current.killAllRobloxProcesses();
     });
 
-    expect(result.current.toasts.join(" ")).toContain("2");
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("2");
     expect(result.current.error).toBeNull();
   });
 
@@ -1480,7 +1506,7 @@ describe("process control", () => {
       await result.current.killAllRobloxProcesses();
     });
 
-    expect(result.current.toasts.join(" ")).toMatch(/No open Roblox processes/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/No open Roblox processes/i);
   });
 
   it("surfaces focus failures", async () => {
@@ -1524,7 +1550,7 @@ describe("updates", () => {
       releaseChannel: "stable",
       featureChannel: "nexus-ws",
     });
-    expect(result.current.toasts.join(" ")).toMatch(/No updates available/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/No updates available/i);
   });
 
   it("opens the update dialog when an update is returned", async () => {
@@ -1581,7 +1607,7 @@ describe("updates", () => {
       await result.current.checkForUpdates(true);
     });
 
-    expect(result.current.toasts.join(" ")).toMatch(/Update check failed/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/Update check failed/i);
   });
 
   it("fills a preview release for the update dialog", async () => {
@@ -1615,7 +1641,7 @@ describe("versions, encryption and walkthrough", () => {
     });
 
     expect(result.current.settings?.Versions?.DefaultVersion).toBe("old");
-    expect(result.current.toasts.join(" ")).toMatch(/Failed to set version/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/Failed to set version/i);
   });
 
   it("stores an empty string when clearing the default version", async () => {
