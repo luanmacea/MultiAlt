@@ -29,7 +29,12 @@ export function TabBar({
   }, [activeTab, tabs.length]);
 
   return (
-    <div className="relative flex flex-wrap gap-1 px-5 pb-0 shrink-0">
+    // 9 abas em 780px: `flex-wrap` fica so como rede de seguranca (idioma mais
+    // longo, fonte maior do usuario) — com o dialogo largo o suficiente e este
+    // padding/gap reduzidos, as abas cabem numa linha so. `flex-nowrap` puro
+    // quebraria a rede; `whitespace-nowrap` evita o texto de cada aba quebrar
+    // linha sozinho antes do conjunto.
+    <div className="relative flex flex-wrap gap-0.5 px-5 pb-0 shrink-0">
       <div
         className="absolute rounded-lg bg-zinc-800 shadow-sm"
         style={{
@@ -49,7 +54,7 @@ export function TabBar({
             if (el) tabRefs.current.set(tab.id, el);
           }}
           onClick={() => onTabChange(tab.id)}
-          className={`relative z-[1] flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors duration-200 ${
+          className={`relative z-[1] flex items-center gap-1 px-1 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-colors duration-200 ${
             activeTab === tab.id
               ? "text-zinc-100"
               : "text-zinc-500 hover:text-zinc-300"
