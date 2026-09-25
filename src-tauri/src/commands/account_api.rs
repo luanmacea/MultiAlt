@@ -136,15 +136,23 @@ async fn get_csrf_token(
     .await
 }
 
+/// Ticket de auth para os links que o menu de contexto copia (`roblox-player://`
+/// e o app link). É leitura não crítica, então **não** passa por
+/// `run_with_session_retry`: o refresh chama
+/// `signoutfromallsessionsandreauthenticate` e derrubaria as sessões abertas da
+/// conta só porque o cookie estava velho. O launch tem o seu próprio caminho e
+/// continua com retry.
+async fn auth_ticket_without_refresh(state: &AccountStore, user_id: i64) -> Result<String, String> {
+    let cookie = get_cookie(state, user_id)?;
+    api::auth::get_auth_ticket(&cookie).await
+}
+
 #[tauri::command]
 async fn get_auth_ticket(
     state: tauri::State<'_, AccountStore>,
     user_id: i64,
 ) -> Result<String, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
-        api::auth::get_auth_ticket(&cookie).await
-    })
-    .await
+    auth_ticket_without_refresh(state.inner(), user_id).await
 }
 
 #[tauri::command]
@@ -1792,6 +1800,31 @@ mod account_api_http_tests {
 
         assert_eq!(value, 7);
         assert_eq!(*seen.lock().unwrap(), vec!["plain-cookie".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn auth_ticket_for_the_clipboard_never_refreshes_the_session() {
+        // O ticket só alimenta os links de debug que o menu de contexto copia:
+        // e leitura não crítica não pode passar por `run_with_session_retry`, que
+        // chama `signoutfromallsessionsandreauthenticate` e derruba as sessões
+        // abertas da conta. Cookie velho aqui tem de virar erro na tela.
+        mount_csrf("ticket-stale", "CSRF-TICKET-STALE").await;
+        mount_signout("ticket-stale", Some("ticket-fresh"), 200).await;
+        // O mock server é compartilhado entre os testes: filtre pelo cookie desta
+        // conta, senão esta rota responde pelos outros testes de ticket também.
+        Mock::given(method("POST"))
+            .and(path(mock_path("auth", "/v1/authentication-ticket/")))
+            .and(header("cookie", cookie_of("ticket-stale")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(mock_server().await)
+            .await;
+        let store = store_with(9030, "ticket-stale", "ticket-norefresh");
+
+        let err = auth_ticket_without_refresh(&store, 9030).await.unwrap_err();
+
+        assert!(err.contains("401"), "erro inesperado: {err}");
+        // O cookie continua o mesmo: nenhum refresh aconteceu.
+        assert_eq!(store.get_all().unwrap()[0].security_token, "ticket-stale");
     }
 
     #[tokio::test]
