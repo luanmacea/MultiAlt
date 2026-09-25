@@ -3,10 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { useConfirm, usePrompt } from "../hooks/usePrompt";
 import { useJoinOnlineWarning } from "../hooks/useJoinOnlineWarning";
+import { useEscapeStack } from "../hooks/useEscapeStack";
 import { FavoritesTab } from "./server-list/FavoritesTab";
 import { GamesTab } from "./server-list/GamesTab";
 import { RecentTab } from "./server-list/RecentTab";
-import { loadFavorites, saveFavorites } from "./server-list/types";
+import { loadFavorites, recordRecentGame, saveFavorites } from "./server-list/types";
 import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
@@ -622,8 +623,11 @@ function ConsoleTab() {
   return (
     <div className="flex flex-col h-full">
       {/* Painel de Sessão acima do log: cancelar quem está entrando e
-          achar/fechar quem já está em jogo sem sair da tela. */}
-      <div className="shrink-0 pb-3">
+          achar/fechar quem já está em jogo sem sair da tela.
+          Teto em 45% da aba: com as duas listas cheias (~500px) o painel
+          empurrava o log a pouco mais que o padding — o log é o log de
+          lançamento, não o Painel de Sessão. */}
+      <div className="shrink-0 pb-3 max-h-[45%] overflow-y-auto">
         <SessionPanel />
       </div>
 
@@ -646,7 +650,9 @@ function ConsoleTab() {
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="flex-1 min-h-0 overflow-y-auto rounded-lg border theme-border bg-[var(--panel-soft)] font-mono text-[11px] leading-relaxed p-3"
+        // Piso de 160px: sem ele o Painel de Sessão cheio espremia o log a
+        // ~2px de texto visível (26px com 24px de padding).
+        className="flex-1 min-h-[160px] overflow-y-auto rounded-lg border theme-border bg-[var(--panel-soft)] font-mono text-[11px] leading-relaxed p-3"
       >
         {logs.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
@@ -685,22 +691,36 @@ export function ChooseGameScreen() {
   const userIds = accounts.map((a) => a.UserID);
   const maxRecent = parseInt(store.settings?.General?.MaxRecentGames || "8") || 8;
 
-  // Close on ESC
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") store.setChooseGameOpen(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [store.setChooseGameOpen]);
+  // Esta tela fica na **base** da pilha de Escape: qualquer diálogo ou popover
+  // aberto por cima monta depois e consome o Escape antes. Antes ela era sempre
+  // o primeiro listener de `window`, então um Escape fechava o diálogo de cima
+  // **e** a tela de trás no mesmo evento. `ignoreFromFields` deixa o Escape
+  // digitado num campo (o link da aba Follow, por exemplo) passar direto.
+  useEscapeStack(true, () => store.setChooseGameOpen(false), { ignoreFromFields: true });
 
   // ── Game selection handlers ────────────────────────────────────────────────
 
   const goToConsole = () => setActiveTab("console");
 
-  function handleSelectGame(placeId: number, _name?: string, _iconUrl?: string | null, privateServer?: string) {
-    // For Games/Recent tabs: just launch directly
-    launchAll(userIds, placeId, privateServer || "", goToConsole);
+  /**
+   * Clique no card, nas abas Games/Recent.
+   *
+   * Já lançou direto — o único freio era `confirmJoinOnline`, que só entra
+   * com a conta online, então uma conta offline lançava sem passo nenhum no
+   * meio. Desde o P1, Games/Recent já têm a própria ação "Join Game"
+   * (`handleJoinGame`, no ícone da linha), então o card lançando também era
+   * um gesto duplicado. Agora o card só abre os servidores do jogo — mesmo
+   * destino que `ServerListDialog.handleSelectGame` já usa para o clique no
+   * card lá.
+   *
+   * Decisão sobre o Recent: como o jogo só entra na lista num launch
+   * bem-sucedido (`store.tsx`), e o card não lança mais nada, gravamos aqui
+   * manualmente — a mesma saída que o `ServerListDialog` já usa — para o
+   * jogo clicado não sumir do Recent.
+   */
+  function handleSelectGame(placeId: number, name?: string, iconUrl?: string | null) {
+    void recordRecentGame(placeId, userIds[0] ?? null, maxRecent, { name, iconUrl }).catch(() => {});
+    handleBrowseServers(placeId);
   }
 
   async function handleFavoritesSelectGame(placeId: number, privateServer?: string) {
@@ -754,12 +774,15 @@ export function ChooseGameScreen() {
     {
       id: "games",
       label: t("Games"),
-      hint: t("Browse Roblox games. Click a game to launch all selected accounts into it."),
+      // Clicar no card não lança mais direto (item de usabilidade: era um
+      // duplicado do botão "Join Game" da própria linha, sem nenhum passo no
+      // meio). A dica tinha que parar de prometer isso.
+      hint: t("Browse Roblox games. Click a game to see its servers, or use Join Game to launch directly."),
     },
     {
       id: "recent",
       label: t("Recent"),
-      hint: t("Games you've joined recently across all accounts."),
+      hint: t("Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly."),
     },
     {
       id: "servers",
