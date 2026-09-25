@@ -78,6 +78,50 @@ export function matchesRegion(
   return resolved.region.countryCode.toUpperCase() === wanted;
 }
 
+/** Vagas que sobram no servidor. */
+function freeSeats(row: ServerRow): number {
+  return Math.max(row.maxPlayers - row.playing, 0);
+}
+
+/**
+ * Ordena a lista pelo encaixe com o lote **desta tela**.
+ *
+ * O backend já manda a lista ordenada, mas quem sabe com certeza quantas contas
+ * estão selecionadas agora é a UI: o topo tem que ser sempre o melhor encaixe
+ * para o número que aparece nos rótulos ("3 free · needs 6"). Ordenar aqui
+ * também evita que uma página antiga da varredura, chegando fora de ordem,
+ * deixe servidores piores no topo.
+ *
+ * Ordem:
+ *
+ * 1. cabe o lote **com uma vaga de folga**, do mais cheio para o mais vazio;
+ * 2. cabe o lote sem folga (encheria o servidor), do mais cheio para o mais
+ *    vazio;
+ * 3. não cabe: quem leva **mais contas** primeiro e, entre iguais, o mais
+ *    cheio — servidor vivo vale mais que servidor vazio do mesmo tamanho.
+ */
+export function rankRows(rows: ServerRow[], accounts: number): ServerRow[] {
+  const needed = Math.max(accounts, 1);
+  function tier(row: ServerRow): number {
+    if (row.maxPlayers <= 0) return 3;
+    const free = freeSeats(row);
+    if (free >= needed + 1) return 0;
+    if (free >= needed) return 1;
+    return 2;
+  }
+
+  return [...rows].sort((a, b) => {
+    const tierDiff = tier(a) - tier(b);
+    if (tierDiff !== 0) return tierDiff;
+    // Dentro de "não cabe", mais vagas primeiro: é quem leva mais contas.
+    if (tier(a) === 2) {
+      const freeDiff = freeSeats(b) - freeSeats(a);
+      if (freeDiff !== 0) return freeDiff;
+    }
+    return b.playing - a.playing;
+  });
+}
+
 const PREFERENCES: { id: ServerPreference; label: string }[] = [
   { id: "bestfit", label: "Best fit" },
   { id: "fullest", label: "Fullest" },
@@ -178,15 +222,20 @@ export function ServersTab({
   }, []);
 
   /**
-   * A varredura publica uma página por vez. Eventos de uma varredura antiga
-   * (trocou de jogo, mudou a ordem) são descartados pelo `scanId`.
+   * A varredura publica uma página por vez.
+   *
+   * O corte é pelo **maior** `scanId` já visto, e não pelo id que o
+   * `start_server_scan` devolveu: duas varreduras seguidas resolvem o `invoke`
+   * fora de ordem, e comparar com o id "atual" podia descartar justamente os
+   * eventos da varredura nova, deixando na tela a primeira página da antiga.
    */
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     let disposed = false;
     listen<ServerScanUpdate>("server-scan", (event) => {
       const update = event.payload;
-      if (scanIdRef.current !== null && update.scanId !== scanIdRef.current) return;
+      if (update.scanId < (scanIdRef.current ?? 0)) return;
+      scanIdRef.current = update.scanId;
       setRows(update.servers || []);
       setScan({
         scanned: update.scanned,
@@ -225,13 +274,14 @@ export function ServersTab({
     // Os Job IDs mudam a cada varredura; regiões antigas não valem mais.
     setRegions(new Map());
     try {
-      scanIdRef.current = await invoke<number>("start_server_scan", {
+      const started = await invoke<number>("start_server_scan", {
         placeId: place,
         userId: accountForApi,
         preference,
         accounts: Math.max(userIds.length, 1),
         maxPages: scanPages,
       });
+      scanIdRef.current = Math.max(scanIdRef.current ?? 0, started);
     } catch (e) {
       setError(String(e));
       setRows([]);
@@ -247,8 +297,12 @@ export function ServersTab({
   }, [placeId, preference, userIds.length, scanPages]);
 
   const visible = useMemo(
-    () => (rows || []).filter((row) => matchesRegion(row, regions, regionFilter)),
-    [rows, regions, regionFilter]
+    () =>
+      rankRows(
+        (rows || []).filter((row) => matchesRegion(row, regions, regionFilter)),
+        Math.max(userIds.length, 1)
+      ),
+    [rows, regions, regionFilter, userIds.length]
   );
 
   /**

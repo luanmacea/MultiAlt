@@ -499,6 +499,35 @@ mod server_preference_tests {
         }
     }
 
+    /// Reprodução do relato: jogo grande, servidores de 13 lugares, a maioria
+    /// com 9–12 jogadores e um punhado com vaga para o lote de 6.
+    #[test]
+    fn a_big_game_puts_the_servers_that_fit_the_batch_on_top() {
+        let mut servers = Vec::new();
+        for i in 0..1800 {
+            let playing = match i % 10 {
+                0..=6 => 10,
+                7 => 9,
+                8 => 7,
+                _ => 5,
+            };
+            servers.push(server(&format!("s{}", i), playing, 13));
+        }
+
+        let ranked = rank_servers(&servers, ServerPreference::BestFit, 6);
+        assert!(!ranked.is_empty());
+        assert!(
+            ranked[0].playing <= 7,
+            "o topo tinha que caber as 6 contas, veio {}",
+            ranked[0].playing
+        );
+        // Nenhum servidor sem vaga para o lote pode aparecer antes de um com.
+        assert!(
+            ranked.iter().all(|s| s.playing + 6 <= s.max_players),
+            "entrou servidor que não cabe o lote"
+        );
+    }
+
     #[test]
     fn an_empty_list_picks_nothing() {
         assert!(pick_from_list(&[], ServerPreference::Emptiest, 1, 0).is_none());

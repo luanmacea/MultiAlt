@@ -49,6 +49,10 @@ Um jogo grande tem milhares de servidores e a API devolve 100 por página; com u
 
 **Sem nenhum servidor que caiba o lote**, a ordem deixa de ser a preferência e passa a ser **quantas contas cabem** — mais vagas primeiro, e entre iguais o mais cheio. Antes a lista abria com os de uma vaga só e os que levavam quatro contas ficavam escondidos lá embaixo.
 
+A aba **reordena a lista recebida** antes de desenhar (`rankRows`), com o número de contas que está selecionado naquele momento: cabe com folga → cabe justo → não cabe (mais vagas primeiro). O backend já manda ordenado, mas quem tem certeza do tamanho do lote é a tela, e é ela que escreve os rótulos ("3 free · needs 6") — as duas coisas precisam concordar. Pelo mesmo motivo, o recorte dos 150 servidores enviados por evento coloca os que cabem o lote **antes** do corte.
+
+Os eventos são aceitos pelo **maior `scanId` já visto**, não pelo id que o `start_server_scan` devolveu: duas varreduras seguidas resolvem o `invoke` fora de ordem, e comparar com o id "atual" podia descartar os eventos da varredura nova e deixar na tela a primeira página da antiga.
+
 ## Regras de negócio
 
 - **Um servidor por lote, não um por conta.** O `shuffleJob` antigo sorteia dentro do laço de cada conta, o que espalha o lote; a preferência resolve antes e manda todo mundo para o mesmo Job ID.

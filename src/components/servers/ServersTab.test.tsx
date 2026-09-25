@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
-import { ServersTab, hasRoomFor, matchesRegion } from "./ServersTab";
+import { ServersTab, hasRoomFor, matchesRegion, rankRows } from "./ServersTab";
 import type { ServerRow } from "./ServersTab";
 import { makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
 import {
@@ -138,6 +138,59 @@ describe("ServersTab — vagas (puro)", () => {
   });
 });
 
+describe("ServersTab — ordem por encaixe (puro)", () => {
+  /**
+   * O topo é sempre o melhor encaixe para o lote **desta tela**. Era o que
+   * faltava: com 6 contas a lista abria com servidores de 3 vagas e os que
+   * levavam todo mundo ficavam escondidos na rolagem.
+   */
+  it("põe quem cabe o lote na frente de quem não cabe", () => {
+    const rows = [
+      row({ id: "nao-cabe", playing: 10, maxPlayers: 13 }),
+      row({ id: "cabe", playing: 6, maxPlayers: 13 }),
+      row({ id: "nao-cabe-2", playing: 9, maxPlayers: 13 }),
+    ];
+    expect(rankRows(rows, 6).map((r) => r.id)).toEqual(["cabe", "nao-cabe-2", "nao-cabe"]);
+  });
+
+  it("prefere o servidor mais cheio que ainda deixa uma vaga de folga", () => {
+    const rows = [
+      row({ id: "folgado", playing: 2, maxPlayers: 13 }),
+      row({ id: "ideal", playing: 6, maxPlayers: 13 }),
+      row({ id: "justo", playing: 7, maxPlayers: 13 }),
+    ];
+    // "justo" cabe as 6 contas mas enche o servidor: fica atrás dos com folga.
+    expect(rankRows(rows, 6).map((r) => r.id)).toEqual(["ideal", "folgado", "justo"]);
+  });
+
+  it("sem ninguém que caiba, ordena por quantas contas levam", () => {
+    const rows = [
+      row({ id: "uma-vaga", playing: 12, maxPlayers: 13 }),
+      row({ id: "quatro-vagas", playing: 9, maxPlayers: 13 }),
+      row({ id: "duas-vagas", playing: 11, maxPlayers: 13 }),
+    ];
+    expect(rankRows(rows, 6).map((r) => r.id)).toEqual([
+      "quatro-vagas",
+      "duas-vagas",
+      "uma-vaga",
+    ]);
+  });
+
+  it("com as mesmas vagas, o mais cheio vem primeiro", () => {
+    const rows = [
+      row({ id: "pequeno", playing: 1, maxPlayers: 4 }),
+      row({ id: "grande", playing: 20, maxPlayers: 23 }),
+    ];
+    expect(rankRows(rows, 6).map((r) => r.id)).toEqual(["grande", "pequeno"]);
+  });
+
+  it("não altera a lista original", () => {
+    const rows = [row({ id: "a", playing: 10 }), row({ id: "b", playing: 1 })];
+    rankRows(rows, 6);
+    expect(rows.map((r) => r.id)).toEqual(["a", "b"]);
+  });
+});
+
 describe("ServersTab — lista", () => {
   it("lista os servidores do place com jogadores e ping", async () => {
     renderTab([row({ id: "job-a", playing: 5 }), row({ id: "job-b", playing: 12 })]);
@@ -173,6 +226,26 @@ describe("ServersTab — lista", () => {
 
     await screen.findByText("apertado");
     expect(screen.getByRole("button", { name: "Join" })).toBeDisabled();
+  });
+
+  /**
+   * O que o usuário viu: servidores de poucas vagas no topo, e os que levavam
+   * o lote inteiro escondidos na rolagem. A ordem final é da UI, que é quem
+   * sabe quantas contas estão selecionadas agora.
+   */
+  it("mostra no topo o servidor que cabe o lote, mesmo se a lista chegar fora de ordem", async () => {
+    renderTab([]);
+    emitScan(
+      [
+        row({ id: "nao-cabe", playing: 12, maxPlayers: 13 }),
+        row({ id: "cabe", playing: 5, maxPlayers: 13 }),
+      ],
+      { scanned: 1800, fitting: 1, done: true }
+    );
+
+    await screen.findByText("cabe");
+    const ids = screen.getAllByText(/^(cabe|nao-cabe)$/).map((el) => el.textContent);
+    expect(ids).toEqual(["cabe", "nao-cabe"]);
   });
 
   it("manda TODAS as contas selecionadas para o servidor clicado, numa chamada só", async () => {
