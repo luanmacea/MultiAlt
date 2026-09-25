@@ -12,5 +12,6 @@ include!("roblox/social_presence.rs");
 include!("roblox/friends.rs");
 include!("roblox/server_regions.rs");
 include!("roblox/server_pick.rs");
+include!("roblox/username_check.rs");
 include!("roblox/thumbnails.rs");
 include!("roblox/economy.rs");
