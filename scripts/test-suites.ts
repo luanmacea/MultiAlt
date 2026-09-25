@@ -193,9 +193,11 @@ export const SUITES: Record<string, TestSuite> = {
       "theme_store_tests",
       "theme_preset_tests",
       "theme_font_command_tests",
+      "theme_preset_bytes_command_tests",
     ],
     front: [
       "src/components/settings",
+      "src/components/dialogs/ThemeEditorDialog.test.tsx",
       "src/theme.test.ts",
       "src/themeFonts.test.ts",
       "src/fontPresets.test.ts",
