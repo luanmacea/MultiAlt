@@ -96,6 +96,36 @@ function isMultiRobloxCloseProcessError(message: string | null | undefined): boo
   );
 }
 
+/**
+ * Unidade, significado e faixa de cada campo de Timing. Os limites sao os do
+ * backend (`src-tauri/src/commands/botting.rs`): `clamp_botting_interval_minutes`
+ * 10..120, `clamp_botting_launch_delay_seconds` 5..120 e
+ * `resolve_player_grace_minutes` 1..90. Fica num componente para as duas vistas
+ * do dialogo mostrarem exatamente o mesmo texto.
+ */
+function TimingFieldHints() {
+  const t = useTr();
+  return (
+    <ul className="mt-2 space-y-0.5 text-[10px] theme-muted list-disc pl-4">
+      <li>
+        {t(
+          "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120)."
+        )}
+      </li>
+      <li>
+        {t(
+          "Launch Delay: seconds between two launches, so the accounts do not all start at once (5-120)."
+        )}
+      </li>
+      <li>
+        {t(
+          "Player Grace: minutes a player account keeps its client after you remove it from Player Accounts, before it joins the cycle (1-90)."
+        )}
+      </li>
+    </ul>
+  );
+}
+
 export function BottingDialog({ open, onClose }: BottingDialogProps) {
   const t = useTr();
   const store = useStore();
@@ -637,6 +667,32 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
               </div>
             </div>
           )}
+          {/* O ciclo do backend (commands/botting.rs) fecha o cliente da conta
+              com `kill_for_user_graceful_async` e relanca logo em seguida, e so
+              age sobre as contas bot da sessao. Quem tem varias contas abertas
+              precisa ler isso ao abrir o dialogo, nao descobrir na pratica. */}
+          <section className="rounded-xl border theme-border theme-soft px-3 py-2.5 shrink-0">
+            <div className="text-[12px] font-medium text-[var(--panel-fg)]">
+              {t("How each cycle works")}
+            </div>
+            <ul className="mt-1 space-y-0.5 text-[10px] theme-muted list-disc pl-4">
+              <li>
+                {t(
+                  "Every rejoin closes that bot account's Roblox client and opens it again, so the account leaves the server and joins back."
+                )}
+              </li>
+              <li>
+                {t(
+                  "Only the bot accounts in this session are closed. Player accounts keep their client, and clients of accounts outside this session are left alone."
+                )}
+              </li>
+              <li>
+                {t(
+                  "Stop + Close Bot Accounts closes those same bot clients; Stop Botting Mode leaves every client open."
+                )}
+              </li>
+            </ul>
+          </section>
           {useSplitLayout ? (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
               <div className="lg:col-span-4 min-h-0 animate-slide-left">
@@ -834,8 +890,9 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
                     <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2">{t("Timing")}</div>
                     <div className="grid grid-cols-1 gap-2">
                       <div className="flex items-center gap-2">
-                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Rejoin Interval")}</label>
+                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Rejoin Interval (minutes)")}</label>
                         <NumericInput
+                          ariaLabel={t("Rejoin Interval (minutes)")}
                           value={intervalMinutes}
                           min={10}
                           max={120}
@@ -858,8 +915,9 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Launch Delay")}</label>
+                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Launch Delay (seconds)")}</label>
                         <NumericInput
+                          ariaLabel={t("Launch Delay (seconds)")}
                           value={launchDelaySeconds}
                           min={5}
                           max={120}
@@ -882,8 +940,9 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Player Grace")}</label>
+                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Player Grace (minutes)")}</label>
                         <NumericInput
+                          ariaLabel={t("Player Grace (minutes)")}
                           value={playerGraceMinutes}
                           min={1}
                           max={90}
@@ -906,6 +965,7 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
                         />
                       </div>
                     </div>
+                    <TimingFieldHints />
                     <div className="text-[10px] theme-muted mt-2">
                       {t("Player account demotion grace is {{minutes}} minutes before it enters normal restart cycle.", {
                         minutes: playerGraceMinutes,
@@ -1578,6 +1638,7 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
               <div className="flex items-center gap-2">
                 <label className="text-[11px] theme-muted w-36 shrink-0">{t("Rejoin Interval (minutes)")}</label>
                 <NumericInput
+                  ariaLabel={t("Rejoin Interval (minutes)")}
                   value={intervalMinutes}
                   min={10}
                   max={120}
@@ -1602,6 +1663,7 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
               <div className="flex items-center gap-2">
                 <label className="text-[11px] theme-muted w-36 shrink-0">{t("Launch Delay (seconds)")}</label>
                 <NumericInput
+                  ariaLabel={t("Launch Delay (seconds)")}
                   value={launchDelaySeconds}
                   min={5}
                   max={120}
@@ -1626,6 +1688,7 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
               <div className="flex items-center gap-2">
                 <label className="text-[11px] theme-muted w-36 shrink-0">{t("Player Grace (minutes)")}</label>
                 <NumericInput
+                  ariaLabel={t("Player Grace (minutes)")}
                   value={playerGraceMinutes}
                   min={1}
                   max={90}
@@ -1648,6 +1711,7 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
                 />
               </div>
             </div>
+            <TimingFieldHints />
             <div className="text-[10px] theme-muted mt-2">
               {t("Player account demotion grace is {{minutes}} minutes before it enters normal restart cycle.", {
                 minutes: playerGraceMinutes,
