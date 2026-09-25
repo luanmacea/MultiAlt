@@ -8,4 +8,5 @@ use std::sync::Mutex;
 
 include!("accounts/model.rs");
 include!("accounts/store.rs");
+include!("accounts/remember.rs");
 include!("accounts/commands.rs");

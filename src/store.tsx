@@ -333,8 +333,12 @@ export interface StoreValue {
   error: string | null;
   setError: (e: string | null) => void;
   needsPassword: boolean;
+  /**
+   * Destranca as contas. Com `rememberHours`, guarda a senha protegida pelo SO
+   * por esse tempo; sem ele, apaga qualquer lembrete anterior.
+   */
   unlocking: boolean;
-  unlock: (password: string) => Promise<void>;
+  unlock: (password: string, rememberHours?: number) => Promise<void>;
   encryptionSetupOpen: boolean;
   encryptionSetupMode: "firstRun" | "settings";
   accountsEncrypted: boolean | null;
@@ -1557,11 +1561,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     settings?.General?.FirstRunWalkthroughState,
   ]);
 
-  async function unlock(password: string) {
+  async function unlock(password: string, rememberHours?: number) {
     setUnlocking(true);
     setError(null);
     try {
-      await invoke("unlock_accounts", { password });
+      await invoke("unlock_accounts", { password, rememberHours: rememberHours ?? null });
       setNeedsPassword(false);
       await loadAccounts();
       await refreshEncryptionState();
@@ -1581,6 +1585,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       let accountsLoaded = false;
       try {
         needs = await invoke<boolean>("needs_password");
+        // Senha lembrada (e ainda no prazo) destranca sem mostrar a tela.
+        if (needs) {
+          try {
+            if (await invoke<boolean>("try_remembered_unlock")) needs = false;
+          } catch {}
+        }
         setNeedsPassword(needs);
         if (!needs) {
           loadedAccounts = await invoke<Account[]>("get_accounts");

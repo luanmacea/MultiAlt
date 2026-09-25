@@ -56,8 +56,67 @@ pub fn update_account(
 pub fn unlock_accounts(
     state: tauri::State<'_, AccountStore>,
     password: String,
+    remember_hours: Option<u64>,
 ) -> Result<(), String> {
-    state.load_with_password(&password)
+    state.load_with_password(&password)?;
+
+    // Só depois de destrancar: guardar uma senha que não abre nada seria pior
+    // que não guardar nada.
+    match remember_hours {
+        Some(hours) if hours > 0 => {
+            if let Err(e) = remember(&password, hours) {
+                // O unlock valeu; o lembrete é conveniência.
+                eprintln!("Não foi possível lembrar a senha: {}", e);
+            }
+        }
+        _ => forget(),
+    }
+    Ok(())
+}
+
+/// Destranca com a senha lembrada, se houver uma válida.
+///
+/// Devolve `false` quando não há lembrete — a UI mostra a tela de senha. Um
+/// lembrete que não destranca mais (senha trocada por fora, arquivo de outra
+/// instalação) é **apagado**, para não ficar tentando para sempre.
+#[tauri::command]
+pub fn try_remembered_unlock(state: tauri::State<'_, AccountStore>) -> Result<bool, String> {
+    let Some(password) = remembered_password() else {
+        return Ok(false);
+    };
+    match state.load_with_password(&password) {
+        Ok(()) => Ok(true),
+        Err(_) => {
+            forget();
+            Ok(false)
+        }
+    }
+}
+
+/// Estado da caixa "lembrar de mim" para a tela de senha.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RememberState {
+    /// `false` fora do Windows: sem proteção do SO, a caixa não aparece.
+    pub supported: bool,
+    /// Há um lembrete guardado agora.
+    pub active: bool,
+    pub default_hours: u64,
+}
+
+#[tauri::command]
+pub fn remembered_unlock_state() -> RememberState {
+    RememberState {
+        supported: can_remember(),
+        active: can_remember() && remembered_unlock_path().exists(),
+        default_hours: REMEMBER_DEFAULT_HOURS,
+    }
+}
+
+#[tauri::command]
+pub fn forget_remembered_unlock() -> Result<(), String> {
+    forget();
+    Ok(())
 }
 
 #[tauri::command]
@@ -75,7 +134,11 @@ pub fn set_encryption_password(
     state: tauri::State<'_, AccountStore>,
     password: Option<String>,
 ) -> Result<(), String> {
-    state.set_password(password.as_deref())
+    state.set_password(password.as_deref())?;
+    // A senha guardada não abre mais nada (ou não é mais necessária): guardá-la
+    // só deixaria uma senha antiga em disco.
+    forget();
+    Ok(())
 }
 
 #[tauri::command]

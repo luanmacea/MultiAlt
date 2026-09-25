@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
+import type { RememberState } from "../../types";
 import { useTr } from "../../i18n/text";
 import { ModalWindowControls } from "./ModalWindowControls";
 
@@ -684,6 +686,36 @@ export function PasswordScreen() {
   const t = useTr();
   const store = useStore();
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
+  const [rememberState, setRememberState] = useState<RememberState | null>(null);
+
+  /**
+   * A caixa só aparece onde o sistema guarda a senha com proteção própria
+   * (DPAPI do Windows). Sem isso, guardar a senha em disco seria pior que
+   * digitá-la.
+   */
+  useEffect(() => {
+    let disposed = false;
+    invoke<RememberState>("remembered_unlock_state")
+      .then((state) => {
+        if (disposed) return;
+        setRememberState(state);
+        // Chegou na tela com um lembrete guardado? Ele não serviu (senha
+        // trocada, prazo vencido): a caixa começa desmarcada.
+        setRemember(false);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  const rememberHours = rememberState?.defaultHours ?? 24;
+
+  function submit() {
+    if (!password) return;
+    void store.unlock(password, remember ? rememberHours : undefined);
+  }
   const restrictedBackgroundStyle = normalizeRestrictedBackgroundStyle(store.settings?.General?.RestrictedBackgroundStyle);
 
   return (
@@ -724,13 +756,24 @@ export function PasswordScreen() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && password && store.unlock(password)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
             placeholder={t("Password")}
             className="restricted-auth-input theme-input mb-4 w-full rounded-lg px-4 py-2.5 text-sm focus:outline-none transition-colors"
             autoFocus
           />
+          {rememberState?.supported && (
+            <label className="mb-4 flex items-center gap-2 text-[12px] theme-muted cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="accent-[var(--accent-color)]"
+              />
+              {t("Keep me signed in for {{hours}} hours on this computer", { hours: rememberHours })}
+            </label>
+          )}
           <button
-            onClick={() => store.unlock(password)}
+            onClick={submit}
             disabled={store.unlocking || !password}
             className="restricted-auth-btn theme-btn w-full rounded-lg px-4 py-2.5 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
           >

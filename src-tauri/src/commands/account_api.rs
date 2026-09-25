@@ -690,6 +690,177 @@ async fn list_servers_ranked(
         .collect())
 }
 
+// ---------------------------------------------------------------------------
+// Varredura de servidores
+// ---------------------------------------------------------------------------
+//
+// Um jogo grande tem milhares de servidores e a API devolve 100 por página. Com
+// um lote de 6 contas, as primeiras páginas podem não ter **nenhum** servidor
+// que caiba todo mundo — e esperar a varredura inteira antes de mostrar
+// qualquer coisa deixaria a tela vazia por vários segundos.
+//
+// A varredura roda em background e publica um `server-scan` a cada página, já
+// com a lista reordenada: o usuário vê o que existe agora e a lista vai
+// melhorando enquanto mais páginas chegam.
+
+/// Páginas no máximo (100 servidores cada). Teto para uma varredura não virar
+/// uma enxurrada de requisições num jogo com dezenas de milhares de servidores.
+const SCAN_MAX_PAGES: usize = 30;
+/// Pausa entre páginas, para não tomar 429 da API de servidores.
+const SCAN_PAGE_DELAY_MS: u64 = 250;
+/// Quantos servidores que cabem o lote bastam para parar de procurar.
+const SCAN_ENOUGH_FITTING: usize = 12;
+/// Quantos servidores a UI recebe por atualização.
+const SCAN_VISIBLE_LIMIT: usize = 150;
+
+/// Geração da varredura em curso. Começar outra (ou parar) invalida a anterior,
+/// que percebe a mudança na próxima página e se encerra.
+static SERVER_SCAN_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Uma atualização da varredura (evento `server-scan`).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerScanUpdate {
+    pub scan_id: u64,
+    pub place_id: i64,
+    /// Os melhores servidores encontrados até agora, já ordenados.
+    pub servers: Vec<api::roblox::ServerData>,
+    /// Quantos servidores foram examinados no total.
+    pub scanned: usize,
+    /// Quantos deles cabem o lote inteiro.
+    pub fitting: usize,
+    pub done: bool,
+    pub error: Option<String>,
+}
+
+fn scan_cancelled(scan_id: u64) -> bool {
+    SERVER_SCAN_GENERATION.load(std::sync::atomic::Ordering::Relaxed) != scan_id
+}
+
+/// Encerra a varredura em curso (troca de jogo, de preferência, ou a aba saiu
+/// da tela).
+#[tauri::command]
+fn stop_server_scan() {
+    SERVER_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Começa a varrer os servidores de um place em background.
+///
+/// Devolve o `scanId` da varredura; a UI ignora eventos de outro id (o de uma
+/// varredura antiga que ainda estava no ar).
+#[tauri::command]
+async fn start_server_scan(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AccountStore>,
+    place_id: i64,
+    user_id: Option<i64>,
+    preference: String,
+    accounts: Option<usize>,
+) -> Result<u64, String> {
+    if place_id <= 0 {
+        return Err("Place ID inválido".to_string());
+    }
+    let cookie = user_id.and_then(|id| get_cookie(&state, id).ok());
+    let preference = api::roblox::parse_server_preference(&preference);
+    let accounts = accounts.unwrap_or(1).max(1);
+
+    let scan_id = SERVER_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+
+    tauri::async_runtime::spawn(async move {
+        let mut all: Vec<api::roblox::ServerData> = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        for page in 0..SCAN_MAX_PAGES {
+            if scan_cancelled(scan_id) {
+                return;
+            }
+
+            let fetched = api::roblox::get_servers_page(
+                place_id,
+                "Public",
+                cursor.as_deref(),
+                cookie.as_deref(),
+                preference.sort_order(),
+                true,
+            )
+            .await;
+
+            let (batch, next) = match fetched {
+                Ok(page) => (page.data, page.next_page_cursor),
+                Err(error) => {
+                    // Erro na primeira página é falha; no meio, a varredura
+                    // para com o que já achou — melhor uma lista parcial que
+                    // uma tela de erro.
+                    let _ = app.emit(
+                        "server-scan",
+                        scan_update(scan_id, place_id, &all, preference, accounts, true, Some(error)),
+                    );
+                    return;
+                }
+            };
+
+            all.extend(batch);
+            let fitting = count_fitting(&all, accounts);
+            let exhausted = next.as_deref().map(|c| c.trim().is_empty()).unwrap_or(true);
+            let done = exhausted || fitting >= SCAN_ENOUGH_FITTING || page + 1 == SCAN_MAX_PAGES;
+
+            if scan_cancelled(scan_id) {
+                return;
+            }
+            let _ = app.emit(
+                "server-scan",
+                scan_update(scan_id, place_id, &all, preference, accounts, done, None),
+            );
+
+            if done {
+                return;
+            }
+            cursor = next;
+            tokio::time::sleep(std::time::Duration::from_millis(SCAN_PAGE_DELAY_MS)).await;
+        }
+    });
+
+    Ok(scan_id)
+}
+
+/// Quantos servidores da lista cabem o lote inteiro.
+fn count_fitting(servers: &[api::roblox::ServerData], accounts: usize) -> usize {
+    let needed = accounts.max(1) as i32;
+    servers
+        .iter()
+        .filter(|s| s.max_players > 0 && s.playing + needed <= s.max_players)
+        .count()
+}
+
+/// Monta a atualização com a lista já ordenada e cortada no que a UI mostra.
+fn scan_update(
+    scan_id: u64,
+    place_id: i64,
+    all: &[api::roblox::ServerData],
+    preference: api::roblox::ServerPreference,
+    accounts: usize,
+    done: bool,
+    error: Option<String>,
+) -> ServerScanUpdate {
+    let servers: Vec<api::roblox::ServerData> =
+        api::roblox::rank_servers(all, preference, accounts)
+            .into_iter()
+            .take(SCAN_VISIBLE_LIMIT)
+            .cloned()
+            .collect();
+
+    ServerScanUpdate {
+        scan_id,
+        place_id,
+        servers,
+        scanned: all.len(),
+        fitting: count_fitting(all, accounts),
+        done,
+        error,
+    }
+}
+
 #[tauri::command]
 async fn join_game_instance(
     state: tauri::State<'_, AccountStore>,

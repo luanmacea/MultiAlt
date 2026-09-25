@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { UseSettingsReturn } from "../../hooks/useSettings";
+import type { RememberState } from "../../types";
 import { Toggle } from "../ui/Toggle";
 import { NumberField } from "../ui/NumberField";
 import { Divider } from "../ui/Divider";
@@ -15,6 +18,24 @@ export function MiscellaneousTab({
   onRequestBackups?: () => void;
 }) {
   const t = useTr();
+  const [remembered, setRemembered] = useState<RememberState | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    invoke<RememberState>("remembered_unlock_state")
+      .then((state) => {
+        if (!disposed) setRemembered(state);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  async function forgetRemembered() {
+    await invoke("forget_remembered_unlock").catch(() => {});
+    setRemembered((prev) => (prev ? { ...prev, active: false } : prev));
+  }
 
   return (
     <div className="space-y-0">
@@ -100,6 +121,27 @@ export function MiscellaneousTab({
           {t("Open")}
         </button>
       </div>
+
+      {remembered?.supported && (
+        <div className="flex items-center justify-between gap-3 py-2 px-1 mt-2 rounded-lg border border-zinc-800/70 bg-zinc-900/35">
+          <div className="min-w-0">
+            <div className="text-[13px] text-zinc-200">{t("Stay signed in on this computer")}</div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">
+              {remembered.active
+                ? t("Your password is stored for this Windows user, protected by the system, and expires on its own.")
+                : t("Not stored. Tick the box on the password screen to skip typing it for a while.")}
+            </div>
+          </div>
+          <button
+            type="button"
+            disabled={!remembered.active}
+            onClick={() => void forgetRemembered()}
+            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/70 text-[12px] text-zinc-200 font-medium transition-colors disabled:opacity-40"
+          >
+            {t("Forget")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -97,14 +97,21 @@ pub fn rank_servers(
         .filter(|s| s.max_players > 0 && s.playing + needed <= s.max_players)
         .collect();
 
-    let mut candidates = if fits_all.is_empty() {
-        servers
+    if fits_all.is_empty() {
+        // Nenhum servidor cabe o lote inteiro. Aqui "mais cheio" e "mais
+        // vazio" não querem dizer nada: o que importa é **quantas contas
+        // cabem**, então o topo é quem tem mais vagas. Sem isso a lista
+        // mostrava primeiro os de 12/13 (uma vaga) e o usuário tinha que
+        // descer a rolagem para achar os que levavam quatro contas.
+        let mut partial: Vec<&ServerData> = servers
             .iter()
             .filter(|s| s.max_players > 0 && s.playing < s.max_players)
-            .collect::<Vec<_>>()
-    } else {
-        fits_all
-    };
+            .collect();
+        partial.sort_by_key(|s| (s.playing - s.max_players, -s.playing));
+        return partial;
+    }
+
+    let mut candidates = fits_all;
 
     match preference {
         ServerPreference::Emptiest => candidates.sort_by_key(|s| s.playing),
