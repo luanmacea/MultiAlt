@@ -32,20 +32,21 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 |---|---|
 | `Filter accounts...` | Filtra a lista. Atenção: contas escondidas pelo filtro **continuam selecionadas** e sujeitas às ações em lote. |
 | ícone de checkbox | `Select all` / `Deselect all`. |
-| `Names` / `Hidden` | Mascara os nomes de usuário na lista (para gravar tela). Quantas letras ficam visíveis: Settings › General › `Preview Letters`. |
-| ícone de painel | Mostra/esconde o painel de detalhes — **só aparece com exatamente uma conta selecionada**. |
+| `Names shown` / `Names hidden` | Mascara os nomes de usuário na lista (para gravar tela). Quantas letras ficam visíveis: Settings › General › `Preview Letters`. |
+| ícone de painel | Mostra/esconde o painel de detalhes. Fica desabilitado quando não há exatamente uma conta selecionada. |
 | `Add ▾` | Todas as formas de trazer conta para dentro (abaixo). |
 | ícone de gamepad | `Session`: fila de lançamento e clientes abertos. |
 | ícone de paleta | `Theme`: editor de cores e fontes. |
 | ícone de camadas | `Nexus`: controle de clientes por script Lua (exige executor externo). |
 | ícone de terminal | `Scripts`: automação em JavaScript **do próprio gerenciador**. |
 | ícone de engrenagem | `Settings`. |
+| `?` | Reabre o tour de primeira execução. |
 
 ### Menu `Add`
 
 | Item | O que faz |
 |---|---|
-| `Quick Add` | Pede cookie **ou** nome de usuário. Com nome de usuário a conta entra **sem sessão** — serve só de marcador até você colar o cookie. |
+| `Quick Add` | Pede cookie **ou** nome de usuário. Com nome de usuário a conta entra **sem sessão** (a tela avisa e a linha fica marcada) — serve só de marcador até você colar o cookie. |
 | `Browser Login` | Abre um navegador embutido para você logar normalmente. É o caminho mais seguro. |
 | `User:Pass Login` | Cola `usuario:senha`, uma por linha; abre o navegador para concluir cada login. |
 | `Import Cookie` | Cola um `.ROBLOSECURITY` por linha. O cookie sai do navegador em que você já está logado: DevTools › Application › Cookies › roblox.com. |
@@ -62,7 +63,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 - **Arrastar a alça `⋮⋮`** reordena dentro do grupo ou move para outro grupo.
 - **Largar texto com cookie** na lista adiciona a conta.
 - **Grupos**: o cabeçalho colapsa, aceita drop e tem checkbox. Um **número no começo do nome ordena o grupo** e some da exibição (`1 Main` mostra `Main`) — convenção herdada do RAM antigo.
-- **Bolinhas** (da esquerda para a direita): sessão inválida, conta parada há 20+ dias, cliente aberto pelo RAM, presença (online / em jogo / no Studio).
+- **Bolinhas** (da esquerda para a direita): vermelha = sessão inválida ou conta sem cookie; laranja = `idle 20d+` (nenhum uso registrado há 20 dias ou mais); âmbar = cliente aberto pelo RAM; azul/verde/violeta = online / em jogo / no Studio.
 
 ### Clique direito numa conta
 
@@ -73,7 +74,7 @@ Com **Botting Mode** ativo aparece `Add N account(s) to Botting Mode`.
 
 ### Painel da conta (uma selecionada)
 
-Alias, descrição, versão do Roblox e as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`.
+Alias, descrição, `Roblox Version (all accounts)` — é a versão **global**, não existe versão por conta — e as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`.
 
 ### Barra inferior (qualquer seleção)
 
@@ -89,18 +90,20 @@ Abre com contas selecionadas e mostra `N accounts will be launched together` com
 
 | Aba | Para que serve |
 |---|---|
-| `Favorites` | Seus jogos salvos, com servidores VIP/privados guardados por jogo. |
-| `Games` | Busca na Roblox. Passando o mouse no card aparecem `Browse servers` e `Join Game`. |
-| `Recent` | Jogos abertos recentemente (tamanho da lista em Settings › General › `Max Recent Games`). |
+| `Favorites` | Seus jogos salvos, com servidores VIP/privados guardados por jogo. Tem `Browse servers` como as outras listas. |
+| `Games` | Busca na Roblox. Cada card traz `Browse servers`, `Favorite` e `Join Game`. |
+| `Recent` | Jogos abertos recentemente, com as mesmas ações das outras listas (tamanho em Settings › General › `Max Recent Games`). |
 | `Servers` | Varredura de servidores do place, ordenada por **quanto o lote cabe**. Filtros: `Sort by`, `Region`, `Pages to scan`. |
 | `Friends` | Amigos online de cada conta; `Join` manda o lote inteiro para o servidor do amigo. |
 | `Follow` | **`Join link`** (cola qualquer link de convite/servidor privado) e **`Follow a Player`** (por nome de usuário). Também atalhos para Server List, Utilities, Botting e Scripts. |
-| `Console` | Grade de janelas (`Arrange in grid`), painel de sessão e **log ao vivo dos lançamentos** — é aqui que aparece o motivo de uma falha. |
+| `Console` | Painel de sessão e **log ao vivo dos lançamentos** — é aqui que aparece o motivo de uma falha. |
+| `Windows` | Organiza as janelas do Roblox em grade nos monitores escolhidos (`Arrange in grid`). |
 
 ### Aba Servers, em detalhe
 
 - `Sort by`: **Best fit** (padrão) procura o servidor mais cheio em que o lote ainda caiba deixando **uma vaga de folga**; depois `Fullest`, `Emptiest`, `Random` e `Let Roblox choose`.
 - `Pages to scan`: cada página são 100 servidores. Jogo grande precisa de mais páginas.
+- O campo `Place ID` aceita a **URL do jogo** colada. Link de convite e `share?code=` não carregam place: esses vão na aba Follow, em `Join link`.
 - `Region` só filtra depois que as regiões forem resolvidas (`Load regions`), porque a região não vem da API do Roblox — sai do IP do servidor.
 - A linha diz `N free` ou `N free · needs M`; quando nada cabe, o resumo explica em vez de fingir.
 
@@ -112,9 +115,9 @@ Nove abas. As mais úteis no dia a dia:
 
 | Aba | O que mora ali |
 |---|---|
-| `General` | Idioma, updates, **Multi Roblox**, **Botting Mode**, atrasos de lançamento, presença, nomes ocultos, navegador de login. |
+| `General` | Idioma, updates, **Multi Roblox**, **Botting Mode**, `Launch one account at a time` e o atraso entre lançamentos (piso de 8 s), presença, nomes ocultos, navegador de login. |
 | `Developer` | `Enable Developer Mode` (destrava itens do menu de contexto), web server, diagnóstico de mutex. |
-| `WebServer` | API HTTP local para ferramentas externas. Só aparece com Developer Mode ou o servidor ligado. |
+| `WebServer` | API HTTP local para ferramentas externas. A aba é sempre visível; os ajustes destravam com Developer Mode ou com o servidor ligado. A senha precisa de 6+ caracteres ou o servidor responde 401 a tudo. |
 | `Watcher` | Vigia o cliente do Roblox: fecha se cair a conexão, se a memória baixar, se o título mudar. |
 | `Generator` | Provedor pago de contas: endpoint, chave de API, tipo de conta, grupo de destino. |
 | `Isolation` | Limpeza de rastros antes de cada launch (cache, registro, MachineGuid, MAC). Windows. |
@@ -143,9 +146,9 @@ Nove abas. As mais úteis no dia a dia:
 
 ## 6. Rodapé
 
-`N selected` · `N accounts` · `N online` · `N in game` · `N launched` · `botting next mm:ss`, e a legenda das cores.
+`N selected` · `N accounts` · `N online` · `N in game` · `N studio` · `N launched` · `botting next mm:ss` · `generating x/y`, e a legenda das cores.
 
-Cuidado com a leitura: **`online` inclui quem está em jogo** e **conta no Studio entra em `in game`**.
+Os contadores de presença são **mutuamente exclusivos**: quem está em jogo não é somado em `online`, e quem está no Studio tem contador próprio.
 
 ---
 

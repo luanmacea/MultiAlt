@@ -15,8 +15,19 @@ achados de gravidade alta foram depois **conferidos por mim no código** antes d
 entrar aqui — os conferidos estão marcados com ✓ e trazem `arquivo:linha`. Os
 demais vieram do relatório do agente e valem como indício, não como veredito.
 
-Total: **131 achados** — 25 altos, 60 médios, 46 baixos. Nenhuma correção foi
-feita nesta passada; isto é a lista de trabalho.
+Total: **131 achados** — 25 altos, 60 médios, 46 baixos.
+
+## Situação
+
+| Faixa | O que é | Situação |
+|---|---|---|
+| **P0** | A tela mente ou o ajuste não funciona | ✅ **feito** (16 itens, 7 commits) |
+| **P1** | Existe e ninguém acha | ✅ **feito** (15 itens, 4 commits) |
+| **P2** | Está na tela e não se explica | ⬜ a fazer (16 itens) |
+| **P3** | Desenho e ergonomia | ⬜ a fazer (~40 itens) |
+| **Tradução** | Não existe pt-BR | ⬜ a fazer — maior alcance, mais mecânico |
+
+Cada correção entrou com o teste que falha primeiro e `bun run check` verde.
 
 ---
 
@@ -37,9 +48,10 @@ o seu. Traduzir é o item de maior alcance desta lista, e o mais mecânico.
 
 ---
 
-## P0 — a tela mente ou o ajuste não funciona
+## P0 — a tela mente ou o ajuste não funciona ✅
 
-Corrigir primeiro: aqui o usuário toma decisão errada com base no que lê.
+**Concluído.** Era a faixa onde o usuário tomava decisão errada com base no que
+lia. Abaixo, o que cada item virou.
 
 | # | Achado | Evidência |
 |---|---|---|
@@ -60,7 +72,9 @@ Corrigir primeiro: aqui o usuário toma decisão errada com base no que lê.
 | | **`Hidden` vaza o nome real** na barra inferior e no placeholder do Alias | `BottomActionBar.tsx` |
 | | **9 campos numéricos editáveis com o toggle que os ativa desligado** (Max FPS sem Unlock FPS, Memory Threshold sem Close If Memory Low…) | `OptimizationTab.tsx`, `WatcherTab.tsx` |
 
-## P1 — existe e ninguém acha
+## P1 — existe e ninguém acha ✅
+
+**Concluído.**
 
 | # | Achado |
 |---|---|
@@ -80,7 +94,10 @@ Corrigir primeiro: aqui o usuário toma decisão errada com base no que lê.
 | | **O gerador rodando some da tela** ao fechar o diálogo — e ele gasta dinheiro (o Botting, que não gasta, tem contador no rodapé) |
 | | **O tour nunca menciona o Painel de Sessão** e fecha os diálogos de ferramenta sem apresentá-los |
 
-## P2 — está na tela e não se explica
+## P2 — está na tela e não se explica ⬜
+
+**Próxima faixa.** Aqui ninguém é enganado e tudo se acha: o problema é que a
+tela não conta o que a coisa faz. É trabalho de texto, principalmente.
 
 | # | Achado |
 |---|---|
@@ -101,7 +118,7 @@ Corrigir primeiro: aqui o usuário toma decisão errada com base no que lê.
 | | **21 opções de Settings são indecifráveis** só pela tela (de 109 catalogadas); outras 34 explicam pela metade |
 | | **Quatro nomes diferentes para as mesmas duas funções** de criar conta |
 
-## P3 — desenho e ergonomia
+## P3 — desenho e ergonomia ⬜
 
 Itens de acabamento, agrupados por tema (lista completa nos relatórios da revisão):
 
