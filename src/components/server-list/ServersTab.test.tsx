@@ -68,11 +68,31 @@ describe("ServersTab — manual join", () => {
 });
 
 describe("ServersTab — place id field", () => {
-  it("keeps only digits in the Place ID", async () => {
+  it("keeps typed digits", async () => {
     const { setPlaceId } = renderTab({ placeId: "" });
-    await userEvent.type(screen.getByPlaceholderText("Enter Place ID"), "6a");
-    expect(setPlaceId).toHaveBeenLastCalledWith("");
+    await userEvent.type(screen.getByPlaceholderText("Enter Place ID"), "606");
     expect(setPlaceId).toHaveBeenCalledWith("6");
+    expect(setPlaceId).not.toHaveBeenCalledWith("");
+  });
+
+  /** Mesma armadilha da outra aba: colar a URL juntava os dígitos todos. */
+  it("fills the Place ID from a pasted game link", async () => {
+    const { setPlaceId } = renderTab({ placeId: "" });
+    fireEvent.change(screen.getByPlaceholderText("Enter Place ID"), {
+      target: {
+        value: "https://www.roblox.com/games/606849621/Jailbreak?privateServerLinkCode=98765",
+      },
+    });
+    expect(setPlaceId).toHaveBeenLastCalledWith("606849621");
+  });
+
+  it("refuses an invite link and points at the Follow tab", async () => {
+    const { setPlaceId, addToast } = renderTab({ placeId: "" });
+    fireEvent.change(screen.getByPlaceholderText("Enter Place ID"), {
+      target: { value: "https://www.roblox.com/share?code=abc123&type=Server" },
+    });
+    expect(setPlaceId).not.toHaveBeenCalled();
+    expect(addToast).toHaveBeenCalledWith(expect.stringContaining("Follow"));
   });
 
   it("refuses to refresh without a valid Place ID", async () => {

@@ -68,6 +68,50 @@ export interface ServerRegion {
 const STORAGE_KEY_FAVORITES = "ram_favorite_games";
 const STORAGE_KEY_RECENT = "ram_recent_games";
 
+/** Vira número só se for um place plausível. */
+function toPlaceId(digits: string): number | null {
+  const id = Number(digits);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * Lê o Place ID de um texto digitado ou colado no campo "Place ID".
+ *
+ * O campo fazia `replace(/[^0-9]/g, "")`, então colar a URL do jogo **juntava
+ * todos os dígitos dela**: `.../games/606849621/Jailbreak?privateServerLinkCode=98765`
+ * virava o place inexistente `60684962198765`, e a busca falhava sem explicar
+ * nada. Aqui só valem as formas que de fato carregam o place — o resto devolve
+ * `null` para a tela reclamar em vez de inventar número.
+ *
+ * Link de convite e `share?code=` **não** carregam place: quem resolve esses é
+ * o `resolve_join_link` do backend, pela aba Follow.
+ */
+export function parsePlaceIdInput(text: string): number | null {
+  const value = text.trim();
+  if (!value) return null;
+
+  if (/^\d+$/.test(value)) return toPlaceId(value);
+
+  // roblox.com/games/<id>/<slug> — com ou sem protocolo, www, query ou hash.
+  const path = value.match(/\/games\/(\d+)/i);
+  if (path) return toPlaceId(path[1]);
+
+  // games/start?placeId=<id> e deep links `roblox://placeId=<id>`.
+  const query = value.match(/[?&#/]placeid=(\d+)/i);
+  if (query) return toPlaceId(query[1]);
+
+  return null;
+}
+
+/**
+ * O texto parece um link do Roblox? Só serve para escolher a mensagem de erro:
+ * link sem place vai para a aba Follow, texto qualquer vira "não achei place".
+ */
+export function looksLikeJoinLink(text: string): boolean {
+  const value = text.trim();
+  return /^[a-z]+:\/\//i.test(value) || /roblox\.com|ro\.blox\.com|^www\./i.test(value);
+}
+
 export function makeVipId(): string {
   try {
     return crypto.randomUUID();

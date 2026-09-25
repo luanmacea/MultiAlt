@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -551,13 +551,42 @@ describe("ServersTab — place inválido", () => {
     expect(callsFor("start_server_scan")).toHaveLength(0);
   });
 
-  it("aceita só dígitos no campo de Place ID", async () => {
+  it("aceita dígitos digitados no campo de Place ID", async () => {
     const user = userEvent.setup();
     renderTab([row({ id: "job-a" })]);
     await screen.findByText("job-a");
 
-    await user.type(screen.getByLabelText("Place ID"), "a1");
+    await user.type(screen.getByLabelText("Place ID"), "1");
     expect(setPlaceId).toHaveBeenCalledWith("6068496211");
+  });
+
+  /**
+   * Colar a URL do jogo juntava **todos** os dígitos da URL: o código do
+   * servidor privado virava parte do place (`60684962198765`) e a busca ia
+   * atrás de um place que não existe, sem nenhum aviso.
+   */
+  it("tira o place da URL colada em vez de juntar os dígitos dela", async () => {
+    renderTab([row({ id: "job-a" })]);
+    await screen.findByText("job-a");
+
+    fireEvent.change(screen.getByLabelText("Place ID"), {
+      target: {
+        value: "https://www.roblox.com/games/606849621/Jailbreak?privateServerLinkCode=98765",
+      },
+    });
+    expect(setPlaceId).toHaveBeenLastCalledWith("606849621");
+  });
+
+  /** Link de convite não carrega place — quem resolve isso é a aba Follow. */
+  it("recusa link de convite e manda para a aba Follow", async () => {
+    renderTab([row({ id: "job-a" })]);
+    await screen.findByText("job-a");
+
+    fireEvent.change(screen.getByLabelText("Place ID"), {
+      target: { value: "https://www.roblox.com/share?code=abc123&type=Server" },
+    });
+    expect(setPlaceId).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Follow tab/i)).toBeInTheDocument();
   });
 });
 

@@ -10,7 +10,9 @@ import {
   addRecentGame,
   loadFavorites,
   loadRecentGames,
+  looksLikeJoinLink,
   makeVipId,
+  parsePlaceIdInput,
   recordRecentGame,
   resolveRecentGame,
   saveFavorites,
@@ -277,5 +279,70 @@ describe("resolveRecentGame", () => {
     );
 
     expect(resolved).toBeNull();
+  });
+});
+
+describe("parsePlaceIdInput", () => {
+  it("accepts a plain numeric place id", () => {
+    expect(parsePlaceIdInput("606849621")).toBe(606849621);
+    expect(parsePlaceIdInput("  606849621  ")).toBe(606849621);
+  });
+
+  it("reads the place id out of a game link", () => {
+    expect(parsePlaceIdInput("https://www.roblox.com/games/606849621/Jailbreak")).toBe(606849621);
+    expect(parsePlaceIdInput("http://roblox.com/games/606849621")).toBe(606849621);
+    expect(parsePlaceIdInput("www.roblox.com/games/606849621/Jailbreak")).toBe(606849621);
+    expect(parsePlaceIdInput("https://ROBLOX.com/Games/606849621/Jailbreak")).toBe(606849621);
+  });
+
+  /**
+   * O bug: o campo juntava todos os dígitos da URL, e o código do servidor
+   * privado virava parte do place (`60684962198765`).
+   */
+  it("ignores the query string instead of gluing its digits to the place id", () => {
+    expect(
+      parsePlaceIdInput(
+        "https://www.roblox.com/games/606849621/Jailbreak?privateServerLinkCode=98765"
+      )
+    ).toBe(606849621);
+    expect(parsePlaceIdInput("https://www.roblox.com/games/606849621/Jailbreak#play")).toBe(
+      606849621
+    );
+  });
+
+  it("reads the placeId query parameter", () => {
+    expect(parsePlaceIdInput("https://www.roblox.com/games/start?placeId=606849621")).toBe(
+      606849621
+    );
+    expect(
+      parsePlaceIdInput("https://www.roblox.com/games/start?placeId=606849621&launchData=x9")
+    ).toBe(606849621);
+    expect(parsePlaceIdInput("roblox://placeId=606849621&gameInstanceId=job-1")).toBe(606849621);
+  });
+
+  it("refuses links that carry no place id", () => {
+    expect(parsePlaceIdInput("https://www.roblox.com/share?code=abc123&type=Server")).toBeNull();
+    expect(parsePlaceIdInput("https://ro.blox.com/Ebh5?pid=share_link")).toBeNull();
+  });
+
+  it("refuses text with no place id at all", () => {
+    expect(parsePlaceIdInput("")).toBeNull();
+    expect(parsePlaceIdInput("   ")).toBeNull();
+    expect(parsePlaceIdInput("Jailbreak")).toBeNull();
+    expect(parsePlaceIdInput("0")).toBeNull();
+    expect(parsePlaceIdInput("606849621x")).toBeNull();
+  });
+});
+
+describe("looksLikeJoinLink", () => {
+  it("recognizes roblox links so the field can point at the Follow tab", () => {
+    expect(looksLikeJoinLink("https://www.roblox.com/share?code=abc123&type=Server")).toBe(true);
+    expect(looksLikeJoinLink("https://ro.blox.com/Ebh5?pid=share_link")).toBe(true);
+    expect(looksLikeJoinLink("roblox.com/games/606849621")).toBe(true);
+  });
+
+  it("does not call plain typing a link", () => {
+    expect(looksLikeJoinLink("Jailbreak")).toBe(false);
+    expect(looksLikeJoinLink("606849621x")).toBe(false);
   });
 });

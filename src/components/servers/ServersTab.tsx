@@ -10,6 +10,7 @@ import type {
   ServerRegionProgress,
   ServerScanUpdate,
 } from "../../types";
+import { looksLikeJoinLink, parsePlaceIdInput } from "../server-list/types";
 
 /**
  * Aba "Servers" da Choose Game.
@@ -361,6 +362,35 @@ export function ServersTab({
     }
   }, [accountForApi, regions, store, t, visible]);
 
+  /**
+   * O que entra no campo "Place ID".
+   *
+   * Digitar dígitos continua igual. Colar a URL do jogo preenche o place da
+   * URL — antes o campo só apagava os não-dígitos e **juntava** o resto, então
+   * `.../games/606849621/Jailbreak?privateServerLinkCode=98765` virava o place
+   * inventado `60684962198765`. O que não tem place (link de convite,
+   * `share?code=`) é recusado com o motivo, em vez de virar número.
+   */
+  function handlePlaceIdInput(raw: string) {
+    const text = raw.trim();
+    if (/^\d*$/.test(text)) {
+      setPlaceId(text);
+      setError(null);
+      return;
+    }
+    const parsed = parsePlaceIdInput(text);
+    if (parsed !== null) {
+      setPlaceId(String(parsed));
+      setError(null);
+      return;
+    }
+    setError(
+      looksLikeJoinLink(text)
+        ? t("That link has no Place ID. Use the Follow tab to join invite and private server links.")
+        : t("Could not find a Place ID in that text. Paste a game link or type the ID.")
+    );
+  }
+
   async function handleJoin(row: ServerRow) {
     const place = parseInt(placeIdRef.current, 10);
     if (!place) return;
@@ -412,7 +442,7 @@ export function ServersTab({
             />
             <input
               value={placeId}
-              onChange={(e) => setPlaceId(e.target.value.replace(/[^0-9]/g, ""))}
+              onChange={(e) => handlePlaceIdInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") void loadServers();
               }}
