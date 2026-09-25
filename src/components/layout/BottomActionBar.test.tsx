@@ -307,3 +307,38 @@ describe("BottomActionBar — friend linking", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /^Actions/ })).toBeInTheDocument());
   });
 });
+
+describe("BottomActionBar — Hidden mode", () => {
+  it("masks the selected account name like the list does", () => {
+    renderBar([A], { hideUsernames: true, hiddenNameLetters: 2 });
+    expect(screen.queryByText("ann")).not.toBeInTheDocument();
+    expect(screen.getByText("an********")).toBeInTheDocument();
+  });
+
+  it("hides the name entirely when no preview letters are configured", () => {
+    renderBar([A], { hideUsernames: true, hiddenNameLetters: 0 });
+    expect(screen.queryByText("ann")).not.toBeInTheDocument();
+    expect(screen.getByText("************")).toBeInTheDocument();
+  });
+
+  it("masks the account's alias too", () => {
+    const aliased = makeAccount({ UserID: 9, Username: "ann", Alias: "mainAccount" });
+    renderBar([aliased], { hideUsernames: true, hiddenNameLetters: 4 });
+    expect(screen.queryByText("mainAccount")).not.toBeInTheDocument();
+    expect(screen.getByText("main********")).toBeInTheDocument();
+  });
+
+  it("masks the names listed in the Make Friends star picker", async () => {
+    renderBar([A, B], { hideUsernames: true, hiddenNameLetters: 2 });
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Make Friends \(2\)/ }));
+    expect(screen.queryByRole("button", { name: /ann/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /an\*{8}/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /bo\*{8}/ })).toBeInTheDocument();
+  });
+
+  it("shows the real name while Hidden is off", () => {
+    renderBar([A]);
+    expect(screen.getByText("ann")).toBeInTheDocument();
+  });
+});

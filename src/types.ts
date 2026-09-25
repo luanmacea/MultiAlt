@@ -178,15 +178,50 @@ export function timeAgo(dateStr: string): string {
   return "now";
 }
 
+/** A partir de quantos dias sem uso a conta ganha a bolinha de envelhecimento. */
+export const AGED_AFTER_DAYS = 20;
+/** Em quantos dias a rampa de cor chega no extremo (20 → 30 dias). */
+const AGED_RAMP_DAYS = 10;
+/** Âmbar do começo da rampa (20 dias). */
+const AGED_FROM: [number, number, number] = [255, 204, 77];
+/** Laranja do fim da rampa (30 dias ou mais). */
+const AGED_TO: [number, number, number] = [249, 115, 22];
+/** Extremos da rampa em CSS, para a legenda desenhar o degradê de verdade. */
+export const AGED_COLOR_FROM = `rgb(${AGED_FROM.join(",")})`;
+export const AGED_COLOR_TO = `rgb(${AGED_TO.join(",")})`;
+
+/**
+ * Cor da bolinha de "parada há muito tempo", ou `null` quando não há nada a dizer.
+ *
+ * A rampa termina em **laranja**, nunca em vermelho: vermelho é a bolinha de
+ * sessão inválida, que é outro problema. Antes as duas ficavam visualmente
+ * iguais e conta velha parecia conta quebrada.
+ *
+ * Conta sem `LastUse` não tem idade conhecida — fica sem bolinha, em vez de
+ * nascer vermelha assim que é importada.
+ */
 export function getFreshnessColor(lastUse: string): string | null {
-  if (!lastUse) return "#fa1a0d";
+  if (!lastUse) return null;
   const days = (Date.now() - new Date(lastUse).getTime()) / 86400000;
-  if (days < 20) return null;
-  const t = Math.min((days - 20) / 10, 1);
-  const r = Math.round(255 + (250 - 255) * t);
-  const g = Math.round(204 + (26 - 204) * t);
-  const b = Math.round(77 + (13 - 77) * t);
+  if (days < AGED_AFTER_DAYS) return null;
+  const t = Math.min((days - AGED_AFTER_DAYS) / AGED_RAMP_DAYS, 1);
+  const [r, g, b] = AGED_FROM.map((from, i) => Math.round(from + (AGED_TO[i] - from) * t));
   return `rgb(${r},${g},${b})`;
+}
+
+/**
+ * Mascara o nome da conta quando o modo "Hidden" da toolbar está ligado.
+ *
+ * Mesma regra que a lista aplica em `AccountRow`: mostra as primeiras
+ * "Preview Letters" e esconde o resto; sem letras de preview (ou quando o
+ * preview mostraria o nome inteiro) o nome some por completo.
+ */
+export function maskAccountName(name: string, hidden: boolean, previewLetters: number): string {
+  if (!hidden) return name;
+  if (previewLetters > 0 && previewLetters < name.length) {
+    return name.slice(0, previewLetters) + "********";
+  }
+  return "************";
 }
 
 /**

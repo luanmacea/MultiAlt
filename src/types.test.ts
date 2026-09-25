@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getFreshnessColor, parseGroupName, timeAgo } from "./types";
+import { getFreshnessColor, maskAccountName, parseGroupName, timeAgo } from "./types";
 
 const NOW = new Date("2026-01-15T12:00:00.000Z").getTime();
 
@@ -75,8 +75,10 @@ describe("timeAgo", () => {
 });
 
 describe("getFreshnessColor", () => {
-  it("flags an account that was never used", () => {
-    expect(getFreshnessColor("")).toBe("#fa1a0d");
+  it("leaves an account that was never used unpainted", () => {
+    // Sem LastUse nao ha idade conhecida: pintar de vermelho fazia a conta
+    // recem-importada parecer uma sessao quebrada.
+    expect(getFreshnessColor("")).toBeNull();
   });
 
   it("returns null while the account is fresh", () => {
@@ -86,14 +88,48 @@ describe("getFreshnessColor", () => {
     expect(getFreshnessColor(ago(19 * DAY))).toBeNull();
   });
 
-  it("fades from amber to red between 20 and 30 days", () => {
+  it("fades from amber to orange between 20 and 30 days", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
 
     expect(getFreshnessColor(ago(20 * DAY))).toBe("rgb(255,204,77)");
-    expect(getFreshnessColor(ago(25 * DAY))).toBe("rgb(253,115,45)");
-    expect(getFreshnessColor(ago(30 * DAY))).toBe("rgb(250,26,13)");
+    expect(getFreshnessColor(ago(25 * DAY))).toBe("rgb(252,160,50)");
+    expect(getFreshnessColor(ago(30 * DAY))).toBe("rgb(249,115,22)");
     // past 30 days the ramp is clamped
-    expect(getFreshnessColor(ago(100 * DAY))).toBe("rgb(250,26,13)");
+    expect(getFreshnessColor(ago(100 * DAY))).toBe("rgb(249,115,22)");
+  });
+
+  it("never reaches the red reserved for an invalid session", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+
+    for (const days of [20, 22, 25, 28, 30, 60, 365, 3650]) {
+      const color = getFreshnessColor(ago(days * DAY));
+      const channels = color?.match(/\d+/g)?.map(Number) ?? [];
+      expect(channels).toHaveLength(3);
+      // O vermelho de "sessao invalida" tem o verde perto de zero; o
+      // envelhecimento tem que continuar legivelmente ambar/laranja.
+      expect(channels[1]).toBeGreaterThanOrEqual(100);
+    }
+  });
+});
+
+describe("maskAccountName", () => {
+  it("returns the name untouched while Hidden is off", () => {
+    expect(maskAccountName("ann", false, 2)).toBe("ann");
+    expect(maskAccountName("ann", false, 0)).toBe("ann");
+  });
+
+  it("keeps only the configured preview letters while Hidden is on", () => {
+    expect(maskAccountName("annabelle", true, 3)).toBe("ann********");
+  });
+
+  it("hides the whole name when no preview letters are configured", () => {
+    expect(maskAccountName("annabelle", true, 0)).toBe("************");
+  });
+
+  it("hides the whole name when the preview would show all of it", () => {
+    expect(maskAccountName("ann", true, 3)).toBe("************");
+    expect(maskAccountName("ann", true, 9)).toBe("************");
   });
 });

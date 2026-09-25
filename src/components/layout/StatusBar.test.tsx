@@ -31,6 +31,23 @@ function lineWith(value: string): string {
   return (el.parentElement?.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
+/** Texto do contador que termina exatamente com `label` (ex.: "2 in game"). */
+function counter(label: string): string {
+  const exact = new RegExp(String.raw`^\d+ ${label}$`);
+  const matches = screen.getAllByText((_, node) =>
+    exact.test((node?.textContent ?? "").replace(/\s+/g, " ").trim())
+  );
+  // O span do contador e o unico com esse texto exato; ancestrais tem mais.
+  return (matches[0]?.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** Liga ShowPresence e monta a barra com o mapa de presenca informado. */
+function renderPresence(presence: Array<[number, number]>) {
+  const settings = defaultSettings();
+  settings.General.ShowPresence = "true";
+  renderBar({ settings, presenceByUserId: new Map(presence) });
+}
+
 afterEach(cleanup);
 
 describe("StatusBar", () => {
@@ -63,20 +80,32 @@ describe("StatusBar", () => {
     expect(screen.getAllByText("in game")).toHaveLength(1);
   });
 
-  it("counts online and in-game accounts when ShowPresence is on", () => {
-    const settings = defaultSettings();
-    settings.General.ShowPresence = "true";
-    renderBar({
-      settings,
-      presenceByUserId: new Map([
-        [1, 1],
-        [2, 2],
-        [3, 0],
-      ]),
-    });
-    // 2 accounts are at least online, 1 of them is in game.
-    expect(lineWith("2")).toContain("2 online");
-    expect(lineWith("1")).toContain("1 in game");
+  it("counts each presence state once, without overlap", () => {
+    renderPresence([
+      [1, 1],
+      [2, 2],
+      [3, 0],
+    ]);
+    // A conta em jogo nao pode ser contada tambem como online.
+    expect(counter("online")).toBe("1 online");
+    expect(counter("in game")).toBe("1 in game");
+    expect(counter("studio")).toBe("0 studio");
+  });
+
+  it("does not fold a Studio session into the in-game counter", () => {
+    renderPresence([
+      [1, 3],
+      [2, 3],
+      [3, 2],
+    ]);
+    expect(counter("studio")).toBe("2 studio");
+    expect(counter("in game")).toBe("1 in game");
+    expect(counter("online")).toBe("0 online");
+  });
+
+  it("gives the studio legend entry a counter of its own", () => {
+    renderPresence([[1, 3]]);
+    expect(counter("studio")).toBe("1 studio");
   });
 
   it("reports how many clients this app launched", () => {
@@ -119,8 +148,14 @@ describe("StatusBar", () => {
 
   it("always shows the status-dot legend", () => {
     renderBar();
-    for (const label of ["invalid", "aged", "launched", "online", "in game", "studio"]) {
+    for (const label of ["invalid", "idle 20d+", "launched", "online", "in game", "studio"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
+  });
+
+  it("names the aging criterion instead of the bare word 'aged'", () => {
+    renderBar();
+    expect(screen.queryByText("aged")).not.toBeInTheDocument();
+    expect(screen.getByText("idle 20d+")).toBeInTheDocument();
   });
 });
