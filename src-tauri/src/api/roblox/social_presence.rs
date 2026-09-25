@@ -40,12 +40,31 @@ pub struct UserPresence {
     pub last_online: String,
 }
 
+/// Presença sem autenticação: a API devolve a versão resumida, com `gameId`
+/// sempre nulo. Para obter o job id use [`get_presence_as`] com o cookie.
 pub async fn get_presence(user_ids: &[i64]) -> Result<Vec<UserPresence>, String> {
+    get_presence_as(None, user_ids).await
+}
+
+/// Presença dos usuários, opcionalmente autenticada.
+///
+/// O `gameId` (job id do servidor, o que permite entrar) **só** vem quando a
+/// requisição leva o cookie de uma conta; sem cookie a Roblox omite o campo.
+pub async fn get_presence_as(
+    security_token: Option<&str>,
+    user_ids: &[i64],
+) -> Result<Vec<UserPresence>, String> {
     let client = reqwest::Client::new();
 
-    let response = client
+    let mut request = client
         .post(format!("{}/v1/presence/users", endpoints::host("presence")))
-        .json(&serde_json::json!({ "userIds": user_ids }))
+        .json(&serde_json::json!({ "userIds": user_ids }));
+
+    if let Some(token) = security_token {
+        request = request.header(COOKIE, cookie_header(token));
+    }
+
+    let response = request
         .send()
         .await
         .map_err(|e| format!("Request failed: {}", e))?;

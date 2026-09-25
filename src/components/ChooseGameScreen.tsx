@@ -8,13 +8,14 @@ import { GamesTab } from "./server-list/GamesTab";
 import { RecentTab } from "./server-list/RecentTab";
 import { loadFavorites, saveFavorites } from "./server-list/types";
 import type { GameEntry } from "./server-list/types";
+import { FriendsTab } from "./friends/FriendsTab";
 import { tr, useTr } from "../i18n/text";
 import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle } from "lucide-react";
 import type { LaunchLogLevel, LaunchTarget } from "../store";
 import type { JoinTarget } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
 
-type TabId = "favorites" | "games" | "recent" | "follow" | "console";
+type TabId = "favorites" | "games" | "recent" | "friends" | "follow" | "console";
 
 function maskName(name: string, previewLetters: number) {
   if (previewLetters > 0 && previewLetters < name.length) return name.slice(0, previewLetters) + "********";
@@ -205,43 +206,66 @@ function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoTo
 }
 
 // ── Follow Tab ────────────────────────────────────────────────────────────────
+/** Presença do alvo do Follow — o backend devolve o place e o Job ID do servidor. */
+type FollowPresence = {
+  userPresenceType?: number;
+  user_presence_type?: number;
+  placeId?: number | null;
+  place_id?: number | null;
+  rootPlaceId?: number | null;
+  root_place_id?: number | null;
+  gameId?: string | null;
+  game_id?: string | null;
+};
+
 function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsole?: () => void }) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
+  const launchAll = useLauncher();
   const [followUser, setFollowUser] = useState("");
   const [launching, setLaunching] = useState(false);
 
+  /**
+   * Resolve o servidor do alvo UMA vez e manda todas as contas selecionadas
+   * para lá com `launchAll`.
+   *
+   * Isto já foi um laço próprio de `launch_roblox` com `sleep(3000)` entre
+   * contas — o que furava o piso anti-captcha de 8 s que `launch_multiple`
+   * aplica no backend. Nada aqui pode voltar a lançar conta por conta.
+   */
   async function handleFollow() {
     if (!followUser.trim()) return;
     setLaunching(true);
     try {
       const user = await invoke<{ id: number }>("lookup_user", { username: followUser.trim() });
-      const presence = await invoke<{ userPresenceType?: number; user_presence_type?: number }[]>(
-        "get_presence", { userIds: [user.id] }
-      );
-      const presenceType = presence[0]?.userPresenceType ?? presence[0]?.user_presence_type ?? 0;
-      if (presenceType < 2) {
-        if (!(await confirm(tr("{{name}} is not in a game. Try anyway?", { name: followUser })))) {
-          setLaunching(false);
-          return;
-        }
+      const presence = await invoke<FollowPresence[]>("get_presence", { userIds: [user.id] });
+      const entry = presence?.[0];
+      const presenceType = entry?.userPresenceType ?? entry?.user_presence_type ?? 0;
+      const placeId = entry?.rootPlaceId ?? entry?.root_place_id ?? entry?.placeId ?? entry?.place_id ?? null;
+      const jobId = entry?.gameId ?? entry?.game_id ?? "";
+
+      if (presenceType < 2 || !placeId) {
+        store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
+        return;
       }
-      // Launch all selected accounts to follow the target
-      for (const userId of userIds) {
-        await invoke("launch_roblox", {
-          userId,
-          placeId: user.id,
-          jobId: "",
-          launchData: "",
-          followUser: true,
-          joinVip: false,
-          linkCode: "",
-          shuffleJob: false,
-        });
-        if (userIds.length > 1) await new Promise((r) => setTimeout(r, 3000));
+      if (!jobId) {
+        // Em jogo, mas com o servidor escondido pela privacidade: só dá para
+        // cair num servidor público do mesmo jogo.
+        const ok = await confirm(
+          tr("{{name}}'s server is not visible. Join a public server of that game instead?", {
+            name: followUser,
+          })
+        );
+        if (!ok) return;
       }
-      store.addToast(tr("Following {{name}} with {{count}} account(s)...", { name: followUser, count: userIds.length }));
+
+      const result = await launchAll(userIds, placeId, jobId, onGoToConsole);
+      if (result.ok) {
+        store.addToast(
+          tr("Following {{name}} with {{count}} account(s)...", { name: followUser, count: userIds.length })
+        );
+      }
     } catch (e) {
       store.addToast(tr("Follow failed: {{error}}", { error: String(e) }));
     } finally {
@@ -661,6 +685,11 @@ export function ChooseGameScreen() {
       hint: t("Games you've joined recently across all accounts."),
     },
     {
+      id: "friends",
+      label: t("Friends"),
+      hint: t("Online friends of each selected account. Click a friend to send every selected account into their server."),
+    },
+    {
       id: "follow",
       label: t("Follow"),
       hint: undefined,
@@ -783,6 +812,9 @@ export function ChooseGameScreen() {
               userId={userIds[0] ?? null}
             />
           </div>
+        )}
+        {activeTab === "friends" && (
+          <FriendsTab userIds={userIds} launchAll={launchAll} onGoToConsole={goToConsole} />
         )}
         {activeTab === "follow" && (
           <FollowTab userIds={userIds} onGoToConsole={goToConsole} />

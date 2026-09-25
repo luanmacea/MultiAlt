@@ -724,6 +724,101 @@ async fn get_presence(user_ids: Vec<i64>) -> Result<Vec<api::roblox::UserPresenc
     api::roblox::get_presence(&user_ids).await
 }
 
+// ── Amigos online ─────────────────────────────────────────────────────────────
+
+/// Uma conta e os amigos online dela. `error` preenchido substitui a lista
+/// daquela conta **sem** derrubar as outras entradas do lote.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountFriends {
+    user_id: i64,
+    friends: Vec<api::roblox::OnlineFriend>,
+    error: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FriendsOnlineProgress {
+    done: usize,
+    total: usize,
+}
+
+/// Espaçamento default entre contas no lote. O rate limit da API de amigos é
+/// por conta **e** por IP, e todas as contas saem do mesmo IP.
+const FRIENDS_ONLINE_DELAY_MS: u64 = 350;
+
+/// Amigos online de uma conta, ordenados (quem dá para entrar primeiro).
+///
+/// Usa `get_cookie` direto e **nunca** `run_with_session_retry`: o refresh dele
+/// chama `signoutfromallsessionsandreauthenticate`, que derruba as sessões
+/// abertas da conta — caro demais para uma leitura.
+#[tauri::command]
+async fn get_online_friends(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+) -> Result<Vec<api::roblox::OnlineFriend>, String> {
+    let cookie = get_cookie(state.inner(), user_id)?;
+    api::roblox::get_online_friends(&cookie).await
+}
+
+/// Percorre as contas **em sequência**, com pausa entre elas, e isola o erro de
+/// cada uma na sua própria entrada. `on_progress` recebe `(feitas, total)`.
+///
+/// Separado do comando Tauri para poder ser testado sem `AppHandle`.
+async fn collect_online_friends<F>(
+    store: &AccountStore,
+    user_ids: Vec<i64>,
+    delay_ms: Option<u64>,
+    mut on_progress: F,
+) -> Vec<AccountFriends>
+where
+    F: FnMut(usize, usize),
+{
+    let ids = dedupe_friend_ids(user_ids);
+    let total = ids.len();
+    let delay =
+        std::time::Duration::from_millis(delay_ms.unwrap_or(FRIENDS_ONLINE_DELAY_MS));
+    let mut results: Vec<AccountFriends> = Vec::with_capacity(total);
+
+    on_progress(0, total);
+    for (index, &user_id) in ids.iter().enumerate() {
+        let entry = match get_cookie(store, user_id) {
+            Ok(cookie) => match api::roblox::get_online_friends(&cookie).await {
+                Ok(friends) => AccountFriends { user_id, friends, error: None },
+                Err(error) => {
+                    AccountFriends { user_id, friends: Vec::new(), error: Some(error) }
+                }
+            },
+            Err(error) => AccountFriends { user_id, friends: Vec::new(), error: Some(error) },
+        };
+        results.push(entry);
+        on_progress(index + 1, total);
+
+        if index + 1 < total && !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+    }
+
+    results
+}
+
+/// Amigos online de várias contas, uma chamada por conta. Emite
+/// `friends-online-progress` com `{ done, total }` a cada conta concluída.
+#[tauri::command]
+async fn get_online_friends_for_accounts(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AccountStore>,
+    user_ids: Vec<i64>,
+    delay_ms: Option<u64>,
+) -> Result<Vec<AccountFriends>, String> {
+    let results = collect_online_friends(state.inner(), user_ids, delay_ms, |done, total| {
+        let _ = app.emit("friends-online-progress", FriendsOnlineProgress { done, total });
+    })
+    .await;
+
+    Ok(results)
+}
+
 #[tauri::command]
 async fn batch_thumbnails(
     requests: Vec<api::roblox::ThumbnailRequest>,

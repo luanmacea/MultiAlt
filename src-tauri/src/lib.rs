@@ -281,6 +281,8 @@ pub fn run() {
             parse_private_server_link_code,
             join_group,
             get_presence,
+            get_online_friends,
+            get_online_friends_for_accounts,
             batch_thumbnails,
             get_avatar_headshots,
             get_asset_thumbnails,
