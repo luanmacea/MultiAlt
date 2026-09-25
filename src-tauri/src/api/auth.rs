@@ -107,6 +107,52 @@ pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
     ))
 }
 
+/// Sends a request that needs a CSRF token, retrying once when the service
+/// answers `403` with a token of its own.
+///
+/// Roblox's XSRF tokens are **per service**: the token `get_csrf_token` reads
+/// from `auth.roblox.com` is rejected by `apis.roblox.com` with
+/// `{"code":0,"message":"XSRF token invalid"}`, and the 403 carries, in the
+/// `x-csrf-token` header, the token that service does accept. Retrying with it
+/// is what the web client does — without this, share links, blocking and the
+/// other `apis.roblox.com` calls fail every time.
+///
+/// The builder passed in must **not** carry `X-CSRF-TOKEN` already; this adds
+/// it (reqwest appends headers, so a second one would be sent as well).
+pub async fn send_with_csrf_retry(
+    builder: reqwest::RequestBuilder,
+    csrf: &str,
+) -> Result<reqwest::Response, String> {
+    let retry = builder.try_clone();
+    let response = builder
+        .header("X-CSRF-TOKEN", csrf)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    if response.status() != reqwest::StatusCode::FORBIDDEN {
+        return Ok(response);
+    }
+
+    let fresh = response
+        .headers()
+        .get("x-csrf-token")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s != csrf);
+
+    match (fresh, retry) {
+        (Some(fresh), Some(retry)) => retry
+            .header("X-CSRF-TOKEN", fresh)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e)),
+        // No token to retry with (or a streaming body): keep the original 403
+        // so the caller reports Roblox's own message.
+        _ => Ok(response),
+    }
+}
+
 pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
     let csrf = get_csrf_token(security_token).await?;
 
@@ -195,16 +241,13 @@ pub async fn unlock_pin(security_token: &str, pin: &str) -> Result<bool, String>
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/v1/account/pin/unlock", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(format!("pin={}", pin))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .body(format!("pin={}", pin));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         return Ok(false);
@@ -229,15 +272,12 @@ pub async fn log_out_other_sessions(security_token: &str) -> Result<RefreshResul
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/authentication/signoutfromallsessionsandreauthenticate", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .header("Content-Type", "application/x-www-form-urlencoded");
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     // Roblox may return redirects for this endpoint while still setting cookies.
     if !(response.status().is_success() || response.status().is_redirection()) {
@@ -280,20 +320,17 @@ pub async fn change_password(
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/v2/user/passwords/change", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(format!(
             "currentPassword={}&newPassword={}",
             urlencoding::encode(current_password),
             urlencoding::encode(new_password)
-        ))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        ));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         return Err("Failed to change password".to_string());
@@ -326,20 +363,17 @@ pub async fn change_email(
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/v1/email", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(format!(
             "password={}&emailAddress={}",
             urlencoding::encode(password),
             urlencoding::encode(new_email)
-        ))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        ));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -360,14 +394,11 @@ pub async fn quick_login_enter_code(
     let csrf = get_csrf_token(security_token).await?;
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/auth-token-service/v1/login/enterCode", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
-        .json(&serde_json::json!({ "code": normalized_code }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .json(&serde_json::json!({ "code": normalized_code }));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         let body = response.text().await.unwrap_or_default();
@@ -389,14 +420,11 @@ pub async fn quick_login_validate_code(security_token: &str, code: &str) -> Resu
     let csrf = get_csrf_token(security_token).await?;
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/auth-token-service/v1/login/validateCode", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
-        .json(&serde_json::json!({ "code": normalized_code }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .json(&serde_json::json!({ "code": normalized_code }));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -414,18 +442,15 @@ pub async fn set_display_name(
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .patch(&format!(
             "{}/v1/users/{}/display-names",
             endpoints::host("users"),
             user_id
         ))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
-        .json(&serde_json::json!({ "newDisplayName": display_name }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .json(&serde_json::json!({ "newDisplayName": display_name }));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())

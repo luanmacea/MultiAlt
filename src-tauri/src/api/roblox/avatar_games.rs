@@ -4,48 +4,36 @@ pub async fn set_avatar(security_token: &str, avatar_json: serde_json::Value) ->
     let mut invalid_assets = Vec::new();
 
     if let Some(avatar_type) = avatar_json.get("playerAvatarType") {
-        client
+        let request = client
             .post(format!("{}/v1/avatar/set-player-avatar-type", endpoints::host("avatar")))
             .header(COOKIE, cookie_header(security_token))
-            .header("X-CSRF-TOKEN", &csrf)
-            .json(&serde_json::json!({ "playerAvatarType": avatar_type }))
-            .send()
-            .await
-            .map_err(|e| format!("Failed to set avatar type: {}", e))?;
+            .json(&serde_json::json!({ "playerAvatarType": avatar_type }));
+        crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
     }
 
     let scales = avatar_json.get("scales").or_else(|| avatar_json.get("scale"));
     if let Some(scale_obj) = scales {
-        client
+        let request = client
             .post(format!("{}/v1/avatar/set-scales", endpoints::host("avatar")))
             .header(COOKIE, cookie_header(security_token))
-            .header("X-CSRF-TOKEN", &csrf)
-            .json(scale_obj)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to set scales: {}", e))?;
+            .json(scale_obj);
+        crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
     }
 
     if let Some(body_colors) = avatar_json.get("bodyColors") {
-        client
+        let request = client
             .post(format!("{}/v1/avatar/set-body-colors", endpoints::host("avatar")))
             .header(COOKIE, cookie_header(security_token))
-            .header("X-CSRF-TOKEN", &csrf)
-            .json(body_colors)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to set body colors: {}", e))?;
+            .json(body_colors);
+        crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
     }
 
     if let Some(assets) = avatar_json.get("assets") {
-        let response = client
+        let request = client
             .post(format!("{}/v2/avatar/set-wearing-assets", endpoints::host("avatar")))
             .header(COOKIE, cookie_header(security_token))
-            .header("X-CSRF-TOKEN", &csrf)
-            .json(&serde_json::json!({ "assets": assets }))
-            .send()
-            .await
-            .map_err(|e| format!("Failed to set wearing assets: {}", e))?;
+            .json(&serde_json::json!({ "assets": assets }));
+        let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
         if response.status().is_success() {
             if let Ok(body) = response.json::<serde_json::Value>().await {
@@ -239,15 +227,12 @@ pub async fn join_game_instance(
         body["isTeleport"] = serde_json::json!(true);
     }
 
-    let response = client
+    let request = client
         .post(format!("{}/v1/join-game-instance", endpoints::host("gamejoin")))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .json(&body);
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         let text = response.text().await.unwrap_or_default();
@@ -265,15 +250,12 @@ pub async fn join_game(security_token: &str, place_id: i64) -> Result<serde_json
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = game_join_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/v1/join-game", endpoints::host("gamejoin")))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "placeId": place_id }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .json(&serde_json::json!({ "placeId": place_id }));
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         let status = response.status().as_u16();

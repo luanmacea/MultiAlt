@@ -42,14 +42,11 @@ pub async fn parse_private_server_link_code(
     ];
 
     for url in candidates {
-        let response = client
+        let request = client
             .get(&url)
             .header(COOKIE, cookie_header(security_token))
-            .header("X-CSRF-TOKEN", &csrf)
-            .header("Referer", &referer)
-            .send()
-            .await
-            .map_err(|e| format!("Request failed: {}", e))?;
+            .header("Referer", &referer);
+        let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
         if response.status().is_success() {
             let body = response
@@ -82,20 +79,17 @@ pub async fn resolve_share_link_payload(
         return Err("Missing share link code".to_string());
     }
 
-    let response = client
+    let request = client
         .post(format!("{}/sharelinks/v1/resolve-link", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/json")
         .header("Origin", endpoints::host("www"))
         .header("Referer", format!("{}/share-links", endpoints::host("www")))
         .json(&serde_json::json!({
             "linkId": normalized_link_id,
             "linkType": link_type,
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        }));
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         let status = response.status().as_u16();

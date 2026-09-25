@@ -159,14 +159,11 @@ pub async fn send_friend_request_with_csrf(
 ) -> Result<(), String> {
     let client = reqwest::Client::new();
 
-    let response = client
+    let request = client
         .post(format!("{}/v1/users/{}/request-friendship", endpoints::host("friends"), target_user_id))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", csrf)
-        .header("Content-Type", "application/json")
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .header("Content-Type", "application/json");
+    let response = crate::api::auth::send_with_csrf_retry(request, csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -210,13 +207,10 @@ pub async fn block_user(security_token: &str, target_user_id: i64) -> Result<(),
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = reqwest::Client::new();
 
-    let response = client
+    let request = client
         .post(format!("{}/user-blocking-api/v1/users/{}/block-user", endpoints::host("apis"), target_user_id))
-        .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .header(COOKIE, cookie_header(security_token));
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -229,13 +223,10 @@ pub async fn unblock_user(security_token: &str, target_user_id: i64) -> Result<(
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = reqwest::Client::new();
 
-    let response = client
+    let request = client
         .post(format!("{}/user-blocking-api/v1/users/{}/unblock-user", endpoints::host("apis"), target_user_id))
-        .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .header(COOKIE, cookie_header(security_token));
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -347,16 +338,13 @@ pub async fn set_follow_privacy(security_token: &str, privacy: &str) -> Result<(
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = reqwest::Client::new();
 
-    let response = client
+    let request = client
         .post(format!("{}/account/settings/follow-me-privacy", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
         .header("Referer", format!("{}/my/account", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(format!("FollowMePrivacy={}", privacy))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .body(format!("FollowMePrivacy={}", privacy));
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -395,16 +383,13 @@ pub async fn set_private_server_invite_privacy(security_token: &str, privacy: &s
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = reqwest::Client::new();
 
-    let response = client
+    let request = client
         .patch(format!("{}/v1/privacy", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
         .json(&serde_json::json!({
             "privateServerInvitePrivacy": privacy
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        }));
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
