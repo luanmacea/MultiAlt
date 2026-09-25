@@ -31,6 +31,7 @@ import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay"
 import { ScriptsDialog } from "./components/dialogs/ScriptsDialog";
 import { SessionDialog } from "./components/dialogs/SessionDialog";
 import { useTr } from "./i18n/text";
+import { TONE_STYLES } from "./utils/toastTone";
 import { ENABLE_NEXUS } from "./featureFlags";
 
 function AppContent() {
@@ -160,14 +161,19 @@ function AppContent() {
 
       <ContextMenu />
 
+      {/* O tom vem pronto da store (`addToast` calcula uma vez) e a cor sai do
+          mesmo mapa do Console de launch — antes a fila era toda cinza e um
+          erro tinha exatamente a cara de um sucesso. A chave é o `id`: com
+          `key={i}` a saída do primeiro toast remontava os que sobravam. */}
       {store.toasts.length > 0 && (
         <div className="fixed bottom-10 right-4 z-[60] flex flex-col gap-1.5">
-          {store.toasts.map((msg, i) => (
+          {store.toasts.map((toast) => (
             <div
-              key={i}
-              className="theme-panel theme-border backdrop-blur-lg px-4 py-2 rounded-lg text-xs shadow-xl animate-toast"
+              key={toast.id}
+              className={`theme-panel theme-border backdrop-blur-lg px-4 py-2 rounded-lg text-xs shadow-xl animate-toast flex items-center gap-2 ${TONE_STYLES[toast.tone].text}`}
             >
-              {msg}
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${TONE_STYLES[toast.tone].dot}`} />
+              <span>{toast.message}</span>
             </div>
           ))}
         </div>

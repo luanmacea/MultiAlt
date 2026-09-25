@@ -3,6 +3,7 @@ import { useStore } from "../../store";
 import { AGED_COLOR_FROM, AGED_COLOR_TO } from "../../types";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
+import { TONE_STYLES } from "../../utils/toastTone";
 
 /**
  * O chip do rodapé cobre as duas formas de criar conta, e o destino do clique
@@ -52,6 +53,7 @@ export function StatusBar() {
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   };
   const bottingLabel = countdownLabel(nextRestartMs);
+  const actionStatus = store.actionStatus;
 
   /**
    * O gerador compra contas num serviço pago e continua rodando depois que o
@@ -144,6 +146,29 @@ export function StatusBar() {
                 <span className="text-lime-200/90">{t("next")} {countdownLabel(generator.nextAttemptAtMs)}</span>
               </button>
             </Tooltip>
+          )}
+        </div>
+
+        {/* `actionStatus` é o "está acontecendo agora" da store: progresso de
+            download, conta N de M, Settings saved. Dezesseis chamadas escreviam
+            nele e nenhum componente lia — a mensagem nunca chegava à tela.
+            A bolinha usa a cor do tom (a mesma paleta do Console de launch), e
+            o texto trunca porque uma frase de erro longa não pode empurrar os
+            contadores para fora da barra. */}
+        <div
+          className={`min-w-0 overflow-hidden transition-[max-width,opacity,margin] duration-150 ease-out ${
+            actionStatus ? "max-w-[420px] opacity-100 ml-4" : "max-w-0 opacity-0 ml-0"
+          }`}
+        >
+          {actionStatus && (
+            <span
+              data-testid="action-status"
+              title={actionStatus.message}
+              className={`flex items-center gap-1.5 min-w-0 ${TONE_STYLES[actionStatus.tone].text}`}
+            >
+              <span className={`w-2 h-2 rounded-full shrink-0 ${TONE_STYLES[actionStatus.tone].dot}`} />
+              <span className="truncate">{actionStatus.message}</span>
+            </span>
           )}
         </div>
       </div>
