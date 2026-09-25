@@ -134,6 +134,29 @@ describe("NexusDialog — Help explica o pré-requisito", () => {
     );
   });
 
+  /**
+   * Se o comando devolver vazio (ou algo que nao e string), a frase "salvo em
+   * {{path}}" fica pendurada sem caminho — foi o que apareceu ao dirigir a tela.
+   */
+  it("does not leave a dangling path when the command returns nothing", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "export_nexus_lua") return "";
+      if (cmd === "get_nexus_status") return { running: false, port: null, connected_count: 0 };
+      return [];
+    });
+    const { store } = renderDialog();
+    await openHelp();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save Nexus.lua" }));
+    await waitFor(() => expect(store.addToast).toHaveBeenCalled());
+    const chamadas = vi.mocked(store.addToast).mock.calls;
+    const mensagem = String(chamadas[chamadas.length - 1][0]);
+    // "Nexus.lua saved in  (path copied)" era o que saia: "em" sem caminho nenhum.
+    expect(mensagem).not.toMatch(/in\s*(\(|$)/);
+    expect(mensagem).not.toMatch(/\s{2}/);
+    expect(mensagem).toMatch(/Nexus\.lua/);
+  });
+
   it("warns that only accounts already in the list may connect", async () => {
     renderDialog();
     await openHelp();

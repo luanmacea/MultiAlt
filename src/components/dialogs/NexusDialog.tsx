@@ -1092,7 +1092,14 @@ function HelpPanel({ port }: { port: number }) {
             // Antes: sucesso era silencio e erro caia num `catch {}` vazio — com a
             // feature `nexus` desligada no build, o clique parecia nao fazer nada.
             try {
-              const path = await invoke<string>("export_nexus_lua");
+              const resposta = await invoke<string>("export_nexus_lua");
+              // Sem caminho utilizavel a frase "salvo em {{path}}" fica pendurada
+              // ("saved in  (path copied)"): nesse caso diz so onde e, sem o em.
+              const path = typeof resposta === "string" ? resposta.trim() : "";
+              if (!path) {
+                store.addToast(t("Nexus.lua saved in the app folder"));
+                return;
+              }
               try {
                 await navigator.clipboard.writeText(path);
                 store.addToast(t("Nexus.lua saved in {{path}} (path copied)", { path }));
