@@ -31,8 +31,11 @@ describe("parseGroupName", () => {
     expect(parseGroupName("")).toEqual({ sortKey: 999999, displayName: "" });
   });
 
-  it("only treats up to three leading digits as a prefix", () => {
-    expect(parseGroupName("1234 Group")).toEqual({ sortKey: 123, displayName: "4 Group" });
+  // O prefixo antigo parava em 3 digitos, entao "2024 Alts" virava "4 Alts" na
+  // tela: o usuario digitava um ano e via o nome partido ao meio.
+  it("takes the whole run of leading digits, not just three", () => {
+    expect(parseGroupName("2024 Alts")).toEqual({ sortKey: 2024, displayName: "Alts" });
+    expect(parseGroupName("1234 Group")).toEqual({ sortKey: 1234, displayName: "Group" });
   });
 
   it("keeps the original text when the prefix is the whole name", () => {
