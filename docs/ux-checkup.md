@@ -25,7 +25,7 @@ Total: **131 achados** — 25 altos, 60 médios, 46 baixos.
 | **P1** | Existe e ninguém acha | ✅ **feito** (15 itens, 4 commits) |
 | **P2** | Está na tela e não se explica | ✅ **feito** (16 itens, 8 commits) |
 | **P3** | Desenho e ergonomia | ✅ **feito** (onda 1: risco, feedback, texto quebrado; onda 2: densidade, preenchimento, teclado) |
-| **Tradução** | Não existe pt-BR | ✅ **feito** (1535 chaves, catálogo `pt` completo) |
+| **Tradução** | Não existe pt-BR | ✅ **feito** (1584 chaves, catálogo `pt` completo) |
 
 Cada correção entrou com o teste que falha primeiro e `bun run check` verde.
 
@@ -37,7 +37,7 @@ Cada correção entrou com o teste que falha primeiro e `bun run check` verde.
 o resto caindo no inglês. Boa parte da sensação de "não entendo o que isso faz"
 não era falta de texto explicativo: era o texto estar num idioma que não é o seu.
 
-**Concluído.** `src/locales/pt/common.json` traduz as **1535** chaves do
+**Concluído.** `src/locales/pt/common.json` traduz as **1584** chaves do
 catálogo. O número subiu de 1286 porque P0–P2 acrescentaram texto explicativo e
 porque **44 chaves nunca chegavam ao catálogo**: o extrator não via componente
 com atributos (`<UtilButton onClick={…}>Sair das outras sessões</UtilButton>`),
