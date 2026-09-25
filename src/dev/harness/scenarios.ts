@@ -20,6 +20,7 @@ import {
   setInvokeHandler,
   type InvokeHandler,
 } from "./bus";
+import { seedTourStorage, tourHandler } from "./tour";
 
 const params = new URLSearchParams(window.location.search);
 const scenarioName = params.get("scenario") || "default";
@@ -123,9 +124,59 @@ function bigGamePages(): { id: string; playing: number; maxPlayers: number; ping
   return pages;
 }
 
+/**
+ * Emite a varredura do place real página a página, como o backend faz.
+ *
+ * Fica separado porque dois cenários usam a mesma entrega: o que existe para
+ * conferir a ordem da lista e o `tour`, que só precisa da aba cheia.
+ */
+function emitRealPlaceScan(
+  pages: { id: string; playing: number; maxPlayers: number; ping: number | null }[][],
+  placeId: number
+): void {
+  const all: (typeof pages)[number] = [];
+  pages.forEach((page, index) => {
+    setTimeout(() => {
+      all.push(...page);
+      harnessEmit("server-scan", {
+        scanId: 1,
+        placeId,
+        servers: [
+          ...all.filter((s) => s.playing + accountCount <= s.maxPlayers),
+          ...all.filter((s) => s.playing + accountCount > s.maxPlayers),
+        ].slice(0, 150),
+        scanned: all.length,
+        fitting: all.filter((s) => s.playing + accountCount <= s.maxPlayers).length,
+        done: index === pages.length - 1,
+        stoppedAtLimit: false,
+        error: null,
+      });
+    }, 250 * (index + 1));
+  });
+}
+
 const SCENARIOS: Record<string, () => void> = {
   default() {
     setInvokeHandler(baseHandler);
+  },
+
+  /**
+   * O app inteiro com conteúdo: favoritos, recentes, busca de jogos, scripts,
+   * versões, backups, contas em jogo. É o cenário da revisão de usabilidade —
+   * tela vazia esconde onde o botão está e se o rótulo explica o que ele faz.
+   */
+  tour() {
+    seedTourStorage();
+    const pages = realPlacePages as { id: string; playing: number; maxPlayers: number; ping: number | null }[][];
+    const withTour = tourHandler(baseHandler, accounts.map((a) => a.UserID));
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "start_server_scan") {
+        emitRealPlaceScan(pages, Number(args.placeId) || 0);
+        return 1;
+      }
+      if (cmd === "stop_server_scan") return null;
+      return withTour(cmd, args);
+    });
   },
 
   /**
@@ -192,25 +243,7 @@ const SCENARIOS: Record<string, () => void> = {
     const pages = realPlacePages as { id: string; playing: number; maxPlayers: number; ping: number | null }[][];
     setInvokeHandler((cmd, args) => {
       if (cmd === "start_server_scan") {
-        const all: (typeof pages)[number] = [];
-        pages.forEach((page, index) => {
-          setTimeout(() => {
-            all.push(...page);
-            harnessEmit("server-scan", {
-              scanId: 1,
-              placeId: Number(args.placeId) || 0,
-              servers: [
-                ...all.filter((s) => s.playing + accountCount <= s.maxPlayers),
-                ...all.filter((s) => s.playing + accountCount > s.maxPlayers),
-              ].slice(0, 150),
-              scanned: all.length,
-              fitting: all.filter((s) => s.playing + accountCount <= s.maxPlayers).length,
-              done: index === pages.length - 1,
-              stoppedAtLimit: false,
-              error: null,
-            });
-          }, 250 * (index + 1));
-        });
+        emitRealPlaceScan(pages, Number(args.placeId) || 0);
         return 1;
       }
       if (cmd === "stop_server_scan") return null;

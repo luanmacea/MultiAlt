@@ -107,6 +107,7 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 | Cenário | Para quê |
 |---|---|
 | `default` | App destrancado, contas e settings |
+| `tour` | **Tudo povoado** — favoritos com VIP, busca de jogos, scripts, versões, backups, contas em jogo. É o cenário de revisão de interface: tela vazia esconde onde o botão está |
 | `servers-big-game` | Jogo grande: páginas e páginas de servidores cheios antes de aparecer um que caiba o lote |
 | `servers-no-fit` | Nenhum servidor cabe: a lista tem que abrir pelos que levam mais contas |
 | `servers-truncated` | O backend diz que existem servidores que cabem, mas a página recebida foi cortada antes deles |
@@ -126,6 +127,14 @@ Um cenário entrega os mesmos dados que o backend entregaria, **inclusive na ord
 5. **Bug confirmado vira teste** na suíte da funcionalidade. O harness acha; quem impede a volta é o teste.
 
 O harness **não substitui** `bun run check`.
+
+### Armadilha: cache de pré-empacotamento
+
+O alias troca um **pacote** (`@tauri-apps/api/...`) por um arquivo nosso, e o Vite
+pré-empacota pacote em `node_modules/.vite/deps` — cache que não invalida quando o
+dublê muda. Sem o `optimizeDeps.exclude` que o [vite.config.ts](../vite.config.ts)
+declara no modo harness, o navegador recebe um harness velho sem avisar ninguém, e
+o agente relata uma tela que não existe mais. Se desconfiar, apague `node_modules/.vite`.
 
 ## Features
 
