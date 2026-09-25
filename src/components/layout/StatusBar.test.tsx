@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 
-import { StatusBar } from "./StatusBar";
+import { StatusBar, generatorChipTooltip } from "./StatusBar";
 import {
   defaultSettings,
   groupAccounts,
@@ -203,5 +203,22 @@ describe("StatusBar", () => {
     renderBar();
     expect(screen.queryByText("aged")).not.toBeInTheDocument();
     expect(screen.getByText("idle 20d+")).toBeInTheDocument();
+  });
+});
+
+/**
+ * O mesmo chip cobre as duas funcoes de criar conta: o gerador pago (que gasta
+ * saldo) e a criacao gratuita no formulario do Roblox. O texto unico dizia que
+ * estava gastando saldo mesmo quando o que rodava era a gratuita.
+ */
+describe("StatusBar — chip do gerador", () => {
+  it("says the paid generator is spending the provider balance", () => {
+    expect(generatorChipTooltip("bloxgen", (s: string) => s)).toMatch(/balance/);
+  });
+
+  it("does not claim the free signup flow is spending money", () => {
+    const text = generatorChipTooltip("", (s: string) => s);
+    expect(text).not.toMatch(/balance/);
+    expect(text).toMatch(/browser/);
   });
 });

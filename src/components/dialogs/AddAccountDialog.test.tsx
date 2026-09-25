@@ -112,7 +112,14 @@ describe("AddAccountDialog", () => {
         userId: 77,
       })
     );
-    await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Added roboduck"));
+    // Conta achada por nome entra sem cookie: nao tem sessao e nao lanca.
+    // "Added roboduck" fazia parecer sucesso — o mesmo aviso ja corrigido no
+    // Quick Add da toolbar tem que valer aqui.
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(
+        "Added roboduck with no session — paste its cookie or use Browser Login to sign in"
+      )
+    );
     expect(store.loadAccounts).toHaveBeenCalled();
   });
 

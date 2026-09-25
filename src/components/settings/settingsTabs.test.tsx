@@ -277,6 +277,18 @@ describe("SettingsDialog tabs", () => {
     await userEvent.click(await screen.findByRole("button", { name: "WebServer" }));
     expect(await screen.findByText("Web Server is off")).toBeVisible();
   });
+
+  /**
+   * "Generator" sozinho nao diz qual das duas funcoes de criar conta e esta.
+   * O nome canonico da paga, usado no menu Add e no dialogo, e
+   * `Account Generator` — a aba tem que bater com ele.
+   */
+  it("names the generator tab like the rest of the app does", async () => {
+    stored = {};
+    render(<SettingsDialog open onClose={() => {}} />);
+    expect(await screen.findByRole("button", { name: "Account Generator" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generator" })).not.toBeInTheDocument();
+  });
 });
 
 describe("GeneralTab", () => {

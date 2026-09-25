@@ -4,6 +4,18 @@ import { AGED_COLOR_FROM, AGED_COLOR_TO } from "../../types";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 
+/**
+ * O chip do rodapé cobre as duas formas de criar conta, e o destino do clique
+ * já depende disso (`provider` vazio = criação gratuita no formulário do
+ * Roblox). O texto era único e dizia que estava gastando saldo mesmo quando o
+ * que rodava era a gratuita.
+ */
+export function generatorChipTooltip(provider: string, t: (key: string) => string): string {
+  return provider
+    ? t("The account generator is still running and spending your provider balance. Click to open it and stop.")
+    : t("Accounts are still being created in the browser, at no cost. Click to open it and stop.");
+}
+
 export function StatusBar() {
   const t = useTr();
   const store = useStore();
@@ -120,7 +132,7 @@ export function StatusBar() {
             </span>
           )}
           {generatorActive && generator && (
-            <Tooltip content={t("The account generator is still running and spending your provider balance. Click to open it and stop.")}>
+            <Tooltip content={generatorChipTooltip(generator.provider, t)}>
               <button
                 type="button"
                 onClick={() => store.openGeneratorDialog(generator.provider ? "provider" : "signup")}

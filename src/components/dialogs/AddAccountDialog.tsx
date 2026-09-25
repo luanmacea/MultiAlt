@@ -42,7 +42,14 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
         userId: user.id,
       });
       await store.loadAccounts();
-      store.addToast(tr("Added {{name}}", { name: user.name }));
+      // Busca por nome de usuário não traz cookie: a conta entra só como
+      // registro, sem sessão, e não lança. O mesmo aviso do Quick Add da
+      // toolbar — dizer só "Added" fazia parecer que tinha dado certo.
+      store.addToast(
+        tr("Added {{name}} with no session — paste its cookie or use Browser Login to sign in", {
+          name: user.name,
+        })
+      );
     } catch (e) {
       store.addToast(tr("Add failed: {{error}}", { error: String(e) }));
     }

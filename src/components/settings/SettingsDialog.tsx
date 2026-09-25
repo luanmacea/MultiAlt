@@ -102,7 +102,10 @@ export function SettingsDialog({
     },
     {
       id: "generator",
-      label: "Generator",
+      // `Account Generator` é o nome da função paga em toda a interface (menu
+      // Add, AddAccountDialog, GeneratorDialog). "Generator" sozinho não dizia
+      // qual das duas formas de criar conta era esta.
+      label: "Account Generator",
       icon: <Sparkles size={15} strokeWidth={1.5} />,
     },
     {

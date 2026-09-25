@@ -217,3 +217,27 @@ describe("SignupPanel — identidade gerada", () => {
     await waitFor(() => expect(store.addToast).toHaveBeenCalled());
   });
 });
+
+/**
+ * As duas funcoes de criar conta tinham quatro nomes na interface. A gratis se
+ * chama `Create Accounts` no menu Add, no AddAccountDialog e no GeneratorDialog;
+ * aqui ela ainda se apresentava como "Create accounts in the browser".
+ */
+describe("SignupPanel — nome da funcao", () => {
+  it("uses the same name the rest of the app gives this function", async () => {
+    setInvokeMap({ get_signup_status: status() });
+    renderWithStore(<SignupPanel />);
+
+    expect(await screen.findByText("Create Accounts")).toBeInTheDocument();
+    expect(screen.queryByText("Create accounts in the browser")).not.toBeInTheDocument();
+  });
+
+  it("says it is the free one, like every other entry point does", async () => {
+    setInvokeMap({ get_signup_status: status() });
+    renderWithStore(<SignupPanel />);
+
+    expect(
+      await screen.findByText("Free — the app fills Roblox's signup form; you solve the CAPTCHA")
+    ).toBeInTheDocument();
+  });
+});

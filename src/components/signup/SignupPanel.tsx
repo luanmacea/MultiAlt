@@ -129,10 +129,16 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
   return (
     <div className="h-full flex flex-col gap-3 overflow-y-auto">
       <section className="theme-surface rounded-xl border theme-border p-3">
+        {/* Mesmo nome e mesma linha de apoio do menu Add, do AddAccountDialog e
+            do GeneratorDialog: a função gratuita tinha quatro nomes na
+            interface, e este era mais um deles. */}
         <div className="flex items-center gap-2 text-[13px] font-medium text-[var(--panel-fg)]">
           <UserPlus size={14} strokeWidth={1.5} />
-          {t("Create accounts in the browser")}
+          {t("Create Accounts")}
         </div>
+        <p className="mt-0.5 text-[11px] theme-muted">
+          {t("Free — the app fills Roblox's signup form; you solve the CAPTCHA")}
+        </p>
         <p className="mt-1 text-[11px] theme-muted">
           {t(
             "The app fills in username, password, birthday (18+) and gender. You solve the CAPTCHA and press Create Account — the app saves each account and moves on to the next."
