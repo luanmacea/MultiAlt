@@ -16,10 +16,12 @@ import { GeneralTab } from "./GeneralTab";
 import { DeveloperTab } from "./DeveloperTab";
 import { IsolationTab } from "./IsolationTab";
 import { WebServerTab } from "./WebServerTab";
+import { WatcherTab } from "./WatcherTab";
 import { useSettings, type UseSettingsReturn } from "../../hooks/useSettings";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 import { ENABLE_WEBSERVER } from "../../featureFlags";
+import type { PlatformCapabilities } from "../../types";
 import i18n from "../../i18n";
 
 /**
@@ -126,6 +128,26 @@ describe("WebServerTab", () => {
     });
   });
 
+  /**
+   * O middleware devolve 401 para QUALQUER requisicao quando a senha tem menos
+   * de 6 caracteres (api/server/middleware.rs:53). A tela deixava salvar "a" e
+   * o usuario ficava com um servidor que recusa tudo, sem pista do motivo.
+   */
+  it("warns that a password under 6 characters blocks every request", async () => {
+    renderWebServer({ Developer: { DevMode: "true" }, WebServer: { Password: "abc" } });
+    expect(
+      await screen.findByText("Too short: the server answers 401 to everything until it has 6 characters.")
+    ).toBeInTheDocument();
+  });
+
+  it("drops the warning once the password is long enough", async () => {
+    renderWebServer({ Developer: { DevMode: "true" }, WebServer: { Password: "abcdef" } });
+    await screen.findByText("Password");
+    expect(
+      screen.queryByText("Too short: the server answers 401 to everything until it has 6 characters.")
+    ).not.toBeInTheDocument();
+  });
+
   it("starts and stops the server", async () => {
     renderWebServer();
     await userEvent.click(await screen.findByRole("button", { name: "Start" }));
@@ -201,7 +223,7 @@ describe("GeneralTab", () => {
 
   it.each([
     ["Auto Check for Updates", "General", "CheckForUpdates"],
-    ["Async Launching", "General", "AsyncJoin"],
+    ["Launch one account at a time", "General", "AsyncJoin"],
     ["Disable Image Loading", "General", "DisableImages"],
     ["Multi Roblox", "General", "EnableMultiRbx"],
     ["Botting Mode", "General", "BottingEnabled"],
@@ -250,12 +272,65 @@ describe("GeneralTab", () => {
     await expectSaved("General", "UpdaterFeatureChannel", "nexus-ws");
   });
 
+  /**
+   * `AsyncJoin` serializa a fila (launch.rs espera a conta anterior). O rotulo
+   * "Async Launching" prometia o contrario e a descricao dizia o certo — duas
+   * frases brigando na mesma linha.
+   */
+  it("names the serial launch toggle after what it does", async () => {
+    renderGeneral();
+    expect(await screen.findByText("Launch one account at a time")).toBeInTheDocument();
+    expect(screen.queryByText("Async Launching")).not.toBeInTheDocument();
+  });
+
+  /** O backend nunca desce de MIN_JOIN_GAP_SECS = 8; o campo aceitava 0. */
+  it("does not save a join delay the backend will ignore", async () => {
+    renderGeneral({ General: { AccountJoinDelay: "20" } });
+    const delay = await screen.findByLabelText("Account Join Delay");
+    await userEvent.clear(delay);
+    await userEvent.type(delay, "3");
+    await userEvent.tab();
+    await expectSaved("General", "AccountJoinDelay", "8");
+  });
+
+  /** Com o lote em serie o delay nem e lido: o campo tem que dizer isso. */
+  it("disables the join delay while accounts launch one at a time", async () => {
+    renderGeneral({ General: { AsyncJoin: "true" } });
+    expect(await screen.findByLabelText("Account Join Delay")).toBeDisabled();
+    expect(
+      screen.getByText("Not used while accounts launch one at a time.")
+    ).toBeInTheDocument();
+  });
+
   it("registers the app with the OS autostart when Run on Windows Startup is turned on", async () => {
     const autostart = await import("@tauri-apps/plugin-autostart");
     renderGeneral();
     await userEvent.click(await screen.findByText("Run on Windows Startup"));
     await expectSaved("General", "StartOnPCStartup", "true");
     expect(autostart.enable).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("WatcherTab", () => {
+  function renderWatcher(os: string) {
+    stored = {};
+    setStore({ platformCapabilities: { os } as PlatformCapabilities });
+    renderTab((s) => <WatcherTab s={s} />);
+  }
+
+  /**
+   * `ReadInterval` so e lido dentro de `#[cfg(target_os = "macos")]`
+   * (commands/watcher.rs). No Windows o campo era decoracao.
+   */
+  it("hides Read Interval on Windows, where nothing reads it", async () => {
+    renderWatcher("windows");
+    expect(await screen.findByText("Scan Interval")).toBeInTheDocument();
+    expect(screen.queryByText("Read Interval")).not.toBeInTheDocument();
+  });
+
+  it("keeps Read Interval on macOS", async () => {
+    renderWatcher("macos");
+    expect(await screen.findByText("Read Interval")).toBeInTheDocument();
   });
 });
 
