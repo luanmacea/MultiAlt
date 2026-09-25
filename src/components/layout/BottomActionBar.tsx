@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
+import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
 import { maskAccountName, parseGroupName } from "../../types";
 import { tr, useTr } from "../../i18n/text";
 import { ChevronDown, Gamepad2, Settings2, Users } from "lucide-react";
@@ -12,6 +13,7 @@ export function BottomActionBar() {
   const store = useStore();
   const prompt = usePrompt();
   const confirm = useConfirm();
+  const confirmCopyCredential = useCopyCredentialWarning();
 
   const [actionsOpen, setActionsOpen] = useState(false);
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
@@ -148,6 +150,9 @@ export function BottomActionBar() {
   async function handleCopyCookies() {
     setActionsOpen(false);
     const cookies = accounts.map((a) => a.SecurityToken).filter(Boolean);
+    // Um clique punha o cookie de toda a seleção na área de transferência sem
+    // dizer o que um cookie entrega nem quantas contas iam junto.
+    if (!(await confirmCopyCredential("cookie", cookies.length))) return;
     await navigator.clipboard.writeText(cookies.join("\n"));
     store.addToast(tr("Copied {{count}} cookies", { count: cookies.length }));
   }

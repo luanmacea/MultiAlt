@@ -21,7 +21,12 @@ import {
   resetTauriMocks,
   setInvokeHandler,
 } from "../../test-utils/tauriMocks";
-import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
+import {
+  confirmMock,
+  confirmWithOptOutMock,
+  promptAnswers,
+  resetPromptMocks,
+} from "../../test-utils/promptMocks";
 import type { StoreValue } from "../../store";
 
 const A = makeAccount({ UserID: 1, Username: "ann" });
@@ -136,11 +141,51 @@ describe("BottomActionBar — actions", () => {
     expect(store.setSidebarOpen).toHaveBeenCalledWith(true);
   });
 
-  it("copies the selected cookies one per line", async () => {
+  it("copies the selected cookies one per line once the warning is accepted", async () => {
+    promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
     renderBar();
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
+  });
+
+  /**
+   * O botão punha o `.ROBLOSECURITY` de toda a seleção na área de transferência
+   * num clique, sem dizer o que um cookie entrega nem quantas contas iam junto.
+   */
+  it("asks before copying every selected cookie, naming the count and what a cookie is", async () => {
+    renderBar();
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
+    await waitFor(() => expect(confirmWithOptOutMock).toHaveBeenCalledTimes(1));
+    const [message] = confirmWithOptOutMock.mock.calls[0];
+    expect(message).toContain("2 accounts");
+    expect(message).toMatch(/2-step verification/);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("remembers the credential-copy opt-out in the settings", async () => {
+    promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: true };
+    renderBar();
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+        section: "General",
+        key: "WarnOnCopyCredential",
+        value: "false",
+      })
+    );
+  });
+
+  it("skips the warning once it has been turned off", async () => {
+    const settings = defaultSettings();
+    settings.General.WarnOnCopyCredential = "false";
+    renderBar([A, B], { settings });
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
+    expect(confirmWithOptOutMock).not.toHaveBeenCalled();
   });
 
   it("lists the existing groups and moves the selection into one", async () => {

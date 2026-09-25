@@ -71,6 +71,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ShowPresence` | `true` | Mostra presença na lista. |
 | `PresenceUpdateRate` | `5` | Minutos entre atualizações de presença (mínimo efetivo 30 s). |
 | `WarnOnOnlineJoin` | `true` | Confirma antes de entrar com conta online. |
+| `WarnOnCopyCredential` | `true` | Confirma antes de copiar cookie/senha para a área de transferência (opt-out no próprio aviso). |
 | `ShuffleJobId` | — (false) | Sorteia instância de servidor. |
 | `UnlockFPS` / `MaxFPSValue` | `false` / `120` | Desbloqueio de FPS (perfil Normal). |
 | `CustomClientSettings` | `""` | Caminho de ClientSettings customizado (perfil Normal). |

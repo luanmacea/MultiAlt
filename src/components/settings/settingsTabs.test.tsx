@@ -327,6 +327,16 @@ describe("GeneralTab", () => {
     await expectSaved("General", "DisableAgingAlert", "false");
   });
 
+  /**
+   * O aviso antes de copiar credencial nasce **ligado**: o toggle existe para
+   * quem quer desligar, entao o clique grava "false".
+   */
+  it("lets the credential-copy warning be turned off", async () => {
+    renderGeneral();
+    await userEvent.click(await screen.findByText("Warn Before Copying Credentials"));
+    await expectSaved("General", "WarnOnCopyCredential", "false");
+  });
+
   it("saves the picked language", async () => {
     renderGeneral();
     await userEvent.click(await screen.findByText("English"));

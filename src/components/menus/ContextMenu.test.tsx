@@ -9,9 +9,20 @@ vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/pro
 
 import { ContextMenu } from "./ContextMenu";
 import { MenuItemView, type MenuItem } from "./MenuItemView";
-import { makeAccount, makeBottingStatus, setStore } from "../../test-utils/renderWithStore";
+import {
+  defaultSettings,
+  makeAccount,
+  makeBottingStatus,
+  setStore,
+} from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
-import { promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
+import {
+  confirmMock,
+  confirmWithOptOutMock,
+  promptAnswers,
+  promptMock,
+  resetPromptMocks,
+} from "../../test-utils/promptMocks";
 import type { StoreValue } from "../../store";
 
 const A = makeAccount({ UserID: 1, Username: "ann", Group: "Alts" });
@@ -126,7 +137,6 @@ describe("ContextMenu — account actions", () => {
 
 describe("ContextMenu — copy submenu", () => {
   it.each([
-    ["Cookie", "cookie-1\ncookie-2"],
     ["Username", "ann\nbob"],
     ["User ID", "1\n2"],
     ["Profile Link", "https://www.roblox.com/users/1/profile\nhttps://www.roblox.com/users/2/profile"],
@@ -134,6 +144,13 @@ describe("ContextMenu — copy submenu", () => {
     renderMenu({}, [A, B]);
     await userEvent.click(item(label));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expected));
+  });
+
+  it("copies the cookie of every selected account once the warning is accepted", async () => {
+    promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
+    renderMenu({}, [A, B]);
+    await userEvent.click(item("Cookie"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
   });
 
   it("hides the developer-only entries unless dev mode is on", () => {
@@ -148,11 +165,120 @@ describe("ContextMenu — copy submenu", () => {
   });
 
   it("copies an auth ticket from the backend in dev mode", async () => {
+    promptAnswers.confirm = true;
     setInvokeMap({ get_auth_ticket: "ticket-123" });
     renderMenu({ devMode: true });
     await userEvent.click(item("Get Auth Ticket"));
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("get_auth_ticket", { userId: 1 }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("ticket-123"));
+  });
+});
+
+/**
+ * Copiar credencial saía sem aviso: um clique em Cookie punha o
+ * `.ROBLOSECURITY` de todas as contas selecionadas na área de transferência —
+ * a sessão inteira de cada conta, sem senha e sem 2 etapas para quem pegar.
+ */
+describe("ContextMenu — copiar credencial avisa antes", () => {
+  const P = makeAccount({ UserID: 1, Username: "ann", Password: "pw-ann", Group: "Alts" });
+  const Q = makeAccount({ UserID: 2, Username: "bob", Password: "pw-bob", Group: "Farm" });
+
+  function renderWithPasswords(overrides: Partial<StoreValue> = {}) {
+    return renderMenu({ accounts: [P, Q], ...overrides }, [P, Q]);
+  }
+
+  it.each([
+    ["Cookie"],
+    ["Password"],
+    ["User:Pass"],
+  ])("asks before putting the %s of the selection on the clipboard", async (label) => {
+    renderWithPasswords();
+    await userEvent.click(item(label));
+    await waitFor(() => expect(confirmWithOptOutMock).toHaveBeenCalledTimes(1));
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("says what a cookie hands over and how many accounts are in the copy", async () => {
+    renderWithPasswords();
+    await userEvent.click(item("Cookie"));
+    await waitFor(() => expect(confirmWithOptOutMock).toHaveBeenCalledTimes(1));
+    const [message] = confirmWithOptOutMock.mock.calls[0];
+    expect(message).toContain("2 accounts");
+    expect(message).toMatch(/2-step verification/);
+    expect(message).toMatch(/clipboard/i);
+  });
+
+  it("does not ask for the username on its own — it is not a credential", async () => {
+    renderWithPasswords();
+    await userEvent.click(item("Username"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("ann\nbob"));
+    expect(confirmWithOptOutMock).not.toHaveBeenCalled();
+  });
+
+  it("remembers the opt-out in the settings instead of only this session", async () => {
+    promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: true };
+    const store = renderWithPasswords();
+    await userEvent.click(item("Cookie"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+        section: "General",
+        key: "WarnOnCopyCredential",
+        value: "false",
+      })
+    );
+    await waitFor(() => expect(store.reloadSettings).toHaveBeenCalled());
+    expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2");
+  });
+
+  it("skips the warning once it has been turned off", async () => {
+    const settings = defaultSettings();
+    settings.General.WarnOnCopyCredential = "false";
+    renderWithPasswords({ settings });
+    await userEvent.click(item("Cookie"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
+    expect(confirmWithOptOutMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["rbx-player Link"],
+    ["App Link"],
+  ])("says the %s costs a fresh auth ticket before asking Roblox for one", async (label) => {
+    setInvokeMap({ get_auth_ticket: "ticket-123" });
+    renderMenu({ devMode: true });
+    await userEvent.click(item(label));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    const [message] = confirmMock.mock.calls[0];
+    expect(message).toMatch(/auth ticket/i);
+    expect(message).toContain("ann");
+    expect(invokeMock).not.toHaveBeenCalledWith("get_auth_ticket", { userId: 1 });
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  /**
+   * O ticket cru entra na area de transferencia igual aos dois links: quem o tiver
+   * entra como a conta. Faltava so este item.
+   */
+  it("says what the raw auth ticket hands over before asking Roblox for one", async () => {
+    setInvokeMap({ get_auth_ticket: "ticket-123" });
+    renderMenu({ devMode: true });
+    await userEvent.click(item("Get Auth Ticket"));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    const [message] = confirmMock.mock.calls[0];
+    expect(message).toMatch(/auth ticket/i);
+    expect(message).toContain("ann");
+    expect(invokeMock).not.toHaveBeenCalledWith("get_auth_ticket", { userId: 1 });
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("copies the launch link once the ticket warning is accepted", async () => {
+    promptAnswers.confirm = true;
+    setInvokeMap({ get_auth_ticket: "ticket-123" });
+    renderMenu({ devMode: true });
+    await userEvent.click(item("rbx-player Link"));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("get_auth_ticket", { userId: 1 }));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("gameinfo:ticket-123"))
+    );
   });
 });
 
