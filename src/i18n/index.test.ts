@@ -19,14 +19,20 @@ describe("normalizeLanguage", () => {
     expect(normalizeLanguage("  deutsch ")).toBe("de");
   });
 
+  it("maps any pt-* tag to Brazilian Portuguese", () => {
+    expect(normalizeLanguage("pt")).toBe("pt");
+    expect(normalizeLanguage("PT-BR")).toBe("pt");
+    expect(normalizeLanguage("  pt-pt ")).toBe("pt");
+    expect(normalizeLanguage("português")).toBe("pt");
+  });
+
   it("maps everything else to English", () => {
     expect(normalizeLanguage("en-US")).toBe("en");
-    expect(normalizeLanguage("pt-BR")).toBe("en");
     expect(normalizeLanguage("klingon")).toBe("en");
   });
 
   it("exposes the supported set", () => {
-    expect([...SUPPORTED_LANGUAGES]).toEqual(["en", "de"]);
+    expect([...SUPPORTED_LANGUAGES]).toEqual(["en", "de", "pt"]);
     expect(DEFAULT_LANGUAGE).toBe("en");
   });
 });
@@ -52,6 +58,12 @@ describe("i18n instance", () => {
     expect(i18n.t("A phrase nobody translated", { defaultValue: "A phrase nobody translated" })).toBe(
       "A phrase nobody translated"
     );
+  });
+
+  it("translates known keys after switching to Portuguese", async () => {
+    await i18n.changeLanguage("pt");
+    expect(i18n.t("Settings")).toBe("Configurações");
+    expect(i18n.t("Cancel")).toBe("Cancelar");
   });
 
   it("reports whether a key exists", () => {

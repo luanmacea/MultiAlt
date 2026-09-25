@@ -25,18 +25,51 @@ Total: **131 achados** — 25 altos, 60 médios, 46 baixos.
 | **P1** | Existe e ninguém acha | ✅ **feito** (15 itens, 4 commits) |
 | **P2** | Está na tela e não se explica | ✅ **feito** (16 itens, 8 commits) |
 | **P3** | Desenho e ergonomia | ⬜ a fazer (~40 itens) |
-| **Tradução** | Não existe pt-BR | ⬜ a fazer — maior alcance, mais mecânico |
+| **Tradução** | Não existe pt-BR | ✅ **feito** (1535 chaves, catálogo `pt` completo) |
 
 Cada correção entrou com o teste que falha primeiro e `bun run check` verde.
 
 ---
 
-## O pano de fundo: o app não fala português
+## O pano de fundo: o app não falava português ✅
 
-`src/i18n/index.ts:6` só declara `en` e `de` — 1286 chaves em inglês, 823 em
-alemão, **nenhuma em português**. Boa parte da sensação de "não entendo o que
-isso faz" não é falta de texto explicativo: é o texto estar num idioma que não é
-o seu. Traduzir é o item de maior alcance desta lista, e o mais mecânico.
+`src/i18n/index.ts` declarava só `en` e `de` — e o alemão cobre 823 das chaves,
+o resto caindo no inglês. Boa parte da sensação de "não entendo o que isso faz"
+não era falta de texto explicativo: era o texto estar num idioma que não é o seu.
+
+**Concluído.** `src/locales/pt/common.json` traduz as **1535** chaves do
+catálogo. O número subiu de 1286 porque P0–P2 acrescentaram texto explicativo e
+porque **44 chaves nunca chegavam ao catálogo**: o extrator não via componente
+com atributos (`<UtilButton onClick={…}>Sair das outras sessões</UtilButton>`),
+prop com ternário (`description={cond ? "Requires Unlock FPS" : undefined}`),
+ramo de ternário dentro do `t()` nem frase que cita uma URL. Essas telas ficavam
+em inglês **em todos os idiomas**, alemão incluído. O idioma é escolhido em
+Settings › Geral; o padrão continua inglês. Glossário e as regras de
+"tradução não muda comportamento" estão em
+[development.md#i18n](development.md#i18n).
+
+Cinco coisas apareceram ao traduzir, e não eram texto:
+
+- **O tom do toast era deduzido por palavra inglesa** (`store.tsx`:
+  `includes("failed")` → erro), mas 162 call sites entregam a frase já
+  traduzida — em português todo erro cairia como `info`, deixando o toast de
+  falha igual ao de sucesso. O heurístico virou
+  [src/utils/toastTone.ts](../src/utils/toastTone.ts), com marcadores dos dois
+  idiomas completos e teste sobre o catálogo inteiro. Isso destrava o item de
+  P3 que vai renderizar o `tone`.
+- **`Browse` e `Manual install` nunca chegaram ao catálogo**: estão dentro de
+  `t(cond ? "A" : "B")`, que o extrator não reconhece. Ficavam em inglês em
+  todos os idiomas.
+- **O alemão perdia um placeholder**: `"{{count}} server{{suffix}}"` traduzido
+  como `"{{count}} Server"` (chave morta, mas o teste novo trava o caso).
+- **O tour tinha o seu próprio seletor de idioma**, com só `en` e `de`: com
+  `Language=pt` ele mostrava o literal "pt" e, na primeira execução, o botão
+  Avançar fica travado até escolher da lista — quem estava em português não
+  passava do primeiro passo. Agora as duas telas leem `LANGUAGE_OPTIONS` de
+  [src/i18n/index.ts](../src/i18n/index.ts).
+- **Concordância que o inglês não tem**: "1 selecionadas", "1 livres". O
+  português obriga a escolher, e a forma `(s)` — que o app já usa em
+  "conta(s)" — resolve sem inventar chave nova.
 
 ## Cinco padrões que se repetem
 

@@ -8,7 +8,7 @@ import { Divider } from "../ui/Divider";
 import { SectionLabel } from "../ui/SectionLabel";
 import { WarningBadge } from "../ui/WarningBadge";
 import { Select } from "../ui/Select";
-import i18n, { normalizeLanguage } from "../../i18n";
+import i18n, { LANGUAGE_OPTIONS, normalizeLanguage } from "../../i18n";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import {
@@ -60,10 +60,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         <div className="ml-auto min-w-[180px]">
           <Select
             value={normalizeLanguage(s.get("General", "Language", "en"))}
-            options={[
-              { value: "en", label: "English" },
-              { value: "de", label: "German" },
-            ]}
+            options={LANGUAGE_OPTIONS}
             onChange={(value) => {
               const next = normalizeLanguage(value);
               s.set("General", "Language", next);

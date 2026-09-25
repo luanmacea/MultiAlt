@@ -184,7 +184,10 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
 
   function buildFontOptions(kind: "sans" | "mono", current: ThemeFontSpec | undefined, fallbackDefault: ThemeFontSpec) {
     const options: Array<{ value: string; label: string }> = [
-      { value: "default", label: kind === "sans" ? "Default (Outfit)" : "Default (JetBrains Mono)" },
+      {
+        value: "default",
+        label: kind === "sans" ? t("Default (Outfit)") : t("Default (JetBrains Mono)"),
+      },
       { value: "system", label: kind === "sans" ? "System UI" : "System Mono" },
     ];
 
@@ -434,7 +437,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
                 />
               </div>
               <button onClick={() => importLocalFont("sans")} className="theme-btn px-2.5 py-1.5 text-xs font-medium shrink-0">
-                Import Local
+                {t("Import Local")}
               </button>
             </div>
 
@@ -449,12 +452,16 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
                 />
               </div>
               <button onClick={() => importLocalFont("mono")} className="theme-btn px-2.5 py-1.5 text-xs font-medium shrink-0">
-                Import Local
+                {t("Import Local")}
               </button>
             </div>
 
             <div className="text-[11px] theme-muted">
-              Tip: exporting uses <span className="font-mono">.ram-theme.json</span> unless you use local font files; local fonts export as a <span className="font-mono">.ram-theme.zip</span> bundle.
+              {/* Uma frase so: com os nomes de arquivo em <span> separados, cada
+                  pedaco ia para o catalogo sozinho e nao dava para traduzir. */}
+              {t(
+                "Tip: exporting uses .ram-theme.json unless you use local font files; local fonts export as a .ram-theme.zip bundle."
+              )}
             </div>
           </div>
         );

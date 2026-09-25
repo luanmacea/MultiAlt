@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
+import { LANGUAGE_OPTIONS, normalizeLanguage } from "../../i18n";
 import { Select } from "../ui/Select";
 
 interface WalkthroughStep {
@@ -448,11 +449,8 @@ export function FirstRunWalkthrough() {
             <div className="mt-3">
               <div className="text-[11px] uppercase tracking-wide theme-muted mb-1.5">{t("Language")}</div>
               <Select
-                value={currentLanguage}
-                options={[
-                  { value: "en", label: "English" },
-                  { value: "de", label: "German" },
-                ]}
+                value={normalizeLanguage(currentLanguage)}
+                options={LANGUAGE_OPTIONS}
                 onChange={(value) => {
                   void handleLanguageChange(value);
                 }}

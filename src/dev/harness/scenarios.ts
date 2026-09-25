@@ -6,7 +6,8 @@
  * a tela montada: lista que chega em páginas, progresso, estado final.
  *
  * Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
- * Cada agente abre a sua própria URL e olha um cenário diferente.
+ * Cada agente abre a sua própria URL e olha um cenário diferente. `&lang=pt`
+ * (ou `de`) sobe a tela naquele idioma, sem passar pelo seletor de Settings.
  *
  * Um cenário **nunca** inventa o comportamento que está sendo testado: ele
  * entrega os mesmos dados que a API do Roblox entregaria (inclusive na ordem
@@ -25,6 +26,7 @@ import { seedTourStorage, tourHandler } from "./tour";
 const params = new URLSearchParams(window.location.search);
 const scenarioName = params.get("scenario") || "default";
 const accountCount = Math.max(1, Math.min(Number(params.get("accounts") ?? 6) || 6, 16));
+const language = params.get("lang");
 
 function account(index: number) {
   return {
@@ -50,6 +52,7 @@ const accounts = Array.from({ length: accountCount }, (_, i) => account(i + 1));
 
 const settings: Record<string, Record<string, string>> = {
   General: {
+    ...(language ? { Language: language } : {}),
     RestrictedBackgroundStyle: "waves",
     ServerPreference: "bestfit",
     ServerRegionFilter: "",

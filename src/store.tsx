@@ -61,6 +61,7 @@ export function normalizeServerPreference(value: string | undefined): ServerPref
 }
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
 import i18n, { normalizeLanguage } from "./i18n";
+import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import {
   type UpdaterReleaseChannel,
@@ -107,7 +108,7 @@ export interface LaunchLogEntry {
   ts: number;
 }
 
-type ActionStatusTone = "info" | "success" | "warn" | "error";
+type ActionStatusTone = ToastTone;
 
 interface ActionStatusState {
   message: string;
@@ -794,12 +795,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const localized = i18n.exists(msg) ? tr(msg) : msg;
     setToasts((prev) => [...prev, localized]);
     setTimeout(() => setToasts((prev) => prev.slice(1)), 2500);
-    const lower = msg.toLowerCase();
-    let tone: ActionStatusTone = "info";
-    if (lower.includes("error") || lower.includes("failed")) tone = "error";
-    else if (lower.includes("saved") || lower.includes("updated") || lower.includes("launched")) tone = "success";
-    else if (lower.includes("warning")) tone = "warn";
-    setActionStatusMessage(msg, tone);
+    setActionStatusMessage(msg, toneFromMessage(msg));
   }, [setActionStatusMessage]);
 
   function clearLaunchTimeout() {

@@ -334,6 +334,13 @@ describe("GeneralTab", () => {
     await expectSaved("General", "Language", "de");
   });
 
+  it("offers Brazilian Portuguese and saves it as pt", async () => {
+    renderGeneral();
+    await userEvent.click(await screen.findByText("English"));
+    await userEvent.click(await screen.findByText("Portuguese (Brazil)"));
+    await expectSaved("General", "Language", "pt");
+  });
+
   it("saves the updater release channel", async () => {
     renderGeneral();
     await userEvent.click(await screen.findByText("Beta"));
@@ -415,6 +422,22 @@ describe("DeveloperTab", () => {
     stored = initial;
     renderTab((s) => <DeveloperTab s={s} />);
   }
+
+  /**
+   * O bloco da previa do modal era texto solto no JSX: nao passava por `t()`,
+   * entao ficava em ingles com o catalogo inteiro traduzido.
+   */
+  it("mostra o bloco da prévia do modal traduzido", async () => {
+    await i18n.changeLanguage("pt");
+    try {
+      renderDeveloper();
+      expect(await screen.findByText("Prévia do modal de atualização")).toBeInTheDocument();
+      expect(screen.getByText("Abrir a prévia")).toBeInTheDocument();
+      expect(screen.queryByText("Update Modal Preview")).not.toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
 
   it("saves the Developer Mode toggle", async () => {
     renderDeveloper();

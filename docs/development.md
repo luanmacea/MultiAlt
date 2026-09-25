@@ -166,10 +166,24 @@ $env:RAM_DATA_DIR = "$env:TEMP\ram-dev"; bun run tauri dev
 
 ## i18n
 
-- Configuração em [src/i18n/index.ts](../src/i18n/index.ts): idiomas suportados `en` e `de`, fallback `en`, `keySeparator: false` e `nsSeparator: false` — **a chave é a própria frase em inglês**.
-- Arquivos: [src/locales/en/common.json](../src/locales/en/common.json) e [src/locales/de/common.json](../src/locales/de/common.json).
+- Configuração em [src/i18n/index.ts](../src/i18n/index.ts): idiomas suportados `en`, `de` e `pt` (português do Brasil), fallback `en`, `keySeparator: false` e `nsSeparator: false` — **a chave é a própria frase em inglês**.
+- Arquivos: [en](../src/locales/en/common.json) (1535 chaves, fonte), [pt](../src/locales/pt/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
 - Helpers em [src/i18n/text.ts](../src/i18n/text.ts): `useTr()` (hook), `tr()` (fora de componentes) e `trNode()` (traduz texto dentro de fragments JSX). Ambos usam `defaultValue: text`, então uma chave ausente aparece em inglês.
-- Idioma vem de `General.Language` (normalizado: começa com `de` → `de`, senão `en`).
+- Idioma vem de `General.Language` (normalizado: começa com `de` → `de`; `pt`/`portug` → `pt`; senão `en`). O padrão continua `en` — não há detecção de locale do sistema, de propósito: o app é usado fora do Brasil.
+- [src/i18n/locales.test.ts](../src/i18n/locales.test.ts) trava o contrato do catálogo: `pt` cobre o `en` inteiro na mesma ordem, sem chave inventada nem valor vazio, `{{placeholders}}` idênticos em `pt` e `de`, e nada igual ao inglês fora da lista de jargão (`IDENTICAL_BY_DESIGN`).
+
+### Glossário pt-BR
+
+- **Botão = infinitivo** ("Adicionar", "Salvar"); **resultado = particípio** ("Conta adicionada", "Job ID copiado"); só a primeira maiúscula em rótulo; tratamento "você".
+- **Não se traduz**: `Roblox`, `Job ID`, `Place ID`, `Universe ID`, `Cookie`, `Fast Flags`, `Web Server`, `Botting Mode`, `Nexus`, `Watcher`, `alt`, `place`, `job`, `loop`, `rejoin`, nome de arquivo/caminho/URL/código, nome de tema e de fonte.
+- Termos fixos: account → conta · launch → iniciar · settings → configurações · aged/idle → sem uso · Player Accounts → Contas de jogador · asset → item · General/Developer/Optimization/Misc/Isolation → Geral/Desenvolvedor/Otimização/Diversos/Isolamento.
+- Rótulo curto (<20 caracteres no inglês) não passa de +30% em português: trunca na tela.
+
+### Tradução não pode mudar comportamento
+
+O texto exibido nunca é valor de negócio: `<Select>` guarda `value` cru (`"idle"`, `"normal"`) e traduz só o `label`; nome de grupo, fase do Botting e seção/chave do INI são comparados no literal inglês. Ao mexer em tradução, mantenha isso.
+
+O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria dos call sites entrega a frase **já traduzida** (`addToast(tr("..."))`). Por isso o heurístico vive em [src/utils/toastTone.ts](../src/utils/toastTone.ts) com marcadores dos dois idiomas completos, e um teste garante que nenhuma tradução apague o tom que o inglês indica.
 
 ### Extração de chaves
 
@@ -178,7 +192,21 @@ $env:RAM_DATA_DIR = "$env:TEMP\ram-dev"; bun run tauri dev
 1. Varre `src/**/*.ts(x)` (ignora pastas `locales` e `i18n`).
 2. Captura strings em `t("...")`/`tr("...")`, props `label|description|placeholder|suffix|title|tooltip|alt|aria-label="..."`, objetos `{ label: "..." }`, fragments `label={<>Texto<Badge/></>}` e filhos de `SectionLabel`, `SectionHeader`, `WarningBadge`, `UtilButton`.
 3. Descarta strings que parecem URLs, caminhos, hashes, IDs numéricos, template strings (`${`) ou sem letras.
-4. Adiciona as chaves faltantes em `en/common.json` com valor = chave. **Não remove** chaves antigas e **não mexe** em `de`.
+4. Adiciona as chaves faltantes em `en/common.json` com valor = chave. **Não remove** chaves antigas e **não mexe** em `de`/`pt`.
+
+O extrator já reconhece, além do literal direto: componente com atributos
+(`<UtilButton onClick={...}>Texto</UtilButton>`), prop com expressão
+(`description={cond ? "A" : "B"}`) e ramo de ternário dentro da chamada
+(`t(cond ? "A" : "B")` — só o que vem depois de `?`, `:` ou `||`, porque o
+literal de comparação é identificador interno). Uma frase que **cita** uma URL
+também conta: o filtro só descarta a string que é URL inteira.
+
+O que ele ainda não pode ver é chave montada em variável (`t(cat)` com `cat`
+vindo de um array, `t(status)`): essas entram no catálogo à mão. Se a sua string
+não aparece traduzida, confira primeiro se a chave existe em
+`src/locales/en/common.json` — `t()` sem chave devolve o inglês em silêncio, em
+todos os idiomas. [src/i18n/reachesTheScreen.test.tsx](../src/i18n/reachesTheScreen.test.tsx)
+renderiza em português os pontos que já falharam assim.
 
 A tradução para outros idiomas é sincronizada pelo Crowdin ([crowdin.yml](../crowdin.yml): fonte `src/locales/en/common.json`, destino `src/locales/%two_letters_code%/common.json`; workflow [crowdin-sync.yml](../.github/workflows/crowdin-sync.yml)).
 

@@ -2952,7 +2952,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
           : "theme-border bg-zinc-800/40 text-zinc-400";
     return (
       <span className={`px-1.5 py-0.5 text-[10px] rounded-md border ${className}`}>
-        {status.toUpperCase()}
+        {t(status).toUpperCase()}
       </span>
     );
   }

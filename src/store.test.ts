@@ -1066,6 +1066,31 @@ describe("toasts and action status", () => {
     expect(result.current.actionStatus?.tone).toBe("info");
   });
 
+  it("keeps the tone when the call site already localized the message", async () => {
+    // 162 call sites chamam `addToast(tr("..."))`, ou seja entregam a frase já
+    // traduzida. Se o tom fosse deduzido só de palavra inglesa, todo erro em
+    // português cairia como `info` — o toast de falha ficaria igual ao de sucesso.
+    const { result } = await renderStore();
+
+    act(() => result.current.addToast("Não foi possível fechar o Roblox: acesso negado"));
+    expect(result.current.actionStatus?.tone).toBe("error");
+
+    act(() => result.current.addToast("A busca falhou: tempo esgotado"));
+    expect(result.current.actionStatus?.tone).toBe("error");
+
+    act(() => result.current.addToast("Configurações salvas"));
+    expect(result.current.actionStatus?.tone).toBe("success");
+
+    act(() => result.current.addToast("Apelido atualizado"));
+    expect(result.current.actionStatus?.tone).toBe("success");
+
+    act(() => result.current.addToast("Aviso de otimização: memória baixa"));
+    expect(result.current.actionStatus?.tone).toBe("warn");
+
+    act(() => result.current.addToast("Iniciando o jogo..."));
+    expect(result.current.actionStatus?.tone).toBe("info");
+  });
+
   it("reacts to the ram-action-status window event", async () => {
     const { result } = await renderStore();
 

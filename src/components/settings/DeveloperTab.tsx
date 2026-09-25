@@ -88,9 +88,9 @@ export function DeveloperTab({ s }: { s: UseSettingsReturn }) {
       <div className="px-1 py-3">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-2">
           <div className="min-w-0">
-            <div className="text-[13px] text-zinc-200">Update Modal Preview</div>
+            <div className="text-[13px] text-zinc-200">{t("Update Modal Preview")}</div>
             <div className="mt-0.5 text-[11px] text-zinc-500">
-              Opens a mocked release note so you can test markdown rendering
+              {t("Opens a mocked release note so you can test markdown rendering")}
             </div>
           </div>
           <button
@@ -98,7 +98,7 @@ export function DeveloperTab({ s }: { s: UseSettingsReturn }) {
             onClick={store.openUpdatePreviewDialog}
             className="shrink-0 rounded-lg border border-zinc-700/70 bg-zinc-800 px-3 py-1.5 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700"
           >
-            Open Preview
+            {t("Open Preview")}
           </button>
         </div>
       </div>

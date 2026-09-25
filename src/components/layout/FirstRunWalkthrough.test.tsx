@@ -98,3 +98,27 @@ describe("FirstRunWalkthrough — final step", () => {
     expect(store.setSessionDialogOpen).toHaveBeenCalledWith(false);
   });
 });
+
+describe("FirstRunWalkthrough — passo de idioma", () => {
+  /**
+   * O tour tinha o seu proprio seletor de idioma, com so `en` e `de`. Com
+   * `Language=pt` o controle mostrava o literal "pt" e, em modo primeira
+   * execucao, o botao Avancar fica travado ate a pessoa escolher um idioma da
+   * lista — ou seja, quem estava em portugues nao passava do primeiro passo.
+   */
+  it("oferece os mesmos idiomas que o app suporta", async () => {
+    openTour({ firstRunWalkthroughMode: "firstRun" });
+    await userEvent.click(screen.getByText("English"));
+    expect(screen.getByText("German")).toBeInTheDocument();
+    expect(screen.getByText("Portuguese (Brazil)")).toBeInTheDocument();
+  });
+
+  it("mostra o idioma salvo em vez do codigo cru quando ele e portugues", async () => {
+    openTour({
+      firstRunWalkthroughMode: "firstRun",
+      settings: { General: { Language: "pt" } },
+    });
+    expect(screen.getByText("Portuguese (Brazil)")).toBeInTheDocument();
+    expect(screen.queryByText("pt")).not.toBeInTheDocument();
+  });
+});
