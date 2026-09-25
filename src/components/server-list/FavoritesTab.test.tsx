@@ -11,7 +11,7 @@ import { RecentTab } from "./RecentTab";
 import { loadFavorites, saveFavorites, saveRecentGames } from "./types";
 import type { FavoriteGame, RecentGame } from "./types";
 import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
-import { promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
+import { confirmMock, promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
 
 function favorite(overrides: Partial<FavoriteGame> = {}): FavoriteGame {
   return {
@@ -132,9 +132,11 @@ describe("FavoritesTab", () => {
     ]);
     const { addToast } = renderFavorites();
     await userEvent.click(screen.getByText("Jailbreak"));
+    // Apagar o VIP é destrutivo: passa pelo confirm.
+    promptAnswers.confirm = true;
     await userEvent.click(screen.getByTitle("Remove"));
 
-    expect(addToast).toHaveBeenCalledWith("VIP server removed");
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith("VIP server removed"));
     expect(loadFavorites()[0].vipServers).toHaveLength(0);
   });
 
@@ -148,10 +150,66 @@ describe("FavoritesTab", () => {
     await waitFor(() => expect(screen.getByText("Renamed")).toBeInTheDocument());
     expect(loadFavorites()[0].name).toBe("Renamed");
 
+    promptAnswers.confirm = true;
     fireEvent.contextMenu(screen.getByText("Renamed"), { clientX: 5, clientY: 5 });
     await userEvent.click(await screen.findByRole("button", { name: "Remove" }));
-    expect(addToast).toHaveBeenCalledWith("Removed from favorites");
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith("Removed from favorites"));
     expect(screen.getByText("No favorites yet")).toBeInTheDocument();
+  });
+
+  /**
+   * Apagar favorito/VIP mexe em dado que só existe nesta máquina: a frase tem
+   * que dizer o que desaparece, não perguntar "tem certeza?".
+   */
+  describe("confirma antes de apagar", () => {
+    it("diz o que o favorito leva embora e não apaga se recusado", async () => {
+      saveFavorites([
+        favorite({
+          vipServers: [
+            { id: "v1", name: "My VIP", link: "https://vip.link/abc" },
+            { id: "v2", name: "Other VIP", link: "https://vip.link/def" },
+          ],
+        }),
+      ]);
+      const { addToast } = renderFavorites();
+
+      fireEvent.contextMenu(screen.getByText("Jailbreak"), { clientX: 5, clientY: 5 });
+      await userEvent.click(await screen.findByRole("button", { name: "Remove" }));
+
+      await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+      const [message, destructive] = confirmMock.mock.calls[0];
+      expect(message).toContain("Jailbreak");
+      expect(message).toContain("VIP servers (2)");
+      expect(destructive).toBe(true);
+      expect(loadFavorites()).toHaveLength(1);
+      expect(addToast).not.toHaveBeenCalled();
+    });
+
+    it("nomeia o VIP que vai apagar e não apaga se recusado", async () => {
+      saveFavorites([
+        favorite({ vipServers: [{ id: "v1", name: "My VIP", link: "https://vip.link/abc" }] }),
+      ]);
+      renderFavorites();
+      await userEvent.click(screen.getByText("Jailbreak"));
+      await userEvent.click(screen.getByTitle("Remove"));
+
+      await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+      expect(confirmMock.mock.calls[0][0]).toContain("My VIP");
+      expect(confirmMock.mock.calls[0][1]).toBe(true);
+      expect(loadFavorites()[0].vipServers).toHaveLength(1);
+    });
+
+    it("renomear não pergunta nada", async () => {
+      saveFavorites([favorite()]);
+      renderFavorites();
+
+      promptAnswers.prompt = "Renamed";
+      fireEvent.contextMenu(screen.getByText("Jailbreak"), { clientX: 5, clientY: 5 });
+      await userEvent.click(await screen.findByRole("button", { name: "Rename" }));
+
+      await waitFor(() => expect(screen.getByText("Renamed")).toBeInTheDocument());
+      expect(confirmMock).not.toHaveBeenCalled();
+    });
   });
 
   /**
@@ -243,9 +301,27 @@ describe("RecentTab", () => {
   it("clears the whole list", async () => {
     saveRecentGames([recent()]);
     renderRecent();
+    // Apagar a lista é destrutivo: passa pelo confirm.
+    promptAnswers.confirm = true;
     await userEvent.click(screen.getByRole("button", { name: "Clear all" }));
-    expect(screen.getByText("No recent games")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("No recent games")).toBeInTheDocument());
     expect(localStorage.getItem("ram_recent_games")).toBe("[]");
+  });
+
+  /** A lista só existe nesta máquina: apagada, não volta. */
+  it("diz quantos jogos apaga antes de limpar e não limpa se recusado", async () => {
+    saveRecentGames([recent({ placeId: 1, name: "One" }), recent({ placeId: 2, name: "Two" })]);
+    renderRecent();
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear all" }));
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    const [message, destructive] = confirmMock.mock.calls[0];
+    expect(message).toContain("2");
+    expect(message).toContain("cannot be recovered");
+    expect(destructive).toBe(true);
+    expect(screen.getByText("One")).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("ram_recent_games") || "[]")).toHaveLength(2);
   });
 
   /**

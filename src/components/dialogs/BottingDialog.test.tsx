@@ -16,8 +16,8 @@ import {
   setStore,
 } from "../../test-utils/renderWithStore";
 import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
-import { resetPromptMocks } from "../../test-utils/promptMocks";
-import type { StoreValue } from "../../store";
+import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
+import type { BottingAccountStatus, StoreValue } from "../../store";
 
 const A = makeAccount({ UserID: 1, Username: "ann" });
 const B = makeAccount({ UserID: 2, Username: "bob" });
@@ -121,17 +121,107 @@ describe("BottingDialog — start guards", () => {
   });
 });
 
+/** Uma linha do painel ao vivo, como o backend a manda em `status.accounts`. */
+function botRow(overrides: Partial<BottingAccountStatus> = {}): BottingAccountStatus {
+  return {
+    userId: 1,
+    isPlayer: false,
+    disconnected: false,
+    phase: "waiting-rejoin",
+    retryCount: 0,
+    nextRestartAtMs: null,
+    playerGraceUntilMs: null,
+    lastError: null,
+    ...overrides,
+  };
+}
+
+/** Sessão ativa com as duas contas como bot. */
+function activeSession() {
+  return makeBottingStatus({
+    active: true,
+    userIds: [1, 2],
+    accounts: [botRow({ userId: 1 }), botRow({ userId: 2 })],
+  });
+}
+
 describe("BottingDialog — stop controls", () => {
   it("stops the loop, optionally closing the bot clients", async () => {
-    const { store } = renderDialog({
-      bottingStatus: makeBottingStatus({ active: true, userIds: [1, 2] }),
-    });
+    const { store } = renderDialog({ bottingStatus: activeSession() });
 
     await userEvent.click(screen.getByRole("button", { name: "Stop Botting Mode" }));
     expect(store.stopBottingMode).toHaveBeenCalledWith(false);
 
+    // Fechar clientes é destrutivo: passa pelo confirm.
+    promptAnswers.confirm = true;
     await userEvent.click(screen.getByRole("button", { name: "Stop + Close Bot Accounts" }));
-    expect(store.stopBottingMode).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(store.stopBottingMode).toHaveBeenCalledWith(true));
+  });
+});
+
+/**
+ * Fechar cliente é irreversível para quem está jogando: a tela tem que dizer
+ * quantos clientes fecham e o que sobrevive, antes de fechar.
+ */
+describe("BottingDialog — confirma antes de fechar clientes", () => {
+  it("Stop + Close diz quantos clientes bot fecha e o que fica aberto", async () => {
+    const { store } = renderDialog({ bottingStatus: activeSession() });
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Bot Accounts" }));
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    const [message, destructive] = confirmMock.mock.calls[0];
+    expect(message).toContain("2 bot accounts");
+    expect(message).toContain("Player accounts keep their client");
+    expect(message).toContain("outside this session are left alone");
+    expect(destructive).toBe(true);
+    // Recusado: nada fecha.
+    expect(store.stopBottingMode).not.toHaveBeenCalled();
+  });
+
+  it("Stop Botting Mode (sem fechar) não pergunta nada", async () => {
+    const { store } = renderDialog({ bottingStatus: activeSession() });
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop Botting Mode" }));
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(store.stopBottingMode).toHaveBeenCalledWith(false);
+  });
+
+  it("o lote Close client diz quantos clientes fecha e não fecha se recusado", async () => {
+    const { store } = renderDialog({ bottingStatus: activeSession() });
+
+    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Close client (2)" }));
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    expect(confirmMock.mock.calls[0][0]).toContain("2 bot accounts");
+    expect(confirmMock.mock.calls[0][1]).toBe(true);
+    expect(store.bottingAccountAction).not.toHaveBeenCalled();
+  });
+
+  it("o lote Close + Disconnect diz que as contas saem do ciclo", async () => {
+    const { store } = renderDialog({ bottingStatus: activeSession() });
+    promptAnswers.confirm = true;
+
+    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Close + Disconnect (2)" }));
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    expect(confirmMock.mock.calls[0][0]).toContain("rejoin cycle");
+    await waitFor(() => expect(store.bottingAccountAction).toHaveBeenCalledTimes(2));
+    expect(store.bottingAccountAction).toHaveBeenCalledWith(1, "closeDisconnect");
+    expect(store.bottingAccountAction).toHaveBeenCalledWith(2, "closeDisconnect");
+  });
+
+  it("os lotes não destrutivos seguem sem pergunta", async () => {
+    const { store } = renderDialog({ bottingStatus: activeSession() });
+
+    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Restart loop (2)" }));
+
+    await waitFor(() => expect(store.bottingAccountAction).toHaveBeenCalledTimes(2));
+    expect(confirmMock).not.toHaveBeenCalled();
   });
 });
 
