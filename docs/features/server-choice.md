@@ -53,6 +53,15 @@ A aba **reordena a lista recebida** antes de desenhar (`rankRows`), com o númer
 
 Os eventos são aceitos pelo **maior `scanId` já visto**, não pelo id que o `start_server_scan` devolveu: duas varreduras seguidas resolvem o `invoke` fora de ordem, e comparar com o id "atual" podia descartar os eventos da varredura nova e deixar na tela a primeira página da antiga.
 
+### Servidor repetido entre páginas
+
+A lista do Roblox se mexe entre uma requisição e outra (jogador entra, jogador sai), então **o mesmo Job ID volta em páginas diferentes** — em dados reais de um jogo grande, 50 repetidos em 400 servidores, 33 deles só entre a primeira e a segunda página.
+
+A varredura junta as páginas **deduplicando por Job ID** (`extend_unique`), e a aba faz o mesmo antes de desenhar (`dedupeRows`). Sem isso:
+
+- a contagem de "servidores examinados" mentia;
+- e, pior, cada repetido virava uma **chave de lista duplicada** no React, que então parava de reordenar a tabela — a lista subia os servidores bons e travava no meio do caminho, que foi o sintoma relatado (o DOM chegava a ter 183 linhas para uma lista de 150).
+
 ## Regras de negócio
 
 - **Um servidor por lote, não um por conta.** O `shuffleJob` antigo sorteia dentro do laço de cada conta, o que espalha o lote; a preferência resolve antes e manda todo mundo para o mesmo Job ID.

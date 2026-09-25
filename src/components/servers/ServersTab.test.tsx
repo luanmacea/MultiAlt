@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
-import { ServersTab, fitScore, hasRoomFor, matchesRegion, rankRows } from "./ServersTab";
+import { ServersTab, dedupeRows, fitScore, hasRoomFor, matchesRegion, rankRows } from "./ServersTab";
 import type { ServerRow } from "./ServersTab";
 import { makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
 import {
@@ -387,6 +387,52 @@ describe("ServersTab — região", () => {
 
     expect(callsFor("get_server_regions")).toHaveLength(0);
     expect(store.addToast).toHaveBeenCalled();
+  });
+});
+
+describe("ServersTab — servidores repetidos", () => {
+  /**
+   * A lista do Roblox se mexe entre uma página e outra, então o mesmo Job ID
+   * volta em páginas diferentes — nos dados reais do jogo do relato, 50
+   * repetidos em 400. Cada repetido virava uma **chave duplicada** no React,
+   * que então parava de reordenar a tabela: a lista subia os servidores bons e
+   * travava no meio do caminho.
+   */
+  it("descarta o servidor repetido, mantendo o primeiro", () => {
+    const rows = [
+      row({ id: "a", playing: 1 }),
+      row({ id: "b", playing: 2 }),
+      row({ id: "a", playing: 9 }),
+    ];
+    const out = dedupeRows(rows);
+    expect(out.map((r) => r.id)).toEqual(["a", "b"]);
+    expect(out[0].playing).toBe(1);
+  });
+
+  it("descarta linha sem id", () => {
+    expect(dedupeRows([row({ id: "" }), row({ id: "ok" })]).map((r) => r.id)).toEqual(["ok"]);
+  });
+
+  it("a ordenação nunca devolve o mesmo servidor duas vezes", () => {
+    const rows = [
+      row({ id: "cheio", playing: 12, maxPlayers: 13 }),
+      row({ id: "cabe", playing: 2, maxPlayers: 13 }),
+      row({ id: "cheio", playing: 12, maxPlayers: 13 }),
+    ];
+    expect(rankRows(rows, 6).map((r) => r.id)).toEqual(["cabe", "cheio"]);
+  });
+
+  it("renderiza uma linha por servidor mesmo com repetidos no evento", async () => {
+    renderTab([]);
+    emitScan([
+      row({ id: "dup", playing: 2, maxPlayers: 13 }),
+      row({ id: "dup", playing: 2, maxPlayers: 13 }),
+      row({ id: "outro", playing: 3, maxPlayers: 13 }),
+    ]);
+
+    await screen.findByText("dup");
+    expect(screen.getAllByText("dup")).toHaveLength(1);
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });
 });
 

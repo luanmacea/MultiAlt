@@ -289,7 +289,13 @@ pub async fn collect_servers_for(
         )
         .await?;
         let next = page.next_page_cursor.clone();
-        all.extend(page.data);
+        // A lista do Roblox se mexe entre páginas: o mesmo Job ID volta, e sem
+        // filtrar ele contaria duas vezes na escolha do servidor.
+        for server in page.data {
+            if !server.id.trim().is_empty() && !all.iter().any(|s| s.id == server.id) {
+                all.push(server);
+            }
+        }
 
         if preference != ServerPreference::BestFit {
             break;

@@ -111,6 +111,7 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 | `servers-no-fit` | Nenhum servidor cabe: a lista tem que abrir pelos que levam mais contas |
 | `servers-truncated` | O backend diz que existem servidores que cabem, mas a página recebida foi cortada antes deles |
 | `servers-page-limit` | Varredura parada pelo limite de páginas |
+| `servers-real-place` | Réplica com **dados reais** capturados da API (4 páginas do place 15101393044), inclusive com os Job IDs repetidos entre páginas |
 | `friends-online` | Amigos por conta, com uma conta falhando |
 | `launch-queue` | Fila de launch e contas em jogo |
 

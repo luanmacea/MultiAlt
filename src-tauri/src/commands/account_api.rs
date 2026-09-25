@@ -823,7 +823,7 @@ async fn start_server_scan(
                 }
             };
 
-            all.extend(batch);
+            extend_unique(&mut all, batch);
             let fitting = count_fitting(&all, accounts);
             let exhausted = next.as_deref().map(|c| c.trim().is_empty()).unwrap_or(true);
             let enough = fitting >= SCAN_ENOUGH_FITTING;
@@ -849,6 +849,24 @@ async fn start_server_scan(
     });
 
     Ok(scan_id)
+}
+
+/// Junta a página nova **sem repetir servidor**.
+///
+/// A lista do Roblox se mexe entre uma página e outra (jogador entra, jogador
+/// sai), então o mesmo Job ID volta em páginas diferentes — em dados reais, 50
+/// repetidos em 400. Isso inflava a contagem de "servidores examinados" e,
+/// principalmente, mandava ids repetidos para a UI, onde viravam chaves de
+/// lista duplicadas e travavam a reordenação do React.
+fn extend_unique(all: &mut Vec<api::roblox::ServerData>, batch: Vec<api::roblox::ServerData>) {
+    let seen: std::collections::HashSet<String> = all.iter().map(|s| s.id.clone()).collect();
+    let mut seen = seen;
+    for server in batch {
+        if server.id.trim().is_empty() || !seen.insert(server.id.clone()) {
+            continue;
+        }
+        all.push(server);
+    }
 }
 
 /// Quantos servidores da lista cabem o lote inteiro.
@@ -2176,5 +2194,54 @@ mod online_friends_batch_tests {
 
         assert!(results.is_empty());
         assert_eq!(*seen.lock().unwrap(), vec![(0, 0)]);
+    }
+}
+
+#[cfg(test)]
+mod server_scan_dedupe_tests {
+    use super::*;
+
+    fn server(id: &str, playing: i32) -> api::roblox::ServerData {
+        api::roblox::ServerData {
+            id: id.to_string(),
+            max_players: 13,
+            playing,
+            player_tokens: Vec::new(),
+            fps: 60.0,
+            ping: None,
+            name: None,
+            vip_server_id: None,
+            access_code: None,
+        }
+    }
+
+    /// Dados reais do place do relato tinham 50 Job IDs repetidos em 400
+    /// servidores: a lista do Roblox se mexe entre uma página e outra.
+    #[test]
+    fn a_repeated_job_id_is_not_added_twice() {
+        let mut all = vec![server("a", 10), server("b", 9)];
+        extend_unique(&mut all, vec![server("b", 8), server("c", 7)]);
+        let ids: Vec<&str> = all.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+        // A primeira leitura vence: não adianta trocar por um número que já
+        // estará velho no próximo instante.
+        assert_eq!(all[1].playing, 9);
+    }
+
+    #[test]
+    fn a_server_without_an_id_is_dropped() {
+        let mut all = Vec::new();
+        extend_unique(&mut all, vec![server("", 1), server("   ", 2), server("ok", 3)]);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, "ok");
+    }
+
+    /// Sem a deduplicação, a contagem de examinados mentia para o usuário.
+    #[test]
+    fn the_scanned_count_only_counts_distinct_servers() {
+        let mut all = Vec::new();
+        extend_unique(&mut all, vec![server("a", 1), server("b", 2)]);
+        extend_unique(&mut all, vec![server("a", 1), server("b", 2)]);
+        assert_eq!(all.len(), 2);
     }
 }

@@ -12,6 +12,7 @@
  * entrega os mesmos dados que a API do Roblox entregaria (inclusive na ordem
  * ruim), para a UI ter que se virar.
  */
+import realPlacePages from "./fixtures/place-15101393044.json";
 import {
   harnessCalls,
   harnessEmit,
@@ -178,6 +179,41 @@ const SCENARIOS: Record<string, () => void> = {
           error: null,
         }));
       }
+      return baseHandler(cmd, args);
+    });
+  },
+
+  /**
+   * Réplica com **dados reais** do place 15101393044 (o do relato): 4 páginas
+   * capturadas da API do Roblox, entregues página a página como a varredura
+   * faz. É o cenário para conferir a ordem da lista contra o mundo real.
+   */
+  "servers-real-place"() {
+    const pages = realPlacePages as { id: string; playing: number; maxPlayers: number; ping: number | null }[][];
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "start_server_scan") {
+        const all: (typeof pages)[number] = [];
+        pages.forEach((page, index) => {
+          setTimeout(() => {
+            all.push(...page);
+            harnessEmit("server-scan", {
+              scanId: 1,
+              placeId: Number(args.placeId) || 0,
+              servers: [
+                ...all.filter((s) => s.playing + accountCount <= s.maxPlayers),
+                ...all.filter((s) => s.playing + accountCount > s.maxPlayers),
+              ].slice(0, 150),
+              scanned: all.length,
+              fitting: all.filter((s) => s.playing + accountCount <= s.maxPlayers).length,
+              done: index === pages.length - 1,
+              stoppedAtLimit: false,
+              error: null,
+            });
+          }, 250 * (index + 1));
+        });
+        return 1;
+      }
+      if (cmd === "stop_server_scan") return null;
       return baseHandler(cmd, args);
     });
   },

@@ -174,6 +174,7 @@ export const SUITES: Record<string, TestSuite> = {
       "server_region_payload_tests",
       "server_region_http_tests",
       "server_scan_budget_tests",
+      "server_scan_dedupe_tests",
     ],
     front: ["src/components/servers", "src/components/server-list"],
   },
