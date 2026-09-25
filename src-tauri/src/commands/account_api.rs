@@ -112,10 +112,11 @@ async fn resolve_join_link(
     if parsed.share_code.is_none() {
         return api::roblox::resolve_join_link("", &link).await;
     }
-    let link = link.clone();
-    run_with_session_retry(state.inner(), user_id, move |cookie| {
-        let link = link.clone();
-        async move { api::roblox::resolve_join_link(&cookie, &link).await }
+    // Resolver o share link e leitura: se o cookie estiver velho, isto falha e a
+    // pessoa reloga. Renovar sessao aqui derrubaria os clientes abertos da conta
+    // para resolver um link — preco alto demais para uma consulta.
+    read_without_refresh(state.inner(), user_id, move |cookie| async move {
+        api::roblox::resolve_join_link(&cookie, &link).await
     })
     .await
 }
@@ -130,10 +131,29 @@ async fn get_csrf_token(
     state: tauri::State<'_, AccountStore>,
     user_id: i64,
 ) -> Result<String, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::auth::get_csrf_token(&cookie).await
     })
     .await
+}
+
+/// Leitura que **não** pode renovar sessão: pega o cookie e chama a API direto.
+///
+/// O refresh (`run_with_session_retry`) chama
+/// `signoutfromallsessionsandreauthenticate`, que desloga a conta de todas as
+/// sessões e pode derrubar clientes Roblox abertos. Para leitura, um cookie velho
+/// tem de virar erro na tela — quem lê o saldo não aceita esse preço.
+async fn read_without_refresh<T, F, Fut>(
+    state: &AccountStore,
+    user_id: i64,
+    operation: F,
+) -> Result<T, String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    let cookie = get_cookie(state, user_id)?;
+    operation(cookie).await
 }
 
 /// Ticket de auth para os links que o menu de contexto copia (`roblox-player://`
@@ -143,8 +163,10 @@ async fn get_csrf_token(
 /// conta só porque o cookie estava velho. O launch tem o seu próprio caminho e
 /// continua com retry.
 async fn auth_ticket_without_refresh(state: &AccountStore, user_id: i64) -> Result<String, String> {
-    let cookie = get_cookie(state, user_id)?;
-    api::auth::get_auth_ticket(&cookie).await
+    read_without_refresh(state, user_id, |cookie| async move {
+        api::auth::get_auth_ticket(&cookie).await
+    })
+    .await
 }
 
 #[tauri::command]
@@ -157,7 +179,7 @@ async fn get_auth_ticket(
 
 #[tauri::command]
 async fn check_pin(state: tauri::State<'_, AccountStore>, user_id: i64) -> Result<bool, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::auth::check_pin(&cookie).await
     })
     .await
@@ -187,7 +209,7 @@ async fn refresh_cookie(
 
 #[tauri::command]
 async fn get_robux(state: tauri::State<'_, AccountStore>, user_id: i64) -> Result<i64, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::roblox::get_robux(&cookie).await
     })
     .await
@@ -556,7 +578,7 @@ async fn get_blocked_users(
     state: tauri::State<'_, AccountStore>,
     user_id: i64,
 ) -> Result<Vec<api::roblox::BlockedUser>, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::roblox::get_blocked_users(&cookie).await
     })
     .await
@@ -591,7 +613,7 @@ async fn get_private_server_invite_privacy(
     state: tauri::State<'_, AccountStore>,
     user_id: i64,
 ) -> Result<String, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::roblox::get_private_server_invite_privacy(&cookie).await
     })
     .await
@@ -2276,5 +2298,67 @@ mod server_scan_dedupe_tests {
         extend_unique(&mut all, vec![server("a", 1), server("b", 2)]);
         extend_unique(&mut all, vec![server("a", 1), server("b", 2)]);
         assert_eq!(all.len(), 2);
+    }
+}
+
+/// O refresh de sessão chama `signoutfromallsessionsandreauthenticate`: ele
+/// desloga a conta de **todas** as sessões e pode derrubar clientes Roblox
+/// abertos. Por isso o CLAUDE.md proíbe `run_with_session_retry` em leitura não
+/// crítica — perder o saldo de Robux na tela não justifica derrubar o jogo de
+/// ninguém. Este teste é estrutural de propósito: ele lê o próprio arquivo, para
+/// que um comando de leitura novo não entre com retry sem alguém notar.
+#[cfg(test)]
+mod read_only_retry_tests {
+    const FONTE: &str = include_str!("account_api.rs");
+
+    /// Comandos que são leitura: pegam o cookie, leem algo e devolvem. Nenhum
+    /// deles pode renovar sessão por causa de um 401.
+    const LEITURAS: &[&str] = &[
+        "get_auth_ticket",
+        "get_csrf_token",
+        "check_pin",
+        "get_robux",
+        "get_blocked_users",
+        "get_private_server_invite_privacy",
+        "resolve_join_link",
+    ];
+
+    /// Corpo da função: da assinatura até o fecha-chaves de coluna zero.
+    ///
+    /// Cortar na próxima `async fn` engolia o comentário da função seguinte — e
+    /// um comentário que **explica** por que ali não se usa `run_with_session_retry`
+    /// fazia o teste acusar quem estava certo.
+    fn corpo_da_funcao(nome: &str) -> &'static str {
+        let assinatura = format!("async fn {nome}(");
+        let inicio = FONTE
+            .find(&assinatura)
+            .unwrap_or_else(|| panic!("função {nome} não existe mais neste arquivo"));
+        let resto = &FONTE[inicio + assinatura.len()..];
+        match resto.find("\n}\n") {
+            Some(fim) => &resto[..fim],
+            None => resto,
+        }
+    }
+
+    #[test]
+    fn read_only_commands_never_refresh_the_session() {
+        let culpados: Vec<&str> = LEITURAS
+            .iter()
+            .copied()
+            .filter(|nome| corpo_da_funcao(nome).contains("run_with_session_retry"))
+            .collect();
+        assert!(
+            culpados.is_empty(),
+            "estes comandos são leitura e não podem renovar sessão: {culpados:?}"
+        );
+    }
+
+    /// Guarda contra o teste se tornar vazio por engano (nome mudou, arquivo
+    /// dividido): se a varredura não enxerga mais o retry em lugar nenhum, é
+    /// porque ela parou de ler o arquivo de verdade.
+    #[test]
+    fn the_scan_still_sees_the_retry_helper_in_the_file() {
+        assert!(FONTE.contains("fn run_with_session_retry"));
+        assert!(FONTE.matches("run_with_session_retry(").count() > 5);
     }
 }
