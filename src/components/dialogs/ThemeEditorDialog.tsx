@@ -52,7 +52,17 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
   const store = useStore();
   const prompt = usePrompt();
   const confirm = useConfirm();
-  const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const closeRef = useRef<() => void>(() => {});
+
+  // O Escape deste diálogo reverte a pré-visualização antes de fechar; por isso
+  // ele passa a própria ação para o `useModalClose`, em vez de escutar `window`
+  // por conta própria (o que fazia o Escape chegar duas vezes).
+  const { visible, closing, handleClose } = useModalClose(open, onClose, 100, () => {
+    store.applyThemePreview(openThemeRef.current);
+    closeRef.current();
+  });
+  // A ref existe porque o callback acima e montado antes de `handleClose` existir.
+  closeRef.current = handleClose;
   const [category, setCategory] = useState<Category>("Accounts");
   const [theme, setThemeLocal] = useState<ThemeData>({ ...DEFAULT_THEME });
   const [savedTheme, setSavedTheme] = useState<ThemeData>({ ...DEFAULT_THEME });
@@ -61,6 +71,9 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
   const openThemeRef = useRef<ThemeData>({ ...DEFAULT_THEME });
   const presetMenuRef = useRef<HTMLDivElement>(null);
+  const fontFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingFontKindRef = useRef<"sans" | "mono">("sans");
+  const presetFileInputRef = useRef<HTMLInputElement>(null);
 
   const presetOptions = useMemo<PresetOption[]>(() => {
     const builtIn = THEME_PRESETS.map((preset) => ({
@@ -110,16 +123,8 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
         setCustomPresets([]);
       });
 
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        store.applyThemePreview(openThemeRef.current);
-        handleClose();
-      }
-    }
-    window.addEventListener("keydown", onKey);
     return () => {
       cancelled = true;
-      window.removeEventListener("keydown", onKey);
     };
   }, [open]);
 
@@ -206,12 +211,21 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
     return { options, selectedValue };
   }
 
-  async function importLocalFont(kind: "sans" | "mono") {
-    const path = await prompt("Font file path (.ttf, .otf, .woff, .woff2):");
-    if (!path?.trim()) return;
+  function importLocalFont(kind: "sans" | "mono") {
+    pendingFontKindRef.current = kind;
+    fontFileInputRef.current?.click();
+  }
+
+  async function handleFontFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const kind = pendingFontKindRef.current;
     try {
-      const result = await invoke<{ file: string; suggested_family: string }>("import_theme_font_asset", {
-        path: path.trim(),
+      const fileData = Array.from(new Uint8Array(await file.arrayBuffer()));
+      const result = await invoke<{ file: string; suggested_family: string }>("import_theme_font_bytes", {
+        fileName: file.name,
+        fileData,
       });
       const family = result.suggested_family || "Custom Font";
       const fallbacks = kind === "sans" ? DEFAULT_FONT_SANS.fallbacks : DEFAULT_FONT_MONO.fallbacks;
@@ -297,12 +311,19 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
     }
   }
 
-  async function handleImportPresetFile() {
-    const path = await prompt(t("Preset file path (.json, .ram-theme.json, or .ram-theme.zip):"));
-    if (!path?.trim()) return;
+  function handleImportPresetFile() {
+    presetFileInputRef.current?.click();
+  }
+
+  async function handlePresetFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
     try {
-      const preset = await invoke<CustomThemePreset>("import_theme_preset_file", {
-        path: path.trim(),
+      const fileData = Array.from(new Uint8Array(await file.arrayBuffer()));
+      const preset = await invoke<CustomThemePreset>("import_theme_preset_bytes", {
+        fileName: file.name,
+        fileData,
       });
       setCustomPresets((prev) => upsertCustomPreset(prev, preset));
       const key = `${CUSTOM_PREFIX}${preset.id}`;
@@ -426,6 +447,14 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
 
         return (
           <div className="space-y-4">
+            <input
+              ref={fontFileInputRef}
+              type="file"
+              accept=".ttf,.otf,.woff,.woff2"
+              className="hidden"
+              data-testid="import-font-file-input"
+              onChange={handleFontFileSelected}
+            />
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs text-[var(--panel-fg)] shrink-0 w-20">Sans</div>
               <div className="flex-1">
@@ -556,6 +585,14 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
               >
                 {t("Save Preset")}
               </button>
+              <input
+                ref={presetFileInputRef}
+                type="file"
+                accept=".json,.ram-theme.json,.zip,.ram-theme.zip"
+                className="hidden"
+                data-testid="import-preset-file-input"
+                onChange={handlePresetFileSelected}
+              />
               <button
                 onClick={handleImportPresetFile}
                 className="theme-btn px-3 py-1.5 text-xs font-medium"
