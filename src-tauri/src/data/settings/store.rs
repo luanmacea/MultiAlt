@@ -58,6 +58,7 @@ impl SettingsStore {
             ("ShowPresence", "true", None),
             ("PresenceUpdateRate", "5", None),
             ("WarnOnOnlineJoin", "true", None),
+            ("WarnOnCopyCredential", "true", None),
             ("UnlockFPS", "false", None),
             ("MaxFPSValue", "120", None),
             ("CustomClientSettings", "", None),

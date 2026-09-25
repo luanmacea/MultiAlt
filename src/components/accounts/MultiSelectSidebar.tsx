@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useJoinOnlineWarning } from "../../hooks/useJoinOnlineWarning";
+import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
 import { parseGroupName } from "../../types";
 import { SidebarSection } from "./SidebarSection";
 import { AccountChip } from "./AccountChip";
@@ -16,6 +17,7 @@ export function MultiSelectSidebar() {
   const prompt = usePrompt();
   const confirm = useConfirm();
   const confirmJoinOnline = useJoinOnlineWarning();
+  const confirmCopyCredential = useCopyCredentialWarning();
   const accounts = store.selectedAccounts;
   const count = accounts.length;
   const [refreshing, setRefreshing] = useState(false);
@@ -95,6 +97,9 @@ export function MultiSelectSidebar() {
 
   async function handleCopyCookies() {
     const cookies = accounts.map((a) => a.SecurityToken).filter(Boolean);
+    // Cookie de toda a seleção num clique, sem aviso: agora o aviso diz o que
+    // um cookie entrega e quantas contas vão junto.
+    if (!(await confirmCopyCredential("cookie", cookies.length))) return;
     await navigator.clipboard.writeText(cookies.join("\n"));
     store.addToast(tr("Copied {{count}} cookies", { count: cookies.length }));
   }

@@ -2,6 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
+import {
+  useCopyCredentialWarning,
+  type CopyCredentialKind,
+} from "../../hooks/useCopyCredentialWarning";
 import { useTr } from "../../i18n/text";
 import { MenuItemView } from "./MenuItemView";
 import type { MenuItem } from "./MenuItemView";
@@ -11,6 +15,7 @@ export function ContextMenu() {
   const t = useTr();
   const prompt = usePrompt();
   const confirm = useConfirm();
+  const confirmCopyCredential = useCopyCredentialWarning();
   const ref = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
 
@@ -67,15 +72,25 @@ export function ContextMenu() {
     return value.replace(/\D/g, "");
   }
 
-  function copyMulti(getter: (a: typeof accounts[0]) => string, label: string) {
+  /**
+   * `credential` liga o aviso: cookie, senha e user:pass saem daqui para a área
+   * de transferência de **todas** as contas selecionadas de uma vez. Username,
+   * User ID e Profile Link não são credencial e continuam sem confirmação.
+   */
+  async function copyMulti(
+    getter: (a: typeof accounts[0]) => string,
+    label: string,
+    credential?: CopyCredentialKind
+  ) {
+    if (credential && !(await confirmCopyCredential(credential, accounts.length))) return;
     const text = accounts.map(getter).join("\n");
-    copyToClipboard(text, label);
+    await copyToClipboard(text, label);
   }
 
   const copySubmenu: MenuItem[] = [
     {
       label: t("Cookie"),
-      action: () => copyMulti((a) => a.SecurityToken, t("cookie")),
+      action: () => copyMulti((a) => a.SecurityToken, t("cookie"), "cookie"),
     },
     {
       label: t("Username"),
@@ -83,11 +98,12 @@ export function ContextMenu() {
     },
     {
       label: t("Password"),
-      action: () => copyMulti((a) => a.Password, t("password")),
+      action: () => copyMulti((a) => a.Password, t("password"), "password"),
     },
     {
       label: t("User:Pass"),
-      action: () => copyMulti((a) => `${a.Username}:${a.Password}`, t("user:pass")),
+      action: () =>
+        copyMulti((a) => `${a.Username}:${a.Password}`, t("user:pass"), "userpass"),
     },
     { separator: true, label: "" },
     {
@@ -112,6 +128,19 @@ export function ContextMenu() {
         devOnly: true,
         action: async () => {
           if (!single) return;
+          // O link não é só texto: montá-lo pede um auth ticket novo à Roblox, e
+          // quem abrir o link entra como esta conta.
+          const accountLabel = single.Alias || single.Username;
+          if (
+            !(await confirm(
+              t(
+                "Copy a roblox-player launch link for {{name}}? The app asks Roblox for a new auth ticket to build it, and whoever opens the link joins as {{name}}.",
+                { name: accountLabel }
+              )
+            ))
+          ) {
+            return;
+          }
           try {
             const ticket = await invoke<string>("get_auth_ticket", {
               userId: single.UserID,
@@ -129,6 +158,17 @@ export function ContextMenu() {
         devOnly: true,
         action: async () => {
           if (!single) return;
+          const accountLabel = single.Alias || single.Username;
+          if (
+            !(await confirm(
+              t(
+                "Copy an app launch link for {{name}}? The app asks Roblox for a new auth ticket to build it, and whoever opens the link signs in as {{name}}.",
+                { name: accountLabel }
+              )
+            ))
+          ) {
+            return;
+          }
           try {
             const ticket = await invoke<string>("get_auth_ticket", {
               userId: single.UserID,
@@ -249,6 +289,20 @@ export function ContextMenu() {
         devOnly: true,
         action: async () => {
           if (!single) return;
+          // O ticket cru vale o mesmo que os dois links: quem o tiver entra como
+          // esta conta enquanto ele durar.
+          const accountLabel = single.Alias || single.Username;
+          if (
+            !(await confirm(
+              t(
+                "Copy the raw auth ticket of {{name}}? The app asks Roblox for a new one, and whoever holds it signs in as {{name}} until it expires.",
+                { name: accountLabel }
+              ),
+              true
+            ))
+          ) {
+            return;
+          }
           try {
             const ticket = await invoke<string>("get_auth_ticket", {
               userId: single.UserID,

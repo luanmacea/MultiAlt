@@ -303,6 +303,12 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         description="Show a confirmation if selected accounts are already online/in-game"
       />
       <Toggle
+        checked={s.get("General", "WarnOnCopyCredential", "true") === "true"}
+        onChange={(v) => s.setBool("General", "WarnOnCopyCredential", v)}
+        label="Warn Before Copying Credentials"
+        description="Show a confirmation before a cookie or password goes to the clipboard"
+      />
+      <Toggle
         checked={s.getBool("General", "AutoCookieRefresh")}
         onChange={(v) => s.setBool("General", "AutoCookieRefresh", v)}
         label="Auto Cookie Refresh"
