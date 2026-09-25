@@ -738,7 +738,6 @@
   "Ignore Timer Resolution": "Ignorar a resolução do timer",
   "Invalid allowlisted fast flags JSON": "JSON das fast flags permitidas inválido",
   "Low": "Baixo",
-  "Lowers scheduling priority for off-screen or minimized Roblox clients": "Abaixa a prioridade dos clientes do Roblox que estão minimizados ou fora da tela",
   "Only Roblox allowlisted keys are accepted": "Só as chaves permitidas pelo Roblox são aceitas",
   "Optimization Profiles": "Perfis de otimização",
   "Optimization settings are applied after PID detection and before background minimization completes": "Os ajustes de otimização são aplicados depois que o PID aparece e antes de a minimização em segundo plano terminar",
@@ -1578,5 +1577,6 @@
   "Couldn't find a Universe ID in \"{{input}}\". Paste a numeric Universe ID, or a link containing universeId=....": "Não achei um Universe ID em \"{{input}}\". Cole um Universe ID numérico, ou um link que contenha universeId=....",
   "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.": "Procurando um item pelo nome? Use o Vestir a roupa aqui em cima — ele lista as roupas pelo nome e monta esse JSON sozinho.",
   "Optimization profile": "Perfil de otimização",
-  "That is not valid JSON — check the commas, braces and quotes.": "Isso não é um JSON válido — confira as vírgulas, as chaves e as aspas."
+  "That is not valid JSON — check the commas, braces and quotes.": "Isso não é um JSON válido — confira as vírgulas, as chaves e as aspas.",
+  "Forces Idle priority on every Roblox client of this profile, even the one in focus": "Força prioridade Idle em todos os clientes do Roblox deste perfil, inclusive o que está em foco"
 }

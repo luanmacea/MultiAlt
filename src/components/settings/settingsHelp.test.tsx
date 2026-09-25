@@ -193,6 +193,22 @@ describe("OptimizationTab explains what the fields do", () => {
   });
 
   /**
+   * A descricao dizia "off-screen or minimized", e isso e falso:
+   * `apply_priority_class` (platform/windows/optimization.rs:278-292) forca
+   * `IDLE_PRIORITY_CLASS` sempre que `BackgroundMode` esta ligado — nao olha
+   * janela nenhuma. Quem lia ligava esperando que o cliente em foco fosse
+   * poupado.
+   */
+  it("says Background Mode always forces Idle, not only when minimized", async () => {
+    renderOptimization({ Optimization: { NormalEnableProcessPolicy: "true" } });
+    const descricao = await screen.findByText(
+      "Forces Idle priority on every Roblox client of this profile, even the one in focus"
+    );
+    expect(descricao).toBeInTheDocument();
+    expect(screen.queryByText(/off-screen or minimized/i)).not.toBeInTheDocument();
+  });
+
+  /**
    * `MemoryPriority` vira `ProcessMemoryPriority`
    * (platform/windows/optimization.rs:297-315): decide de quem o Windows tira
    * memoria primeiro quando a RAM aperta.

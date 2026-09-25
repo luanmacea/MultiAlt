@@ -770,7 +770,6 @@
   "Start Roblox Minimized": "Roblox minimiert starten",
   "Use same client settings for player and bots": "Dieselben Client-Einstellungen für Spieler und Bots verwenden",
   "Launches Roblox and minimizes the client window right after startup": "Startet Roblox und minimiert das Client-Fenster direkt nach dem Start",
-  "Lowers scheduling priority for off-screen or minimized Roblox clients": "Senkt die Scheduling-Priorität für ausgeblendete oder minimierte Roblox-Clients",
   "Hints Windows to favor efficiency over burst performance": "Signalisiert Windows, Effizienz gegenüber kurzer Spitzenleistung zu bevorzugen",
   "Reduces timer-resolution pressure for background Roblox clients": "Reduziert den Timer-Auflösungsdruck für Roblox-Clients im Hintergrund",
   "Caps this Roblox process with a per-process Windows job object": "Begrenzt diesen Roblox-Prozess mit einem Windows-Jobobjekt pro Prozess",
