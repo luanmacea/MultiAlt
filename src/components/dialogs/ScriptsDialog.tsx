@@ -3027,10 +3027,19 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
         onClick={(event) => event.stopPropagation()}
       >
         <div className="px-5 py-3 border-b theme-border flex items-center justify-between gap-3">
+          {/* A explicação do que o recurso é fica no cabeçalho de propósito: é o
+              único lugar visível assim que o diálogo abre, com ou sem script
+              selecionado. Escondê-la numa aba é o que gerou a confusão de achar
+              que isto executa/injeta Lua no cliente do Roblox. */}
           <div className="min-w-0">
             <div className="text-[15px] font-semibold text-zinc-100">{t("Scripts")}</div>
-            <div className="text-[11px] text-zinc-500 truncate">
-              {t("Trusted JavaScript automation with UI, modal, settings, and HTTP support")}
+            <div className="text-[11px] text-zinc-400">
+              {t("JavaScript automation that runs inside RAM, not a Roblox executor or injector")}
+            </div>
+            <div className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+              {t(
+                "Scripts run in a sandboxed Web Worker and talk to the app through the ram.* API. They cannot inject code into the Roblox client and never receive account cookies or passwords."
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -3381,6 +3390,11 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                       <div className="grid grid-cols-2 gap-3">
                         <PermissionRow
                           label={t("Invoke Rust Commands")}
+                          // Allow-list em SCRIPT_INVOKE_COMMANDS; `get_accounts`
+                          // só passa pela rota filtrada (SCRIPT_INVOKE_SANITIZERS).
+                          description={t(
+                            "Runs app commands: add, edit or remove accounts, launch or kill clients, start botting, the generator and the local servers. Cookies and passwords are stripped from the results."
+                          )}
                           enabled={draft.permissions.allowInvoke}
                           onChange={(value) => {
                             updateDraft((prev) => ({
@@ -3391,6 +3405,9 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         />
                         <PermissionRow
                           label={t("HTTP Requests")}
+                          description={t(
+                            "Sends requests to any public http/https address, so data the script can read may leave this machine."
+                          )}
                           enabled={draft.permissions.allowHttp}
                           onChange={(value) => {
                             updateDraft((prev) => ({
@@ -3401,6 +3418,10 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         />
                         <PermissionRow
                           label={t("WebSocket Connections")}
+                          // Teto real: SCRIPT_SECURITY_LIMITS.maxWebSocketConnections = 8.
+                          description={t(
+                            "Keeps up to 8 live ws/wss connections open to an outside server."
+                          )}
                           enabled={draft.permissions.allowWebSocket}
                           onChange={(value) => {
                             updateDraft((prev) => ({
@@ -3411,6 +3432,11 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         />
                         <PermissionRow
                           label={t("Window Snapshot")}
+                          // Conteúdo do snapshot: ScriptWindowSnapshot; settings
+                          // passam por redactSecretSettings antes de sair daqui.
+                          description={t(
+                            "Reads app state on demand: account list, aliases, groups, selection, presence and the current Place/Job ID. No cookies or passwords."
+                          )}
                           enabled={draft.permissions.allowWindow}
                           onChange={(value) => {
                             updateDraft((prev) => ({
@@ -3421,6 +3447,9 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         />
                         <PermissionRow
                           label={t("Modal Access")}
+                          description={t(
+                            "Opens alert, confirm and input dialogs on top of the app window."
+                          )}
                           enabled={draft.permissions.allowModal}
                           onChange={(value) => {
                             updateDraft((prev) => ({
@@ -3431,6 +3460,11 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         />
                         <PermissionRow
                           label={t("Script Settings")}
+                          // buildScriptSettingsSection prende a leitura/escrita
+                          // à seção `Script.<id>` do próprio script.
+                          description={t(
+                            "Reads and writes only this script's own section of RAMSettings.ini."
+                          )}
                           enabled={draft.permissions.allowSettings}
                           onChange={(value) => {
                             updateDraft((prev) => ({
@@ -3441,6 +3475,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         />
                         <PermissionRow
                           label={t("Custom UI")}
+                          description={t("Draws the script's own controls in the UI tab of this dialog.")}
                           enabled={draft.permissions.allowUi}
                           onChange={(value) => {
                             updateDraft((prev) => ({
@@ -3451,6 +3486,11 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         />
                         <PermissionRow
                           label={t("Private Network (localhost/LAN)")}
+                          // isPrivateOrLoopbackHost bloqueia esses alvos por padrão
+                          // em normalizeScriptHttpUrl/normalizeWebSocketUrl.
+                          description={t(
+                            "Lets HTTP and WebSocket calls reach localhost and your local network instead of only the public internet."
+                          )}
                           enabled={draft.permissions.allowPrivateNetwork === true}
                           onChange={(value) => {
                             updateDraft((prev) => ({
@@ -3817,10 +3857,13 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
 
 function PermissionRow({
   label,
+  description,
   enabled,
   onChange,
 }: {
   label: string;
+  /** O que um script consegue fazer com a permissão ligada — o risco concreto. */
+  description: string;
   enabled: boolean;
   onChange: (value: boolean) => void;
 }) {
@@ -3829,13 +3872,16 @@ function PermissionRow({
       onClick={() => onChange(!enabled)}
       className="w-full px-3 py-2 rounded-lg border border-zinc-700/60 bg-zinc-800/35 hover:bg-zinc-700/45 transition-colors text-left"
     >
-      <span className="inline-flex items-center gap-2 text-[12px] text-zinc-300">
+      <span className="flex items-start gap-2 text-[12px] text-zinc-300">
         <span
-          className={`h-2.5 w-2.5 rounded-full ${
+          className={`mt-1.5 shrink-0 h-2.5 w-2.5 rounded-full ${
             enabled ? "bg-emerald-400" : "bg-zinc-600"
           }`}
         />
-        {label}
+        <span className="min-w-0">
+          <span className="block">{label}</span>
+          <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">{description}</span>
+        </span>
       </span>
     </button>
   );
