@@ -132,6 +132,22 @@ describe("MiscellaneousTab explains what the fields do", () => {
    * O intervalo de presenca e `max(30s, minutos)` e so roda com
    * `ShowPresence` ligado (store.tsx:2064-2077).
    */
+  /**
+   * `should_shuffle_server` (commands/launch.rs:112) so sorteia quando
+   * `!follow_user && job_id.is_empty()`: com Job ID digitado ou seguindo alguem,
+   * o sorteio e ignorado em silencio. A descricao antiga ("Randomize which server
+   * instance to join") prometia sorteio sempre.
+   */
+  it("says when Shuffle Job ID is ignored", async () => {
+    stored = {};
+    renderTab((s) => <MiscellaneousTab s={s} />);
+    expect(
+      await screen.findByText(
+        "Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("explains the presence refresh interval", async () => {
     stored = {};
     renderTab((s) => <MiscellaneousTab s={s} />);

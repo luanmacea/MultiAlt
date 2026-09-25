@@ -156,22 +156,21 @@ deu para confirmar ficou sem texto, e está listado abaixo.
 ## Achados novos, levantados durante o P2
 
 Explicar o que está na tela obriga a ler o código que sustenta a frase — e foi aí
-que estes apareceram. Os **dois de gravidade alta estão corrigidos** (marcados com
-✅ abaixo); os demais seguem abertos, e continuam sendo mudança de comportamento,
-não de texto. Onde a tela não podia prometer o que o código não faz, o texto foi
+que estes apareceram. **Todos foram tratados**: oito corrigidos (✅) e um decidido
+como "fica assim, e o porquê está escrito" (📝). Onde a tela não podia prometer o que o código não faz, o texto foi
 escrito escapando do ponto (e isso está dito na linha).
 
 | Gravidade | Achado | Onde |
 |---|---|---|
 | ✅ Alta | **`LastUse` nunca era atualizado por lançamento** — a coluna "3d"/"2mo" e a bolinha mediam idade do cadastro. Agora `mark_used` roda no `Done` da fila de launch, no ciclo do Botting e nos launches do web server. Efeito colateral bom: o auto-refresh de cookie (que desloga todas as sessões) deixa de mirar conta que está em uso | `data/accounts/store.rs` (`mark_used`), `commands/launch.rs` (`launch_queue_mark`) |
 | ✅ Alta | **`Allow Account Editing` não cobria tudo que edita a conta**: `/SetAvatar`, `/BlockUser`, `/UnblockUser` e `/UnblockEveryone` passavam só com a senha. Agora exigem a flag, como as rotas de campo/apelido/descrição já exigiam (quebra de compatibilidade registrada em webserver.md) | `api/server/handlers_edit.rs` + `edit_permission_tests` |
-| Média | **O snapshot da janela é empurrado para todo script** assim que ele sobe, sem checar `allowWindow` — a permissão só barra a leitura sob demanda | `ScriptsDialog.tsx:2387-2391` |
-| Média | **A descrição de `Background Mode` está errada**: fala em cliente minimizado/fora da tela, mas o código força `IDLE_PRIORITY_CLASS` no processo sem olhar janela nenhuma | `platform/windows/optimization.rs:280` |
-| Média | **`quick_login_validate_code` existe no backend e nada no frontend o chama** — o fluxo do Roblox normalmente é `enterCode` + confirmação | `api/auth.rs:414`, `commands/account_api.rs:1317` |
-| Baixa | **Exportar o `Nexus.lua` não dá retorno nenhum**: sucesso só copia o caminho, erro é engolido por `catch {}`, e com a feature `nexus` desligada o clique não faz nada visível | `NexusDialog.tsx`, `commands/services.rs:297` |
-| Baixa | **A detecção de "multi roblox" por substring em inglês está duplicada em três lugares** | `App.tsx`, `MultiSelectSidebar.tsx:63`, `BottingDialog.tsx:94` |
-| Baixa | **O comentário gravado no INI para `ServerRegionFormat` aponta `ip-api.com`**, que não corresponde aos cinco tokens que o código substitui | `data/settings/store.rs:49` |
-| Baixa | **`Shuffle Job ID` explica pela metade**: o sorteio é ignorado quando há Job ID digitado ou quando se usa "follow user" | `commands/launch.rs:112-114` |
+| ✅ Média | **O snapshot da janela era empurrado para todo script** sem checar `allowWindow`. Agora os dois pontos de envio passam por `snapshotForPermissions`: sem a permissão sobram só as settings redigidas e o `ts` | `scripting/security.ts`, `ScriptsDialog.tsx` |
+| ✅ Média | **A descrição de `Background Mode` estava errada** (falava em cliente minimizado). Agora diz que força Idle em todos os clientes do perfil, inclusive o em foco | `OptimizationTab.tsx` + teste em `settingsHelp.test.tsx` |
+| 📝 Média | **`quick_login_validate_code` existe no backend e nada o chama** — decidido deixar como está e registrar o porquê em [authentication.md](features/authentication.md): o fluxo usado é `enterCode` + confirmação no aparelho, e o frontend já exige 6 dígitos | `api/auth.rs:414` |
+| ✅ Baixa | **Exportar o `Nexus.lua` não dava retorno nenhum** (erro engolido por `catch {}`). Agora diz onde o arquivo foi salvo, se o caminho foi copiado, e mostra a falha quando o comando falha | `NexusDialog.tsx` |
+| ✅ Baixa | **A detecção de "multi roblox" estava duplicada em três lugares**. Virou `isMultiRobloxCloseProcessError` em `utils/robloxErrors.ts`, com teste | `App.tsx`, `MultiSelectSidebar.tsx`, `BottingDialog.tsx` |
+| ✅ Baixa | **O comentário do INI para `ServerRegionFormat` apontava `ip-api.com`**, sem relação com os tokens reais. Agora lista os cinco que `format_region` substitui | `data/settings/store.rs` |
+| ✅ Baixa | **`Shuffle Job ID` explicava pela metade**. A descrição agora diz que Job ID digitado ou seguir um jogador vencem o sorteio | `MiscellaneousTab.tsx` + teste |
 
 ### O backend não compila fora do Windows
 

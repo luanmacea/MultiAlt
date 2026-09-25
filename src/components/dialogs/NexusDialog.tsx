@@ -1007,6 +1007,7 @@ function SettingNumber({
 
 function HelpPanel({ port }: { port: number }) {
   const t = useTr();
+  const store = useStore();
   return (
     <div className="p-5 space-y-4 overflow-y-auto h-full">
       <div>
@@ -1088,10 +1089,19 @@ function HelpPanel({ port }: { port: number }) {
       <div className="flex items-center gap-2">
         <button
           onClick={async () => {
+            // Antes: sucesso era silencio e erro caia num `catch {}` vazio — com a
+            // feature `nexus` desligada no build, o clique parecia nao fazer nada.
             try {
               const path = await invoke<string>("export_nexus_lua");
-              await navigator.clipboard.writeText(path);
-            } catch {}
+              try {
+                await navigator.clipboard.writeText(path);
+                store.addToast(t("Nexus.lua saved in {{path}} (path copied)", { path }));
+              } catch {
+                store.addToast(t("Nexus.lua saved in {{path}}", { path }));
+              }
+            } catch (e) {
+              store.addToast(t("Could not save Nexus.lua: {{error}}", { error: String(e) }));
+            }
           }}
           className="px-3 py-1.5 bg-zinc-800 border border-zinc-700/50 rounded-lg text-[11px] text-zinc-300 hover:bg-zinc-700 transition-colors"
         >

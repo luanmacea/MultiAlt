@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -101,6 +101,37 @@ describe("NexusDialog — Help explica o pré-requisito", () => {
     expect(screen.getByText(/Save Nexus\.lua.*below/i)).toBeInTheDocument();
     // O botão grava o arquivo ao lado do app e copia o caminho — sem isso o nome engana.
     expect(screen.getByText(/copies its path to the clipboard/i)).toBeInTheDocument();
+  });
+
+  /**
+   * O clique gravava o arquivo, copiava o caminho e nao dizia nada: sucesso era
+   * silencio e erro era engolido por um `catch {}` vazio. Quem clicava nao sabia
+   * se algo aconteceu — e, com a feature `nexus` desligada no build, o comando
+   * falha e o clique parecia nao fazer nada.
+   */
+  it("says where the file went, and says when it failed", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "export_nexus_lua") return "C:/RAM/Nexus.lua";
+      if (cmd === "get_nexus_status") return { running: false, port: null, connected_count: 0 };
+      return [];
+    });
+    const { store } = renderDialog();
+    await openHelp();
+
+    await userEvent.click(screen.getByRole("button", { name: "Save Nexus.lua" }));
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(expect.stringContaining("C:/RAM/Nexus.lua"))
+    );
+
+    setInvokeHandler((cmd) => {
+      if (cmd === "export_nexus_lua") throw new Error("feature nexus desligada");
+      if (cmd === "get_nexus_status") return { running: false, port: null, connected_count: 0 };
+      return [];
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Save Nexus.lua" }));
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(expect.stringMatching(/Não foi possível|Could not|failed/i))
+    );
   });
 
   it("warns that only accounts already in the list may connect", async () => {

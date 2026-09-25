@@ -32,6 +32,7 @@ import { ScriptsDialog } from "./components/dialogs/ScriptsDialog";
 import { SessionDialog } from "./components/dialogs/SessionDialog";
 import { useTr } from "./i18n/text";
 import { TONE_STYLES } from "./utils/toastTone";
+import { isMultiRobloxCloseProcessError } from "./utils/robloxErrors";
 import { ENABLE_NEXUS } from "./featureFlags";
 
 function AppContent() {
@@ -41,10 +42,7 @@ function AppContent() {
   // O diálogo de backups é aberto pelas Settings; o estado mora aqui porque a
   // store não expõe um flag para ele.
   const [backupsOpen, setBackupsOpen] = useState(false);
-  const errorLower = (store.error || "").toLowerCase();
-  const showCloseRobloxAction =
-    errorLower.includes("failed to enable multi roblox") ||
-    (errorLower.includes("multi roblox") && errorLower.includes("close all roblox process"));
+  const showCloseRobloxAction = isMultiRobloxCloseProcessError(store.error);
   // O log de lançamento é a única explicação passo a passo do que falhou, e ele
   // mora na aba Console da Choose Game. Só vale apontar para lá quando existe
   // log: fora do launch, a faixa mandaria o usuário para uma tela vazia.

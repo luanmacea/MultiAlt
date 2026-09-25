@@ -691,7 +691,6 @@
   "Priority Class": "Classe de prioridade",
   "Process Behavior": "Comportamento do processo",
   "Process memory limit": "Limite de memória do processo",
-  "Randomize which server instance to join": "Sorteia em qual instância do servidor entrar",
   "Read Interval": "Intervalo de leitura",
   "Relaunch Delay": "Atraso do relançamento",
   "Remember Window Positions": "Lembrar a posição das janelas",
@@ -1578,5 +1577,9 @@
   "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.": "Procurando um item pelo nome? Use o Vestir a roupa aqui em cima — ele lista as roupas pelo nome e monta esse JSON sozinho.",
   "Optimization profile": "Perfil de otimização",
   "That is not valid JSON — check the commas, braces and quotes.": "Isso não é um JSON válido — confira as vírgulas, as chaves e as aspas.",
-  "Forces Idle priority on every Roblox client of this profile, even the one in focus": "Força prioridade Idle em todos os clientes do Roblox deste perfil, inclusive o que está em foco"
+  "Forces Idle priority on every Roblox client of this profile, even the one in focus": "Força prioridade Idle em todos os clientes do Roblox deste perfil, inclusive o que está em foco",
+  "Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it.": "Escolhe um servidor aleatório quando você não escolheu nenhum. Job ID digitado ou seguir um jogador vencem o sorteio.",
+  "Nexus.lua saved in {{path}} (path copied)": "Nexus.lua salvo em {{path}} (caminho copiado)",
+  "Nexus.lua saved in {{path}}": "Nexus.lua salvo em {{path}}",
+  "Could not save Nexus.lua: {{error}}": "Não foi possível salvar o Nexus.lua: {{error}}"
 }
