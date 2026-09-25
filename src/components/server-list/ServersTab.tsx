@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ServerData, ServersResponse, PlaceDetails, ServerRegion } from "./types";
+import { looksLikeJoinLink, parsePlaceIdInput } from "./types";
 import type { ServerRegion as ServerRegionResult } from "../../types";
 import { ServerContextMenu } from "./ServerContextMenu";
 import { useTr } from "../../i18n/text";
@@ -45,6 +46,33 @@ export function ServersTab({
   const [teleportPlaceId, setTeleportPlaceId] = useState("");
   const busyRef = useRef(false);
   const autoRefreshSeenRef = useRef<number>(0);
+
+  /**
+   * O que entra num campo de Place ID (o da busca e o de teleporte).
+   *
+   * Digitar dígitos continua igual. Colar a URL do jogo preenche o place da
+   * URL — antes o campo só apagava os não-dígitos e **juntava** o resto, então
+   * `.../games/606849621/Jailbreak?privateServerLinkCode=98765` virava o place
+   * inventado `60684962198765`. O que não tem place (link de convite,
+   * `share?code=`) é recusado com o motivo, em vez de virar número.
+   */
+  function readPlaceIdField(raw: string, apply: (value: string) => void) {
+    const text = raw.trim();
+    if (/^\d*$/.test(text)) {
+      apply(text);
+      return;
+    }
+    const parsed = parsePlaceIdInput(text);
+    if (parsed !== null) {
+      apply(String(parsed));
+      return;
+    }
+    addToast(
+      looksLikeJoinLink(text)
+        ? t("That link has no Place ID. Use the Follow tab to join invite and private server links.")
+        : t("Could not find a Place ID in that text. Paste a game link or type the ID.")
+    );
+  }
 
   const loadServers = useCallback(async () => {
     const pid = parseInt(placeId);
@@ -245,7 +273,7 @@ export function ServersTab({
           <label className="text-[10px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Place ID")}</label>
           <input
             value={placeId}
-            onChange={(e) => setPlaceId(e.target.value.replace(/\D/g, ""))}
+            onChange={(e) => readPlaceIdField(e.target.value, setPlaceId)}
             placeholder={t("Enter Place ID")}
             className="flex-1 sidebar-input font-mono text-xs"
             onKeyDown={(e) => e.key === "Enter" && loadServers()}
@@ -381,7 +409,7 @@ export function ServersTab({
           <label className="text-[10px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Teleport")}</label>
           <input
             value={teleportPlaceId}
-            onChange={(e) => setTeleportPlaceId(e.target.value.replace(/\D/g, ""))}
+            onChange={(e) => readPlaceIdField(e.target.value, setTeleportPlaceId)}
             placeholder={t("Teleport Place ID")}
             className="flex-1 sidebar-input font-mono text-xs"
           />
