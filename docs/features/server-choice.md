@@ -21,9 +21,18 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 
 ### Preferência no launch
 
-1. O usuário escolhe a preferência na aba **Servers** da Choose Game (`Default` / `Random` / `Emptiest` / `Fullest`) e, se quiser, um país.
+1. O usuário escolhe a preferência na aba **Servers** da Choose Game e, se quiser, um país.
+
+   | Preferência | O que escolhe |
+   |---|---|
+   | **Best fit** (padrão) | O mais cheio que ainda caiba o lote **com uma vaga de folga** |
+   | Fullest | O mais cheio com vaga para o lote |
+   | Emptiest | O mais vazio |
+   | Random | Qualquer um com vaga |
+   | Let Roblox choose | Não escolhe: Job ID vazio (comportamento antigo) |
 2. Ao lançar **sem** servidor escolhido, `launchAll` chama `pick_server` **uma vez** para o lote.
 3. O backend pede a lista com o `sortOrder` da preferência (`Asc` = menos jogadores, `Desc` = mais — confirmado contra a API) e `excludeFullGames=true`, descarta quem não cabe o lote, e devolve o Job ID.
+4. No **Best fit** ele desce as páginas de `Desc` (até 6) até achar a faixa que cabe o lote: num jogo popular a primeira página é toda de servidores com uma ou duas vagas, e cair no `Asc` traria os vazios, que é justamente o que não se quer.
 4. Todas as contas entram naquele Job ID pelo `launch_multiple`.
 
 ### Região
@@ -36,6 +45,7 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 
 - **Um servidor por lote, não um por conta.** O `shuffleJob` antigo sorteia dentro do laço de cada conta, o que espalha o lote; a preferência resolve antes e manda todo mundo para o mesmo Job ID.
 - **O servidor tem que caber o lote inteiro** (`playing + contas <= maxPlayers`). Se nenhum couber, usa os que têm alguma vaga — travar o launch seria pior.
+- **O Best fit deixa uma vaga de folga** (`FREE_SEAT_BUFFER`): entrar num servidor que fica lotado no instante seguinte impede qualquer um de entrar depois, inclusive uma conta que caiu e voltou. O teto (`maxPlayers - contas - 1`) **nunca é negativo**, e a folga é preferência, não regra: sem nenhum servidor com folga, vale o que couber.
 - **Job ID explícito, VIP e Follow vencem a preferência**: ela só entra quando o usuário não escolheu servidor.
 - **Falhar ao escolher não cancela o launch**: sem servidor resolvido o lote segue com Job vazio (comportamento antigo), com um toast explicando.
 - **Sem servidor no país pedido, a UI pergunta.** O backend devolve o melhor disponível com `regionFallback: true`; entrar calado no país errado é exatamente o que o usuário quer evitar.
@@ -47,7 +57,7 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 
 | Chave (`RAMSettings.ini`, seção `General`) | O quê |
 |---|---|
-| `ServerPreference` | `default` \| `random` \| `emptiest` \| `fullest` |
+| `ServerPreference` | `bestfit` (padrão) \| `fullest` \| `emptiest` \| `random` \| `none`. O valor antigo `default` é lido como `bestfit`. |
 | `ServerRegionFilter` | Código do país exigido (`BR`); vazio = sem filtro |
 | `ServerRegionFormat` | Template do rótulo: `<city>`, `<region>`, `<country>`, `<countryCode>`, `<ip>` |
 

@@ -158,21 +158,30 @@ pub fn generate_identity(seed: u64, current_year: i32) -> SignupIdentity {
     }
 }
 
-/// Script que preenche o formulário de cadastro.
+/// Script que prepara o formulário: data, gênero, e a marcação dos campos de
+/// texto que ainda precisam ser digitados.
+///
+/// Devolve um JSON `{"needs":["username","password"],...}` com o que **falta**.
+/// Ele é **idempotente**: rodar de novo não desfaz nada e não clica duas vezes
+/// no gênero, porque a sessão o executa em laço enquanto espera o usuário.
 ///
 /// Notas de implementação que já custaram caro:
 ///
-/// - os campos são controlados pelo React, então escrever `.value` direto não
-///   atualiza o estado: é preciso usar o setter nativo do prototype e disparar
-///   o evento (mesma técnica do `login_fill_script`);
-/// - os `<select>` de data **não têm id**; eles são achados pelo
-///   `data-testid` do container (`birthday-day`/`birthday-month`/`birthday-year`),
-///   com os ids antigos (`#DayDropdown`...) como reserva;
+/// - os campos são controlados pelo React, então escrever `.value` direto pode
+///   não pegar: os `<select>` aceitam o setter nativo, mas os `<input>` de
+///   texto são digitados via CDP (`type_into`) — foi o que fez o nome de
+///   usuário ficar vazio enquanto a senha, no mesmo formulário, era preenchida;
+/// - os `<select>` de data **não têm id**; eles são achados pelo `data-testid`
+///   do container (`birthday-day`/`birthday-month`/`birthday-year`), com os ids
+///   antigos (`#DayDropdown`...) como reserva;
 /// - o botão de gênero é achado pelo ícone (`icon-regular-head-male`), que não
 ///   muda com o idioma da página — o texto ("Masculino"/"Male") muda;
+/// - o Roblox serve **duas** versões do cadastro: uma com a senha na mesma tela
+///   e outra que pede a senha depois do "Continue". Como o script roda em laço,
+///   a segunda tela é preenchida sozinha quando aparece;
 /// - **nada aqui clica em "Criar conta"**. O envio é do usuário, depois do
 ///   CAPTCHA.
-pub fn signup_fill_script(identity: &SignupIdentity) -> String {
+pub fn signup_prepare_script(identity: &SignupIdentity) -> String {
     let user = serde_json::to_string(&identity.username).unwrap_or_default();
     let pass = serde_json::to_string(&identity.password).unwrap_or_default();
     let day = serde_json::to_string(&identity.day).unwrap_or_default();
@@ -181,31 +190,61 @@ pub fn signup_fill_script(identity: &SignupIdentity) -> String {
 
     format!(
         "(function(){{\
-var setText=function(el,v){{if(!el)return false;\
-var s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;\
-s.call(el,v);el.dispatchEvent(new Event('input',{{bubbles:true}}));\
-el.dispatchEvent(new Event('change',{{bubbles:true}}));return true;}};\
-var setSelect=function(el,v){{if(!el)return false;\
+var setSelect=function(el,v){{if(!el||el.value===v)return !!el;\
 var s=Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype,'value').set;\
 s.call(el,v);el.dispatchEvent(new Event('change',{{bubbles:true}}));return el.value===v;}};\
 var pick=function(testid,legacy){{\
 return document.querySelector('[data-testid=\"'+testid+'\"] select')||document.querySelector(legacy);}};\
-var done={{}};\
-done.day=setSelect(pick('birthday-day','#DayDropdown'),{day});\
-done.month=setSelect(pick('birthday-month','#MonthDropdown'),{month});\
-done.year=setSelect(pick('birthday-year','#YearDropdown'),{year});\
-done.username=setText(document.querySelector('#signup-username'),{user});\
-done.password=setText(document.querySelector('#signup-password'),{pass});\
+var out={{needs:[],birthday:false,gender:false}};\
+var d=setSelect(pick('birthday-day','#DayDropdown'),{day});\
+var m=setSelect(pick('birthday-month','#MonthDropdown'),{month});\
+var y=setSelect(pick('birthday-year','#YearDropdown'),{year});\
+out.birthday=!!(d&&m&&y);\
 var male=Array.prototype.find.call(document.querySelectorAll('button'),function(b){{\
 return b.querySelector('.icon-regular-head-male');}})||document.querySelector('#MaleButton');\
-if(male){{male.click();done.gender=true;}}else{{done.gender=false;}}\
-return JSON.stringify(done);}})()",
+if(male){{if(male.getAttribute('data-ram-gender')!=='done'){{male.setAttribute('data-ram-gender','done');male.click();}}out.gender=true;}}\
+var mark=function(el,field,want){{if(!el)return;el.setAttribute('data-ram-field',field);\
+if(el.value!==want)out.needs.push(field);}};\
+mark(document.querySelector('#signup-username')\
+||document.querySelector('input[name=\"signupUsername\"]')\
+||document.querySelector('input[autocomplete=\"username\"]'),'username',{user});\
+mark(document.querySelector('#signup-password')\
+||document.querySelector('input[type=\"password\"]'),'password',{pass});\
+return JSON.stringify(out);}})()",
         day = day,
         month = month,
         year = year,
         user = user,
         pass = pass
     )
+}
+
+/// Seletor de um campo marcado por [`signup_prepare_script`]. Estável entre as
+/// duas versões do cadastro, que usam ids diferentes.
+pub fn marked_field_selector(field: &str) -> String {
+    format!("[data-ram-field=\"{}\"]", field)
+}
+
+/// Os campos que ainda faltam, lidos do JSON que o script devolve.
+///
+/// Tolerante de propósito: uma resposta inesperada vira "nada a fazer" em vez
+/// de derrubar a sessão de cadastro.
+pub fn missing_fields(script_result: &serde_json::Value) -> Vec<String> {
+    let parsed = match script_result.as_str() {
+        Some(text) => serde_json::from_str::<serde_json::Value>(text).unwrap_or_default(),
+        None => script_result.clone(),
+    };
+    parsed["needs"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .filter(|v| *v == "username" || *v == "password")
+                .map(|v| v.to_string())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// O formulário de cadastro está na tela?
@@ -314,7 +353,7 @@ mod signup_script_tests {
     use super::*;
 
     fn script_for(username: &str, password: &str) -> String {
-        signup_fill_script(&SignupIdentity {
+        signup_prepare_script(&SignupIdentity {
             username: username.to_string(),
             password: password.to_string(),
             day: "07".to_string(),

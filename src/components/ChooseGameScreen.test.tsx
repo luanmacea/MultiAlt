@@ -456,12 +456,12 @@ describe("ChooseGameScreen — preferência de servidor", () => {
     );
   });
 
-  it("não resolve nada na preferência default", async () => {
+  it("não resolve nada quando o usuário pede para o Roblox escolher", async () => {
     setInvokeHandler((cmd) => {
       if (cmd === "resolve_join_link") return joinTarget({ kind: "place" });
       return undefined;
     });
-    const store = pickStore({ serverPreference: "default" });
+    const store = pickStore({ serverPreference: "none" });
 
     await joinPlainLink();
 
@@ -534,8 +534,8 @@ describe("ChooseGameScreen — preferência de servidor", () => {
 describe("ChooseGameScreen — Servers tab", () => {
   it("mostra a aba de servidores com a lista do place", async () => {
     setInvokeHandler((cmd) => {
-      if (cmd === "get_servers") {
-        return { data: [{ id: "job-listado", playing: 5, maxPlayers: 30, ping: 30 }], nextPageCursor: null };
+      if (cmd === "list_servers_ranked") {
+        return [{ id: "job-listado", playing: 5, maxPlayers: 30, ping: 30 }];
       }
       return undefined;
     });
@@ -563,8 +563,8 @@ describe("ChooseGameScreen — Servers tab", () => {
           ],
         };
       }
-      if (cmd === "get_servers") {
-        return { data: [{ id: "job-do-jogo", playing: 2, maxPlayers: 30, ping: 20 }], nextPageCursor: null };
+      if (cmd === "list_servers_ranked") {
+        return [{ id: "job-do-jogo", playing: 2, maxPlayers: 30, ping: 20 }];
       }
       return undefined;
     });

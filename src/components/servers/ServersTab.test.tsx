@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
-import { ServersTab, apiSortOrder, hasRoomFor, matchesRegion } from "./ServersTab";
+import { ServersTab, hasRoomFor, matchesRegion } from "./ServersTab";
 import type { ServerRow } from "./ServersTab";
 import { makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
@@ -52,7 +52,7 @@ function renderTab(
   selected = [ACCOUNT_A, ACCOUNT_B]
 ) {
   setInvokeMap({
-    get_servers: { data: rows, nextPageCursor: null },
+    list_servers_ranked: rows,
     get_server_regions: [],
   });
   const userIds = selected.map((a) => a.UserID);
@@ -85,18 +85,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("ServersTab — ordenação e vagas (puro)", () => {
-  /**
-   * Regressão: a ordem tem que ser pedida à API. A resposta traz 100
-   * servidores de milhares, então reordenar a página local mostrava "o mais
-   * cheio entre os mais vazios" — era o 3/13 em tudo com "Fullest" ligado.
-   */
-  it("traduz a preferência no sortOrder que a API entende", () => {
-    expect(apiSortOrder("fullest")).toBe("Desc");
-    expect(apiSortOrder("emptiest")).toBe("Asc");
-    expect(apiSortOrder("default")).toBe("Asc");
-    expect(apiSortOrder("random")).toBe("Asc");
-  });
+describe("ServersTab — vagas (puro)", () => {
 
   it("só considera com vaga o servidor que cabe o lote inteiro", () => {
     expect(hasRoomFor(row({ playing: 28, maxPlayers: 30 }), 8)).toBe(false);
@@ -127,20 +116,25 @@ describe("ServersTab — lista", () => {
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
 
-    const args = (callsFor("get_servers")[0][1] ?? {}) as Record<string, unknown>;
+    const args = (callsFor("list_servers_ranked")[0][1] ?? {}) as Record<string, unknown>;
     expect(args.placeId).toBe(606849621);
-    expect(args.serverType).toBe("Public");
   });
 
-  it("pede a ordem à API conforme a preferência do store", async () => {
+  /**
+   * A ordenação e a paginação moram no backend: a resposta da Roblox traz 100
+   * servidores de milhares, e reordenar a página local mostrava "o mais cheio
+   * entre os mais vazios" — era o 3/13 em tudo com "Fullest" ligado.
+   */
+  it("pede a lista já ordenada ao backend, com a preferência e o tamanho do lote", async () => {
     renderTab([row({ id: "cheio", playing: 12, maxPlayers: 13 })], {
       serverPreference: "fullest",
     });
 
     await screen.findByText("cheio");
-    const args = (callsFor("get_servers")[0][1] ?? {}) as Record<string, unknown>;
-    expect(args.sortOrder).toBe("Desc");
-    expect(args.excludeFull).toBe(true);
+    const args = (callsFor("list_servers_ranked")[0][1] ?? {}) as Record<string, unknown>;
+    expect(args.preference).toBe("fullest");
+    expect(args.accounts).toBe(2);
+    expect(args.placeId).toBe(606849621);
   });
 
   /** O lote inteiro precisa caber; senão as contas se espalham. */
@@ -178,7 +172,7 @@ describe("ServersTab — região", () => {
     expect(callsFor("get_server_regions")).toHaveLength(0);
 
     setInvokeMap({
-      get_servers: { data: [row({ id: "job-a" }), row({ id: "job-b" })], nextPageCursor: null },
+      list_servers_ranked: [row({ id: "job-a" }), row({ id: "job-b" })],
       get_server_regions: [region("job-a", "BR", "São Paulo"), region("job-b", "US", "Ashburn")],
     });
     await user.click(screen.getByRole("button", { name: /Load regions/i }));
@@ -202,7 +196,7 @@ describe("ServersTab — região", () => {
     expect(screen.getByText("job-us")).toBeInTheDocument();
 
     setInvokeMap({
-      get_servers: { data: rows, nextPageCursor: null },
+      list_servers_ranked: rows,
       get_server_regions: [region("job-br", "BR"), region("job-us", "US")],
     });
     await user.click(screen.getByRole("button", { name: /Load regions/i }));
@@ -227,7 +221,7 @@ describe("ServersTab — região", () => {
     await screen.findByText("job-us");
 
     setInvokeMap({
-      get_servers: { data: rows, nextPageCursor: null },
+      list_servers_ranked: rows,
       get_server_regions: [region("job-us", "US")],
     });
     await user.click(screen.getByRole("button", { name: /Load regions/i }));
@@ -242,7 +236,7 @@ describe("ServersTab — região", () => {
     await screen.findByText("job-cheio");
 
     setInvokeMap({
-      get_servers: { data: rows, nextPageCursor: null },
+      list_servers_ranked: rows,
       get_server_regions: [
         { jobId: "job-cheio", region: null, label: "", error: "This game is full" },
       ],
@@ -287,7 +281,7 @@ describe("ServersTab — preferência", () => {
       { accounts: [ACCOUNT_A], selectedIds: new Set([1001]), selectedAccounts: [ACCOUNT_A] }
     );
 
-    await waitFor(() => expect(callsFor("get_servers")).toHaveLength(1));
+    await waitFor(() => expect(callsFor("list_servers_ranked")).toHaveLength(1));
     const table = screen.queryByRole("table");
     expect(table).not.toBeInTheDocument();
   });
@@ -308,7 +302,7 @@ describe("ServersTab — place inválido", () => {
     );
 
     await screen.findByText(/Enter a Place ID to list its servers/i);
-    expect(callsFor("get_servers")).toHaveLength(0);
+    expect(callsFor("list_servers_ranked")).toHaveLength(0);
   });
 
   it("aceita só dígitos no campo de Place ID", async () => {

@@ -657,6 +657,39 @@ async fn get_servers(
     .await
 }
 
+/// A lista de servidores **na ordem da preferência**, já sem os que não cabem
+/// o lote.
+///
+/// Existe para a aba Servers mostrar exatamente o que o launch escolheria: a
+/// ordenação e a paginação do "melhor encaixe" moram no backend, e refazer isso
+/// no frontend com uma página de 100 servidores dava resultado diferente.
+#[tauri::command]
+async fn list_servers_ranked(
+    state: tauri::State<'_, AccountStore>,
+    place_id: i64,
+    user_id: Option<i64>,
+    preference: String,
+    accounts: Option<usize>,
+) -> Result<Vec<api::roblox::ServerData>, String> {
+    let cookie = user_id.and_then(|id| get_cookie(&state, id).ok());
+    let preference = api::roblox::parse_server_preference(&preference);
+    let accounts = accounts.unwrap_or(1).max(1);
+
+    let servers = api::roblox::collect_servers_for(
+        place_id,
+        cookie.as_deref(),
+        preference,
+        accounts,
+        api::roblox::BEST_FIT_MAX_PAGES,
+    )
+    .await?;
+
+    Ok(api::roblox::rank_servers(&servers, preference, accounts)
+        .into_iter()
+        .cloned()
+        .collect())
+}
+
 #[tauri::command]
 async fn join_game_instance(
     state: tauri::State<'_, AccountStore>,

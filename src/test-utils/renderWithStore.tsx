@@ -192,7 +192,9 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     launchData: "",
     setLaunchData: vi.fn(),
     shuffleJobId: false,
-    serverPreference: "default" as const,
+    // O dublê começa em "none" (o app começa em "bestfit"): assim um teste que
+    // não é sobre escolha de servidor não dispara `pick_server` sem querer.
+    serverPreference: "none" as const,
     setServerPreference: vi.fn(),
     serverRegionFilter: "",
     setServerRegionFilter: vi.fn(),

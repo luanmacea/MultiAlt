@@ -25,7 +25,7 @@ Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas,
 1. O usuário escolhe quantas contas (1–50) e clica **Start**.
 2. O app abre **uma** janela do Chromium (perfil limpo) e, para cada conta:
    1. limpa os cookies do Roblox e recarrega `roblox.com/CreateAccount`;
-   2. gera a identidade e preenche usuário, senha, dia/mês/ano e gênero;
+   2. gera a identidade, seleciona dia/mês/ano e gênero e **digita** usuário e senha;
    3. publica `signup-progress` com a identidade — a UI mostra **usuário e senha**, copiáveis;
    4. espera o `.ROBLOSECURITY` aparecer (até 5 min), que é o sinal de que o cadastro foi concluído;
    5. valida o cookie, guarda a conta com a senha gerada e vai para a próxima.
@@ -34,6 +34,9 @@ Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas,
 ## Regras de negócio
 
 - **O app nunca clica em "Criar conta"** — há teste de regressão para isso. O envio é do usuário, depois do CAPTCHA.
+- **Os campos de texto são digitados pelo CDP** (`Input.insertText`), não escritos por `value`. O React de alguns componentes ignora um valor escrito por fora — era o que fazia o nome de usuário chegar vazio enquanto a senha, no mesmo formulário, era preenchida.
+- **O preenchimento roda em laço** enquanto se espera o usuário (a cada ~2 s, idempotente). É o que cobre campo que remonta e, principalmente, a **segunda versão** do cadastro que o Roblox serve por experimento: nela a senha só é pedida depois do "Continue", e o laço preenche essa tela sozinho quando ela aparece.
+- **Conta salva aparece na lista na hora**: o evento `generator-account-added` recarrega a lista principal, então parar a sessão no meio não esconde o que já foi criado.
 - **A senha gerada aparece na tela.** Ela não existe em nenhum outro lugar antes de a conta ser salva; sem mostrá-la, a conta ficaria presa ao cookie.
 - **Nome de usuário sempre válido para o Roblox**: 3–20 caracteres, letras/dígitos e **um** underscore, nunca nas pontas.
 - **Idade entre 18 e 40 anos.** Abaixo de 13 o Roblox liga o modo infantil (chat e experiências limitados). O dia sorteado fica em 1–28 para nenhum mês cair num dia inexistente.

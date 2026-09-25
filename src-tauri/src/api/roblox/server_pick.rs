@@ -9,9 +9,22 @@
 // `sortOrder=Asc` devolve os servidores com MENOS jogadores primeiro e `Desc`
 // com mais. `excludeFullGames=true` tira os lotados.
 
+/// Folga deixada depois que o lote entra.
+///
+/// "Mais cheio que caiba" sem folga significa entrar num servidor que fica
+/// lotado no instante seguinte — qualquer jogador que tente entrar depois
+/// (inclusive uma conta que caiu e voltou) não consegue. Uma vaga de sobra
+/// resolve isso sem esvaziar o servidor.
+pub const FREE_SEAT_BUFFER: i32 = 1;
+
 /// O que o usuário escolheu na UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerPreference {
+    /// Não escolhe nada: Job ID vazio e o Roblox decide (comportamento antigo).
+    None,
+    /// O mais cheio que ainda caiba o lote **com uma vaga de folga**. É o
+    /// padrão: joga junto de outras pessoas sem arriscar deixar conta de fora.
+    BestFit,
     /// Qualquer servidor com vaga (comportamento antigo do `shuffleJob`).
     Random,
     /// Menos jogadores primeiro.
@@ -22,22 +35,44 @@ pub enum ServerPreference {
 
 impl ServerPreference {
     /// `sortOrder` que a API deve usar para já vir na ordem certa.
+    ///
+    /// `BestFit` pede `Desc` porque a busca desce dos mais cheios até achar a
+    /// faixa que cabe o lote; pedir `Asc` traria milhares de servidores vazios
+    /// antes de chegar lá.
     pub fn sort_order(self) -> &'static str {
         match self {
-            ServerPreference::Fullest => "Desc",
+            ServerPreference::Fullest | ServerPreference::BestFit => "Desc",
             _ => "Asc",
         }
     }
 }
 
-/// Texto da UI → preferência. Desconhecido (e vazio) vira `Random`, que é o
-/// comportamento antigo — nenhuma preferência inválida pode impedir o launch.
+/// Texto da UI → preferência. Desconhecido (e vazio) vira `BestFit`, que é o
+/// padrão — nenhuma preferência inválida pode impedir o launch.
+///
+/// `"default"` era o nome antigo de "não escolhe nada" e hoje significa o
+/// padrão novo; quem quer o comportamento antigo escolhe `"none"`.
 pub fn parse_server_preference(value: &str) -> ServerPreference {
     match value.trim().to_ascii_lowercase().as_str() {
+        "none" | "off" => ServerPreference::None,
+        "random" | "shuffle" => ServerPreference::Random,
         "emptiest" | "empty" | "fewest" => ServerPreference::Emptiest,
         "fullest" | "full" | "most" => ServerPreference::Fullest,
-        _ => ServerPreference::Random,
+        _ => ServerPreference::BestFit,
     }
+}
+
+/// Quantos jogadores um servidor pode ter para o lote caber com folga.
+///
+/// Nunca negativo: um servidor de 4 lugares com um lote de 8 daria `-5` e
+/// qualquer comparação com isso viraria bug.
+pub fn best_fit_cap(max_players: i32, accounts: usize) -> i32 {
+    (max_players - accounts.max(1) as i32 - FREE_SEAT_BUFFER).max(0)
+}
+
+/// O servidor cabe o lote **e** deixa a folga?
+pub fn fits_with_buffer(server: &ServerData, accounts: usize) -> bool {
+    server.max_players > 0 && server.playing <= best_fit_cap(server.max_players, accounts)
 }
 
 /// Servidores que cabem o lote inteiro, na ordem da preferência.
@@ -74,8 +109,22 @@ pub fn rank_servers(
     match preference {
         ServerPreference::Emptiest => candidates.sort_by_key(|s| s.playing),
         ServerPreference::Fullest => candidates.sort_by_key(|s| -s.playing),
-        // Aleatório mantém a ordem da API; quem sorteia é `pick_from_list`.
-        ServerPreference::Random => {}
+        ServerPreference::BestFit => {
+            // Com folga primeiro, do mais cheio para o mais vazio; sem nenhum
+            // com folga, vale o que couber (a folga é preferência, não regra).
+            let with_buffer: Vec<&ServerData> = candidates
+                .iter()
+                .copied()
+                .filter(|s| fits_with_buffer(s, accounts))
+                .collect();
+            if !with_buffer.is_empty() {
+                candidates = with_buffer;
+            }
+            candidates.sort_by_key(|s| -s.playing);
+        }
+        // Aleatório e "não escolhe" mantêm a ordem da API; quem sorteia é
+        // `pick_from_list`.
+        ServerPreference::Random | ServerPreference::None => {}
     }
     candidates
 }
@@ -136,8 +185,15 @@ pub async fn pick_server(
     region_template: &str,
     max_lookups: usize,
 ) -> Result<PickedServer, String> {
-    let response = get_servers_sorted(place_id, preference.sort_order(), Some(security_token)).await?;
-    let ranked = rank_servers(&response.data, preference, accounts);
+    let servers = collect_servers_for(
+        place_id,
+        Some(security_token),
+        preference,
+        accounts,
+        BEST_FIT_MAX_PAGES,
+    )
+    .await?;
+    let ranked = rank_servers(&servers, preference, accounts);
     if ranked.is_empty() {
         return Err("No public server with room was found".to_string());
     }
@@ -149,7 +205,9 @@ pub async fn pick_server(
             .unwrap_or_default()
             .as_nanos();
         let chosen = match preference {
-            ServerPreference::Random => ranked[(nanos as usize) % ranked.len()],
+            ServerPreference::Random | ServerPreference::None => {
+                ranked[(nanos as usize) % ranked.len()]
+            }
             _ => ranked[0],
         };
         return Ok(picked_from(chosen, None, false));
@@ -168,6 +226,63 @@ pub async fn pick_server(
     // Nada na região pedida dentro do teto: devolve o melhor disponível
     // marcado como fallback. Quem decide se entra assim é o usuário.
     Ok(picked_from(ranked[0], None, true))
+}
+
+/// Páginas que a busca do "melhor encaixe" percorre antes de desistir.
+pub const BEST_FIT_MAX_PAGES: usize = 6;
+
+/// Junta servidores até achar os que cabem o lote com folga.
+///
+/// Com `Desc` a primeira página traz os mais cheios, e num jogo popular eles
+/// estão todos com uma ou duas vagas. Descer as páginas chega na faixa em que o
+/// lote cabe. Sem isso, "melhor encaixe" nunca via um servidor utilizável num
+/// jogo grande — e cair no `Asc` traria os servidores vazios, que é justamente
+/// o que o usuário não quer.
+///
+/// As outras preferências pedem uma página só: a ordem da API já entrega o que
+/// elas querem no topo.
+pub async fn collect_servers_for(
+    place_id: i64,
+    security_token: Option<&str>,
+    preference: ServerPreference,
+    accounts: usize,
+    max_pages: usize,
+) -> Result<Vec<ServerData>, String> {
+    let pages = if preference == ServerPreference::BestFit {
+        max_pages.clamp(1, BEST_FIT_MAX_PAGES)
+    } else {
+        1
+    };
+
+    let mut all: Vec<ServerData> = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    for _ in 0..pages {
+        let page = get_servers_page(
+            place_id,
+            "Public",
+            cursor.as_deref(),
+            security_token,
+            preference.sort_order(),
+            true,
+        )
+        .await?;
+        let next = page.next_page_cursor.clone();
+        all.extend(page.data);
+
+        if preference != ServerPreference::BestFit {
+            break;
+        }
+        if all.iter().any(|s| fits_with_buffer(s, accounts)) {
+            break;
+        }
+        match next {
+            Some(c) if !c.trim().is_empty() => cursor = Some(c),
+            _ => break,
+        }
+    }
+
+    Ok(all)
 }
 
 /// Atalho para a lista pública já ordenada e sem servidores lotados.
@@ -202,9 +317,11 @@ mod server_preference_tests {
         assert_eq!(parse_server_preference("emptiest"), ServerPreference::Emptiest);
         assert_eq!(parse_server_preference("  Fullest "), ServerPreference::Fullest);
         assert_eq!(parse_server_preference("random"), ServerPreference::Random);
-        // Desconhecido nunca trava o launch: cai no comportamento antigo.
-        assert_eq!(parse_server_preference(""), ServerPreference::Random);
-        assert_eq!(parse_server_preference("qualquer coisa"), ServerPreference::Random);
+        assert_eq!(parse_server_preference("none"), ServerPreference::None);
+        // Desconhecido, vazio e o nome antigo caem no padrão novo.
+        assert_eq!(parse_server_preference(""), ServerPreference::BestFit);
+        assert_eq!(parse_server_preference("default"), ServerPreference::BestFit);
+        assert_eq!(parse_server_preference("qualquer coisa"), ServerPreference::BestFit);
     }
 
     #[test]
@@ -212,6 +329,55 @@ mod server_preference_tests {
         assert_eq!(ServerPreference::Emptiest.sort_order(), "Asc");
         assert_eq!(ServerPreference::Fullest.sort_order(), "Desc");
         assert_eq!(ServerPreference::Random.sort_order(), "Asc");
+        // "Melhor encaixe" desce dos mais cheios até a faixa que cabe o lote.
+        assert_eq!(ServerPreference::BestFit.sort_order(), "Desc");
+    }
+
+    /// O pedido do usuário: 4 contas num servidor de 12 devem cair num de 7,
+    /// não num de 1 nem num de 8 (que ficaria lotado no instante seguinte).
+    #[test]
+    fn best_fit_takes_the_fullest_server_that_still_leaves_a_free_seat() {
+        let servers = vec![
+            server("lotado", 11, 12),
+            server("sem-folga", 8, 12),
+            server("ideal", 7, 12),
+            server("ok", 5, 12),
+            server("vazio", 1, 12),
+        ];
+        assert_eq!(
+            pick_from_list(&servers, ServerPreference::BestFit, 4, 0).as_deref(),
+            Some("ideal")
+        );
+    }
+
+    #[test]
+    fn the_cap_is_never_negative() {
+        // Lote maior que o servidor inteiro: o teto vira 0, não -5.
+        assert_eq!(best_fit_cap(4, 8), 0);
+        assert_eq!(best_fit_cap(12, 4), 7);
+        assert_eq!(best_fit_cap(13, 4), 8);
+        assert_eq!(best_fit_cap(0, 1), 0);
+    }
+
+    /// A folga é preferência, não regra: sem nenhum servidor com folga, o lote
+    /// entra no que couber em vez de não entrar em nada.
+    #[test]
+    fn best_fit_falls_back_to_an_exact_fit_when_no_server_has_a_spare_seat() {
+        let servers = vec![server("justo", 8, 12), server("lotado", 12, 12)];
+        assert_eq!(
+            pick_from_list(&servers, ServerPreference::BestFit, 4, 0).as_deref(),
+            Some("justo")
+        );
+    }
+
+    #[test]
+    fn best_fit_orders_from_the_fullest_that_fits_downwards() {
+        let servers = vec![server("a", 2, 12), server("b", 7, 12), server("c", 5, 12)];
+        let ids: Vec<&str> = rank_servers(&servers, ServerPreference::BestFit, 4)
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["b", "c", "a"]);
     }
 
     #[test]
@@ -458,6 +624,53 @@ mod server_pick_http_tests {
         .expect("servidor");
         assert_eq!(picked.job_id, "us-1");
         assert!(picked.region_fallback);
+    }
+
+    /// Num jogo popular a primeira página de `Desc` é toda de servidores quase
+    /// lotados. O "melhor encaixe" tem que descer as páginas até a faixa que
+    /// cabe o lote, em vez de desistir ou cair nos vazios.
+    #[tokio::test]
+    async fn best_fit_follows_the_cursor_until_a_server_fits_the_batch() {
+        mount_csrf("pick-bestfit", "csrf-pick-bestfit").await;
+        let server = mock_server().await;
+        let route = mock_path("games", "/v1/games/7006/servers/Public");
+
+        // Página 1: todos sem espaço para 4 contas com folga.
+        Mock::given(method("GET"))
+            .and(path(route.clone()))
+            .and(query_param("sortOrder", "Desc"))
+            .and(|req: &wiremock::Request| !req.url.query_pairs().any(|(k, _)| k == "cursor"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [server_json("quase-cheio", 11, 12), server_json("sem-folga", 9, 12)],
+                "nextPageCursor": "pagina-2"
+            })))
+            .mount(server)
+            .await;
+
+        // Página 2: o servidor com 7, que é o que o usuário quer.
+        Mock::given(method("GET"))
+            .and(path(route.clone()))
+            .and(query_param("cursor", "pagina-2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [server_json("ideal", 7, 12), server_json("vazio", 1, 12)],
+                "nextPageCursor": serde_json::Value::Null
+            })))
+            .mount(server)
+            .await;
+
+        let picked = pick_server(
+            "pick-bestfit",
+            7006,
+            ServerPreference::BestFit,
+            4,
+            "",
+            TEMPLATE,
+            5,
+        )
+        .await
+        .expect("servidor");
+        assert_eq!(picked.job_id, "ideal");
+        assert_eq!(picked.playing, 7);
     }
 
     #[tokio::test]

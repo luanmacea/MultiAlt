@@ -25,13 +25,21 @@ use crate::data::settings::SettingsStore;
 use super::cdp::{spawn_chrome, CdpClient};
 use super::download::ensure_chromium;
 use super::manager::{ChromiumManager, LOGIN_KEY};
-use super::signup::{generate_identity, SignupIdentity, ROBLOX_SIGNUP_URL, SIGNUP_FORM_SELECTOR};
+use super::signup::{
+    generate_identity, marked_field_selector, missing_fields, signup_prepare_script,
+    SignupIdentity, ROBLOX_SIGNUP_URL, SIGNUP_FORM_SELECTOR,
+};
 
 /// Quanto tempo esperamos o usuário concluir **um** cadastro (CAPTCHA
 /// incluído) antes de desistir daquela conta.
 const CAPTCHA_WAIT: Duration = Duration::from_secs(300);
 /// Intervalo entre as checagens do cookie.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+/// A cada quantas checagens o formulário é reparado (≈2 s com o intervalo
+/// atual). Rápido o bastante para a segunda tela não ficar vazia, devagar o
+/// bastante para não atrapalhar quem está digitando.
+const REPAIR_EVERY_TICKS: u32 = 4;
+
 /// Teto de contas por sessão, para um clique errado não virar uma maratona.
 pub const MAX_ACCOUNTS_PER_SESSION: usize = 50;
 
@@ -130,15 +138,47 @@ async fn reset_session(cdp: &mut CdpClient) {
     let _ = cdp.delete_roblosecurity("www.roblox.com").await;
 }
 
+/// Preenche o que falta no formulário que estiver na tela.
+///
+/// Roda no início **e em laço** enquanto se espera o usuário, porque:
+///
+/// - o React remonta campos depois da primeira renderização, e um valor
+///   escrito cedo demais some (foi o nome de usuário chegando vazio);
+/// - o Roblox serve duas versões do cadastro, e a segunda só pede a senha
+///   depois do "Continue" — sem o reparo, o usuário teria que copiar a senha da
+///   janela do app e colar na mão.
+///
+/// Devolve os campos que ainda ficaram faltando.
+async fn fill_signup_form(cdp: &mut CdpClient, identity: &SignupIdentity) -> Vec<String> {
+    let Ok(result) = cdp.eval(&signup_prepare_script(identity)).await else {
+        return Vec::new();
+    };
+
+    let mut still_missing = Vec::new();
+    for field in missing_fields(&result) {
+        let value = match field.as_str() {
+            "username" => &identity.username,
+            "password" => &identity.password,
+            _ => continue,
+        };
+        match cdp.type_into(&marked_field_selector(&field), value).await {
+            Ok(true) => {}
+            _ => still_missing.push(field),
+        }
+    }
+    still_missing
+}
+
 /// Espera o cookie aparecer (o usuário concluiu o cadastro), respeitando o
 /// cancelamento e o fechamento da janela.
 async fn wait_for_signup(
     cdp: &mut CdpClient,
     chromium: &ChromiumManager,
     stop: &AtomicBool,
+    identity: &SignupIdentity,
 ) -> Result<String, String> {
     let attempts = (CAPTCHA_WAIT.as_millis() / POLL_INTERVAL.as_millis()) as u32;
-    for _ in 0..attempts {
+    for tick in 0..attempts {
         if stop.load(Ordering::Relaxed) {
             return Err("cancelled".to_string());
         }
@@ -149,6 +189,12 @@ async fn wait_for_signup(
             if !cookie.trim().is_empty() {
                 return Ok(cookie);
             }
+        }
+        // Reparo periódico: campo que remontou volta a ser preenchido, e a
+        // segunda tela (a que pede a senha depois do "Continue") é preenchida
+        // assim que aparece.
+        if tick % REPAIR_EVERY_TICKS == 0 {
+            let _ = fill_signup_form(cdp, identity).await;
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
@@ -267,29 +313,42 @@ pub async fn start_signup_session(
             }
 
             let identity = generate_identity(identity_seed(index), current_year());
-            let script = super::signup::signup_fill_script(&identity);
-            if let Err(e) = cdp.eval(&script).await {
-                update(&app_task, |s| {
-                    s.phase = "error".to_string();
-                    s.last_error = Some(format!("Falha ao preencher o formulário: {}", e));
-                });
-                break;
-            }
+            let missing = fill_signup_form(&mut cdp, &identity).await;
 
             update(&app_task, |s| {
                 s.phase = "waiting-user".to_string();
                 s.identity = Some(identity.clone());
+                s.last_error = if missing.is_empty() {
+                    None
+                } else {
+                    // Não para a sessão: o laço de reparo tenta de novo, e o
+                    // usuário pode digitar na mão com o valor da tela.
+                    Some(format!(
+                        "Não consegui preencher: {}. Vou tentar de novo enquanto você resolve o CAPTCHA.",
+                        missing.join(", ")
+                    ))
+                };
             });
 
-            match wait_for_signup(&mut cdp, &chromium, &stop).await {
+            match wait_for_signup(&mut cdp, &chromium, &stop, &identity).await {
                 Ok(cookie) => {
                     update(&app_task, |s| s.phase = "saving".to_string());
                     match save_account(&accounts, cookie, &identity).await {
-                        Ok(name) => update(&app_task, |s| {
-                            s.created += 1;
-                            s.created_usernames.push(name);
-                            s.last_error = None;
-                        }),
+                        Ok(name) => {
+                            // A lista principal recarrega neste evento. Sem
+                            // ele, as contas criadas só apareciam no próximo
+                            // start do app — inclusive as de uma sessão que o
+                            // usuário parou no meio.
+                            let _ = app_task.emit(
+                                "generator-account-added",
+                                serde_json::json!({ "username": name }),
+                            );
+                            update(&app_task, |s| {
+                                s.created += 1;
+                                s.created_usernames.push(name);
+                                s.last_error = None;
+                            });
+                        }
                         Err(e) => update(&app_task, |s| {
                             s.last_error = Some(format!("Conta criada, mas não foi salva: {}", e));
                         }),
