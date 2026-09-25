@@ -101,7 +101,7 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 ## Armadilhas / cuidados
 
 - **Favoritos e recentes não são arquivos do app**: vivem no `localStorage` do WebView. Não são exportados com `AccountData.json`, não são vistos pelo backend/webserver e podem sumir se o perfil do WebView for limpo.
-- `General.ServerRegionFormat` é salvo mas **não é usado**: [ServersTab.tsx](../../src/components/server-list/ServersTab.tsx) formata fixo como `city, country_code` e consulta `ipapi.co` (não `ip-api.com` citado no comentário do default).
+- `General.ServerRegionFormat` **é usado**: [account_api.rs](../../src-tauri/src/commands/account_api.rs) lê o template em `server_region_template` e [server_regions.rs](../../src-tauri/src/api/roblox/server_regions.rs) o aplica em `format_region`. Os tokens substituídos são `<city>`, `<region>`, `<country>`, `<countryCode>` e `<ip>` — o resto do texto passa intacto, e template que resolve vazio cai no IP cru. O comentário do default gravado no INI ainda aponta `ip-api.com`, que não corresponde a essa lista.
 - "Load Region" chama `join-game-instance` com o cookie da conta — é uma requisição real de entrada (não abre o cliente, mas consome a API do Roblox).
 - Find Player compara URLs de headshot; pode dar falso negativo se o CDN devolver URLs diferentes, e varre todas as páginas (lento em jogos grandes).
 - `search_games` recebe o **cookie** da conta selecionada como argumento vindo do frontend (`securityToken`), diferente dos demais comandos que recebem `userId`.

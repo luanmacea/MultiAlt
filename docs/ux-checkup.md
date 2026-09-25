@@ -23,7 +23,7 @@ Total: **131 achados** — 25 altos, 60 médios, 46 baixos.
 |---|---|---|
 | **P0** | A tela mente ou o ajuste não funciona | ✅ **feito** (16 itens, 7 commits) |
 | **P1** | Existe e ninguém acha | ✅ **feito** (15 itens, 4 commits) |
-| **P2** | Está na tela e não se explica | ⬜ a fazer (16 itens) |
+| **P2** | Está na tela e não se explica | ✅ **feito** (16 itens, 8 commits) |
 | **P3** | Desenho e ergonomia | ⬜ a fazer (~40 itens) |
 | **Tradução** | Não existe pt-BR | ⬜ a fazer — maior alcance, mais mecânico |
 
@@ -94,29 +94,67 @@ lia. Abaixo, o que cada item virou.
 | | **O gerador rodando some da tela** ao fechar o diálogo — e ele gasta dinheiro (o Botting, que não gasta, tem contador no rodapé) |
 | | **O tour nunca menciona o Painel de Sessão** e fecha os diálogos de ferramenta sem apresentá-los |
 
-## P2 — está na tela e não se explica ⬜
+## P2 — está na tela e não se explica ✅
 
-**Próxima faixa.** Aqui ninguém é enganado e tudo se acha: o problema é que a
-tela não conta o que a coisa faz. É trabalho de texto, principalmente.
+**Concluído.** Aqui ninguém era enganado e tudo se achava: o problema era a tela
+não contar o que a coisa faz. Foi trabalho de texto, com uma regra: nenhuma
+explicação entrou sem estar conferida no código que a sustenta — ajuste que não
+deu para confirmar ficou sem texto, e está listado abaixo.
 
-| # | Achado |
-|---|---|
-| ✓ | **Scripts não diz o que é**: JavaScript num Web Worker *dentro do RAM*, não executor, sem injector. O único texto é o subtítulo (`ScriptsDialog.tsx:3033`) |
-| | **As 8 permissões de script são nomes técnicos** sem descrição (`PermissionRow` nem aceita uma) |
-| | **Botting não diz que fecha e reabre o cliente a cada ciclo**, e os campos de tempo perdem a unidade na vista padrão |
-| | **Nexus**: o ícone diz "Nexus", o diálogo diz "Account Control", e o Help não menciona que é preciso um executor de terceiros |
-| | **A aba WebServer inteira é uma lista de permissões sem uma linha de explicação** — `Allow GetCookie` entrega o cookie da conta |
-| | **A aba Watcher liga um sistema inteiro** sem dizer o que ele faz |
-| | **Nada diz que o `Account Generator` é serviço pago de terceiro**, nem que existe a alternativa gratuita ao lado |
-| | **O cookie `.ROBLOSECURITY` é pedido em três lugares** e em nenhum se explica onde achá-lo |
-| | **`aged` não diz de que envelheceu** e a bolinha vira vermelho puro aos 30 dias, idêntica à de sessão inválida (`types.ts:174`) |
-| | **Quando o launch falha, o porquê está em outra tela** — o log explicativo só existe em Choose Game › Console |
-| | **A faixa de erro corta o texto** numa linha e só oferece ação se o erro contiver "failed to enable multi roblox" (`App.tsx:96`) |
-| | **`Quick Login` não diz de onde vem o código** de 6 dígitos |
-| | **`Unlock` com PIN de 4 dígitos** sem explicação do que destrava |
-| | **`Region Format` pede um template** sem dizer que tokens existem |
-| | **21 opções de Settings são indecifráveis** só pela tela (de 109 catalogadas); outras 34 explicam pela metade |
-| | **Quatro nomes diferentes para as mesmas duas funções** de criar conta |
+| # | Achado | O que virou |
+|---|---|---|
+| ✓ | **Scripts não diz o que é**: JavaScript num Web Worker *dentro do RAM*, não executor, sem injector | Cabeçalho diz onde roda, que fala com o app pela API `ram.*`, que não injeta nada e que não recebe cookie nem senha |
+| ✓ | **As 8 permissões de script são nomes técnicos** sem descrição (`PermissionRow` nem aceita uma) | `PermissionRow` passa a exigir descrição; cada permissão diz o risco concreto |
+| ✓ | **Botting não diz que fecha e reabre o cliente a cada ciclo**, e os campos de tempo perdem a unidade na vista padrão | Bloco "How each cycle works" nas duas vistas + unidade, significado e faixa de cada campo de Timing |
+| ✓ | **Nexus**: o ícone diz "Nexus", o diálogo diz "Account Control", e o Help não menciona que é preciso um executor de terceiros | Diálogo se chama Nexus; seção Requirements diz que ele só escuta, e o endereço `ws://localhost:<porta>/Nexus` |
+| ✓ | **A aba WebServer inteira é uma lista de permissões sem uma linha de explicação** — `Allow GetCookie` entrega o cookie da conta | Uma linha por permissão, conferida nos handlers; `GetCookie` em aviso âmbar |
+| ✓ | **A aba Watcher liga um sistema inteiro** sem dizer o que ele faz | Topo da aba diz o que varre, que ignora a janela em uso, a carência de 30 s, e que fecha sem reabrir |
+| ✓ | **Nada diz que o `Account Generator` é serviço pago de terceiro**, nem que existe a alternativa gratuita ao lado | Aviso na aba de Settings e no diálogo, apontando a alternativa gratuita |
+| ✓ | **O cookie `.ROBLOSECURITY` é pedido em três lugares** e em nenhum se explica onde achá-lo | Os três dizem o que ele vale (conta inteira, sem senha e sem 2FA) e onde encontrá-lo |
+| ✓ | **`aged` não diz de que envelheceu** | Diz de quantos dias, a partir de qual data, e que sessão morta é a bolinha vermelha (o vermelho puro aos 30 dias já tinha caído no P0) |
+| ✓ | **Quando o launch falha, o porquê está em outra tela** | A faixa de erro aponta Choose Game › Console e abre a tela, quando existe log |
+| ✓ | **A faixa de erro corta o texto** numa linha (`App.tsx:96`) | Quebra linha, com teto de altura e rolagem |
+| ✓ | **`Quick Login` não diz de onde vem o código** de 6 dígitos | Diz que nasce no `roblox.com/login` do aparelho que vai entrar, e que o app o envia com a sessão da conta |
+| ✓ | **`Unlock` com PIN de 4 dígitos** sem explicação do que destrava | Diz que é o PIN da conta Roblox (não a senha do app nem a da criptografia) e o que destravar libera |
+| ✓ | **`Region Format` pede um template** sem dizer que tokens existem | Lista os cinco tokens e mostra o resultado de um exemplo |
+| ✓ | **21 opções de Settings são indecifráveis** só pela tela | 9 ajustes ganharam linha própria; as duas abas restantes já tinham descrição em todos os toggles |
+| ✓ | **Quatro nomes diferentes para as mesmas duas funções** de criar conta | Um nome cada (`Create Accounts` grátis, `Account Generator` pago) e a mesma linha de apoio em todo ponto de entrada |
+
+## Achados novos, levantados durante o P2
+
+Explicar o que está na tela obriga a ler o código que sustenta a frase — e foi aí
+que estes apareceram. **Nenhum foi corrigido**: são mudança de comportamento, não
+de texto. Onde a tela não podia prometer o que o código não faz, o texto foi
+escrito escapando do ponto (e isso está dito na linha).
+
+| Gravidade | Achado | Onde |
+|---|---|---|
+| Alta | **`LastUse` nunca é atualizado por lançamento.** Só é escrito ao criar/re-adicionar a conta. A coluna "3d"/"2mo" e a bolinha de envelhecimento medem idade do **cadastro**, não inatividade de jogo | `data/accounts/model.rs:154,174`, `data/accounts/store.rs:289` |
+| Alta | **`Allow Account Editing` não cobre tudo que edita a conta**: `/SetAvatar`, `/BlockUser`, `/UnblockUser` e `/UnblockEveryone` ficam liberados com ele desligado (pedem só a senha) | `api/server/handlers_edit.rs:301,337,372,456` |
+| Média | **O snapshot da janela é empurrado para todo script** assim que ele sobe, sem checar `allowWindow` — a permissão só barra a leitura sob demanda | `ScriptsDialog.tsx:2387-2391` |
+| Média | **A descrição de `Background Mode` está errada**: fala em cliente minimizado/fora da tela, mas o código força `IDLE_PRIORITY_CLASS` no processo sem olhar janela nenhuma | `platform/windows/optimization.rs:280` |
+| Média | **`quick_login_validate_code` existe no backend e nada no frontend o chama** — o fluxo do Roblox normalmente é `enterCode` + confirmação | `api/auth.rs:414`, `commands/account_api.rs:1317` |
+| Baixa | **Exportar o `Nexus.lua` não dá retorno nenhum**: sucesso só copia o caminho, erro é engolido por `catch {}`, e com a feature `nexus` desligada o clique não faz nada visível | `NexusDialog.tsx`, `commands/services.rs:297` |
+| Baixa | **A detecção de "multi roblox" por substring em inglês está duplicada em três lugares** | `App.tsx`, `MultiSelectSidebar.tsx:63`, `BottingDialog.tsx:94` |
+| Baixa | **O comentário gravado no INI para `ServerRegionFormat` aponta `ip-api.com`**, que não corresponde aos cinco tokens que o código substitui | `data/settings/store.rs:49` |
+| Baixa | **`Shuffle Job ID` explica pela metade**: o sorteio é ignorado quando há Job ID digitado ou quando se usa "follow user" | `commands/launch.rs:112-114` |
+
+### O backend não compila fora do Windows
+
+`cargo check --all-features` no Linux para com 10 erros, todos de `cfg` faltando:
+`commands/botting.rs` chama funções que só existem sob
+`#[cfg(target_os = "windows")]` (`ensure_multi_roblox_enabled`,
+`patch_client_settings_for_launch`, `wait_for_new_roblox_pid`,
+`detect_auth_failure_window`, `minimize_new_roblox_windows`,
+`get_or_create_browser_tracker_id`, `is_429_related_error`,
+`apply_windows_post_launch_profile`) e `api/server/launch_patch.rs` idem. É
+pré-existente e afeta também a build macOS, que a doc dá como parcial.
+
+Consequência prática: **`bun run check` só roda inteiro no Windows.** O P2 foi
+verificado com `tsc --noEmit`, `bun run t --audit` e a suíte vitest completa
+(1122 testes); a metade `cargo test --all-features` não foi executada. Como o P2
+é todo frontend, nenhum arquivo Rust foi tocado — mas o check completo precisa
+rodar no Windows antes de considerar a faixa fechada de verdade.
 
 ## P3 — desenho e ergonomia ⬜
 
