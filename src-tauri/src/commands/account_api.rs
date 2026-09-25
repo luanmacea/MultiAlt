@@ -112,10 +112,11 @@ async fn resolve_join_link(
     if parsed.share_code.is_none() {
         return api::roblox::resolve_join_link("", &link).await;
     }
-    let link = link.clone();
-    run_with_session_retry(state.inner(), user_id, move |cookie| {
-        let link = link.clone();
-        async move { api::roblox::resolve_join_link(&cookie, &link).await }
+    // Resolver o share link e leitura: se o cookie estiver velho, isto falha e a
+    // pessoa reloga. Renovar sessao aqui derrubaria os clientes abertos da conta
+    // para resolver um link — preco alto demais para uma consulta.
+    read_without_refresh(state.inner(), user_id, move |cookie| async move {
+        api::roblox::resolve_join_link(&cookie, &link).await
     })
     .await
 }
@@ -130,10 +131,29 @@ async fn get_csrf_token(
     state: tauri::State<'_, AccountStore>,
     user_id: i64,
 ) -> Result<String, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::auth::get_csrf_token(&cookie).await
     })
     .await
+}
+
+/// Leitura que **não** pode renovar sessão: pega o cookie e chama a API direto.
+///
+/// O refresh (`run_with_session_retry`) chama
+/// `signoutfromallsessionsandreauthenticate`, que desloga a conta de todas as
+/// sessões e pode derrubar clientes Roblox abertos. Para leitura, um cookie velho
+/// tem de virar erro na tela — quem lê o saldo não aceita esse preço.
+async fn read_without_refresh<T, F, Fut>(
+    state: &AccountStore,
+    user_id: i64,
+    operation: F,
+) -> Result<T, String>
+where
+    F: FnOnce(String) -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    let cookie = get_cookie(state, user_id)?;
+    operation(cookie).await
 }
 
 /// Ticket de auth para os links que o menu de contexto copia (`roblox-player://`
@@ -143,8 +163,10 @@ async fn get_csrf_token(
 /// conta só porque o cookie estava velho. O launch tem o seu próprio caminho e
 /// continua com retry.
 async fn auth_ticket_without_refresh(state: &AccountStore, user_id: i64) -> Result<String, String> {
-    let cookie = get_cookie(state, user_id)?;
-    api::auth::get_auth_ticket(&cookie).await
+    read_without_refresh(state, user_id, |cookie| async move {
+        api::auth::get_auth_ticket(&cookie).await
+    })
+    .await
 }
 
 #[tauri::command]
@@ -157,7 +179,7 @@ async fn get_auth_ticket(
 
 #[tauri::command]
 async fn check_pin(state: tauri::State<'_, AccountStore>, user_id: i64) -> Result<bool, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::auth::check_pin(&cookie).await
     })
     .await
@@ -187,7 +209,7 @@ async fn refresh_cookie(
 
 #[tauri::command]
 async fn get_robux(state: tauri::State<'_, AccountStore>, user_id: i64) -> Result<i64, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::roblox::get_robux(&cookie).await
     })
     .await
@@ -556,7 +578,7 @@ async fn get_blocked_users(
     state: tauri::State<'_, AccountStore>,
     user_id: i64,
 ) -> Result<Vec<api::roblox::BlockedUser>, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::roblox::get_blocked_users(&cookie).await
     })
     .await
@@ -591,7 +613,7 @@ async fn get_private_server_invite_privacy(
     state: tauri::State<'_, AccountStore>,
     user_id: i64,
 ) -> Result<String, String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
+    read_without_refresh(state.inner(), user_id, |cookie| async move {
         api::roblox::get_private_server_invite_privacy(&cookie).await
     })
     .await
