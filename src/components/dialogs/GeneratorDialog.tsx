@@ -7,6 +7,7 @@ import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { X, Eye, EyeOff, Wallet } from "lucide-react";
+import { SignupPanel } from "../signup/SignupPanel";
 
 interface GeneratorDialogProps {
   open: boolean;
@@ -102,6 +103,12 @@ export function GeneratorDialog({ open, onClose }: GeneratorDialogProps) {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
   const [log, setLog] = useState<GeneratedEntry[]>([]);
+  /**
+   * Duas formas de conseguir conta nova moram no mesmo diálogo: comprar de um
+   * provedor (BloxGen) ou criar no formulário do Roblox com o CAPTCHA resolvido
+   * pelo usuário.
+   */
+  const [mode, setMode] = useState<"provider" | "signup">("provider");
 
   useEffect(() => {
     if (!visible) return;
@@ -241,7 +248,36 @@ export function GeneratorDialog({ open, onClose }: GeneratorDialogProps) {
           </div>
         </div>
 
-        <div className="p-4 md:p-5 flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="px-5 pt-3 flex items-center gap-1.5">
+          {([
+            { id: "provider" as const, label: t("Buy from a provider") },
+            { id: "signup" as const, label: t("Create in the browser") },
+          ]).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setMode(tab.id)}
+              className={`px-2.5 py-1.5 text-[12px] rounded-md border transition-colors ${
+                mode === tab.id
+                  ? "border-[var(--accent-color)] text-[var(--panel-fg)] theme-soft"
+                  : "theme-border theme-muted theme-btn-ghost"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {mode === "signup" && (
+          <div className="p-4 md:p-5 flex-1 min-h-0">
+            <SignupPanel />
+          </div>
+        )}
+
+        <div
+          className={`p-4 md:p-5 flex-1 min-h-0 grid-cols-1 lg:grid-cols-12 gap-4 ${
+            mode === "provider" ? "grid" : "hidden"
+          }`}
+        >
           <div className="lg:col-span-5 min-h-0 animate-slide-left">
             <div className="theme-surface rounded-2xl border theme-border h-full p-3 overflow-y-auto space-y-3">
               <section className="theme-surface rounded-xl border theme-border p-3">

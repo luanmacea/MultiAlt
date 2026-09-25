@@ -31,6 +31,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 ### Contas e sessão
 - [features/backups.md](features/backups.md) — backup/restauração dos dados pelo app e onde a pasta de dados fica (o `.exe` é portátil).
 - [features/accounts.md](features/accounts.md) — modelo de conta, adicionar/remover/importar, criptografia do `AccountData.json`, tela de senha, grupos (incl. `moderadas`), campos, comandos de API por conta.
+- [features/account-creation.md](features/account-creation.md) — criar contas em série: formulário preenchido pelo app com o CAPTCHA resolvido pelo usuário, e o gerador por provedor (BloxGen).
 - [features/authentication.md](features/authentication.md) — cookie, CSRF, auth ticket, retry de sessão (`run_with_session_retry`), refresh de cookie.
 
 ### Launch e automação
@@ -57,6 +58,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ## Registro de mudanças (2026-09-25)
 
+0. **Criação de contas em série**: o app preenche o cadastro do Roblox (usuário, senha, 18+, masculino) e o usuário só resolve o CAPTCHA; o gerador BloxGen deixou de tentar para sempre quando o erro nunca passa — [account-creation.md](features/account-creation.md).
 0. **Escolha de servidor**: preferência por lote (aleatório / mais vazio / mais cheio), filtro por país e aba **Servers** para escolher o servidor na mão — [server-choice.md](features/server-choice.md).
 
 1. **Painel de Sessão**: fila de contas entrando (cancelar uma, parar a fila — sem fechar cliente nenhum) e lista de contas em jogo (focar/fechar, com seleção múltipla). Na aba Console e num botão da barra principal — [ui-layout.md](features/ui-layout.md#painel-de-sessão), [multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento).

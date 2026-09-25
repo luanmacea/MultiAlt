@@ -325,9 +325,10 @@ async fn run_generator_session(
                     }
                     Err(e) => {
                         consecutive_failures += 1;
-                        if cfg.max_consecutive_failures > 0
-                            && consecutive_failures >= cfg.max_consecutive_failures
-                        {
+                        if should_stop_after_failures(
+                            consecutive_failures,
+                            cfg.max_consecutive_failures,
+                        ) {
                             set_generator_runtime(&runtime, |r| {
                                 r.active = false;
                                 r.phase = "error".to_string();
@@ -351,6 +352,9 @@ async fn run_generator_session(
                 }
             }
             GenerateOutcome::Cooldown(ms) => {
+                // Cooldown é o provedor pedindo para esperar, não falha: não
+                // pode consumir o orçamento de tentativas.
+                consecutive_failures = 0;
                 let wait = ms + cfg.extra_delay_ms;
                 set_generator_runtime(&runtime, |r| {
                     r.phase = "cooldown".to_string();
@@ -361,6 +365,24 @@ async fn run_generator_session(
                 sleep_interruptible(&stop_flag, wait).await;
             }
             GenerateOutcome::Transient(message) => {
+                // Falha transitória também conta para o limite. Sem isso, um
+                // erro que nunca passa — estoque vazio, saldo zerado, chave
+                // vencida — virava uma nova tentativa a cada 15 s, para sempre
+                // e em silêncio: o usuário só via "gerando" e nada acontecia.
+                consecutive_failures += 1;
+                if should_stop_after_failures(consecutive_failures, cfg.max_consecutive_failures) {
+                    set_generator_runtime(&runtime, |r| {
+                        r.active = false;
+                        r.phase = "error".to_string();
+                        r.last_error = Some(format!(
+                            "Stopped after {} consecutive failures: {}",
+                            consecutive_failures, message
+                        ));
+                        r.next_attempt_at_ms = None;
+                    });
+                    break;
+                }
+
                 let wait = GENERATOR_TRANSIENT_BACKOFF_MS + cfg.extra_delay_ms;
                 set_generator_runtime(&runtime, |r| {
                     r.phase = "waiting".to_string();
@@ -427,6 +449,14 @@ fn current_generator_status() -> GeneratorStatusPayload {
     } else {
         GeneratorStatusPayload::default()
     }
+}
+
+/// A sessão desiste depois de tantas tentativas seguidas sem conta?
+///
+/// `max_consecutive_failures <= 0` significa "tentar para sempre", que é uma
+/// escolha explícita do usuário nas settings.
+fn should_stop_after_failures(consecutive_failures: i64, max_consecutive_failures: i64) -> bool {
+    max_consecutive_failures > 0 && consecutive_failures >= max_consecutive_failures
 }
 
 fn emit_generator_status(app: &tauri::AppHandle) {
@@ -1393,5 +1423,52 @@ mod generator_http_tests {
             .await
             .unwrap();
         assert_eq!(balance, 7.25);
+    }
+}
+
+
+/// O limite de tentativas seguidas sem conta.
+///
+/// Regressão: `Transient` (estoque vazio, saldo zerado, chave vencida) não
+/// contava para o limite, então o gerador tentava de novo a cada 15 s para
+/// sempre, sem nunca mostrar erro.
+#[cfg(test)]
+mod generator_failure_budget_tests {
+    use super::*;
+
+    #[test]
+    fn the_session_stops_when_the_budget_runs_out() {
+        assert!(!should_stop_after_failures(1, 3));
+        assert!(!should_stop_after_failures(2, 3));
+        assert!(should_stop_after_failures(3, 3));
+        assert!(should_stop_after_failures(9, 3));
+    }
+
+    /// Zero (ou negativo) é a escolha explícita de "tentar para sempre".
+    #[test]
+    fn a_zero_budget_means_never_give_up() {
+        assert!(!should_stop_after_failures(1, 0));
+        assert!(!should_stop_after_failures(9999, 0));
+        assert!(!should_stop_after_failures(9999, -1));
+    }
+
+    /// Um erro que nunca passa tem que consumir o orçamento: é exatamente o
+    /// caso do estoque vazio, que
+    /// `bloxgen_generate_surfaces_the_api_message_on_success_false` prova ser
+    /// `Transient`. Com o orçamento padrão (3), a terceira resposta dessas
+    /// encerra a sessão com erro em vez de tentar para sempre.
+    #[test]
+    fn three_transient_answers_end_the_session_with_the_default_budget() {
+        let budget = 3;
+        let mut consecutive = 0;
+        let mut stopped_at = None;
+        for attempt in 1..=10 {
+            consecutive += 1;
+            if should_stop_after_failures(consecutive, budget) {
+                stopped_at = Some(attempt);
+                break;
+            }
+        }
+        assert_eq!(stopped_at, Some(3));
     }
 }

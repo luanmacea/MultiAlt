@@ -204,6 +204,16 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: [],
   },
+  signup: {
+    description: "Criação de contas no formulário do Roblox (CAPTCHA pelo usuário)",
+    rust: [
+      "signup_identity_tests",
+      "signup_script_tests",
+      "signup_session_tests",
+      "generator_failure_budget_tests",
+    ],
+    front: ["src/components/signup"],
+  },
   ui: {
     description: "Casca da UI: layout, menus, componentes genéricos, i18n, hooks",
     rust: [],
