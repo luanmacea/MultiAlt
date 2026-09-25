@@ -296,3 +296,31 @@ export interface PickedServer {
    * melhor disponível — a UI pergunta antes de entrar. */
   regionFallback: boolean;
 }
+
+// ── Criação de contas no navegador ───────────────────────────────────────────
+
+/** Identidade gerada para um cadastro (`SignupIdentity` no backend). */
+export interface SignupIdentity {
+  username: string;
+  password: string;
+  /** Dia com dois dígitos, como o `<select>` do Roblox espera. */
+  day: string;
+  /** Mês em três letras em inglês — é o `value` do `<select>`, não o rótulo. */
+  month: string;
+  year: string;
+  gender: string;
+}
+
+/** Estado da sessão de cadastro (evento `signup-progress`). */
+export interface SignupStatus {
+  active: boolean;
+  /** Conta atual (1-based) e total pedido. */
+  current: number;
+  total: number;
+  created: number;
+  /** `idle` | `opening` | `filling` | `waiting-user` | `saving` | `stopping` | `done` | `error` */
+  phase: string;
+  identity: SignupIdentity | null;
+  lastError: string | null;
+  createdUsernames: string[];
+}

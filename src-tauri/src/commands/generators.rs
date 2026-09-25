@@ -325,9 +325,10 @@ async fn run_generator_session(
                     }
                     Err(e) => {
                         consecutive_failures += 1;
-                        if cfg.max_consecutive_failures > 0
-                            && consecutive_failures >= cfg.max_consecutive_failures
-                        {
+                        if should_stop_after_failures(
+                            consecutive_failures,
+                            cfg.max_consecutive_failures,
+                        ) {
                             set_generator_runtime(&runtime, |r| {
                                 r.active = false;
                                 r.phase = "error".to_string();
@@ -351,6 +352,9 @@ async fn run_generator_session(
                 }
             }
             GenerateOutcome::Cooldown(ms) => {
+                // Cooldown é o provedor pedindo para esperar, não falha: não
+                // pode consumir o orçamento de tentativas.
+                consecutive_failures = 0;
                 let wait = ms + cfg.extra_delay_ms;
                 set_generator_runtime(&runtime, |r| {
                     r.phase = "cooldown".to_string();
@@ -361,6 +365,24 @@ async fn run_generator_session(
                 sleep_interruptible(&stop_flag, wait).await;
             }
             GenerateOutcome::Transient(message) => {
+                // Falha transitória também conta para o limite. Sem isso, um
+                // erro que nunca passa — estoque vazio, saldo zerado, chave
+                // vencida — virava uma nova tentativa a cada 15 s, para sempre
+                // e em silêncio: o usuário só via "gerando" e nada acontecia.
+                consecutive_failures += 1;
+                if should_stop_after_failures(consecutive_failures, cfg.max_consecutive_failures) {
+                    set_generator_runtime(&runtime, |r| {
+                        r.active = false;
+                        r.phase = "error".to_string();
+                        r.last_error = Some(format!(
+                            "Stopped after {} consecutive failures: {}",
+                            consecutive_failures, message
+                        ));
+                        r.next_attempt_at_ms = None;
+                    });
+                    break;
+                }
+
                 let wait = GENERATOR_TRANSIENT_BACKOFF_MS + cfg.extra_delay_ms;
                 set_generator_runtime(&runtime, |r| {
                     r.phase = "waiting".to_string();
@@ -427,6 +449,14 @@ fn current_generator_status() -> GeneratorStatusPayload {
     } else {
         GeneratorStatusPayload::default()
     }
+}
+
+/// A sessão desiste depois de tantas tentativas seguidas sem conta?
+///
+/// `max_consecutive_failures <= 0` significa "tentar para sempre", que é uma
+/// escolha explícita do usuário nas settings.
+fn should_stop_after_failures(consecutive_failures: i64, max_consecutive_failures: i64) -> bool {
+    max_consecutive_failures > 0 && consecutive_failures >= max_consecutive_failures
 }
 
 fn emit_generator_status(app: &tauri::AppHandle) {

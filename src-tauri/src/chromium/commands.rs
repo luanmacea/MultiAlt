@@ -175,7 +175,7 @@ async fn plant_account_cookie(
     Ok(())
 }
 
-fn wipe_profile_dir(profile: &Path) -> Result<(), String> {
+pub(super) fn wipe_profile_dir(profile: &Path) -> Result<(), String> {
     match std::fs::remove_dir_all(profile) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
