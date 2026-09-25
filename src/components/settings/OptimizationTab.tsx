@@ -183,7 +183,9 @@ function OptimizationProfileSection({
         value={s.get("General", generalKey(profile, "CustomClientSettings"), "")}
         onChange={(v) => s.set("General", generalKey(profile, "CustomClientSettings"), v)}
         label="Custom ClientSettings"
-        placeholder="C:\\path\\ClientAppSettings.json"
+        // `{}` para o escape ser processado uma vez: entre aspas o JSX mostraria
+        // `C:\\path\\...` e a chave nao casaria com a do catalogo.
+        placeholder={"C:\\path\\ClientAppSettings.json"}
       />
       {/* O caminho parecia inofensivo: o arquivo e COPIADO por cima do
           ClientAppSettings.json da instalacao (`copy_custom_client_settings`) e
@@ -430,7 +432,10 @@ function OptimizationProfileSection({
               s.set("Optimization", optimizationKey(profile, "FastFlagsJson"), value)
             }
             label="Allowlisted fast flags JSON"
-            placeholder='{\n  "DFFlagTextureQualityOverrideEnabled": true,\n  "DFIntTextureQualityOverride": 0\n}'
+            // Idem: entre aspas o `\n` aparecia cru e o exemplo saia numa linha
+            // so. Em `{}` viram quebras de linha de verdade, iguais a chave do
+            // catalogo.
+            placeholder={'{\n  "DFFlagTextureQualityOverrideEnabled": true,\n  "DFIntTextureQualityOverride": 0\n}'}
             rows={6}
             disabled={fastFlagsEditorDisabled}
             error={fastFlagsEditorDisabled ? null : fastFlagsError}

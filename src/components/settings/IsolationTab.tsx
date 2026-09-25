@@ -221,7 +221,11 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
             <WarningBadge>Requires UAC</WarningBadge>
           </>
         }
-        description="Writes a fresh GUID to HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid"
+        // Em `{}` o escape e processado uma vez, entao o valor fica com UMA
+        // barra por nivel — que e a forma em que a chave existe no catalogo.
+        // Entre aspas o JSX entrega as duas barras, a chave nao casa e a frase
+        // volta ao ingles em todos os idiomas.
+        description={"Writes a fresh GUID to HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid"}
       />
       <Toggle
         checked={spoofMac}

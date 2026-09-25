@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import enCommon from "../locales/en/common.json";
 import deCommon from "../locales/de/common.json";
@@ -172,6 +174,63 @@ describe.each([
       .filter((k) => placeholders(k).join(",") !== placeholders(dict[k]).join(","))
       .map((k) => `${JSON.stringify(k)} -> ${JSON.stringify(dict[k])}`);
     expect(broken).toEqual([]);
+  });
+});
+
+/**
+ * Atributo JSX entre aspas **não é string literal de JS**: `attr="a\\b"` entrega
+ * ao componente as duas barras, e `attr="linha1\nlinha2"` entrega o `\n` como
+ * dois caracteres visíveis. O estrago é triplo, porque essas strings são chaves
+ * do catálogo:
+ *
+ * 1. a tela mostra `HKLM\\SOFTWARE\\...` ou um JSON de uma linha com `\n` cru;
+ * 2. a chave pedida (escapada) não existe no catálogo — o `en` guarda a forma
+ *    desescapada — então `t()` cai no `defaultValue` e a frase sai em inglês em
+ *    **todos** os idiomas;
+ * 3. a tradução correspondente vira chave morta que ninguém nunca vê.
+ *
+ * A forma certa é `attr={"a\\b"}`: dentro de `{}` é expressão JS e o escape é
+ * processado uma vez. Este teste varre o frontend para que um quarto caso não
+ * entre em silêncio.
+ */
+const SRC_ROOT = resolve(process.cwd(), "src");
+
+/** Atributo JSX de valor literal, numa linha: `nome="..."` ou `nome='...'`. */
+const JSX_LITERAL_ATTR = /(?:^|[\s{])([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)=("[^"\n]*"|'[^'\n]*')/g;
+
+function tsxFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) out.push(...tsxFiles(full));
+    else if (entry.endsWith(".tsx")) out.push(full);
+  }
+  return out.sort();
+}
+
+function rawEscapesInJsxAttributes(): string[] {
+  const found: string[] = [];
+  for (const file of tsxFiles(SRC_ROOT)) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, index) => {
+      for (const match of line.matchAll(JSX_LITERAL_ATTR)) {
+        const literal = match[2].slice(1, -1);
+        if (!/\\\\|\\n/.test(literal)) continue;
+        const where = `${relative(process.cwd(), file).replace(/\\/g, "/")}:${index + 1}`;
+        found.push(`${where} ${match[1]}=${match[2]}`);
+      }
+    });
+  }
+  return found;
+}
+
+describe("escape em atributo JSX", () => {
+  it("nenhum atributo literal carrega `\\\\` ou `\\n` cru (use {\"...\"})", () => {
+    expect(rawEscapesInJsxAttributes()).toEqual([]);
+  });
+
+  it("a varredura realmente enxerga arquivos (protege contra regex morta)", () => {
+    expect(tsxFiles(SRC_ROOT).length).toBeGreaterThan(50);
   });
 });
 

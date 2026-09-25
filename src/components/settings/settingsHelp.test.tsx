@@ -12,6 +12,7 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
 }));
 
 import { GeneralTab } from "./GeneralTab";
+import { IsolationTab } from "./IsolationTab";
 import { MiscellaneousTab } from "./MiscellaneousTab";
 import { OptimizationTab } from "./OptimizationTab";
 import { GeneratorTab } from "./GeneratorTab";
@@ -216,6 +217,66 @@ describe("OptimizationTab explains what the fields do", () => {
         "Waits this long after the Roblox process shows up before applying the policy to it."
       )
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * Atributo JSX entre aspas nao e string literal de JS: `attr="a\\b"` chega ao
+ * componente com as DUAS barras, e `attr="l1\nl2"` chega com o `\n` visivel.
+ * Como esses textos sao chaves do catalogo, o estrago e duplo — a tela mostra o
+ * escape cru E a chave pedida nao existe no `en`, entao `t()` cai no
+ * `defaultValue` e a frase fica em ingles em todos os idiomas.
+ *
+ * A varredura que impede um quarto caso esta em `src/i18n/locales.test.ts`;
+ * estes testes fixam o texto que o usuario tem que ver nas duas abas.
+ */
+describe("Settings shows escaped strings the way the user reads them", () => {
+  const GUID_DESCRIPTION =
+    "Writes a fresh GUID to HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid";
+  const GUID_DESCRIPTION_PT =
+    "Escreve um GUID novo em HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid";
+  const CUSTOM_CLIENT_SETTINGS_PLACEHOLDER = "C:\\path\\ClientAppSettings.json";
+  const FAST_FLAGS_PLACEHOLDER =
+    '{\n  "DFFlagTextureQualityOverrideEnabled": true,\n  "DFIntTextureQualityOverride": 0\n}';
+
+  function renderOptimizationTab() {
+    stored = {};
+    setStore({ platformCapabilities: { os: "windows" } as PlatformCapabilities });
+    renderTab((s) => <OptimizationTab s={s} />);
+  }
+
+  it("writes the registry path with one backslash per level", async () => {
+    stored = {};
+    renderTab((s) => <IsolationTab s={s} />);
+    expect(await screen.findByText(GUID_DESCRIPTION)).toBeInTheDocument();
+    expect(screen.queryByText(/HKLM\\\\SOFTWARE/)).toBeNull();
+  });
+
+  /**
+   * A prova de que o valor em runtime casa com a chave do catalogo: o `pt` so
+   * responde se a string pedida for exatamente a chave do `en` (uma barra).
+   */
+  it("translates that description, which only happens when the key matches the catalogue", async () => {
+    stored = {};
+    await i18n.changeLanguage("pt");
+    renderTab((s) => <IsolationTab s={s} />);
+    expect(await screen.findByText(GUID_DESCRIPTION_PT)).toBeInTheDocument();
+  });
+
+  it("shows the ClientAppSettings example path with one backslash per level", async () => {
+    renderOptimizationTab();
+    const field = await screen.findByLabelText("Custom ClientSettings");
+    expect(field).toHaveAttribute("placeholder", CUSTOM_CLIENT_SETTINGS_PLACEHOLDER);
+  });
+
+  it("shows the fast flags example as four real JSON lines", async () => {
+    renderOptimizationTab();
+    const editor = (await screen.findByLabelText(
+      "Allowlisted fast flags JSON"
+    )) as HTMLTextAreaElement;
+    expect(editor).toHaveAttribute("placeholder", FAST_FLAGS_PLACEHOLDER);
+    expect(editor.placeholder.split("\n")).toHaveLength(4);
+    expect(editor.placeholder).not.toContain("\\n");
   });
 });
 
