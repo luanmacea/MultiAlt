@@ -41,8 +41,19 @@ export function AccountRow({ account }: { account: Account }) {
         ? { label: t("Online"), dotClass: "bg-sky-500", dotStyle: undefined as React.CSSProperties | undefined }
         : { label: t("Offline"), dotClass: "", dotStyle: { backgroundColor: "var(--panel-muted)" } };
 
+  // Conta adicionada por nome de usuário (Quick Add) entra sem cookie, e o
+  // backend ainda a grava com Valid=true — nada na linha a distinguia de uma
+  // conta boa. Quem não tem token não tem sessão: mesma bolinha vermelha de
+  // sessão inválida, com o texto dizendo o que falta fazer.
+  const hasSession = !!account.SecurityToken?.trim();
+
   const statusDots: Array<{ color: string; title: string }> = [];
-  if (!account.Valid) {
+  if (!hasSession) {
+    statusDots.push({
+      color: "#ef4444",
+      title: t("No session — paste its cookie or use Browser Login to sign in"),
+    });
+  } else if (!account.Valid) {
     statusDots.push({ color: "#ef4444", title: t("Invalid session") });
   }
   if (freshness) {
@@ -148,6 +159,8 @@ export function AccountRow({ account }: { account: Account }) {
             {statusDots.map((dot, index) => (
               <Tooltip key={index} content={dot.title} side="bottom">
                 <span
+                  role="img"
+                  aria-label={dot.title}
                   className="w-2 h-2 rounded-full"
                   style={{ boxShadow: "0 0 0 1px var(--app-bg)", backgroundColor: dot.color }}
                 />

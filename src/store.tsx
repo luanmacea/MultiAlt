@@ -655,6 +655,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [accounts, selectedIds]
   );
 
+  // Seleção e filtro andavam separados: com "No matches" na tela, a barra
+  // inferior ainda dizia "2 accounts selected" e Remove/Choose Game agiam sobre
+  // contas que o usuário não estava vendo.
+  //
+  // Decisão: enquanto houver filtro, a seleção é podada para o que está
+  // visível. Das três saídas possíveis (podar, restringir só as ações, ou
+  // avisar), esta é a única que conserta *todos* os consumidores de uma vez —
+  // barra inferior, StatusBar, menu de contexto e diálogos leem `selectedIds` /
+  // `selectedAccounts` direto, então restringir ação por ação deixaria contagem
+  // e efeito divergindo de novo. O usuário não perde nada silenciosamente: a
+  // contagem cai junto com as linhas que somem, na mesma tela.
+  //
+  // Sem filtro nada é podado — limpar a busca mantém o que sobreviveu, em vez
+  // de ressuscitar uma seleção que o usuário já não vê há vários caracteres.
+  useEffect(() => {
+    if (!searchQuery) return;
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(filteredAccounts.map((a) => a.UserID));
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredAccounts, searchQuery]);
+
   const handleSelect = useCallback(
     (userId: number, e: React.MouseEvent) => {
       const toggle = e.altKey || e.ctrlKey || e.metaKey;
