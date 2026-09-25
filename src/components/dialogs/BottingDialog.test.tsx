@@ -214,6 +214,40 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
     expect(store.bottingAccountAction).toHaveBeenCalledWith(2, "closeDisconnect");
   });
 
+  /**
+   * O lote perguntava e a linha nao: mesma acao, cobertura diferente. A divisao
+   * certa nao e lote vs. linha, e o que a acao custa — `closeDisconnect` tira a
+   * conta do ciclo de rejoin ate alguem reconectar (`botting_action_flags`), e
+   * `close` sozinho e transitorio, porque o loop reabre no proximo restart.
+   */
+  it("a linha Close + Disconnect pergunta antes de tirar a conta do ciclo", async () => {
+    const { store } = renderDialog({ bottingStatus: activeSession() });
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Close + Disconnect" })[0]);
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    expect(confirmMock.mock.calls[0][0]).toContain("rejoin cycle");
+    expect(store.bottingAccountAction).not.toHaveBeenCalled();
+  });
+
+  it("a linha Close + Disconnect roda quando a pergunta e aceita", async () => {
+    const { store } = renderDialog({ bottingStatus: activeSession() });
+    promptAnswers.confirm = true;
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Close + Disconnect" })[0]);
+
+    await waitFor(() => expect(store.bottingAccountAction).toHaveBeenCalledWith(1, "closeDisconnect"));
+  });
+
+  it("a linha Close client segue sem pergunta: o loop reabre o cliente", async () => {
+    const { store } = renderDialog({ bottingStatus: activeSession() });
+
+    await userEvent.click(screen.getAllByRole("button", { name: "Close client" })[0]);
+
+    await waitFor(() => expect(store.bottingAccountAction).toHaveBeenCalledWith(1, "close"));
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
   it("os lotes não destrutivos seguem sem pergunta", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 

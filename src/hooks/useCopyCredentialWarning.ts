@@ -74,7 +74,8 @@ export function useCopyCredentialWarning() {
         value: "false",
       }).catch(() => {});
       await store.reloadSettings().catch(() => {});
-      store.addToast(tr("Credential copy warning disabled"));
+      // Tom explicito: confirmacao de ajuste, nao aviso de risco.
+      store.addToast(tr("Credential copy warning disabled"), "info");
     }
 
     return result.confirmed;

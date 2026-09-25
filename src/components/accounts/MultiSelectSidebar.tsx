@@ -358,7 +358,20 @@ export function MultiSelectSidebar() {
             </button>
           )}
           <button
-            onClick={() => store.killAllRobloxProcesses()}
+            onClick={async () => {
+              // `cmd_kill_all_roblox` -> `kill_all_roblox()` percorre
+              // `get_roblox_pids()`: mata **todo** processo Roblox da maquina, nao
+              // so os desta selecao nem so os que o app lancou. O texto tem de
+              // dizer isso — era a unica acao destrutiva desta barra sem pergunta.
+              const ok = await confirm(
+                t(
+                  "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here."
+                ),
+                true
+              );
+              if (!ok) return;
+              store.killAllRobloxProcesses();
+            }}
             className={`sidebar-btn theme-btn mt-1.5 text-amber-200 hover:bg-amber-500/15 ${
               pulseCloseAction ? "animate-pulse" : ""
             }`}

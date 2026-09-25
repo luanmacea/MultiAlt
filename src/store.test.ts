@@ -1069,6 +1069,53 @@ describe("toasts and action status", () => {
     ]);
   });
 
+  /**
+   * Trava o tempo de vida por toast: cada um sai no seu proprio timeout, sem
+   * levar o vizinho. Vale dizer o que este teste **nao** prova: com vidas iguais
+   * e fila FIFO, remover por `slice(1)` da no mesmo resultado aqui — o ganho real
+   * do `id` e a estabilidade da `key` no React, e quem guarda isso e
+   * "keeps a toast mounted when an older one leaves the queue" em App.test.tsx.
+   */
+  it("o toast que expira leva embora so ele, e o vizinho vivo continua", async () => {
+    const { result } = await renderStore();
+    vi.useFakeTimers();
+
+    act(() => result.current.addToast("Accounts saved"));
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    act(() => result.current.addToast("Alias updated"));
+
+    // 1000 ms a mais: o primeiro completa 2500 ms e sai; o segundo esta na metade.
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(result.current.toasts.map((toast) => toast.message)).toEqual(["Alias updated"]);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(result.current.toasts).toEqual([]);
+  });
+
+  /**
+   * O heuristico existe para os ~200 call sites que nao se importam com o tom.
+   * Quem sabe o tom da propria mensagem tem de poder dizer: "Aviso de copia de
+   * credencial desligado" e confirmacao de ajuste, mas cai em `warn` so porque a
+   * frase contem a palavra "aviso".
+   */
+  it("aceita tom explicito, que vence o heuristico do texto", async () => {
+    const { result } = await renderStore();
+
+    const last = () => result.current.toasts[result.current.toasts.length - 1];
+
+    act(() => result.current.addToast("Credential copy warning disabled", "info"));
+    expect(last()).toMatchObject({ tone: "info" });
+
+    act(() => result.current.addToast("Some warning here"));
+    expect(last()).toMatchObject({ tone: "warn" });
+  });
+
   it("uses a success tone for saved/updated/launched and a warn tone for warnings", async () => {
     const { result } = await renderStore();
 

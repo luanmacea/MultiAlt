@@ -12,6 +12,7 @@ import { MultiSelectSidebar } from "./MultiSelectSidebar";
 import { defaultSettings, makeAccount, setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
 import {
+  confirmMock,
   confirmWithOptOutMock,
   promptAnswers,
   resetPromptMocks,
@@ -88,5 +89,37 @@ describe("MultiSelectSidebar — copiar cookies avisa antes", () => {
     await userEvent.click(copyButton());
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
     expect(confirmWithOptOutMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `Close All Roblox` fecha **todos** os clientes lancados — e era a unica acao
+ * destrutiva da barra que nao perguntava nada, ao lado de Botting, favoritos e
+ * recentes, que passaram a perguntar.
+ */
+describe("MultiSelectSidebar — fechar todos os Roblox", () => {
+  const closeAll = () => screen.getByRole("button", { name: /Close All Roblox/ });
+
+  it("pergunta antes de fechar, e nao fecha nada se recusado", async () => {
+    const store = renderSidebar();
+
+    await userEvent.click(closeAll());
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    // O texto tem de dizer o alcance real: `kill_all_roblox()` percorre
+    // `get_roblox_pids()` e mata todo Roblox da maquina, inclusive o que a pessoa
+    // abriu fora do app. Prometer menos que isso seria a tela mentindo.
+    expect(confirmMock.mock.calls[0][0]).toMatch(/every Roblox process on this computer/i);
+    expect(confirmMock.mock.calls[0][0]).toMatch(/outside this app/i);
+    expect(store.killAllRobloxProcesses).not.toHaveBeenCalled();
+  });
+
+  it("fecha quando a pergunta e aceita", async () => {
+    promptAnswers.confirm = true;
+    const store = renderSidebar();
+
+    await userEvent.click(closeAll());
+
+    await waitFor(() => expect(store.killAllRobloxProcesses).toHaveBeenCalledTimes(1));
   });
 });

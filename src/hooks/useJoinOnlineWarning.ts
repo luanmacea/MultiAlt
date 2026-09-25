@@ -109,7 +109,9 @@ export function useJoinOnlineWarning() {
       await store.reloadSettings().catch(() => {});
       // `addToast` traduz a chave sozinho e tira o tom do texto **em inglês**
       // (`store.tsx`), então aqui vai a chave crua — não `tr()`.
-      store.addToast("Online-join warning disabled");
+      // Tom explicito: e confirmacao de ajuste, nao aviso de risco (a frase tem a
+      // palavra "aviso" e o heuristico a classificaria como `warn`).
+      store.addToast("Online-join warning disabled", "info");
     }
 
     return result.confirmed;

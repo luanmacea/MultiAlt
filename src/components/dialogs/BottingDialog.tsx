@@ -378,8 +378,21 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
     }
   }
 
+  /**
+   * A confirmacao da linha nao segue o lote cegamente: o que decide e o que a
+   * acao custa. `closeDisconnect` tira a conta do ciclo de rejoin ate alguem
+   * reconectar (`botting_action_flags`, no Rust), e isso nao se desfaz sozinho —
+   * pergunta. `close` sozinho e transitorio (o loop reabre o cliente no proximo
+   * restart) e e justamente o gesto rapido de quem viu um cliente travado, por
+   * isso segue sem pergunta. O lote pergunta nos dois porque age sobre uma
+   * selecao que a pessoa pode ter esquecido que fez.
+   */
   async function runRowAction(userId: number, action: BottingRowAction) {
     if (actionButtonsLocked) return;
+    if (action === "closeDisconnect") {
+      const warning = bulkCloseWarning(action, 1);
+      if (warning && !(await confirm(warning, true))) return;
+    }
     setRowBusy(userId);
     try {
       await store.bottingAccountAction(userId, action);

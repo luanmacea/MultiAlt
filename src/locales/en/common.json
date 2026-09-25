@@ -1566,5 +1566,6 @@
   "Join Anyway": "Join Anyway",
   "Don't show this warning again": "Don't show this warning again",
   "Don't show this again": "Don't show this again",
-  "Online-join warning disabled": "Online-join warning disabled"
+  "Online-join warning disabled": "Online-join warning disabled",
+  "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.": "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here."
 }

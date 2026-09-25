@@ -198,6 +198,15 @@ const SRC_ROOT = resolve(process.cwd(), "src");
 /** Atributo JSX de valor literal, numa linha: `nome="..."` ou `nome='...'`. */
 const JSX_LITERAL_ATTR = /(?:^|[\s{])([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*)=("[^"\n]*"|'[^'\n]*')/g;
 
+/**
+ * Texto **filho** de JSX na mesma linha: `<span>C:\\caminho</span>`. Ali o escape
+ * também sai cru na tela, e a varredura de atributos não o alcança.
+ */
+const JSX_TEXT_CHILD = />([^<>{}]*\\(?:\\|[nrt])[^<>{}]*)</g;
+
+/** Escape que chega cru à tela: barra dupla, `\n`, `\t` ou `\r`. */
+const RAW_ESCAPE = /\\\\|\\[nrt]/;
+
 function tsxFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -213,11 +222,14 @@ function rawEscapesInJsxAttributes(): string[] {
   for (const file of tsxFiles(SRC_ROOT)) {
     const lines = readFileSync(file, "utf8").split("\n");
     lines.forEach((line, index) => {
+      const where = `${relative(process.cwd(), file).replace(/\\/g, "/")}:${index + 1}`;
       for (const match of line.matchAll(JSX_LITERAL_ATTR)) {
         const literal = match[2].slice(1, -1);
-        if (!/\\\\|\\n/.test(literal)) continue;
-        const where = `${relative(process.cwd(), file).replace(/\\/g, "/")}:${index + 1}`;
+        if (!RAW_ESCAPE.test(literal)) continue;
         found.push(`${where} ${match[1]}=${match[2]}`);
+      }
+      for (const match of line.matchAll(JSX_TEXT_CHILD)) {
+        found.push(`${where} texto JSX: ${match[1].trim()}`);
       }
     });
   }
@@ -225,7 +237,7 @@ function rawEscapesInJsxAttributes(): string[] {
 }
 
 describe("escape em atributo JSX", () => {
-  it("nenhum atributo literal carrega `\\\\` ou `\\n` cru (use {\"...\"})", () => {
+  it("nenhum atributo nem texto JSX carrega escape cru (`\\\\`, `\\n`, `\\t`, `\\r`)", () => {
     expect(rawEscapesInJsxAttributes()).toEqual([]);
   });
 

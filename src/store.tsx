@@ -357,7 +357,7 @@ export interface StoreValue {
   setDragState: (s: { userId: number; sourceGroup: string } | null) => void;
 
   toasts: Toast[];
-  addToast: (msg: string) => void;
+  addToast: (msg: string, tone?: ToastTone) => void;
   actionStatus: ActionStatusState | null;
   modal: { title: string; content: string } | null;
   showModal: (title: string, content: string) => void;
@@ -822,11 +822,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * O tom é deduzido de `msg` (não do texto localizado) porque o catálogo
    * garante que a tradução preserva o marcador — ver `src/i18n/locales.test.ts`.
    */
-  const addToast = useCallback((msg: string) => {
+  const addToast = useCallback((msg: string, tone?: ToastTone) => {
     // `msg` is usually an i18n key, but some call sites pass an already-localized string (interpolated).
     const localized = i18n.exists(msg) ? tr(msg) : msg;
     const id = ++toastIdRef.current;
-    setToasts((prev) => [...prev, { id, message: localized, tone: toneFromMessage(msg) }]);
+    // O heuristico serve aos ~200 call sites que nao se importam com o tom; quem
+    // sabe o tom da sua mensagem passa explicito e vence o texto. Sem isso,
+    // "Aviso de copia de credencial desligado" — que e confirmacao de ajuste —
+    // saia pintado de ambar so por conter a palavra "aviso".
+    setToasts((prev) => [...prev, { id, message: localized, tone: tone ?? toneFromMessage(msg) }]);
     // Remover por `id`, não por posição: dois toasts com vidas sobrepostas
     // fariam o `slice(1)` derrubar o vizinho errado.
     setTimeout(() => setToasts((prev) => prev.filter((toast) => toast.id !== id)), 2500);
