@@ -86,11 +86,6 @@ export function MissingAssetsDialog() {
       setLoading(false);
     })();
 
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, [data]);
 
   if (!data) return null;

@@ -1567,5 +1567,16 @@
   "Don't show this warning again": "Don't show this warning again",
   "Don't show this again": "Don't show this again",
   "Online-join warning disabled": "Online-join warning disabled",
-  "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.": "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here."
+  "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.": "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.",
+  "Browse Roblox games. Click a game to see its servers, or use Join Game to launch directly.": "Browse Roblox games. Click a game to see its servers, or use Join Game to launch directly.",
+  "Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly.": "Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly.",
+  "{{jobId}} — click to copy": "{{jobId}} — click to copy",
+  "Private server link or VIP code": "Private server link or VIP code",
+  "Name for this server (optional)": "Name for this server (optional)",
+  "That doesn't look like a private server link or VIP code.": "That doesn't look like a private server link or VIP code.",
+  "Not valid JSON: {{error}}": "Not valid JSON: {{error}}",
+  "Expected an object with an \"assets\" array, like {\"assets\":[{\"id\":12345}]}.": "Expected an object with an \"assets\" array, like {\"assets\":[{\"id\":12345}]}.",
+  "Couldn't find a Universe ID in \"{{input}}\". Paste a numeric Universe ID, or a link containing universeId=....": "Couldn't find a Universe ID in \"{{input}}\". Paste a numeric Universe ID, or a link containing universeId=....",
+  "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.": "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.",
+  "Optimization profile": "Optimization profile"
 }

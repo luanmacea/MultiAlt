@@ -153,6 +153,9 @@ export function NumericInput({
             commit();
             (e.currentTarget as HTMLInputElement).blur();
           } else if (e.key === "Escape") {
+            // `preventDefault` avisa a pilha de Escape que este evento já foi
+            // tratado aqui: reverter o rascunho não pode fechar o diálogo junto.
+            e.preventDefault();
             setDraft(formatNumber(latestValueRef.current, preferInteger ? 0 : precision));
             (e.currentTarget as HTMLInputElement).blur();
           } else if (e.key === "ArrowUp") {

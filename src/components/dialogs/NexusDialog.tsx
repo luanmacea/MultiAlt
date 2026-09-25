@@ -115,11 +115,6 @@ export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => v
     }
     setSettingsLoaded(true);
 
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
   useEffect(() => {

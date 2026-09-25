@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import { User } from "lucide-react";
 import { useStore } from "../../store";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { GroupSection } from "./GroupSection";
 import { useTr } from "../../i18n/text";
 import { AddAccountDialog } from "../dialogs/AddAccountDialog";
@@ -33,9 +34,6 @@ export function AccountList() {
         e.preventDefault();
         store.selectAll();
       }
-      if (e.key === "Escape") {
-        store.deselectAll();
-      }
       if (e.key === "Home") {
         e.preventDefault();
         if (store.orderedUserIds.length > 0) {
@@ -53,6 +51,11 @@ export function AccountList() {
     el.addEventListener("keydown", handleKeyDown);
     return () => el.removeEventListener("keydown", handleKeyDown);
   }, [store.navigateSelection, store.selectAll, store.deselectAll, store.selectSingle, store.orderedUserIds]);
+
+  // A lista entra na base da pilha: o Escape só limpa a seleção quando não há
+  // menu, popover nem diálogo aberto. Antes os dois handlers rodavam no mesmo
+  // evento e fechar um menu de contexto apagava a seleção junto.
+  useEscapeStack(true, store.deselectAll, { ignoreFromFields: true });
 
   function handleDrop(targetGroupKey: string) {
     if (!store.dragState) return;

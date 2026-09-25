@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { Gamepad2, X } from "lucide-react";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useTr } from "../../i18n/text";
@@ -20,15 +19,6 @@ interface SessionDialogProps {
 export function SessionDialog({ open, onClose }: SessionDialogProps) {
   const t = useTr();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
-
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
 
   if (!visible) return null;
 

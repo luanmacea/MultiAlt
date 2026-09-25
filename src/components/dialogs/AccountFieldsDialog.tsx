@@ -26,11 +26,6 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
     if (!open || !account) return;
     const entries = Object.entries(account.Fields || {});
     setRows(entries.map(([key, value]) => ({ id: nextId++, key, value })));
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, [open, account?.UserID, handleClose]);
 
   if (!visible || !account) return null;

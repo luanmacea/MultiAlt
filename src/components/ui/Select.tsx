@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 import { ChevronDown } from "lucide-react";
 
@@ -31,19 +32,18 @@ export function Select({
 
   const selected = options.find((o) => o.value === value);
 
+  // Lista aberta fica no topo da pilha: o Escape fecha a lista, e o diálogo
+  // atrás só recebe o Escape seguinte.
+  useEscapeStack(open, () => setOpen(false));
+
   useEffect(() => {
     if (!open) return;
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
     document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
     return () => {
       document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
     };
   }, [open]);
 
