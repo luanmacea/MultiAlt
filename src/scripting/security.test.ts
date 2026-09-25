@@ -13,10 +13,11 @@ import {
   resolvePrivateNetworkAccess,
   sanitizeInvokeResult,
   sanitizeScriptSourceForSave,
+  snapshotForPermissions,
   truncateForLog,
   utf8ByteLength,
 } from "./security";
-import type { ScriptPermissions } from "./types";
+import type { ScriptPermissions, ScriptWindowSnapshot } from "./types";
 
 function permissions(overrides: Partial<ScriptPermissions> = {}): ScriptPermissions {
   return {
@@ -505,5 +506,53 @@ describe("resolvePrivateNetworkAccess", () => {
     expect(
       normalizeScriptHttpUrl("http://127.0.0.1:3847/health", resolvePrivateNetworkAccess(script))
     ).toBe("http://127.0.0.1:3847/health");
+  });
+});
+
+/**
+ * `ram.window.snapshot()` sob demanda sempre exigiu `allowWindow`. Mas o host
+ * **empurrava** o mesmo snapshot por `window:update` para todo script ao iniciar
+ * e a cada mudança, sem olhar permissão: um script sem `allowWindow` recebia a
+ * lista de contas, a seleção, a presença e o estado do Botting de graça.
+ */
+describe("snapshotForPermissions", () => {
+  const cheio = {
+    ts: 123,
+    placeId: "606849621",
+    jobId: "job-abc",
+    launchData: "carga",
+    selectedUserIds: [1, 2],
+    accounts: [{ UserID: 1, Username: "ann" }],
+    presenceByUserId: { 1: 2 },
+    launchedUserIds: [1],
+    botting: { active: true },
+    generator: { running: false },
+    settings: { General: { Language: "pt" } },
+  } as unknown as ScriptWindowSnapshot;
+
+  it("não entrega contas, seleção nem presença a quem não tem allowWindow", () => {
+    const visto = snapshotForPermissions(cheio, permissions({ allowWindow: false }));
+    expect(visto.accounts).toEqual([]);
+    expect(visto.selectedUserIds).toEqual([]);
+    expect(visto.presenceByUserId).toEqual({});
+    expect(visto.launchedUserIds).toEqual([]);
+    expect(visto.botting).toBeNull();
+    expect(visto.generator).toBeNull();
+    expect(visto.placeId).toBe("");
+    expect(visto.jobId).toBe("");
+    expect(visto.launchData).toBe("");
+  });
+
+  it("mantém o que o host anuncia para todo mundo: settings e o instante", () => {
+    const visto = snapshotForPermissions(cheio, permissions({ allowWindow: false }));
+    // As settings vão para todo script de propósito (com segredo redigido antes,
+    // em `redactSecretSettings`); o `ts` é só o relógio do snapshot.
+    expect(visto.settings).toEqual({ General: { Language: "pt" } });
+    expect(visto.ts).toBe(123);
+  });
+
+  it("entrega tudo a quem tem a permissão", () => {
+    const visto = snapshotForPermissions(cheio, permissions({ allowWindow: true }));
+    expect(visto).toEqual(cheio);
   });
 });
