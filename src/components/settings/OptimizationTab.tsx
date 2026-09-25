@@ -342,7 +342,7 @@ function OptimizationProfileSection({
             label="Background Mode"
             description={
               processPolicyEnabled
-                ? "Lowers scheduling priority for off-screen or minimized Roblox clients"
+                ? "Forces Idle priority on every Roblox client of this profile, even the one in focus"
                 : "Requires Enable Windows process optimization"
             }
           />
