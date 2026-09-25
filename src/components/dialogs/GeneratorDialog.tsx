@@ -277,7 +277,14 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
 
         {mode === "signup" && (
           <div className="p-4 md:p-5 flex-1 min-h-0">
-            <SignupPanel />
+            <SignupPanel
+              onOpenLoginSettings={() => {
+                // As Settings abrem por cima de tudo; fechar o diálogo primeiro
+                // evita dois modais empilhados sobre o mesmo assunto.
+                handleClose();
+                store.setSettingsOpen(true);
+              }}
+            />
           </div>
         )}
 
