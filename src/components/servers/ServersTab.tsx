@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Globe, Loader2, RefreshCw, Search, Server, Wifi } from "lucide-react";
-import { useStore } from "../../store";
+import { MAX_SERVER_SCAN_PAGES, useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import type {
   ServerPreference,
@@ -144,7 +144,9 @@ export function ServersTab({
 
   const [rows, setRows] = useState<ServerRow[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [scan, setScan] = useState<{ scanned: number; fitting: number; done: boolean } | null>(null);
+  const [scan, setScan] = useState<
+    { scanned: number; fitting: number; done: boolean; stoppedAtLimit: boolean } | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
   const [regions, setRegions] = useState<Map<string, ServerRegion>>(new Map());
   const [regionBusy, setRegionBusy] = useState(false);
@@ -154,6 +156,7 @@ export function ServersTab({
   const accountForApi = userIds[0] ?? null;
   const preference = store.serverPreference;
   const regionFilter = store.serverRegionFilter;
+  const scanPages = store.serverScanPages;
   const placeIdRef = useRef(placeId);
   placeIdRef.current = placeId;
 
@@ -185,7 +188,12 @@ export function ServersTab({
       const update = event.payload;
       if (scanIdRef.current !== null && update.scanId !== scanIdRef.current) return;
       setRows(update.servers || []);
-      setScan({ scanned: update.scanned, fitting: update.fitting, done: update.done });
+      setScan({
+        scanned: update.scanned,
+        fitting: update.fitting,
+        done: update.done,
+        stoppedAtLimit: update.stoppedAtLimit,
+      });
       setError(update.error ?? null);
       if (update.done) setLoading(false);
     }).then((fn) => {
@@ -222,19 +230,21 @@ export function ServersTab({
         userId: accountForApi,
         preference,
         accounts: Math.max(userIds.length, 1),
+        maxPages: scanPages,
       });
     } catch (e) {
       setError(String(e));
       setRows([]);
       setLoading(false);
     }
-  }, [accountForApi, preference, t, userIds.length]);
+  }, [accountForApi, preference, scanPages, t, userIds.length]);
 
-  // Recomeça ao abrir com um place escolhido e sempre que a ordem muda.
+  // Recomeça ao abrir com um place escolhido e sempre que a ordem, o lote ou a
+  // profundidade da varredura mudam.
   useEffect(() => {
     if (parseInt(placeId, 10) > 0) void loadServers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placeId, preference, userIds.length]);
+  }, [placeId, preference, userIds.length, scanPages]);
 
   const visible = useMemo(
     () => (rows || []).filter((row) => matchesRegion(row, regions, regionFilter)),
@@ -367,6 +377,20 @@ export function ServersTab({
           </select>
         </label>
 
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] theme-muted">{t("Pages to scan")}</span>
+          <input
+            type="number"
+            min={1}
+            max={MAX_SERVER_SCAN_PAGES}
+            value={scanPages}
+            onChange={(e) => store.setServerScanPages(Number(e.target.value))}
+            aria-label={t("Pages to scan")}
+            title={t("Each page is 100 servers. Raise it to keep looking in a big game.")}
+            className={`${fieldClass} w-[86px] tabular-nums`}
+          />
+        </label>
+
         <button onClick={() => void loadRegions()} disabled={regionBusy || !rows?.length} className={buttonClass}>
           {regionBusy ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} strokeWidth={1.5} />}
           {regionBusy && regionProgress
@@ -398,10 +422,23 @@ export function ServersTab({
                 accounts: batchSize,
               })}{" "}
           {!scan.done && t("Still looking...")}
-          {scan.done && pendingRegions > 0 &&
+          {scan.done && !scan.stoppedAtLimit && pendingRegions > 0 &&
             t("{{pending}} still without a region — loading it costs one join request each.", {
               pending: pendingRegions,
             })}
+          {scan.done && scan.stoppedAtLimit && (
+            <>
+              {t("Stopped after {{pages}} pages — this game has more servers.", { pages: scanPages })}{" "}
+              <button
+                onClick={() => store.setServerScanPages(Math.min(scanPages * 2, MAX_SERVER_SCAN_PAGES))}
+                className="underline underline-offset-2 hover:text-[var(--panel-fg)]"
+              >
+                {t("Scan {{pages}} pages", {
+                  pages: Math.min(scanPages * 2, MAX_SERVER_SCAN_PAGES),
+                })}
+              </button>
+            </>
+          )}
         </p>
       )}
 

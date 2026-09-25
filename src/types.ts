@@ -362,5 +362,7 @@ export interface ServerScanUpdate {
   /** Quantos deles cabem o lote inteiro. */
   fitting: number;
   done: boolean;
+  /** Parou por bater o limite de páginas, não por acabarem os servidores. */
+  stoppedAtLimit: boolean;
   error: string | null;
 }
