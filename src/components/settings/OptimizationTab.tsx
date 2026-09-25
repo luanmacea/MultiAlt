@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { UseSettingsReturn } from "../../hooks/useSettings";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
@@ -523,12 +523,74 @@ function OptimizationProfileSection({
   );
 }
 
+interface ProfileOption {
+  id: OptimizationProfileId;
+  label: string;
+}
+
+/**
+ * Botao de radio custom (mesmo padrao do `ThemedCheckbox` em BottingDialog):
+ * `role="radio"` + `aria-checked` porque e um grupo de opcoes mutuamente
+ * exclusivas, nao um botao de acao.
+ */
+function ProfileRadio({
+  option,
+  active,
+  onSelect,
+}: {
+  option: ProfileOption;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onSelect}
+      className={`px-2.5 py-1 rounded-md text-[12px] font-medium whitespace-nowrap transition-colors ${
+        active ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {option.label}
+    </button>
+  );
+}
+
 export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
   const t = useTr();
   const store = useStore();
   const isWindows = isWindowsPlatform(store.platformCapabilities);
   const bottingEnabled = s.getBool("General", "BottingEnabled");
   const sharedProfile = s.get("General", "BottingUseSharedClientProfile", "true") === "true";
+
+  // So existem 2o e 3o perfil quando Botting esta ligado com perfis
+  // separados; caso contrario so "Normal" existe. Antes disso as 3 secoes
+  // eram montadas de uma vez (67 controles, 6357px de scroll) — agora so a
+  // escolhida monta.
+  const profiles: ProfileOption[] = useMemo(() => {
+    const list: ProfileOption[] = [{ id: "Normal", label: t("Normal") }];
+    if (bottingEnabled && !sharedProfile) {
+      list.push(
+        { id: "BottingPlayer", label: t("Botting Player") },
+        { id: "BottingBot", label: t("Botting Bot") }
+      );
+    }
+    return list;
+  }, [bottingEnabled, sharedProfile, t]);
+
+  const [selectedProfile, setSelectedProfile] = useState<OptimizationProfileId>("Normal");
+
+  // Se Botting for desligado (ou voltar a perfil compartilhado) enquanto um
+  // perfil de bot esta selecionado, essa secao deixa de existir — cai de
+  // volta em Normal em vez de nao renderizar nada.
+  useEffect(() => {
+    if (!profiles.some((p) => p.id === selectedProfile)) {
+      setSelectedProfile("Normal");
+    }
+  }, [profiles, selectedProfile]);
+
+  const activeProfile = profiles.find((p) => p.id === selectedProfile) ?? profiles[0];
 
   return (
     <div className="space-y-4">
@@ -556,29 +618,34 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
         ) : null}
       </div>
 
+      {profiles.length > 1 ? (
+        // `sticky` para o nome do perfil ativo nunca depender de rolagem: o
+        // pai que rola e o container de `TabContent` em SettingsDialog, e
+        // este bloco vive no topo do conteudo desta aba, entao gruda no topo
+        // dele enquanto a secao abaixo rola. `-mx-5`/`px-5` cancelam o
+        // padding lateral do container pai para o fundo cobrir a largura toda.
+        <div
+          role="radiogroup"
+          aria-label={t("Optimization profile")}
+          className="sticky top-0 z-10 -mx-5 flex items-center gap-1 border-b border-zinc-800/60 bg-zinc-900/95 px-5 py-2 backdrop-blur-sm"
+        >
+          {profiles.map((option) => (
+            <ProfileRadio
+              key={option.id}
+              option={option}
+              active={option.id === activeProfile.id}
+              onSelect={() => setSelectedProfile(option.id)}
+            />
+          ))}
+        </div>
+      ) : null}
+
       <OptimizationProfileSection
         s={s}
-        title={t("Normal")}
-        profile="Normal"
+        title={activeProfile.label}
+        profile={activeProfile.id}
         isWindows={isWindows}
       />
-
-      {bottingEnabled && !sharedProfile ? (
-        <>
-          <OptimizationProfileSection
-            s={s}
-            title={t("Botting Player")}
-            profile="BottingPlayer"
-            isWindows={isWindows}
-          />
-          <OptimizationProfileSection
-            s={s}
-            title={t("Botting Bot")}
-            profile="BottingBot"
-            isWindows={isWindows}
-          />
-        </>
-      ) : null}
     </div>
   );
 }

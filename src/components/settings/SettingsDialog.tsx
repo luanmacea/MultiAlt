@@ -61,15 +61,6 @@ export function SettingsDialog({
   }, [open]);
 
   useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, handleClose]);
-
-  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -79,17 +70,17 @@ export function SettingsDialog({
     {
       id: "general",
       label: "General",
-      icon: <SettingsIcon size={15} strokeWidth={1.5} />,
+      icon: <SettingsIcon size={13} strokeWidth={1.5} />,
     },
     {
       id: "developer",
       label: "Developer",
-      icon: <Code size={15} strokeWidth={1.5} />,
+      icon: <Code size={13} strokeWidth={1.5} />,
     },
     {
       id: "webserver",
       label: "WebServer",
-      icon: <Server size={15} strokeWidth={1.5} />,
+      icon: <Server size={13} strokeWidth={1.5} />,
       // A aba fica visivel mesmo trancada: escondê-la fazia a API HTTP local
       // depender do usuario descobrir sozinho o Developer Mode. Quem guarda o
       // acesso e o conteudo (WebServerTab), nao a ausencia da aba.
@@ -98,7 +89,7 @@ export function SettingsDialog({
     {
       id: "watcher",
       label: "Watcher",
-      icon: <Eye size={15} strokeWidth={1.5} />,
+      icon: <Eye size={13} strokeWidth={1.5} />,
     },
     {
       id: "generator",
@@ -106,27 +97,27 @@ export function SettingsDialog({
       // Add, AddAccountDialog, GeneratorDialog). "Generator" sozinho não dizia
       // qual das duas formas de criar conta era esta.
       label: "Account Generator",
-      icon: <Sparkles size={15} strokeWidth={1.5} />,
+      icon: <Sparkles size={13} strokeWidth={1.5} />,
     },
     {
       id: "isolation",
       label: "Isolation",
-      icon: <ShieldCheck size={15} strokeWidth={1.5} />,
+      icon: <ShieldCheck size={13} strokeWidth={1.5} />,
     },
     {
       id: "versions",
       label: "Versions",
-      icon: <Package size={15} strokeWidth={1.5} />,
+      icon: <Package size={13} strokeWidth={1.5} />,
     },
     {
       id: "optimization",
       label: "Optimization",
-      icon: <Gauge size={15} strokeWidth={1.5} />,
+      icon: <Gauge size={13} strokeWidth={1.5} />,
     },
     {
       id: "miscellaneous",
       label: "Misc",
-      icon: <MoreHorizontal size={15} strokeWidth={1.5} />,
+      icon: <MoreHorizontal size={13} strokeWidth={1.5} />,
     },
   ];
 
@@ -148,7 +139,7 @@ export function SettingsDialog({
     >
       <div
         data-tour="settings-modal"
-        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[520px] h-[85vh] max-h-[760px] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[780px] max-w-[calc(100vw-24px)] h-[calc(100vh-24px)] max-h-[760px] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0">

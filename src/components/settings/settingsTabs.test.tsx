@@ -289,6 +289,24 @@ describe("SettingsDialog tabs", () => {
     expect(await screen.findByRole("button", { name: "Account Generator" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Generator" })).not.toBeInTheDocument();
   });
+
+  /**
+   * O dialogo era o unico da familia sem guarda de viewport (520px fixos,
+   * 85vh): em telas pequenas a aba Optimization sozinha ja rolava 5,8 telas.
+   * O padrao usado em BottingDialog/GeneratorDialog e `max-w`/`max-h` com
+   * `calc(100vw|100vh - 24px)` — a janela tem `minWidth` 750
+   * (tauri.conf.json), entao a guarda de largura nao e opcional.
+   */
+  it("guards the dialog width and height against the window's minimum size", async () => {
+    stored = {};
+    render(<SettingsDialog open onClose={() => {}} />);
+    const modal = await screen.findByText("Settings");
+    const panel = modal.closest('[data-tour="settings-modal"]');
+    expect(panel?.className).toContain("w-[780px]");
+    expect(panel?.className).toContain("max-w-[calc(100vw-24px)]");
+    expect(panel?.className).toContain("h-[calc(100vh-24px)]");
+    expect(panel?.className).toContain("max-h-[760px]");
+  });
 });
 
 describe("GeneralTab", () => {
@@ -641,6 +659,65 @@ describe("OptimizationTab", () => {
   it("enables the fast flags editor once the switch is on", async () => {
     renderOptimization(FAST_FLAGS_ON);
     expect(await screen.findByLabelText("Allowlisted fast flags JSON")).toBeEnabled();
+  });
+
+  /**
+   * Antes desta mudanca, Botting ligado + perfis separados montava as 3
+   * secoes de uma vez: 6357px de scroll, `Unlock FPS` 3x, e 12 aria-label
+   * triplicados (Max FPS, Client Volume, Priority Class...). Um perfil por
+   * vez elimina isso — so a secao escolhida existe no DOM.
+   */
+  describe("profile selector", () => {
+    const SEPARATE_PROFILES = { General: { BottingEnabled: "true", BottingUseSharedClientProfile: "false" } };
+
+    it("hides the selector when there is only one profile", async () => {
+      renderOptimization();
+      expect(screen.queryByRole("radio", { name: "Botting Player" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Normal" })).not.toBeInTheDocument();
+    });
+
+    it("shows one radio per profile once Botting uses separate profiles", async () => {
+      renderOptimization(SEPARATE_PROFILES);
+      expect(await screen.findByRole("radio", { name: "Normal" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Botting Player" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Botting Bot" })).toBeInTheDocument();
+    });
+
+    it("mounts only the selected profile's section, never more than one", async () => {
+      renderOptimization(SEPARATE_PROFILES);
+      await screen.findByRole("radio", { name: "Normal" });
+      // Um so "Max FPS" no DOM — com as 3 secoes montadas de uma vez isso dava 3.
+      expect(screen.getAllByLabelText("Max FPS")).toHaveLength(1);
+      expect(screen.getAllByText("Unlock FPS")).toHaveLength(1);
+    });
+
+    it("switches the mounted section when another profile is picked", async () => {
+      renderOptimization(SEPARATE_PROFILES);
+      await userEvent.click(await screen.findByRole("radio", { name: "Botting Bot" }));
+      expect(screen.getByRole("radio", { name: "Botting Bot" })).toHaveAttribute("aria-checked", "true");
+      // Continua havendo so uma secao montada apos trocar de perfil.
+      expect(screen.getAllByLabelText("Max FPS")).toHaveLength(1);
+    });
+
+    /**
+     * O titulo do perfil ativo nao pode depender de rolagem: o seletor mora
+     * fora do fluxo que rola (`sticky`), entao ele sempre esta visivel junto
+     * com o nome do perfil escolhido.
+     */
+    it("keeps the profile picker out of the scrolling flow", async () => {
+      renderOptimization(SEPARATE_PROFILES);
+      const group = await screen.findByRole("radiogroup");
+      expect(group.closest(".sticky")).not.toBeNull();
+    });
+
+    it("falls back to Normal when Botting is turned back off while another profile is selected", async () => {
+      renderOptimization(SEPARATE_PROFILES);
+      await userEvent.click(await screen.findByRole("radio", { name: "Botting Bot" }));
+      cleanup();
+      renderOptimization();
+      expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+      expect(await screen.findByLabelText("Max FPS")).toBeInTheDocument();
+    });
   });
 });
 
