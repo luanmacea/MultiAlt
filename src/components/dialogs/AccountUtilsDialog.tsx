@@ -71,7 +71,9 @@ export function validateAvatarJson(text: string, t: (s: string, o?: Record<strin
   try {
     parsed = JSON.parse(trimmed);
   } catch (e) {
-    return t("Not valid JSON: {{error}}", { error: e instanceof Error ? e.message : String(e) });
+    // A mensagem do motor ("Expected property name or '}' in JSON at position 1")
+    // e inglesa, cripta e nao ajuda quem joga: o que resolve e dizer onde olhar.
+    return t("That is not valid JSON — check the commas, braces and quotes.");
   }
   const assets = (parsed as { assets?: unknown } | null)?.assets;
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(assets)) {
