@@ -91,6 +91,12 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 
 Controles de grade (Console): o campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior.
 
+### Tela "Choose Game" — chips e abas
+
+Os chips de conta no topo têm um **x** que tira aquela conta do lote sem sair da tela (o lote nunca fica vazio: o x da última conta é desabilitado).
+
+Abas: Favorites, Games, Recent, **Servers**, Friends, Follow, Console. Na aba Games, cada jogo tem dois botões: entrar (▶) e **ver servidores**, que leva para a aba Servers já com aquele place.
+
 ### Painel de Sessão (`SessionPanel`)
 
 Resolve duas dores de quem joga com muitas contas: cancelar entradas no meio do caminho e achar/fechar uma conta específica sem caçar janela por janela no Windows.

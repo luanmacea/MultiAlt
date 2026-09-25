@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
+import type { GeneratorDialogTab } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
@@ -12,6 +13,8 @@ import { SignupPanel } from "../signup/SignupPanel";
 interface GeneratorDialogProps {
   open: boolean;
   onClose: () => void;
+  /** Aba em que o diálogo abre; quem escolhe é a entrada usada no menu Add. */
+  initialTab?: GeneratorDialogTab;
 }
 
 interface GeneratedEntry {
@@ -82,7 +85,7 @@ function phaseTone(phase: string): string {
   }
 }
 
-export function GeneratorDialog({ open, onClose }: GeneratorDialogProps) {
+export function GeneratorDialog({ open, onClose, initialTab = "provider" }: GeneratorDialogProps) {
   const t = useTr();
   const store = useStore();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
@@ -108,7 +111,12 @@ export function GeneratorDialog({ open, onClose }: GeneratorDialogProps) {
    * provedor (BloxGen) ou criar no formulário do Roblox com o CAPTCHA resolvido
    * pelo usuário.
    */
-  const [mode, setMode] = useState<"provider" | "signup">("provider");
+  const [mode, setMode] = useState<GeneratorDialogTab>(initialTab);
+
+  // Cada abertura respeita a entrada usada no menu Add.
+  useEffect(() => {
+    if (visible) setMode(initialTab);
+  }, [visible, initialTab]);
 
   useEffect(() => {
     if (!visible) return;

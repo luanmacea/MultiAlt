@@ -54,6 +54,6 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 ## Armadilhas / cuidados
 
 - O `join-game-instance` é o **mesmo** endpoint que o cliente usa para entrar no jogo. Resolver região em rajada toma 429 e marca a conta — a pausa e o teto existem por isso.
-- `sortOrder` da API é por número de jogadores, mas a ordenação é **refeita** no backend: paginação e cache do Roblox já devolveram listas fora de ordem.
+- A ordem tem que ser pedida à **API**, não refeita na página carregada: a resposta traz no máximo 100 servidores e um jogo grande tem milhares, então reordenar localmente mostra "o mais cheio entre os mais vazios" (foi o bug de a aba exibir 3/13 em tudo com "Fullest"). O backend ainda reordena o que recebeu, porque paginação e cache do Roblox já devolveram páginas fora de ordem.
 - O serviço de geolocalização pode cair (o `ipapi.co` que o app usava antes passou a exigir desafio do Cloudflare e a coluna Region parou de funcionar). Por isso há reserva e, na pior hipótese, o rótulo vira o IP cru em vez de "erro".
 - Os Job IDs mudam a cada refresh da lista; as regiões resolvidas são descartadas junto.

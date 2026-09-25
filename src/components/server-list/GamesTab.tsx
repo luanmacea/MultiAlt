@@ -5,13 +5,18 @@ import type { GameEntry } from "./types";
 import { GameContextMenu } from "./GameContextMenu";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
-import { Search, Play } from "lucide-react";
+import { Search, Play, Server } from "lucide-react";
 
 export interface GamesTabProps {
   onSelectGame: (placeId: number, name: string, iconUrl: string | null) => void;
   onJoinGame: (placeId: number) => void;
   addToast: (msg: string) => void;
   onAddFavorite: (game: GameEntry) => void;
+  /**
+   * Abre a lista de servidores daquele jogo. Opcional porque o diálogo de
+   * servidores (fora da Choose Game) já tem a própria aba Servers.
+   */
+  onBrowseServers?: (placeId: number, name?: string) => void;
 }
 
 export function GamesTab({
@@ -19,6 +24,7 @@ export function GamesTab({
   onJoinGame,
   addToast,
   onAddFavorite,
+  onBrowseServers,
 }: GamesTabProps) {
   const t = useTr();
   const [search, setSearch] = useState("");
@@ -179,14 +185,28 @@ export function GamesTab({
                     )}
                   </div>
                 </div>
-                <Tooltip content={t("Join Game")}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onJoinGame(game.placeId); }}
-                    className="shrink-0 w-7 h-7 rounded-md bg-emerald-600/20 hover:bg-emerald-600/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all"
-                  >
-                    <Play size={12} fill="currentColor" stroke="none" className="text-emerald-400" />
-                  </button>
-                </Tooltip>
+                <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  {onBrowseServers && (
+                    <Tooltip content={t("Browse servers")}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onBrowseServers(game.placeId, game.name); }}
+                        aria-label={t("Browse servers")}
+                        className="w-7 h-7 rounded-md theme-btn-ghost border theme-border flex items-center justify-center"
+                      >
+                        <Server size={12} strokeWidth={1.5} className="theme-muted" />
+                      </button>
+                    </Tooltip>
+                  )}
+                  <Tooltip content={t("Join Game")}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onJoinGame(game.placeId); }}
+                      aria-label={t("Join Game")}
+                      className="w-7 h-7 rounded-md bg-emerald-600/20 hover:bg-emerald-600/40 flex items-center justify-center transition-all"
+                    >
+                      <Play size={12} fill="currentColor" stroke="none" className="text-emerald-400" />
+                    </button>
+                  </Tooltip>
+                </div>
               </div>
             ))}
           </div>

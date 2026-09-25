@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas, no mesmo diálogo (**Account Generator**):
+Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas, no mesmo diálogo — cada uma com a sua entrada no menu **Add** (*Create Accounts* e *Account Generator*), que abre o diálogo já na aba certa:
 
 1. **Comprar de um provedor** (BloxGen) — a conta vem pronta por API;
 2. **Criar no navegador** — o app abre a página de cadastro do Roblox, preenche tudo, e **o usuário resolve o CAPTCHA e confirma**.

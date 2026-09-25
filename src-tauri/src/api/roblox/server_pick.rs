@@ -170,43 +170,13 @@ pub async fn pick_server(
     Ok(picked_from(ranked[0], None, true))
 }
 
-/// `get_servers` com `sortOrder`/`excludeFullGames` explícitos.
-///
-/// O `get_servers` original fixa `sortOrder=Asc` e é usado pelo navegador de
-/// servidores; esta variante existe para a preferência poder pedir `Desc`.
+/// Atalho para a lista pública já ordenada e sem servidores lotados.
 pub async fn get_servers_sorted(
     place_id: i64,
     sort_order: &str,
     security_token: Option<&str>,
 ) -> Result<ServersResponse, String> {
-    let client = reqwest::Client::new();
-    let url = format!(
-        "{}/v1/games/{}/servers/Public?sortOrder={}&excludeFullGames=true&limit=100",
-        endpoints::host("games"),
-        place_id,
-        sort_order
-    );
-
-    let response = send_with_retry(|| {
-        let mut request = client.get(&url);
-        if let Some(token) = security_token {
-            request = request.header(COOKIE, cookie_header(token));
-        }
-        request
-    })
-    .await?;
-
-    if !response.status().is_success() {
-        return Err(format!(
-            "Failed to get servers (status {})",
-            response.status().as_u16()
-        ));
-    }
-
-    response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse servers: {}", e))
+    get_servers_page(place_id, "Public", None, security_token, sort_order, true).await
 }
 
 #[cfg(test)]

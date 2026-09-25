@@ -178,14 +178,38 @@ pub async fn get_servers(
     cursor: Option<&str>,
     security_token: Option<&str>,
 ) -> Result<ServersResponse, String> {
+    get_servers_page(place_id, server_type, cursor, security_token, "Asc", false).await
+}
+
+/// A lista de servidores com a ordem e o filtro de lotados explícitos.
+///
+/// A ordem vem da **API**, não de um `sort` local: a resposta traz no máximo
+/// 100 servidores por página, e um jogo grande tem milhares. Reordenar a
+/// primeira página de `sortOrder=Asc` mostra "os mais cheios entre os mais
+/// vazios" — que foi exatamente o bug de a aba Servers mostrar 3/13 em tudo
+/// com o filtro "Fullest" ligado.
+///
+/// `Asc` = menos jogadores primeiro, `Desc` = mais (confirmado contra a API).
+pub async fn get_servers_page(
+    place_id: i64,
+    server_type: &str,
+    cursor: Option<&str>,
+    security_token: Option<&str>,
+    sort_order: &str,
+    exclude_full: bool,
+) -> Result<ServersResponse, String> {
     let client = reqwest::Client::new();
     let limit = if server_type == "VIP" { 25 } else { 100 };
+    let sort_order = if sort_order.eq_ignore_ascii_case("desc") { "Desc" } else { "Asc" };
     let mut url = format!(
-        "{}/v1/games/{}/servers/{}?sortOrder=Asc&limit={}",
+        "{}/v1/games/{}/servers/{}?sortOrder={}&limit={}",
         endpoints::host("games"),
-        place_id, server_type, limit
+        place_id, server_type, sort_order, limit
     );
 
+    if exclude_full {
+        url.push_str("&excludeFullGames=true");
+    }
     if let Some(c) = cursor {
         url.push_str(&format!("&cursor={}", c));
     }
@@ -668,6 +692,50 @@ mod avatar_games_extra_tests {
         assert_eq!(servers.data[0].vip_server_id, Some(99));
         assert_eq!(servers.data[0].access_code.as_deref(), Some("code-99"));
         assert_eq!(servers.data[0].name.as_deref(), Some("My server"));
+    }
+
+    /// Regressão: a ordem e o filtro de lotados vão para a **API**. A resposta
+    /// traz 100 servidores no máximo, então reordenar a primeira página de
+    /// `Asc` mostra "os mais cheios entre os mais vazios" — foi o que fez a aba
+    /// Servers exibir 3/13 em tudo com o filtro "Fullest" ligado.
+    #[tokio::test]
+    async fn the_sort_order_and_the_full_game_filter_go_to_the_api() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/4200/servers/Public")))
+            .and(query_param("sortOrder", "Desc"))
+            .and(query_param("excludeFullGames", "true"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": "cheio", "playing": 12, "maxPlayers": 13 }],
+                "nextPageCursor": serde_json::Value::Null
+            })))
+            .mount(server)
+            .await;
+
+        let servers = get_servers_page(4200, "Public", None, None, "Desc", true)
+            .await
+            .expect("servers");
+        assert_eq!(servers.data[0].id, "cheio");
+        assert_eq!(servers.data[0].playing, 12);
+    }
+
+    /// `get_servers` continua pedindo `Asc` sem filtro — é o que o resto do app
+    /// (webserver, shuffle) espera.
+    #[tokio::test]
+    async fn the_plain_listing_keeps_asking_for_the_ascending_order() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/4201/servers/Public")))
+            .and(query_param("sortOrder", "Asc"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": "vazio", "playing": 1, "maxPlayers": 13 }],
+                "nextPageCursor": serde_json::Value::Null
+            })))
+            .mount(server)
+            .await;
+
+        let servers = get_servers(4201, "Public", None, None).await.expect("servers");
+        assert_eq!(servers.data[0].id, "vazio");
     }
 
     #[tokio::test]

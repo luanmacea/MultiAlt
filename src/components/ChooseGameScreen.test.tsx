@@ -550,7 +550,68 @@ describe("ChooseGameScreen — Servers tab", () => {
     await userEvent.click(screen.getByRole("button", { name: "Servers" }));
 
     expect(await screen.findByText("job-listado")).toBeInTheDocument();
-    expect(screen.getByText("5/30")).toBeInTheDocument();
+    expect(screen.getByText("/ 30")).toBeInTheDocument();
+  });
+
+  /** Item do usuário: do jogo direto para os servidores dele. */
+  it("abre os servidores do jogo pelo botão da aba Games", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "search_games") {
+        return {
+          sorts: [
+            { games: [{ rootPlaceId: 606849621, universeId: 1, name: "Jailbreak", playerCount: 10 }] },
+          ],
+        };
+      }
+      if (cmd === "get_servers") {
+        return { data: [{ id: "job-do-jogo", playing: 2, maxPlayers: 30, ping: 20 }], nextPageCursor: null };
+      }
+      return undefined;
+    });
+    const store = setStore({
+      accounts: [ACCOUNT_A],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [ACCOUNT_A],
+    });
+    render(<ChooseGameScreen />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Games" }));
+    const browse = await screen.findByRole("button", { name: /Browse servers/i });
+    await userEvent.click(browse);
+
+    // Guarda o place e troca de aba; quem lista é a própria aba Servers, com
+    // testes seus em src/components/servers.
+    expect(store.setPlaceId).toHaveBeenCalledWith("606849621");
+    expect(await screen.findByLabelText("Place ID")).toBeInTheDocument();
+  });
+});
+
+describe("ChooseGameScreen — chips das contas", () => {
+  it("tira a conta do lote pelo x do chip", async () => {
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+    });
+    render(<ChooseGameScreen />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Remove alpha from this launch/i }));
+    expect(store.setSelectedIds).toHaveBeenCalledWith(new Set([1002]));
+  });
+
+  /** Um lote vazio deixaria a tela sem nada para lançar. */
+  it("não deixa remover a última conta", async () => {
+    const store = setStore({
+      accounts: [ACCOUNT_A],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [ACCOUNT_A],
+    });
+    render(<ChooseGameScreen />);
+
+    const remove = screen.getByRole("button", { name: /Remove alpha from this launch/i });
+    expect(remove).toBeDisabled();
+    await userEvent.click(remove);
+    expect(store.setSelectedIds).not.toHaveBeenCalled();
   });
 });
 

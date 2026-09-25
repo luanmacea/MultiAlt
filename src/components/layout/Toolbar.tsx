@@ -6,7 +6,7 @@ import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { ENABLE_NEXUS } from "../../featureFlags";
 import { SessionToolbarButton } from "../dialogs/SessionDialog";
-import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package } from "lucide-react";
+import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus } from "lucide-react";
 
 export function Toolbar() {
   const t = useTr();
@@ -52,7 +52,12 @@ export function Toolbar() {
 
   function handleOpenGenerator() {
     setAddMenuOpen(false);
-    store.setGeneratorDialogOpen(true);
+    store.openGeneratorDialog("provider");
+  }
+
+  function handleOpenSignup() {
+    setAddMenuOpen(false);
+    store.openGeneratorDialog("signup");
   }
 
   function handleOpenVersions() {
@@ -205,6 +210,13 @@ export function Toolbar() {
                 {t("Import Old Account Data")}
               </button>
               <div className="my-1 border-t theme-border" />
+              <button
+                onClick={handleOpenSignup}
+                className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
+              >
+                <UserPlus size={14} strokeWidth={1.5} className="theme-muted" />
+                {t("Create Accounts")}
+              </button>
               <button
                 onClick={handleOpenGenerator}
                 className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"

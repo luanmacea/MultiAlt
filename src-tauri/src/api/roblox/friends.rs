@@ -1,6 +1,6 @@
 // Amigos online de uma conta.
 //
-// `GET friends/v1/my/friends/online`, **com o cookie da conta**, devolve os
+// `GET friends/v1/users/{userId}/friends/online`, **com o cookie da conta**, devolve os
 // amigos online já com `userPresenceType`, `lastLocation`, `placeId` e
 // `gameInstanceId` — esse último é o job id, o que permite entrar no servidor
 // do amigo. Desde out/2024 o payload **não** traz mais `name`/`displayName`,
@@ -25,6 +25,36 @@ pub struct OnlineFriend {
     pub game_id: Option<String>,
 }
 
+/// Tipo de presença como as duas rotas mandam: número (`2`) na rota antiga e
+/// texto (`"InGame"`) na `users/{id}/friends/online`. Guardar os dois evita que
+/// um payload em texto derrube o amigo inteiro na desserialização.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum PresenceType {
+    Code(i32),
+    /// Guardado como texto livre, e não como enum: um nome novo que a Roblox
+    /// invente vira presença desconhecida em vez de derrubar o amigo inteiro
+    /// na desserialização.
+    Name(String),
+}
+
+impl PresenceType {
+    /// Código numérico que o resto do app (e o frontend) usa.
+    fn code(&self) -> i32 {
+        match self {
+            PresenceType::Code(code) => *code,
+            PresenceType::Name(name) => match name.as_str() {
+                "Online" => 1,
+                "InGame" => 2,
+                "InStudio" => 3,
+                "Invisible" => 4,
+                // "Offline" e qualquer nome novo.
+                _ => 0,
+            },
+        }
+    }
+}
+
 /// Item cru do payload, tolerante a tudo que a Roblox já mandou nessa rota:
 /// campos ausentes, `null`, `userId` ou `id`, `gameInstanceId` ou `gameId` e a
 /// forma antiga com os campos de presença aninhados em `userPresence`.
@@ -33,15 +63,19 @@ pub struct OnlineFriend {
 struct RawOnlineFriend {
     #[serde(rename = "userId", alias = "id")]
     user_id: Option<i64>,
-    #[serde(rename = "userPresenceType", alias = "presenceType")]
-    presence_type: Option<i32>,
-    #[serde(rename = "lastLocation")]
+    #[serde(
+        rename = "userPresenceType",
+        alias = "presenceType",
+        alias = "UserPresenceType"
+    )]
+    presence_type: Option<PresenceType>,
+    #[serde(rename = "lastLocation", alias = "LastLocation")]
     last_location: Option<String>,
-    #[serde(rename = "placeId")]
+    #[serde(rename = "placeId", alias = "PlaceId")]
     place_id: Option<i64>,
-    #[serde(rename = "rootPlaceId")]
+    #[serde(rename = "rootPlaceId", alias = "RootPlaceId")]
     root_place_id: Option<i64>,
-    #[serde(rename = "gameInstanceId", alias = "gameId")]
+    #[serde(rename = "gameInstanceId", alias = "gameId", alias = "GameId")]
     game_id: Option<String>,
     name: Option<String>,
     #[serde(rename = "displayName")]
@@ -67,7 +101,11 @@ impl RawOnlineFriend {
             user_id,
             name: self.name.unwrap_or_default(),
             display_name: self.display_name.unwrap_or_default(),
-            presence_type: self.presence_type.or(nested.presence_type).unwrap_or(0),
+            presence_type: self
+                .presence_type
+                .or(nested.presence_type)
+                .map(|value| value.code())
+                .unwrap_or(0),
             last_location: self
                 .last_location
                 .or(nested.last_location)
@@ -204,10 +242,24 @@ async fn fill_missing_game_ids(security_token: &str, friends: &mut [OnlineFriend
     }
 }
 
-/// Amigos online da conta dona do cookie, já com nomes e ordenados.
-pub async fn get_online_friends(security_token: &str) -> Result<Vec<OnlineFriend>, String> {
+/// Amigos online de uma conta, já com nomes e ordenados.
+///
+/// A rota é `users/{userId}/friends/online`. A antiga (`my/friends/online`) foi
+/// **removida** pelo Roblox e passou a responder 404 para todo mundo — era o
+/// motivo de a aba Friends mostrar "status 404" em todas as contas.
+pub async fn get_online_friends(
+    security_token: &str,
+    user_id: i64,
+) -> Result<Vec<OnlineFriend>, String> {
+    if user_id <= 0 {
+        return Err("Conta sem UserID: refaça o login dela".to_string());
+    }
     let client = reqwest::Client::new();
-    let url = format!("{}/v1/my/friends/online", endpoints::host("friends"));
+    let url = format!(
+        "{}/v1/users/{}/friends/online",
+        endpoints::host("friends"),
+        user_id
+    );
 
     let response = send_with_retry(|| {
         client
@@ -328,6 +380,61 @@ mod friends_online_tests {
 
     /// Formas alternativas que a rota já devolveu: lista crua, `id` em vez de
     /// `userId`, `gameId` em vez de `gameInstanceId` e presença aninhada.
+    /// Forma da rota `users/{id}/friends/online`: presença aninhada em
+    /// `userPresence`, com as chaves em maiúscula e o tipo como **texto**.
+    /// Foi o que quebrou quando a rota `my/friends/online` saiu do ar.
+    #[test]
+    fn the_current_route_payload_with_a_named_presence_is_understood() {
+        let body = serde_json::json!({
+            "data": [{
+                "id": 7401,
+                "name": "amigo",
+                "displayName": "Amigo",
+                "userPresence": {
+                    "UserPresenceType": "InGame",
+                    "lastLocation": "Jailbreak",
+                    "placeId": 606,
+                    "rootPlaceId": 606849621,
+                    "gameId": "job-7401"
+                }
+            }]
+        });
+        let friends = parse_online_friends(&body);
+        assert_eq!(friends.len(), 1);
+        assert_eq!(friends[0].user_id, 7401);
+        assert_eq!(friends[0].presence_type, 2, "InGame tem que virar 2");
+        assert_eq!(friends[0].game_id.as_deref(), Some("job-7401"));
+        assert_eq!(friends[0].root_place_id, Some(606849621));
+        assert_eq!(friends[0].last_location, "Jailbreak");
+    }
+
+    #[test]
+    fn every_named_presence_maps_to_its_code() {
+        for (name, code) in [
+            ("Offline", 0),
+            ("Online", 1),
+            ("InGame", 2),
+            ("InStudio", 3),
+            ("Invisible", 4),
+        ] {
+            let body = serde_json::json!({
+                "data": [{ "id": 1, "userPresence": { "UserPresenceType": name } }]
+            });
+            assert_eq!(parse_online_friends(&body)[0].presence_type, code, "{}", name);
+        }
+    }
+
+    /// Um tipo de presença desconhecido não pode derrubar o amigo inteiro.
+    #[test]
+    fn an_unknown_presence_name_leaves_the_friend_in_the_list() {
+        let body = serde_json::json!({
+            "data": [{ "id": 9, "userPresence": { "UserPresenceType": "Teleporting" } }]
+        });
+        let friends = parse_online_friends(&body);
+        assert_eq!(friends.len(), 1);
+        assert_eq!(friends[0].presence_type, 0);
+    }
+
     #[test]
     fn legacy_payload_shapes_are_still_understood() {
         let body = serde_json::json!([{
@@ -416,13 +523,19 @@ mod friends_online_http_tests {
     use wiremock::matchers::{body_string_contains, header, method, path};
     use wiremock::{Mock, ResponseTemplate};
 
-    const ROUTE: &str = "/v1/my/friends/online";
+    /// Conta dona da lista nos testes desta suíte.
+    const ACCOUNT_ID: i64 = 1001;
+
+    /// Rota atual. A antiga (`my/friends/online`) foi removida pelo Roblox.
+    fn route(user_id: i64) -> String {
+        format!("/v1/users/{}/friends/online", user_id)
+    }
 
     #[tokio::test]
     async fn the_call_carries_the_account_cookie_and_parses_the_list() {
         let server = mock_server().await;
         Mock::given(method("GET"))
-            .and(path(mock_path("friends", ROUTE)))
+            .and(path(mock_path("friends", &route(ACCOUNT_ID))))
             .and(header("cookie", cookie_of("friends-ok")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": [{
@@ -446,7 +559,7 @@ mod friends_online_http_tests {
             .mount(server)
             .await;
 
-        let friends = get_online_friends("friends-ok").await.expect("friends");
+        let friends = get_online_friends("friends-ok", ACCOUNT_ID).await.expect("friends");
         assert_eq!(friends.len(), 1);
         assert_eq!(friends[0].user_id, 7201);
         assert_eq!(friends[0].name, "jailer");
@@ -460,7 +573,7 @@ mod friends_online_http_tests {
     async fn the_batch_lookup_fills_every_missing_name_at_once() {
         let server = mock_server().await;
         Mock::given(method("GET"))
-            .and(path(mock_path("friends", ROUTE)))
+            .and(path(mock_path("friends", &route(ACCOUNT_ID))))
             .and(header("cookie", cookie_of("friends-names")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": [
@@ -486,7 +599,7 @@ mod friends_online_http_tests {
             .mount_as_scoped(server)
             .await;
 
-        let friends = get_online_friends("friends-names").await.expect("friends");
+        let friends = get_online_friends("friends-names", ACCOUNT_ID).await.expect("friends");
         assert_eq!(friends.len(), 2);
         assert_eq!(friends[0].name, "alpha");
         assert_eq!(friends[0].display_name, "Alpha");
@@ -502,7 +615,7 @@ mod friends_online_http_tests {
     async fn a_friend_without_a_game_instance_id_keeps_a_null_game_id() {
         let server = mock_server().await;
         Mock::given(method("GET"))
-            .and(path(mock_path("friends", ROUTE)))
+            .and(path(mock_path("friends", &route(ACCOUNT_ID))))
             .and(header("cookie", cookie_of("friends-nojob")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": [{ "userId": 7401, "userPresenceType": 1, "lastLocation": "Website" }]
@@ -519,7 +632,7 @@ mod friends_online_http_tests {
             .mount(server)
             .await;
 
-        let friends = get_online_friends("friends-nojob").await.expect("friends");
+        let friends = get_online_friends("friends-nojob", ACCOUNT_ID).await.expect("friends");
         assert_eq!(friends.len(), 1);
         assert!(friends[0].game_id.is_none());
         assert!(friends[0].root_place_id.is_none());
@@ -531,7 +644,7 @@ mod friends_online_http_tests {
     async fn presence_rescues_a_missing_game_id_for_a_friend_in_game() {
         let server = mock_server().await;
         Mock::given(method("GET"))
-            .and(path(mock_path("friends", ROUTE)))
+            .and(path(mock_path("friends", &route(ACCOUNT_ID))))
             .and(header("cookie", cookie_of("friends-rescue")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": [{
@@ -568,7 +681,7 @@ mod friends_online_http_tests {
             .mount(server)
             .await;
 
-        let friends = get_online_friends("friends-rescue").await.expect("friends");
+        let friends = get_online_friends("friends-rescue", ACCOUNT_ID).await.expect("friends");
         assert_eq!(friends[0].game_id.as_deref(), Some("job-rescued"));
         assert_eq!(friends[0].root_place_id, Some(5151));
     }
@@ -577,14 +690,14 @@ mod friends_online_http_tests {
     async fn an_http_failure_reports_the_status() {
         let server = mock_server().await;
         Mock::given(method("GET"))
-            .and(path(mock_path("friends", ROUTE)))
+            .and(path(mock_path("friends", &route(ACCOUNT_ID))))
             .and(header("cookie", cookie_of("friends-401")))
             .respond_with(ResponseTemplate::new(401))
             .mount(server)
             .await;
 
         assert_eq!(
-            get_online_friends("friends-401").await.unwrap_err(),
+            get_online_friends("friends-401", ACCOUNT_ID).await.unwrap_err(),
             "Failed to get online friends (status 401)"
         );
     }
@@ -593,13 +706,13 @@ mod friends_online_http_tests {
     async fn a_malformed_body_is_a_parse_error() {
         let server = mock_server().await;
         Mock::given(method("GET"))
-            .and(path(mock_path("friends", ROUTE)))
+            .and(path(mock_path("friends", &route(ACCOUNT_ID))))
             .and(header("cookie", cookie_of("friends-garbage")))
             .respond_with(ResponseTemplate::new(200).set_body_raw("nope", "text/plain"))
             .mount(server)
             .await;
 
-        let err = get_online_friends("friends-garbage").await.unwrap_err();
+        let err = get_online_friends("friends-garbage", ACCOUNT_ID).await.unwrap_err();
         assert!(
             err.starts_with("Failed to parse online friends: "),
             "unexpected: {}",
@@ -613,7 +726,7 @@ mod friends_online_http_tests {
     async fn a_failing_name_lookup_still_returns_the_friends() {
         let server = mock_server().await;
         Mock::given(method("GET"))
-            .and(path(mock_path("friends", ROUTE)))
+            .and(path(mock_path("friends", &route(ACCOUNT_ID))))
             .and(header("cookie", cookie_of("friends-noname")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "data": [{ "userId": 7601, "userPresenceType": 2, "gameInstanceId": "job-7601" }]
@@ -628,7 +741,7 @@ mod friends_online_http_tests {
             .mount(server)
             .await;
 
-        let friends = get_online_friends("friends-noname").await.expect("friends");
+        let friends = get_online_friends("friends-noname", ACCOUNT_ID).await.expect("friends");
         assert_eq!(friends.len(), 1);
         assert!(friends[0].name.is_empty());
         assert_eq!(friends[0].game_id.as_deref(), Some("job-7601"));

@@ -293,6 +293,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     setBottingDialogOpen: vi.fn(),
     bottingStatus: null,
     generatorDialogOpen: false,
+    generatorDialogTab: "provider" as const,
+    openGeneratorDialog: vi.fn(),
     setGeneratorDialogOpen: vi.fn(),
     generatorStatus: null,
     versionsDialogOpen: false,

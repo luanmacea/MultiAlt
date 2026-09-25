@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
-import { ServersTab, hasRoomFor, matchesRegion, sortServers } from "./ServersTab";
+import { ServersTab, apiSortOrder, hasRoomFor, matchesRegion } from "./ServersTab";
 import type { ServerRow } from "./ServersTab";
 import { makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
@@ -86,16 +86,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ServersTab — ordenação e vagas (puro)", () => {
-  const servers = [row({ id: "a", playing: 10 }), row({ id: "b", playing: 2 }), row({ id: "c", playing: 25 })];
-
-  it("ordena do mais vazio e do mais cheio conforme a preferência", () => {
-    expect(sortServers(servers, "emptiest").map((s) => s.id)).toEqual(["b", "a", "c"]);
-    expect(sortServers(servers, "fullest").map((s) => s.id)).toEqual(["c", "a", "b"]);
-  });
-
-  it("mantém a ordem da API na preferência default e na aleatória", () => {
-    expect(sortServers(servers, "default").map((s) => s.id)).toEqual(["a", "b", "c"]);
-    expect(sortServers(servers, "random").map((s) => s.id)).toEqual(["a", "b", "c"]);
+  /**
+   * Regressão: a ordem tem que ser pedida à API. A resposta traz 100
+   * servidores de milhares, então reordenar a página local mostrava "o mais
+   * cheio entre os mais vazios" — era o 3/13 em tudo com "Fullest" ligado.
+   */
+  it("traduz a preferência no sortOrder que a API entende", () => {
+    expect(apiSortOrder("fullest")).toBe("Desc");
+    expect(apiSortOrder("emptiest")).toBe("Asc");
+    expect(apiSortOrder("default")).toBe("Asc");
+    expect(apiSortOrder("random")).toBe("Asc");
   });
 
   it("só considera com vaga o servidor que cabe o lote inteiro", () => {
@@ -124,22 +124,23 @@ describe("ServersTab — lista", () => {
     renderTab([row({ id: "job-a", playing: 5 }), row({ id: "job-b", playing: 12 })]);
 
     await screen.findByText("job-a");
-    expect(screen.getByText("5/30")).toBeInTheDocument();
-    expect(screen.getByText("12/30")).toBeInTheDocument();
+    expect(screen.getByText("5")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
 
     const args = (callsFor("get_servers")[0][1] ?? {}) as Record<string, unknown>;
     expect(args.placeId).toBe(606849621);
     expect(args.serverType).toBe("Public");
   });
 
-  it("aplica a preferência do store na ordem da lista", async () => {
-    renderTab([row({ id: "cheio", playing: 25 }), row({ id: "vazio", playing: 1 })], {
-      serverPreference: "emptiest",
+  it("pede a ordem à API conforme a preferência do store", async () => {
+    renderTab([row({ id: "cheio", playing: 12, maxPlayers: 13 })], {
+      serverPreference: "fullest",
     });
 
-    await screen.findByText("vazio");
-    const ids = screen.getAllByText(/^(cheio|vazio)$/).map((el) => el.textContent);
-    expect(ids).toEqual(["vazio", "cheio"]);
+    await screen.findByText("cheio");
+    const args = (callsFor("get_servers")[0][1] ?? {}) as Record<string, unknown>;
+    expect(args.sortOrder).toBe("Desc");
+    expect(args.excludeFull).toBe(true);
   });
 
   /** O lote inteiro precisa caber; senão as contas se espalham. */

@@ -19,7 +19,7 @@ Mostrar os amigos **online** de cada conta selecionada e, com um clique num amig
 
 1. O usuário abre a aba **Friends** da tela Choose Game com N contas selecionadas.
 2. O frontend chama `get_online_friends_for_accounts({ userIds, delayMs })`.
-3. O backend percorre as contas **em sequência**, com pausa entre elas, e faz **uma** requisição por conta: `GET friends.roblox.com/v1/my/friends/online` com o cookie daquela conta.
+3. O backend percorre as contas **em sequência**, com pausa entre elas, e faz **uma** requisição por conta: `GET friends.roblox.com/v1/users/{userId}/friends/online` com o cookie daquela conta.
 4. Como o payload dessa rota não traz mais `name`/`displayName` (mudança da Roblox em out/2024), os nomes são completados em lote por `POST users.roblox.com/v1/users` (100 ids por requisição). Quando um amigo está em jogo mas sem `gameInstanceId`, há um resgate opcional via `presence.roblox.com/v1/presence/users` **com cookie** (sem cookie a Roblox omite o `gameId`).
 5. Cada conta vira um `AccountFriends { userId, friends, error }` — o erro de uma conta **não** derruba as outras. O progresso vai para a UI pelo evento `friends-online-progress`.
 6. Ao clicar num amigo entrável, a aba chama `launchAll(userIds, placeId, jobId)` (o `useLauncher` da Choose Game, que usa `launch_multiple`).
@@ -47,7 +47,8 @@ Mostrar os amigos **online** de cada conta selecionada e, com um clique num amig
 
 ## Armadilhas / cuidados
 
-- A rota `friends/v1/my/friends/online` é **"my"**: ela depende do cookie enviado, não de um `userId` na URL. Trocar para uma rota por id muda o que é retornado.
+- A rota antiga `friends/v1/my/friends/online` foi **removida** pelo Roblox e responde 404 para todo mundo — foi o que fez a aba mostrar "status 404" em todas as contas. A rota atual leva o `userId` na URL **e** o cookie da conta.
+- Nessa rota a presença vem aninhada em `userPresence`, com as chaves em maiúscula e o tipo como **texto** (`"InGame"`), não número. O parser aceita as duas formas, e um nome novo vira presença desconhecida em vez de derrubar o amigo.
 - `get_presence` sem cookie não devolve `gameId`; por isso o resgate de presença usa `get_presence_as(cookie, ids)`.
 - Amigo em jogo com servidor escondido não vira erro — vira linha esmaecida. Transformar isso em erro esconderia o resto da lista.
 - Não usar `run_with_session_retry` nessas leituras: o refresh desloga a conta em todo lugar (ver [authentication.md](authentication.md)).

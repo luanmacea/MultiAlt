@@ -129,12 +129,24 @@ describe("Toolbar — Add menu", () => {
     expect(store.setImportDialogOpen).toHaveBeenCalledWith(true);
   });
 
-  it("opens the generator and versions dialogs", async () => {
+  /**
+   * As duas formas de conseguir conta nova vivem no mesmo diálogo, mas cada
+   * entrada do menu abre na sua aba — criar no navegador não pode exigir que o
+   * usuário descubra uma aba escondida atrás do gerador por provedor.
+   */
+  it("opens the generator on the tab the menu entry asked for", async () => {
     const store = renderToolbar();
     await openAddMenu();
-    await userEvent.click(screen.getByRole("button", { name: "Account Generator" }));
-    expect(store.setGeneratorDialogOpen).toHaveBeenCalledWith(true);
+    await userEvent.click(screen.getByRole("button", { name: "Create Accounts" }));
+    expect(store.openGeneratorDialog).toHaveBeenCalledWith("signup");
 
+    await openAddMenu();
+    await userEvent.click(screen.getByRole("button", { name: "Account Generator" }));
+    expect(store.openGeneratorDialog).toHaveBeenCalledWith("provider");
+  });
+
+  it("opens the versions dialog", async () => {
+    const store = renderToolbar();
     await openAddMenu();
     await userEvent.click(screen.getByRole("button", { name: "Roblox Versions" }));
     expect(store.setVersionsDialogOpen).toHaveBeenCalledWith(true);
