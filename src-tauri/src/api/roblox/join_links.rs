@@ -909,3 +909,63 @@ mod join_link_resolve_tests {
         );
     }
 }
+
+/// Regression: the share-link resolver lives on apis.roblox.com, which refuses
+/// the auth.roblox.com token with `XSRF token invalid` (a real 403 seen in the
+/// app when pasting an invite link). The resolver has to retry with the token
+/// the service hands back instead of surfacing the 403.
+#[cfg(test)]
+mod share_link_csrf_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, Request, ResponseTemplate};
+
+    #[tokio::test]
+    async fn an_invite_resolves_after_the_service_refuses_the_auth_token() {
+        let server = mock_server().await;
+        mount_csrf("share-xsrf", "token-from-auth").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("share-xsrf")))
+            .and(header("x-csrf-token", "token-from-apis"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "experienceInviteData": {
+                    "status": "Valid",
+                    "placeId": 606849621,
+                    "instanceId": "job-after-retry"
+                }
+            })))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/sharelinks/v1/resolve-link")))
+            .and(header("cookie", cookie_of("share-xsrf")))
+            .and(|req: &Request| {
+                req.headers
+                    .get("x-csrf-token")
+                    .map(|v| v.as_bytes() != b"token-from-apis")
+                    .unwrap_or(true)
+            })
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header("x-csrf-token", "token-from-apis")
+                    .set_body_string(r#"{"errors":[{"code":0,"message":"XSRF token invalid"}]}"#),
+            )
+            .mount(server)
+            .await;
+
+        let target = resolve_join_link(
+            "share-xsrf",
+            "https://www.roblox.com/share?code=_2q82v4pexkaqxdi7o4mghv35pi8o2qyg55waxithegrrgv6daf&type=ExperienceInvite",
+        )
+        .await
+        .expect("join target");
+
+        assert_eq!(target.kind, "invite");
+        assert_eq!(target.place_id, 606_849_621);
+        assert_eq!(target.job_id, "job-after-retry");
+    }
+}

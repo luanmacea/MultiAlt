@@ -58,18 +58,15 @@ pub async fn purchase_product(
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
     let client = reqwest::Client::new();
 
-    let response = client
+    let request = client
         .post(format!("{}/v1/purchases/products/{}", endpoints::host("economy"), product_id))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-Token", &csrf)
         .json(&serde_json::json!({
             "expectedCurrency": 1,
             "expectedPrice": expected_price,
             "expectedSellerId": expected_seller_id,
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        }));
+    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         let body = response.text().await.unwrap_or_default();

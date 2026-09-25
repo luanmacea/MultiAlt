@@ -52,6 +52,7 @@ export const SUITES: Record<string, TestSuite> = {
       "join_link_helper_tests",
       "join_link_http_tests",
       "join_link_resolve_tests",
+      "share_link_csrf_tests",
       "private_link_parsing_tests",
       "private_link_http_tests",
       "private_link_extra_http_tests",
@@ -98,6 +99,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "auth_http_tests",
       "auth_extra_tests",
+      "csrf_retry_tests",
       "user_api_tests",
       "user_http_tests",
       "avatar_games_http_tests",

@@ -36,6 +36,24 @@ Encapsular a comunicação autenticada com o Roblox a partir do cookie `.ROBLOSE
 
 Todas as operações mutáveis pedem um CSRF novo antes (não há cache global; o único reuso é por conta dentro de `make_selected_friends`).
 
+### O token é **por serviço** — `send_with_csrf_retry`
+
+O XSRF do Roblox não vale em todos os domínios. O token lido de `auth.roblox.com` é recusado por `apis.roblox.com` com:
+
+```json
+{"errors":[{"code":0,"message":"XSRF token invalid"}]}
+```
+
+…e esse mesmo 403 já devolve, no header `x-csrf-token`, o token que aquele serviço aceita (confirmado contra a API: repetir a chamada com ele passa do XSRF e cai em `401`, que é só falta de cookie).
+
+Por isso **toda** chamada mutável passa por `send_with_csrf_retry(request, &csrf)` ([auth.rs](../../src-tauri/src/api/auth.rs)):
+
+1. envia com o `X-CSRF-TOKEN` que o chamador tem;
+2. se voltar `403` **com** um `x-csrf-token` diferente, refaz a requisição (mesmo corpo) com o token novo — uma vez só;
+3. qualquer outro caso devolve a resposta original, para o chamador reportar a mensagem do próprio Roblox.
+
+Regras: o `RequestBuilder` passado **não** pode já ter o header (o reqwest acumula headers, e dois `X-CSRF-TOKEN` são recusados); nunca repetir o mesmo token (seria recusado de novo); sem header novo, não há retry — não existe laço. Coberto por `csrf_retry_tests` e, ponta a ponta, por `share_link_csrf_tests` (link de convite colado na UI).
+
 ### Auth ticket — `get_auth_ticket`
 
 1. Obtém CSRF.

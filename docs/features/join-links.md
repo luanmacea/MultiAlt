@@ -34,7 +34,7 @@ Tipos aceitos:
 1. O usuário cola o link na seção **Join link** (topo da aba *Follow* da tela Choose Game) e aperta Enter ou "Join".
 2. O frontend chama `invoke("resolve_join_link", { userId, link })` com a **primeira** conta selecionada.
 3. O backend chama `parse_join_link` (puro, sem rede). Se o link já traz tudo (place/job/link code), responde sem usar a conta.
-4. Se o link tem um **share code**, chama `POST https://apis.roblox.com/sharelinks/v1/resolve-link` com o cookie da conta e CSRF:
+4. Se o link tem um **share code**, chama `POST https://apis.roblox.com/sharelinks/v1/resolve-link` com o cookie da conta e CSRF — via `send_with_csrf_retry`, porque o `apis.roblox.com` recusa o token do `auth.roblox.com` ("XSRF token invalid") e devolve o dele no 403 (ver [authentication.md](authentication.md#o-token-é-por-serviço--send_with_csrf_retry)):
    - tipo `ExperienceInvite` (ou desconhecido) → lê `experienceInviteData` → `placeId`, `instanceId` (vira `jobId`), `launchData`, `inviterId`, `status`;
    - tipo `Server` → caminho já existente (`resolve_share_server_link`) → `placeId` + `linkCode`.
 5. Devolve um `JoinTarget` e a UI mostra o que foi resolvido ("Private server · place 606849621").

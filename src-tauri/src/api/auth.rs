@@ -107,6 +107,52 @@ pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
     ))
 }
 
+/// Sends a request that needs a CSRF token, retrying once when the service
+/// answers `403` with a token of its own.
+///
+/// Roblox's XSRF tokens are **per service**: the token `get_csrf_token` reads
+/// from `auth.roblox.com` is rejected by `apis.roblox.com` with
+/// `{"code":0,"message":"XSRF token invalid"}`, and the 403 carries, in the
+/// `x-csrf-token` header, the token that service does accept. Retrying with it
+/// is what the web client does — without this, share links, blocking and the
+/// other `apis.roblox.com` calls fail every time.
+///
+/// The builder passed in must **not** carry `X-CSRF-TOKEN` already; this adds
+/// it (reqwest appends headers, so a second one would be sent as well).
+pub async fn send_with_csrf_retry(
+    builder: reqwest::RequestBuilder,
+    csrf: &str,
+) -> Result<reqwest::Response, String> {
+    let retry = builder.try_clone();
+    let response = builder
+        .header("X-CSRF-TOKEN", csrf)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
+    if response.status() != reqwest::StatusCode::FORBIDDEN {
+        return Ok(response);
+    }
+
+    let fresh = response
+        .headers()
+        .get("x-csrf-token")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s != csrf);
+
+    match (fresh, retry) {
+        (Some(fresh), Some(retry)) => retry
+            .header("X-CSRF-TOKEN", fresh)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e)),
+        // No token to retry with (or a streaming body): keep the original 403
+        // so the caller reports Roblox's own message.
+        _ => Ok(response),
+    }
+}
+
 pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
     let csrf = get_csrf_token(security_token).await?;
 
@@ -195,16 +241,13 @@ pub async fn unlock_pin(security_token: &str, pin: &str) -> Result<bool, String>
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/v1/account/pin/unlock", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(format!("pin={}", pin))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .body(format!("pin={}", pin));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         return Ok(false);
@@ -229,15 +272,12 @@ pub async fn log_out_other_sessions(security_token: &str) -> Result<RefreshResul
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/authentication/signoutfromallsessionsandreauthenticate", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .header("Content-Type", "application/x-www-form-urlencoded");
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     // Roblox may return redirects for this endpoint while still setting cookies.
     if !(response.status().is_success() || response.status().is_redirection()) {
@@ -280,20 +320,17 @@ pub async fn change_password(
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/v2/user/passwords/change", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(format!(
             "currentPassword={}&newPassword={}",
             urlencoding::encode(current_password),
             urlencoding::encode(new_password)
-        ))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        ));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         return Err("Failed to change password".to_string());
@@ -326,20 +363,17 @@ pub async fn change_email(
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/v1/email", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .header("X-CSRF-TOKEN", &csrf)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(format!(
             "password={}&emailAddress={}",
             urlencoding::encode(password),
             urlencoding::encode(new_email)
-        ))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        ));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -360,14 +394,11 @@ pub async fn quick_login_enter_code(
     let csrf = get_csrf_token(security_token).await?;
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/auth-token-service/v1/login/enterCode", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
-        .json(&serde_json::json!({ "code": normalized_code }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .json(&serde_json::json!({ "code": normalized_code }));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if !response.status().is_success() {
         let body = response.text().await.unwrap_or_default();
@@ -389,14 +420,11 @@ pub async fn quick_login_validate_code(security_token: &str, code: &str) -> Resu
     let csrf = get_csrf_token(security_token).await?;
     let client = build_client();
 
-    let response = client
+    let request = client
         .post(format!("{}/auth-token-service/v1/login/validateCode", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
-        .json(&serde_json::json!({ "code": normalized_code }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .json(&serde_json::json!({ "code": normalized_code }));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -414,18 +442,15 @@ pub async fn set_display_name(
 
     let client = build_client();
 
-    let response = client
+    let request = client
         .patch(&format!(
             "{}/v1/users/{}/display-names",
             endpoints::host("users"),
             user_id
         ))
         .header(COOKIE, cookie_header(security_token))
-        .header("X-CSRF-TOKEN", &csrf)
-        .json(&serde_json::json!({ "newDisplayName": display_name }))
-        .send()
-        .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .json(&serde_json::json!({ "newDisplayName": display_name }));
+    let response = send_with_csrf_retry(request, &csrf).await?;
 
     if response.status().is_success() {
         Ok(())
@@ -590,6 +615,179 @@ mod auth_http_tests {
 ///
 /// Every test uses its own `.ROBLOSECURITY` token so its mocks can never match
 /// another test's request on the shared mock server.
+/// The per-service XSRF retry behind `send_with_csrf_retry`.
+///
+/// Roblox issues XSRF tokens per service: the one `get_csrf_token` reads from
+/// auth.roblox.com is refused by apis.roblox.com with
+/// `{"code":0,"message":"XSRF token invalid"}`, and that 403 carries the token
+/// the service does accept. Losing this retry breaks every share link.
+#[cfg(test)]
+mod csrf_retry_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{mock_path, mock_server};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, Request, ResponseTemplate};
+
+    /// Counts how many times the mock server was hit on one path.
+    async fn hits(route: &str) -> usize {
+        mock_server()
+            .await
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| r.url.path() == route)
+            .count()
+    }
+
+    /// Answers 200 for `good`, and 403 + `x-csrf-token: good` for anything
+    /// else — the two mocks are mutually exclusive, so match order is
+    /// irrelevant.
+    async fn mount_service_token(route: &str, good: &'static str) {
+        let server = mock_server().await;
+
+        Mock::given(method("POST"))
+            .and(path(route.to_string()))
+            .and(header("x-csrf-token", good))
+            .respond_with(ResponseTemplate::new(200).set_body_string("accepted"))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(route.to_string()))
+            .and(move |req: &Request| {
+                req.headers
+                    .get("x-csrf-token")
+                    .map(|v| v.as_bytes() != good.as_bytes())
+                    .unwrap_or(true)
+            })
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header("x-csrf-token", good)
+                    .set_body_string(r#"{"errors":[{"code":0,"message":"XSRF token invalid"}]}"#),
+            )
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_refused_token_is_replaced_by_the_one_the_service_hands_back() {
+        let route = mock_path("apis", "/csrf-retry/replaced");
+        mount_service_token(&route, "token-from-apis").await;
+
+        let request = build_client().post(format!(
+            "{}/csrf-retry/replaced",
+            endpoints::host("apis")
+        ));
+        let response = send_with_csrf_retry(request, "token-from-auth")
+            .await
+            .expect("response");
+
+        assert_eq!(response.status().as_u16(), 200);
+        assert_eq!(response.text().await.unwrap(), "accepted");
+        assert_eq!(hits(&route).await, 2, "should have retried exactly once");
+    }
+
+    /// The body has to survive the retry — a cloned builder that dropped it
+    /// would resolve the wrong link.
+    #[tokio::test]
+    async fn the_body_is_resent_on_the_retry() {
+        let route = mock_path("apis", "/csrf-retry/body");
+        mount_service_token(&route, "token-body").await;
+
+        let request = build_client()
+            .post(format!("{}/csrf-retry/body", endpoints::host("apis")))
+            .json(&serde_json::json!({ "linkId": "abc", "linkType": "ExperienceInvite" }));
+        let response = send_with_csrf_retry(request, "stale").await.expect("response");
+        assert_eq!(response.status().as_u16(), 200);
+
+        let sent = mock_server()
+            .await
+            .received_requests()
+            .await
+            .unwrap_or_default();
+        let bodies: Vec<String> = sent
+            .iter()
+            .filter(|r| r.url.path() == route)
+            .map(|r| String::from_utf8_lossy(&r.body).to_string())
+            .collect();
+        assert_eq!(bodies.len(), 2);
+        assert!(
+            bodies.iter().all(|b| b.contains("\"linkId\":\"abc\"")),
+            "body lost on retry: {:?}",
+            bodies
+        );
+    }
+
+    /// A token the service already accepts must not cost a second request.
+    #[tokio::test]
+    async fn an_accepted_token_is_sent_once() {
+        let route = mock_path("apis", "/csrf-retry/accepted");
+        mount_service_token(&route, "token-accepted").await;
+
+        let request = build_client().post(format!(
+            "{}/csrf-retry/accepted",
+            endpoints::host("apis")
+        ));
+        let response = send_with_csrf_retry(request, "token-accepted")
+            .await
+            .expect("response");
+
+        assert_eq!(response.status().as_u16(), 200);
+        assert_eq!(hits(&route).await, 1);
+    }
+
+    /// A 403 that carries no token of its own is handed back untouched, so the
+    /// caller reports Roblox's own message instead of retrying forever.
+    #[tokio::test]
+    async fn a_403_without_a_token_is_returned_as_is() {
+        let route = mock_path("apis", "/csrf-retry/denied");
+        Mock::given(method("POST"))
+            .and(path(route.clone()))
+            .respond_with(ResponseTemplate::new(403).set_body_string("Challenge is required"))
+            .mount(mock_server().await)
+            .await;
+
+        let request = build_client().post(format!(
+            "{}/csrf-retry/denied",
+            endpoints::host("apis")
+        ));
+        let response = send_with_csrf_retry(request, "whatever")
+            .await
+            .expect("response");
+
+        assert_eq!(response.status().as_u16(), 403);
+        assert_eq!(response.text().await.unwrap(), "Challenge is required");
+        assert_eq!(hits(&route).await, 1);
+    }
+
+    /// Repeating the same token would just be refused again.
+    #[tokio::test]
+    async fn the_same_token_is_not_retried() {
+        let route = mock_path("apis", "/csrf-retry/same-token");
+        Mock::given(method("POST"))
+            .and(path(route.clone()))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .insert_header("x-csrf-token", "loop-token")
+                    .set_body_string("XSRF token invalid"),
+            )
+            .mount(mock_server().await)
+            .await;
+
+        let request = build_client().post(format!(
+            "{}/csrf-retry/same-token",
+            endpoints::host("apis")
+        ));
+        let response = send_with_csrf_retry(request, "loop-token")
+            .await
+            .expect("response");
+
+        assert_eq!(response.status().as_u16(), 403);
+        assert_eq!(hits(&route).await, 1);
+    }
+}
+
 #[cfg(test)]
 mod auth_extra_tests {
     use super::*;

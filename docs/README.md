@@ -58,7 +58,8 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 1. **Painel de Sessão**: fila de contas entrando (cancelar uma, parar a fila — sem fechar cliente nenhum) e lista de contas em jogo (focar/fechar, com seleção múltipla). Na aba Console e num botão da barra principal — [ui-layout.md](features/ui-layout.md#painel-de-sessão), [multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento).
 2. **Aba Friends**: amigos online de cada conta selecionada; clicar num amigo manda todas as contas para o servidor dele — [friends.md](features/friends.md).
-3. **Multi-instância sem fechar o jogo aberto**: o app fecha o `ROBLOX_singletonEvent` dos clientes já rodando em vez de exigir que eles sejam encerrados — entrar pelo app com um jogo aberto pelo site agora funciona — [launch.md](features/launch.md#regras-de-negócio).
+3. **XSRF por serviço**: o token do `auth.roblox.com` é recusado pelo `apis.roblox.com` ("XSRF token invalid") — toda chamada mutável agora repete uma vez com o token que o próprio serviço devolve no 403, o que conserta os links de convite colados na aba Follow — [authentication.md](features/authentication.md#o-token-é-por-serviço--send_with_csrf_retry).
+4. **Multi-instância sem fechar o jogo aberto**: o app fecha o `ROBLOX_singletonEvent` dos clientes já rodando em vez de exigir que eles sejam encerrados — entrar pelo app com um jogo aberto pelo site agora funciona — [launch.md](features/launch.md#regras-de-negócio).
 
 ## Registro de mudanças (2026-09-24)
 
