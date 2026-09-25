@@ -10,6 +10,7 @@ import { TextField } from "./TextField";
 import { NumberField } from "./NumberField";
 import { NumericInput } from "./NumericInput";
 import { Select } from "./Select";
+import { TextAreaField } from "./TextAreaField";
 import { UtilButton } from "./UtilButton";
 import { UtilInput } from "./UtilInput";
 import { SectionHeader } from "./SectionHeader";
@@ -94,6 +95,31 @@ describe("TextField", () => {
     expect(screen.getByRole("textbox")).toBeDisabled();
     await userEvent.type(screen.getByRole("textbox"), "a");
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("names the input after its label", () => {
+    render(<TextField value="" onChange={vi.fn()} label="Expected Title" />);
+    expect(screen.getByLabelText("Expected Title")).toBeInTheDocument();
+  });
+});
+
+describe("TextAreaField", () => {
+  it("names the textarea after its label", () => {
+    render(<TextAreaField value="" onChange={vi.fn()} label="Allowlisted fast flags JSON" />);
+    expect(screen.getByLabelText("Allowlisted fast flags JSON")).toBeInTheDocument();
+  });
+
+  it("does not accept input while disabled", async () => {
+    const onChange = vi.fn();
+    render(<TextAreaField value="" onChange={onChange} label="Notes" disabled />);
+    expect(screen.getByLabelText("Notes")).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Notes"), "a");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("shows the error under the field", () => {
+    render(<TextAreaField value="{}" onChange={vi.fn()} label="Notes" error="Bad JSON" />);
+    expect(screen.getByText("Bad JSON")).toBeInTheDocument();
   });
 });
 
@@ -245,6 +271,12 @@ describe("Select", () => {
   it("falls back to the raw value when no option matches", () => {
     render(<Select value="fr" options={OPTIONS} onChange={vi.fn()} />);
     expect(screen.getByRole("button", { name: "fr" })).toBeInTheDocument();
+  });
+
+  /** O rotulo do Select fica fora dele; sem `ariaLabel` o botao so tem o valor. */
+  it("takes an accessible name of its own", () => {
+    render(<Select value="en" options={OPTIONS} onChange={vi.fn()} ariaLabel="Priority Class" />);
+    expect(screen.getByRole("button", { name: "Priority Class" })).toBeInTheDocument();
   });
 });
 

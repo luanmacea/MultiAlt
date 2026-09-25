@@ -13,9 +13,18 @@ interface SelectProps {
   onChange: (value: string) => void;
   className?: string;
   disabled?: boolean;
+  /** Nome acessivel do botao: o rotulo do Select fica fora dele, numa linha ao lado. */
+  ariaLabel?: string;
 }
 
-export function Select({ value, options, onChange, className = "", disabled = false }: SelectProps) {
+export function Select({
+  value,
+  options,
+  onChange,
+  className = "",
+  disabled = false,
+  ariaLabel,
+}: SelectProps) {
   const t = useTr();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -43,6 +52,7 @@ export function Select({ value, options, onChange, className = "", disabled = fa
       <button
         type="button"
         disabled={disabled}
+        aria-label={ariaLabel ? t(ariaLabel) : undefined}
         onClick={() => {
           if (disabled) return;
           setOpen(!open);

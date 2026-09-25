@@ -17,6 +17,7 @@ import { DeveloperTab } from "./DeveloperTab";
 import { IsolationTab } from "./IsolationTab";
 import { WebServerTab } from "./WebServerTab";
 import { WatcherTab } from "./WatcherTab";
+import { OptimizationTab } from "./OptimizationTab";
 import { useSettings, type UseSettingsReturn } from "../../hooks/useSettings";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
@@ -407,5 +408,151 @@ describe("DeveloperTab", () => {
     );
 
     expect(await screen.findByText("Free (no process holds the mutex)")).toBeInTheDocument();
+  });
+});
+
+/**
+ * A allowlist de fast flags mora no Rust (`WINDOWS_FASTFLAG_ALLOWLIST`,
+ * platform/windows/optimization.rs). O backend recusa o JSON inteiro se
+ * qualquer chave estiver fora dela — e `launch_shared.rs` engole o erro num
+ * `eprintln!`. A tela precisa recusar na hora o que o launch vai recusar
+ * depois, senao o toggle fica ligado e nada e aplicado, em silencio.
+ */
+describe("OptimizationTab", () => {
+  function renderOptimization(
+    initial: Record<string, Record<string, string>> = {},
+    os = "windows"
+  ) {
+    stored = initial;
+    setStore({ platformCapabilities: { os } as PlatformCapabilities });
+    renderTab((s) => <OptimizationTab s={s} />);
+  }
+
+  const FAST_FLAGS_ON = {
+    Optimization: { NormalEnableFastFlags: "true" },
+  } as Record<string, Record<string, string>>;
+
+  it("rejects a fast flag key that is not on the backend allowlist", async () => {
+    renderOptimization({
+      Optimization: {
+        NormalEnableFastFlags: "true",
+        NormalFastFlagsJson: '{"FFlagMadeUpByTheUser": true}',
+      },
+    });
+    expect(
+      await screen.findByText(
+        "Only Roblox allowlisted keys are accepted: FFlagMadeUpByTheUser"
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("accepts a JSON whose keys are all on the allowlist", async () => {
+    renderOptimization({
+      Optimization: {
+        NormalEnableFastFlags: "true",
+        NormalFastFlagsJson: '{"DFIntTextureQualityOverride": 0}',
+      },
+    });
+    await screen.findByLabelText("Allowlisted fast flags JSON");
+    expect(
+      screen.queryByText(/Only Roblox allowlisted keys are accepted:/)
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows which keys the backend accepts instead of making the user guess", async () => {
+    renderOptimization(FAST_FLAGS_ON);
+    expect(await screen.findByText("DFFlagTextureQualityOverrideEnabled")).toBeInTheDocument();
+    expect(screen.getByText("DFIntRenderShadowIntensity")).toBeInTheDocument();
+  });
+
+  /**
+   * Campo numerico/texto editavel com o interruptor que o governa desligado:
+   * o valor e salvo e o backend nunca o le.
+   */
+  it.each([
+    ["Max FPS", "NormalUnlockFPS"],
+    ["Client Volume", "NormalOverrideClientVolume"],
+    ["Graphics Level", "NormalOverrideClientGraphics"],
+    ["Window Width", "NormalOverrideClientWindowSize"],
+    ["Window Height", "NormalOverrideClientWindowSize"],
+  ])("disables %s while its General switch is off", async (label) => {
+    renderOptimization();
+    expect(await screen.findByLabelText(label)).toBeDisabled();
+  });
+
+  it.each([
+    ["Max FPS", "UnlockFPS"],
+    ["Client Volume", "OverrideClientVolume"],
+    ["Graphics Level", "OverrideClientGraphics"],
+    ["Window Width", "OverrideClientWindowSize"],
+    ["Window Height", "OverrideClientWindowSize"],
+  ])("enables %s once its General switch is on", async (label, key) => {
+    renderOptimization({ General: { [key]: "true" } });
+    expect(await screen.findByLabelText(label)).toBeEnabled();
+  });
+
+  it.each([
+    ["Apply delay", "NormalEnableProcessPolicy"],
+    ["CPU limit", "NormalEnableJobCpuLimit"],
+    ["Process memory limit", "NormalEnableJobMemoryLimit"],
+  ])("disables %s while its Optimization switch is off", async (label, key) => {
+    renderOptimization();
+    expect(await screen.findByLabelText(label)).toBeDisabled();
+
+    cleanup();
+    renderOptimization({ Optimization: { [key]: "true" } });
+    expect(await screen.findByLabelText(label)).toBeEnabled();
+  });
+
+  it.each([["Priority Class"], ["Memory Priority"]])(
+    "disables the %s picker while process optimization is off",
+    async (label) => {
+      renderOptimization();
+      expect(await screen.findByRole("button", { name: label })).toBeDisabled();
+
+      cleanup();
+      renderOptimization({ Optimization: { NormalEnableProcessPolicy: "true" } });
+      expect(await screen.findByRole("button", { name: label })).toBeEnabled();
+    }
+  );
+
+  it.each([["Background Mode"], ["EcoQoS"], ["Ignore Timer Resolution"]])(
+    "ignores a click on %s while process optimization is off",
+    async (label) => {
+      renderOptimization();
+      await userEvent.click(await screen.findByText(label));
+      expect(invokeMock).not.toHaveBeenCalledWith("update_setting", expect.anything());
+    }
+  );
+
+  it("disables the fast flags editor while the fast flags switch is off", async () => {
+    renderOptimization();
+    expect(await screen.findByLabelText("Allowlisted fast flags JSON")).toBeDisabled();
+  });
+
+  it("enables the fast flags editor once the switch is on", async () => {
+    renderOptimization(FAST_FLAGS_ON);
+    expect(await screen.findByLabelText("Allowlisted fast flags JSON")).toBeEnabled();
+  });
+});
+
+describe("WatcherTab dependent fields", () => {
+  function renderWatcher(initial: Record<string, Record<string, string>> = {}) {
+    stored = initial;
+    setStore({ platformCapabilities: { os: "windows" } as PlatformCapabilities });
+    renderTab((s) => <WatcherTab s={s} />);
+  }
+
+  it.each([
+    ["No Connection Timeout", "ExitIfNoConnection"],
+    ["Memory Threshold", "CloseRbxMemory"],
+    ["Expected Title", "CloseRbxWindowTitle"],
+  ])("disables %s while its switch is off", async (label, key) => {
+    renderWatcher();
+    expect(await screen.findByLabelText(label)).toBeDisabled();
+
+    cleanup();
+    renderWatcher({ Watcher: { [key]: "true" } });
+    expect(await screen.findByLabelText(label)).toBeEnabled();
   });
 });

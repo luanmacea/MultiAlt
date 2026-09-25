@@ -33,6 +33,8 @@ export function TextAreaField({
         placeholder={placeholder ? t(placeholder) : undefined}
         rows={rows}
         disabled={disabled}
+        // Mesmo motivo do `TextField`: o rotulo e uma `div` solta acima.
+        aria-label={t(label)}
         spellCheck={false}
         className={`mt-2 w-full resize-y rounded-lg border bg-zinc-800/60 px-3 py-2 text-[12px] text-zinc-200 placeholder-zinc-600 transition-colors focus:outline-none ${
           disabled
