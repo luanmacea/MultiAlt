@@ -75,6 +75,29 @@ pub fn fits_with_buffer(server: &ServerData, accounts: usize) -> bool {
     server.max_players > 0 && server.playing <= best_fit_cap(server.max_players, accounts)
 }
 
+/// Chave de ordenação do "melhor encaixe" — menor é melhor.
+///
+/// A folga ideal depois do lote entrar é **uma vaga** ([`FREE_SEAT_BUFFER`]):
+/// entra num servidor com gente, sem lotá-lo no instante seguinte. A partir
+/// daí a nota piora conforme a distância dessa folga, para os dois lados —
+/// encher o servidor é ruim, e um servidor quase vazio também.
+///
+/// Empate vai para o mais cheio, que é o servidor mais vivo.
+pub fn best_fit_score(server: &ServerData, accounts: usize) -> (i32, i32, i32) {
+    if server.max_players <= 0 {
+        return (i32::MAX, 0, 0);
+    }
+    let free = (server.max_players - server.playing).max(0);
+    let slack = free - accounts.max(1) as i32;
+    if slack >= 0 {
+        // Cabe: distância da folga ideal, depois o mais cheio.
+        (0, (slack - FREE_SEAT_BUFFER).abs(), slack)
+    } else {
+        // Não cabe: quem leva mais contas primeiro, depois o mais cheio.
+        (1, -free, -server.playing)
+    }
+}
+
 /// Servidores que cabem o lote inteiro, na ordem da preferência.
 ///
 /// Regras:
@@ -107,7 +130,7 @@ pub fn rank_servers(
             .iter()
             .filter(|s| s.max_players > 0 && s.playing < s.max_players)
             .collect();
-        partial.sort_by_key(|s| (s.playing - s.max_players, -s.playing));
+        partial.sort_by_key(|s| best_fit_score(s, accounts));
         return partial;
     }
 
@@ -116,19 +139,10 @@ pub fn rank_servers(
     match preference {
         ServerPreference::Emptiest => candidates.sort_by_key(|s| s.playing),
         ServerPreference::Fullest => candidates.sort_by_key(|s| -s.playing),
-        ServerPreference::BestFit => {
-            // Com folga primeiro, do mais cheio para o mais vazio; sem nenhum
-            // com folga, vale o que couber (a folga é preferência, não regra).
-            let with_buffer: Vec<&ServerData> = candidates
-                .iter()
-                .copied()
-                .filter(|s| fits_with_buffer(s, accounts))
-                .collect();
-            if !with_buffer.is_empty() {
-                candidates = with_buffer;
-            }
-            candidates.sort_by_key(|s| -s.playing);
-        }
+        // Pontuação: a vaga de folga ideal é **uma**. Quanto mais longe disso
+        // (encher o servidor ou entrar num quase vazio), pior; empate vai para
+        // o mais cheio, que é o servidor mais vivo.
+        ServerPreference::BestFit => candidates.sort_by_key(|s| best_fit_score(s, accounts)),
         // Aleatório e "não escolhe" mantêm a ordem da API; quem sorteia é
         // `pick_from_list`.
         ServerPreference::Random | ServerPreference::None => {}
@@ -355,6 +369,51 @@ mod server_preference_tests {
             pick_from_list(&servers, ServerPreference::BestFit, 4, 0).as_deref(),
             Some("ideal")
         );
+    }
+
+    /// A pontuação do "melhor encaixe", como o usuário descreveu: a folga
+    /// ideal é **uma vaga**, e a nota piora conforme se afasta dela para
+    /// qualquer lado.
+    #[test]
+    fn the_best_fit_score_prefers_exactly_one_spare_seat() {
+        let servers = vec![
+            server("lota", 6, 12),      // folga 0
+            server("ideal", 5, 12),     // folga 1
+            server("sobra-2", 4, 12),   // folga 2
+            server("vazio", 0, 12),     // folga 6
+            server("nao-cabe", 8, 12),  // faltam 2 vagas
+        ];
+        let ids: Vec<&str> = rank_servers(&servers, ServerPreference::BestFit, 6)
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["ideal", "lota", "sobra-2", "vazio"]);
+        assert!(!ids.contains(&"nao-cabe"), "quem não cabe some quando há quem caiba");
+    }
+
+    /// Empate na distância da folga ideal vai para o mais cheio: `lota` (folga
+    /// 0) antes de `sobra-2` (folga 2).
+    #[test]
+    fn a_score_tie_goes_to_the_busier_server() {
+        let lota = server("lota", 6, 12);
+        let sobra = server("sobra", 4, 12);
+        assert!(best_fit_score(&lota, 6) < best_fit_score(&sobra, 6));
+    }
+
+    /// Quem não cabe nunca pode pontuar melhor que quem cabe.
+    #[test]
+    fn a_server_that_fits_always_scores_better_than_one_that_does_not() {
+        let cabe = server("cabe", 0, 12);
+        let quase = server("quase", 7, 12);
+        assert!(best_fit_score(&cabe, 6) < best_fit_score(&quase, 6));
+    }
+
+    /// Servidor sem `maxPlayers` não pode ganhar a corrida por acidente.
+    #[test]
+    fn a_server_without_a_size_scores_last() {
+        let sem_tamanho = server("sem", 0, 0);
+        let qualquer = server("qualquer", 11, 12);
+        assert!(best_fit_score(&sem_tamanho, 6) > best_fit_score(&qualquer, 6));
     }
 
     #[test]

@@ -32,6 +32,20 @@ Roblox Account Manager 4 é um gerenciador desktop de múltiplas contas Roblox �
 
 **Testes:** durante a iteração rode só a suíte da funcionalidade (`bun run t <suite>`, `bun run t --list`; mapa em `scripts/test-suites.ts`). Antes de commit/PR rode `bun run check` (typecheck + auditoria das suítes + vitest + `cargo test --all-features`). Teste novo precisa estar em alguma suíte — a auditoria falha se ficar órfão. Testes Rust ficam em `#[cfg(test)] mod <nome>_tests` **dentro** de cada arquivo (submódulos são `include!()`, não módulos), com nome único. URLs da API do Roblox sempre via `endpoints::host(...)` — literal `https://*.roblox.com` em `api/` quebra os testes mockados. Ao corrigir bug, escreva o teste que falha primeiro. Ver `docs/development.md#testes`.
 
+**Validar a UI no navegador (harness):** `bun run dev:ui` sobe o **frontend de verdade** em `localhost:1420` com o lado Tauri trocado por dublês (`src/dev/harness/`, alias no `vite.config.ts` sob `UI_HARNESS=1`). Serve para **procurar** problemas que só aparecem com a tela montada e dados chegando aos poucos — ordem de lista, estados de carregamento, mensagens — sem compilar o app nem tocar em conta nenhuma.
+
+Cenário pela URL: `?scenario=<nome>&accounts=<n>` (`window.__harness.scenarios` lista os disponíveis). Um cenário entrega os mesmos dados que o backend entregaria, **inclusive na ordem ruim**: quem tem que se virar é a UI.
+
+Fluxo com agentes (é assim que se usa):
+
+1. **Dispare um agente por área** (aba Servers, aba Friends, Painel de Sessão, criação de contas...). Cada um abre o seu `?scenario=`, dirige a tela pelo navegador e **só relata**: o que fez, o que esperava, o que viu.
+2. **Nenhum agente corrige nada.** O relatório é entrada, não veredito.
+3. **Valide cada achado** antes de mexer no código: reproduza, e decida se é bug de verdade, cenário irreal ou expectativa errada. Achado de agente que não reproduz é descartado — e vale dizer isso no relatório final.
+4. **Só então corrija**, na ordem de gravidade, com o teste que falha primeiro (ver `docs/development.md#testes`).
+5. **Todo bug confirmado vira teste** na suíte da funcionalidade. O harness acha; quem impede a volta é o teste.
+
+Regras do harness: ele **não substitui** `bun run check`, não fala com a rede nem com o Roblox, e um cenário nunca implementa o comportamento que está sendo testado (senão o teste passa sozinho).
+
 **Git (padrão do projeto):** ao terminar uma tarefa, **commitar e dar push imediatamente**, sem perguntar — um commit por tarefa, mensagem em português descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes de commitar. Push é `git push` na branch atual (hoje `main` → `origin/main`).
 
 Limites do push automático: **nunca** `--force`/`--force-with-lease` e nunca reescrever histórico já publicado. Se o push for recusado porque a branch divergiu, integrar o remoto (`git pull --rebase`), rodar `bun run check` de novo e só então empurrar; se houver conflito, parar e avisar o usuário. Não criar branch nem PR sem o usuário pedir.

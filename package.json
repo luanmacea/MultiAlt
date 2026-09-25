@@ -17,7 +17,8 @@
     "check": "bun run typecheck && bun run test:audit && bun run test && bun run test:rust",
     "t": "bun scripts/test-suite.ts",
     "test:suite": "bun scripts/test-suite.ts",
-    "test:audit": "bun scripts/test-suite.ts --audit"
+    "test:audit": "bun scripts/test-suite.ts --audit",
+    "dev:ui": "UI_HARNESS=1 vite"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

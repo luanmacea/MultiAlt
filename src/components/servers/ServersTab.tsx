@@ -83,42 +83,43 @@ function freeSeats(row: ServerRow): number {
   return Math.max(row.maxPlayers - row.playing, 0);
 }
 
+/** Folga ideal depois que o lote entra. Espelha `FREE_SEAT_BUFFER` no backend. */
+const IDEAL_SPARE_SEATS = 1;
+
+/**
+ * Nota de encaixe de um servidor para um lote — **menor é melhor**.
+ *
+ * A folga ideal depois das contas entrarem é **uma vaga**: o lote joga com
+ * gente, e ainda sobra lugar para quem cair e voltar. A nota piora conforme se
+ * afasta disso para qualquer lado — encher o servidor é ruim, e um servidor
+ * quase vazio também. Empate vai para o mais cheio.
+ *
+ * Quem não cabe vem depois de todo mundo que cabe, ordenado por **quantas
+ * contas leva**.
+ */
+export function fitScore(row: ServerRow, accounts: number): [number, number, number] {
+  if (row.maxPlayers <= 0) return [2, 0, 0];
+  const slack = freeSeats(row) - Math.max(accounts, 1);
+  if (slack >= 0) return [0, Math.abs(slack - IDEAL_SPARE_SEATS), slack];
+  return [1, -freeSeats(row), -row.playing];
+}
+
 /**
  * Ordena a lista pelo encaixe com o lote **desta tela**.
  *
- * O backend já manda a lista ordenada, mas quem sabe com certeza quantas contas
- * estão selecionadas agora é a UI: o topo tem que ser sempre o melhor encaixe
- * para o número que aparece nos rótulos ("3 free · needs 6"). Ordenar aqui
- * também evita que uma página antiga da varredura, chegando fora de ordem,
- * deixe servidores piores no topo.
- *
- * Ordem:
- *
- * 1. cabe o lote **com uma vaga de folga**, do mais cheio para o mais vazio;
- * 2. cabe o lote sem folga (encheria o servidor), do mais cheio para o mais
- *    vazio;
- * 3. não cabe: quem leva **mais contas** primeiro e, entre iguais, o mais
- *    cheio — servidor vivo vale mais que servidor vazio do mesmo tamanho.
+ * O backend já manda ordenado, mas quem sabe com certeza quantas contas estão
+ * selecionadas agora é a UI — é ela que escreve os rótulos ("3 free · needs
+ * 6"), e as duas coisas têm que concordar. Ordenar aqui também impede que uma
+ * página da varredura chegando fora de ordem deixe servidores piores no topo.
  */
 export function rankRows(rows: ServerRow[], accounts: number): ServerRow[] {
-  const needed = Math.max(accounts, 1);
-  function tier(row: ServerRow): number {
-    if (row.maxPlayers <= 0) return 3;
-    const free = freeSeats(row);
-    if (free >= needed + 1) return 0;
-    if (free >= needed) return 1;
-    return 2;
-  }
-
   return [...rows].sort((a, b) => {
-    const tierDiff = tier(a) - tier(b);
-    if (tierDiff !== 0) return tierDiff;
-    // Dentro de "não cabe", mais vagas primeiro: é quem leva mais contas.
-    if (tier(a) === 2) {
-      const freeDiff = freeSeats(b) - freeSeats(a);
-      if (freeDiff !== 0) return freeDiff;
+    const scoreA = fitScore(a, accounts);
+    const scoreB = fitScore(b, accounts);
+    for (let i = 0; i < scoreA.length; i++) {
+      if (scoreA[i] !== scoreB[i]) return scoreA[i] - scoreB[i];
     }
-    return b.playing - a.playing;
+    return 0;
   });
 }
 
@@ -367,6 +368,12 @@ export function ServersTab({
 
   const batchSize = Math.max(userIds.length, 1);
   const pendingRegions = visible.filter((row) => !regions.has(row.id)).length;
+  /**
+   * Quantos dos servidores **na tela** cabem o lote. Quando o backend diz que
+   * existem mas nenhum deles chegou (lista cortada), a tela avisa em vez de
+   * deixar o usuário achar que o topo serve.
+   */
+  const shownFitting = visible.filter((row) => hasRoomFor(row, batchSize)).length;
 
   const fieldClass =
     "px-2.5 py-1.5 text-[12px] rounded-lg bg-[var(--panel-soft)] border theme-border text-[var(--panel-fg)] outline-none focus:border-[var(--accent-color)] transition-colors";
@@ -476,6 +483,11 @@ export function ServersTab({
                 accounts: batchSize,
               })}{" "}
           {!scan.done && t("Still looking...")}
+          {scan.fitting > 0 && shownFitting === 0 && (
+            <span className="text-amber-400/90">
+              {t("The ones that fit are not in this page yet — refresh to fetch them.")}{" "}
+            </span>
+          )}
           {scan.done && !scan.stoppedAtLimit && pendingRegions > 0 &&
             t("{{pending}} still without a region — loading it costs one join request each.", {
               pending: pendingRegions,

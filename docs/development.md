@@ -92,6 +92,40 @@ Contorno pontual: gerar um `<exe>.manifest` ao lado do binário em `src-tauri/ta
 
 Tudo que depende de Win32/estado global: thread do mutex do Multi Roblox, isolamento pré-launch, cancelamento de launch, guarda de reuso de PID e fechamento de contas bot. Esses continuam exigindo teste manual com o app aberto.
 
+## Validando a UI no navegador
+
+```bash
+bun run dev:ui        # frontend real em localhost:1420, lado Tauri dublado
+```
+
+`UI_HARNESS=1` troca `@tauri-apps/api/{core,event,window}` pelos dublês de [src/dev/harness/](../src/dev/harness/) (alias no [vite.config.ts](../vite.config.ts)). O app roda inteiro no navegador, sem compilar o Rust e sem tocar em conta nenhuma.
+
+### Cenários
+
+Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`. `window.__harness.scenarios` lista os nomes.
+
+| Cenário | Para quê |
+|---|---|
+| `default` | App destrancado, contas e settings |
+| `servers-big-game` | Jogo grande: páginas e páginas de servidores cheios antes de aparecer um que caiba o lote |
+| `servers-no-fit` | Nenhum servidor cabe: a lista tem que abrir pelos que levam mais contas |
+| `servers-truncated` | O backend diz que existem servidores que cabem, mas a página recebida foi cortada antes deles |
+| `servers-page-limit` | Varredura parada pelo limite de páginas |
+| `friends-online` | Amigos por conta, com uma conta falhando |
+| `launch-queue` | Fila de launch e contas em jogo |
+
+Um cenário entrega os mesmos dados que o backend entregaria, **inclusive na ordem ruim** — quem tem que se virar é a UI. Ele nunca implementa o comportamento que está sendo testado.
+
+### Fluxo com agentes
+
+1. Um agente por área. Cada um abre o seu `?scenario=`, dirige a tela e **só relata**: o que fez, o que esperava, o que viu.
+2. Nenhum agente corrige nada — o relatório é entrada, não veredito.
+3. Cada achado é **reproduzido e validado** antes de virar mudança: pode ser bug, cenário irreal ou expectativa errada.
+4. Correção na ordem de gravidade, com o teste que falha primeiro.
+5. **Bug confirmado vira teste** na suíte da funcionalidade. O harness acha; quem impede a volta é o teste.
+
+O harness **não substitui** `bun run check`.
+
 ## Features
 
 ### Cargo ([Cargo.toml](../src-tauri/Cargo.toml))

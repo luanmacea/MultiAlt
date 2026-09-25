@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
-import { ServersTab, hasRoomFor, matchesRegion, rankRows } from "./ServersTab";
+import { ServersTab, fitScore, hasRoomFor, matchesRegion, rankRows } from "./ServersTab";
 import type { ServerRow } from "./ServersTab";
 import { makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
 import {
@@ -153,14 +153,42 @@ describe("ServersTab — ordem por encaixe (puro)", () => {
     expect(rankRows(rows, 6).map((r) => r.id)).toEqual(["cabe", "nao-cabe-2", "nao-cabe"]);
   });
 
-  it("prefere o servidor mais cheio que ainda deixa uma vaga de folga", () => {
+  /**
+   * A regra que o usuário pediu: a folga ideal depois do lote entrar é **uma
+   * vaga**, e a nota piora conforme se afasta disso para qualquer lado.
+   * Validado na UI real pelo cenário `servers-big-game` do harness.
+   */
+  it("põe no topo o servidor que deixa exatamente uma vaga de folga", () => {
     const rows = [
-      row({ id: "folgado", playing: 2, maxPlayers: 13 }),
+      row({ id: "vazio", playing: 0, maxPlayers: 13 }),
+      row({ id: "sobra-2", playing: 5, maxPlayers: 13 }),
       row({ id: "ideal", playing: 6, maxPlayers: 13 }),
-      row({ id: "justo", playing: 7, maxPlayers: 13 }),
+      row({ id: "lota", playing: 7, maxPlayers: 13 }),
     ];
-    // "justo" cabe as 6 contas mas enche o servidor: fica atrás dos com folga.
-    expect(rankRows(rows, 6).map((r) => r.id)).toEqual(["ideal", "folgado", "justo"]);
+    expect(rankRows(rows, 6).map((r) => r.id)).toEqual([
+      "ideal",
+      "lota",
+      "sobra-2",
+      "vazio",
+    ]);
+  });
+
+  it("empata pela folga e desempata pelo mais cheio", () => {
+    const lota = row({ id: "lota", playing: 7, maxPlayers: 13 });
+    const sobra = row({ id: "sobra", playing: 5, maxPlayers: 13 });
+    expect(fitScore(lota, 6)[1]).toBe(fitScore(sobra, 6)[1]);
+    expect(rankRows([sobra, lota], 6).map((r) => r.id)).toEqual(["lota", "sobra"]);
+  });
+
+  it("quem cabe sempre pontua melhor que quem não cabe", () => {
+    const cabe = row({ id: "cabe", playing: 0, maxPlayers: 13 });
+    const quase = row({ id: "quase", playing: 8, maxPlayers: 13 });
+    expect(fitScore(cabe, 6)[0]).toBeLessThan(fitScore(quase, 6)[0]);
+  });
+
+  it("servidor sem tamanho fica por último", () => {
+    const rows = [row({ id: "sem", playing: 0, maxPlayers: 0 }), row({ id: "ok", playing: 6, maxPlayers: 13 })];
+    expect(rankRows(rows, 6).map((r) => r.id)).toEqual(["ok", "sem"]);
   });
 
   it("sem ninguém que caiba, ordena por quantas contas levam", () => {
@@ -359,6 +387,35 @@ describe("ServersTab — região", () => {
 
     expect(callsFor("get_server_regions")).toHaveLength(0);
     expect(store.addToast).toHaveBeenCalled();
+  });
+});
+
+describe("ServersTab — lista cortada", () => {
+  /**
+   * O caso que o usuário viu: o resumo diz que existem servidores que cabem,
+   * mas nenhum deles está na página recebida. A tela não pode deixar parecer
+   * que o topo serve.
+   */
+  it("avisa quando os servidores que cabem não chegaram nesta página", async () => {
+    renderTab([]);
+    emitScan(
+      Array.from({ length: 5 }, (_, i) => row({ id: `cheio-${i}`, playing: 12, maxPlayers: 13 })),
+      { scanned: 1700, fitting: 68, done: true }
+    );
+
+    expect(await screen.findByText(/The ones that fit are not in this page yet/i)).toBeInTheDocument();
+  });
+
+  it("não avisa nada quando os que cabem estão na lista", async () => {
+    renderTab([]);
+    emitScan([row({ id: "cabe", playing: 2, maxPlayers: 13 })], {
+      scanned: 1700,
+      fitting: 68,
+      done: true,
+    });
+
+    await screen.findByText("cabe");
+    expect(screen.queryByText(/not in this page yet/i)).not.toBeInTheDocument();
   });
 });
 
