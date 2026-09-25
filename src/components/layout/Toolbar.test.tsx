@@ -184,6 +184,25 @@ describe("Toolbar — Quick Add", () => {
     expect(store.loadAccounts).toHaveBeenCalled();
   });
 
+  /**
+   * Conta criada por nome de usuário não tem cookie: não lança, não entra em
+   * lugar nenhum. O aviso de sucesso não pode soar igual ao de um cookie
+   * válido — tem que dizer que entrou sem sessão e o que falta fazer.
+   */
+  it("says the username-only account came in without a session", async () => {
+    promptAnswers.prompt = "roboduck";
+    setInvokeMap({ lookup_user: { id: 77, name: "roboduck" } });
+    const store = renderToolbar();
+    await openAddMenu();
+    await userEvent.click(screen.getByRole("button", { name: "Quick Add" }));
+
+    await waitFor(() => expect(store.addToast).toHaveBeenCalled());
+    const message = (store.addToast as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(message).toContain("roboduck");
+    expect(message).toContain("no session");
+    expect(message).toContain("Browser Login");
+  });
+
   it("does nothing when the prompt is cancelled", async () => {
     promptAnswers.prompt = null;
     const store = renderToolbar();
@@ -226,8 +245,34 @@ describe("Toolbar — dialog shortcuts", () => {
   });
 
   it("toggles the detail sidebar", async () => {
-    const store = renderToolbar({ sidebarOpen: false });
+    const store = renderToolbar({ sidebarOpen: false, selectedIds: new Set([1]) });
     await userEvent.click(iconButton("panel"));
     expect(store.setSidebarOpen).toHaveBeenCalledWith(true);
+  });
+
+  /**
+   * O painel só existe para uma conta (App.tsx). Com 0 ou 2+ selecionadas o
+   * botão acendia e nada aparecia — então ele tem que estar desabilitado,
+   * dizendo por quê, em vez de mentir que ligou.
+   */
+  it.each([
+    ["nothing selected", [] as number[]],
+    ["two accounts selected", [1, 2]],
+  ])("disables the panel button with %s", async (_label, ids) => {
+    const store = renderToolbar({
+      accounts: [makeAccount({ UserID: 1 }), makeAccount({ UserID: 2 })],
+      sidebarOpen: false,
+      selectedIds: new Set(ids),
+    });
+
+    const panel = iconButton("panel");
+    expect(panel).toBeDisabled();
+    await userEvent.click(panel);
+    expect(store.setSidebarOpen).not.toHaveBeenCalled();
+  });
+
+  it("keeps the panel button enabled for exactly one selected account", () => {
+    renderToolbar({ selectedIds: new Set([1]) });
+    expect(iconButton("panel")).toBeEnabled();
   });
 });

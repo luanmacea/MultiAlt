@@ -16,6 +16,18 @@ export function Toolbar() {
   const addRef = useRef<HTMLDivElement>(null);
   const activeToggleStyle = "theme-accent theme-accent-bg theme-accent-border";
 
+  // O painel lateral (DetailSidebar) só existe para uma conta — ver App.tsx.
+  // Com 0 ou 2+ selecionadas o botão ficava aceso e nada abria; aqui ele fica
+  // desabilitado e o tooltip diz o que falta, em vez de fingir que ligou.
+  const panelAvailable = store.selectedAccounts.length === 1;
+  const panelTooltip = panelAvailable
+    ? store.sidebarOpen
+      ? t("Hide panel")
+      : t("Show panel")
+    : store.selectedAccounts.length === 0
+      ? t("Select an account to show its panel")
+      : t("The panel shows one account at a time");
+
   useEffect(() => {
     if (!addMenuOpen) return;
     function handleClick(e: MouseEvent) {
@@ -84,7 +96,14 @@ export function Toolbar() {
         userId: user.id,
       });
       await store.loadAccounts();
-      store.addToast(tr("Added {{name}}", { name: user.name }));
+      // Busca por nome de usuário não entrega cookie nenhum: a conta entra só
+      // como registro, sem sessão, e não lança. Dizer só "Added" fazia parecer
+      // que tinha dado certo — o aviso tem que nomear o que falta.
+      store.addToast(
+        tr("Added {{name}} with no session — paste its cookie or use Browser Login to sign in", {
+          name: user.name,
+        })
+      );
     } catch (e) {
       store.addToast(tr("Add failed: {{error}}", { error: String(e) }));
     }
@@ -145,11 +164,14 @@ export function Toolbar() {
           {store.hideUsernames ? t("Hidden") : t("Names")}
         </button>
 
-        <Tooltip content={store.sidebarOpen ? t("Hide panel") : t("Show panel")} side="bottom">
+        <Tooltip content={panelTooltip} side="bottom">
           <button
             onClick={() => store.setSidebarOpen(!store.sidebarOpen)}
+            disabled={!panelAvailable}
             className={`p-1.5 rounded-lg border transition-colors ${
-              store.sidebarOpen
+              !panelAvailable
+                ? "theme-btn-ghost opacity-40 cursor-not-allowed"
+                : store.sidebarOpen
                 ? activeToggleStyle
                 : "theme-btn-ghost"
             }`}

@@ -122,6 +122,9 @@ function AppContent() {
         ) : (
           <div className="flex flex-1 min-h-0">
             <AccountList />
+            {/* O painel é de uma conta só. Quem garante que o botão da Toolbar
+                não promete um painel que não vem é o `disabled` de lá, que usa
+                exatamente esta condição — mudou aqui, muda lá. */}
             {store.sidebarOpen && store.selectedAccounts.length === 1 && <DetailSidebar />}
           </div>
         )}

@@ -365,6 +365,42 @@ describe("selection", () => {
     expect([...result.current.selectedIds]).toEqual([1]);
   });
 
+  /**
+   * Ação em lote não pode atingir conta invisível: com o filtro escondendo
+   * linhas selecionadas, a barra inferior e o menu de contexto ainda agiriam
+   * sobre elas. A seleção escondida é descartada.
+   */
+  it("drops from the selection every account the filter hides", async () => {
+    accountsData = [
+      account({ UserID: 1, Username: "alpha" }),
+      account({ UserID: 2, Username: "beta" }),
+      account({ UserID: 3, Username: "alphabet" }),
+    ];
+    const { result } = await renderStore();
+
+    act(() => result.current.selectAll());
+    expect(result.current.selectedIds.size).toBe(3);
+
+    act(() => result.current.setSearchQuery("alpha"));
+    expect([...result.current.selectedIds].sort()).toEqual([1, 3]);
+    expect(result.current.selectedAccounts.map((a) => a.UserID)).toEqual([1, 3]);
+
+    act(() => result.current.setSearchQuery("nothing-matches-this"));
+    expect(result.current.selectedIds.size).toBe(0);
+    expect(result.current.selectedAccounts).toEqual([]);
+  });
+
+  it("keeps the surviving selection when the filter is cleared", async () => {
+    accountsData = [account({ UserID: 1, Username: "alpha" }), account({ UserID: 2, Username: "beta" })];
+    const { result } = await renderStore();
+
+    act(() => result.current.selectAll());
+    act(() => result.current.setSearchQuery("alpha"));
+    act(() => result.current.setSearchQuery(""));
+
+    expect([...result.current.selectedIds]).toEqual([1]);
+  });
+
   it("navigates the selection with and without shift and clamps at the edges", async () => {
     const { result } = await withFive();
     act(() => result.current.selectSingle(1));

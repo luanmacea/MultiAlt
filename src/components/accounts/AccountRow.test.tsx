@@ -132,6 +132,26 @@ describe("AccountRow", () => {
     expect(screen.getByText("3d")).toBeInTheDocument();
   });
 
+  /**
+   * O backend cria a conta com Valid=true mesmo sem cookie (Quick Add por nome
+   * de usuário), então quem distingue é a linha: sem token não há sessão, e o
+   * usuário precisa ver isso com a mesma marca de sessão inválida.
+   */
+  it("flags an account added without a cookie as having no session", () => {
+    renderRow({}, makeAccount({ UserID: 501, Username: "roboduck", SecurityToken: "" }));
+    expect(screen.getByLabelText(/No session/)).toBeInTheDocument();
+  });
+
+  it("keeps the invalid-session mark for an account whose cookie died", () => {
+    renderRow({}, makeAccount({ UserID: 501, Valid: false }));
+    expect(screen.getByLabelText("Invalid session")).toBeInTheDocument();
+  });
+
+  it("shows no session mark for a healthy account", () => {
+    renderRow();
+    expect(screen.queryByLabelText(/session/i)).not.toBeInTheDocument();
+  });
+
   it("marks the row as selected via the accent border", () => {
     renderRow({ selectedIds: new Set([501]) });
     expect(row().className).toContain("theme-row-selected");
