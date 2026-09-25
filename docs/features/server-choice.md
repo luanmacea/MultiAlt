@@ -41,6 +41,12 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 2. Na aba Servers isso só acontece quando o usuário clica **Load regions**, em lotes de 10.
 3. Com filtro de país no launch, `pick_server` percorre os candidatos **na ordem da preferência** e para no primeiro que bate.
 
+## Varredura da lista (aba Servers)
+
+Um jogo grande tem milhares de servidores e a API devolve 100 por página; com um lote de 6 contas, as primeiras páginas podem não ter **nenhum** servidor que caiba todo mundo. Por isso a aba não espera o fim: `start_server_scan` percorre as páginas em background (até 30, com 250 ms entre elas) e publica um evento `server-scan` a cada página, já com a lista reordenada. A varredura para quando acha 12 servidores que cabem o lote, quando as páginas acabam, ou quando o usuário troca de jogo/ordem (`stop_server_scan`).
+
+**Sem nenhum servidor que caiba o lote**, a ordem deixa de ser a preferência e passa a ser **quantas contas cabem** — mais vagas primeiro, e entre iguais o mais cheio. Antes a lista abria com os de uma vaga só e os que levavam quatro contas ficavam escondidos lá embaixo.
+
 ## Regras de negócio
 
 - **Um servidor por lote, não um por conta.** O `shuffleJob` antigo sorteia dentro do laço de cada conta, o que espalha o lote; a preferência resolve antes e manda todo mundo para o mesmo Job ID.

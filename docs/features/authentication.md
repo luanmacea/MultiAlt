@@ -54,6 +54,21 @@ Por isso **toda** chamada mutável passa por `send_with_csrf_retry(request, &csr
 
 Regras: o `RequestBuilder` passado **não** pode já ter o header (o reqwest acumula headers, e dois `X-CSRF-TOKEN` são recusados); nunca repetir o mesmo token (seria recusado de novo); sem header novo, não há retry — não existe laço. Coberto por `csrf_retry_tests` e, ponta a ponta, por `share_link_csrf_tests` (link de convite colado na UI).
 
+### "Lembrar de mim" na tela de senha
+
+A senha que destranca o `AccountData.json` pode ser guardada por um tempo (padrão 24 h, teto 7 dias), para não redigitá-la a cada abertura. Código: [data/accounts/remember.rs](../../src-tauri/src/data/accounts/remember.rs).
+
+Como o arquivo vale o mínimo possível para quem não for o dono da máquina:
+
+- é cifrado pelo **DPAPI do Windows no escopo do usuário atual**, com entropia própria do app — copiar `RAMUnlock.bin` para outra máquina, ou abri-lo com outra conta do Windows, não devolve nada;
+- o **prazo mora dentro do blob cifrado**: editar o arquivo não estende a validade;
+- é apagado quando expira, quando não abre mais, quando a senha muda ou sai (`set_encryption_password`), e pelo botão **Forget** em Settings → Security;
+- é **opt-in**: só existe se o usuário marcar a caixa.
+
+Fora do Windows não há DPAPI e a caixa nem aparece (`remembered_unlock_state.supported == false`) — guardar a senha em texto puro seria pior que digitá-la.
+
+Comandos: `unlock_accounts(password, rememberHours)`, `try_remembered_unlock()` (chamado na inicialização antes de mostrar a tela), `remembered_unlock_state()`, `forget_remembered_unlock()`.
+
 ### Auth ticket — `get_auth_ticket`
 
 1. Obtém CSRF.

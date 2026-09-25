@@ -8,6 +8,7 @@ import type {
   ServerPreference,
   ServerRegion,
   ServerRegionProgress,
+  ServerScanUpdate,
 } from "../../types";
 
 /**
@@ -143,6 +144,7 @@ export function ServersTab({
 
   const [rows, setRows] = useState<ServerRow[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [scan, setScan] = useState<{ scanned: number; fitting: number; done: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [regions, setRegions] = useState<Map<string, ServerRegion>>(new Map());
   const [regionBusy, setRegionBusy] = useState(false);
@@ -154,6 +156,8 @@ export function ServersTab({
   const regionFilter = store.serverRegionFilter;
   const placeIdRef = useRef(placeId);
   placeIdRef.current = placeId;
+
+  const scanIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
@@ -170,6 +174,36 @@ export function ServersTab({
     };
   }, []);
 
+  /**
+   * A varredura publica uma página por vez. Eventos de uma varredura antiga
+   * (trocou de jogo, mudou a ordem) são descartados pelo `scanId`.
+   */
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let disposed = false;
+    listen<ServerScanUpdate>("server-scan", (event) => {
+      const update = event.payload;
+      if (scanIdRef.current !== null && update.scanId !== scanIdRef.current) return;
+      setRows(update.servers || []);
+      setScan({ scanned: update.scanned, fitting: update.fitting, done: update.done });
+      setError(update.error ?? null);
+      if (update.done) setLoading(false);
+    }).then((fn) => {
+      if (disposed) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+      void invoke("stop_server_scan").catch(() => {});
+    };
+  }, []);
+
+  /**
+   * Começa a varredura do place. A lista chega por evento, página a página, já
+   * ordenada pelo backend — num jogo grande as primeiras páginas podem não ter
+   * nenhum servidor que caiba o lote, e esperar o fim deixaria a tela vazia.
+   */
   const loadServers = useCallback(async () => {
     const place = parseInt(placeIdRef.current, 10);
     if (!place || place <= 0) {
@@ -178,31 +212,29 @@ export function ServersTab({
     }
     setLoading(true);
     setError(null);
+    setScan(null);
+    setRows(null);
+    // Os Job IDs mudam a cada varredura; regiões antigas não valem mais.
+    setRegions(new Map());
     try {
-      // A lista vem pronta do backend — mesma ordenação e mesma paginação que
-      // o launch usa, para a aba mostrar exatamente o que ele escolheria.
-      const ranked = await invoke<ServerRow[]>("list_servers_ranked", {
+      scanIdRef.current = await invoke<number>("start_server_scan", {
         placeId: place,
         userId: accountForApi,
         preference,
         accounts: Math.max(userIds.length, 1),
       });
-      setRows(ranked || []);
-      // Os Job IDs mudam a cada refresh; regiões antigas não valem mais.
-      setRegions(new Map());
     } catch (e) {
       setError(String(e));
       setRows([]);
-    } finally {
       setLoading(false);
     }
   }, [accountForApi, preference, t, userIds.length]);
 
-  // Recarrega ao abrir com um place escolhido e sempre que a ordem muda.
+  // Recomeça ao abrir com um place escolhido e sempre que a ordem muda.
   useEffect(() => {
     if (parseInt(placeId, 10) > 0) void loadServers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placeId, preference]);
+  }, [placeId, preference, userIds.length]);
 
   const visible = useMemo(
     () => (rows || []).filter((row) => matchesRegion(row, regions, regionFilter)),
@@ -270,7 +302,6 @@ export function ServersTab({
   }, [regions, regionFilter]);
 
   const batchSize = Math.max(userIds.length, 1);
-  const fitting = visible.filter((row) => hasRoomFor(row, batchSize)).length;
   const pendingRegions = visible.filter((row) => !regions.has(row.id)).length;
 
   const fieldClass =
@@ -353,14 +384,21 @@ export function ServersTab({
       </div>
 
       {/* ── Resumo do que está na tela ── */}
-      {rows !== null && rows.length > 0 && (
-        <p className="shrink-0 text-[11px] theme-muted">
-          {t("{{fitting}} of {{listed}} servers have room for your {{accounts}} account(s).", {
-            fitting,
-            listed: visible.length,
-            accounts: batchSize,
-          })}{" "}
-          {pendingRegions > 0 &&
+      {scan && (
+        <p className="shrink-0 flex items-center gap-1.5 text-[11px] theme-muted">
+          {!scan.done && <Loader2 size={11} className="animate-spin" />}
+          {scan.fitting > 0
+            ? t("{{fitting}} of {{scanned}} servers fit your {{accounts}} account(s).", {
+                fitting: scan.fitting,
+                scanned: scan.scanned,
+                accounts: batchSize,
+              })
+            : t("None of the {{scanned}} servers fit all {{accounts}} accounts — the best partial fits are on top.", {
+                scanned: scan.scanned,
+                accounts: batchSize,
+              })}{" "}
+          {!scan.done && t("Still looking...")}
+          {scan.done && pendingRegions > 0 &&
             t("{{pending}} still without a region — loading it costs one join request each.", {
               pending: pendingRegions,
             })}
@@ -380,7 +418,13 @@ export function ServersTab({
           </div>
         )}
 
-        {!error && rows !== null && visible.length === 0 && (
+        {!error && rows !== null && visible.length === 0 && loading && (
+          <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
+            <Loader2 size={18} className="animate-spin" />
+            <p className="text-[11px]">{t("Looking for servers...")}</p>
+          </div>
+        )}
+        {!error && rows !== null && visible.length === 0 && !loading && (
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10 px-6 text-center">
             <Server size={22} strokeWidth={1.5} />
             <p className="text-[11px] max-w-[42ch]">

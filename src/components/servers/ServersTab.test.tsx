@@ -10,7 +10,12 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 import { ServersTab, hasRoomFor, matchesRegion } from "./ServersTab";
 import type { ServerRow } from "./ServersTab";
 import { makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
-import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
+import {
+  emitTauriEvent,
+  invokeMock,
+  resetTauriMocks,
+  setInvokeMap,
+} from "../../test-utils/tauriMocks";
 import type { ServerRegion } from "../../types";
 import type { StoreValue } from "../../store";
 
@@ -46,17 +51,36 @@ const launchAll = vi.fn(
 
 const setPlaceId = vi.fn();
 
+const SCAN_ID = 7;
+
+/**
+ * A lista chega por evento, página a página: a varredura roda em background no
+ * backend e publica o que já achou, sempre reordenado.
+ */
+function emitScan(rows: ServerRow[], extra: Partial<{ scanned: number; fitting: number; done: boolean }> = {}) {
+  emitTauriEvent("server-scan", {
+    scanId: SCAN_ID,
+    placeId: 606849621,
+    servers: rows,
+    scanned: extra.scanned ?? rows.length,
+    fitting: extra.fitting ?? rows.filter((r) => r.playing + 2 <= r.maxPlayers).length,
+    done: extra.done ?? true,
+    error: null,
+  });
+}
+
 function renderTab(
   rows: ServerRow[],
   overrides: Partial<StoreValue> = {},
   selected = [ACCOUNT_A, ACCOUNT_B]
 ) {
   setInvokeMap({
-    list_servers_ranked: rows,
+    start_server_scan: SCAN_ID,
+    stop_server_scan: null,
     get_server_regions: [],
   });
   const userIds = selected.map((a) => a.UserID);
-  return renderWithStore(
+  const result = renderWithStore(
     <ServersTab
       userIds={userIds}
       placeId="606849621"
@@ -70,6 +94,8 @@ function renderTab(
       ...overrides,
     }
   );
+  emitScan(rows);
+  return result;
 }
 
 function callsFor(cmd: string) {
@@ -116,7 +142,7 @@ describe("ServersTab — lista", () => {
     expect(screen.getByText("5")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
 
-    const args = (callsFor("list_servers_ranked")[0][1] ?? {}) as Record<string, unknown>;
+    const args = (callsFor("start_server_scan")[0][1] ?? {}) as Record<string, unknown>;
     expect(args.placeId).toBe(606849621);
   });
 
@@ -131,7 +157,7 @@ describe("ServersTab — lista", () => {
     });
 
     await screen.findByText("cheio");
-    const args = (callsFor("list_servers_ranked")[0][1] ?? {}) as Record<string, unknown>;
+    const args = (callsFor("start_server_scan")[0][1] ?? {}) as Record<string, unknown>;
     expect(args.preference).toBe("fullest");
     expect(args.accounts).toBe(2);
     expect(args.placeId).toBe(606849621);
@@ -172,7 +198,7 @@ describe("ServersTab — região", () => {
     expect(callsFor("get_server_regions")).toHaveLength(0);
 
     setInvokeMap({
-      list_servers_ranked: [row({ id: "job-a" }), row({ id: "job-b" })],
+      start_server_scan: SCAN_ID,
       get_server_regions: [region("job-a", "BR", "São Paulo"), region("job-b", "US", "Ashburn")],
     });
     await user.click(screen.getByRole("button", { name: /Load regions/i }));
@@ -196,7 +222,7 @@ describe("ServersTab — região", () => {
     expect(screen.getByText("job-us")).toBeInTheDocument();
 
     setInvokeMap({
-      list_servers_ranked: rows,
+      start_server_scan: SCAN_ID,
       get_server_regions: [region("job-br", "BR"), region("job-us", "US")],
     });
     await user.click(screen.getByRole("button", { name: /Load regions/i }));
@@ -221,7 +247,7 @@ describe("ServersTab — região", () => {
     await screen.findByText("job-us");
 
     setInvokeMap({
-      list_servers_ranked: rows,
+      start_server_scan: SCAN_ID,
       get_server_regions: [region("job-us", "US")],
     });
     await user.click(screen.getByRole("button", { name: /Load regions/i }));
@@ -236,7 +262,7 @@ describe("ServersTab — região", () => {
     await screen.findByText("job-cheio");
 
     setInvokeMap({
-      list_servers_ranked: rows,
+      start_server_scan: SCAN_ID,
       get_server_regions: [
         { jobId: "job-cheio", region: null, label: "", error: "This game is full" },
       ],
@@ -270,7 +296,7 @@ describe("ServersTab — preferência", () => {
   });
 
   it("mostra o erro do backend em vez de uma lista vazia sem explicação", async () => {
-    setInvokeMap({});
+    setInvokeMap({ start_server_scan: SCAN_ID });
     renderWithStore(
       <ServersTab
         userIds={[1001]}
@@ -281,9 +307,8 @@ describe("ServersTab — preferência", () => {
       { accounts: [ACCOUNT_A], selectedIds: new Set([1001]), selectedAccounts: [ACCOUNT_A] }
     );
 
-    await waitFor(() => expect(callsFor("list_servers_ranked")).toHaveLength(1));
-    const table = screen.queryByRole("table");
-    expect(table).not.toBeInTheDocument();
+    await waitFor(() => expect(callsFor("start_server_scan")).toHaveLength(1));
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 });
 
@@ -302,7 +327,7 @@ describe("ServersTab — place inválido", () => {
     );
 
     await screen.findByText(/Enter a Place ID to list its servers/i);
-    expect(callsFor("list_servers_ranked")).toHaveLength(0);
+    expect(callsFor("start_server_scan")).toHaveLength(0);
   });
 
   it("aceita só dígitos no campo de Place ID", async () => {

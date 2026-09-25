@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/window", async () => (await import("../../test-utils/ta
 import { PasswordScreen } from "./PasswordScreen";
 import { EncryptionSetupScreen } from "./EncryptionSetupScreen";
 import { defaultSettings, setStore } from "../../test-utils/renderWithStore";
-import { resetTauriMocks } from "../../test-utils/tauriMocks";
+import { resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type { StoreValue } from "../../store";
 
 /** The WebGL backgrounds need a GL context; the SVG "waves" style does not. */
@@ -53,13 +53,13 @@ describe("PasswordScreen", () => {
     const store = renderPasswordScreen();
     await userEvent.type(passwordBox(), "hunter2");
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    expect(store.unlock).toHaveBeenCalledWith("hunter2");
+    expect(store.unlock).toHaveBeenCalledWith("hunter2", undefined);
   });
 
   it("unlocks on Enter", async () => {
     const store = renderPasswordScreen();
     await userEvent.type(passwordBox(), "hunter2{Enter}");
-    expect(store.unlock).toHaveBeenCalledWith("hunter2");
+    expect(store.unlock).toHaveBeenCalledWith("hunter2", undefined);
   });
 
   it("ignores Enter while the field is empty", async () => {
@@ -67,6 +67,61 @@ describe("PasswordScreen", () => {
     passwordBox().focus();
     await userEvent.keyboard("{Enter}");
     expect(store.unlock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * "Lembrar de mim" guarda a senha protegida pelo SO. A caixa só existe onde
+   * há essa proteção (DPAPI do Windows) — sem ela, guardar a senha em disco
+   * seria pior que digitá-la.
+   */
+  describe("lembrar de mim", () => {
+    function checkbox() {
+      return screen.getByRole("checkbox", {
+        name: /Keep me signed in for 24 hours/i,
+      }) as HTMLInputElement;
+    }
+
+    it("oferece a caixa quando o sistema guarda a senha com proteção", async () => {
+      setInvokeMap({
+        remembered_unlock_state: { supported: true, active: false, defaultHours: 24 },
+      });
+      renderPasswordScreen();
+      expect(await screen.findByRole("checkbox")).not.toBeChecked();
+    });
+
+    it("não oferece a caixa onde não há proteção do sistema", async () => {
+      setInvokeMap({
+        remembered_unlock_state: { supported: false, active: false, defaultHours: 24 },
+      });
+      renderPasswordScreen();
+      await userEvent.type(passwordBox(), "hunter2");
+      expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    });
+
+    it("manda o prazo junto ao destrancar com a caixa marcada", async () => {
+      setInvokeMap({
+        remembered_unlock_state: { supported: true, active: false, defaultHours: 24 },
+      });
+      const store = renderPasswordScreen();
+      await screen.findByRole("checkbox");
+
+      await userEvent.click(checkbox());
+      await userEvent.type(passwordBox(), "hunter2{Enter}");
+      expect(store.unlock).toHaveBeenCalledWith("hunter2", 24);
+    });
+
+    /**
+     * Chegar nesta tela com um lembrete guardado significa que ele não serviu
+     * (senha trocada, prazo vencido): a caixa não pode vir marcada dando a
+     * entender que está tudo certo.
+     */
+    it("começa desmarcada mesmo com um lembrete guardado", async () => {
+      setInvokeMap({
+        remembered_unlock_state: { supported: true, active: true, defaultHours: 24 },
+      });
+      renderPasswordScreen();
+      expect(await screen.findByRole("checkbox")).not.toBeChecked();
+    });
   });
 
   it("shows the unlock error from the store", () => {

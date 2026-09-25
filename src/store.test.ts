@@ -1619,7 +1619,7 @@ describe("versions, encryption and walkthrough", () => {
       await result.current.unlock("secret");
     });
 
-    expect(lastArgs("unlock_accounts")).toEqual({ password: "secret" });
+    expect(lastArgs("unlock_accounts")).toEqual({ password: "secret", rememberHours: null });
     expect(result.current.needsPassword).toBe(false);
     expect(result.current.accounts).toHaveLength(1);
     expect(result.current.unlocking).toBe(false);

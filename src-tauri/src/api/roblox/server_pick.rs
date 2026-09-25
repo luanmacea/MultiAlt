@@ -97,14 +97,21 @@ pub fn rank_servers(
         .filter(|s| s.max_players > 0 && s.playing + needed <= s.max_players)
         .collect();
 
-    let mut candidates = if fits_all.is_empty() {
-        servers
+    if fits_all.is_empty() {
+        // Nenhum servidor cabe o lote inteiro. Aqui "mais cheio" e "mais
+        // vazio" não querem dizer nada: o que importa é **quantas contas
+        // cabem**, então o topo é quem tem mais vagas. Sem isso a lista
+        // mostrava primeiro os de 12/13 (uma vaga) e o usuário tinha que
+        // descer a rolagem para achar os que levavam quatro contas.
+        let mut partial: Vec<&ServerData> = servers
             .iter()
             .filter(|s| s.max_players > 0 && s.playing < s.max_players)
-            .collect::<Vec<_>>()
-    } else {
-        fits_all
-    };
+            .collect();
+        partial.sort_by_key(|s| (s.playing - s.max_players, -s.playing));
+        return partial;
+    }
+
+    let mut candidates = fits_all;
 
     match preference {
         ServerPreference::Emptiest => candidates.sort_by_key(|s| s.playing),
@@ -423,6 +430,46 @@ mod server_preference_tests {
             pick_from_list(&servers, ServerPreference::Emptiest, 16, 0).as_deref(),
             Some("b")
         );
+    }
+
+    /// Sem ninguém que caiba o lote, o topo é quem cabe MAIS contas — não o
+    /// mais cheio. Antes a lista abria com os de uma vaga só e os que levavam
+    /// quatro contas ficavam lá embaixo.
+    #[test]
+    fn without_a_perfect_fit_the_best_partial_fits_come_first() {
+        let servers = vec![
+            server("uma-vaga", 12, 13),
+            server("quatro-vagas", 9, 13),
+            server("duas-vagas", 11, 13),
+        ];
+        for preference in [
+            ServerPreference::BestFit,
+            ServerPreference::Fullest,
+            ServerPreference::Emptiest,
+        ] {
+            let ids: Vec<&str> = rank_servers(&servers, preference, 6)
+                .iter()
+                .map(|s| s.id.as_str())
+                .collect();
+            assert_eq!(
+                ids,
+                vec!["quatro-vagas", "duas-vagas", "uma-vaga"],
+                "preferência {:?}",
+                preference
+            );
+        }
+    }
+
+    /// Com o mesmo número de vagas, o mais cheio vem primeiro: servidor vivo
+    /// vale mais que servidor vazio do mesmo tamanho.
+    #[test]
+    fn partial_fits_with_the_same_room_prefer_the_busier_server() {
+        let servers = vec![server("pequeno", 1, 3), server("grande", 20, 22)];
+        let ids: Vec<&str> = rank_servers(&servers, ServerPreference::BestFit, 6)
+            .iter()
+            .map(|s| s.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["grande", "pequeno"]);
     }
 
     #[test]

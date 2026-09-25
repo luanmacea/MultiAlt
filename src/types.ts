@@ -327,3 +327,40 @@ export interface SignupStatus {
   lastError: string | null;
   createdUsernames: string[];
 }
+
+/**
+ * Estado do "lembrar de mim" da tela de senha (`remembered_unlock_state`).
+ *
+ * A senha fica cifrada pelo DPAPI do usuário do Windows, com o prazo dentro do
+ * blob — ver `data/accounts/remember.rs`.
+ */
+export interface RememberState {
+  /** `false` fora do Windows: sem proteção do SO, a caixa não aparece. */
+  supported: boolean;
+  /** Há um lembrete guardado agora. */
+  active: boolean;
+  defaultHours: number;
+}
+
+/**
+ * Uma página da varredura de servidores (evento `server-scan`).
+ *
+ * A lista vem **já ordenada pelo backend** e cresce a cada página: num jogo
+ * grande as primeiras páginas podem não ter nenhum servidor que caiba o lote.
+ */
+export interface ServerScanUpdate {
+  scanId: number;
+  placeId: number;
+  servers: {
+    id: string;
+    playing: number;
+    maxPlayers: number;
+    ping?: number | null;
+  }[];
+  /** Quantos servidores foram examinados até agora. */
+  scanned: number;
+  /** Quantos deles cabem o lote inteiro. */
+  fitting: number;
+  done: boolean;
+  error: string | null;
+}

@@ -9,7 +9,7 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../test-utils/tauriM
 
 import { ChooseGameScreen } from "./ChooseGameScreen";
 import { makeAccount, setStore } from "../test-utils/renderWithStore";
-import { invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
+import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
 import type { JoinTarget } from "../types";
 import type { StoreValue } from "../store";
 
@@ -532,13 +532,8 @@ describe("ChooseGameScreen — preferência de servidor", () => {
 });
 
 describe("ChooseGameScreen — Servers tab", () => {
-  it("mostra a aba de servidores com a lista do place", async () => {
-    setInvokeHandler((cmd) => {
-      if (cmd === "list_servers_ranked") {
-        return [{ id: "job-listado", playing: 5, maxPlayers: 30, ping: 30 }];
-      }
-      return undefined;
-    });
+  it("mostra a aba de servidores com o que a varredura já achou", async () => {
+    setInvokeHandler((cmd) => (cmd === "start_server_scan" ? 3 : undefined));
     setStore({
       accounts: [ACCOUNT_A, ACCOUNT_B],
       selectedIds: new Set([1001, 1002]),
@@ -548,6 +543,17 @@ describe("ChooseGameScreen — Servers tab", () => {
     render(<ChooseGameScreen />);
 
     await userEvent.click(screen.getByRole("button", { name: "Servers" }));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("start_server_scan", expect.anything()));
+
+    emitTauriEvent("server-scan", {
+      scanId: 3,
+      placeId: 606849621,
+      servers: [{ id: "job-listado", playing: 5, maxPlayers: 30, ping: 30 }],
+      scanned: 1,
+      fitting: 1,
+      done: true,
+      error: null,
+    });
 
     expect(await screen.findByText("job-listado")).toBeInTheDocument();
     expect(screen.getByText("/ 30")).toBeInTheDocument();
@@ -563,9 +569,7 @@ describe("ChooseGameScreen — Servers tab", () => {
           ],
         };
       }
-      if (cmd === "list_servers_ranked") {
-        return [{ id: "job-do-jogo", playing: 2, maxPlayers: 30, ping: 20 }];
-      }
+      if (cmd === "start_server_scan") return 4;
       return undefined;
     });
     const store = setStore({
