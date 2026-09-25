@@ -37,8 +37,15 @@ function recent(overrides: Partial<RecentGame> = {}): RecentGame {
 function renderFavorites() {
   const onSelectGame = vi.fn();
   const addToast = vi.fn();
-  render(<FavoritesTab onSelectGame={onSelectGame} addToast={addToast} />);
-  return { onSelectGame, addToast };
+  const onBrowseServers = vi.fn();
+  render(
+    <FavoritesTab
+      onSelectGame={onSelectGame}
+      addToast={addToast}
+      onBrowseServers={onBrowseServers}
+    />
+  );
+  return { onSelectGame, addToast, onBrowseServers };
 }
 
 beforeEach(() => {
@@ -55,7 +62,9 @@ describe("FavoritesTab", () => {
   it("explains how to add the first favorite", () => {
     renderFavorites();
     expect(screen.getByText("No favorites yet")).toBeInTheDocument();
-    expect(screen.getByText("Right-click a game in the Games tab to add one")).toBeInTheDocument();
+    expect(
+      screen.getByText("Use the star on a game in the Games or Recent tab to add one")
+    ).toBeInTheDocument();
   });
 
   it("lists saved favorites and expands one on click", async () => {
@@ -144,13 +153,57 @@ describe("FavoritesTab", () => {
     expect(addToast).toHaveBeenCalledWith("Removed from favorites");
     expect(screen.getByText("No favorites yet")).toBeInTheDocument();
   });
+
+  /**
+   * Ver os servidores de um favorito só existia na aba Games: para escolher
+   * servidor de um jogo salvo, a pessoa tinha que ir lá e pesquisar o mesmo
+   * jogo de novo.
+   */
+  it("leva aos servidores do favorito sem lançar nada", async () => {
+    saveFavorites([favorite()]);
+    const { onBrowseServers, onSelectGame } = renderFavorites();
+
+    await userEvent.click(screen.getByRole("button", { name: "Browse servers" }));
+
+    expect(onBrowseServers).toHaveBeenCalledWith(606849621);
+    expect(onSelectGame).not.toHaveBeenCalled();
+  });
+
+  it("mostra as ações da linha sem depender do hover", () => {
+    saveFavorites([favorite()]);
+    renderFavorites();
+
+    const actions = screen.getByTestId("game-actions-606849621");
+    expect(actions.className).not.toMatch(/opacity-0/);
+    expect(actions.className).not.toMatch(/group-hover:opacity/);
+  });
+
+  /** Ver servidores não pode roubar o clique que abre/fecha o favorito. */
+  it("não expande o favorito ao usar a ação da linha", async () => {
+    saveFavorites([favorite()]);
+    renderFavorites();
+
+    await userEvent.click(screen.getByRole("button", { name: "Browse servers" }));
+
+    expect(screen.queryByRole("button", { name: "Join Game" })).not.toBeInTheDocument();
+  });
 });
 
 describe("RecentTab", () => {
   function renderRecent(userId: number | null = 1001) {
     const onSelectGame = vi.fn();
-    render(<RecentTab onSelectGame={onSelectGame} maxRecent={8} userId={userId} />);
-    return { onSelectGame };
+    const onBrowseServers = vi.fn();
+    const onAddFavorite = vi.fn();
+    render(
+      <RecentTab
+        onSelectGame={onSelectGame}
+        maxRecent={8}
+        userId={userId}
+        onBrowseServers={onBrowseServers}
+        onAddFavorite={onAddFavorite}
+      />
+    );
+    return { onSelectGame, onBrowseServers, onAddFavorite };
   }
 
   it("shows the empty state when nothing has been played", () => {
@@ -193,6 +246,41 @@ describe("RecentTab", () => {
     await userEvent.click(screen.getByRole("button", { name: "Clear all" }));
     expect(screen.getByText("No recent games")).toBeInTheDocument();
     expect(localStorage.getItem("ram_recent_games")).toBe("[]");
+  });
+
+  /**
+   * A lista de recentes só sabia lançar: nem servidores, nem favoritar, nem
+   * menu de contexto. Agora oferece as mesmas ações das outras listas.
+   */
+  it("leva aos servidores do jogo recente sem lançar nada", async () => {
+    saveRecentGames([recent()]);
+    const { onBrowseServers, onSelectGame } = renderRecent();
+
+    await userEvent.click(screen.getByRole("button", { name: "Browse servers" }));
+
+    expect(onBrowseServers).toHaveBeenCalledWith(920587237);
+    expect(onSelectGame).not.toHaveBeenCalled();
+  });
+
+  it("favorita um jogo recente pela ação da linha", async () => {
+    saveRecentGames([recent()]);
+    const { onAddFavorite, onSelectGame } = renderRecent();
+
+    await userEvent.click(screen.getByRole("button", { name: "Favorite" }));
+
+    expect(onAddFavorite).toHaveBeenCalledWith(
+      expect.objectContaining({ placeId: 920587237, name: "Adopt Me" })
+    );
+    expect(onSelectGame).not.toHaveBeenCalled();
+  });
+
+  it("mostra as ações da linha sem depender do hover", () => {
+    saveRecentGames([recent()]);
+    renderRecent();
+
+    const actions = screen.getByTestId("game-actions-920587237");
+    expect(actions.className).not.toMatch(/opacity-0/);
+    expect(actions.className).not.toMatch(/group-hover:opacity/);
   });
 
   it("backfills a missing game name from the backend", async () => {

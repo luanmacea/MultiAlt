@@ -4,15 +4,22 @@ import { useTr } from "../../i18n/text";
 import type { FavoriteGame, VipServer } from "./types";
 import { loadFavorites, saveFavorites, makeVipId } from "./types";
 import { FavoriteContextMenu } from "./FavoriteContextMenu";
+import { GameRowActions, browseServersIcon } from "./GamesTab";
 
 export interface FavoritesTabProps {
   onSelectGame: (placeId: number, privateServer?: string) => void;
   addToast: (msg: string) => void;
+  /**
+   * Abre a lista de servidores daquele jogo. Opcional porque o diálogo de
+   * servidores (fora da Choose Game) não tem para onde levar.
+   */
+  onBrowseServers?: (placeId: number) => void;
 }
 
 export function FavoritesTab({
   onSelectGame,
   addToast,
+  onBrowseServers,
 }: FavoritesTabProps) {
   const t = useTr();
   const prompt = usePrompt();
@@ -75,7 +82,7 @@ export function FavoritesTab({
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
         </svg>
         <p className="text-xs text-zinc-700 mb-1">{t("No favorites yet")}</p>
-        <p className="text-[10px] text-zinc-700">{t("Right-click a game in the Games tab to add one")}</p>
+        <p className="text-[10px] text-zinc-700">{t("Use the star on a game in the Games or Recent tab to add one")}</p>
       </div>
     );
   }
@@ -117,6 +124,23 @@ export function FavoritesTab({
                       {vips.length} {t("VIP")}
                     </span>
                   )}
+                  {/* Entrar continua na gaveta (é lá que estão os VIPs); o que
+                      faltava na linha era o caminho para os servidores. */}
+                  <GameRowActions
+                    placeId={game.placeId}
+                    actions={
+                      onBrowseServers
+                        ? [
+                            {
+                              key: "servers",
+                              label: t("Browse servers"),
+                              icon: browseServersIcon,
+                              onClick: () => onBrowseServers(game.placeId),
+                            },
+                          ]
+                        : []
+                    }
+                  />
                   <svg
                     width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
                     className={`text-zinc-600 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`}

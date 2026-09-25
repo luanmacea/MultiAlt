@@ -590,6 +590,100 @@ describe("ChooseGameScreen — Servers tab", () => {
   });
 });
 
+/**
+ * Descoberta: toda lista de jogos leva aos servidores daquele jogo, a dica de
+ * cada aba diz o que a aba faz, e a grade de janelas não divide espaço com o
+ * log de lançamento.
+ */
+describe("ChooseGameScreen — descoberta", () => {
+  function renderScreen(overrides: Partial<StoreValue> = {}) {
+    const store = setStore({
+      accounts: [ACCOUNT_A],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [ACCOUNT_A],
+      ...overrides,
+    });
+    render(<ChooseGameScreen />);
+    return store;
+  }
+
+  function seedFavorite() {
+    localStorage.setItem(
+      "ram_favorite_games",
+      JSON.stringify([
+        { placeId: 606849621, name: "Jailbreak", iconUrl: null, addedAt: 0, vipServers: [] },
+      ])
+    );
+  }
+
+  function seedRecent() {
+    localStorage.setItem(
+      "ram_recent_games",
+      JSON.stringify([
+        { placeId: 920587237, name: "Adopt Me", iconUrl: null, lastPlayed: Date.now() },
+      ])
+    );
+  }
+
+  /** Item do dono: ver servidores de um favorito exigia pesquisar na aba Games. */
+  it("abre os servidores de um jogo favorito", async () => {
+    setInvokeHandler((cmd) => (cmd === "start_server_scan" ? 7 : undefined));
+    seedFavorite();
+    const store = renderScreen();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Browse servers" }));
+
+    expect(store.setPlaceId).toHaveBeenCalledWith("606849621");
+    expect(await screen.findByLabelText("Place ID")).toBeInTheDocument();
+    expect(store.joinServer).not.toHaveBeenCalled();
+  });
+
+  it("abre os servidores de um jogo recente", async () => {
+    setInvokeHandler((cmd) => (cmd === "start_server_scan" ? 8 : undefined));
+    seedRecent();
+    const store = renderScreen();
+
+    await userEvent.click(screen.getByRole("button", { name: "Recent" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Browse servers" }));
+
+    expect(store.setPlaceId).toHaveBeenCalledWith("920587237");
+    expect(await screen.findByLabelText("Place ID")).toBeInTheDocument();
+    expect(store.joinServer).not.toHaveBeenCalled();
+  });
+
+  /** A aba do Join link era a única sem dica: ninguém sabia o que havia nela. */
+  it("explica a aba Follow na dica", async () => {
+    renderScreen();
+
+    await userEvent.click(screen.getByRole("button", { name: "Follow" }));
+
+    expect(screen.getByText(/Paste any Roblox link/i)).toBeInTheDocument();
+  });
+
+  /** Quem colou link no campo de Job ID precisa de um caminho curto até lá. */
+  it("leva da aba Servers ao Join link em um clique", async () => {
+    setInvokeHandler((cmd) => (cmd === "start_server_scan" ? 9 : undefined));
+    renderScreen();
+
+    await userEvent.click(screen.getByRole("button", { name: "Servers" }));
+    await userEvent.click(screen.getByRole("button", { name: /Paste a join link/i }));
+
+    expect(screen.getByPlaceholderText(/ExperienceInvite/)).toBeInTheDocument();
+  });
+
+  /** A grade de janelas espremia o log do Console em 35 px. */
+  it("tira a grade de janelas da aba Console", async () => {
+    renderScreen();
+
+    await userEvent.click(screen.getByRole("button", { name: "Console" }));
+    expect(screen.queryByText("Window layout")).not.toBeInTheDocument();
+    expect(screen.getByText("No launch activity yet")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
+    expect(await screen.findByText("Window layout")).toBeInTheDocument();
+  });
+});
+
 describe("ChooseGameScreen — chips das contas", () => {
   it("tira a conta do lote pelo x do chip", async () => {
     const store = setStore({

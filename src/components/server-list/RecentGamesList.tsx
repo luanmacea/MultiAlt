@@ -1,15 +1,26 @@
 import { useState, useEffect, useRef } from "react";
-import type { RecentGame } from "./types";
+import type { GameEntry, RecentGame } from "./types";
 import { loadRecentGames, saveRecentGames, resolveRecentGame } from "./types";
 import { useTr } from "../../i18n/text";
+import { GameRowActions, browseServersIcon, favoriteIcon, joinGameIcon } from "./GamesTab";
 
 export interface RecentGamesListProps {
   userId: number | null;
   maxRecent: number;
   onSelect: (placeId: number, name?: string, iconUrl?: string | null) => void;
+  /** Abre a lista de servidores daquele jogo. */
+  onBrowseServers?: (placeId: number) => void;
+  /** Salva o jogo nos favoritos (mesma ação da aba Games). */
+  onAddFavorite?: (game: GameEntry) => void;
 }
 
-export function RecentGamesList({ userId, maxRecent, onSelect }: RecentGamesListProps) {
+export function RecentGamesList({
+  userId,
+  maxRecent,
+  onSelect,
+  onBrowseServers,
+  onAddFavorite,
+}: RecentGamesListProps) {
   const t = useTr();
   const [games, setGames] = useState<RecentGame[]>(loadRecentGames);
   const backfilledRef = useRef(false);
@@ -105,6 +116,45 @@ export function RecentGamesList({ userId, maxRecent, onSelect }: RecentGamesList
                 <div className="text-[10px] text-zinc-600 font-mono">{t("ID: {{id}}", { id: game.placeId })}</div>
               </div>
               <span className="text-[10px] text-zinc-600 shrink-0">{formatTime(game.lastPlayed)}</span>
+              {/* Mesmas ações da aba Games: aqui a lista só sabia lançar. */}
+              <GameRowActions
+                placeId={game.placeId}
+                actions={[
+                  ...(onBrowseServers
+                    ? [
+                        {
+                          key: "servers",
+                          label: t("Browse servers"),
+                          icon: browseServersIcon,
+                          onClick: () => onBrowseServers(game.placeId),
+                        },
+                      ]
+                    : []),
+                  ...(onAddFavorite
+                    ? [
+                        {
+                          key: "favorite",
+                          label: t("Favorite"),
+                          icon: favoriteIcon,
+                          onClick: () =>
+                            onAddFavorite({
+                              placeId: game.placeId,
+                              name: game.name,
+                              playerCount: 0,
+                              likeRatio: null,
+                              iconUrl: game.iconUrl,
+                            }),
+                        },
+                      ]
+                    : []),
+                  {
+                    key: "join",
+                    label: t("Join Game"),
+                    icon: joinGameIcon,
+                    onClick: () => onSelect(game.placeId, game.name, game.iconUrl),
+                  },
+                ]}
+              />
             </div>
           ))}
         </div>

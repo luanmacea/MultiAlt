@@ -16,7 +16,7 @@ import type { LaunchLogLevel, LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
 
-type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console";
+type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
 
 function maskName(name: string, previewLetters: number) {
   if (previewLetters > 0 && previewLetters < name.length) return name.slice(0, previewLetters) + "********";
@@ -405,6 +405,13 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
 // ── Grid window arranger ──────────────────────────────────────────────────────
 type MonitorInfo = { index: number; width: number; height: number; primary: boolean };
 
+/**
+ * Organiza as janelas do Roblox já abertas nos monitores escolhidos.
+ *
+ * Morava dentro da aba Console, que é o log de lançamento: não tem relação
+ * nenhuma com o log e ainda o espremia em ~35 px de altura. Agora é a aba
+ * "Windows", e o Console ficou só com a sessão e o log.
+ */
 function GridControls() {
   const t = useTr();
   const store = useStore();
@@ -497,11 +504,11 @@ function GridControls() {
   }
 
   return (
-    <div className="shrink-0 theme-panel theme-border border rounded-lg p-3 mb-2">
-      <div className="flex items-center justify-between gap-3 mb-2">
+    <div className="theme-panel theme-border border rounded-xl p-4">
+      <div className="flex items-center justify-between gap-3 mb-3">
         <div className="min-w-0">
-          <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Window layout")}</h3>
-          <p className="text-[10px] theme-muted truncate">
+          <h3 className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Window layout")}</h3>
+          <p className="text-[11px] theme-muted">
             {t("Tile all open Roblox windows across the selected monitors.")}
           </p>
         </div>
@@ -613,8 +620,6 @@ function ConsoleTab() {
 
   return (
     <div className="flex flex-col h-full">
-      <GridControls />
-
       {/* Painel de Sessão acima do log: cancelar quem está entrando e
           achar/fechar quem já está em jogo sem sair da tela. */}
       <div className="shrink-0 pb-3">
@@ -734,7 +739,12 @@ export function ChooseGameScreen() {
   }
 
   // ── Tab definitions ────────────────────────────────────────────────────────
-  const TABS: { id: TabId; label: string; hint?: string }[] = [
+  /**
+   * Cada aba explica o que faz na dica 💡. Algumas ganham um atalho ao lado da
+   * dica: é o caminho curto para a aba que resolve o caso que a pessoa tem em
+   * mãos (colar um link, por exemplo) sem duplicar a lógica que resolve.
+   */
+  const TABS: { id: TabId; label: string; hint?: string; action?: { label: string; onClick: () => void } }[] = [
     {
       id: "favorites",
       label: t("Favorites"),
@@ -754,6 +764,9 @@ export function ChooseGameScreen() {
       id: "servers",
       label: t("Servers"),
       hint: t("Public servers of a place. Pick one and every selected account joins it; load regions to find a specific country."),
+      // O campo daqui só aceita Place ID: quem colou um convite ou um link de
+      // servidor privado resolve isso na aba Follow, a um clique.
+      action: { label: t("Paste a join link"), onClick: () => setActiveTab("follow") },
     },
     {
       id: "friends",
@@ -763,15 +776,22 @@ export function ChooseGameScreen() {
     {
       id: "follow",
       label: t("Follow"),
-      hint: undefined,
+      hint: t("Paste any Roblox link here — experience invite, VIP/private server or a plain game link — or follow a player into the game they are in right now."),
     },
     {
       id: "console",
       label: t("Console"),
       hint: t("Live launch log: which account is joining which game, auth ticket, isolation, process PID and errors."),
     },
+    {
+      id: "windows",
+      label: t("Windows"),
+      hint: t("Tile the Roblox windows that are already open across your monitors."),
+    },
   ];
-  const activeHint = TABS.find((t) => t.id === activeTab)?.hint;
+  const activeTabDef = TABS.find((tab) => tab.id === activeTab);
+  const activeHint = activeTabDef?.hint;
+  const activeAction = activeTabDef?.action;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 animate-fade-in">
@@ -862,9 +882,18 @@ export function ChooseGameScreen() {
       {/* ── Tab hint ── */}
       {activeHint && (
         <div className="shrink-0 px-4 pt-2.5 pb-0">
-          <p className="text-[11px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed border theme-border">
-            💡 {activeHint}
-          </p>
+          <div className="flex items-center gap-3 text-[11px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed border theme-border">
+            <p className="min-w-0">💡 {activeHint}</p>
+            {activeAction && (
+              <button
+                onClick={activeAction.onClick}
+                className="shrink-0 ml-auto flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md theme-btn-ghost border theme-border text-[var(--panel-fg)] transition-colors"
+              >
+                <Link2 size={12} strokeWidth={1.5} />
+                {activeAction.label}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -875,6 +904,7 @@ export function ChooseGameScreen() {
             <FavoritesTab
               onSelectGame={handleFavoritesSelectGame}
               addToast={store.addToast}
+              onBrowseServers={handleBrowseServers}
             />
           </div>
         )}
@@ -895,6 +925,8 @@ export function ChooseGameScreen() {
               onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
               maxRecent={maxRecent}
               userId={userIds[0] ?? null}
+              onBrowseServers={handleBrowseServers}
+              onAddFavorite={handleAddFavorite}
             />
           </div>
         )}
@@ -916,6 +948,11 @@ export function ChooseGameScreen() {
         {activeTab === "console" && (
           <div className="h-full px-4 pt-3 pb-4">
             <ConsoleTab />
+          </div>
+        )}
+        {activeTab === "windows" && (
+          <div className="h-full overflow-y-auto px-4 pt-3 pb-4">
+            <GridControls />
           </div>
         )}
       </div>
