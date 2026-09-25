@@ -16,7 +16,11 @@ import {
   normalizeUpdaterFeatureChannel,
 } from "../../updaterChannels";
 
+/** Espelha `MIN_JOIN_GAP_SECS` em `commands/launch.rs`: abaixo disso nada muda. */
+const MIN_JOIN_DELAY_SECONDS = 8;
+
 export function GeneralTab({ s }: { s: UseSettingsReturn }) {
+  const serialLaunch = s.getBool("General", "AsyncJoin");
   const t = useTr();
   const store = useStore();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -195,17 +199,26 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         />
       )}
 
+      {/* A chave continua `AsyncJoin`, mas ela SERIALIZA a fila (launch.rs:1222
+          espera a conta anterior sinalizar). O rotulo antigo, "Async Launching",
+          prometia o contrario do que o codigo faz. */}
       <Toggle
-        checked={s.getBool("General", "AsyncJoin")}
+        checked={serialLaunch}
         onChange={(v) => s.setBool("General", "AsyncJoin", v)}
-        label="Async Launching"
-        description="Wait for each account to launch before launching the next"
+        label="Launch one account at a time"
+        description="Waits for each account to open before starting the next. Off launches them spaced by the delay below."
       />
       <NumberField
         value={s.getNumber("General", "AccountJoinDelay", 8)}
         onChange={(v) => s.setNumber("General", "AccountJoinDelay", v)}
         label="Account Join Delay"
-        min={0}
+        description={
+          serialLaunch
+            ? "Not used while accounts launch one at a time."
+            : "Roblox rejects logins that arrive too close together, so 8 seconds is the floor."
+        }
+        disabled={serialLaunch}
+        min={MIN_JOIN_DELAY_SECONDS}
         max={60}
         step={0.5}
         suffix="sec"

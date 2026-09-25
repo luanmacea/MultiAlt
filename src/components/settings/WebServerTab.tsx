@@ -9,6 +9,9 @@ import { SectionLabel } from "../ui/SectionLabel";
 import { RestartBadge } from "../ui/RestartBadge";
 import { useTr } from "../../i18n/text";
 
+/** Espelha o piso em `api/server/middleware.rs`: abaixo disso tudo e 401. */
+const MIN_PASSWORD_LENGTH = 6;
+
 interface WebServerStatus {
   running: boolean;
   port: number;
@@ -19,6 +22,7 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
   const devMode = s.getBool("Developer", "DevMode");
   const wsEnabled = s.getBool("Developer", "EnableWebServer");
   const [status, setStatus] = useState<WebServerStatus>({ running: false, port: 0 });
+  const password = s.get("WebServer", "Password", "");
   const [loading, setLoading] = useState(false);
 
   const refreshStatus = useCallback(() => {
@@ -128,12 +132,20 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
       <SectionLabel>Connection</SectionLabel>
 
       <TextField
-        value={s.get("WebServer", "Password", "")}
+        value={password}
         onChange={(v) => s.set("WebServer", "Password", v)}
         label="Password"
         placeholder="alphanumeric only"
         pattern={/[^0-9a-zA-Z ]/g}
       />
+      {/* O middleware recusa QUALQUER requisicao com senha curta
+          (api/server/middleware.rs:53), entao o servidor "liga" e nao responde
+          nada — sem isto aqui o usuario nao tem como saber por que. */}
+      {password.length < MIN_PASSWORD_LENGTH && (
+        <p className="px-1 pb-2 text-[11px] text-amber-400/90">
+          {t("Too short: the server answers 401 to everything until it has 6 characters.")}
+        </p>
+      )}
       <NumberField
         value={s.getNumber("WebServer", "WebServerPort", 7963)}
         onChange={(v) => s.setNumber("WebServer", "WebServerPort", v)}

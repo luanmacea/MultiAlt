@@ -1,3 +1,5 @@
+import { useStore } from "../../store";
+import { isWindowsPlatform } from "../../utils/platform";
 import type { UseSettingsReturn } from "../../hooks/useSettings";
 import { Toggle } from "../ui/Toggle";
 import { NumberField } from "../ui/NumberField";
@@ -6,6 +8,10 @@ import { Divider } from "../ui/Divider";
 import { SectionLabel } from "../ui/SectionLabel";
 
 export function WatcherTab({ s }: { s: UseSettingsReturn }) {
+  // `ReadInterval` so e lido dentro de `#[cfg(target_os = "macos")]`
+  // (commands/watcher.rs). No Windows o campo so enfeitava a tela.
+  const showReadInterval = !isWindowsPlatform(useStore().platformCapabilities);
+
   return (
     <div className="space-y-0">
       <SectionLabel>Scanner</SectionLabel>
@@ -22,14 +28,17 @@ export function WatcherTab({ s }: { s: UseSettingsReturn }) {
         max={60}
         suffix="sec"
       />
-      <NumberField
-        value={s.getNumber("Watcher", "ReadInterval", 250)}
-        onChange={(v) => s.setNumber("Watcher", "ReadInterval", v)}
-        label="Read Interval"
-        min={50}
-        max={5000}
-        suffix="ms"
-      />
+      {showReadInterval && (
+        <NumberField
+          value={s.getNumber("Watcher", "ReadInterval", 250)}
+          onChange={(v) => s.setNumber("Watcher", "ReadInterval", v)}
+          label="Read Interval"
+          description="How often the log file is re-read while the watcher is running."
+          min={50}
+          max={5000}
+          suffix="ms"
+        />
+      )}
 
       <Divider />
       <SectionLabel>Connection</SectionLabel>

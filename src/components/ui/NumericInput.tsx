@@ -51,6 +51,7 @@ export function NumericInput({
   containerClassName,
   incrementLabel = "Increment",
   decrementLabel = "Decrement",
+  ariaLabel,
 }: {
   value: number;
   onChange: (value: number) => void;
@@ -65,6 +66,8 @@ export function NumericInput({
   containerClassName?: string;
   incrementLabel?: string;
   decrementLabel?: string;
+  /** O campo e um `input` de texto: sem isto ele nao tem nome nenhum. */
+  ariaLabel?: string;
 }) {
   const effectiveStep = Number.isFinite(step) && step > 0 ? step : 1;
   const precision = useMemo(() => stepPrecision(effectiveStep), [effectiveStep]);
@@ -129,6 +132,7 @@ export function NumericInput({
     <div className={containerClassName || "relative w-full"}>
       <input
         type="text"
+        aria-label={ariaLabel}
         inputMode={preferInteger ? "numeric" : "decimal"}
         value={draft}
         disabled={disabled}
