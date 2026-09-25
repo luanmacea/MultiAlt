@@ -27,7 +27,19 @@ export function BottomActionBar() {
 
   const bottingActive = store.bottingStatus?.active === true;
   const bottingEnabled = store.settings?.General?.BottingEnabled === "true";
+  /**
+   * A entrada do Botting aparece mesmo com o toggle desligado: antes o recurso
+   * só existia para quem já tinha ligado a opção, ou seja, ninguém descobria
+   * que ele existe. Desligado, a linha explica o que o modo faz e manda para
+   * Settings em vez de abrir um diálogo que não vai funcionar.
+   */
   const showBottingButton = bottingEnabled || bottingActive;
+  const bottingSummary = t(
+    "Keeps a group of accounts in one server by closing and relaunching each client every few minutes. Needs Multi Roblox."
+  );
+  const bottingOffHint = t(
+    "Keeps a group of accounts in one server by closing and relaunching each client every few minutes. Needs Multi Roblox — turn it on in Settings › General."
+  );
   const activeBottingIds = useMemo(
     () => new Set(store.bottingStatus?.userIds || []),
     [store.bottingStatus?.userIds]
@@ -170,6 +182,13 @@ export function BottomActionBar() {
     } catch (e) {
       store.addToast(t("Botting account action failed: {{error}}", { error: String(e) }));
     }
+  }
+
+  // Com o modo desligado o diálogo não adianta: leva direto para o toggle.
+  function handleOpenBottingSettings() {
+    setActionsOpen(false);
+    store.addToast(t("Botting Mode is off — enable it in Settings › General."));
+    store.setSettingsOpen(true);
   }
 
   async function handleRestartClients() {
@@ -374,10 +393,11 @@ export function BottomActionBar() {
               </button>
             )}
 
-            {showBottingButton && (
+            {showBottingButton ? (
               <>
                 <button
                   onClick={() => { setActionsOpen(false); store.setBottingDialogOpen(true); }}
+                  title={bottingSummary}
                   className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] flex items-center gap-2"
                 >
                   🤖 {t("Open Botting Mode")}
@@ -390,6 +410,20 @@ export function BottomActionBar() {
                     ➕ {t("Add to Botting ({{count}})", { count: addableBottingIds.length })}
                   </button>
                 )}
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleOpenBottingSettings}
+                  title={bottingSummary}
+                  className="w-full text-left px-3 py-1.5 text-[12px] theme-muted hover:bg-[var(--panel-soft)] flex items-center justify-between gap-2"
+                >
+                  <span>🤖 {t("Botting Mode")}</span>
+                  <span className="text-[9px] uppercase tracking-widest">{t("Off")}</span>
+                </button>
+                <div className="px-3 pb-1.5 text-[10px] theme-muted leading-snug">
+                  {bottingOffHint}
+                </div>
               </>
             )}
 

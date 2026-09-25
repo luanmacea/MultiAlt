@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 
@@ -10,6 +11,7 @@ import {
   groupAccounts,
   makeAccount,
   makeBottingStatus,
+  makeGeneratorStatus,
   setStore,
 } from "../../test-utils/renderWithStore";
 import type { StoreValue } from "../../store";
@@ -39,6 +41,15 @@ function counter(label: string): string {
   );
   // O span do contador e o unico com esse texto exato; ancestrais tem mais.
   return (matches[0]?.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** Texto do indicador do gerador, pedaco a pedaco, na ordem em que aparece. */
+function generatorLine(): string {
+  const host = screen.getByText("generating").closest("button");
+  return [...(host?.querySelectorAll("span") ?? [])]
+    .map((span) => (span.textContent ?? "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Liga ShowPresence e monta a barra com o mapa de presenca informado. */
@@ -144,6 +155,41 @@ describe("StatusBar", () => {
   it("shows a dash when botting has no scheduled restart", () => {
     renderBar({ bottingStatus: makeBottingStatus({ active: true, userIds: [1] }) });
     expect(screen.getByText("next -")).toBeInTheDocument();
+  });
+
+  it("stays silent about the generator while it is not running", () => {
+    renderBar({ generatorStatus: makeGeneratorStatus({ active: false, totalGenerated: 4 }) });
+    expect(screen.queryByText("generating")).not.toBeInTheDocument();
+  });
+
+  it("keeps the paid generator visible in the footer while it runs", () => {
+    renderBar({
+      generatorStatus: makeGeneratorStatus({
+        active: true,
+        provider: "acme",
+        totalGenerated: 3,
+        maxAccounts: 10,
+        nextAttemptAtMs: Date.now() + 90_000,
+      }),
+    });
+    expect(generatorLine()).toMatch(/^generating 3\/10 next 1:(29|30)$/);
+  });
+
+  it("shows the running total when the generator has no target", () => {
+    renderBar({
+      generatorStatus: makeGeneratorStatus({ active: true, totalGenerated: 2, maxAccounts: 0 }),
+    });
+    expect(generatorLine()).toBe("generating 2 next -");
+  });
+
+  it("reopens the generator dialog from the footer indicator", async () => {
+    const store = setStore({
+      accounts: ACCOUNTS,
+      generatorStatus: makeGeneratorStatus({ active: true, provider: "acme" }),
+    });
+    render(<StatusBar />);
+    await userEvent.click(screen.getByRole("button", { name: /generating/ }));
+    expect(store.openGeneratorDialog).toHaveBeenCalledWith("provider");
   });
 
   it("always shows the status-dot legend", () => {

@@ -92,7 +92,7 @@ describe("BottomActionBar — selection-size rules", () => {
     expect(screen.getByRole("button", { name: /Restart Launched \(1\)/ })).toBeInTheDocument();
   });
 
-  it("hides the botting entries until botting is enabled or running", async () => {
+  it("only offers to open the botting dialog once botting is enabled or running", async () => {
     renderBar([A, B]);
     await openActions();
     expect(screen.queryByRole("button", { name: /Open Botting Mode/ })).not.toBeInTheDocument();
@@ -305,6 +305,39 @@ describe("BottomActionBar — friend linking", () => {
 
     release({ pairsTotal: 2, alreadyFriends: 0, verifiedOk: 2, failed: 0 });
     await waitFor(() => expect(screen.getByRole("button", { name: /^Actions/ })).toBeInTheDocument());
+  });
+});
+
+describe("BottomActionBar — Botting Mode discovery", () => {
+  it("still names Botting Mode in the menu while the toggle is off", async () => {
+    renderBar([A, B]);
+    await openActions();
+    expect(screen.getByRole("button", { name: /Botting Mode/ })).toBeInTheDocument();
+  });
+
+  it("says on screen what the mode does and how to turn it on", async () => {
+    renderBar([A, B]);
+    await openActions();
+    const blurb = screen.getByText(/closing and relaunching each client/i);
+    const text = blurb.textContent ?? "";
+    expect(text).toMatch(/Multi Roblox/i);
+    expect(text).toMatch(/Settings/i);
+  });
+
+  it("drops the explanation once botting is enabled", async () => {
+    const settings = defaultSettings();
+    settings.General.BottingEnabled = "true";
+    renderBar([A, B], { settings });
+    await openActions();
+    expect(screen.queryByText(/turn it on in Settings/i)).not.toBeInTheDocument();
+  });
+
+  it("points at Settings instead of the dialog while the mode is off", async () => {
+    const store = renderBar([A, B]);
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Botting Mode/ }));
+    expect(store.setSettingsOpen).toHaveBeenCalledWith(true);
+    expect(store.setBottingDialogOpen).not.toHaveBeenCalled();
   });
 });
 

@@ -25,6 +25,27 @@ async function openSignalsStep() {
   expect(await screen.findByText("Learn the account list signals")).toBeInTheDocument();
 }
 
+/** Abre o tour em modo "manual" (o passo de idioma ja vem liberado). */
+function openTour(overrides: Record<string, unknown> = {}) {
+  const store = setStore({
+    accounts: [makeAccount({ UserID: 1, Username: "ann" })],
+    firstRunWalkthroughOpen: true,
+    firstRunWalkthroughMode: "manual",
+    ...overrides,
+  });
+  render(<FirstRunWalkthrough />);
+  return store;
+}
+
+/** Avanca o tour ate o passo cujo titulo casa com `title`. */
+async function gotoStep(title: RegExp) {
+  for (let i = 0; i < 10; i++) {
+    if (screen.queryAllByText(title).length > 0) return;
+    await userEvent.keyboard("{ArrowRight}");
+  }
+  throw new Error(`walkthrough step not reached: ${title}`);
+}
+
 beforeEach(() => {
   resetTauriMocks();
 });
@@ -45,5 +66,35 @@ describe("FirstRunWalkthrough — status dot lesson", () => {
   it("no longer calls the aging dot 'aged' without a criterion", async () => {
     await openSignalsStep();
     expect(screen.queryByText(/amber means aged/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("FirstRunWalkthrough — Session panel", () => {
+  it("teaches the Session panel somewhere in the tour", async () => {
+    openTour();
+    await gotoStep(/Session panel/i);
+    expect(screen.getByText(/cancel an account that is still joining/i)).toBeInTheDocument();
+    expect(screen.getByText(/close a client that is already running/i)).toBeInTheDocument();
+  });
+
+  it("opens the Session panel from the step's action button", async () => {
+    const store = openTour();
+    await gotoStep(/Session panel/i);
+    await userEvent.click(screen.getByRole("button", { name: /Open Session Panel/i }));
+    expect(store.setSessionDialogOpen).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("FirstRunWalkthrough — final step", () => {
+  it("talks about the status bar it is highlighting", async () => {
+    openTour();
+    await gotoStep(/ready to roll/i);
+    expect(screen.getByText(/status bar/i)).toBeInTheDocument();
+  });
+
+  it("closes the Session panel it opened before finishing", async () => {
+    const store = openTour();
+    await gotoStep(/ready to roll/i);
+    expect(store.setSessionDialogOpen).toHaveBeenCalledWith(false);
   });
 });
