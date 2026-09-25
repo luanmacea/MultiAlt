@@ -254,10 +254,14 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
       <Divider />
       <SectionLabel>Hidden Names</SectionLabel>
 
+      {/* `maskName` (accounts/AccountRow.tsx) so preserva este prefixo; 0 troca
+          o nome inteiro por asteriscos. "Preview Letters" sozinho nao dizia
+          nem de que nome se trata. */}
       <NumberField
         value={s.getNumber("General", "HiddenNameLetters", 0)}
         onChange={(v) => s.setNumber("General", "HiddenNameLetters", v)}
         label="Preview Letters"
+        description="First letters kept visible while names are hidden; the rest turns into asterisks. 0 hides the whole name."
         min={0}
         max={20}
         suffix="chars"
@@ -324,10 +328,13 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
 
       <Divider />
 
+      {/* Corta a lista local de recentes (`addRecentGame`,
+          server-list/types.ts) — nada a ver com o historico do Roblox. */}
       <NumberField
         value={s.getNumber("General", "MaxRecentGames", 8)}
         onChange={(v) => s.setNumber("General", "MaxRecentGames", v)}
         label="Max Recent Games"
+        description="How many games the Recent list keeps before the oldest one drops off."
         min={1}
         max={30}
       />
@@ -337,6 +344,21 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         label="Region Format"
         placeholder="<city>, <countryCode>"
       />
+      {/* O campo pedia um template sem dizer que tokens existem. Os cinco
+          abaixo sao exatamente os que `format_region`
+          (api/roblox/server_regions.rs) substitui; o resto do texto passa
+          intacto, e template que nao resolve nada cai no IP cru.
+          `TextField` nao tem `description`, entao a ajuda fica ao lado. */}
+      <div className="px-1 -mt-1 mb-1 space-y-0.5">
+        <div className="text-[11px] text-zinc-500">
+          {t("Tokens: <city>, <region>, <country>, <countryCode>, <ip>. Any other text is kept as typed.")}
+        </div>
+        <div className="text-[11px] text-zinc-500">
+          {t(
+            'Example: "<city>, <countryCode>" shows as "Ashburn, US" in the server list. A template that fills in empty falls back to the raw IP.'
+          )}
+        </div>
+      </div>
     </div>
   );
 }
