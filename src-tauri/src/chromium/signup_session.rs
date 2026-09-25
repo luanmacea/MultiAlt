@@ -26,7 +26,7 @@ use super::cdp::{spawn_chrome, CdpClient};
 use super::download::ensure_chromium;
 use super::manager::{ChromiumManager, LOGIN_KEY};
 use super::signup::{
-    generate_identity, marked_field_selector, missing_fields, signup_prepare_script,
+    generate_identity, marked_field_selector, missing_fields, signup_prepare_script, SeededRng,
     SignupIdentity, ROBLOX_SIGNUP_URL, SIGNUP_FORM_SELECTOR,
 };
 
@@ -136,6 +136,40 @@ async fn reset_session(cdp: &mut CdpClient) {
     let _ = cdp.send("Network.clearBrowserCookies", serde_json::json!({})).await;
     let _ = cdp.delete_roblosecurity(".roblox.com").await;
     let _ = cdp.delete_roblosecurity("www.roblox.com").await;
+}
+
+/// Quantos nomes tentar antes de desistir e usar o último sorteado.
+const USERNAME_ATTEMPTS: usize = 6;
+
+/// Sorteia um nome de usuário que o Roblox aceite.
+///
+/// Descobrir que o nome está em uso só na hora do envio queima o CAPTCHA que a
+/// pessoa acabou de resolver — e, com o formulário já preenchido, ela nem
+/// conseguia aceitar uma sugestão. Então o nome é conferido **antes**, contra
+/// `auth/v2/usernames/validate`.
+///
+/// Falha de rede não trava a sessão: segue com o nome sorteado e o formulário
+/// valida como sempre validou.
+async fn pick_free_username(identity: &mut SignupIdentity, seed: u64) {
+    let birthday = crate::api::roblox::signup_birthday_iso(
+        &identity.day,
+        &identity.month,
+        &identity.year,
+    );
+
+    for attempt in 0..USERNAME_ATTEMPTS {
+        match crate::api::roblox::check_signup_username(&identity.username, &birthday).await {
+            Ok(check) if check.available => return,
+            // Serviço fora do ar: não dá para saber, segue com o que tem.
+            Err(_) => return,
+            Ok(_) => {}
+        }
+        if attempt + 1 == USERNAME_ATTEMPTS {
+            return;
+        }
+        let mut rng = SeededRng::new(seed ^ ((attempt as u64 + 1).wrapping_mul(0x9E37_79B9)));
+        identity.username = super::signup::generate_username(&mut rng);
+    }
 }
 
 /// Preenche o que falta no formulário que estiver na tela.
@@ -312,7 +346,9 @@ pub async fn start_signup_session(
                 break;
             }
 
-            let identity = generate_identity(identity_seed(index), current_year());
+            let seed = identity_seed(index);
+            let mut identity = generate_identity(seed, current_year());
+            pick_free_username(&mut identity, seed).await;
             let missing = fill_signup_form(&mut cdp, &identity).await;
 
             update(&app_task, |s| {

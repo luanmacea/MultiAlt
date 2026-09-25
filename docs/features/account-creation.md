@@ -38,7 +38,9 @@ Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas,
 - **O preenchimento roda em laço** enquanto se espera o usuário (a cada ~2 s, idempotente). É o que cobre campo que remonta e, principalmente, a **segunda versão** do cadastro que o Roblox serve por experimento: nela a senha só é pedida depois do "Continue", e o laço preenche essa tela sozinho quando ela aparece.
 - **Conta salva aparece na lista na hora**: o evento `generator-account-added` recarrega a lista principal, então parar a sessão no meio não esconde o que já foi criado.
 - **A senha gerada aparece na tela.** Ela não existe em nenhum outro lugar antes de a conta ser salva; sem mostrá-la, a conta ficaria presa ao cookie.
-- **Nome de usuário sempre válido para o Roblox**: 3–20 caracteres, letras/dígitos e **um** underscore, nunca nas pontas.
+- **Nome de usuário sempre válido para o Roblox**: 3–20 caracteres, letras/dígitos e **um** underscore, nunca nas pontas, com sufixo de 4 dígitos.
+- **O nome é conferido antes de preencher** (`auth/v2/usernames/validate`, sem autenticação): se já existir conta com ele, sorteia outro, até 6 tentativas. Descobrir isso só no envio queimaria o CAPTCHA que a pessoa acabou de resolver. Serviço fora do ar não trava a sessão — segue com o nome sorteado e o formulário valida como sempre.
+- **O laço de reparo só preenche campo vazio.** Ele nunca sobrescreve o que está na tela: era isso que impedia de aceitar uma sugestão do Roblox ("este nome já está em uso → tente Ultra_Lynx7440") ou de corrigir qualquer campo na mão.
 - **Idade entre 18 e 40 anos.** Abaixo de 13 o Roblox liga o modo infantil (chat e experiências limitados). O dia sorteado fica em 1–28 para nenhum mês cair num dia inexistente.
 - **Senha sem caracteres ambíguos** (`0`/`O`/`l`/`1`): ela é lida da tela pelo usuário.
 - Os valores entram no script como **literais JSON** — nada digitado ou gerado pode virar código na página.

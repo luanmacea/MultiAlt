@@ -213,6 +213,8 @@ export const SUITES: Record<string, TestSuite> = {
       "signup_identity_tests",
       "signup_script_tests",
       "signup_session_tests",
+      "username_check_tests",
+      "username_check_http_tests",
       "generator_failure_budget_tests",
     ],
     front: ["src/components/signup"],

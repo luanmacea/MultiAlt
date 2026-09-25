@@ -101,7 +101,9 @@ impl SeededRng {
 pub fn generate_username(rng: &mut SeededRng) -> String {
     let head = NAME_HEADS[rng.below(NAME_HEADS.len())];
     let tail = NAME_TAILS[rng.below(NAME_TAILS.len())];
-    let digits = 10 + rng.below(990); // 2 a 3 dígitos, nunca começando em 0
+    // 4 dígitos: com 24x24 combinações de palavras, 3 dígitos colidiam com
+    // conta já existente com frequência incômoda no cadastro.
+    let digits = 1000 + rng.below(9000);
 
     let mut name = format!("{}_{}{}", head, tail, digits);
     if name.len() > 20 {
@@ -161,9 +163,13 @@ pub fn generate_identity(seed: u64, current_year: i32) -> SignupIdentity {
 /// Script que prepara o formulário: data, gênero, e a marcação dos campos de
 /// texto que ainda precisam ser digitados.
 ///
-/// Devolve um JSON `{"needs":["username","password"],...}` com o que **falta**.
-/// Ele é **idempotente**: rodar de novo não desfaz nada e não clica duas vezes
-/// no gênero, porque a sessão o executa em laço enquanto espera o usuário.
+/// Devolve um JSON `{"needs":["username","password"],...}` com os campos que
+/// estão **vazios**.
+///
+/// Só os vazios, de propósito: o laço de reparo roda enquanto o usuário está na
+/// tela, e sobrescrever o que já está escrito impedia de aceitar uma sugestão
+/// do Roblox ("este nome já está em uso → tente Ultra_Lynx7440") ou de corrigir
+/// qualquer campo na mão. O app preenche o que falta e sai da frente.
 ///
 /// Notas de implementação que já custaram caro:
 ///
@@ -182,8 +188,6 @@ pub fn generate_identity(seed: u64, current_year: i32) -> SignupIdentity {
 /// - **nada aqui clica em "Criar conta"**. O envio é do usuário, depois do
 ///   CAPTCHA.
 pub fn signup_prepare_script(identity: &SignupIdentity) -> String {
-    let user = serde_json::to_string(&identity.username).unwrap_or_default();
-    let pass = serde_json::to_string(&identity.password).unwrap_or_default();
     let day = serde_json::to_string(&identity.day).unwrap_or_default();
     let month = serde_json::to_string(&identity.month).unwrap_or_default();
     let year = serde_json::to_string(&identity.year).unwrap_or_default();
@@ -203,19 +207,17 @@ out.birthday=!!(d&&m&&y);\
 var male=Array.prototype.find.call(document.querySelectorAll('button'),function(b){{\
 return b.querySelector('.icon-regular-head-male');}})||document.querySelector('#MaleButton');\
 if(male){{if(male.getAttribute('data-ram-gender')!=='done'){{male.setAttribute('data-ram-gender','done');male.click();}}out.gender=true;}}\
-var mark=function(el,field,want){{if(!el)return;el.setAttribute('data-ram-field',field);\
-if(el.value!==want)out.needs.push(field);}};\
+var mark=function(el,field){{if(!el)return;el.setAttribute('data-ram-field',field);\
+if(!el.value)out.needs.push(field);}};\
 mark(document.querySelector('#signup-username')\
 ||document.querySelector('input[name=\"signupUsername\"]')\
-||document.querySelector('input[autocomplete=\"username\"]'),'username',{user});\
+||document.querySelector('input[autocomplete=\"username\"]'),'username');\
 mark(document.querySelector('#signup-password')\
-||document.querySelector('input[type=\"password\"]'),'password',{pass});\
+||document.querySelector('input[type=\"password\"]'),'password');\
 return JSON.stringify(out);}})()",
         day = day,
         month = month,
-        year = year,
-        user = user,
-        pass = pass
+        year = year
     )
 }
 
@@ -396,32 +398,30 @@ mod signup_script_tests {
         assert_eq!(script.matches(".click()").count(), 1);
     }
 
-    /// Os valores gerados entram como literais JSON: nenhum deles pode fechar
-    /// a string e virar código.
+    /// A data entra como literal JSON, e nome/senha **não entram no script** —
+    /// eles são digitados pelo CDP. Nada digitável pode virar código na página.
     #[test]
     fn values_are_embedded_as_json_literals() {
         for (user, pass) in [
             ("bob\"); alert(1); //", "p\\\"; evil()"),
-            ("a\nb", "c\td"),
+            ("a
+b", "c	d"),
             ("<script>", "</script>"),
             ("", ""),
         ] {
             let script = script_for(user, pass);
-            // Cada valor entra exatamente como o literal JSON dele: aspas
-            // escapadas, nada de quebra de linha crua fechando a string.
-            assert!(
-                script.contains(&serde_json::to_string(user).unwrap()),
-                "usuário {:?} não virou literal JSON",
-                user
-            );
-            assert!(
-                script.contains(&serde_json::to_string(pass).unwrap()),
-                "senha {:?} não virou literal JSON",
-                pass
-            );
             assert!(!script.contains('\n'), "newline cru para {:?}", user);
             assert!(!script.contains('\t'), "tab cru para {:?}", pass);
+            if !user.is_empty() {
+                assert!(!script.contains(user), "usuário vazou para o script: {:?}", user);
+            }
+            if !pass.is_empty() {
+                assert!(!script.contains(pass), "senha vazou para o script: {:?}", pass);
+            }
         }
+        // A data continua entrando, e como literal JSON.
+        let script = script_for("a_b12", "Rabc7");
+        assert!(script.contains("\"Mar\""));
     }
 
     #[test]
