@@ -110,6 +110,42 @@ export interface JoinTarget {
   note: string | null;
 }
 
+/**
+ * Amigo **online** de uma conta, como o backend devolve em
+ * `get_online_friends` / `get_online_friends_for_accounts`.
+ *
+ * `presenceType`: `0` offline, `1` online no site, `2` em jogo, `3` no Studio.
+ * `gameId` é o Job ID do servidor; vem `null` quando a privacidade do amigo
+ * esconde o servidor — nesse caso não há como entrar junto.
+ */
+export interface OnlineFriend {
+  userId: number;
+  name: string;
+  displayName: string;
+  presenceType: number;
+  lastLocation: string;
+  placeId: number | null;
+  /** Place "raiz" da experiência; tem prioridade sobre `placeId` no launch. */
+  rootPlaceId: number | null;
+  gameId: string | null;
+}
+
+/**
+ * Amigos online de UMA conta selecionada. `error` isola a falha daquela conta
+ * para que uma conta com cookie morto não apague a lista das outras.
+ */
+export interface AccountFriends {
+  userId: number;
+  friends: OnlineFriend[];
+  error: string | null;
+}
+
+/** Payload do evento `friends-online-progress` (contas já consultadas). */
+export interface FriendsOnlineProgress {
+  done: number;
+  total: number;
+}
+
 export function parseGroupName(group: string): { sortKey: number; displayName: string } {
   const match = group.match(/^(\d{1,3})\s*/);
   if (match) {

@@ -40,12 +40,31 @@ pub struct UserPresence {
     pub last_online: String,
 }
 
+/// Presença sem autenticação: a API devolve a versão resumida, com `gameId`
+/// sempre nulo. Para obter o job id use [`get_presence_as`] com o cookie.
 pub async fn get_presence(user_ids: &[i64]) -> Result<Vec<UserPresence>, String> {
+    get_presence_as(None, user_ids).await
+}
+
+/// Presença dos usuários, opcionalmente autenticada.
+///
+/// O `gameId` (job id do servidor, o que permite entrar) **só** vem quando a
+/// requisição leva o cookie de uma conta; sem cookie a Roblox omite o campo.
+pub async fn get_presence_as(
+    security_token: Option<&str>,
+    user_ids: &[i64],
+) -> Result<Vec<UserPresence>, String> {
     let client = reqwest::Client::new();
 
-    let response = client
+    let mut request = client
         .post(format!("{}/v1/presence/users", endpoints::host("presence")))
-        .json(&serde_json::json!({ "userIds": user_ids }))
+        .json(&serde_json::json!({ "userIds": user_ids }));
+
+    if let Some(token) = security_token {
+        request = request.header(COOKIE, cookie_header(token));
+    }
+
+    let response = request
         .send()
         .await
         .map_err(|e| format!("Request failed: {}", e))?;
@@ -208,5 +227,60 @@ mod social_presence_extra_tests {
 
         let err = get_presence(&[4043]).await.unwrap_err();
         assert!(err.starts_with("Failed to parse: "), "unexpected: {}", err);
+    }
+}
+
+/// O cookie no caminho da presença: é ele que faz a Roblox devolver o
+/// `gameId`. Sem cookie o header não pode ser enviado (a chamada anônima é
+/// usada em telas que não têm conta associada).
+#[cfg(test)]
+mod presence_cookie_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server};
+    use wiremock::matchers::{body_partial_json, header, method, path};
+    use wiremock::{Mock, Request, ResponseTemplate};
+
+    #[tokio::test]
+    async fn an_authenticated_presence_call_sends_the_cookie_and_gets_the_game_id() {
+        let server = mock_server().await;
+
+        // Registrado primeiro: só casa quando o cookie vem junto.
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7801] })))
+            .and(header("cookie", cookie_of("presence-auth")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{
+                    "userPresenceType": 2,
+                    "userId": 7801,
+                    "placeId": 1,
+                    "rootPlaceId": 1,
+                    "gameId": "job-auth"
+                }]
+            })))
+            .mount(server)
+            .await;
+
+        // Fallback para a mesma rota quando a requisição chega sem cookie.
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7801] })))
+            .and(|req: &Request| !req.headers.contains_key("cookie"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{ "userPresenceType": 2, "userId": 7801, "gameId": null }]
+            })))
+            .mount(server)
+            .await;
+
+        let authenticated = get_presence_as(Some("presence-auth"), &[7801])
+            .await
+            .expect("presence");
+        assert_eq!(authenticated[0].game_id.as_deref(), Some("job-auth"));
+
+        // O comando antigo continua anônimo: nenhum header de cookie sai, e a
+        // resposta resumida (gameId nulo) é a que chega.
+        let anonymous = get_presence(&[7801]).await.expect("presence");
+        assert_eq!(anonymous[0].user_id, 7801);
+        assert!(anonymous[0].game_id.is_none());
     }
 }

@@ -258,6 +258,132 @@ describe("ChooseGameScreen — JoinLinkSection", () => {
   });
 });
 
+describe("ChooseGameScreen — FollowTab", () => {
+  /** O botão "Follow" do formulário (o primeiro com esse nome é a aba). */
+  function followButton(): HTMLButtonElement {
+    const buttons = screen.getAllByRole("button", { name: "Follow" });
+    return buttons[buttons.length - 1] as HTMLButtonElement;
+  }
+
+  function presence(overrides: Record<string, unknown> = {}) {
+    return [{ userPresenceType: 2, placeId: 111, rootPlaceId: 606849621, gameId: "job-x", ...overrides }];
+  }
+
+  it("resolves the target once and launches every account through the batch launcher", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence();
+      return undefined;
+    });
+    const store = await renderFollowTab();
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ placeId: "606849621", jobId: "job-x" })
+      )
+    );
+    expect(store.launchMultiple).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Regressão: o Follow já lançou conta por conta com `launch_roblox` e
+   * `sleep(3000)`, furando o piso anti-captcha de 8 s que `launch_multiple`
+   * aplica no backend. Nada aqui pode voltar a lançar em laço.
+   */
+  it("never calls launch_roblox in a loop", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence();
+      return undefined;
+    });
+    await renderFollowTab();
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("get_presence", expect.anything()));
+    expect(invokeMock.mock.calls.filter((call) => call[0] === "launch_roblox")).toHaveLength(0);
+  });
+
+  it("does not launch when the target is not in a game", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence({ userPresenceType: 1, gameId: null, rootPlaceId: null, placeId: null });
+      return undefined;
+    });
+    const store = await renderFollowTab();
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() => expect(store.addToast).toHaveBeenCalled());
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+    expect(store.joinServer).not.toHaveBeenCalled();
+    expect(invokeMock.mock.calls.filter((call) => call[0] === "launch_roblox")).toHaveLength(0);
+  });
+
+  it("uses rootPlaceId over placeId", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence({ rootPlaceId: 999, placeId: 111 });
+      return undefined;
+    });
+    const store = await renderFollowTab();
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith([1001, 1002], expect.objectContaining({ placeId: "999" }))
+    );
+  });
+});
+
+describe("ChooseGameScreen — Friends tab", () => {
+  it("shows a Friends tab that groups the online friends per selected account", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "get_online_friends_for_accounts") {
+        return [
+          {
+            userId: 1001,
+            error: null,
+            friends: [
+              {
+                userId: 7001,
+                name: "friendo",
+                displayName: "Friendo",
+                presenceType: 2,
+                lastLocation: "Some Game",
+                placeId: 189707,
+                rootPlaceId: 189707,
+                gameId: "job-a",
+              },
+            ],
+          },
+          { userId: 1002, error: null, friends: [] },
+        ];
+      }
+      return [];
+    });
+    setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+    });
+    render(<ChooseGameScreen />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Friends" }));
+
+    expect(await screen.findByTestId("friends-group-1001")).toBeInTheDocument();
+    expect(screen.getByTestId("friends-group-1002")).toBeInTheDocument();
+    expect(screen.getByTestId("friend-1001-7001")).toBeInTheDocument();
+  });
+});
+
 describe("ChooseGameScreen — shell", () => {
   it("closes on Back and on Escape", async () => {
     const store = setStore({

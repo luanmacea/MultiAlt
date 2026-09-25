@@ -152,6 +152,16 @@ export const SUITES: Record<string, TestSuite> = {
     rust: ["backups_tests", "settings_paths_tests"],
     front: ["src/components/dialogs/BackupsDialog.test.tsx"],
   },
+  friends: {
+    description: "Amigos online por conta e entrada no servidor do amigo",
+    rust: [
+      "friends_online_tests",
+      "friends_online_http_tests",
+      "presence_cookie_tests",
+      "online_friends_batch_tests",
+    ],
+    front: ["src/components/friends"],
+  },
   settings: {
     description: "RAMSettings.ini, defaults, temas e presets",
     rust: [

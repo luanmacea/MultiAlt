@@ -724,6 +724,101 @@ async fn get_presence(user_ids: Vec<i64>) -> Result<Vec<api::roblox::UserPresenc
     api::roblox::get_presence(&user_ids).await
 }
 
+// ── Amigos online ─────────────────────────────────────────────────────────────
+
+/// Uma conta e os amigos online dela. `error` preenchido substitui a lista
+/// daquela conta **sem** derrubar as outras entradas do lote.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountFriends {
+    user_id: i64,
+    friends: Vec<api::roblox::OnlineFriend>,
+    error: Option<String>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FriendsOnlineProgress {
+    done: usize,
+    total: usize,
+}
+
+/// Espaçamento default entre contas no lote. O rate limit da API de amigos é
+/// por conta **e** por IP, e todas as contas saem do mesmo IP.
+const FRIENDS_ONLINE_DELAY_MS: u64 = 350;
+
+/// Amigos online de uma conta, ordenados (quem dá para entrar primeiro).
+///
+/// Usa `get_cookie` direto e **nunca** `run_with_session_retry`: o refresh dele
+/// chama `signoutfromallsessionsandreauthenticate`, que derruba as sessões
+/// abertas da conta — caro demais para uma leitura.
+#[tauri::command]
+async fn get_online_friends(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+) -> Result<Vec<api::roblox::OnlineFriend>, String> {
+    let cookie = get_cookie(state.inner(), user_id)?;
+    api::roblox::get_online_friends(&cookie).await
+}
+
+/// Percorre as contas **em sequência**, com pausa entre elas, e isola o erro de
+/// cada uma na sua própria entrada. `on_progress` recebe `(feitas, total)`.
+///
+/// Separado do comando Tauri para poder ser testado sem `AppHandle`.
+async fn collect_online_friends<F>(
+    store: &AccountStore,
+    user_ids: Vec<i64>,
+    delay_ms: Option<u64>,
+    mut on_progress: F,
+) -> Vec<AccountFriends>
+where
+    F: FnMut(usize, usize),
+{
+    let ids = dedupe_friend_ids(user_ids);
+    let total = ids.len();
+    let delay =
+        std::time::Duration::from_millis(delay_ms.unwrap_or(FRIENDS_ONLINE_DELAY_MS));
+    let mut results: Vec<AccountFriends> = Vec::with_capacity(total);
+
+    on_progress(0, total);
+    for (index, &user_id) in ids.iter().enumerate() {
+        let entry = match get_cookie(store, user_id) {
+            Ok(cookie) => match api::roblox::get_online_friends(&cookie).await {
+                Ok(friends) => AccountFriends { user_id, friends, error: None },
+                Err(error) => {
+                    AccountFriends { user_id, friends: Vec::new(), error: Some(error) }
+                }
+            },
+            Err(error) => AccountFriends { user_id, friends: Vec::new(), error: Some(error) },
+        };
+        results.push(entry);
+        on_progress(index + 1, total);
+
+        if index + 1 < total && !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+    }
+
+    results
+}
+
+/// Amigos online de várias contas, uma chamada por conta. Emite
+/// `friends-online-progress` com `{ done, total }` a cada conta concluída.
+#[tauri::command]
+async fn get_online_friends_for_accounts(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AccountStore>,
+    user_ids: Vec<i64>,
+    delay_ms: Option<u64>,
+) -> Result<Vec<AccountFriends>, String> {
+    let results = collect_online_friends(state.inner(), user_ids, delay_ms, |done, total| {
+        let _ = app.emit("friends-online-progress", FriendsOnlineProgress { done, total });
+    })
+    .await;
+
+    Ok(results)
+}
+
 #[tauri::command]
 async fn batch_thumbnails(
     requests: Vec<api::roblox::ThumbnailRequest>,
@@ -1594,5 +1689,125 @@ mod account_api_http_tests {
                 .unwrap_err(),
             "Account 8888 not found"
         );
+    }
+}
+
+/// O lote de amigos online: sequencial, com progresso, e com o erro de uma
+/// conta contido na entrada dela.
+#[cfg(test)]
+mod online_friends_batch_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server};
+    use std::sync::{Arc, Mutex};
+    use wiremock::matchers::{body_string_contains, header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    const ROUTE: &str = "/v1/my/friends/online";
+
+    fn temp_store(tag: &str) -> AccountStore {
+        crypto::init();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        AccountStore::new(std::env::temp_dir().join(format!("ram-friends-{tag}-{nanos}.json")))
+    }
+
+    fn add_account(store: &AccountStore, user_id: i64, token: &str) {
+        store
+            .add(crate::data::accounts::Account::new(
+                token.to_string(),
+                format!("user{user_id}"),
+                user_id,
+            ))
+            .unwrap();
+    }
+
+    /// Uma conta responde, a outra devolve 500 e a terceira nem existe na
+    /// store: as três aparecem no resultado, na ordem pedida.
+    #[tokio::test]
+    async fn a_failing_account_does_not_take_down_the_others() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("friends", ROUTE)))
+            .and(header("cookie", cookie_of("batch-ok")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "userId": 7901, "userPresenceType": 2, "gameInstanceId": "job-7901" }]
+            })))
+            .mount(server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("users", "/v1/users")))
+            .and(body_string_contains("7901"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": 7901, "name": "friendly", "displayName": "Friendly" }]
+            })))
+            .mount(server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(mock_path("friends", ROUTE)))
+            .and(header("cookie", cookie_of("batch-broken")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(server)
+            .await;
+
+        let store = temp_store("batch-mixed");
+        add_account(&store, 8001, "batch-ok");
+        add_account(&store, 8002, "batch-broken");
+
+        let results =
+            collect_online_friends(&store, vec![8001, 8002, 8003], Some(0), |_, _| {}).await;
+
+        assert_eq!(results.len(), 3);
+
+        assert_eq!(results[0].user_id, 8001);
+        assert!(results[0].error.is_none());
+        assert_eq!(results[0].friends.len(), 1);
+        assert_eq!(results[0].friends[0].name, "friendly");
+
+        assert_eq!(results[1].user_id, 8002);
+        assert!(results[1].friends.is_empty());
+        assert_eq!(
+            results[1].error.as_deref(),
+            Some("Failed to get online friends (status 500)")
+        );
+
+        // Conta fora da store: erro contido na entrada, não no comando.
+        assert_eq!(results[2].user_id, 8003);
+        assert_eq!(results[2].error.as_deref(), Some("Account 8003 not found"));
+    }
+
+    /// O progresso sai uma vez no início e uma por conta concluída, sempre com
+    /// o mesmo total (ids repetidos são descartados antes).
+    #[tokio::test]
+    async fn progress_is_emitted_once_per_account_plus_the_initial_zero() {
+        let store = temp_store("batch-progress");
+        let seen = Arc::new(Mutex::new(Vec::<(usize, usize)>::new()));
+        let sink = Arc::clone(&seen);
+
+        let results = collect_online_friends(&store, vec![8101, 8102, 8101], Some(0), move |done, total| {
+            sink.lock().unwrap().push((done, total));
+        })
+        .await;
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(*seen.lock().unwrap(), vec![(0, 2), (1, 2), (2, 2)]);
+    }
+
+    #[tokio::test]
+    async fn an_empty_selection_only_reports_a_zero_total() {
+        let store = temp_store("batch-empty");
+        let seen = Arc::new(Mutex::new(Vec::<(usize, usize)>::new()));
+        let sink = Arc::clone(&seen);
+
+        let results = collect_online_friends(&store, vec![], Some(0), move |done, total| {
+            sink.lock().unwrap().push((done, total));
+        })
+        .await;
+
+        assert!(results.is_empty());
+        assert_eq!(*seen.lock().unwrap(), vec![(0, 0)]);
     }
 }
