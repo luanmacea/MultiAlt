@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { File, FileText, Globe, Plus, X } from "lucide-react";
+import { File, FileText, Globe, KeyRound, Package, Plus, Sparkles, UserPlus, X } from "lucide-react";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
 import { tr, useTr } from "../../i18n/text";
@@ -46,6 +46,12 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
     await store.openLoginBrowser();
   }
 
+  function handleUserPassLogin() {
+    onClose();
+    store.setImportDialogTab("userpass");
+    store.setImportDialogOpen(true);
+  }
+
   function handleImportCookie() {
     onClose();
     store.setImportDialogTab("cookie");
@@ -56,6 +62,21 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
     onClose();
     store.setImportDialogTab("legacy");
     store.setImportDialogOpen(true);
+  }
+
+  function handleOpenSignup() {
+    onClose();
+    store.openGeneratorDialog("signup");
+  }
+
+  function handleOpenGenerator() {
+    onClose();
+    store.openGeneratorDialog("provider");
+  }
+
+  function handleOpenVersions() {
+    onClose();
+    store.setVersionsDialogOpen(true);
   }
 
   return (
@@ -78,9 +99,16 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
           </button>
         </div>
 
-        <div className="px-4 py-3">
+        {/* Com as 8 entradas a lista passa da tela em janela baixa: ela rola. */}
+        <div className="px-4 py-3 max-h-[70vh] overflow-y-auto">
           <p className="text-xs text-zinc-400 mb-3">{t("Choose how to add an account")}</p>
 
+          {/*
+            Este diálogo é a única porta de quem tem zero conta (estado vazio da
+            AccountList) e oferecia 4 das 8 entradas do menu `Add` da toolbar —
+            faltavam justamente as duas que criam conta nova. Ao mexer aqui,
+            mexa também no menu da toolbar: as duas portas oferecem o mesmo.
+          */}
           <div className="space-y-1.5">
             <button
               onClick={handleQuickAdd}
@@ -99,6 +127,16 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
             </button>
 
             <button
+              onClick={handleUserPassLogin}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
+            >
+              <KeyRound size={15} strokeWidth={1.75} className="theme-muted" />
+              {t("User:Pass Login")}
+            </button>
+
+            <div className="my-1 border-t border-zinc-800/70" />
+
+            <button
               onClick={handleImportCookie}
               className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
             >
@@ -112,6 +150,52 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
             >
               <FileText size={15} strokeWidth={1.75} className="theme-muted" />
               {t("Import Old Account Data")}
+            </button>
+
+            <div className="my-1 border-t border-zinc-800/70" />
+
+            <p className="px-3 pt-1 text-[11px] text-zinc-500">{t("No account yet? Get a new one")}</p>
+
+            {/*
+              Mesmo texto do menu da toolbar, de propósito: uma cria de graça no
+              navegador embutido (a pessoa resolve o CAPTCHA), a outra compra
+              conta pronta de um serviço pago de terceiro.
+              Ver docs/features/account-creation.md.
+            */}
+            <button
+              onClick={handleOpenSignup}
+              className="flex items-start gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
+            >
+              <UserPlus size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
+              <span className="min-w-0">
+                {t("Create Accounts")}
+                <span className="block text-[11px] theme-muted leading-snug">
+                  {t("Free — the app fills Roblox's signup form; you solve the CAPTCHA")}
+                </span>
+              </span>
+            </button>
+
+            <button
+              onClick={handleOpenGenerator}
+              className="flex items-start gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
+            >
+              <Sparkles size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
+              <span className="min-w-0">
+                {t("Account Generator")}
+                <span className="block text-[11px] theme-muted leading-snug">
+                  {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+                </span>
+              </span>
+            </button>
+
+            <div className="my-1 border-t border-zinc-800/70" />
+
+            <button
+              onClick={handleOpenVersions}
+              className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
+            >
+              <Package size={15} strokeWidth={1.75} className="theme-muted" />
+              {t("Roblox Versions")}
             </button>
           </div>
         </div>
