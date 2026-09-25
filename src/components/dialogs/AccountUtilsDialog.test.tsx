@@ -235,8 +235,10 @@ describe("AccountUtilsDialog", () => {
       // userEvent.type interpreta `{` como início de tecla especial; um textarea
       // JSON precisa de fireEvent.change para colar chaves literais.
       fireEvent.change(jsonField(), { target: { value: "{not valid json" } });
-      // A regex tem ":" para não casar com o próprio texto digitado no textarea.
-      expect(await screen.findByText(/not valid json:/i)).toBeInTheDocument();
+      expect(await screen.findByText(/check the commas, braces and quotes/i)).toBeInTheDocument();
+      // A mensagem do motor JS ("Expected property name or '}' in JSON at
+      // position 1") e inglesa e cripta para quem joga: nao pode chegar a tela.
+      expect(screen.queryByText(/Expected property name/i)).not.toBeInTheDocument();
 
       await userEvent.click(screen.getByRole("button", { name: "Apply Avatar JSON" }));
       expect(invokeMock).not.toHaveBeenCalledWith("set_avatar", expect.anything());

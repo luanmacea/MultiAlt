@@ -1574,9 +1574,9 @@
   "Private server link or VIP code": "Private server link or VIP code",
   "Name for this server (optional)": "Name for this server (optional)",
   "That doesn't look like a private server link or VIP code.": "That doesn't look like a private server link or VIP code.",
-  "Not valid JSON: {{error}}": "Not valid JSON: {{error}}",
   "Expected an object with an \"assets\" array, like {\"assets\":[{\"id\":12345}]}.": "Expected an object with an \"assets\" array, like {\"assets\":[{\"id\":12345}]}.",
   "Couldn't find a Universe ID in \"{{input}}\". Paste a numeric Universe ID, or a link containing universeId=....": "Couldn't find a Universe ID in \"{{input}}\". Paste a numeric Universe ID, or a link containing universeId=....",
   "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.": "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.",
-  "Optimization profile": "Optimization profile"
+  "Optimization profile": "Optimization profile",
+  "That is not valid JSON — check the commas, braces and quotes.": "That is not valid JSON — check the commas, braces and quotes."
 }
