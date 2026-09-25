@@ -120,7 +120,6 @@
   "Botting account action failed: {{error}}": "Botting-Kontoaktion fehlgeschlagen: {{error}}",
   "Botting start failed: {{error}}": "Start von Botting-Modus fehlgeschlagen: {{error}}",
   "Botting Mode currently requires Multi Roblox to be enabled": "Botting-Modus erfordert derzeit aktiviertes Multi Roblox",
-  "No .ROBLOSECURITY cookie found after login. Please try again.": "Nach dem Login wurde kein .ROBLOSECURITY-Cookie gefunden. Bitte erneut versuchen.",
   "Watcher: process closed for {{userId}}": "Watcher: Prozess für {{userId}} geschlossen",
   "Watcher: low memory {{memoryMb}}MB ({{userId}})": "Watcher: wenig Speicher {{memoryMb}}MB ({{userId}})",
   "Watcher: title mismatch for {{userId}} ({{expected}})": "Watcher: Fenstertitel passt nicht für {{userId}} ({{expected}})",

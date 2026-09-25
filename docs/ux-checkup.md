@@ -24,7 +24,7 @@ Total: **131 achados** — 25 altos, 60 médios, 46 baixos.
 | **P0** | A tela mente ou o ajuste não funciona | ✅ **feito** (16 itens, 7 commits) |
 | **P1** | Existe e ninguém acha | ✅ **feito** (15 itens, 4 commits) |
 | **P2** | Está na tela e não se explica | ✅ **feito** (16 itens, 8 commits) |
-| **P3** | Desenho e ergonomia | ⬜ a fazer (~40 itens) |
+| **P3** | Desenho e ergonomia | 🟡 **onda 1 feita** (risco, feedback e texto quebrado); onda 2 a fazer (densidade, preenchimento, teclado) |
 | **Tradução** | Não existe pt-BR | ✅ **feito** (1535 chaves, catálogo `pt` completo) |
 
 Cada correção entrou com o teste que falha primeiro e `bun run check` verde.
@@ -189,16 +189,42 @@ verificado com `tsc --noEmit`, `bun run t --audit` e a suíte vitest completa
 é todo frontend, nenhum arquivo Rust foi tocado — mas o check completo precisa
 rodar no Windows antes de considerar a faixa fechada de verdade.
 
-## P3 — desenho e ergonomia ⬜
+## P3 — desenho e ergonomia 🟡
 
-Itens de acabamento, agrupados por tema (lista completa nos relatórios da revisão):
+Dividido em duas ondas: primeiro o que é risco e feedback, depois o desenho das
+telas. **Cada item abaixo foi medido no código antes de entrar** — e a medição
+derrubou cinco afirmações da versão anterior desta lista, corrigidas abaixo.
 
-- **Confirmação e reversibilidade**: `Copy ▸ Cookie`/`Password` entregam credencial sem aviso; ações destrutivas do Botting não confirmam; `Clear all` dos recentes é destrutivo e críptico; clicar num jogo lança na hora, sem passo intermediário.
-- **Escala e densidade**: Settings usa 27% da largura e rola 3 telas por aba; com perfis de Botting separados, Optimization vira ~10 telas com `Unlock FPS` repetido 3× sem cabeçalho fixo; a aba Console dá 35 px ao log; a lista de servidores gasta a maior coluna com o Job ID, que nem dá para copiar.
-- **Feedback**: toast de erro é idêntico ao de sucesso — a store já calcula `tone` em `actionStatus` e **nenhum componente renderiza isso** (`store.tsx:2360`), além de o tone ser detectado por substring em inglês.
-- **Preenchimento**: `Add To Group` é campo livre sem lista dos grupos existentes; caminho de arquivo sem botão de procurar; hash de versão digitado à mão; VIP adicionado por dois `prompt()` encadeados; Universe ID e avatar JSON pedem dado bruto.
-- **Teclado e acessibilidade**: abas e linhas da Choose Game não são navegáveis por teclado; `Esc` fecha a Choose Game por baixo do diálogo aberto e, na lista, apaga a seleção junto com o menu.
-- **Texto quebrado**: três lugares mostram escape cru (`HKLM\\SOFTWARE\\…`, `\n` literal no placeholder do JSON); a falha do Browser Login está em inglês fixo, fora da tradução.
+### Onda 1 ✅ — confirmação, feedback e texto quebrado
+
+| # | Achado | O que virou |
+|---|---|---|
+| ✓ | **`Copy ▸ Cookie`/`Password`/`User:Pass` entregam credencial sem aviso** — e `copyMulti` junta **todas** as contas selecionadas: um clique com 50 selecionadas põe 50 `.ROBLOSECURITY` na área de transferência. Mais dois botões fazem o mesmo em massa (`BottomActionBar`, `MultiSelectSidebar`) | Confirmação dizendo o que o cookie entrega e quantas contas entram na cópia, com opt-out persistido em `General.WarnOnCopyCredential` (hook `useCopyCredentialWarning`, no molde do `useJoinOnlineWarning`) |
+| ✓ | **Copiar link de debug podia derrubar as sessões da conta**: o comando `get_auth_ticket` estava sob `run_with_session_retry`, e o refresh chama `signoutfromallsessionsandreauthenticate` — leitura não crítica, o que o CLAUDE.md proíbe | `auth_ticket_without_refresh`: cookie velho virou erro na tela, não refresh. O launch tem caminho próprio e segue com retry. Os três itens que copiam ticket/link também confirmam antes |
+| ✓ | **Ações destrutivas do Botting não confirmavam** (`BottingDialog` nem importava `usePrompt`): `Stop + Close Bot Accounts` e os lotes `close`/`closeDisconnect` fechavam N clientes num clique | Confirmação com a contagem real e a frase que o próprio diálogo já usa — fecha só as bot **desta sessão**; player e clientes de fora ficam abertos. `Stop Botting Mode` e `restart` seguem sem perguntar, de propósito |
+| ✓ | **`Clear all` dos recentes**, remover favorito e remover VIP apagavam direto no `localStorage` | Confirmação destrutiva dizendo quantos itens somem e que não há como recuperar |
+| ✓ | **Toast de erro idêntico ao de sucesso**: a store calculava `tone` e **nenhum componente lia** | A fila virou `{id, message, tone}` e o toast usa a mesma paleta do Console de launch (`TONE_STYLES`). De lambuja: remover por `id` conserta o `slice(1)`, que derrubava o vizinho errado quando dois toasts se sobrepunham |
+| ✓ | **16 mensagens só existiam em `actionStatus`, que ninguém desenhava** — `Settings saved`, todo o progresso de download do Chromium e da versão do Roblox (`timeoutMs: 60000`), `Botting rejoin failed` | A `StatusBar` desenha o slot com a bolinha do tom. Fronteira explícita: toast = "acabou de acontecer", `actionStatus` = "está acontecendo agora" — e `addToast` parou de escrever nos dois |
+| ✓ | **Três atributos JSX com escape cru** (`HKLM\\SOFTWARE\\…`, `C:\\path\\…`, `\n` literal no JSON dos fast flags) | `attr={"..."}`. O bug era triplo: escape na tela, frase caindo no inglês **em todos os idiomas**, e a tradução pt existente como chave morta. Um teste estrutural varre `src/**/*.tsx` e reprova o quarto caso |
+| ✓ | **A confirmação de entrar com conta online estava inteira em inglês** — modal bloqueante, chamado de 4 telas, com a frase num template literal (que o extrator descarta por princípio) e `Join Anyway`/`Don't show this warning again` fora do catálogo | Frases com `{{placeholder}}`, singular e plural em chaves separadas, e o estado de presença traduzido dentro da frase |
+
+### O que a medição corrigiu neste doc
+
+| Dizia | É |
+|---|---|
+| Settings usa 27% da largura | **46,6%** (512px de 1100) — os 27% eram de uma tela de 1920 |
+| Settings rola 3 telas por aba | É a média; o pico é **5,8** (Otimização) e 4,6 (Geral), e 3 abas ficam em 1 tela |
+| Optimization vira ~10 telas | **16,9 telas** (6357px, 67 controles) |
+| Abas da Choose Game não navegam por teclado | São `<button>` e chegam pelo Tab. O achado real é **não existir indicador de foco em botão nenhum do app** (1 `:focus-visible` no CSS contra 35 `focus:outline-none`) — e o `Toggle`, que é `<div onClick>` usado 59 vezes, deixa **Settings inteira** inoperável por teclado |
+| Hash de versão digitado à mão | Há catálogo remoto com botão Install, e a aba manual já valida o formato; sobra o campo **Channel**, que é texto livre |
+| Falha do Browser Login em inglês fixo | A chave está nos três catálogos e `addToast` a traduz. O problema real era o **tom**: falha de login saía como `info` |
+
+### Onda 2 ⬜ — densidade, preenchimento e teclado
+
+- **Escala e densidade**: `SettingsDialog` é o único diálogo dessa família sem guarda `max-w-[calc(100vw-…)]`; Optimization precisa de um perfil por vez (resolve as 16,9 telas, o `Unlock FPS` triplicado e 12 `aria-label` duplicados); o log da aba Console fica com **26px** porque o `SessionPanel` é `shrink-0` e o log é o único `flex-1`; o Job ID leva **50% da linha** da lista de servidores, com ~290px vazios e sem como copiar.
+- **Preenchimento**: `Add To Group` sem lista dos grupos que já existem; VIP em dois `prompt()` encadeados; `Channel` da aba manual sem lista; Universe ID que recusa URL colada **em silêncio**; avatar JSON sem validação; caminho de fonte/preset digitado à mão (resolve com `<input type="file">` + comando que recebe bytes, sem dependência nova).
+- **Teclado e acessibilidade**: indicador de foco no app inteiro; `Toggle` com `role="switch"`; pilha LIFO de `Esc` em `useModalClose` — hoje **nenhum** dos ~25 handlers interrompe a propagação, então um Esc sobre a Choose Game fecha o diálogo **e** a tela, e na lista apaga a seleção junto com o menu; `aria-label` nos 26 botões só-ícone; linhas de Games/Recent/Favorites focáveis.
+- **Clicar num jogo lança na hora** (`ChooseGameScreen.tsx:700`, com o comentário `just launch directly`): o `ServerListDialog` já faz o certo indo para os servidores, e desde o P1 as linhas têm ação `Join Game` própria — o clique no card é hoje um duplicado do botão de lançar. Cuidado: o jogo só entra em Recent no launch bem-sucedido.
 
 ---
 
