@@ -492,12 +492,21 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
 
           <SectionHeader>Security</SectionHeader>
           <div className="space-y-2">
+            {/* O campo era só "PIN (4 digits)" + "Unlock": nada dizia que é o
+                PIN da própria conta Roblox (nem a senha do app, nem a da
+                criptografia local) e que quem decide quanto tempo o desbloqueio
+                dura é o Roblox — o backend só lê `unlockedUntil`. */}
+            <p className="text-[11px] text-zinc-500">
+              {t(
+                "This is the Roblox account PIN set on roblox.com, not this app's password and not the encryption password. Unlocking it lets this account's Roblox settings be changed again; Roblox decides how long that lasts and re-locks the account on its own."
+              )}
+            </p>
             <div className="flex items-center gap-2">
               <div className="flex-1">
                 <UtilInput
                   value={pinInput}
                   onChange={(v) => setPinInput(v.replace(/\D/g, "").slice(0, 4))}
-                  placeholder="PIN (4 digits)"
+                  placeholder="Roblox account PIN (4 digits)"
                   onKeyDown={(e) => { if (e.key === "Enter") handleUnlockPin(); }}
                 />
               </div>

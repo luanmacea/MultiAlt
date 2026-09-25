@@ -1,7 +1,7 @@
 import { Check, User, GripVertical } from "lucide-react";
 import { useStore } from "../../store";
 import type { Account } from "../../types";
-import { timeAgo, getFreshnessColor } from "../../types";
+import { timeAgo, getFreshnessColor, AGED_AFTER_DAYS } from "../../types";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 
@@ -57,7 +57,18 @@ export function AccountRow({ account }: { account: Account }) {
     statusDots.push({ color: "#ef4444", title: t("Invalid session") });
   }
   if (freshness) {
-    statusDots.push({ color: freshness, title: t("Aged account (20+ days inactive)") });
+    // A bolinha só dizia "aged"; quem lê precisa saber *de que* envelheceu.
+    // A conta é contada a partir de `LastUse` — a mesma data que a coluna da
+    // direita mostra como "3d"/"2mo" —, e isso não tem relação com a bolinha
+    // vermelha, que é sessão inválida.
+    const agedDays = Math.floor((Date.now() - new Date(account.LastUse).getTime()) / 86400000);
+    statusDots.push({
+      color: freshness,
+      title: t(
+        "Aged: {{days}} days since the Last Use date shown on the right ({{threshold}}+ days). Its session may still be fine — a dead session is the red dot.",
+        { days: agedDays, threshold: AGED_AFTER_DAYS }
+      ),
+    });
   }
   if (launchedLocally) {
     statusDots.push({ color: "#f59e0b", title: t("Launched by Roblox Account Manager") });

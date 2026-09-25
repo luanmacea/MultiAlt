@@ -44,6 +44,10 @@ function AppContent() {
   const showCloseRobloxAction =
     errorLower.includes("failed to enable multi roblox") ||
     (errorLower.includes("multi roblox") && errorLower.includes("close all roblox process"));
+  // O log de lançamento é a única explicação passo a passo do que falhou, e ele
+  // mora na aba Console da Choose Game. Só vale apontar para lá quando existe
+  // log: fora do launch, a faixa mandaria o usuário para uma tela vazia.
+  const hasLaunchLog = store.launchLogs.length > 0;
   const anyModalOpen =
     store.settingsOpen ||
     store.serverListOpen ||
@@ -93,8 +97,13 @@ function AppContent() {
       <Toolbar />
 
       {store.error && (
-        <div className="mx-4 mt-2 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400 flex items-center justify-between animate-fade-in">
-          <span className="truncate">{store.error}</span>
+        <div className="mx-4 mt-2 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400 flex flex-wrap items-start justify-between gap-y-1 animate-fade-in">
+          {/* O `truncate` cortava justamente o fim da mensagem, que é onde o
+              backend explica o erro. Agora ela quebra linha; o teto de altura
+              com rolagem impede que um erro enorme vire painel. */}
+          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
+            {store.error}
+          </span>
           <div className="ml-2 flex items-center gap-2 shrink-0">
             {showCloseRobloxAction && (
               <button
@@ -102,6 +111,17 @@ function AppContent() {
                 className="px-2 py-1 rounded-md bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 transition-colors animate-pulse"
               >
                 {t("Close Roblox")}
+              </button>
+            )}
+            {/* O detalhe do que falhou no launch só existe no log, em outra
+                tela. Enquanto houver log, a faixa diz onde ele está e abre a
+                Choose Game — a aba Console é escolhida lá dentro. */}
+            {hasLaunchLog && !store.chooseGameOpen && (
+              <button
+                onClick={() => store.setChooseGameOpen(true)}
+                className="px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-colors"
+              >
+                {t("Open launch log")}
               </button>
             )}
             <button
@@ -113,6 +133,11 @@ function AppContent() {
               </svg>
             </button>
           </div>
+          {hasLaunchLog && (
+            <p className="basis-full text-xs text-red-400/70">
+              {t("Step-by-step details of the last launch are in Choose Game › Console.")}
+            </p>
+          )}
         </div>
       )}
 

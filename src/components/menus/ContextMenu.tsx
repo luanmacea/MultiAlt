@@ -336,14 +336,30 @@ export function ContextMenu() {
       label: t("Quick Login"),
       action: async () => {
         if (!single) return;
+        // Nome que aparece no prompt/toast: o mesmo rótulo da linha da conta.
+        const accountLabel = single.Alias || single.Username;
         let code = "";
+        // O código já copiado é usado sem perguntar nada — e era isso que
+        // acontecia em silêncio. Guardamos de onde ele veio para o toast dizer.
+        let fromClipboard = false;
         try {
           const clip = await navigator.clipboard.readText();
           const normalizedClipCode = normalizeQuickLoginCode(clip);
-          if (normalizedClipCode.length === 6) code = normalizedClipCode;
+          if (normalizedClipCode.length === 6) {
+            code = normalizedClipCode;
+            fromClipboard = true;
+          }
         } catch {}
         if (!code) {
-          const input = await prompt(t("Enter 6-digit code:"));
+          // O código não é gerado aqui: quem mostra é o roblox.com/login aberto
+          // no aparelho que vai entrar. O app só o envia com a sessão desta
+          // conta (`quick_login_enter_code` → auth-token-service/enterCode).
+          const input = await prompt(
+            t(
+              'Enter the 6-digit code that roblox.com/login shows on the device you want to sign in (the "log in with a code" option). This app sends it using {{account}}\'s session, so that device signs in as {{account}}:',
+              { account: accountLabel }
+            )
+          );
           if (!input) return;
           code = normalizeQuickLoginCode(input);
         }
@@ -356,7 +372,13 @@ export function ContextMenu() {
             userId: single.UserID,
             code,
           });
-          store.addToast(t("Quick login code entered"));
+          store.addToast(
+            fromClipboard
+              ? t("Quick login code from your clipboard entered as {{account}}", {
+                  account: accountLabel,
+                })
+              : t("Quick login code entered as {{account}}", { account: accountLabel })
+          );
         } catch (e) {
           store.addToast(t("Quick login failed: {{error}}", { error: String(e) }));
         }
