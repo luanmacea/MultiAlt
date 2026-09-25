@@ -266,6 +266,10 @@ async fn launch_account_for_cycle(
         return Err(format!("Launch failed: {}", e));
     }
 
+    // O ciclo do botting também é uso da conta: sem isto, uma conta que joga o dia
+    // inteiro em Botting Mode apareceria como parada há meses na lista.
+    let _ = app.state::<AccountStore>().mark_used(user_id);
+
     let Some(pid) = wait_for_new_roblox_pid(&pids_before, std::time::Duration::from_secs(12)).await
     else {
         return Err("Timed out waiting for Roblox process after launch".into());

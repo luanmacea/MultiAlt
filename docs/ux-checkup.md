@@ -156,14 +156,15 @@ deu para confirmar ficou sem texto, e está listado abaixo.
 ## Achados novos, levantados durante o P2
 
 Explicar o que está na tela obriga a ler o código que sustenta a frase — e foi aí
-que estes apareceram. **Nenhum foi corrigido**: são mudança de comportamento, não
-de texto. Onde a tela não podia prometer o que o código não faz, o texto foi
+que estes apareceram. Os **dois de gravidade alta estão corrigidos** (marcados com
+✅ abaixo); os demais seguem abertos, e continuam sendo mudança de comportamento,
+não de texto. Onde a tela não podia prometer o que o código não faz, o texto foi
 escrito escapando do ponto (e isso está dito na linha).
 
 | Gravidade | Achado | Onde |
 |---|---|---|
-| Alta | **`LastUse` nunca é atualizado por lançamento.** Só é escrito ao criar/re-adicionar a conta. A coluna "3d"/"2mo" e a bolinha de envelhecimento medem idade do **cadastro**, não inatividade de jogo | `data/accounts/model.rs:154,174`, `data/accounts/store.rs:289` |
-| Alta | **`Allow Account Editing` não cobre tudo que edita a conta**: `/SetAvatar`, `/BlockUser`, `/UnblockUser` e `/UnblockEveryone` ficam liberados com ele desligado (pedem só a senha) | `api/server/handlers_edit.rs:301,337,372,456` |
+| ✅ Alta | **`LastUse` nunca era atualizado por lançamento** — a coluna "3d"/"2mo" e a bolinha mediam idade do cadastro. Agora `mark_used` roda no `Done` da fila de launch, no ciclo do Botting e nos launches do web server. Efeito colateral bom: o auto-refresh de cookie (que desloga todas as sessões) deixa de mirar conta que está em uso | `data/accounts/store.rs` (`mark_used`), `commands/launch.rs` (`launch_queue_mark`) |
+| ✅ Alta | **`Allow Account Editing` não cobria tudo que edita a conta**: `/SetAvatar`, `/BlockUser`, `/UnblockUser` e `/UnblockEveryone` passavam só com a senha. Agora exigem a flag, como as rotas de campo/apelido/descrição já exigiam (quebra de compatibilidade registrada em webserver.md) | `api/server/handlers_edit.rs` + `edit_permission_tests` |
 | Média | **O snapshot da janela é empurrado para todo script** assim que ele sobe, sem checar `allowWindow` — a permissão só barra a leitura sob demanda | `ScriptsDialog.tsx:2387-2391` |
 | Média | **A descrição de `Background Mode` está errada**: fala em cliente minimizado/fora da tela, mas o código força `IDLE_PRIORITY_CLASS` no processo sem olhar janela nenhuma | `platform/windows/optimization.rs:280` |
 | Média | **`quick_login_validate_code` existe no backend e nada no frontend o chama** — o fluxo do Roblox normalmente é `enterCode` + confirmação | `api/auth.rs:414`, `commands/account_api.rs:1317` |

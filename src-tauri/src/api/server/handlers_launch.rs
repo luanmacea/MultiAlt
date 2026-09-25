@@ -153,6 +153,9 @@ async fn handle_launch_account(
             .await;
         }
 
+        // Launch pelo web server tambem e uso da conta (ele nao passa pela fila do
+        // app, entao a marcacao que vive em `launch_queue_mark` nao o alcanca).
+        let _ = state.accounts.mark_used(account.user_id);
         reply(200, &format!("Launched {} to {}", account.username, place_id), v2)
     }
 
@@ -287,6 +290,7 @@ async fn handle_follow_user(
             .await;
         }
 
+        let _ = state.accounts.mark_used(account.user_id);
         reply(200, &format!("Following {} to {}", account.username, target_username), v2)
     }
 

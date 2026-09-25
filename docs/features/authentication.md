@@ -102,7 +102,7 @@ se r2 falha por sessão → "Roblox invalidated this session. Re-login required.
 
 A cada **5 minutos**, se `General.AutoCookieRefresh != "false"` e o app está desbloqueado, para cada conta:
 - pula se `Fields.NoCookieRefresh == "true"`;
-- pula se `LastUse` tem menos de **20 dias**;
+- pula se `LastUse` tem menos de **20 dias** (e `LastUse` anda a cada launch bem-sucedido, então conta em uso nunca entra aqui — o que é o desejado: o refresh desloga todas as sessões da conta);
 - pula se `LastAttemptedRefresh` tem menos de **7 dias**;
 - senão chama `refresh_cookie` e espera 5 s antes da próxima.
 

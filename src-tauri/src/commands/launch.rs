@@ -325,6 +325,14 @@ fn launch_queue_start(app: &tauri::AppHandle, user_ids: &[i64], place_id: i64, j
 
 /// Aplica uma transição e publica o evento. Devolve `false` quando a transição
 /// foi recusada (conta fora da fila ou já num estado final).
+/// Quais estados da fila contam como "a conta foi usada". Só `Done` — é a
+/// definição do próprio app para "o cliente subiu". Fica separado para poder ser
+/// testado sem `AppHandle`: o risco real aqui é alguém passar a marcar em
+/// `Launching`, e aí `last_use` voltaria a medir tentativa em vez de uso.
+fn launch_state_means_used(state: LaunchQueueState) -> bool {
+    matches!(state, LaunchQueueState::Done)
+}
+
 fn launch_queue_mark(
     app: &tauri::AppHandle,
     user_id: i64,
@@ -335,6 +343,15 @@ fn launch_queue_mark(
         with_launch_queue(|queue| queue.set_state(user_id, state, error, launch_queue_now_ms()));
     if changed {
         emit_launch_queue(app, &payload);
+    }
+    // `Done` é a definição do próprio app para "o cliente subiu": é aqui que
+    // `last_use` tem de andar. Antes ele só era escrito ao criar ou re-adicionar a
+    // conta, então a coluna "3d"/"2mo" e a bolinha de envelhecimento mediam idade
+    // do cadastro, não inatividade de jogo. Marcar num ponto só cobre conta única,
+    // lote e as duas plataformas. Falhar ao gravar não derruba um launch que deu
+    // certo — por isso o erro é ignorado de propósito.
+    if changed && launch_state_means_used(state) {
+        let _ = app.state::<AccountStore>().mark_used(user_id);
     }
     changed
 }
@@ -1741,6 +1758,24 @@ fn cmd_apply_fps_unlock(max_fps: u32) -> Result<(), String> {
 #[cfg(test)]
 mod launch_queue_tests {
     use super::*;
+
+    /// `last_use` alimenta a coluna "3d"/"2mo" e a bolinha de envelhecimento: só
+    /// pode andar quando o cliente subiu de fato, nunca na tentativa.
+    #[test]
+    fn only_a_finished_launch_counts_as_usage() {
+        assert!(launch_state_means_used(LaunchQueueState::Done));
+        for state in [
+            LaunchQueueState::Queued,
+            LaunchQueueState::Launching,
+            LaunchQueueState::Failed,
+            LaunchQueueState::Cancelled,
+        ] {
+            assert!(
+                !launch_state_means_used(state),
+                "{state:?} não é uso: a conta pode nem ter aberto"
+            );
+        }
+    }
 
     /// Fila pronta com as contas todas em `queued`.
     fn queue_with(user_ids: &[i64]) -> LaunchQueue {

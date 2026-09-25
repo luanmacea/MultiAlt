@@ -323,6 +323,23 @@ impl AccountStore {
         }
     }
 
+    /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
+    /// botting e web server): sem isso `last_use` só era escrito ao criar ou
+    /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do
+    /// cadastro em vez de inatividade de jogo. Devolve `false` quando não existe
+    /// conta com esse id — lançar uma conta que saiu da lista não é erro.
+    pub fn mark_used(&self, user_id: i64) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        account.last_use = Utc::now();
+
+        self.save_locked(&accounts, false)?;
+        Ok(true)
+    }
+
     pub fn reorder(&self, user_ids: &[i64]) -> Result<(), String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
 
@@ -675,6 +692,35 @@ mod account_store_tests {
         TestStore {
             store: AccountStore::new(temp_path(name)),
         }
+    }
+
+    /// `LastUse` era escrito so na criacao/re-adicao da conta: a coluna "3d"/"2mo"
+    /// e a bolinha de envelhecimento mediam idade do **cadastro**, nao inatividade
+    /// de jogo. Quem lanca precisa poder marcar uso.
+    #[test]
+    fn mark_used_moves_last_use_forward_and_persists_it() {
+        let store = store("mark-used");
+        let mut old = account(7, "ann");
+        old.last_use = chrono::Utc::now() - chrono::Duration::days(40);
+        let before = old.last_use;
+        store.add(old).unwrap();
+
+        assert!(store.mark_used(7).unwrap(), "a conta existe, entao marcou");
+
+        let after = store.get_all().unwrap()[0].last_use;
+        assert!(after > before, "last_use andou para frente: {before} -> {after}");
+
+        // E foi para o disco, nao so para a memoria.
+        let reloaded = AccountStore::new(store.file_path.clone());
+        reloaded.load().unwrap();
+        assert_eq!(reloaded.get_all().unwrap()[0].last_use, after);
+    }
+
+    #[test]
+    fn mark_used_says_when_the_account_is_not_there() {
+        let store = store("mark-used-missing");
+        store.add(account(7, "ann")).unwrap();
+        assert!(!store.mark_used(999).unwrap(), "conta inexistente nao marca nada");
     }
 
     fn account(user_id: i64, username: &str) -> Account {
