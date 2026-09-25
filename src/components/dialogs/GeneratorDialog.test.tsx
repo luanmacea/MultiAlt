@@ -8,11 +8,11 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 
 import { GeneratorDialog } from "./GeneratorDialog";
 import type { GeneratorDialogTab } from "../../store";
-import { setStore } from "../../test-utils/renderWithStore";
+import { makeAccount, setStore } from "../../test-utils/renderWithStore";
 import { resetTauriMocks } from "../../test-utils/tauriMocks";
 
-function renderDialog(initialTab: GeneratorDialogTab = "provider") {
-  const store = setStore({});
+function renderDialog(initialTab: GeneratorDialogTab = "provider", storeOverrides: Parameters<typeof setStore>[0] = {}) {
+  const store = setStore(storeOverrides);
   const onClose = vi.fn();
   render(<GeneratorDialog open onClose={onClose} initialTab={initialTab} />);
   return { store, onClose };
@@ -72,5 +72,61 @@ describe("GeneratorDialog — what the provider tab costs", () => {
   it("points at the free alternative in the next tab", () => {
     renderDialog();
     expect(screen.getByText(/Create Accounts tab/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * "Add To Group" era um campo de texto livre puro: digitar "bloxgen" em vez
+ * de "BloxGen" criava um grupo separado na lista de contas, porque o
+ * agrupamento é por `account.Group` literal. O campo continua editável (tem
+ * que dar para criar grupo novo), mas agora oferece os grupos que já existem
+ * via `<datalist>`.
+ */
+describe("GeneratorDialog — Add To Group suggests existing groups", () => {
+  it("offers the account's existing groups as datalist options", () => {
+    renderDialog("provider", {
+      accounts: [
+        makeAccount({ UserID: 1, Group: "BloxGen" }),
+        makeAccount({ UserID: 2, Group: "Mains" }),
+      ],
+    });
+
+    const input = screen.getByPlaceholderText("BloxGen") as HTMLInputElement;
+    const listId = input.getAttribute("list");
+    expect(listId).toBeTruthy();
+    // eslint-disable-next-line testing-library/no-node-access
+    const datalist = document.getElementById(listId!) as HTMLDataListElement;
+    expect(datalist).toBeInstanceOf(HTMLDataListElement);
+    const options = Array.from(datalist.options).map((o) => o.value);
+    expect(options).toEqual(["BloxGen", "Mains"]);
+  });
+
+  it("keeps the field editable for a brand new group name", async () => {
+    const { store } = renderDialog("provider", {
+      accounts: [makeAccount({ UserID: 1, Group: "BloxGen" })],
+    });
+
+    const input = screen.getByPlaceholderText("BloxGen") as HTMLInputElement;
+    expect(input).not.toBeDisabled();
+    expect(input.tagName).toBe("INPUT");
+    // Typing something outside the suggested list must not be blocked.
+    input.focus();
+    (input as HTMLInputElement).value = "Brand New Group";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    void store;
+  });
+
+  it("does not offer parseGroupName's display name — the raw numbered group stays intact", () => {
+    renderDialog("provider", {
+      accounts: [makeAccount({ UserID: 1, Group: "10 Alts" })],
+    });
+
+    const input = screen.getByPlaceholderText("BloxGen") as HTMLInputElement;
+    const listId = input.getAttribute("list");
+    // eslint-disable-next-line testing-library/no-node-access
+    const datalist = document.getElementById(listId!) as HTMLDataListElement;
+    const options = Array.from(datalist.options).map((o) => o.value);
+    expect(options).toEqual(["10 Alts"]);
+    expect(options).not.toContain("Alts");
   });
 });

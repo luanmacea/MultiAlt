@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { X, Download, Trash2, FolderOpen, Star, StarOff, Pencil, RefreshCw } from "lucide-react";
@@ -140,6 +140,29 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
     if (remoteLoading) return;
     void refreshRemote();
   }, [tab, remoteLoading]);
+
+  /**
+   * Sugestão para o campo `Channel` da aba manual: canais das versões já
+   * instaladas + canais que aparecem no catálogo remoto, quando ele já foi
+   * buscado (a aba Browse é quem dispara essa busca — abrir Manual não
+   * chama a rede sozinho). Puramente UI: o campo continua um `<input>`
+   * livre, e nada aqui grava canal em lugar nenhum.
+   */
+  const channelOptions = useMemo(() => {
+    const set = new Set<string>();
+    installed.forEach((v) => {
+      if (v.channel) set.add(v.channel);
+    });
+    if (remote) {
+      remote.current.forEach((v) => {
+        if (v.channel) set.add(v.channel);
+      });
+      remote.past.forEach((v) => {
+        if (v.channel) set.add(v.channel);
+      });
+    }
+    return [...set].sort();
+  }, [installed, remote]);
 
   async function startInstall(channel: string, versionHash: string, label?: string) {
     const trimmedHash = versionHash.trim();
@@ -343,7 +366,11 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
                               }
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") void handleSaveLabel(entry, renaming.value);
-                                if (e.key === "Escape") setRenaming(null);
+                                if (e.key === "Escape") {
+                                  // Tratado aqui: cancelar o apelido não fecha o diálogo.
+                                  e.preventDefault();
+                                  setRenaming(null);
+                                }
                               }}
                               className="px-2 py-1 rounded text-[12px] bg-zinc-800 border border-zinc-700/60 text-zinc-200 focus:outline-none focus:border-sky-500/40"
                               placeholder={t("Nickname")}
@@ -498,10 +525,16 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
                   <span className="text-[11px] text-zinc-500">{t("Channel")}</span>
                   <input
                     value={manualChannel}
+                    list="versions-manual-channel-options"
                     onChange={(e) => setManualChannel(e.target.value)}
                     placeholder="LIVE"
                     className="mt-1 w-full px-2.5 py-1 rounded-md text-[13px] font-mono bg-zinc-800/60 border border-zinc-700/60 text-zinc-200 focus:outline-none focus:border-sky-500/40"
                   />
+                  <datalist id="versions-manual-channel-options">
+                    {channelOptions.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
                 </label>
                 <label className="block">
                   <span className="text-[11px] text-zinc-500">{t("Version hash")}</span>

@@ -349,3 +349,86 @@ describe("VersionsDialog — manual install", () => {
     expect(screen.getByText("RobloxApp.zip")).toBeInTheDocument();
   });
 });
+
+/**
+ * O backlog dizia que o hash era o problema do instalador manual, mas
+ * `startInstall` já valida o formato do hash (linha 144-149) e o catálogo
+ * remoto tem botão Install por linha — o que sobrava era só o `Channel`
+ * sendo texto livre sem nenhuma lista, mesmo o catálogo já trazendo o canal
+ * de cada versão. O campo continua editável: é uma escotilha deliberada para
+ * canais que não aparecem no catálogo.
+ *
+ * Isto é só UI — nada aqui grava canal em lugar nenhum (ver CLAUDE.md,
+ * `set_player_channel` é a única escrita permitida, e é no Rust, que este
+ * arquivo não toca).
+ */
+describe("VersionsDialog — manual channel suggests known channels", () => {
+  it("offers the channels of installed versions as datalist options", async () => {
+    backend({
+      versions_list_installed: [
+        INSTALLED,
+        {
+          ...INSTALLED,
+          channel: "ZCanary",
+          versionHash: "version-3333333333333333",
+          displayVersion: "3.0.0",
+        },
+      ],
+    });
+    renderDialog();
+    await screen.findByText("1.2.3");
+    await userEvent.click(screen.getByRole("button", { name: "Manual install" }));
+
+    const input = screen.getByPlaceholderText("LIVE") as HTMLInputElement;
+    const listId = input.getAttribute("list");
+    expect(listId).toBeTruthy();
+    // eslint-disable-next-line testing-library/no-node-access
+    const datalist = document.getElementById(listId!) as HTMLDataListElement;
+    expect(datalist).toBeInstanceOf(HTMLDataListElement);
+    const options = Array.from(datalist.options).map((o) => o.value);
+    expect(options).toEqual(["LIVE", "ZCanary"]);
+  });
+
+  it("adds the remote catalog's channels once it has been fetched", async () => {
+    backend({
+      versions_list_remote: {
+        ...REMOTE,
+        current: [
+          ...REMOTE.current,
+          {
+            ...REMOTE.current[0],
+            channel: "ZIntegration",
+            versionHash: "version-4444444444444444",
+            displayVersion: "2.1.0",
+          },
+        ],
+      },
+    });
+    renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Browse" }));
+    await screen.findByText("2.1.0");
+    await userEvent.click(screen.getByRole("button", { name: "Manual install" }));
+
+    const input = screen.getByPlaceholderText("LIVE") as HTMLInputElement;
+    const listId = input.getAttribute("list");
+    // eslint-disable-next-line testing-library/no-node-access
+    const datalist = document.getElementById(listId!) as HTMLDataListElement;
+    const options = Array.from(datalist.options).map((o) => o.value);
+    expect(options).toEqual(expect.arrayContaining(["LIVE", "ZIntegration"]));
+  });
+
+  it("keeps the field a plain editable input — typing an unlisted channel still works", async () => {
+    await openManualHelper();
+
+    const input = screen.getByPlaceholderText("LIVE") as HTMLInputElement;
+    expect(input.tagName).toBe("INPUT");
+    await userEvent.clear(input);
+    await userEvent.type(input, "SomeBrandNewChannel");
+    expect(input.value).toBe("SomeBrandNewChannel");
+  });
+
+  async function openManualHelper() {
+    renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Manual install" }));
+  }
+});

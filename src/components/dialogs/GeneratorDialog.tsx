@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import type { GeneratorDialogTab } from "../../store";
+import { collectGroupNames } from "../../types";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
@@ -112,6 +113,11 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
    * pelo usuário.
    */
   const [mode, setMode] = useState<GeneratorDialogTab>(initialTab);
+
+  // Sugestão para o campo "Add To Group": os grupos que já existem entre as
+  // contas, em texto cru (ver `collectGroupNames` — não passa por
+  // `parseGroupName`). O campo continua um `<input>` livre, isso é só datalist.
+  const groupOptions = useMemo(() => collectGroupNames(store.accounts), [store.accounts]);
 
   // Cada abertura respeita a entrada usada no menu Add.
   useEffect(() => {
@@ -432,11 +438,17 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                     <input
                       value={targetGroup}
                       disabled={configDisabled}
+                      list="generator-dialog-target-group-options"
                       onChange={(e) => setTargetGroup(e.target.value)}
                       onBlur={() => persist("Generator", "TargetGroup", targetGroup.trim())}
                       placeholder="BloxGen"
                       className="sidebar-input text-xs flex-1 disabled:opacity-60"
                     />
+                    <datalist id="generator-dialog-target-group-options">
+                      {groupOptions.map((g) => (
+                        <option key={g} value={g} />
+                      ))}
+                    </datalist>
                   </label>
                   <label className="flex items-center gap-2">
                     <span className="text-[11px] theme-muted w-40 shrink-0">{t("Stop after")}</span>

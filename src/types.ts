@@ -162,6 +162,26 @@ export function parseGroupName(group: string): { sortKey: number; displayName: s
   return { sortKey: 999999, displayName: group };
 }
 
+/**
+ * Nomes de grupo distintos entre as contas, para oferecer como sugestão
+ * (`<datalist>`) num campo que ainda precisa ficar editável para criar grupo
+ * novo — mesma fonte que `BottomActionBar.tsx` e `MultiSelectSidebar.tsx` já
+ * calculam cada um por conta própria (`allGroups`).
+ *
+ * Devolve o texto **cru** de `Account.Group`, nunca o resultado de
+ * `parseGroupName`: essa função só existe para decidir ordenação/rótulo de
+ * exibição de um grupo já formado, e passar o `displayName` dela para uma
+ * opção de sugestão foi o bug de P0 — a pessoa escolhia "Alts" na lista, mas
+ * a conta continuava marcada com "10 Alts" (ou pior, ganhava um grupo novo
+ * sem o prefixo). O agrupamento é por texto literal (`store.tsx`), então
+ * "bloxgen" e "BloxGen" aparecem como duas opções diferentes de propósito.
+ */
+export function collectGroupNames(accounts: Account[]): string[] {
+  const set = new Set<string>();
+  for (const account of accounts) set.add(account.Group || "Default");
+  return [...set].sort();
+}
+
 export function timeAgo(dateStr: string): string {
   if (!dateStr) return "never";
   const date = new Date(dateStr);

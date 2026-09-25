@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getFreshnessColor, maskAccountName, parseGroupName, timeAgo } from "./types";
+import { collectGroupNames, getFreshnessColor, maskAccountName, parseGroupName, timeAgo } from "./types";
+import { makeAccount } from "./test-utils/renderWithStore";
 
 const NOW = new Date("2026-01-15T12:00:00.000Z").getTime();
 
@@ -111,6 +112,43 @@ describe("getFreshnessColor", () => {
       // envelhecimento tem que continuar legivelmente ambar/laranja.
       expect(channels[1]).toBeGreaterThanOrEqual(100);
     }
+  });
+});
+
+describe("collectGroupNames", () => {
+  // Fonte compartilhada por BottomActionBar.tsx e MultiSelectSidebar.tsx
+  // (allGroups), e agora tambem pelos campos de texto livre que viram
+  // <datalist> (GeneratorDialog, GeneratorTab). Mesma logica: valor cru de
+  // `Group`, "Default" para vazio, ordenado, sem repetir.
+  it("dedupes groups and defaults an empty group to Default", () => {
+    const accounts = [
+      makeAccount({ UserID: 1, Group: "BloxGen" }),
+      makeAccount({ UserID: 2, Group: "BloxGen" }),
+      makeAccount({ UserID: 3, Group: "" }),
+      makeAccount({ UserID: 4, Group: "Alts" }),
+    ];
+    expect(collectGroupNames(accounts)).toEqual(["Alts", "BloxGen", "Default"]);
+  });
+
+  it("returns an empty list for no accounts", () => {
+    expect(collectGroupNames([])).toEqual([]);
+  });
+
+  it("is case-sensitive — 'bloxgen' and 'BloxGen' are different options", () => {
+    // Backlog: digitar "bloxgen" minusculo cria um grupo separado de "BloxGen"
+    // porque o agrupamento e por texto literal. O datalist deve oferecer os
+    // dois exatamente como estao, nao normalizar um no outro.
+    const accounts = [makeAccount({ UserID: 1, Group: "BloxGen" }), makeAccount({ UserID: 2, Group: "bloxgen" })];
+    expect(collectGroupNames(accounts)).toEqual(["BloxGen", "bloxgen"]);
+  });
+
+  it("keeps the leading number prefix intact — must NOT run values through parseGroupName", () => {
+    // Bug de P0 que nao pode voltar: se a opcao oferecida fosse o displayName
+    // de parseGroupName ("Alts" em vez de "10 Alts"), escolher a opcao do
+    // datalist reescreveria a conta para um grupo diferente do que ela
+    // realmente pertence, perdendo o prefixo de ordenacao.
+    const accounts = [makeAccount({ UserID: 1, Group: "10 Alts" }), makeAccount({ UserID: 2, Group: "2024 Bots" })];
+    expect(collectGroupNames(accounts)).toEqual(["10 Alts", "2024 Bots"]);
   });
 });
 

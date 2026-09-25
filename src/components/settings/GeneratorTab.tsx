@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { UseSettingsReturn } from "../../hooks/useSettings";
 import { useStore } from "../../store";
+import { collectGroupNames } from "../../types";
 import { NumberField } from "../ui/NumberField";
 import { TextField } from "../ui/TextField";
 import { Select } from "../ui/Select";
@@ -35,6 +36,12 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
   const status = store.generatorStatus;
   const running = status?.active === true;
   const [busy, setBusy] = useState(false);
+
+  // Sugestão para "Add To Group": grupos que já existem, em texto cru — ver
+  // `collectGroupNames` em types.ts. Não usa `parseGroupName` de propósito
+  // (bug de P0: oferecer o displayName trocaria a conta de grupo ao escolher
+  // a sugestão, perdendo o prefixo numérico de ordenação).
+  const groupOptions = useMemo(() => collectGroupNames(store.accounts), [store.accounts]);
 
   async function handleTestKey() {
     setTesting(true);
@@ -190,12 +197,23 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
         max={3600}
         suffix="sec"
       />
-      <TextField
-        value={s.get("Generator", "TargetGroup", "BloxGen")}
-        onChange={(v) => s.set("Generator", "TargetGroup", v)}
-        label="Add To Group"
-        placeholder="BloxGen"
-      />
+      <div className="flex items-center gap-3 py-2 px-1">
+        <span className="text-[13px] text-zinc-300 shrink-0">{t("Add To Group")}</span>
+        <input
+          type="text"
+          value={s.get("Generator", "TargetGroup", "BloxGen")}
+          aria-label={t("Add To Group")}
+          list="generator-tab-target-group-options"
+          onChange={(e) => s.set("Generator", "TargetGroup", e.target.value)}
+          placeholder={t("BloxGen")}
+          className="flex-1 min-w-0 px-2.5 py-1 rounded-md text-[13px] placeholder-zinc-600 bg-zinc-800/60 border border-zinc-700/60 text-zinc-200 focus:outline-none focus:border-sky-500/40 transition-colors"
+        />
+        <datalist id="generator-tab-target-group-options">
+          {groupOptions.map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
+      </div>
       <NumberField
         value={s.getNumber("Generator", "MaxAccounts", 0)}
         onChange={(v) => s.setNumber("Generator", "MaxAccounts", v)}
