@@ -108,6 +108,30 @@ export function FirstRunWalkthrough() {
           ]
         : []),
       {
+        id: "session-panel",
+        title: t("Watch running clients in the Session panel"),
+        summary: t("The gamepad button in the top toolbar opens the Session panel."),
+        highlights: [
+          t("Cancel an account that is still joining, before it ever opens a client"),
+          t("Find or close a client that is already running, one by one"),
+        ],
+        /**
+         * O botão do painel fica na Toolbar e ainda não tem `data-tour`, então
+         * o tour o acha pelo `aria-label` traduzido. O diálogo vem primeiro:
+         * com ele aberto é ele que interessa destacar.
+         */
+        targets: [
+          `[role='dialog'][aria-label="${t("Session")}"]`,
+          "[data-tour='toolbar-session']",
+          `button[aria-label="${t("Session")}"]`,
+        ],
+        missingTargetHint: t("The Session panel opens from the gamepad button in the top toolbar"),
+        actionLabel: t("Open Session Panel"),
+        onAction: () => {
+          store.setSessionDialogOpen(true);
+        },
+      },
+      {
         id: "safety",
         title: t("Power settings, used carefully"),
         summary: t("Only enable advanced features after your basic launch flow is stable."),
@@ -124,10 +148,11 @@ export function FirstRunWalkthrough() {
       {
         id: "ready",
         title: t("You're ready to roll"),
-        summary: t("Run this quick checklist before scaling up."),
+        summary: t("The status bar at the bottom is your dashboard from here on."),
         highlights: [
-          t("Add one valid account and confirm a single launch works"),
-          t("Then move to multi-launch, grouping, and optional automation"),
+          t("It counts your accounts, how many are online, in game or launched by this app"),
+          t("Its color legend matches the dots on every row in the list"),
+          t("Add one valid account, confirm a single launch, then scale up"),
         ],
         targets: ["[data-tour='status-bar']"],
       },
@@ -135,6 +160,7 @@ export function FirstRunWalkthrough() {
     [
       store.openLoginBrowser,
       store.accounts.length,
+      store.setSessionDialogOpen,
       store.setSettingsOpen,
       store.setSidebarOpen,
       t,
@@ -207,6 +233,8 @@ export function FirstRunWalkthrough() {
     store.setAccountUtilsOpen(false);
     store.setThemeEditorOpen(false);
     store.setBottingDialogOpen(false);
+    // Fecha também o painel que o passo anterior pode ter aberto.
+    store.setSessionDialogOpen(false);
     store.setNexusOpen(false);
     store.setScriptsOpen(false);
     store.setUpdateDialogOpen(false);
@@ -224,6 +252,7 @@ export function FirstRunWalkthrough() {
     store.setNexusOpen,
     store.setScriptsOpen,
     store.setServerListOpen,
+    store.setSessionDialogOpen,
     store.setSettingsOpen,
     store.setThemeEditorOpen,
     store.setUpdateDialogOpen,

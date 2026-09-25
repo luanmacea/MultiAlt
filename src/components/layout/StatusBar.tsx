@@ -33,19 +33,32 @@ export function StatusBar() {
         .filter((v): v is number => typeof v === "number")
         .sort((a, b) => a - b)[0] ?? null
     : null;
-  const bottingCountdown = nextRestartMs
-    ? Math.max(0, Math.ceil((nextRestartMs - tickNow) / 1000))
-    : null;
-  const bottingLabel =
-    bottingCountdown === null
-      ? "-"
-      : `${Math.floor(bottingCountdown / 60)}:${String(bottingCountdown % 60).padStart(2, "0")}`;
+  /** "m:ss" que falta até `atMs`, ou "-" quando nada está agendado. */
+  const countdownLabel = (atMs: number | null) => {
+    if (!atMs) return "-";
+    const seconds = Math.max(0, Math.ceil((atMs - tickNow) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+  const bottingLabel = countdownLabel(nextRestartMs);
+
+  /**
+   * O gerador compra contas num serviço pago e continua rodando depois que o
+   * diálogo fecha — sem este indicador ele gastava saldo sem aparecer em lugar
+   * nenhum. Clicar traz o diálogo de volta (é onde se para o laço).
+   */
+  const generator = store.generatorStatus;
+  const generatorActive = generator?.active === true;
+  const generatedLabel = generator
+    ? generator.maxAccounts > 0
+      ? `${generator.totalGenerated}/${generator.maxAccounts}`
+      : `${generator.totalGenerated}`
+    : "";
 
   useEffect(() => {
-    if (!bottingActive) return;
+    if (!bottingActive && !generatorActive) return;
     const timer = window.setInterval(() => setTickNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [bottingActive]);
+  }, [bottingActive, generatorActive]);
 
   return (
     <div data-tour="status-bar" className="theme-surface theme-border flex items-center justify-between gap-3 px-4 py-2 border-t text-[12px] shrink-0">
@@ -105,6 +118,20 @@ export function StatusBar() {
               <span className="text-fuchsia-300/90">{t("botting")}</span>
               <span className="text-fuchsia-200/90">{t("next")} {bottingLabel}</span>
             </span>
+          )}
+          {generatorActive && generator && (
+            <Tooltip content={t("The account generator is still running and spending your provider balance. Click to open it and stop.")}>
+              <button
+                type="button"
+                onClick={() => store.openGeneratorDialog(generator.provider ? "provider" : "signup")}
+                className="theme-muted inline-flex items-center gap-1 shrink-0 hover:text-[var(--panel-fg)] transition-colors"
+              >
+                <span className="w-2 h-2 rounded-full bg-lime-400 animate-pulse" />
+                <span className="text-lime-300/90">{t("generating")}</span>
+                <span className="text-lime-200/90">{generatedLabel}</span>
+                <span className="text-lime-200/90">{t("next")} {countdownLabel(generator.nextAttemptAtMs)}</span>
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
