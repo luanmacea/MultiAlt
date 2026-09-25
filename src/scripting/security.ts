@@ -1,4 +1,4 @@
-import type { ScriptPermissions } from "./types";
+import type { ScriptPermissions, ScriptWindowSnapshot } from "./types";
 
 export const SCRIPT_SECURITY_LIMITS = {
   maxScriptIdChars: 96,
@@ -352,6 +352,39 @@ export function isPrivateOrLoopbackHost(hostname: string): boolean {
   }
 
   return false;
+}
+
+/**
+ * O que um script pode ver do snapshot da janela.
+ *
+ * `ram.window.snapshot()` sempre exigiu `allowWindow`, mas o host **empurra** o
+ * mesmo snapshot por `window:update` ao iniciar cada script e a cada mudança de
+ * estado — e fazia isso sem olhar permissão, entregando lista de contas,
+ * seleção, presença e estado do Botting a script que não tinha o direito. A
+ * permissão só barrava a leitura sob demanda.
+ *
+ * Sem `allowWindow` sobra o que o host anuncia para todo mundo de propósito: as
+ * settings (com segredo já redigido por `redactSecretSettings`) e o instante do
+ * snapshot. Alvo de launch (place/job/launch data) também é estado da janela, e
+ * por isso sai junto.
+ */
+export function snapshotForPermissions<T extends ScriptWindowSnapshot>(
+  snapshot: T,
+  permissions: Pick<ScriptPermissions, "allowWindow">
+): T {
+  if (permissions.allowWindow) return snapshot;
+  return {
+    ...snapshot,
+    placeId: "",
+    jobId: "",
+    launchData: "",
+    selectedUserIds: [],
+    accounts: [],
+    presenceByUserId: {},
+    launchedUserIds: [],
+    botting: null,
+    generator: null,
+  };
 }
 
 export function getScriptSecuritySignature(script: {

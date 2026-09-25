@@ -34,6 +34,7 @@ import {
   resolvePrivateNetworkAccess,
   sanitizeInvokeResult,
   sanitizeScriptSourceForSave,
+  snapshotForPermissions,
   truncateForLog,
   utf8ByteLength,
 } from "../../scripting/security";
@@ -158,9 +159,10 @@ const PRIVATE_NETWORK_SECTION = "ScriptPrivateNetwork";
 
 const WS_CLOSE_REASON_MAX_CHARS = 123;
 
-// Every script receives the settings snapshot via "window:update", regardless
-// of its permissions — never hand out credentials (WebServer.Password,
-// BloxGen.ApiKey, ...) that way.
+// As settings vao por "window:update" para todo script, independente de
+// permissao — nunca entregue credencial (WebServer.Password, BloxGen.ApiKey, ...)
+// por esse caminho. O resto do snapshot (contas, selecao, presenca, alvo de
+// launch) e aparado por `snapshotForPermissions` conforme `allowWindow`.
 // Keys that hold a secret value (not on/off flags like EveryRequestRequiresPassword).
 export const isSecretSettingKey = (key: string) =>
   /(password|apikey|api_key|secret|token)$/i.test(key) && !/^(allow|every|auto|require)/i.test(key);
@@ -1438,12 +1440,6 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
     runtime.worker.postMessage({ type: "host-event", event, payload });
   }
 
-  function postEventToAll(event: string, payload: unknown) {
-    for (const script of workersRef.current.keys()) {
-      postWorkerEvent(script, event, payload);
-    }
-  }
-
   function stopScript(scriptId: string, note = true) {
     const runtime = workersRef.current.get(scriptId);
     if (!runtime) return;
@@ -2388,7 +2384,9 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
     worker.postMessage({
       type: "host-event",
       event: "window:update",
-      payload: snapshotRef.current,
+      // Aparado pela permissao: `allowWindow` sempre barrou o
+      // `ram.window.snapshot()` sob demanda, mas este empurrao ia inteiro.
+      payload: snapshotForPermissions(snapshotRef.current, script.permissions),
     });
   }
 
@@ -2479,7 +2477,19 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
 
   useEffect(() => {
     snapshotRef.current = scriptWindowSnapshot;
-    postEventToAll("window:update", scriptWindowSnapshot);
+    // Cada script recebe a sua versao do snapshot: sem `allowWindow`, sem contas.
+    for (const [scriptId, runtime] of workersRef.current) {
+      const script = scriptsRef.current.find((item) => item.id === scriptId);
+      runtime.worker.postMessage({
+        type: "host-event",
+        event: "window:update",
+        // Script desconhecido cai no caso fechado: sem permissao, sem contas.
+        payload: snapshotForPermissions(
+          scriptWindowSnapshot,
+          script?.permissions ?? { allowWindow: false }
+        ),
+      });
+    }
   }, [scriptWindowSnapshot]);
 
   useEffect(() => {
