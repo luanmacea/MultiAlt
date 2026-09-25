@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
-import { parseGroupName } from "../../types";
+import { maskAccountName, parseGroupName } from "../../types";
 import { tr, useTr } from "../../i18n/text";
 import { ChevronDown, Gamepad2, Settings2, Users } from "lucide-react";
 
@@ -200,8 +200,14 @@ export function BottomActionBar() {
   }
 
   const singleAccount = isSingle ? accounts[0] : null;
+  /**
+   * Com o modo "Hidden" ligado a barra tem que esconder o nome igual à lista —
+   * ela era o único lugar onde o nome real continuava aparecendo na tela.
+   */
+  const maskIfHidden = (name: string) =>
+    maskAccountName(name, store.hideUsernames, store.hiddenNameLetters);
   const displayName = singleAccount
-    ? singleAccount.Alias || singleAccount.Username
+    ? maskIfHidden(singleAccount.Alias || singleAccount.Username)
     : null;
 
   const friendPhaseLabel = friendProgress
@@ -320,7 +326,7 @@ export function BottomActionBar() {
                         onClick={() => handleMakeFriends("star", a.UserID)}
                         className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] truncate"
                       >
-                        ⭐ {a.Alias || a.Username}
+                        ⭐ {maskIfHidden(a.Alias || a.Username)}
                       </button>
                     ))}
                   </div>

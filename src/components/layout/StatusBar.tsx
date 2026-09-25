@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../../store";
+import { AGED_COLOR_FROM, AGED_COLOR_TO } from "../../types";
+import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 
 export function StatusBar() {
@@ -10,12 +12,19 @@ export function StatusBar() {
   const total = store.accounts.length;
   const filtered = store.searchQuery ? store.groups.reduce((n, g) => n + g.accounts.length, 0) : total;
   const showPresence = store.settings?.General?.ShowPresence === "true";
-  const onlineCount = showPresence
-    ? store.accounts.filter((a) => (store.presenceByUserId.get(a.UserID) ?? 0) >= 1).length
-    : 0;
-  const inGameCount = showPresence
-    ? store.accounts.filter((a) => (store.presenceByUserId.get(a.UserID) ?? 0) >= 2).length
-    : 0;
+  /**
+   * Contadores mutuamente exclusivos: cada conta entra em um estado só, o mesmo
+   * que `AccountRow` pinta na lista (1 = online, 3 = Studio, resto = em jogo).
+   * Antes "online" contava >= 1 e "in game" contava >= 2, então quem estava
+   * jogando aparecia nos dois e quem estava no Studio virava "in game".
+   */
+  const countPresence = (match: (presence: number) => boolean) =>
+    showPresence
+      ? store.accounts.filter((a) => match(store.presenceByUserId.get(a.UserID) ?? 0)).length
+      : 0;
+  const onlineCount = countPresence((p) => p === 1);
+  const inGameCount = countPresence((p) => p >= 2 && p !== 3);
+  const studioCount = countPresence((p) => p === 3);
   const launchedCount = store.launchedByProgram.size;
   const bottingActive = store.bottingStatus?.active === true;
   const nextRestartMs = bottingActive
@@ -78,6 +87,10 @@ export function StatusBar() {
                 <span className="w-2 h-2 rounded-full bg-emerald-500/80 animate-pulse" />
                 <span className="text-emerald-400/90">{inGameCount}</span> {t("in game")}
               </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-violet-500/80 animate-pulse" />
+                <span className="text-violet-300/90">{studioCount}</span> {t("studio")}
+              </span>
             </span>
           )}
           {launchedCount > 0 && (
@@ -101,10 +114,19 @@ export function StatusBar() {
           <span className="w-2.5 h-2.5 rounded-full bg-red-500" style={{ boxShadow: "0 0 0 1px var(--app-bg)" }} />
           {t("invalid")}
         </span>
-        <span className="inline-flex items-center gap-1 shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-amber-400" style={{ boxShadow: "0 0 0 1px var(--app-bg)" }} />
-          {t("aged")}
-        </span>
+        {/* O ponto e um degrade porque a cor real caminha de ambar a laranja com a idade. */}
+        <Tooltip content={t("No use recorded for 20 days or more — the dot deepens toward orange as it ages.")}>
+          <span className="inline-flex items-center gap-1 shrink-0">
+            <span
+              className="w-2.5 h-2.5 rounded-full"
+              style={{
+                background: `linear-gradient(135deg, ${AGED_COLOR_FROM}, ${AGED_COLOR_TO})`,
+                boxShadow: "0 0 0 1px var(--app-bg)",
+              }}
+            />
+            {t("idle 20d+")}
+          </span>
+        </Tooltip>
         <span className="inline-flex items-center gap-1 shrink-0">
           <span className="w-2.5 h-2.5 rounded-full bg-amber-500" style={{ boxShadow: "0 0 0 1px var(--app-bg)" }} />
           {t("launched")}

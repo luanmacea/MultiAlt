@@ -81,7 +81,9 @@ export function FirstRunWalkthrough() {
         title: t("Learn the account list signals"),
         summary: t("Status dots and selection shortcuts help you manage large account sets."),
         highlights: [
-          t("Red means invalid session, amber means aged, sky/green/violet means presence"),
+          t(
+            "Red means invalid session, orange means idle 20d+, amber means launched by this app, sky/green/violet means online, in game, in Studio"
+          ),
           t("Ctrl/Cmd click toggles accounts, Shift click selects a range"),
         ],
         targets: ["[data-tour='accounts-list']"],
