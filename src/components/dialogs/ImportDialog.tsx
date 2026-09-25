@@ -50,11 +50,6 @@ export function ImportDialog({
     setResults([]);
     setProgress("");
     setSelectedFileName("");
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, [open, handleClose, defaultTab]);
 
   useEffect(() => {

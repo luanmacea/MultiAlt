@@ -6,6 +6,7 @@ import {
   useCopyCredentialWarning,
   type CopyCredentialKind,
 } from "../../hooks/useCopyCredentialWarning";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 import { MenuItemView } from "./MenuItemView";
 import type { MenuItem } from "./MenuItemView";
@@ -19,20 +20,20 @@ export function ContextMenu() {
   const ref = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null);
 
+  // Só quando há menu aberto **e** ele é o topo. Antes o listener nascia no boot
+  // do app e nunca saía, então um Escape sem menu já chamava `closeContextMenu` —
+  // e, com menu aberto, a lista limpava a seleção no mesmo evento.
+  useEscapeStack(!!store.contextMenu, store.closeContextMenu);
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         store.closeContextMenu();
       }
     }
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") store.closeContextMenu();
-    }
     document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleEsc);
     return () => {
       document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleEsc);
     };
   }, [store.closeContextMenu]);
 

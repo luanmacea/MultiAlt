@@ -20,6 +20,7 @@ import {
 import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 import {
   SCRIPT_SECURITY_LIMITS,
@@ -2554,6 +2555,11 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
     }
   }, [visible]);
 
+  // Os dois popovers internos entram na pilha: com um deles aberto, o Escape
+  // fecha o popover — e o diálogo de Scripts só recebe o Escape seguinte.
+  useEscapeStack(newMenuOpen, () => setNewMenuOpen(false));
+  useEscapeStack(!!scriptContextMenu, closeScriptContextMenu);
+
   useEffect(() => {
     if (!newMenuOpen) return;
 
@@ -2563,17 +2569,10 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
       }
     }
 
-    function handleEsc(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setNewMenuOpen(false);
-      }
-    }
 
     document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleEsc);
     return () => {
       document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleEsc);
     };
   }, [newMenuOpen]);
 
@@ -2586,17 +2585,10 @@ export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
       }
     }
 
-    function handleEsc(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        closeScriptContextMenu();
-      }
-    }
 
     document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleEsc);
     return () => {
       document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleEsc);
     };
   }, [scriptContextMenu]);
 

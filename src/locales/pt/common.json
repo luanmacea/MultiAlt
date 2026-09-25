@@ -1567,5 +1567,16 @@
   "Don't show this warning again": "Não mostrar este aviso novamente",
   "Don't show this again": "Não mostrar isto novamente",
   "Online-join warning disabled": "Aviso de entrar com conta online desativado",
-  "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.": "Fechar todos os processos do Roblox deste computador? Isso inclui clientes que você abriu fora deste app, não só as contas selecionadas aqui."
+  "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.": "Fechar todos os processos do Roblox deste computador? Isso inclui clientes que você abriu fora deste app, não só as contas selecionadas aqui.",
+  "Browse Roblox games. Click a game to see its servers, or use Join Game to launch directly.": "Navegue pelos jogos do Roblox. Clique em um jogo para ver os servidores dele, ou use Entrar no jogo para lançar direto.",
+  "Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly.": "Jogos em que você entrou recentemente, de todas as contas. Clique em um jogo para ver os servidores dele, ou use Entrar no jogo para lançar direto.",
+  "{{jobId}} — click to copy": "{{jobId}} — clique para copiar",
+  "Private server link or VIP code": "Link de servidor privado ou código VIP",
+  "Name for this server (optional)": "Nome para este servidor (opcional)",
+  "That doesn't look like a private server link or VIP code.": "Isso não parece um link de servidor privado ou código VIP.",
+  "Not valid JSON: {{error}}": "JSON inválido: {{error}}",
+  "Expected an object with an \"assets\" array, like {\"assets\":[{\"id\":12345}]}.": "Esperado um objeto com um array \"assets\", tipo {\"assets\":[{\"id\":12345}]}.",
+  "Couldn't find a Universe ID in \"{{input}}\". Paste a numeric Universe ID, or a link containing universeId=....": "Não achei um Universe ID em \"{{input}}\". Cole um Universe ID numérico, ou um link que contenha universeId=....",
+  "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.": "Procurando um item pelo nome? Use o Vestir a roupa aqui em cima — ele lista as roupas pelo nome e monta esse JSON sozinho.",
+  "Optimization profile": "Perfil de otimização"
 }

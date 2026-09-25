@@ -41,15 +41,6 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
     }
   }, [open, store.placeId]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, handleClose]);
-
   async function handleJoinServer(jobId: string) {
     store.setJobId(jobId);
     store.setPlaceId(localPlaceId);

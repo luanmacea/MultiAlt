@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
@@ -25,6 +26,10 @@ export function ArgumentsForm({
     transformOrigin: string;
   } | null>(null);
 
+  // O Escape vem pela pilha: este popover monta depois do diálogo que o contém,
+  // então fica no topo e o Escape fecha só ele.
+  useEscapeStack(true, onClose);
+
   useEffect(() => {
     if (!open) return;
     const s = store.settings;
@@ -42,14 +47,9 @@ export function ArgumentsForm({
         onClose();
       }
     }
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
     document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
     return () => {
       document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
     };
   }, [open]);
 

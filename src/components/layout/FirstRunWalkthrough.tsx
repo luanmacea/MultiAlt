@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { LANGUAGE_OPTIONS, normalizeLanguage } from "../../i18n";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { Select } from "../ui/Select";
 
 interface WalkthroughStep {
@@ -28,6 +29,13 @@ export function FirstRunWalkthrough() {
   const isFirstRunMode = store.firstRunWalkthroughMode === "firstRun";
   const currentLanguage = store.settings?.General?.Language || "en";
   const isLanguageStep = stepIndex === 0;
+
+  // O tour fica na pilha de Escape junto com todo o resto: enquanto ele está
+  // aberto, o Escape é dele; com um diálogo aberto por cima, é do diálogo.
+  useEscapeStack(store.firstRunWalkthroughOpen, () => {
+    if (isFirstRunMode) void store.skipFirstRunWalkthrough();
+    else store.closeFirstRunWalkthrough();
+  }, { ignoreFromFields: true });
 
   useEffect(() => {
     setLanguageSelected(store.firstRunWalkthroughMode !== "firstRun");
@@ -358,14 +366,6 @@ export function FirstRunWalkthrough() {
       if (event.key === "ArrowLeft") {
         event.preventDefault();
         setStepIndex((prev) => Math.max(0, prev - 1));
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        if (isFirstRunMode) {
-          void store.skipFirstRunWalkthrough();
-        } else {
-          store.closeFirstRunWalkthrough();
-        }
       }
     };
 
