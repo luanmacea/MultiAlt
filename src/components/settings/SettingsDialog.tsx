@@ -75,9 +75,6 @@ export function SettingsDialog({
     }
   }, [activeTab]);
 
-  const devMode = s.getBool("Developer", "DevMode");
-  const wsEnabled = s.getBool("Developer", "EnableWebServer");
-
   const tabs: TabDef[] = [
     {
       id: "general",
@@ -93,7 +90,10 @@ export function SettingsDialog({
       id: "webserver",
       label: "WebServer",
       icon: <Server size={15} strokeWidth={1.5} />,
-      hidden: !ENABLE_WEBSERVER || (!devMode && !wsEnabled),
+      // A aba fica visivel mesmo trancada: escondê-la fazia a API HTTP local
+      // depender do usuario descobrir sozinho o Developer Mode. Quem guarda o
+      // acesso e o conteudo (WebServerTab), nao a ausencia da aba.
+      hidden: !ENABLE_WEBSERVER,
     },
     {
       id: "watcher",

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Copy, Loader2, ShieldCheck, UserPlus } from "lucide-react";
+import { Copy, Loader2, ShieldCheck, SlidersHorizontal, UserPlus } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { NumericInput } from "../ui/NumericInput";
@@ -49,7 +49,17 @@ export function phaseLabel(phase: string, t: (s: string) => string): string {
   }
 }
 
-export function SignupPanel() {
+interface SignupPanelProps {
+  /**
+   * Atalho para Settings › General › Login Browser, onde moram os dois ajustes
+   * que reduzem o CAPTCHA. Quem hospeda o painel decide como sair dele (o
+   * diálogo precisa se fechar antes de abrir as Settings); sem o atalho a dica
+   * continua na tela, só sem o botão.
+   */
+  onOpenLoginSettings?: () => void;
+}
+
+export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
   const t = useTr();
   const store = useStore();
   const [count, setCount] = useState(5);
@@ -156,6 +166,26 @@ export function SignupPanel() {
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />}
               {t("Start")}
+            </button>
+          )}
+        </div>
+
+        {/* O CAPTCHA é a parte mais cara deste fluxo e os dois ajustes que o
+            reduzem moram longe daqui (Settings › General › Login Browser).
+            Referência, não cópia: os toggles continuam morando lá. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border theme-border theme-soft px-2.5 py-2">
+          <p className="min-w-0 flex-1 text-[11px] theme-muted">
+            {t(
+              "Getting a lot of CAPTCHAs? Settings › General › Login Browser has Persistent login profile and Reduce automation signals, which make this browser look less automated."
+            )}
+          </p>
+          {onOpenLoginSettings && (
+            <button
+              onClick={onOpenLoginSettings}
+              className="shrink-0 flex items-center gap-1.5 px-2 py-1 text-[11px] rounded-md theme-btn-ghost border theme-border theme-muted"
+            >
+              <SlidersHorizontal size={11} strokeWidth={1.5} />
+              {t("Open login settings")}
             </button>
           )}
         </div>

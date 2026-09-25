@@ -61,8 +61,17 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
             <path d="M6 12h.01M10 12h.01" />
           </svg>
         </div>
-        <div className="text-sm text-zinc-500">{t("Enable Developer Mode or Web Server first")}</div>
-        <div className="text-[11px] text-zinc-600 mt-1">{t("These settings control the local HTTP API")}</div>
+        {/* A aba aparece sempre (SettingsDialog), entao este estado e a unica
+            explicacao que o usuario recebe: o que o servidor faz e onde liga. */}
+        <div className="text-sm text-zinc-400">{t("Web Server is off")}</div>
+        <div className="mt-1.5 max-w-[340px] text-[11px] leading-relaxed text-zinc-500">
+          {t(
+            "It serves a local HTTP API so external tools and scripts can list your accounts, read their cookies and launch them."
+          )}
+        </div>
+        <div className="mt-2 text-[11px] text-zinc-500">
+          {t("Turn on Enable Web Server in the Developer tab to unlock these settings.")}
+        </div>
       </div>
     );
   }

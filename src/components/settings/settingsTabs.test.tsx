@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
 
 import { GeneralTab } from "./GeneralTab";
 import { DeveloperTab } from "./DeveloperTab";
+import { SettingsDialog } from "./SettingsDialog";
 import { IsolationTab } from "./IsolationTab";
 import { WebServerTab } from "./WebServerTab";
 import { WatcherTab } from "./WatcherTab";
@@ -68,6 +69,11 @@ beforeEach(async () => {
         return { running: false, port: 0 };
       case "isolation_list_adapters":
         return [];
+      // Usados so pelo SettingsDialog inteiro, que monta todas as abas de uma vez.
+      case "versions_list_installed":
+        return [];
+      case "remembered_unlock_state":
+        return { remembered: false, expiresAt: null };
       default:
         return undefined;
     }
@@ -84,10 +90,25 @@ describe("WebServerTab", () => {
 
   it("stays locked until Developer Mode or the web server is enabled", async () => {
     renderWebServer({});
-    expect(
-      await screen.findByText("Enable Developer Mode or Web Server first")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Web Server is off")).toBeInTheDocument();
     expect(screen.queryByText("Allow GetCookie")).not.toBeInTheDocument();
+  });
+
+  /**
+   * A aba deixou de ser escondida (SettingsDialog), entao o estado bloqueado e
+   * a unica coisa que explica a funcionalidade: tem que dizer o QUE o servidor
+   * faz e ONDE se liga, senao trocamos um recurso invisivel por uma tela muda.
+   */
+  it("says what the web server does and where to turn it on while locked", async () => {
+    renderWebServer({});
+    expect(
+      await screen.findByText(
+        "It serves a local HTTP API so external tools and scripts can list your accounts, read their cookies and launch them."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Turn on Enable Web Server in the Developer tab to unlock these settings.")
+    ).toBeInTheDocument();
   });
 
   it("unlocks from the EnableWebServer flag alone", async () => {
@@ -205,6 +226,28 @@ describe("IsolationTab", () => {
     await expectSaved("Isolation", key, "true");
   });
 
+  /**
+   * O modo Full apaga arquivos e chaves do registro antes de cada launch. A
+   * previa (dry-run) e a restauracao dos identificadores sao as duas redes de
+   * seguranca do usuario: nenhuma pode depender de descobrir um "Advanced".
+   */
+  it("offers the wipe preview without expanding Advanced", async () => {
+    renderIsolation({ Isolation: { Mode: "Full" } });
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Preview what gets wiped" })
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("isolation_dry_run", expect.anything())
+    );
+  });
+
+  it("offers the identifier restore without expanding Advanced", async () => {
+    renderIsolation({ Isolation: { BackupMachineGuid: "{original-guid}" } });
+    expect(
+      await screen.findByRole("button", { name: "Restore original network identifiers" })
+    ).toBeEnabled();
+  });
+
   it("keeps the preservation switches behind Advanced", async () => {
     renderIsolation();
     expect(screen.queryByText("Preserve fast flags")).not.toBeInTheDocument();
@@ -213,6 +256,26 @@ describe("IsolationTab", () => {
     // Defaults to on, so the first click turns it off.
     await userEvent.click(await screen.findByText("Preserve fast flags"));
     await expectSaved("Isolation", "PreserveFastFlags", "false");
+  });
+});
+
+/**
+ * A aba WebServer sumia inteira sem Dev Mode: quem nao sabia que existe uma API
+ * HTTP local nunca ia descobrir. A capacidade tem que ser descobrivel — o que
+ * continua trancado e o conteudo, nao a aba.
+ */
+describe("SettingsDialog tabs", () => {
+  it.runIf(ENABLE_WEBSERVER)("lists the WebServer tab even without Developer Mode", async () => {
+    stored = {};
+    render(<SettingsDialog open onClose={() => {}} />);
+    expect(await screen.findByRole("button", { name: "WebServer" })).toBeInTheDocument();
+  });
+
+  it.runIf(ENABLE_WEBSERVER)("opens the WebServer tab on its locked explanation", async () => {
+    stored = {};
+    render(<SettingsDialog open onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: "WebServer" }));
+    expect(await screen.findByText("Web Server is off")).toBeVisible();
   });
 });
 

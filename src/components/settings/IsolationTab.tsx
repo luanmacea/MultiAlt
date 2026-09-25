@@ -168,6 +168,41 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
         ))}
       </div>
 
+      {/* A previa fica junto da escolha do modo: quem liga uma limpeza
+          destrutiva precisa ver o que sera apagado ANTES de ligar, nao depois
+          de descobrir uma secao "Advanced". */}
+      <div className="px-1 pt-2">
+        <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 space-y-2">
+          <div className="text-[11px] text-zinc-500">
+            {t("Show what would be deleted without actually deleting anything")}
+          </div>
+          <button
+            type="button"
+            onClick={handleDryRun}
+            disabled={dryRunning}
+            className="rounded-lg border border-zinc-700/70 bg-zinc-800 px-3 py-1.5 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-60"
+          >
+            {dryRunning ? t("Checking...") : t("Preview what gets wiped")}
+          </button>
+          {dryReport && (
+            <div className="space-y-1 rounded-md bg-zinc-950/50 px-2.5 py-2 text-[11px] text-zinc-400 max-h-48 overflow-y-auto font-mono">
+              {dryReport.paths.length === 0 && dryReport.registryKeys.length === 0 ? (
+                <div className="text-zinc-500">{t("Nothing would be removed")}</div>
+              ) : (
+                <>
+                  {dryReport.paths.map((p, i) => (
+                    <div key={`p-${i}`} className="break-all">{p}</div>
+                  ))}
+                  {dryReport.registryKeys.map((k, i) => (
+                    <div key={`k-${i}`} className="break-all text-amber-300/80">{k}</div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       <Divider />
       <SectionLabel>Hardware Identifiers</SectionLabel>
       <div className="px-1 -mt-1 mb-1">
@@ -199,6 +234,34 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
         }
         description="Sets NetworkAddress on the selected adapter and toggles it"
       />
+
+      {/* O desfazer mora ao lado do que ele desfaz. */}
+      <div className="px-1 py-2">
+        <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 space-y-2">
+          <div className="text-[11px] text-zinc-500">
+            {hasBackup
+              ? t("Reverts MachineGuid and MAC address to the values captured before the first spoof")
+              : t("No backups stored yet. Enable a spoof option and launch once to capture originals.")}
+          </div>
+          <button
+            type="button"
+            onClick={handleRestore}
+            disabled={!hasBackup || restoring}
+            className="rounded-lg border border-zinc-700/70 bg-zinc-800 px-3 py-1.5 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-60"
+          >
+            {restoring ? t("Restoring...") : t("Restore original network identifiers")}
+          </button>
+          {restoreMessage && (
+            <div
+              className={`text-[11px] ${
+                restoreMessage.ok ? "text-emerald-400" : "text-red-400"
+              }`}
+            >
+              {restoreMessage.text}
+            </div>
+          )}
+        </div>
+      </div>
 
       <Divider />
       <button
@@ -253,69 +316,6 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
             description="By default Studio installs are skipped to avoid forcing a Studio reinstall"
             disabled={!fullActive}
           />
-
-          <Divider />
-          <SectionLabel>Restore</SectionLabel>
-          <div className="px-1 py-2">
-            <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 space-y-2">
-              <div className="text-[11px] text-zinc-500">
-                {hasBackup
-                  ? t("Reverts MachineGuid and MAC address to the values captured before the first spoof")
-                  : t("No backups stored yet. Enable a spoof option and launch once to capture originals.")}
-              </div>
-              <button
-                type="button"
-                onClick={handleRestore}
-                disabled={!hasBackup || restoring}
-                className="rounded-lg border border-zinc-700/70 bg-zinc-800 px-3 py-1.5 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-60"
-              >
-                {restoring ? t("Restoring...") : t("Restore original network identifiers")}
-              </button>
-              {restoreMessage && (
-                <div
-                  className={`text-[11px] ${
-                    restoreMessage.ok ? "text-emerald-400" : "text-red-400"
-                  }`}
-                >
-                  {restoreMessage.text}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <Divider />
-          <SectionLabel>Preview</SectionLabel>
-          <div className="px-1 py-2">
-            <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 space-y-2">
-              <div className="text-[11px] text-zinc-500">
-                {t("Show what would be deleted without actually deleting anything")}
-              </div>
-              <button
-                type="button"
-                onClick={handleDryRun}
-                disabled={dryRunning}
-                className="rounded-lg border border-zinc-700/70 bg-zinc-800 px-3 py-1.5 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-60"
-              >
-                {dryRunning ? t("Checking...") : t("Preview what gets wiped")}
-              </button>
-              {dryReport && (
-                <div className="space-y-1 rounded-md bg-zinc-950/50 px-2.5 py-2 text-[11px] text-zinc-400 max-h-48 overflow-y-auto font-mono">
-                  {dryReport.paths.length === 0 && dryReport.registryKeys.length === 0 ? (
-                    <div className="text-zinc-500">{t("Nothing would be removed")}</div>
-                  ) : (
-                    <>
-                      {dryReport.paths.map((p, i) => (
-                        <div key={`p-${i}`} className="break-all">{p}</div>
-                      ))}
-                      {dryReport.registryKeys.map((k, i) => (
-                        <div key={`k-${i}`} className="break-all text-amber-300/80">{k}</div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
 
           <Divider />
           <SectionLabel>Credits</SectionLabel>

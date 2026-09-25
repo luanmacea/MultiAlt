@@ -112,6 +112,30 @@ describe("SignupPanel — sessão", () => {
   });
 });
 
+/**
+ * `Login.PersistentProfile` e `Login.StealthMode` sao exatamente o que reduz o
+ * CAPTCHA aqui, mas moram em Settings › General. Quem apanha do CAPTCHA esta
+ * nesta tela: ela tem que apontar para os ajustes (sem duplicar os toggles).
+ */
+describe("SignupPanel — ajustes que reduzem CAPTCHA", () => {
+  it("aponta para os ajustes de login que reduzem o CAPTCHA", async () => {
+    renderWithStore(<SignupPanel />);
+
+    const hint = await screen.findByText(/Persistent login profile/);
+    expect(hint).toHaveTextContent("Reduce automation signals");
+    expect(hint).toHaveTextContent("Settings");
+  });
+
+  it("leva direto para os ajustes quando o diálogo oferece o atalho", async () => {
+    const user = userEvent.setup();
+    const openLoginSettings = vi.fn();
+    renderWithStore(<SignupPanel onOpenLoginSettings={openLoginSettings} />);
+
+    await user.click(await screen.findByRole("button", { name: "Open login settings" }));
+    expect(openLoginSettings).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("SignupPanel — identidade gerada", () => {
   /**
    * A senha gerada só existe aqui: se ela não aparecer, a conta fica presa ao
