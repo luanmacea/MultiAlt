@@ -79,30 +79,60 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
   return (
     <div className="space-y-0">
       <SectionLabel>Permissions</SectionLabel>
+      {/* Cada interruptor abaixo e uma porta de entrada real: sem uma linha
+          dizendo O QUE cada um expoe, a aba e uma lista de nomes de endpoint. */}
+      <p className="px-1 pb-1 text-[11px] leading-relaxed text-zinc-500">
+        {t("Each switch below opens part of the local HTTP API to anything that can reach the port.")}
+      </p>
       <Toggle
         checked={s.getBool("WebServer", "EveryRequestRequiresPassword")}
         onChange={(v) => s.setBool("WebServer", "EveryRequestRequiresPassword", v)}
         label="Every Request Requires Password"
+        // `external_check` so deixa `/Running` passar sem senha (middleware.rs).
+        description="Every endpoint except /Running refuses to answer without the password in the URL."
       />
       <Toggle
         checked={s.getBool("WebServer", "AllowGetCookie")}
         onChange={(v) => s.setBool("WebServer", "AllowGetCookie", v)}
         label="Allow GetCookie"
       />
+      {/* `handle_get_cookie` devolve o `security_token` cru e
+          `handle_get_accounts_json` embute o mesmo cookie com
+          `IncludeCookies=true`: e a conta inteira saindo pela porta. Nao pode
+          sair no mesmo cinza das outras dicas. */}
+      <div className="mx-1 mb-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/80">
+        <div>
+          {t(
+            "Hands out the .ROBLOSECURITY cookie of any account: whoever reads it is logged into that Roblox account, with no password and no 2FA."
+          )}
+        </div>
+        <div className="mt-1 text-amber-200/60">
+          {t(
+            "Covers /GetCookie and GetAccountsJson with IncludeCookies=true; both always demand the web server password."
+          )}
+        </div>
+      </div>
       <Toggle
         checked={s.getBool("WebServer", "AllowGetAccounts")}
         onChange={(v) => s.setBool("WebServer", "AllowGetAccounts", v)}
         label="Allow GetAccounts"
+        // /GetAccounts, /GetAccountsJson, /GetAlias, /GetDescription, /GetField.
+        description="Lists every account with username, user ID, alias, description, group and custom fields. Cookies are not included."
       />
       <Toggle
         checked={s.getBool("WebServer", "AllowLaunchAccount")}
         onChange={(v) => s.setBool("WebServer", "AllowLaunchAccount", v)}
         label="Allow LaunchAccount"
+        // Libera /LaunchAccount (place/job/VIP) e /FollowUser.
+        description="Starts Roblox on any account and sends it into any place, server or after another player."
       />
       <Toggle
         checked={s.getBool("WebServer", "AllowAccountEditing")}
         onChange={(v) => s.setBool("WebServer", "AllowAccountEditing", v)}
         label="Allow Account Editing"
+        // /SetField, /RemoveField, /SetAlias, /SetDescription, /AppendDescription:
+        // tudo isso e o dado que o app guarda, nao a conta no Roblox.
+        description="Lets callers rewrite the alias, description and custom fields this app stores for an account."
       />
       <Toggle
         checked={s.getBool("WebServer", "AllowExternalConnections")}
@@ -112,7 +142,8 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
             Allow External Connections<RestartBadge />
           </>
         }
-        description="Accept connections from other devices. Requires admin privileges."
+        // `runtime::start` escolhe o bind: 0.0.0.0 ligado, 127.0.0.1 desligado.
+        description="Binds the port to every network interface instead of localhost, so other machines can reach the API."
       />
 
       <Divider />
