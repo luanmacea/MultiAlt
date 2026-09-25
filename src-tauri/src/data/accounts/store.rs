@@ -323,6 +323,23 @@ impl AccountStore {
         }
     }
 
+    /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
+    /// botting e web server): sem isso `last_use` só era escrito ao criar ou
+    /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do
+    /// cadastro em vez de inatividade de jogo. Devolve `false` quando não existe
+    /// conta com esse id — lançar uma conta que saiu da lista não é erro.
+    pub fn mark_used(&self, user_id: i64) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        account.last_use = Utc::now();
+
+        self.save_locked(&accounts, false)?;
+        Ok(true)
+    }
+
     pub fn reorder(&self, user_ids: &[i64]) -> Result<(), String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
 
