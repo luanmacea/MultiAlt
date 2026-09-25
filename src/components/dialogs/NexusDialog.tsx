@@ -321,7 +321,13 @@ export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => v
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-2 shrink-0">
           <div className="flex items-center gap-3">
-            <h2 className="text-[15px] font-semibold text-zinc-100 tracking-tight">{tr("Account Control")}</h2>
+            {/* O ícone da toolbar diz "Nexus": o diálogo se identifica igual, e
+                "Account Control" (o nome antigo, que descreve o que ele faz)
+                fica como subtítulo. */}
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-[15px] font-semibold text-zinc-100 tracking-tight">{tr("Nexus")}</h2>
+              <span className="text-[11px] text-zinc-500">{tr("Account Control")}</span>
+            </div>
             <div className="flex items-center gap-1.5">
               <div className={`w-1.5 h-1.5 rounded-full ${status.running ? "bg-emerald-400" : "bg-zinc-600"}`} />
               <span className="text-[10px] text-zinc-500 font-mono">
@@ -447,7 +453,8 @@ export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => v
             />
           )}
 
-          {tab === "help" && <HelpPanel />}
+          {/* Com o servidor no ar vale a porta real; parado, a porta configurada. */}
+          {tab === "help" && <HelpPanel port={status.port ?? sPort} />}
         </div>
       </div>
     </div>
@@ -1003,18 +1010,55 @@ function SettingNumber({
   );
 }
 
-function HelpPanel() {
+function HelpPanel({ port }: { port: number }) {
   const t = useTr();
   return (
-    <div className="p-5 space-y-4">
+    <div className="p-5 space-y-4 overflow-y-auto h-full">
+      <div>
+        <h3 className="text-[13px] font-medium text-zinc-200 mb-2">{t("Requirements")}</h3>
+        <div className="text-[12px] text-zinc-400 leading-relaxed space-y-1.5">
+          <p>{t("Nexus is not a script executor: it drives a third-party script executor you already have.")}</p>
+          <p>
+            {t(
+              "The Nexus.lua script runs inside each Roblox client and connects back to this app. The app does not inject anything into Roblox; it only listens."
+            )}
+          </p>
+          <p>{t("Your executor must support WebSockets. Nexus.lua stops with a message when it does not.")}</p>
+          <p>
+            {t("Clients connect to")}{" "}
+            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">
+              {t("ws://localhost:{{port}}/Nexus", { port })}
+            </code>
+            {" "}
+            {t("The port, and whether other machines may connect, are set in the Settings tab.")}
+          </p>
+        </div>
+      </div>
+
       <div>
         <h3 className="text-[13px] font-medium text-zinc-200 mb-2">{t("Getting Started")}</h3>
         <div className="text-[12px] text-zinc-400 leading-relaxed space-y-1.5">
-          <p>1. {t("Add accounts to the control list using the panel on the left.")}</p>
-          <p>2. {t("Start the Nexus server using the Start button in the header.")}</p>
-          <p>3. {t("Execute Nexus.lua in each Roblox client you want to control.")}</p>
-          <p>4. {t("Connected clients will appear as Online with a green status dot.")}</p>
-          <p>5. {t("Use the command input or script panel to send commands to checked accounts.")}</p>
+          <p>
+            1.{" "}
+            {t(
+              "Add each account to the list on the left, using the exact Roblox username the client is logged in as. Clients the list does not know are ignored."
+            )}
+          </p>
+          <p>2. {t("Press Start in the header to put the server online.")}</p>
+          <p>
+            3.{" "}
+            {t(
+              "Press Save Nexus.lua below: it writes the script into the app's working folder and copies its path to the clipboard."
+            )}
+          </p>
+          <p>4. {t("Run that Nexus.lua in each Roblox client, through your own executor.")}</p>
+          <p>5. {t("Connected clients will appear as Online with a green status dot.")}</p>
+          <p>
+            6.{" "}
+            {t(
+              "Tick the accounts you want to reach, then use the command input or the script panel. Commands only go to ticked accounts that are Online."
+            )}
+          </p>
         </div>
       </div>
 
@@ -1056,7 +1100,7 @@ function HelpPanel() {
           }}
           className="px-3 py-1.5 bg-zinc-800 border border-zinc-700/50 rounded-lg text-[11px] text-zinc-300 hover:bg-zinc-700 transition-colors"
         >
-          {t("Download Nexus.lua")}
+          {t("Save Nexus.lua")}
         </button>
         <button
           onClick={() => {
