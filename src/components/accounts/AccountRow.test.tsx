@@ -7,8 +7,15 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 
 import { AccountRow } from "./AccountRow";
-import { makeAccount, setStore } from "../../test-utils/renderWithStore";
+import { defaultSettings, makeAccount, setStore } from "../../test-utils/renderWithStore";
 import type { StoreValue } from "../../store";
+
+/** Settings com o alerta de envelhecimento ligado (o default do mock o desliga). */
+function agingAlertOn(): Record<string, Record<string, string>> {
+  const settings = defaultSettings();
+  settings.General.DisableAgingAlert = "false";
+  return settings;
+}
 
 const ACCOUNT = makeAccount({ UserID: 501, Username: "roboduck", Group: "Alts" });
 
@@ -150,6 +157,34 @@ describe("AccountRow", () => {
   it("shows no session mark for a healthy account", () => {
     renderRow();
     expect(screen.queryByLabelText(/session/i)).not.toBeInTheDocument();
+  });
+
+  /**
+   * A bolinha de envelhecimento não dizia de *que* a conta envelheceu: só
+   * "Aged account". Tem que dizer quantos dias se passaram desde a data de Last
+   * Use (a mesma da coluna da direita) e que isso não é a bolinha vermelha de
+   * sessão inválida.
+   */
+  it("says how many days old the aging dot is counting", () => {
+    const lastUse = new Date(Date.now() - 25 * 86400000).toISOString();
+    renderRow(
+      { settings: agingAlertOn() },
+      makeAccount({ UserID: 501, Username: "roboduck", LastUse: lastUse })
+    );
+
+    const dot = screen.getByLabelText(/Aged: 25 days/);
+    expect(dot).toBeInTheDocument();
+    expect(dot.getAttribute("aria-label")).toContain("Last Use");
+    expect(dot.getAttribute("aria-label")).toMatch(/red dot/i);
+  });
+
+  it("keeps the aging dot quiet for a recently used account", () => {
+    const lastUse = new Date(Date.now() - 3 * 86400000).toISOString();
+    renderRow(
+      { settings: agingAlertOn() },
+      makeAccount({ UserID: 501, Username: "roboduck", LastUse: lastUse })
+    );
+    expect(screen.queryByLabelText(/Aged:/)).not.toBeInTheDocument();
   });
 
   it("marks the row as selected via the accent border", () => {

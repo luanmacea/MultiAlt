@@ -135,6 +135,44 @@ describe("App — error banner, toasts and the generic modal", () => {
     expect(store.killAllRobloxProcesses).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * A faixa cortava a mensagem com `truncate`, e é justamente o fim dela que
+   * explica o erro. O texto inteiro tem que ficar legível — quebrando linha,
+   * não virando painel.
+   */
+  it("shows the whole error message instead of cutting it off", () => {
+    const long =
+      "Failed to launch account 3: the production build is missing and the download was refused by the server";
+    renderApp({ error: long });
+
+    const message = screen.getByText(long);
+    expect(message).not.toHaveClass("truncate");
+    expect(message.className).toContain("whitespace-pre-wrap");
+  });
+
+  /**
+   * O porquê da falha fica no log de lançamento, em outra tela. A faixa tem que
+   * dizer onde ele está e levar até lá.
+   */
+  it("points at the launch log when there is one", async () => {
+    const store = renderApp({
+      error: "Launch failed",
+      launchLogs: [
+        { id: 1, userId: 1, level: "error", step: "launch", message: "boom", ts: Date.now() },
+      ],
+    });
+
+    expect(screen.getByText(/Choose Game/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open launch log" }));
+    expect(store.setChooseGameOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("offers no launch log when nothing was logged", () => {
+    renderApp({ error: "Launch failed", launchLogs: [] });
+    expect(screen.queryByRole("button", { name: "Open launch log" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Choose Game/)).not.toBeInTheDocument();
+  });
+
   it("stacks the toasts", () => {
     renderApp({ toasts: ["Copied 2 cookies", "Added roboduck"] });
     expect(screen.getByText("Copied 2 cookies")).toBeInTheDocument();

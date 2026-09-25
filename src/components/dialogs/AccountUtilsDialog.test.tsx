@@ -116,6 +116,20 @@ describe("AccountUtilsDialog", () => {
     );
   });
 
+  /**
+   * O PIN de 4 dígitos é o da conta Roblox — não a senha do app nem a da
+   * criptografia local. A tela tinha só um campo "PIN (4 digits)" e um botão
+   * "Unlock", sem dizer o que destrava nem por quanto tempo.
+   */
+  it("explains which PIN this is and what unlocking it does", () => {
+    renderDialog();
+
+    const explanation = screen.getByText(/Roblox account PIN/i);
+    expect(explanation).toBeInTheDocument();
+    expect(explanation.textContent).toMatch(/not this app/i);
+    expect(explanation.textContent).toMatch(/re-?locks/i);
+  });
+
   it("marks both credential changes as a danger zone", async () => {
     renderDialog();
     expect(screen.getByText("Danger Zone")).toBeInTheDocument();

@@ -11,7 +11,7 @@ import { ContextMenu } from "./ContextMenu";
 import { MenuItemView, type MenuItem } from "./MenuItemView";
 import { makeAccount, makeBottingStatus, setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
-import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
+import { promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
 import type { StoreValue } from "../../store";
 
 const A = makeAccount({ UserID: 1, Username: "ann", Group: "Alts" });
@@ -217,6 +217,62 @@ describe("ContextMenu — group, botting and client entries", () => {
     await userEvent.click(item("Focus client"));
     await waitFor(() =>
       expect(store.addToast).toHaveBeenCalledWith("No active Roblox window found for this account")
+    );
+  });
+});
+
+describe("ContextMenu — quick login", () => {
+  /**
+   * O prompt só dizia "Enter 6-digit code:" e não contava de onde vem o código
+   * nem o que o app faz com ele: o Roblox mostra o código em roblox.com/login
+   * no aparelho que vai entrar, e o app o manda com a sessão da conta
+   * selecionada.
+   */
+  it("says where the 6-digit code comes from and whose session sends it", async () => {
+    promptAnswers.prompt = "123456";
+    renderMenu();
+    await userEvent.click(item("Quick Login"));
+
+    await waitFor(() => expect(promptMock).toHaveBeenCalledTimes(1));
+    const [message] = promptMock.mock.calls[0];
+    expect(message).toContain("roblox.com/login");
+    expect(message).toContain("ann");
+    expect(message).toMatch(/6-digit/);
+  });
+
+  it("names the account in the toast after the code goes through", async () => {
+    promptAnswers.prompt = "123456";
+    const store = renderMenu();
+    await userEvent.click(item("Quick Login"));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quick_login_enter_code", { userId: 1, code: "123456" })
+    );
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(expect.stringContaining("ann"))
+    );
+  });
+
+  /**
+   * Com o código já copiado o app nem pergunta — manda em silêncio. O toast é o
+   * único lugar onde dá para contar que o código saiu da área de transferência.
+   */
+  it("says out loud when the code came from the clipboard", async () => {
+    const readText = vi.fn(async () => "123 456");
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText, readText },
+      configurable: true,
+    });
+
+    const store = renderMenu();
+    await userEvent.click(item("Quick Login"));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("quick_login_enter_code", { userId: 1, code: "123456" })
+    );
+    expect(promptMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(expect.stringMatching(/clipboard/i))
     );
   });
 });
