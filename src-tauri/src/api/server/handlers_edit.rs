@@ -308,6 +308,10 @@ async fn handle_set_avatar(
         return reply(401, "Invalid password", v2);
     }
 
+    if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
+        return reply(401, "AllowAccountEditing is disabled", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -343,6 +347,10 @@ async fn handle_block_user(
         return reply(401, "Invalid password", v2);
     }
 
+    if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
+        return reply(401, "AllowAccountEditing is disabled", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -376,6 +384,10 @@ async fn handle_unblock_user(
 ) -> Response {
     if !check_password(&state, &params.password) {
         return reply(401, "Invalid password", v2);
+    }
+
+    if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
+        return reply(401, "AllowAccountEditing is disabled", v2);
     }
 
     let identifier = match params.account {
@@ -460,6 +472,10 @@ async fn handle_unblock_everyone(
 ) -> Response {
     if !check_password(&state, &params.password) {
         return reply(401, "Invalid password", v2);
+    }
+
+    if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
+        return reply(401, "AllowAccountEditing is disabled", v2);
     }
 
     let identifier = match params.account {
