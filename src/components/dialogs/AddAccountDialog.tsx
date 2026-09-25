@@ -18,7 +18,14 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
 
   async function handleQuickAdd() {
     onClose();
-    const input = await prompt(tr("Cookie or username"));
+    // Mesmo pedido do Quick Add da toolbar: o cookie `.ROBLOSECURITY` entra
+    // como a conta inteira (api/auth.rs:45), então a tela tem que dizer o que é
+    // e onde ele fica.
+    const input = await prompt(
+      tr(
+        "Paste a .ROBLOSECURITY cookie — it signs in as that account, and you find it in your browser's DevTools › Application › Cookies on roblox.com — or type a username to add it without a session."
+      )
+    );
     if (!input?.trim()) return;
     const value = input.trim();
 
