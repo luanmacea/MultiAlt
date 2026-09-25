@@ -7,7 +7,7 @@ import { useModalClose } from "../../hooks/useModalClose";
 import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
-import { X, Eye, EyeOff, Wallet } from "lucide-react";
+import { X, Eye, EyeOff, Wallet, Info } from "lucide-react";
 import { SignupPanel } from "../signup/SignupPanel";
 
 interface GeneratorDialogProps {
@@ -236,7 +236,13 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b theme-border flex items-center justify-between">
-          <div className="text-[15px] font-semibold text-[var(--panel-fg)]">{t("Account Generator")}</div>
+          {/*
+            O título era "Account Generator" — o nome de **uma** das duas
+            funções servindo de nome para o conjunto, o que fazia a criação
+            grátis parecer parte do gerador pago. O título agora é do conjunto;
+            cada função guarda o seu nome na aba. Ver docs/features/account-creation.md.
+          */}
+          <div className="text-[15px] font-semibold text-[var(--panel-fg)]">{t("New Accounts")}</div>
           <div className="flex items-center gap-2">
             <span
               className={`px-2 py-1 rounded-full text-[10px] border ${
@@ -256,21 +262,35 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
           </div>
         </div>
 
-        <div className="px-5 pt-3 flex items-center gap-1.5">
+        {/*
+          Nome e linha de apoio são os mesmos do menu `Add` e do
+          AddAccountDialog, palavra por palavra: eram quatro nomes para duas
+          funções. Mexeu aqui, mexa lá.
+        */}
+        <div className="px-5 pt-3 flex flex-wrap items-stretch gap-1.5">
           {([
-            { id: "provider" as const, label: t("Buy from a provider") },
-            { id: "signup" as const, label: t("Create in the browser") },
+            {
+              id: "provider" as const,
+              label: t("Account Generator"),
+              hint: t("Paid — buys ready-made accounts from BloxGen (third party, API key)"),
+            },
+            {
+              id: "signup" as const,
+              label: t("Create Accounts"),
+              hint: t("Free — the app fills Roblox's signup form; you solve the CAPTCHA"),
+            },
           ]).map((tab) => (
             <button
               key={tab.id}
               onClick={() => setMode(tab.id)}
-              className={`px-2.5 py-1.5 text-[12px] rounded-md border transition-colors ${
+              className={`px-2.5 py-1.5 text-[12px] rounded-md border text-left transition-colors ${
                 mode === tab.id
                   ? "border-[var(--accent-color)] text-[var(--panel-fg)] theme-soft"
                   : "theme-border theme-muted theme-btn-ghost"
               }`}
             >
               {tab.label}
+              <span className="block text-[10px] theme-muted leading-snug">{tab.hint}</span>
             </button>
           ))}
         </div>
@@ -295,6 +315,30 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
         >
           <div className="lg:col-span-5 min-h-0 animate-slide-left">
             <div className="theme-surface rounded-2xl border theme-border h-full p-3 overflow-y-auto space-y-3">
+              {/*
+                O gerador não é uma função do app: é uma chamada para
+                `core.bloxgen.net` com a API key da pessoa, e cada conta sai do
+                saldo dessa chave (`commands/generators.rs`, `/api/generate` e
+                `/api/balance`). A tela não dizia nem que era de terceiro, nem
+                que custava, nem que a aba ao lado faz de graça.
+              */}
+              <section className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-[12px] font-medium text-amber-200">
+                  <Info size={13} strokeWidth={1.75} className="shrink-0" />
+                  {t("BloxGen is a third-party service, not part of this app")}
+                </div>
+                <p className="text-[11px] text-amber-100/80 leading-snug">
+                  {t(
+                    "Every account it hands over is charged to the balance on your API key, so generating costs money. The app only calls their API with the key you paste — the accounts, the prices and the balance are theirs."
+                  )}
+                </p>
+                <p className="text-[11px] text-amber-100/80 leading-snug">
+                  {t(
+                    "Free alternative: the Create Accounts tab signs up on Roblox's own form at no cost — the app fills the form and you solve the CAPTCHA."
+                  )}
+                </p>
+              </section>
+
               <section className="theme-surface rounded-xl border theme-border p-3">
                 <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2">{t("Provider")}</div>
                 <Select

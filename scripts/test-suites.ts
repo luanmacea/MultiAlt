@@ -76,6 +76,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/accounts",
       "src/components/dialogs/AddAccountDialog.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
+      "src/components/dialogs/ImportDialog.test.tsx",
     ],
   },
   botting: {
@@ -221,7 +222,7 @@ export const SUITES: Record<string, TestSuite> = {
       "username_check_http_tests",
       "generator_failure_budget_tests",
     ],
-    front: ["src/components/signup"],
+    front: ["src/components/signup", "src/components/dialogs/GeneratorDialog.test.tsx"],
   },
   ui: {
     description: "Casca da UI: layout, menus, componentes genéricos, i18n, hooks",

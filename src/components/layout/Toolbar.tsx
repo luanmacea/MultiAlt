@@ -93,7 +93,14 @@ export function Toolbar() {
 
   async function handleQuickAdd() {
     setAddMenuOpen(false);
-    const input = await prompt(tr("Cookie or username"));
+    // "Cookie or username" não dizia que cookie é esse, onde ele está nem o que
+    // ele entrega — e ele entra como a conta inteira (api/auth.rs:45). Mesmo
+    // texto do Quick Add do AddAccountDialog.
+    const input = await prompt(
+      tr(
+        "Paste a .ROBLOSECURITY cookie — it signs in as that account, and you find it in your browser's DevTools › Application › Cookies on roblox.com — or type a username to add it without a session."
+      )
+    );
     if (!input?.trim()) return;
     const value = input.trim();
 

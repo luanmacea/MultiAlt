@@ -10,7 +10,7 @@ vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/pro
 import { AddAccountDialog } from "./AddAccountDialog";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
-import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
+import { promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
 
 const COOKIE =
   "_|WARNING:-DO-NOT-SHARE-THIS.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items.|TOKEN";
@@ -114,6 +114,22 @@ describe("AddAccountDialog", () => {
     );
     await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Added roboduck"));
     expect(store.loadAccounts).toHaveBeenCalled();
+  });
+
+  /**
+   * O Quick Add aceita o cookie `.ROBLOSECURITY`, mas o pedido era só "Cookie
+   * or username" — nem o nome do cookie, nem onde achá-lo. É o mesmo texto do
+   * Quick Add da toolbar.
+   */
+  it("tells the Quick Add prompt what the cookie is and where it lives", async () => {
+    promptAnswers.prompt = null;
+    renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Quick Add" }));
+
+    const message = promptMock.mock.calls[0][0] as string;
+    expect(message).toContain(".ROBLOSECURITY");
+    expect(message).toMatch(/DevTools/);
+    expect(message).toMatch(/signs in as/i);
   });
 
   it("ignores a blank or cancelled Quick Add", async () => {

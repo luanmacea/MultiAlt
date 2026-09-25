@@ -10,7 +10,7 @@ vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/pro
 import { Toolbar } from "./Toolbar";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
-import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
+import { promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
 import { ENABLE_NEXUS } from "../../featureFlags";
 import type { StoreValue } from "../../store";
 
@@ -274,6 +274,23 @@ describe("Toolbar — Quick Add", () => {
     expect(message).toContain("roboduck");
     expect(message).toContain("no session");
     expect(message).toContain("Browser Login");
+  });
+
+  /**
+   * O cookie `.ROBLOSECURITY` é pedido aqui sem uma palavra sobre o que é nem
+   * onde achá-lo — e ele entra como a conta inteira (`api/auth.rs:45`). O texto
+   * é o mesmo do Quick Add do AddAccountDialog.
+   */
+  it("tells the prompt what the cookie is and where it lives", async () => {
+    promptAnswers.prompt = null;
+    renderToolbar();
+    await openAddMenu();
+    await userEvent.click(screen.getByRole("button", { name: "Quick Add" }));
+
+    const message = promptMock.mock.calls[0][0] as string;
+    expect(message).toContain(".ROBLOSECURITY");
+    expect(message).toMatch(/DevTools/);
+    expect(message).toMatch(/signs in as/i);
   });
 
   it("does nothing when the prompt is cancelled", async () => {

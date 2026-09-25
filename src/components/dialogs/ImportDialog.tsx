@@ -248,7 +248,7 @@ export function ImportDialog({
       onClick={handleClose}
     >
       <div
-        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[560px] ${tab === "legacy" ? "max-h-[320px]" : "max-h-[420px]"} flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[560px] ${tab === "legacy" ? "max-h-[320px]" : tab === "cookie" ? "max-h-[520px]" : "max-h-[420px]"} flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-0">
@@ -269,7 +269,24 @@ export function ImportDialog({
         <div className={`px-5 pb-4 ${tab === "legacy" ? "pt-2" : "flex-1 flex flex-col min-h-0"}`}>
           {tab === "cookie" ? (
             <>
-              <p className="text-[11px] text-zinc-500 mb-2">{t("Paste one .ROBLOSECURITY cookie per line")}</p>
+              {/*
+                O cookie era pedido cru: nem o que é, nem onde achar, nem o que
+                entrega. `validate_cookie` (api/auth.rs:45) manda só o cookie e
+                recebe a conta de volta — quem o tem está logado como ela, sem
+                senha e sem verificação em duas etapas. Isso tem que estar na
+                tela, não só no aviso que o próprio cookie carrega no texto.
+              */}
+              <p className="text-[11px] text-zinc-500 mb-1.5">{t("Paste one .ROBLOSECURITY cookie per line")}</p>
+              <p className="text-[11px] text-amber-300/80 leading-snug mb-1.5">
+                {t(
+                  "This cookie is the account's whole session: anyone holding it is signed in as that account, with no password and no 2-step verification. Treat it like the account itself."
+                )}
+              </p>
+              <p className="text-[11px] text-zinc-500 leading-snug mb-2">
+                {t(
+                  "Where to find it: sign in to roblox.com in your browser, open DevTools (F12) › Application › Cookies › https://www.roblox.com and copy the .ROBLOSECURITY value."
+                )}
+              </p>
               <textarea
                 ref={textareaRef}
                 value={input}
