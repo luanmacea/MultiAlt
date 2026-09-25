@@ -215,6 +215,11 @@ body {
   transform: scale(0.98);
 }
 
+.theme-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--input-focus);
+}
+
 .theme-btn-ghost {
   background: transparent;
   color: var(--panel-muted);
@@ -226,6 +231,34 @@ body {
 .theme-btn-ghost:hover {
   color: var(--panel-fg);
   background: var(--panel-soft);
+}
+
+.theme-btn-ghost:focus-visible {
+  outline: none;
+  color: var(--panel-fg);
+  box-shadow: 0 0 0 2px var(--input-focus);
+}
+
+/*
+ * Anel de foco para os controles customizados (div/role em vez de <button>
+ * nativo) que a onda 2 de teclado deu semântica: o switch de Settings, os
+ * itens do menu de contexto, o cabeçalho/checkbox de grupo e as linhas de
+ * jogo em Games/Recent. Mesma cor/forma do `.theme-check` (var(--input-focus)
+ * já usada em inputs e botões) para o anel ficar igual em qualquer tema —
+ * ele só precisa aparecer com o teclado, nunca com o mouse (:focus-visible).
+ */
+[role="switch"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="checkbox"]:focus-visible,
+[role="button"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--input-focus);
+}
+
+/* Abre o submenu do menu de contexto pelo teclado (Enter/Espaço/ArrowRight),
+   sem depender do :hover que já cobre o mouse. */
+.submenu-panel.submenu-open {
+  display: block;
 }
 
 .theme-avatar {

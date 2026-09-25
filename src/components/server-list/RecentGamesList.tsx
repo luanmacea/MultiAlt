@@ -114,8 +114,17 @@ export function RecentGamesList({
           {games.map((game) => (
             <div
               key={game.placeId}
-              className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/40 transition-colors cursor-pointer"
+              role="button"
+              tabIndex={0}
+              className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/40 transition-colors cursor-pointer outline-none"
               onClick={() => onSelect(game.placeId, game.name, game.iconUrl)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(game.placeId, game.name, game.iconUrl);
+                }
+              }}
             >
               <div className="w-9 h-9 rounded-md bg-zinc-800 shrink-0 overflow-hidden">
                 {game.iconUrl ? (
