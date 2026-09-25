@@ -589,7 +589,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
               onClick={handleLoadBlocked}
               className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
             >
-              {blockedExpanded ? t("Hide") : t("View")} {t("Blocked Users")}
+              {blockedExpanded ? t("Hide blocked users") : t("View blocked users")}
             </button>
             {blockedExpanded && (
               <div className="bg-zinc-800/30 rounded-lg p-2 space-y-1 max-h-[120px] overflow-y-auto">

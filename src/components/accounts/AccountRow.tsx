@@ -239,7 +239,7 @@ export function AccountRow({ account }: { account: Account }) {
             <span>{t("Join")}</span>
           </span>
         ) : (
-          <span className="theme-muted">{timeAgo(account.LastUse)}</span>
+          <span className="theme-muted">{t(timeAgo(account.LastUse))}</span>
         )}
       </div>
     </div>

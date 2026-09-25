@@ -318,7 +318,7 @@
   "Replay the guided setup tour with launch and safety essentials": "Starte die geführte Setup-Tour mit Launch- und Sicherheits-Grundlagen erneut",
   "Open Walkthrough": "Walkthrough öffnen",
   "_|WARNING:-DO-NOT-SHARE...": "_|WARNING:-DO-NOT-SHARE...",
-  "{{count}} server{{suffix}}": "{{count}} Server",
+  "{{count}} server{{suffix}}": "{{count}} Server{{suffix}}",
   "{{name}} - already exists": "{{name}} - existiert bereits",
   "{{name}} is not in a game. Try anyway?": "{{name}} ist gerade nicht im Spiel. Trotzdem versuchen?",
   "{{name}} not found in any server": "{{name}} wurde auf keinem Server gefunden",

@@ -46,10 +46,13 @@ function isProbablyTranslatableKey(s: string): boolean {
   if (!v) return false;
   if (v.length === 1) return false;
 
-  // File paths, URLs, or obvious non-UI payloads.
+  // File paths, URLs, or obvious non-UI payloads. O teste é sobre a string
+  // **inteira**: uma frase que só cita uma URL continua sendo texto de tela —
+  // descartá-la deixava sem tradução, por exemplo, a instrução de onde achar o
+  // cookie (que cita roblox.com no meio da frase).
   if (/^[a-zA-Z]:\\\\/.test(v)) return false;
-  if (/\\\//.test(v)) return false;
-  if (/https?:\/\//.test(v)) return false;
+  if (/^\\\/|^\//.test(v)) return false;
+  if (/^https?:\/\/\S*$/.test(v)) return false;
 
   // Skip tokens / hashes / IDs that are unlikely to be UI strings.
   if (/^[0-9a-f]{20,}$/i.test(v)) return false;
@@ -101,12 +104,36 @@ function extractFromFile(text: string): Set<string> {
   for (const m of text.matchAll(/\blabel\s*=\s*{\s*<>\s*([\s\S]*?)\s*<\/>\s*}/g)) extractTextNodes(m[1]);
   for (const m of text.matchAll(/\blabel\s*=\s*<>\s*([\s\S]*?)\s*<\/>/g)) extractTextNodes(m[1]);
 
-  // <SectionLabel>Text</SectionLabel>
-  // Components that translate plain-text children internally.
+  // <SectionLabel>Text</SectionLabel> e <UtilButton onClick={...}>Text</UtilButton>
+  // Components that translate plain-text children internally (t/trNode).
+  // Os atributos contam: sem `(?:\s[^>]*)?` todo botão com `onClick` ficava de
+  // fora, e o texto nunca chegava ao catálogo — era o caso dos botões de
+  // segurança e da Danger Zone no diálogo de utilitários da conta.
   for (const m of text.matchAll(
-    /<(SectionLabel|SectionHeader|WarningBadge|UtilButton)>\s*([^<{][^<]*?)\s*<\/\1>/g
+    /<(SectionLabel|SectionHeader|WarningBadge|UtilButton)(?:\s[^>]*)?>\s*([^<{][^<]*?)\s*<\/\1>/g
   )) {
     addKey(keys, m[2]);
+  }
+
+  // Props que o componente passa por t(), mas com expressão no lugar do literal:
+  //   description={cond ? "Requires Unlock FPS" : undefined}
+  for (const m of text.matchAll(
+    /\b(?:label|description|placeholder|suffix|title|tooltip|alt|ariaLabel|aria-label)\s*=\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g
+  )) {
+    for (const lit of m[1].matchAll(/"((?:\\.|[^"\\])+)"|'((?:\\.|[^'\\])+)'/g)) {
+      addKey(keys, lit[1] ?? lit[2]);
+    }
+  }
+
+  // t(...)/tr(...) com expressão: t(cond ? "A" : "B"), t(x || "B").
+  // Sem isso as abas do diálogo de versões (`Browse`, `Manual install`) ficavam
+  // em inglês em todos os idiomas. Só os **ramos** contam (o que vem depois de
+  // `?`, `:` ou `||`): o literal de uma comparação (`id === "browse"`) é
+  // identificador interno, não texto de tela.
+  for (const m of text.matchAll(/\b(?:t|tr)\(\s*([^"'`][\s\S]{0,400}?)\)/g)) {
+    for (const lit of m[1].matchAll(/(?:\?|:|\|\|)\s*(?:"((?:\\.|[^"\\])+)"|'((?:\\.|[^'\\])+)')/g)) {
+      addKey(keys, lit[1] ?? lit[2]);
+    }
   }
 
   return keys;
