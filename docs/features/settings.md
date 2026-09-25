@@ -58,7 +58,10 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
 | `ShowAvatarsWhenHidden` / `HideRobuxWhenHidden` | — (false) | Comportamento com nomes ocultos. |
 | `DisableImages` | — (false) | Não carregar thumbnails de avatar. |
-| `ServerRegionFormat` | `<city>, <countryCode>` | Formato de região (não usado hoje, ver [server-list.md](server-list.md)). |
+| `ServerRegionFormat` | `<city>, <countryCode>` | Formato do rótulo de região: `<city>`, `<region>`, `<country>`, `<countryCode>`, `<ip>` — ver [server-choice.md](server-choice.md). |
+| `ServerPreference` | `bestfit` | Preferência de servidor do lote: `bestfit` \| `fullest` \| `emptiest` \| `random` \| `none`. |
+| `ServerRegionFilter` | — (vazio) | País exigido ao escolher servidor (`BR`); vazio = sem filtro. |
+| `ServerScanPages` | `30` | Páginas de 100 servidores varridas na aba Servers (teto 500). |
 | `MaxRecentGames` | `8` | Tamanho da lista de recentes. |
 | `Language` | `en` | `en` ou `de`. |
 | `AutoCookieRefresh` | `true` | Refresh automático de cookies (ver [authentication.md](authentication.md)). |

@@ -58,13 +58,30 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ## Registro de mudanças (2026-09-25)
 
-0. **Criação de contas em série**: o app preenche o cadastro do Roblox (usuário, senha, 18+, masculino) e o usuário só resolve o CAPTCHA; o gerador BloxGen deixou de tentar para sempre quando o erro nunca passa — [account-creation.md](features/account-creation.md).
-0. **Escolha de servidor**: preferência por lote (aleatório / mais vazio / mais cheio), filtro por país e aba **Servers** para escolher o servidor na mão — [server-choice.md](features/server-choice.md).
+**Escolher onde o lote entra**
 
-1. **Painel de Sessão**: fila de contas entrando (cancelar uma, parar a fila — sem fechar cliente nenhum) e lista de contas em jogo (focar/fechar, com seleção múltipla). Na aba Console e num botão da barra principal — [ui-layout.md](features/ui-layout.md#painel-de-sessão), [multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento).
-2. **Aba Friends**: amigos online de cada conta selecionada; clicar num amigo manda todas as contas para o servidor dele — [friends.md](features/friends.md).
-3. **XSRF por serviço**: o token do `auth.roblox.com` é recusado pelo `apis.roblox.com` ("XSRF token invalid") — toda chamada mutável agora repete uma vez com o token que o próprio serviço devolve no 403, o que conserta os links de convite colados na aba Follow — [authentication.md](features/authentication.md#o-token-é-por-serviço--send_with_csrf_retry).
-4. **Multi-instância sem fechar o jogo aberto**: o app fecha o `ROBLOX_singletonEvent` dos clientes já rodando em vez de exigir que eles sejam encerrados — entrar pelo app com um jogo aberto pelo site agora funciona — [launch.md](features/launch.md#regras-de-negócio).
+1. **Preferência de servidor por lote**: `Best fit` (padrão — o mais cheio que ainda caiba o lote com **uma vaga de folga**), `Fullest`, `Emptiest`, `Random` e `Let Roblox choose`. O servidor é resolvido uma vez para o lote inteiro — [server-choice.md](features/server-choice.md).
+2. **Aba Servers** na Choose Game: lista com ocupação, região e ping, varredura assíncrona página a página (profundidade configurável), filtro por país e Join que manda todas as contas selecionadas.
+3. **Região do servidor**: a API não devolve isso, então vem de `join-game-instance` → IP → geolocalização, sob demanda e com cache. Conserta de quebra o "Load Region" do navegador de servidores, que fazia `fetch` do frontend para um serviço que hoje exige desafio do Cloudflare.
+4. **Servidor repetido entre páginas** quebrava a reordenação da lista (chave duplicada no React). A varredura passou a deduplicar por Job ID — [server-choice.md](features/server-choice.md#servidor-repetido-entre-páginas).
+
+**Contas**
+
+5. **Criação em série no navegador**: o app preenche o cadastro (usuário, senha, 18+, masculino), confere antes se o nome está livre, e o usuário só resolve o CAPTCHA. O laço de reparo preenche apenas campo vazio, para nunca brigar com o que está na tela — [account-creation.md](features/account-creation.md).
+6. **Gerador BloxGen** deixou de tentar para sempre quando o erro nunca passa (estoque vazio, saldo zerado, chave vencida).
+7. **Aba Friends**: amigos online de cada conta selecionada; clicar num amigo manda todas as contas para o servidor dele. A rota antiga do Roblox saiu do ar e respondia 404 — [friends.md](features/friends.md).
+
+**Sessão e interface**
+
+8. **Painel de Sessão**: fila de contas entrando (cancelar uma, parar a fila — sem fechar cliente nenhum) e lista de contas em jogo (focar/fechar) — [ui-layout.md](features/ui-layout.md#painel-de-sessão), [multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento).
+9. **"Lembrar de mim" na tela de senha** (padrão 24 h), com a senha protegida pelo DPAPI do usuário do Windows e prazo dentro do blob cifrado — [authentication.md](features/authentication.md#lembrar-de-mim-na-tela-de-senha).
+10. **Atalhos pedidos**: "x" nos chips de conta da Choose Game, botão de servidores em cada jogo da aba Games, e entrada **Create Accounts** no menu Add.
+
+**Base**
+
+11. **XSRF por serviço**: o token do `auth.roblox.com` é recusado pelo `apis.roblox.com` — toda chamada mutável repete uma vez com o token que o próprio serviço devolve no 403 — [authentication.md](features/authentication.md#o-token-é-por-serviço--send_with_csrf_retry).
+12. **Multi-instância sem fechar o jogo aberto**: o app fecha o `ROBLOX_singletonEvent` dos clientes já rodando — [launch.md](features/launch.md#regras-de-negócio).
+13. **Harness de UI** (`bun run dev:ui`): roda o frontend no navegador com o lado Tauri dublado, com cenários por URL (inclusive um com dados reais da API). Foi com ele que a lista fora de ordem foi reproduzida e a correção conferida — [development.md](development.md#validando-a-ui-no-navegador).
 
 ## Registro de mudanças (2026-09-24)
 

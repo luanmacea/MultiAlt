@@ -14,7 +14,8 @@ Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas,
 | Peça | Arquivo |
 |---|---|
 | Identidade gerada e script de preenchimento (puro) | [chromium/signup.rs](../../src-tauri/src/chromium/signup.rs) |
-| Sessão (browser, espera, salvar conta) | [chromium/signup_session.rs](../../src-tauri/src/chromium/signup_session.rs) |
+| Sessão (browser, espera, salvar conta) | [chromium/signup_session.rs](../../src-tauri/src/chromium/signup_session.rs) — comandos `start_signup_session`, `stop_signup_session`, `get_signup_status` |
+| Nome livre no Roblox | [api/roblox/username_check.rs](../../src-tauri/src/api/roblox/username_check.rs) (`check_signup_username`) |
 | Provedor (BloxGen) | [commands/generators.rs](../../src-tauri/src/commands/generators.rs) |
 | UI | [components/signup/SignupPanel.tsx](../../src/components/signup/SignupPanel.tsx), aba do [GeneratorDialog.tsx](../../src/components/dialogs/GeneratorDialog.tsx) |
 | Eventos | `signup-progress`, `generator-status`, `generator-account-added` |

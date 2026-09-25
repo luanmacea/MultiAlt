@@ -10,7 +10,7 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 |---|---|
 | Preferência e ranking | [api/roblox/server_pick.rs](../../src-tauri/src/api/roblox/server_pick.rs) (`ServerPreference`, `rank_servers`, `pick_server`) |
 | Região do servidor | [api/roblox/server_regions.rs](../../src-tauri/src/api/roblox/server_regions.rs) (`resolve_server_region`, `lookup_ip_region`, `format_region`) |
-| Comandos Tauri | [commands/account_api.rs](../../src-tauri/src/commands/account_api.rs) (`pick_server`, `get_server_regions`) |
+| Comandos Tauri | [commands/account_api.rs](../../src-tauri/src/commands/account_api.rs) (`pick_server`, `list_servers_ranked`, `start_server_scan`, `stop_server_scan`, `get_server_regions`) |
 | Aba Servers (Choose Game) | [components/servers/ServersTab.tsx](../../src/components/servers/ServersTab.tsx) |
 | Navegador de servidores (diálogo) | [components/server-list/ServersTab.tsx](../../src/components/server-list/ServersTab.tsx) |
 | Estado/persistência | [store.tsx](../../src/store.tsx) → `General.ServerPreference`, `General.ServerRegionFilter` |
