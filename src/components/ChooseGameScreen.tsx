@@ -9,13 +9,14 @@ import { RecentTab } from "./server-list/RecentTab";
 import { loadFavorites, saveFavorites } from "./server-list/types";
 import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
+import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
 import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle } from "lucide-react";
 import type { LaunchLogLevel, LaunchTarget } from "../store";
-import type { JoinTarget } from "../types";
+import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
 
-type TabId = "favorites" | "games" | "recent" | "friends" | "follow" | "console";
+type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console";
 
 function maskName(name: string, previewLetters: number) {
   if (previewLetters > 0 && previewLetters < name.length) return name.slice(0, previewLetters) + "********";
@@ -32,6 +33,49 @@ type LaunchResult = { ok: boolean; error?: string };
 function useLauncher() {
   const store = useStore();
   const confirmJoinOnline = useJoinOnlineWarning();
+  const confirm = useConfirm();
+
+  /**
+   * Resolve o servidor do lote conforme a preferência do usuário
+   * (`Random`/`Emptiest`/`Fullest`, com filtro de país opcional).
+   *
+   * Resolvido **uma vez** para o lote inteiro: todas as contas recebem o mesmo
+   * Job ID e caem juntas. Só roda quando o usuário não escolheu servidor — um
+   * Job ID explícito, um VIP ou o Follow sempre vencem a preferência.
+   *
+   * Falha aqui nunca cancela o launch: sem servidor resolvido o lote segue com
+   * Job vazio, que é o comportamento de sempre.
+   */
+  async function resolvePreferredJob(
+    userIds: number[],
+    placeId: number
+  ): Promise<{ jobId: string; cancelled: boolean }> {
+    const preference = store.serverPreference;
+    if (preference === "default" || userIds.length === 0) {
+      return { jobId: "", cancelled: false };
+    }
+    try {
+      const picked = await invoke<PickedServer>("pick_server", {
+        userId: userIds[0],
+        placeId,
+        preference,
+        accounts: userIds.length,
+        countryCode: store.serverRegionFilter || null,
+      });
+      if (picked.regionFallback) {
+        const ok = await confirm(
+          tr("No server found in {{region}}. Join the best available one instead?", {
+            region: store.serverRegionFilter,
+          })
+        );
+        if (!ok) return { jobId: "", cancelled: true };
+      }
+      return { jobId: picked.jobId, cancelled: false };
+    } catch (e) {
+      store.addToast(tr("Could not pick a server: {{error}}", { error: String(e) }));
+      return { jobId: "", cancelled: false };
+    }
+  }
 
   async function launchAll(
     userIds: number[],
@@ -41,6 +85,13 @@ function useLauncher() {
     extras?: LaunchExtras
   ): Promise<LaunchResult> {
     if (!(await confirmJoinOnline(userIds))) return { ok: false };
+
+    // A preferência só entra quando o usuário não escolheu servidor.
+    if (!jobId.trim() && !extras?.joinVip) {
+      const preferred = await resolvePreferredJob(userIds, placeId);
+      if (preferred.cancelled) return { ok: false };
+      jobId = preferred.jobId;
+    }
     onStarted?.();
     // Keep the launch input fields in sync for the UI, but pass the target
     // explicitly to the launch call. setPlaceId/setJobId are async state
@@ -685,6 +736,11 @@ export function ChooseGameScreen() {
       hint: t("Games you've joined recently across all accounts."),
     },
     {
+      id: "servers",
+      label: t("Servers"),
+      hint: t("Public servers of a place. Pick one and every selected account joins it; load regions to find a specific country."),
+    },
+    {
       id: "friends",
       label: t("Friends"),
       hint: t("Online friends of each selected account. Click a friend to send every selected account into their server."),
@@ -812,6 +868,15 @@ export function ChooseGameScreen() {
               userId={userIds[0] ?? null}
             />
           </div>
+        )}
+        {activeTab === "servers" && (
+          <ServersTab
+            userIds={userIds}
+            placeId={store.placeId}
+            setPlaceId={store.setPlaceId}
+            launchAll={launchAll}
+            onGoToConsole={goToConsole}
+          />
         )}
         {activeTab === "friends" && (
           <FriendsTab userIds={userIds} launchAll={launchAll} onGoToConsole={goToConsole} />

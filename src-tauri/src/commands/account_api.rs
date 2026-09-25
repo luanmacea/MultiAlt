@@ -819,6 +819,90 @@ async fn get_online_friends_for_accounts(
     Ok(results)
 }
 
+// ---------------------------------------------------------------------------
+// Escolha de servidor e região
+// ---------------------------------------------------------------------------
+
+/// Template de exibição da região. Configurável porque o usuário pode querer
+/// só o país, ou o IP cru.
+fn server_region_template(settings: &SettingsStore) -> String {
+    settings
+        .get("General", "ServerRegionFormat")
+        .ok()
+        .flatten()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "<city>, <countryCode>".to_string())
+}
+
+/// Região de vários servidores de um place, uma chamada de join por servidor.
+///
+/// Emite `server-region-progress` com `{ done, total }`. Sequencial e com pausa
+/// de propósito: o `join-game-instance` é o mesmo endpoint que o cliente usa
+/// para entrar no jogo, e disparar em rajada toma 429.
+///
+/// Usa `get_cookie` direto e **nunca** `run_with_session_retry`: o refresh dele
+/// derruba as sessões abertas da conta.
+#[tauri::command]
+async fn get_server_regions(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AccountStore>,
+    settings: tauri::State<'_, SettingsStore>,
+    user_id: i64,
+    place_id: i64,
+    job_ids: Vec<String>,
+) -> Result<Vec<api::roblox::ServerRegion>, String> {
+    let cookie = get_cookie(state.inner(), user_id)?;
+    let template = server_region_template(settings.inner());
+
+    let results = api::roblox::resolve_server_regions(
+        &cookie,
+        place_id,
+        &job_ids,
+        &template,
+        api::roblox::REGION_LOOKUP_DELAY_MS,
+        |done, total| {
+            let _ = app.emit(
+                "server-region-progress",
+                api::roblox::ServerRegionProgress { done, total },
+            );
+        },
+    )
+    .await;
+
+    Ok(results)
+}
+
+/// Escolhe o servidor do lote conforme a preferência (`random` | `emptiest` |
+/// `fullest`) e, opcionalmente, um país (`BR`).
+///
+/// Resolvido **uma vez** para o lote inteiro: a UI passa o Job ID devolvido
+/// para o launch, e todas as contas entram no mesmo servidor.
+#[tauri::command]
+async fn pick_server(
+    state: tauri::State<'_, AccountStore>,
+    settings: tauri::State<'_, SettingsStore>,
+    user_id: i64,
+    place_id: i64,
+    preference: String,
+    accounts: Option<usize>,
+    country_code: Option<String>,
+    max_lookups: Option<usize>,
+) -> Result<api::roblox::PickedServer, String> {
+    let cookie = get_cookie(state.inner(), user_id)?;
+    let template = server_region_template(settings.inner());
+
+    api::roblox::pick_server(
+        &cookie,
+        place_id,
+        api::roblox::parse_server_preference(&preference),
+        accounts.unwrap_or(1),
+        country_code.as_deref().unwrap_or(""),
+        &template,
+        max_lookups.unwrap_or(api::roblox::REGION_LOOKUP_MAX),
+    )
+    .await
+}
+
 #[tauri::command]
 async fn batch_thumbnails(
     requests: Vec<api::roblox::ThumbnailRequest>,
