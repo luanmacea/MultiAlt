@@ -24,7 +24,7 @@ Total: **131 achados** — 25 altos, 60 médios, 46 baixos.
 | **P0** | A tela mente ou o ajuste não funciona | ✅ **feito** (16 itens, 7 commits) |
 | **P1** | Existe e ninguém acha | ✅ **feito** (15 itens, 4 commits) |
 | **P2** | Está na tela e não se explica | ✅ **feito** (16 itens, 8 commits) |
-| **P3** | Desenho e ergonomia | 🟡 **onda 1 feita** (risco, feedback e texto quebrado); onda 2 a fazer (densidade, preenchimento, teclado) |
+| **P3** | Desenho e ergonomia | ✅ **feito** (onda 1: risco, feedback, texto quebrado; onda 2: densidade, preenchimento, teclado) |
 | **Tradução** | Não existe pt-BR | ✅ **feito** (1535 chaves, catálogo `pt` completo) |
 
 Cada correção entrou com o teste que falha primeiro e `bun run check` verde.
@@ -189,7 +189,7 @@ verificado com `tsc --noEmit`, `bun run t --audit` e a suíte vitest completa
 é todo frontend, nenhum arquivo Rust foi tocado — mas o check completo precisa
 rodar no Windows antes de considerar a faixa fechada de verdade.
 
-## P3 — desenho e ergonomia 🟡
+## P3 — desenho e ergonomia ✅
 
 Dividido em duas ondas: primeiro o que é risco e feedback, depois o desenho das
 telas. **Cada item abaixo foi medido no código antes de entrar** — e a medição
@@ -219,12 +219,29 @@ derrubou cinco afirmações da versão anterior desta lista, corrigidas abaixo.
 | Hash de versão digitado à mão | Há catálogo remoto com botão Install, e a aba manual já valida o formato; sobra o campo **Channel**, que é texto livre |
 | Falha do Browser Login em inglês fixo | A chave está nos três catálogos e `addToast` a traduz. O problema real era o **tom**: falha de login saía como `info` |
 
-### Onda 2 ⬜ — densidade, preenchimento e teclado
+### Onda 2 ✅ — densidade, preenchimento e teclado
 
-- **Escala e densidade**: `SettingsDialog` é o único diálogo dessa família sem guarda `max-w-[calc(100vw-…)]`; Optimization precisa de um perfil por vez (resolve as 16,9 telas, o `Unlock FPS` triplicado e 12 `aria-label` duplicados); o log da aba Console fica com **26px** porque o `SessionPanel` é `shrink-0` e o log é o único `flex-1`; o Job ID leva **50% da linha** da lista de servidores, com ~290px vazios e sem como copiar.
-- **Preenchimento**: `Add To Group` sem lista dos grupos que já existem; VIP em dois `prompt()` encadeados; `Channel` da aba manual sem lista; Universe ID que recusa URL colada **em silêncio**; avatar JSON sem validação; caminho de fonte/preset digitado à mão (resolve com `<input type="file">` + comando que recebe bytes, sem dependência nova).
-- **Teclado e acessibilidade**: indicador de foco no app inteiro; `Toggle` com `role="switch"`; pilha LIFO de `Esc` em `useModalClose` — hoje **nenhum** dos ~25 handlers interrompe a propagação, então um Esc sobre a Choose Game fecha o diálogo **e** a tela, e na lista apaga a seleção junto com o menu; `aria-label` nos 26 botões só-ícone; linhas de Games/Recent/Favorites focáveis.
-- **Clicar num jogo lança na hora** (`ChooseGameScreen.tsx:700`, com o comentário `just launch directly`): o `ServerListDialog` já faz o certo indo para os servidores, e desde o P1 as linhas têm ação `Join Game` própria — o clique no card é hoje um duplicado do botão de lançar. Cuidado: o jogo só entra em Recent no launch bem-sucedido.
+| # | Achado | O que virou |
+|---|---|---|
+| ✓ | **Settings era o único diálogo dessa família sem guarda de viewport**, com 512px de 1100 e a TabBar quebrando em 3 linhas (98px dos 595 de altura) | `w-[780px] max-w-[calc(100vw-24px)]` + `h-[calc(100vh-24px)]`; as 9 abas voltaram a caber em 1 linha (medido em pt e en) |
+| ✓ | **Optimization montava os 3 perfis de uma vez**: 6357px de rolagem, 67 controles, `Unlock FPS` 3× e 12 `aria-label` idênticos — e o título do perfil rolava para fora da tela, num contexto em que "Normal" é nome de perfil **e** opção de dois selects | Seletor de perfil (`role="radio"`) fixo no cromo e só a seção escolhida monta: ~4 telas, rótulos únicos, perfil sempre à vista |
+| ✓ | **O log da aba Console ficava com 26px** (24 de padding), porque o `SessionPanel` era `shrink-0` sem teto e o log era o único `flex-1` | Painel com teto de 45% e rolagem própria, log com piso de 160px: 26px → 180px |
+| ✓ | **O Job ID levava metade da linha** da lista de servidores (528px de 1056, ~290px vazios) enquanto a região truncava cidade em 150px — e não dava para copiar | Coluna fixa de 250px, copiável por clique ou menu de contexto; a região recebeu o `flex-1` (150px → 428px) |
+| ✓ | **Clicar no card de um jogo lançava na hora** (`// just launch directly`), sem passo intermediário para conta offline — e era duplicata da ação `Join Game` que a linha já tem desde o P1 | O card leva aos servidores, como o `ServerListDialog` já fazia; lançar é só pelo `Join Game`. O Recent passou a ser gravado no clique, senão o jogo clicado desapareceria da aba |
+| ✓ | **`Add To Group` era campo livre**: "bloxgen" e "BloxGen" criavam grupos diferentes | `<datalist>` com os grupos existentes (helper `collectGroupNames`), campo ainda editável para criar grupo novo. O helper devolve o nome **cru**: devolver o `displayName` reintroduziria o bug de P0 do prefixo numérico |
+| ✓ | **VIP entrava por dois `prompt()` encadeados**, e cancelar o segundo jogava fora o link do primeiro | Formulário inline com os dois campos e validação deliberadamente permissiva — o Rust aceita qualquer string não-vazia como código, então regra mais rígida no frontend recusaria link válido |
+| ✓ | **Universe ID recusava URL colada em silêncio** (`parseInt` e `return` mudo) | Aceita link colado e, quando não resolve, diz o porquê |
+| ✓ | **Avatar JSON só falhava no `set_avatar`**, com toast genérico | Valida antes, diz o que está errado, desabilita o botão enquanto há erro e aponta o "Wear Outfit", que monta o JSON sozinho |
+| ✓ | **Importar fonte/preset pedia caminho absoluto digitado** | `<input type="file">` + comandos Rust que recebem bytes, no padrão que o app já usava — sem dependência nova. Teto de 20 MiB só nos comandos novos: caminho local é confiável, bytes por IPC não |
+| ✓ | **`Channel` da aba manual de versões era texto livre** | `<datalist>` com os canais do catálogo e dos instalados. Só UI: nada aqui escreve canal no registro |
+| ✓ | **Não existia indicador de foco em botão nenhum** (1 `:focus-visible` no CSS contra 35 `focus:outline-none`) — era isso, e não a falta de `<button>`, que fazia a Choose Game parecer não-navegável | Anel de foco em `.theme-btn`/`.theme-btn-ghost` e nos controles com semântica nova, reusando `var(--input-focus)` |
+| ✓ | **O `Toggle` era `<div onClick>`** e aparece 59 vezes em 9 telas: **Settings inteira** era inoperável por teclado | `role="switch"`, `aria-checked`, Espaço/Enter, `aria-disabled` — um arquivo conserta as 9 telas |
+| ✓ | **Item de menu, cabeçalho de grupo, checkbox de grupo e linhas de Games/Recent** eram `<div onClick>` | Semântica (`menuitem`, `button`, `checkbox` com `mixed`) e teclado, sem trocar tag onde há `<button>` aninhado |
+| ✓ | **26 handlers de Escape em 23 arquivos, nenhum interrompendo a propagação**: com diálogo sobre a Choose Game, um Escape fechava os dois; na lista, apagava a seleção junto com o menu (o `ContextMenu` registrava no boot e nunca removia) | Pilha LIFO (`useEscapeStack`): um listener, só o topo recebe. Ignora evento já tratado com `preventDefault` (o prompt), tem `ignoreFromFields` para campo de texto, e os 6 diálogos que não fechavam com Escape passaram a fechar |
+
+Sobrou fora de escopo, para quem continuar: `aria-label` nos 26 botões só-ícone
+(espalhados por arquivos de várias áreas), foco inicial e `aria-modal` nos 13
+diálogos, e os outros 33 `focus:outline-none` que não foram tocados.
 
 ---
 

@@ -201,6 +201,10 @@ O extrator já reconhece, além do literal direto: componente com atributos
 literal de comparação é identificador interno). Uma frase que **cita** uma URL
 também conta: o filtro só descarta a string que é URL inteira.
 
+O extrator **não varre arquivo de teste**: fixture como
+`<MenuItemView item={{ label: "First" }}>` virava chave no catálogo e ia para o
+Crowdin como se alguém fosse traduzir.
+
 O que ele ainda não pode ver é chave montada em variável (`t(cat)` com `cat`
 vindo de um array, `t(status)`): essas entram no catálogo à mão. Se a sua string
 não aparece traduzida, confira primeiro se a chave existe em
@@ -211,6 +215,13 @@ renderiza em português os pontos que já falharam assim.
 A tradução para outros idiomas é sincronizada pelo Crowdin ([crowdin.yml](../crowdin.yml): fonte `src/locales/en/common.json`, destino `src/locales/%two_letters_code%/common.json`; workflow [crowdin-sync.yml](../.github/workflows/crowdin-sync.yml)).
 
 Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das props reconhecidas, com interpolação no formato `{{nome}}` (nunca template string), e rode o extrator.
+
+## Escape, foco e teclado
+
+- **`Esc` passa por uma pilha LIFO** ([useEscapeStack.ts](../src/hooks/useEscapeStack.ts)): existe **um** listener em `window`, e só o topo da pilha recebe a tecla. Quem monta depois fica no topo — popover sobre diálogo sobre tela —, então a ordem de registro não importa mais. Antes eram 26 handlers em 23 arquivos, nenhum interrompendo a propagação: um `Esc` fechava o diálogo **e** a tela de trás.
+- **Diálogo não escreve handler de `Esc`:** use [useModalClose](../src/hooks/useModalClose.ts), que já resolve isso. Se precisar agir antes de fechar (o editor de temas reverte a pré-visualização), passe `onEscape` no 4º parâmetro.
+- **Handler de campo que trata `Esc` chama `preventDefault()`** — é o sinal de "já tratei" que a pilha respeita. Sem isso, reverter um campo numérico fechava o diálogo junto.
+- **Controle customizado precisa de semântica**: `role` + `aria-*` + `tabIndex` + teclado. O `Toggle` é o exemplo — um `<div onClick>` ali deixava as 9 telas de Settings inoperáveis por teclado. E todo controle novo precisa de foco visível; o anel usa `var(--input-focus)`.
 
 ## Convenções
 
