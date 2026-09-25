@@ -1581,5 +1581,6 @@
   "Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it.": "Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it.",
   "Nexus.lua saved in {{path}} (path copied)": "Nexus.lua saved in {{path}} (path copied)",
   "Nexus.lua saved in {{path}}": "Nexus.lua saved in {{path}}",
-  "Could not save Nexus.lua: {{error}}": "Could not save Nexus.lua: {{error}}"
+  "Could not save Nexus.lua: {{error}}": "Could not save Nexus.lua: {{error}}",
+  "Nexus.lua saved in the app folder": "Nexus.lua saved in the app folder"
 }
