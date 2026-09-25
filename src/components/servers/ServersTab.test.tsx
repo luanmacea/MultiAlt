@@ -293,6 +293,94 @@ describe("ServersTab — lista", () => {
   });
 });
 
+/**
+ * Job ID: antes era um `<code>` dentro de uma coluna `flex-1` (528px de
+ * 1056, ~290px vazios num Job ID real de ~238px) sem `onClick`, `title` nem
+ * menu de contexto — a região é que devia ganhar aquele espaço, e o Job ID
+ * precisava ser copiável.
+ */
+describe("ServersTab — Job ID copiável", () => {
+  const writeText = vi.fn(async () => {});
+
+  beforeEach(() => {
+    writeText.mockClear();
+  });
+
+  /**
+   * `userEvent.setup()` instala o próprio stub de clipboard (com getter
+   * `configurable: true`) na hora em que roda — depois disso é que dá para
+   * sobrescrever com o mock e ter certeza de que é ele quem o componente vê.
+   * Fazer isso num `beforeEach`, antes do `setup()`, perde a corrida: o stub
+   * do user-event substitui o mock, e `writeText` nunca é chamado.
+   */
+  function mockClipboard() {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  }
+
+  it("copia o Job ID ao clicar, sem disparar o Join", async () => {
+    const user = userEvent.setup();
+    mockClipboard();
+    const { store } = renderTab([row({ id: "job-copy" })]);
+    await screen.findByText("job-copy");
+
+    await user.click(screen.getByRole("button", { name: "Copy Job ID" }));
+
+    expect(writeText).toHaveBeenCalledWith("job-copy");
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(expect.stringMatching(/copied/i))
+    );
+    expect(launchAll).not.toHaveBeenCalled();
+  });
+
+  it("avisa quando o clipboard falha", async () => {
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    const user = userEvent.setup();
+    mockClipboard();
+    const { store } = renderTab([row({ id: "job-copy" })]);
+    await screen.findByText("job-copy");
+
+    await user.click(screen.getByRole("button", { name: "Copy Job ID" }));
+
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(expect.stringMatching(/fail/i))
+    );
+  });
+
+  /**
+   * Coluna fixa: o Job ID não pode mais esticar com `flex-1` — é a região
+   * (antes travada em 150px) que agora recebe o espaço sobrando.
+   */
+  it("mantém o Job ID numa coluna de largura fixa", async () => {
+    renderTab([row({ id: "job-a" })]);
+    await screen.findByText("job-a");
+
+    const jobIdButton = screen.getByRole("button", { name: "Copy Job ID" });
+    expect(jobIdButton.className).toMatch(/w-\[250px\]/);
+    expect(jobIdButton.className).not.toMatch(/flex-1/);
+  });
+
+  /**
+   * Armadilha do relato: o botão de copiar não pode ganhar um nome acessível
+   * que bate com `/Join/`, senão os testes que buscam "Join" no singular
+   * quebram.
+   */
+  it("não interfere no botão Join singular", async () => {
+    renderTab([row({ id: "job-a" })]);
+    await screen.findByText("job-a");
+
+    expect(screen.getByRole("button", { name: "Join" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { name: /Join/i })).toHaveLength(1);
+  });
+
+  it("mostra o Job ID completo no title, para o que a coluna truncar", async () => {
+    renderTab([row({ id: "job-completo-1234567890" })]);
+    await screen.findByText("job-completo-1234567890");
+
+    const jobIdButton = screen.getByRole("button", { name: "Copy Job ID" });
+    expect(jobIdButton.title).toContain("job-completo-1234567890");
+  });
+});
+
 describe("ServersTab — região", () => {
   it("resolve a região só quando pedido, em lote, e mostra o rótulo", async () => {
     const user = userEvent.setup();

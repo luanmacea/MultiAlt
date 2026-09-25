@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Globe, Loader2, RefreshCw, Search, Server, Wifi } from "lucide-react";
+import { Copy, Globe, Loader2, RefreshCw, Search, Server, Wifi } from "lucide-react";
 import { MAX_SERVER_SCAN_PAGES, useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import type {
@@ -184,6 +185,107 @@ function OccupancyBar({
         style={{ width: `${incomingPct}%` }}
       />
     </div>
+  );
+}
+
+/** Menuzinho de contexto do Job ID — uma ação só: copiar. */
+function JobIdContextMenu({
+  x,
+  y,
+  onCopy,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  onCopy: () => void;
+  onClose: () => void;
+}) {
+  const t = useTr();
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [onClose]);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const pad = 8;
+    const width = el.offsetWidth || 160;
+    const height = el.offsetHeight || 40;
+    const left = Math.max(pad, Math.min(x, window.innerWidth - width - pad));
+    const top = Math.max(pad, Math.min(y, window.innerHeight - height - pad));
+    setPos({ left, top });
+  }, [x, y]);
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="theme-modal-scope theme-panel theme-border fixed z-[60] rounded-xl shadow-2xl py-1 w-44 animate-scale-in"
+      style={{ top: pos.top, left: pos.left }}
+    >
+      <button
+        onClick={() => {
+          onCopy();
+          onClose();
+        }}
+        className="flex items-center gap-2.5 w-full px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
+      >
+        <Copy size={12} strokeWidth={1.5} className="theme-muted" />
+        {t("Copy Job ID")}
+      </button>
+    </div>,
+    document.body
+  );
+}
+
+/**
+ * Célula do Job ID: coluna fixa (não some no meio da região vazia que
+ * sobrava com `flex-1`) e copiável — clique copia direto, botão direito abre
+ * o menu com a mesma ação. Antes era um `<code>` sem `onClick`, `title` nem
+ * menu de contexto: o único jeito de levar o Job ID para outro lugar era
+ * selecionar o texto na mão.
+ */
+function JobIdCell({ jobId, onCopy }: { jobId: string; onCopy: (jobId: string) => void }) {
+  const t = useTr();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onCopy(jobId)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
+        title={t("{{jobId}} — click to copy", { jobId })}
+        aria-label={t("Copy Job ID")}
+        className="w-[250px] shrink-0 truncate text-left text-[11px] font-mono theme-muted hover:text-[var(--panel-fg)] transition-colors"
+      >
+        {jobId}
+      </button>
+      {menu && (
+        <JobIdContextMenu
+          x={menu.x}
+          y={menu.y}
+          onCopy={() => onCopy(jobId)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -399,6 +501,15 @@ export function ServersTab({
       await launchAll(userIds, place, row.id, onGoToConsole);
     } finally {
       setJoining(null);
+    }
+  }
+
+  async function handleCopyJobId(jobId: string) {
+    try {
+      await navigator.clipboard.writeText(jobId);
+      store.addToast(t("Copied Job ID"));
+    } catch {
+      store.addToast(t("Failed to copy"));
     }
   }
 
@@ -628,8 +739,10 @@ export function ServersTab({
                     </div>
                   </div>
 
-                  {/* Região */}
-                  <div className="w-[150px] shrink-0 text-[11px]">
+                  {/* Região — flex-1: era a coluna de tamanho fixo (150px) que
+                      truncava nomes de cidade enquanto o Job ID sobrava vazio
+                      ao lado. Agora quem sobra é ela. */}
+                  <div className="flex-1 min-w-0 truncate text-[11px]">
                     {region ? (
                       region.label ? (
                         <span className="text-[var(--panel-fg)]">{region.label}</span>
@@ -641,10 +754,10 @@ export function ServersTab({
                     )}
                   </div>
 
-                  {/* Job ID */}
-                  <code className="flex-1 min-w-0 truncate text-[11px] font-mono theme-muted">
-                    {row.id}
-                  </code>
+                  {/* Job ID — coluna fixa e copiável (era `flex-1`, um
+                      `<code>` sem onClick/title/menu, com ~290px de sobra
+                      vazia num Job ID real de ~238px). */}
+                  <JobIdCell jobId={row.id} onCopy={handleCopyJobId} />
 
                   {/* Ping */}
                   <div className="w-[64px] shrink-0 flex items-center justify-end gap-1 text-[11px] tabular-nums theme-muted">

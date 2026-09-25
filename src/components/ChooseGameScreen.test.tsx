@@ -588,6 +588,74 @@ describe("ChooseGameScreen — Servers tab", () => {
     expect(store.setPlaceId).toHaveBeenCalledWith("606849621");
     expect(await screen.findByLabelText("Place ID")).toBeInTheDocument();
   });
+
+  /**
+   * Clicar no card lançava direto (`handleSelectGame` chamava `launchAll`),
+   * com `confirmJoinOnline` como único freio — que só entra com a conta
+   * online. Games/Recent já têm a própria ação "Join Game" desde o P1, então
+   * o card virou um duplicado do lançar. Agora o card leva para os
+   * servidores, igual ao ícone "Browse servers" e ao `ServerListDialog`.
+   */
+  it("leva aos servidores em vez de lançar ao clicar no card de um jogo (Games)", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "search_games") {
+        return {
+          sorts: [
+            { games: [{ rootPlaceId: 606849621, universeId: 1, name: "Jailbreak", playerCount: 10 }] },
+          ],
+        };
+      }
+      if (cmd === "start_server_scan") return 5;
+      return undefined;
+    });
+    const store = setStore({
+      accounts: [ACCOUNT_A],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [ACCOUNT_A],
+    });
+    render(<ChooseGameScreen />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Games" }));
+    await userEvent.click(await screen.findByText("Jailbreak"));
+
+    expect(store.setPlaceId).toHaveBeenCalledWith("606849621");
+    expect(await screen.findByLabelText("Place ID")).toBeInTheDocument();
+    expect(store.joinServer).not.toHaveBeenCalled();
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Decisão: como Recent só grava num launch bem-sucedido (store.tsx) e o
+   * card não lança mais nada, gravamos aqui manualmente — a mesma saída que
+   * o `ServerListDialog` já usa — senão o jogo clicado desaparecia da lista.
+   */
+  it("grava o jogo em Recent mesmo sem lançar, ao clicar no card", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "search_games") {
+        return {
+          sorts: [
+            { games: [{ rootPlaceId: 606849621, universeId: 1, name: "Jailbreak", playerCount: 10 }] },
+          ],
+        };
+      }
+      if (cmd === "start_server_scan") return 6;
+      return undefined;
+    });
+    setStore({
+      accounts: [ACCOUNT_A],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [ACCOUNT_A],
+    });
+    render(<ChooseGameScreen />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Games" }));
+    await userEvent.click(await screen.findByText("Jailbreak"));
+
+    await waitFor(() => {
+      const recent = JSON.parse(localStorage.getItem("ram_recent_games") || "[]");
+      expect(recent.some((g: { placeId: number }) => g.placeId === 606849621)).toBe(true);
+    });
+  });
 });
 
 /**
@@ -681,6 +749,29 @@ describe("ChooseGameScreen — descoberta", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Windows" }));
     expect(await screen.findByText("Window layout")).toBeInTheDocument();
+  });
+
+  /**
+   * Medido no cenário `launch-queue`: o Painel de Sessão (340px com as duas
+   * listas) sem teto encolhia o log de lançamento a 26px, dos quais 24 eram
+   * padding. O teto no painel (45%) e o piso no log (160px) garantem os dois
+   * um mínimo de espaço, mesmo com o painel cheio.
+   */
+  it("dá teto ao Painel de Sessão e piso ao log, na aba Console", async () => {
+    renderScreen();
+
+    await userEvent.click(screen.getByRole("button", { name: "Console" }));
+
+    const sessionPanel = screen.getByTestId("session-panel");
+    const panelWrapper = sessionPanel.parentElement as HTMLElement;
+    expect(panelWrapper.className).toMatch(/max-h-\[45%\]/);
+    expect(panelWrapper.className).toMatch(/overflow-y-auto/);
+
+    const log = screen
+      .getByText("Launch a game to see live progress here")
+      .closest(".font-mono") as HTMLElement;
+    expect(log.className).toMatch(/min-h-\[160px\]/);
+    expect(log.className).not.toMatch(/min-h-0/);
   });
 });
 
