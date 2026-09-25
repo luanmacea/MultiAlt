@@ -54,16 +54,6 @@ export interface ServerRow {
   ping?: number | null;
 }
 
-interface ServersResponse {
-  data: ServerRow[];
-  nextPageCursor: string | null;
-}
-
-/** `sortOrder` que a API tem que receber para cada preferência. */
-export function apiSortOrder(preference: ServerPreference): "Asc" | "Desc" {
-  return preference === "fullest" ? "Desc" : "Asc";
-}
-
 /** O servidor cabe o lote inteiro? É a mesma regra do backend. */
 export function hasRoomFor(row: ServerRow, accounts: number): boolean {
   if (row.maxPlayers <= 0) return false;
@@ -88,10 +78,11 @@ export function matchesRegion(
 }
 
 const PREFERENCES: { id: ServerPreference; label: string }[] = [
-  { id: "default", label: "Default" },
-  { id: "random", label: "Random" },
-  { id: "emptiest", label: "Emptiest" },
+  { id: "bestfit", label: "Best fit" },
   { id: "fullest", label: "Fullest" },
+  { id: "emptiest", label: "Emptiest" },
+  { id: "random", label: "Random" },
+  { id: "none", label: "Let Roblox choose" },
 ];
 
 /**
@@ -188,16 +179,15 @@ export function ServersTab({
     setLoading(true);
     setError(null);
     try {
-      const response = await invoke<ServersResponse>("get_servers", {
+      // A lista vem pronta do backend — mesma ordenação e mesma paginação que
+      // o launch usa, para a aba mostrar exatamente o que ele escolheria.
+      const ranked = await invoke<ServerRow[]>("list_servers_ranked", {
         placeId: place,
-        serverType: "Public",
-        cursor: null,
         userId: accountForApi,
-        // A ordem é da API: a página local tem 100 de milhares de servidores.
-        sortOrder: apiSortOrder(preference),
-        excludeFull: true,
+        preference,
+        accounts: Math.max(userIds.length, 1),
       });
-      setRows(response.data || []);
+      setRows(ranked || []);
       // Os Job IDs mudam a cada refresh; regiões antigas não valem mais.
       setRegions(new Map());
     } catch (e) {
@@ -206,7 +196,7 @@ export function ServersTab({
     } finally {
       setLoading(false);
     }
-  }, [accountForApi, preference, t]);
+  }, [accountForApi, preference, t, userIds.length]);
 
   // Recarrega ao abrir com um place escolhido e sempre que a ordem muda.
   useEffect(() => {

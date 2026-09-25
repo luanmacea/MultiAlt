@@ -284,6 +284,7 @@ pub fn run() {
             get_online_friends,
             get_online_friends_for_accounts,
             get_server_regions,
+            list_servers_ranked,
             pick_server,
             batch_thumbnails,
             get_avatar_headshots,

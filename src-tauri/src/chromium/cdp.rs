@@ -150,6 +150,19 @@ fn selector_exists_expression(selector: &str) -> String {
 /// `username`/`password` are serialized as JSON string literals so quotes,
 /// backslashes and control characters cannot terminate the literal and run as
 /// code.
+/// Foca um campo e apaga o que estiver nele, para a digitação começar limpa.
+fn focus_and_clear_script(selector: &str) -> String {
+    let selector = serde_json::to_string(selector).unwrap_or_default();
+    format!(
+        "(function(){{var el=document.querySelector({selector});if(!el)return false;\
+el.focus();\
+var s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;\
+if(s){{s.call(el,'');el.dispatchEvent(new Event('input',{{bubbles:true}}));}}\
+return document.activeElement===el;}})()",
+        selector = selector
+    )
+}
+
 fn login_fill_script(username: &str, password: &str) -> String {
     let user = serde_json::to_string(username).unwrap_or_default();
     let pass = serde_json::to_string(password).unwrap_or_default();
@@ -284,6 +297,23 @@ impl CdpClient {
             .and_then(|r| r.get("value"))
             .cloned()
             .unwrap_or(Value::Null))
+    }
+
+    /// Digita num campo como o teclado faria.
+    ///
+    /// `Input.insertText` passa pelo mesmo caminho de um IME, então o React
+    /// enxerga a digitação mesmo quando o componente ignora um `value` escrito
+    /// por fora — foi o que fez o nome de usuário do cadastro ficar vazio
+    /// enquanto a senha, no mesmo formulário, era preenchida.
+    ///
+    /// Devolve `false` quando o campo não está na página.
+    pub async fn type_into(&mut self, selector: &str, text: &str) -> Result<bool, String> {
+        let focus = focus_and_clear_script(selector);
+        if self.eval(&focus).await? != Value::Bool(true) {
+            return Ok(false);
+        }
+        self.send("Input.insertText", json!({ "text": text })).await?;
+        Ok(true)
     }
 
     pub async fn navigate(&mut self, url: &str) -> Result<(), String> {

@@ -51,7 +51,7 @@ function useLauncher() {
     placeId: number
   ): Promise<{ jobId: string; cancelled: boolean }> {
     const preference = store.serverPreference;
-    if (preference === "default" || userIds.length === 0) {
+    if (preference === "none" || userIds.length === 0) {
       return { jobId: "", cancelled: false };
     }
     try {

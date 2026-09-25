@@ -31,14 +31,18 @@ export type GeneratorDialogTab = "provider" | "signup";
 
 export function normalizeServerPreference(value: string | undefined): ServerPreference {
   switch ((value || "").trim().toLowerCase()) {
+    case "none":
+    case "off":
+      return "none";
     case "random":
       return "random";
     case "emptiest":
       return "emptiest";
     case "fullest":
       return "fullest";
+    // Desconhecido e o nome antigo ("default") caem no padrão novo.
     default:
-      return "default";
+      return "bestfit";
   }
 }
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
@@ -451,7 +455,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }).catch(() => {});
   }, []);
   const [shuffleJobId, setShuffleJobId] = useState(false);
-  const [serverPreference, _setServerPreference] = useState<ServerPreference>("default");
+  const [serverPreference, _setServerPreference] = useState<ServerPreference>("bestfit");
   const [serverRegionFilter, _setServerRegionFilter] = useState("");
 
   const setServerPreference = useCallback((preference: ServerPreference) => {

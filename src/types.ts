@@ -255,11 +255,14 @@ export interface LaunchQueuePayload {
 /**
  * Preferência de servidor do lote.
  *
- * `default` mantém o comportamento antigo (Job ID vazio: o Roblox escolhe).
- * As outras resolvem UM servidor para o lote inteiro antes de lançar, para as
- * contas caírem juntas — ver `pick_server` no backend.
+ * `bestfit` é o padrão: o servidor **mais cheio que ainda caiba o lote com uma
+ * vaga de folga** — joga junto de outras pessoas sem arriscar deixar conta de
+ * fora. `none` é o comportamento antigo (Job ID vazio, o Roblox escolhe).
+ *
+ * Todas menos `none` resolvem UM servidor para o lote inteiro antes de lançar,
+ * para as contas caírem juntas — ver `pick_server` no backend.
  */
-export type ServerPreference = "default" | "random" | "emptiest" | "fullest";
+export type ServerPreference = "bestfit" | "random" | "emptiest" | "fullest" | "none";
 
 /** Geolocalização do IP da máquina que hospeda o servidor. */
 export interface IpRegion {
