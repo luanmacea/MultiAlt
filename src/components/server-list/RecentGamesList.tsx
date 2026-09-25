@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { GameEntry, RecentGame } from "./types";
 import { loadRecentGames, saveRecentGames, resolveRecentGame } from "./types";
+import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { GameRowActions, browseServersIcon, favoriteIcon, joinGameIcon } from "./GamesTab";
 
@@ -22,6 +23,7 @@ export function RecentGamesList({
   onAddFavorite,
 }: RecentGamesListProps) {
   const t = useTr();
+  const confirm = useConfirm();
   const [games, setGames] = useState<RecentGame[]>(loadRecentGames);
   const backfilledRef = useRef(false);
 
@@ -52,7 +54,21 @@ export function RecentGamesList({
     };
   }, [userId]);
 
-  function handleClear() {
+  /**
+   * A lista de recentes só existe neste computador (`localStorage`): apagada,
+   * não volta. A frase diz quantos jogos somem antes de somarem.
+   */
+  async function handleClear() {
+    const ok = await confirm(
+      games.length === 1
+        ? t("Clear the recent games list? Its 1 game is deleted from this computer and cannot be recovered.")
+        : t(
+            "Clear the recent games list? Its {{count}} games are deleted from this computer and cannot be recovered.",
+            { count: games.length }
+          ),
+      true
+    );
+    if (!ok) return;
     saveRecentGames([]);
     setGames([]);
   }
@@ -85,7 +101,9 @@ export function RecentGamesList({
       <div className="flex items-center justify-between px-1 pb-2">
         <span className="text-[10px] text-zinc-600">{t("{{count}} of {{max}} max", { count: games.length, max: maxRecent })}</span>
         <button
-          onClick={handleClear}
+          onClick={() => {
+            void handleClear();
+          }}
           className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
         >
           {t("Clear all")}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { usePrompt } from "../../hooks/usePrompt";
+import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import type { FavoriteGame, VipServer } from "./types";
 import { loadFavorites, saveFavorites, makeVipId } from "./types";
@@ -23,6 +23,7 @@ export function FavoritesTab({
 }: FavoritesTabProps) {
   const t = useTr();
   const prompt = usePrompt();
+  const confirm = useConfirm();
   const [favorites, setFavorites] = useState<FavoriteGame[]>(loadFavorites);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; game: FavoriteGame } | null>(null);
@@ -43,7 +44,25 @@ export function FavoritesTab({
     addToast(t("Renamed"));
   }
 
-  function handleRemove(game: FavoriteGame) {
+  /**
+   * Favoritos e seus VIPs só existem neste computador (`localStorage`): a
+   * frase diz o que desaparece, incluindo os VIPs que vão junto.
+   */
+  async function handleRemove(game: FavoriteGame) {
+    const vipCount = getVips(game).length;
+    const ok = await confirm(
+      vipCount === 0
+        ? t(
+            'Remove "{{name}}" from favorites? It is deleted from this computer and cannot be recovered.',
+            { name: game.name }
+          )
+        : t(
+            'Remove "{{name}}" from favorites? The favorite and its saved VIP servers ({{count}}) are deleted from this computer and cannot be recovered.',
+            { name: game.name, count: vipCount }
+          ),
+      true
+    );
+    if (!ok) return;
     persist(favorites.filter((f) => f.placeId !== game.placeId));
     addToast(t("Removed from favorites"));
   }
@@ -66,7 +85,16 @@ export function FavoritesTab({
     addToast(t("VIP server added"));
   }
 
-  function handleRemoveVip(game: FavoriteGame, vipId: string) {
+  async function handleRemoveVip(game: FavoriteGame, vipId: string) {
+    const vip = getVips(game).find((v) => v.id === vipId);
+    const ok = await confirm(
+      t(
+        'Remove the VIP server "{{name}}" from "{{game}}"? Its link is deleted from this computer and cannot be recovered.',
+        { name: vip?.name || t("VIP"), game: game.name }
+      ),
+      true
+    );
+    if (!ok) return;
     persist(
       favorites.map((f) =>
         f.placeId === game.placeId ? { ...f, vipServers: getVips(f).filter((v) => v.id !== vipId) } : f
@@ -176,7 +204,9 @@ export function FavoritesTab({
                               {t("Join")}
                             </button>
                             <button
-                              onClick={() => handleRemoveVip(game, vip.id)}
+                              onClick={() => {
+                                void handleRemoveVip(game, vip.id);
+                              }}
                               title={t("Remove")}
                               className="p-1 rounded-md text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition-colors shrink-0"
                             >
@@ -215,7 +245,9 @@ export function FavoritesTab({
           onClose={() => setContextMenu(null)}
           onJoin={() => onSelectGame(contextMenu.game.placeId)}
           onRename={() => handleRename(contextMenu.game)}
-          onRemove={() => handleRemove(contextMenu.game)}
+          onRemove={() => {
+            void handleRemove(contextMenu.game);
+          }}
           onCopyPlaceId={() => {
             navigator.clipboard.writeText(String(contextMenu.game.placeId));
             addToast(t("Copied Place ID"));

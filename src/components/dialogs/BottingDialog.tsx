@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { Tooltip } from "../ui/Tooltip";
 import { NumericInput } from "../ui/NumericInput";
@@ -129,6 +130,7 @@ function TimingFieldHints() {
 export function BottingDialog({ open, onClose }: BottingDialogProps) {
   const t = useTr();
   const store = useStore();
+  const confirm = useConfirm();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
   const selectedAccounts = store.selectedAccounts;
   const selectedIds = useMemo(
@@ -460,6 +462,9 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
   const splitPlayersCount = liveRows.filter(
     ({ userId, row }) => !!row?.isPlayer || playerUserIds.includes(userId)
   ).length;
+  // Quantos clientes o "Stop + Close" fecha: as contas bot desta sessão.
+  // `stop_botting_mode` fecha `user_ids` menos `player_user_ids` — nada mais.
+  const splitBotCount = liveRows.length - splitPlayersCount;
   const splitDisconnectedCount = liveRows.filter(({ row }) => !!row?.disconnected).length;
   const splitRetryingCount = liveRows.filter(({ row }) => (row?.retryCount || 0) >= 2).length;
   const actionButtonsLocked = uiActionLocked;
@@ -504,6 +509,34 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
     setBulkSelectedUserIds(Array.from(new Set(userIds)));
   }
 
+  /**
+   * A frase de confirmação de um lote que fecha clientes, ou `null` quando a
+   * ação não fecha nada (Disconnect) ou reabre em seguida (Restart).
+   */
+  function bulkCloseWarning(action: BottingRowAction, count: number): string | null {
+    if (action === "close") {
+      return count === 1
+        ? t(
+            "Close the Roblox client of 1 bot account? It leaves the server now, and the loop rejoins it at its next scheduled rejoin."
+          )
+        : t(
+            "Close the Roblox client of {{count}} bot accounts? They leave the server now, and the loop rejoins each one at its next scheduled rejoin.",
+            { count }
+          );
+    }
+    if (action === "closeDisconnect") {
+      return count === 1
+        ? t(
+            "Close the Roblox client of 1 bot account and take it out of the rejoin cycle? It stays out until you reconnect it."
+          )
+        : t(
+            "Close the Roblox client of {{count}} bot accounts and take them out of the rejoin cycle? They stay out until you reconnect them.",
+            { count }
+          );
+    }
+    return null;
+  }
+
   async function runBulkAction(action: BottingRowAction) {
     if (!status?.active || actionButtonsLocked) return;
     const eligibleIds = bulkSelectedUserIds.filter((userId) =>
@@ -513,6 +546,12 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
       store.addToast(t("No selected accounts can run this action"));
       return;
     }
+
+    // Fechar cliente é irreversível para quem está na partida: a frase diz
+    // quantos fecham e o que acontece depois. Restart/Disconnect não fecham
+    // nada que a pessoa não recupere no próprio ciclo, então não perguntam.
+    const closeWarning = bulkCloseWarning(action, eligibleIds.length);
+    if (closeWarning && !(await confirm(closeWarning, true))) return;
 
     setBulkBusy(true);
     let succeeded = 0;
@@ -554,6 +593,30 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
         success: succeeded,
         failed,
       }));
+    }
+  }
+
+  /**
+   * Parar fechando os clientes bot: a frase diz quantos clientes fecham e o
+   * que continua aberto (a mesma regra explicada em "How each cycle works").
+   */
+  async function handleStopAndCloseBots() {
+    const ok = await confirm(
+      splitBotCount === 1
+        ? t(
+            "Stop Botting Mode and close the Roblox client of 1 bot account in this session? Player accounts keep their client, and clients of accounts outside this session are left alone."
+          )
+        : t(
+            "Stop Botting Mode and close the Roblox clients of {{count}} bot accounts in this session? Player accounts keep their client, and clients of accounts outside this session are left alone.",
+            { count: splitBotCount }
+          ),
+      true
+    );
+    if (!ok) return;
+    try {
+      await store.stopBottingMode(true);
+    } catch {
+      // `stopBottingMode` já publica o erro no store.
     }
   }
 
@@ -996,7 +1059,9 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
                         {t("Stop Botting Mode")}
                       </button>
                       <button
-                        onClick={() => store.stopBottingMode(true)}
+                        onClick={() => {
+                          void handleStopAndCloseBots();
+                        }}
                         disabled={actionButtonsLocked}
                         className="sidebar-btn-sm text-red-200 border-red-400/40 hover:bg-red-500/15 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
@@ -1999,7 +2064,9 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
             {t("Stop Botting Mode")}
           </button>
           <button
-            onClick={() => store.stopBottingMode(true)}
+            onClick={() => {
+              void handleStopAndCloseBots();
+            }}
             disabled={actionButtonsLocked}
             className="sidebar-btn-sm text-red-200 border-red-400/40 hover:bg-red-500/15 disabled:opacity-50 disabled:cursor-not-allowed"
           >
