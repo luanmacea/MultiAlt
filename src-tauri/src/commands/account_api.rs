@@ -642,9 +642,19 @@ async fn get_servers(
     server_type: String,
     cursor: Option<String>,
     user_id: Option<i64>,
+    sort_order: Option<String>,
+    exclude_full: Option<bool>,
 ) -> Result<api::roblox::ServersResponse, String> {
     let cookie = user_id.and_then(|id| get_cookie(&state, id).ok());
-    api::roblox::get_servers(place_id, &server_type, cursor.as_deref(), cookie.as_deref()).await
+    api::roblox::get_servers_page(
+        place_id,
+        &server_type,
+        cursor.as_deref(),
+        cookie.as_deref(),
+        sort_order.as_deref().unwrap_or("Asc"),
+        exclude_full.unwrap_or(false),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -758,7 +768,7 @@ async fn get_online_friends(
     user_id: i64,
 ) -> Result<Vec<api::roblox::OnlineFriend>, String> {
     let cookie = get_cookie(state.inner(), user_id)?;
-    api::roblox::get_online_friends(&cookie).await
+    api::roblox::get_online_friends(&cookie, user_id).await
 }
 
 /// Percorre as contas **em sequência**, com pausa entre elas, e isola o erro de
@@ -783,7 +793,7 @@ where
     on_progress(0, total);
     for (index, &user_id) in ids.iter().enumerate() {
         let entry = match get_cookie(store, user_id) {
-            Ok(cookie) => match api::roblox::get_online_friends(&cookie).await {
+            Ok(cookie) => match api::roblox::get_online_friends(&cookie, user_id).await {
                 Ok(friends) => AccountFriends { user_id, friends, error: None },
                 Err(error) => {
                     AccountFriends { user_id, friends: Vec::new(), error: Some(error) }

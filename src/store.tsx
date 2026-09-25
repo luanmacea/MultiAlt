@@ -26,6 +26,9 @@ import { parseGroupName } from "./types";
  * Qualquer coisa desconhecida (ou um INI antigo) volta para `default`, que é o
  * comportamento de sempre: Job ID vazio e o Roblox escolhe o servidor.
  */
+/** Abas do diálogo do gerador de contas. */
+export type GeneratorDialogTab = "provider" | "signup";
+
 export function normalizeServerPreference(value: string | undefined): ServerPreference {
   switch ((value || "").trim().toLowerCase()) {
     case "random":
@@ -365,6 +368,12 @@ export interface StoreValue {
   setBottingDialogOpen: (open: boolean) => void;
   bottingStatus: BottingStatus | null;
   generatorDialogOpen: boolean;
+  /**
+   * Aba em que o diálogo do gerador abre. O menu "Add" tem uma entrada para
+   * cada forma de conseguir conta, e cada uma abre o diálogo já na sua aba.
+   */
+  generatorDialogTab: GeneratorDialogTab;
+  openGeneratorDialog: (tab: GeneratorDialogTab) => void;
   setGeneratorDialogOpen: (open: boolean) => void;
   generatorStatus: GeneratorStatus | null;
   versionsDialogOpen: boolean;
@@ -496,6 +505,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [bottingDialogOpen, setBottingDialogOpen] = useState(false);
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
+  const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
+
+  const openGeneratorDialog = useCallback((tab: GeneratorDialogTab) => {
+    setGeneratorDialogTab(tab);
+    setGeneratorDialogOpen(true);
+  }, []);
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
@@ -2336,6 +2351,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setBottingDialogOpen,
     bottingStatus,
     generatorDialogOpen,
+    generatorDialogTab,
+    openGeneratorDialog,
     setGeneratorDialogOpen,
     generatorStatus,
     versionsDialogOpen,

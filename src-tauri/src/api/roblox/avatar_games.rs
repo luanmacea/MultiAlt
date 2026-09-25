@@ -178,14 +178,38 @@ pub async fn get_servers(
     cursor: Option<&str>,
     security_token: Option<&str>,
 ) -> Result<ServersResponse, String> {
+    get_servers_page(place_id, server_type, cursor, security_token, "Asc", false).await
+}
+
+/// A lista de servidores com a ordem e o filtro de lotados explícitos.
+///
+/// A ordem vem da **API**, não de um `sort` local: a resposta traz no máximo
+/// 100 servidores por página, e um jogo grande tem milhares. Reordenar a
+/// primeira página de `sortOrder=Asc` mostra "os mais cheios entre os mais
+/// vazios" — que foi exatamente o bug de a aba Servers mostrar 3/13 em tudo
+/// com o filtro "Fullest" ligado.
+///
+/// `Asc` = menos jogadores primeiro, `Desc` = mais (confirmado contra a API).
+pub async fn get_servers_page(
+    place_id: i64,
+    server_type: &str,
+    cursor: Option<&str>,
+    security_token: Option<&str>,
+    sort_order: &str,
+    exclude_full: bool,
+) -> Result<ServersResponse, String> {
     let client = reqwest::Client::new();
     let limit = if server_type == "VIP" { 25 } else { 100 };
+    let sort_order = if sort_order.eq_ignore_ascii_case("desc") { "Desc" } else { "Asc" };
     let mut url = format!(
-        "{}/v1/games/{}/servers/{}?sortOrder=Asc&limit={}",
+        "{}/v1/games/{}/servers/{}?sortOrder={}&limit={}",
         endpoints::host("games"),
-        place_id, server_type, limit
+        place_id, server_type, sort_order, limit
     );
 
+    if exclude_full {
+        url.push_str("&excludeFullGames=true");
+    }
     if let Some(c) = cursor {
         url.push_str(&format!("&cursor={}", c));
     }

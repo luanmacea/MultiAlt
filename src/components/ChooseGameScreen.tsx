@@ -11,7 +11,7 @@ import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle, X } from "lucide-react";
 import type { LaunchLogLevel, LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
@@ -705,6 +705,21 @@ export function ChooseGameScreen() {
     await launchAll(userIds, placeId, "", goToConsole);
   }
 
+  /** Vai para a aba Servers já com o place do jogo clicado. */
+  function handleBrowseServers(placeId: number) {
+    store.setPlaceId(String(placeId));
+    setActiveTab("servers");
+  }
+
+  /**
+   * Tira uma conta do lote pelo "x" do chip. A última não sai: um lote vazio
+   * deixaria a tela sem nada para lançar.
+   */
+  function handleRemoveAccount(userId: number) {
+    if (userIds.length <= 1) return;
+    store.setSelectedIds(new Set(userIds.filter((id) => id !== userId)));
+  }
+
   async function handleAddFavorite(game: GameEntry) {
     const existing = loadFavorites();
     if (existing.some((f) => f.placeId === game.placeId)) {
@@ -793,7 +808,7 @@ export function ChooseGameScreen() {
             return (
               <div
                 key={a.UserID}
-                className="flex items-center gap-1.5 bg-[var(--panel-soft)] border theme-border rounded-full pl-0.5 pr-2.5 py-0.5 text-[11px] text-[var(--panel-fg)]"
+                className="group flex items-center gap-1.5 bg-[var(--panel-soft)] border theme-border rounded-full pl-0.5 pr-1 py-0.5 text-[11px] text-[var(--panel-fg)]"
               >
                 {avatarUrl ? (
                   <img src={avatarUrl} alt="" className="w-4 h-4 rounded-full" />
@@ -803,6 +818,19 @@ export function ChooseGameScreen() {
                   </div>
                 )}
                 <span className="max-w-[100px] truncate">{name}</span>
+                <button
+                  onClick={() => handleRemoveAccount(a.UserID)}
+                  disabled={accounts.length <= 1}
+                  aria-label={t("Remove {{name}} from this launch", { name })}
+                  title={
+                    accounts.length <= 1
+                      ? t("Keep at least one account selected")
+                      : t("Remove from this launch")
+                  }
+                  className="w-4 h-4 rounded-full flex items-center justify-center theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-muted)] disabled:opacity-0 transition-colors"
+                >
+                  <X size={10} strokeWidth={2} />
+                </button>
               </div>
             );
           })}
@@ -857,6 +885,7 @@ export function ChooseGameScreen() {
               onJoinGame={handleJoinGame}
               addToast={store.addToast}
               onAddFavorite={handleAddFavorite}
+              onBrowseServers={(placeId) => handleBrowseServers(placeId)}
             />
           </div>
         )}

@@ -194,6 +194,7 @@ function AppContent() {
 
       <GeneratorDialog
         open={store.generatorDialogOpen}
+        initialTab={store.generatorDialogTab}
         onClose={() => store.setGeneratorDialogOpen(false)}
       />
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Globe, Loader2, RefreshCw, Server, Users } from "lucide-react";
+import { Globe, Loader2, RefreshCw, Search, Server, Wifi } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import type {
@@ -21,11 +21,18 @@ import type {
  * - O launch passa SEMPRE por `launchAll` (`launch_multiple`), nunca por um
  *   laço de `launch_roblox`: o piso anti-captcha de 8 s entre contas é do
  *   backend.
+ * - A **ordem é pedida à API**, não refeita aqui: a resposta traz no máximo 100
+ *   servidores e um jogo grande tem milhares, então reordenar a página local
+ *   mostraria "o mais cheio entre os mais vazios".
  * - A região **não** vem da lista de servidores (a API não devolve isso). Cada
  *   região custa um `join-game-instance`, então ela é resolvida sob demanda, em
  *   lotes pequenos, e nunca automaticamente ao abrir a aba.
  * - Servidor sem vaga para o lote inteiro aparece, mas não é clicável: mandar
  *   8 contas para um servidor com 2 vagas espalharia 6 delas.
+ *
+ * Desenho: a informação que decide a escolha é a **ocupação** — quantas vagas
+ * sobram e se o lote cabe. Por isso cada linha é uma barra de ocupação com as
+ * vagas do lote desenhadas nela, e não uma célula de texto "3/13".
  */
 
 /** Quantos servidores têm a região resolvida por clique em "Load regions". */
@@ -52,17 +59,9 @@ interface ServersResponse {
   nextPageCursor: string | null;
 }
 
-/**
- * Ordena a lista conforme a preferência, espelhando `rank_servers` do backend.
- *
- * `default` mantém a ordem que a API devolveu (menos jogadores primeiro), para
- * a aba não mentir sobre o que o launch faria.
- */
-export function sortServers(rows: ServerRow[], preference: ServerPreference): ServerRow[] {
-  const sorted = [...rows];
-  if (preference === "fullest") sorted.sort((a, b) => b.playing - a.playing);
-  else if (preference === "emptiest") sorted.sort((a, b) => a.playing - b.playing);
-  return sorted;
+/** `sortOrder` que a API tem que receber para cada preferência. */
+export function apiSortOrder(preference: ServerPreference): "Asc" | "Desc" {
+  return preference === "fullest" ? "Desc" : "Asc";
 }
 
 /** O servidor cabe o lote inteiro? É a mesma regra do backend. */
@@ -94,6 +93,43 @@ const PREFERENCES: { id: ServerPreference; label: string }[] = [
   { id: "emptiest", label: "Emptiest" },
   { id: "fullest", label: "Fullest" },
 ];
+
+/**
+ * Barra de ocupação: jogadores presentes, as vagas que o lote vai ocupar e o
+ * espaço que sobra. É o elemento que decide a escolha, então é o único com
+ * peso visual na linha.
+ */
+function OccupancyBar({
+  playing,
+  maxPlayers,
+  incoming,
+  fits,
+}: {
+  playing: number;
+  maxPlayers: number;
+  incoming: number;
+  fits: boolean;
+}) {
+  const total = Math.max(maxPlayers, 1);
+  const takenPct = Math.min(100, (playing / total) * 100);
+  const incomingPct = fits ? Math.min(100 - takenPct, (incoming / total) * 100) : 0;
+
+  return (
+    <div
+      className="h-1.5 w-full rounded-full overflow-hidden flex bg-[var(--panel-muted)]"
+      role="presentation"
+    >
+      <div
+        className={fits ? "bg-[var(--panel-fg)]/45" : "bg-[var(--panel-fg)]/25"}
+        style={{ width: `${takenPct}%` }}
+      />
+      <div
+        className="bg-[var(--accent-color)]"
+        style={{ width: `${incomingPct}%` }}
+      />
+    </div>
+  );
+}
 
 export interface ServersTabProps {
   /** Contas selecionadas — todas entram no servidor clicado. */
@@ -157,6 +193,9 @@ export function ServersTab({
         serverType: "Public",
         cursor: null,
         userId: accountForApi,
+        // A ordem é da API: a página local tem 100 de milhares de servidores.
+        sortOrder: apiSortOrder(preference),
+        excludeFull: true,
       });
       setRows(response.data || []);
       // Os Job IDs mudam a cada refresh; regiões antigas não valem mais.
@@ -167,18 +206,18 @@ export function ServersTab({
     } finally {
       setLoading(false);
     }
-  }, [accountForApi, t]);
+  }, [accountForApi, preference, t]);
 
-  // Carrega sozinho quando a aba abre já com um place escolhido.
+  // Recarrega ao abrir com um place escolhido e sempre que a ordem muda.
   useEffect(() => {
-    if (rows === null && parseInt(placeId, 10) > 0) void loadServers();
+    if (parseInt(placeId, 10) > 0) void loadServers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placeId]);
+  }, [placeId, preference]);
 
-  const visible = useMemo(() => {
-    const list = sortServers(rows || [], preference);
-    return list.filter((row) => matchesRegion(row, regions, regionFilter));
-  }, [rows, preference, regions, regionFilter]);
+  const visible = useMemo(
+    () => (rows || []).filter((row) => matchesRegion(row, regions, regionFilter)),
+    [rows, regions, regionFilter]
+  );
 
   /**
    * Resolve a região dos próximos servidores ainda sem região. Em lote pequeno
@@ -229,55 +268,58 @@ export function ServersTab({
   }
 
   /** Países já resolvidos, para o filtro oferecer só o que existe na lista. */
-  const availableCountries = useMemo(() => {
+  const regionOptions = useMemo(() => {
     const codes = new Set<string>();
     for (const entry of regions.values()) {
       const code = entry.region?.countryCode;
       if (code) codes.add(code.toUpperCase());
     }
-    return [...codes].sort();
-  }, [regions]);
-
-  const regionOptions = useMemo(() => {
-    const codes = new Set(availableCountries);
     if (regionFilter) codes.add(regionFilter);
+    codes.add("BR");
     return [...codes].sort();
-  }, [availableCountries, regionFilter]);
+  }, [regions, regionFilter]);
+
+  const batchSize = Math.max(userIds.length, 1);
+  const fitting = visible.filter((row) => hasRoomFor(row, batchSize)).length;
+  const pendingRegions = visible.filter((row) => !regions.has(row.id)).length;
+
+  const fieldClass =
+    "px-2.5 py-1.5 text-[12px] rounded-lg bg-[var(--panel-soft)] border theme-border text-[var(--panel-fg)] outline-none focus:border-[var(--accent-color)] transition-colors";
+  const buttonClass =
+    "flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-lg theme-btn-ghost border theme-border text-[var(--panel-fg)] disabled:opacity-40 transition-colors";
 
   return (
-    <div className="h-full flex flex-col min-h-0 gap-3">
+    <div className="h-full flex flex-col min-h-0 px-4 pt-3 pb-4 gap-3">
       {/* ── Controles ── */}
       <div className="shrink-0 flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1">
           <span className="text-[10px] theme-muted">{t("Place ID")}</span>
-          <input
-            value={placeId}
-            onChange={(e) => setPlaceId(e.target.value.replace(/[^0-9]/g, ""))}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void loadServers();
-            }}
-            placeholder="606849621"
-            aria-label={t("Place ID")}
-            className="w-[150px] px-2.5 py-1.5 text-[12px] rounded-md bg-[var(--panel-soft)] border theme-border text-[var(--panel-fg)] outline-none focus:border-[var(--accent-color)]"
-          />
+          <div className="relative">
+            <Search
+              size={12}
+              strokeWidth={1.5}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 theme-muted pointer-events-none"
+            />
+            <input
+              value={placeId}
+              onChange={(e) => setPlaceId(e.target.value.replace(/[^0-9]/g, ""))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void loadServers();
+              }}
+              placeholder="606849621"
+              aria-label={t("Place ID")}
+              className={`${fieldClass} w-[168px] pl-7 font-mono`}
+            />
+          </div>
         </label>
 
-        <button
-          onClick={() => void loadServers()}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-md theme-btn-ghost border theme-border text-[var(--panel-fg)] disabled:opacity-50"
-        >
-          {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-          {t("Refresh")}
-        </button>
-
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] theme-muted">{t("Server preference")}</span>
+          <span className="text-[10px] theme-muted">{t("Sort by")}</span>
           <select
             value={preference}
             onChange={(e) => store.setServerPreference(e.target.value as ServerPreference)}
             aria-label={t("Server preference")}
-            className="px-2.5 py-1.5 text-[12px] rounded-md bg-[var(--panel-soft)] border theme-border text-[var(--panel-fg)] outline-none"
+            className={fieldClass}
           >
             {PREFERENCES.map((option) => (
               <option key={option.id} value={option.id}>
@@ -293,7 +335,7 @@ export function ServersTab({
             value={regionFilter}
             onChange={(e) => store.setServerRegionFilter(e.target.value)}
             aria-label={t("Region")}
-            className="px-2.5 py-1.5 text-[12px] rounded-md bg-[var(--panel-soft)] border theme-border text-[var(--panel-fg)] outline-none"
+            className={fieldClass}
           >
             <option value="">{t("Any region")}</option>
             {regionOptions.map((code) => (
@@ -301,16 +343,11 @@ export function ServersTab({
                 {code}
               </option>
             ))}
-            {!regionOptions.includes("BR") && <option value="BR">BR</option>}
           </select>
         </label>
 
-        <button
-          onClick={() => void loadRegions()}
-          disabled={regionBusy || !rows?.length}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] rounded-md theme-btn-ghost border theme-border text-[var(--panel-fg)] disabled:opacity-50"
-        >
-          {regionBusy ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} />}
+        <button onClick={() => void loadRegions()} disabled={regionBusy || !rows?.length} className={buttonClass}>
+          {regionBusy ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} strokeWidth={1.5} />}
           {regionBusy && regionProgress
             ? t("Loading regions ({{done}}/{{total}})", {
                 done: regionProgress.done,
@@ -318,30 +355,45 @@ export function ServersTab({
               })
             : t("Load regions")}
         </button>
+
+        <button onClick={() => void loadServers()} disabled={loading} className={`${buttonClass} ml-auto`}>
+          {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} strokeWidth={1.5} />}
+          {t("Refresh")}
+        </button>
       </div>
 
-      <p className="shrink-0 text-[10px] theme-muted">
-        {t(
-          "Region needs one join request per server, so it is loaded in small batches — {{count}} at a time.",
-          { count: REGION_BATCH }
-        )}
-      </p>
+      {/* ── Resumo do que está na tela ── */}
+      {rows !== null && rows.length > 0 && (
+        <p className="shrink-0 text-[11px] theme-muted">
+          {t("{{fitting}} of {{listed}} servers have room for your {{accounts}} account(s).", {
+            fitting,
+            listed: visible.length,
+            accounts: batchSize,
+          })}{" "}
+          {pendingRegions > 0 &&
+            t("{{pending}} still without a region — loading it costs one join request each.", {
+              pending: pendingRegions,
+            })}
+        </p>
+      )}
 
       {/* ── Lista ── */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {error && (
-          <p className="text-[11px] text-red-400 py-2">{error}</p>
-        )}
+      <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border theme-border theme-surface">
+        {error && <p className="text-[11px] text-red-400 p-4">{error}</p>}
+
         {!error && rows === null && (
-          <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
+          <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10 px-6 text-center">
             <Server size={22} strokeWidth={1.5} />
-            <p className="text-[11px]">{t("Enter a Place ID to list its servers.")}</p>
+            <p className="text-[11px] max-w-[42ch]">
+              {t("Enter a Place ID to list its servers, or open a game from the Games tab.")}
+            </p>
           </div>
         )}
+
         {!error && rows !== null && visible.length === 0 && (
-          <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
+          <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10 px-6 text-center">
             <Server size={22} strokeWidth={1.5} />
-            <p className="text-[11px]">
+            <p className="text-[11px] max-w-[42ch]">
               {regionFilter
                 ? t("No server matched {{region}}. Load more regions or clear the filter.", {
                     region: regionFilter,
@@ -352,59 +404,85 @@ export function ServersTab({
         )}
 
         {visible.length > 0 && (
-          <table className="w-full text-[11px]">
-            <thead className="theme-muted">
-              <tr className="text-left">
-                <th className="py-1.5 px-2 font-medium">{t("Players")}</th>
-                <th className="py-1.5 px-2 font-medium">{t("Region")}</th>
-                <th className="py-1.5 px-2 font-medium">{t("Job ID")}</th>
-                <th className="py-1.5 px-2 font-medium text-right">{t("Ping")}</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((row) => {
-                const room = hasRoomFor(row, userIds.length);
-                const region = regions.get(row.id);
-                return (
-                  <tr
-                    key={row.id}
-                    className={`border-t theme-border ${room ? "" : "opacity-50"}`}
-                  >
-                    <td className="py-1.5 px-2 tabular-nums text-[var(--panel-fg)]">
-                      <span className="inline-flex items-center gap-1">
-                        <Users size={11} strokeWidth={1.5} className="theme-muted" />
-                        {row.playing}/{row.maxPlayers}
+          <ul className="divide-y divide-[var(--panel-border)]">
+            {visible.map((row) => {
+              const room = hasRoomFor(row, batchSize);
+              const region = regions.get(row.id);
+              const free = Math.max(row.maxPlayers - row.playing, 0);
+              return (
+                <li
+                  key={row.id}
+                  className="flex items-center gap-4 px-3.5 py-2.5 hover:bg-[var(--panel-soft)] transition-colors"
+                >
+                  {/* Ocupação: o número que decide a escolha */}
+                  <div className="w-[164px] shrink-0">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-[15px] tabular-nums text-[var(--panel-fg)]">
+                        {row.playing}
                       </span>
-                    </td>
-                    <td className="py-1.5 px-2 theme-muted">
-                      {region ? region.label || region.error || "—" : "—"}
-                    </td>
-                    <td className="py-1.5 px-2 theme-muted font-mono truncate max-w-[220px]">
-                      {row.id}
-                    </td>
-                    <td className="py-1.5 px-2 text-right tabular-nums theme-muted">
-                      {row.ping ?? "—"}
-                    </td>
-                    <td className="py-1.5 px-2 text-right">
-                      <button
-                        onClick={() => void handleJoin(row)}
-                        disabled={!room || joining !== null}
-                        title={
-                          room
-                            ? undefined
-                            : t("Not enough room for {{count}} accounts", { count: userIds.length })
-                        }
-                        className="px-2 py-1 rounded-md text-[11px] theme-btn-ghost border theme-border text-[var(--panel-fg)] disabled:opacity-40"
+                      <span className="text-[11px] tabular-nums theme-muted">
+                        / {row.maxPlayers}
+                      </span>
+                      <span
+                        className={`ml-auto text-[10px] tabular-nums ${
+                          room ? "theme-muted" : "text-amber-400/80"
+                        }`}
                       >
-                        {joining === row.id ? t("Joining...") : t("Join")}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                        {room
+                          ? t("{{free}} free", { free })
+                          : t("{{free}} free · needs {{needed}}", { free, needed: batchSize })}
+                      </span>
+                    </div>
+                    <div className="mt-1.5">
+                      <OccupancyBar
+                        playing={row.playing}
+                        maxPlayers={row.maxPlayers}
+                        incoming={batchSize}
+                        fits={room}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Região */}
+                  <div className="w-[150px] shrink-0 text-[11px]">
+                    {region ? (
+                      region.label ? (
+                        <span className="text-[var(--panel-fg)]">{region.label}</span>
+                      ) : (
+                        <span className="theme-muted">{region.error}</span>
+                      )
+                    ) : (
+                      <span className="theme-muted">—</span>
+                    )}
+                  </div>
+
+                  {/* Job ID */}
+                  <code className="flex-1 min-w-0 truncate text-[11px] font-mono theme-muted">
+                    {row.id}
+                  </code>
+
+                  {/* Ping */}
+                  <div className="w-[64px] shrink-0 flex items-center justify-end gap-1 text-[11px] tabular-nums theme-muted">
+                    <Wifi size={11} strokeWidth={1.5} />
+                    {row.ping ?? "—"}
+                  </div>
+
+                  <button
+                    onClick={() => void handleJoin(row)}
+                    disabled={!room || joining !== null}
+                    title={
+                      room
+                        ? undefined
+                        : t("Not enough room for {{count}} accounts", { count: batchSize })
+                    }
+                    className="shrink-0 px-3 py-1 rounded-lg text-[11px] theme-btn-ghost border theme-border text-[var(--panel-fg)] disabled:opacity-30 transition-colors"
+                  >
+                    {joining === row.id ? t("Joining...") : t("Join")}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
     </div>

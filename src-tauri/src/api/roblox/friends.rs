@@ -1,6 +1,6 @@
 // Amigos online de uma conta.
 //
-// `GET friends/v1/my/friends/online`, **com o cookie da conta**, devolve os
+// `GET friends/v1/users/{userId}/friends/online`, **com o cookie da conta**, devolve os
 // amigos online já com `userPresenceType`, `lastLocation`, `placeId` e
 // `gameInstanceId` — esse último é o job id, o que permite entrar no servidor
 // do amigo. Desde out/2024 o payload **não** traz mais `name`/`displayName`,
@@ -25,6 +25,36 @@ pub struct OnlineFriend {
     pub game_id: Option<String>,
 }
 
+/// Tipo de presença como as duas rotas mandam: número (`2`) na rota antiga e
+/// texto (`"InGame"`) na `users/{id}/friends/online`. Guardar os dois evita que
+/// um payload em texto derrube o amigo inteiro na desserialização.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum PresenceType {
+    Code(i32),
+    /// Guardado como texto livre, e não como enum: um nome novo que a Roblox
+    /// invente vira presença desconhecida em vez de derrubar o amigo inteiro
+    /// na desserialização.
+    Name(String),
+}
+
+impl PresenceType {
+    /// Código numérico que o resto do app (e o frontend) usa.
+    fn code(&self) -> i32 {
+        match self {
+            PresenceType::Code(code) => *code,
+            PresenceType::Name(name) => match name.as_str() {
+                "Online" => 1,
+                "InGame" => 2,
+                "InStudio" => 3,
+                "Invisible" => 4,
+                // "Offline" e qualquer nome novo.
+                _ => 0,
+            },
+        }
+    }
+}
+
 /// Item cru do payload, tolerante a tudo que a Roblox já mandou nessa rota:
 /// campos ausentes, `null`, `userId` ou `id`, `gameInstanceId` ou `gameId` e a
 /// forma antiga com os campos de presença aninhados em `userPresence`.
@@ -33,15 +63,19 @@ pub struct OnlineFriend {
 struct RawOnlineFriend {
     #[serde(rename = "userId", alias = "id")]
     user_id: Option<i64>,
-    #[serde(rename = "userPresenceType", alias = "presenceType")]
-    presence_type: Option<i32>,
-    #[serde(rename = "lastLocation")]
+    #[serde(
+        rename = "userPresenceType",
+        alias = "presenceType",
+        alias = "UserPresenceType"
+    )]
+    presence_type: Option<PresenceType>,
+    #[serde(rename = "lastLocation", alias = "LastLocation")]
     last_location: Option<String>,
-    #[serde(rename = "placeId")]
+    #[serde(rename = "placeId", alias = "PlaceId")]
     place_id: Option<i64>,
-    #[serde(rename = "rootPlaceId")]
+    #[serde(rename = "rootPlaceId", alias = "RootPlaceId")]
     root_place_id: Option<i64>,
-    #[serde(rename = "gameInstanceId", alias = "gameId")]
+    #[serde(rename = "gameInstanceId", alias = "gameId", alias = "GameId")]
     game_id: Option<String>,
     name: Option<String>,
     #[serde(rename = "displayName")]
@@ -67,7 +101,11 @@ impl RawOnlineFriend {
             user_id,
             name: self.name.unwrap_or_default(),
             display_name: self.display_name.unwrap_or_default(),
-            presence_type: self.presence_type.or(nested.presence_type).unwrap_or(0),
+            presence_type: self
+                .presence_type
+                .or(nested.presence_type)
+                .map(|value| value.code())
+                .unwrap_or(0),
             last_location: self
                 .last_location
                 .or(nested.last_location)
@@ -204,10 +242,24 @@ async fn fill_missing_game_ids(security_token: &str, friends: &mut [OnlineFriend
     }
 }
 
-/// Amigos online da conta dona do cookie, já com nomes e ordenados.
-pub async fn get_online_friends(security_token: &str) -> Result<Vec<OnlineFriend>, String> {
+/// Amigos online de uma conta, já com nomes e ordenados.
+///
+/// A rota é `users/{userId}/friends/online`. A antiga (`my/friends/online`) foi
+/// **removida** pelo Roblox e passou a responder 404 para todo mundo — era o
+/// motivo de a aba Friends mostrar "status 404" em todas as contas.
+pub async fn get_online_friends(
+    security_token: &str,
+    user_id: i64,
+) -> Result<Vec<OnlineFriend>, String> {
+    if user_id <= 0 {
+        return Err("Conta sem UserID: refaça o login dela".to_string());
+    }
     let client = reqwest::Client::new();
-    let url = format!("{}/v1/my/friends/online", endpoints::host("friends"));
+    let url = format!(
+        "{}/v1/users/{}/friends/online",
+        endpoints::host("friends"),
+        user_id
+    );
 
     let response = send_with_retry(|| {
         client
