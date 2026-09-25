@@ -141,7 +141,7 @@ export const SUITES: Record<string, TestSuite> = {
   nexus: {
     description: "Servidor WebSocket do Nexus",
     rust: ["nexus_query_tests"],
-    front: [],
+    front: ["src/components/dialogs/NexusDialog.test.tsx"],
   },
   scripts: {
     description: "Scripts do usuário: store, sandbox e redação de segredos",
