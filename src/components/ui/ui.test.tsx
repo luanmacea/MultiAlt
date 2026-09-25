@@ -56,6 +56,51 @@ describe("Toggle", () => {
     expect(screen.getByText("restart required")).toBeInTheDocument();
     expect(screen.getByText("Accept connections from other devices.")).toBeInTheDocument();
   });
+
+  /**
+   * Era um `<div onClick>`: sem `role`, sem `aria-checked`, sem `tabIndex` e
+   * sem teclado. Usado 59 vezes em 9 telas de Settings — hoje inteiramente
+   * inoperável sem mouse.
+   */
+  it("exposes role=switch and aria-checked, and is reachable by Tab", () => {
+    render(<Toggle checked={false} onChange={vi.fn()} label="Show Presence" />);
+    const toggle = screen.getByRole("switch", { name: "Show Presence" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(toggle.tabIndex).toBe(0);
+  });
+
+  it("reports aria-checked=true once turned on", () => {
+    render(<Toggle checked onChange={vi.fn()} label="Show Presence" />);
+    expect(screen.getByRole("switch", { name: "Show Presence" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("toggles with the Space key", async () => {
+    const onChange = vi.fn();
+    render(<Toggle checked={false} onChange={onChange} label="Show Presence" />);
+    screen.getByRole("switch", { name: "Show Presence" }).focus();
+    await userEvent.keyboard(" ");
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("toggles with the Enter key", async () => {
+    const onChange = vi.fn();
+    render(<Toggle checked={false} onChange={onChange} label="Show Presence" />);
+    screen.getByRole("switch", { name: "Show Presence" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("is taken out of the tab order and marked aria-disabled while disabled", async () => {
+    const onChange = vi.fn();
+    render(<Toggle checked={false} onChange={onChange} label="Show Presence" disabled />);
+    const toggle = screen.getByRole("switch", { name: "Show Presence" });
+    expect(toggle).toHaveAttribute("aria-disabled", "true");
+    expect(toggle.tabIndex).toBe(-1);
+
+    toggle.focus();
+    await userEvent.keyboard(" ");
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("ToggleRow", () => {

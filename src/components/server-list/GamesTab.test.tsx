@@ -109,3 +109,37 @@ describe("GamesTab — ações do card", () => {
     expect(props.onJoinGame).toHaveBeenCalledWith(606849621);
   });
 });
+
+/**
+ * A linha era um `<div onClick>`: só o mouse chegava nela. Não dá para trocar
+ * a `div` por `<button>` porque `GameRowActions` já renderiza botões dentro
+ * — botão dentro de botão é HTML inválido — então a linha ganhou
+ * `role="button"` + teclado em vez disso.
+ */
+describe("GamesTab — teclado", () => {
+  it("é alcançável por Tab e ativa com Enter", async () => {
+    const props = await renderGames();
+    const row = screen.getByRole("button", { name: /Jailbreak/ });
+    expect(row.tabIndex).toBe(0);
+
+    row.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(props.onSelectGame).toHaveBeenCalledWith(606849621, "Jailbreak", null);
+  });
+
+  it("ativa com Espaço", async () => {
+    const props = await renderGames();
+    screen.getByRole("button", { name: /Jailbreak/ }).focus();
+    await userEvent.keyboard(" ");
+    expect(props.onSelectGame).toHaveBeenCalledWith(606849621, "Jailbreak", null);
+  });
+
+  it("não dispara a linha ao ativar um botão de ação por teclado", async () => {
+    const props = await renderGames();
+    const favoriteButton = screen.getByRole("button", { name: "Favorite" });
+    favoriteButton.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(props.onAddFavorite).toHaveBeenCalledTimes(1);
+    expect(props.onSelectGame).not.toHaveBeenCalled();
+  });
+});

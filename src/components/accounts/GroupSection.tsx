@@ -34,8 +34,7 @@ export function GroupSection({
   const someSelected = groupIds.some((id) => store.selectedIds.has(id));
   const multiMode = store.selectedIds.size > 1;
 
-  function handleGroupCheckbox(e: React.MouseEvent) {
-    e.stopPropagation();
+  function toggleGroupSelection() {
     if (allSelected) {
       const next = new Set(store.selectedIds);
       groupIds.forEach((id) => next.delete(id));
@@ -47,16 +46,38 @@ export function GroupSection({
     }
   }
 
+  function handleGroupCheckbox(e: React.MouseEvent) {
+    e.stopPropagation();
+    toggleGroupSelection();
+  }
+
+  function handleGroupCheckboxKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleGroupSelection();
+    }
+  }
+
   return (
     <div className="mb-0.5">
       {showHeader && (
         <div
           data-group-header="true"
           data-group-key={group.key}
-          className={`theme-group-header flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none text-xs transition-all duration-150 ${
+          role="button"
+          tabIndex={0}
+          aria-expanded={!collapsed}
+          className={`theme-group-header flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none text-xs transition-all duration-150 outline-none ${
             store.dragState ? "hover:bg-[var(--accent-soft)] hover:pl-4" : "hover:bg-[var(--row-hover)]"
           }`}
           onClick={onToggle}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onToggle();
+            }
+          }}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
         >
@@ -64,7 +85,10 @@ export function GroupSection({
             multiMode ? "w-3.5 opacity-100" : "w-0 opacity-0"
           }`}>
             <div
-              className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all duration-100 cursor-pointer ${
+              role="checkbox"
+              aria-checked={allSelected ? true : someSelected ? "mixed" : false}
+              tabIndex={multiMode ? 0 : -1}
+              className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all duration-100 cursor-pointer outline-none ${
                 allSelected ? "" : someSelected ? "" : "theme-border group-hover:brightness-110"
               }`}
               style={
@@ -75,6 +99,7 @@ export function GroupSection({
                   : undefined
               }
               onClick={handleGroupCheckbox}
+              onKeyDown={handleGroupCheckboxKeyDown}
             >
               {allSelected && (
                 <Check size={8} stroke="var(--forms-bg)" strokeWidth={3.5} />

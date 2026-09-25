@@ -432,4 +432,84 @@ describe("MenuItemView", () => {
     await userEvent.click(screen.getByText("Inert"));
     expect(close).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * O menu de contexto é a superfície principal de ação do app e era só
+   * `<div onClick>`: sem `role`, sem foco, sem teclado. Estes testes cobrem a
+   * semântica e a navegação por teclado que a onda 2 deu a ele.
+   */
+  describe("teclado", () => {
+    it("is reachable by tab and activates with Enter", async () => {
+      const action = vi.fn();
+      const close = vi.fn();
+      render(<MenuItemView item={{ label: "Do it", action }} close={close} />);
+      const menuitem = screen.getByRole("menuitem", { name: "Do it" });
+      expect(menuitem.tabIndex).toBe(0);
+
+      menuitem.focus();
+      await userEvent.keyboard("{Enter}");
+      expect(action).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it("activates with Space too", async () => {
+      const action = vi.fn();
+      render(<MenuItemView item={{ label: "Do it", action }} close={vi.fn()} />);
+      screen.getByRole("menuitem", { name: "Do it" }).focus();
+      await userEvent.keyboard(" ");
+      expect(action).toHaveBeenCalledTimes(1);
+    });
+
+    it("moves focus between siblings with the arrow keys", async () => {
+      render(
+        <div>
+          <MenuItemView item={{ label: "First" }} close={vi.fn()} />
+          <MenuItemView item={{ label: "Second" }} close={vi.fn()} />
+        </div>
+      );
+      const first = screen.getByRole("menuitem", { name: "First" });
+      const second = screen.getByRole("menuitem", { name: "Second" });
+
+      first.focus();
+      await userEvent.keyboard("{ArrowDown}");
+      expect(second).toHaveFocus();
+
+      await userEvent.keyboard("{ArrowUp}");
+      expect(first).toHaveFocus();
+    });
+
+    it("skips separators while navigating with the arrow keys", async () => {
+      render(
+        <div>
+          <MenuItemView item={{ label: "First" }} close={vi.fn()} />
+          <MenuItemView item={{ label: "", separator: true }} close={vi.fn()} />
+          <MenuItemView item={{ label: "Second" }} close={vi.fn()} />
+        </div>
+      );
+      screen.getByRole("menuitem", { name: "First" }).focus();
+      await userEvent.keyboard("{ArrowDown}");
+      expect(screen.getByRole("menuitem", { name: "Second" })).toHaveFocus();
+    });
+
+    it("opens a submenu with ArrowRight and focuses its first child; ArrowLeft returns focus", async () => {
+      const submenu: MenuItem[] = [{ label: "Child A" }, { label: "Child B" }];
+      render(<MenuItemView item={{ label: "Parent", submenu }} close={vi.fn()} />);
+      const trigger = screen.getByRole("menuitem", { name: "Parent" });
+
+      trigger.focus();
+      await userEvent.keyboard("{ArrowRight}");
+      expect(screen.getByRole("menuitem", { name: "Child A" })).toHaveFocus();
+
+      await userEvent.keyboard("{ArrowLeft}");
+      expect(trigger).toHaveFocus();
+    });
+
+    it("also opens the submenu with Enter", async () => {
+      const submenu: MenuItem[] = [{ label: "Child A" }];
+      render(<MenuItemView item={{ label: "Parent", submenu }} close={vi.fn()} />);
+      screen.getByRole("menuitem", { name: "Parent" }).focus();
+      await userEvent.keyboard("{Enter}");
+      expect(screen.getByRole("menuitem", { name: "Child A" })).toHaveFocus();
+    });
+  });
 });

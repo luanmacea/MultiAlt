@@ -76,6 +76,50 @@ describe("GroupSection", () => {
     await userEvent.click(checkbox);
     expect(store.setSelectedIds).toHaveBeenCalledWith(new Set([99]));
   });
+
+  /**
+   * Cabeçalho e checkbox eram `<div onClick>`: colapsar o grupo e selecionar
+   * o grupo inteiro não tinham equivalente por teclado.
+   */
+  describe("teclado", () => {
+    it("exposes the header as a button and toggles it with the keyboard", async () => {
+      const { onToggle } = renderGroup();
+      const el = header();
+      expect(el).toHaveAttribute("role", "button");
+      expect(el.tabIndex).toBe(0);
+
+      el.focus();
+      await userEvent.keyboard("{Enter}");
+      expect(onToggle).toHaveBeenCalledTimes(1);
+
+      await userEvent.keyboard(" ");
+      expect(onToggle).toHaveBeenCalledTimes(2);
+    });
+
+    it("exposes the group checkbox with role=checkbox and toggles it with Space", async () => {
+      const { store } = renderGroup({ selectedIds: new Set([11, 99]) });
+      const checkbox = header().firstElementChild?.firstElementChild as HTMLElement;
+      expect(checkbox).toHaveAttribute("role", "checkbox");
+      // 11 (do grupo) e 99 (fora) estão selecionados, 12 não: misto, não "false".
+      expect(checkbox).toHaveAttribute("aria-checked", "mixed");
+
+      checkbox.focus();
+      await userEvent.keyboard(" ");
+      expect(store.setSelectedIds).toHaveBeenCalledWith(new Set([11, 99, 12]));
+    });
+
+    it("reports aria-checked=true once the whole group is selected", () => {
+      renderGroup({ selectedIds: new Set([11, 12]) });
+      const checkbox = header().firstElementChild?.firstElementChild as HTMLElement;
+      expect(checkbox).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("reports aria-checked=mixed when only part of the group is selected", () => {
+      renderGroup({ selectedIds: new Set([11]) });
+      const checkbox = header().firstElementChild?.firstElementChild as HTMLElement;
+      expect(checkbox).toHaveAttribute("aria-checked", "mixed");
+    });
+  });
 });
 
 describe("AccountChip", () => {

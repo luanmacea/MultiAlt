@@ -14,16 +14,30 @@ export function Toggle({
   disabled?: boolean;
 }) {
   const t = useTr();
+
+  function toggle() {
+    if (disabled) return;
+    onChange(!checked);
+  }
+
   return (
     <div
-      className={`group flex items-start gap-3 py-2 px-1 rounded-lg select-none transition-colors ${
+      role="switch"
+      aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      tabIndex={disabled ? -1 : 0}
+      className={`group flex items-start gap-3 py-2 px-1 rounded-lg select-none transition-colors outline-none ${
         disabled
           ? "cursor-not-allowed opacity-60"
           : "cursor-pointer hover:bg-white/[0.02]"
       }`}
-      onClick={() => {
+      onClick={toggle}
+      onKeyDown={(e) => {
         if (disabled) return;
-        onChange(!checked);
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          toggle();
+        }
       }}
     >
       <div className="relative mt-0.5 shrink-0">

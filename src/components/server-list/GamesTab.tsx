@@ -202,8 +202,17 @@ export function GamesTab({
             {games.map((game) => (
               <div
                 key={`${game.placeId}-${game.name}`}
-                className="flex items-center gap-2.5 p-2 rounded-lg border border-zinc-800/40 bg-zinc-900/40 hover:bg-zinc-800/50 hover:border-zinc-700/60 transition-all cursor-pointer group"
+                role="button"
+                tabIndex={0}
+                className="flex items-center gap-2.5 p-2 rounded-lg border border-zinc-800/40 bg-zinc-900/40 hover:bg-zinc-800/50 hover:border-zinc-700/60 transition-all cursor-pointer group outline-none"
                 onClick={() => onSelectGame(game.placeId, game.name, game.iconUrl)}
+                onKeyDown={(e) => {
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectGame(game.placeId, game.name, game.iconUrl);
+                  }
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ x: e.clientX, y: e.clientY, game });
