@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useConfirm } from "../../hooks/usePrompt";
+import { isMultiRobloxCloseProcessError } from "../../utils/robloxErrors";
 import { useTr } from "../../i18n/text";
 import { Tooltip } from "../ui/Tooltip";
 import { NumericInput } from "../ui/NumericInput";
@@ -87,14 +88,6 @@ function phaseTone(phase: string): string {
   if (p.includes("launch") || p.includes("restart")) return "text-violet-300";
   if (p.includes("wait")) return "text-cyan-300";
   return "text-emerald-300";
-}
-
-function isMultiRobloxCloseProcessError(message: string | null | undefined): boolean {
-  const lower = (message || "").toLowerCase();
-  return (
-    lower.includes("failed to enable multi roblox") ||
-    (lower.includes("multi roblox") && lower.includes("close all roblox process"))
-  );
 }
 
 /**

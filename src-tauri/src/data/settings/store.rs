@@ -48,7 +48,9 @@ impl SettingsStore {
             (
                 "ServerRegionFormat",
                 "<city>, <countryCode>",
-                Some("Visit http://ip-api.com/json/1.1.1.1 to see available format options"),
+                // O comentario apontava ip-api.com, que nao tem nada a ver com os
+                // tokens que `format_region` substitui de fato.
+                Some("Tokens: <city>, <region>, <country>, <countryCode>, <ip>; other text is kept as typed"),
             ),
             ("MaxRecentGames", "8", None),
             ("Language", "en", None),

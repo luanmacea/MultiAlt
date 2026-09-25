@@ -6,6 +6,7 @@ import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useJoinOnlineWarning } from "../../hooks/useJoinOnlineWarning";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
+import { isMultiRobloxCloseProcessError } from "../../utils/robloxErrors";
 import { parseGroupName } from "../../types";
 import { SidebarSection } from "./SidebarSection";
 import { AccountChip } from "./AccountChip";
@@ -60,10 +61,7 @@ export function MultiSelectSidebar() {
     [accounts, store.launchedByProgram]
   );
   const launchedSelectedCount = launchedSelectedIds.length;
-  const errorLower = (store.error || "").toLowerCase();
-  const pulseCloseAction =
-    errorLower.includes("failed to enable multi roblox") ||
-    (errorLower.includes("multi roblox") && errorLower.includes("close all roblox process"));
+  const pulseCloseAction = isMultiRobloxCloseProcessError(store.error);
 
   const allGroups = useMemo(() => {
     const set = new Set<string>();

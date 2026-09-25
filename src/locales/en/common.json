@@ -691,7 +691,6 @@
   "Priority Class": "Priority Class",
   "Process Behavior": "Process Behavior",
   "Process memory limit": "Process memory limit",
-  "Randomize which server instance to join": "Randomize which server instance to join",
   "Read Interval": "Read Interval",
   "Relaunch Delay": "Relaunch Delay",
   "Remember Window Positions": "Remember Window Positions",
@@ -1578,5 +1577,9 @@
   "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.": "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you.",
   "Optimization profile": "Optimization profile",
   "That is not valid JSON — check the commas, braces and quotes.": "That is not valid JSON — check the commas, braces and quotes.",
-  "Forces Idle priority on every Roblox client of this profile, even the one in focus": "Forces Idle priority on every Roblox client of this profile, even the one in focus"
+  "Forces Idle priority on every Roblox client of this profile, even the one in focus": "Forces Idle priority on every Roblox client of this profile, even the one in focus",
+  "Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it.": "Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it.",
+  "Nexus.lua saved in {{path}} (path copied)": "Nexus.lua saved in {{path}} (path copied)",
+  "Nexus.lua saved in {{path}}": "Nexus.lua saved in {{path}}",
+  "Could not save Nexus.lua: {{error}}": "Could not save Nexus.lua: {{error}}"
 }

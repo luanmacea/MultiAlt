@@ -59,7 +59,7 @@ export function MiscellaneousTab({
         checked={s.getBool("General", "ShuffleJobId")}
         onChange={(v) => s.setBool("General", "ShuffleJobId", v)}
         label="Shuffle Job ID"
-        description="Randomize which server instance to join"
+        description="Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it."
       />
 
       <Divider />
