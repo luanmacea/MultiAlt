@@ -75,6 +75,29 @@ pub fn fits_with_buffer(server: &ServerData, accounts: usize) -> bool {
     server.max_players > 0 && server.playing <= best_fit_cap(server.max_players, accounts)
 }
 
+/// Chave de ordenação do "melhor encaixe" — menor é melhor.
+///
+/// A folga ideal depois do lote entrar é **uma vaga** ([`FREE_SEAT_BUFFER`]):
+/// entra num servidor com gente, sem lotá-lo no instante seguinte. A partir
+/// daí a nota piora conforme a distância dessa folga, para os dois lados —
+/// encher o servidor é ruim, e um servidor quase vazio também.
+///
+/// Empate vai para o mais cheio, que é o servidor mais vivo.
+pub fn best_fit_score(server: &ServerData, accounts: usize) -> (i32, i32, i32) {
+    if server.max_players <= 0 {
+        return (i32::MAX, 0, 0);
+    }
+    let free = (server.max_players - server.playing).max(0);
+    let slack = free - accounts.max(1) as i32;
+    if slack >= 0 {
+        // Cabe: distância da folga ideal, depois o mais cheio.
+        (0, (slack - FREE_SEAT_BUFFER).abs(), slack)
+    } else {
+        // Não cabe: quem leva mais contas primeiro, depois o mais cheio.
+        (1, -free, -server.playing)
+    }
+}
+
 /// Servidores que cabem o lote inteiro, na ordem da preferência.
 ///
 /// Regras:
@@ -107,7 +130,7 @@ pub fn rank_servers(
             .iter()
             .filter(|s| s.max_players > 0 && s.playing < s.max_players)
             .collect();
-        partial.sort_by_key(|s| (s.playing - s.max_players, -s.playing));
+        partial.sort_by_key(|s| best_fit_score(s, accounts));
         return partial;
     }
 
@@ -116,19 +139,10 @@ pub fn rank_servers(
     match preference {
         ServerPreference::Emptiest => candidates.sort_by_key(|s| s.playing),
         ServerPreference::Fullest => candidates.sort_by_key(|s| -s.playing),
-        ServerPreference::BestFit => {
-            // Com folga primeiro, do mais cheio para o mais vazio; sem nenhum
-            // com folga, vale o que couber (a folga é preferência, não regra).
-            let with_buffer: Vec<&ServerData> = candidates
-                .iter()
-                .copied()
-                .filter(|s| fits_with_buffer(s, accounts))
-                .collect();
-            if !with_buffer.is_empty() {
-                candidates = with_buffer;
-            }
-            candidates.sort_by_key(|s| -s.playing);
-        }
+        // Pontuação: a vaga de folga ideal é **uma**. Quanto mais longe disso
+        // (encher o servidor ou entrar num quase vazio), pior; empate vai para
+        // o mais cheio, que é o servidor mais vivo.
+        ServerPreference::BestFit => candidates.sort_by_key(|s| best_fit_score(s, accounts)),
         // Aleatório e "não escolhe" mantêm a ordem da API; quem sorteia é
         // `pick_from_list`.
         ServerPreference::Random | ServerPreference::None => {}

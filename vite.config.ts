@@ -2,12 +2,34 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 
 const host = process.env.TAURI_DEV_HOST;
+
+/**
+ * Modo harness (`bun run dev:ui`): roda o frontend de verdade no navegador com
+ * o lado Tauri trocado por dublês, para validar a interface sem compilar o app.
+ * Ver `docs/development.md#validando-a-ui-no-navegador`.
+ */
+const uiHarness = process.env.UI_HARNESS === "1";
+
+/** Caminho absoluto de um dublê do harness (alias do Vite não aceita relativo). */
+function harnessModule(name: string): string {
+  return fileURLToPath(new URL(`./src/dev/harness/${name}.ts`, import.meta.url));
+}
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
+  resolve: uiHarness
+    ? {
+        alias: {
+          "@tauri-apps/api/core": harnessModule("core"),
+          "@tauri-apps/api/event": harnessModule("event"),
+          "@tauri-apps/api/window": harnessModule("window"),
+        },
+      }
+    : undefined,
   server: {
     port: 1420,
     strictPort: true,
