@@ -384,6 +384,176 @@ describe("ChooseGameScreen — Friends tab", () => {
   });
 });
 
+/**
+ * Preferência de servidor (Random / Emptiest / Fullest, com filtro de país).
+ *
+ * Contrato que estes testes travam: o servidor é resolvido **uma vez** para o
+ * lote — se cada conta resolvesse o seu, o lote não jogaria junto — e só quando
+ * o usuário não escolheu servidor.
+ */
+describe("ChooseGameScreen — preferência de servidor", () => {
+  function pickStore(overrides: Partial<StoreValue> = {}) {
+    return setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+      ...overrides,
+    });
+  }
+
+  async function joinPlainLink() {
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Follow" }));
+    await userEvent.type(linkInput(), "https://www.roblox.com/games/606849621");
+    await userEvent.click(joinButton());
+  }
+
+  it("resolve o servidor uma vez para o lote e lança todo mundo nele", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "resolve_join_link") return joinTarget({ kind: "place" });
+      if (cmd === "pick_server") {
+        return { jobId: "job-vazio", playing: 2, maxPlayers: 30, region: null, regionFallback: false };
+      }
+      return undefined;
+    });
+    const store = pickStore({ serverPreference: "emptiest", serverRegionFilter: "" });
+
+    await joinPlainLink();
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ jobId: "job-vazio" })
+      )
+    );
+    const picks = invokeMock.mock.calls.filter((call) => call[0] === "pick_server");
+    expect(picks).toHaveLength(1);
+    expect(picks[0][1]).toMatchObject({
+      userId: 1001,
+      placeId: 606849621,
+      preference: "emptiest",
+      accounts: 2,
+    });
+  });
+
+  it("manda o país escolhido junto com a preferência", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "resolve_join_link") return joinTarget({ kind: "place" });
+      if (cmd === "pick_server") {
+        return { jobId: "job-br", playing: 4, maxPlayers: 30, region: null, regionFallback: false };
+      }
+      return undefined;
+    });
+    pickStore({ serverPreference: "emptiest", serverRegionFilter: "BR" });
+
+    await joinPlainLink();
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "pick_server",
+        expect.objectContaining({ countryCode: "BR" })
+      )
+    );
+  });
+
+  it("não resolve nada na preferência default", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "resolve_join_link") return joinTarget({ kind: "place" });
+      return undefined;
+    });
+    const store = pickStore({ serverPreference: "default" });
+
+    await joinPlainLink();
+
+    await waitFor(() => expect(store.launchMultiple).toHaveBeenCalled());
+    expect(invokeMock.mock.calls.filter((call) => call[0] === "pick_server")).toHaveLength(0);
+  });
+
+  /** Job ID explícito vence a preferência: o usuário já escolheu. */
+  it("não sobrepõe um servidor que o usuário escolheu", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "resolve_join_link") return joinTarget({ kind: "job", jobId: "job-do-usuario" });
+      return undefined;
+    });
+    const store = pickStore({ serverPreference: "fullest" });
+
+    await joinPlainLink();
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ jobId: "job-do-usuario" })
+      )
+    );
+    expect(invokeMock.mock.calls.filter((call) => call[0] === "pick_server")).toHaveLength(0);
+  });
+
+  /**
+   * Sem servidor no país pedido o backend devolve o melhor disponível marcado
+   * como fallback; entrar nele sem perguntar seria justamente o que o usuário
+   * quer evitar. Sem `PromptProvider`, `confirm()` resolve `false`.
+   */
+  it("não entra no servidor de outro país sem confirmação", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "resolve_join_link") return joinTarget({ kind: "place" });
+      if (cmd === "pick_server") {
+        return { jobId: "job-us", playing: 2, maxPlayers: 30, region: null, regionFallback: true };
+      }
+      return undefined;
+    });
+    const store = pickStore({ serverPreference: "emptiest", serverRegionFilter: "BR" });
+
+    await joinPlainLink();
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("pick_server", expect.anything()));
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+    expect(store.joinServer).not.toHaveBeenCalled();
+  });
+
+  /** Falha ao escolher servidor não pode cancelar o launch. */
+  it("cai no comportamento antigo quando a escolha falha", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "resolve_join_link") return joinTarget({ kind: "place" });
+      if (cmd === "pick_server") throw new Error("429 Too Many Requests");
+      return undefined;
+    });
+    const store = pickStore({ serverPreference: "emptiest" });
+
+    await joinPlainLink();
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ jobId: "" })
+      )
+    );
+    expect(store.addToast).toHaveBeenCalled();
+  });
+});
+
+describe("ChooseGameScreen — Servers tab", () => {
+  it("mostra a aba de servidores com a lista do place", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "get_servers") {
+        return { data: [{ id: "job-listado", playing: 5, maxPlayers: 30, ping: 30 }], nextPageCursor: null };
+      }
+      return undefined;
+    });
+    setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+      placeId: "606849621",
+    });
+    render(<ChooseGameScreen />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Servers" }));
+
+    expect(await screen.findByText("job-listado")).toBeInTheDocument();
+    expect(screen.getByText("5/30")).toBeInTheDocument();
+  });
+});
+
 describe("ChooseGameScreen — shell", () => {
   it("closes on Back and on Escape", async () => {
     const store = setStore({

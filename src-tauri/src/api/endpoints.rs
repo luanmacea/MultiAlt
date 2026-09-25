@@ -36,6 +36,20 @@ fn format_host(base: Option<&str>, sub: &str) -> String {
     }
 }
 
+/// Base URL of a service that is **not** `<sub>.roblox.com` but still has to be
+/// mockable — today only the IP geolocation used to name a server's region.
+///
+/// `name` is the logical service name; in tests it becomes a path prefix on the
+/// shared mock server, exactly like [`host`].
+pub fn external_host(name: &str) -> String {
+    match (BASE.get().map(|s| s.as_str()), name) {
+        (Some(base), _) => format!("{}/{}", base, name),
+        (None, "ipwhois") => "https://ipwho.is".to_string(),
+        (None, "ipapi") => "http://ip-api.com".to_string(),
+        (None, other) => panic!("unknown external host: {}", other),
+    }
+}
+
 /// Points every subdomain at `url` (e.g. a wiremock server's URI) for the rest
 /// of the process. The first call wins; later calls are ignored, which is what
 /// lets every test share one server.

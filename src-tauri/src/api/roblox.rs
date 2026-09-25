@@ -10,5 +10,7 @@ include!("roblox/private_links.rs");
 include!("roblox/join_links.rs");
 include!("roblox/social_presence.rs");
 include!("roblox/friends.rs");
+include!("roblox/server_regions.rs");
+include!("roblox/server_pick.rs");
 include!("roblox/thumbnails.rs");
 include!("roblox/economy.rs");

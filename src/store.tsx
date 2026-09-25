@@ -17,8 +17,27 @@ import type {
   ParsedGroup,
   PlatformCapabilities,
   LaunchQueuePayload,
+  ServerPreference,
 } from "./types";
 import { parseGroupName } from "./types";
+
+/**
+ * Valor guardado em `General.ServerPreference` → preferência válida.
+ * Qualquer coisa desconhecida (ou um INI antigo) volta para `default`, que é o
+ * comportamento de sempre: Job ID vazio e o Roblox escolhe o servidor.
+ */
+export function normalizeServerPreference(value: string | undefined): ServerPreference {
+  switch ((value || "").trim().toLowerCase()) {
+    case "random":
+      return "random";
+    case "emptiest":
+      return "emptiest";
+    case "fullest":
+      return "fullest";
+    default:
+      return "default";
+  }
+}
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
 import i18n, { normalizeLanguage } from "./i18n";
 import { tr } from "./i18n/text";
@@ -236,6 +255,13 @@ export interface StoreValue {
   shuffleJobId: boolean;
   setShuffleJobId: (shuffle: boolean) => void;
 
+  /** Preferência de servidor do lote (item 4). Persistida em `General.ServerPreference`. */
+  serverPreference: ServerPreference;
+  setServerPreference: (preference: ServerPreference) => void;
+  /** Código do país exigido ao escolher servidor (`BR`); vazio = sem filtro. */
+  serverRegionFilter: string;
+  setServerRegionFilter: (countryCode: string) => void;
+
   contextMenu: { x: number; y: number } | null;
   openContextMenu: (x: number, y: number) => void;
   closeContextMenu: () => void;
@@ -416,6 +442,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }).catch(() => {});
   }, []);
   const [shuffleJobId, setShuffleJobId] = useState(false);
+  const [serverPreference, _setServerPreference] = useState<ServerPreference>("default");
+  const [serverRegionFilter, _setServerRegionFilter] = useState("");
+
+  const setServerPreference = useCallback((preference: ServerPreference) => {
+    _setServerPreference(preference);
+    invoke("update_setting", {
+      section: "General",
+      key: "ServerPreference",
+      value: preference,
+    }).catch(() => {});
+  }, []);
+
+  const setServerRegionFilter = useCallback((countryCode: string) => {
+    const normalized = countryCode.trim().toUpperCase();
+    _setServerRegionFilter(normalized);
+    invoke("update_setting", {
+      section: "General",
+      key: "ServerRegionFilter",
+      value: normalized,
+    }).catch(() => {});
+  }, []);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chooseGameOpen, setChooseGameOpen] = useState(false);
@@ -1540,6 +1587,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         void i18n.changeLanguage(normalizeLanguage(s?.General?.Language));
         if (s?.General?.HideUsernames === "true") setHideUsernamesState(true);
         if (s?.General?.ShuffleJobId === "true") setShuffleJobId(true);
+        _setServerPreference(normalizeServerPreference(s?.General?.ServerPreference));
+        _setServerRegionFilter((s?.General?.ServerRegionFilter || "").trim().toUpperCase());
         if (s?.General?.SavedPlaceId) _setPlaceId(s.General.SavedPlaceId);
         if (s?.General?.SavedJobId) _setJobId(s.General.SavedJobId);
         if (s?.General?.SavedLaunchData) _setLaunchData(s.General.SavedLaunchData);
@@ -2197,6 +2246,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLaunchData,
     shuffleJobId,
     setShuffleJobId,
+    serverPreference,
+    setServerPreference,
+    serverRegionFilter,
+    setServerRegionFilter,
     contextMenu,
     openContextMenu,
     closeContextMenu,

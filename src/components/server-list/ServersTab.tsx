@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ServerData, ServersResponse, PlaceDetails, ServerRegion } from "./types";
+import type { ServerRegion as ServerRegionResult } from "../../types";
 import { ServerContextMenu } from "./ServerContextMenu";
 import { useTr } from "../../i18n/text";
 import { Server } from "lucide-react";
@@ -96,6 +97,15 @@ export function ServersTab({
     setLoading(false);
   }, [placeId, loading, userId, addToast]);
 
+  /**
+   * Região de um servidor: resolvida pelo backend (`get_server_regions`).
+   *
+   * Isto já foi um `fetch` direto do frontend para o `ipapi.co`, o que quebrou
+   * duas vezes: o frontend não pode falar com a rede (regra do projeto) e o
+   * serviço passou a responder com desafio do Cloudflare. O backend faz o
+   * `join-game-instance` para pegar o IP da máquina, geolocaliza com serviço de
+   * reserva e mantém cache — ver `api/roblox/server_regions.rs`.
+   */
   const loadRegion = useCallback(async (server: ServerData) => {
     const pid = parseInt(placeId);
     if (!pid || !userId) {
@@ -105,55 +115,30 @@ export function ServersTab({
 
     setRegions((prev) => {
       const next = new Map(prev);
-      next.set(server.id, { region: "Loading...", loading: true });
+      next.set(server.id, { region: t("Loading..."), loading: true });
       return next;
     });
 
-    try {
-      const response = await invoke<Record<string, unknown>>("join_game_instance", {
-        userId,
-        placeId: parseInt(teleportPlaceId) || pid,
-        gameId: server.id,
-        isTeleport: !!teleportPlaceId,
-      });
-
-      const joinScript = response?.joinScript as Record<string, unknown> | undefined;
-      const ip = (joinScript?.MachineAddress as string) || "";
-
-      if (ip) {
-        try {
-          const geoResponse = await fetch(`https://ipapi.co/${ip}/json/`);
-          const geo = await geoResponse.json();
-          const region = `${geo.city || "Unknown"}, ${geo.country_code || "??"}`;
-          setRegions((prev) => {
-            const next = new Map(prev);
-            next.set(server.id, { region, loading: false });
-            return next;
-          });
-        } catch {
-          setRegions((prev) => {
-            const next = new Map(prev);
-            next.set(server.id, { region: ip, loading: false });
-            return next;
-          });
-        }
-      } else {
-        const status = response?.status as number;
-        const message = response?.message as string;
-        setRegions((prev) => {
-          const next = new Map(prev);
-          next.set(server.id, { region: message || `Error ${status}`, loading: false });
-          return next;
-        });
-      }
-    } catch (e) {
+    function show(text: string) {
       setRegions((prev) => {
         const next = new Map(prev);
-        next.set(server.id, { region: String(e).slice(0, 40), loading: false });
+        next.set(server.id, { region: text, loading: false });
         return next;
       });
     }
-  }, [placeId, teleportPlaceId, userId, addToast]);
+
+    try {
+      const resolved = await invoke<ServerRegionResult[]>("get_server_regions", {
+        userId,
+        placeId: parseInt(teleportPlaceId) || pid,
+        jobIds: [server.id],
+      });
+      const entry = resolved[0];
+      show(entry?.label || entry?.error || t("Unknown"));
+    } catch (e) {
+      show(String(e).slice(0, 60));
+    }
+  }, [placeId, teleportPlaceId, userId, addToast, t]);
 
   const findPlayer = useCallback(async () => {
     if (!findUsername.trim()) return;

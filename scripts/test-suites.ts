@@ -164,6 +164,17 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: ["src/components/friends"],
   },
+  servers: {
+    description: "Escolha de servidor (aleatório/vazio/cheio), região e navegador de servidores",
+    rust: [
+      "server_preference_tests",
+      "server_pick_http_tests",
+      "server_region_format_tests",
+      "server_region_payload_tests",
+      "server_region_http_tests",
+    ],
+    front: ["src/components/servers", "src/components/server-list"],
+  },
   settings: {
     description: "RAMSettings.ini, defaults, temas e presets",
     rust: [

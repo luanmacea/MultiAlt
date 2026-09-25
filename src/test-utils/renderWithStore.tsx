@@ -192,6 +192,10 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     launchData: "",
     setLaunchData: vi.fn(),
     shuffleJobId: false,
+    serverPreference: "default" as const,
+    setServerPreference: vi.fn(),
+    serverRegionFilter: "",
+    setServerRegionFilter: vi.fn(),
     setShuffleJobId: vi.fn(),
 
     contextMenu: null,

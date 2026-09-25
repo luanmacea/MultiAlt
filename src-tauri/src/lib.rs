@@ -283,6 +283,8 @@ pub fn run() {
             get_presence,
             get_online_friends,
             get_online_friends_for_accounts,
+            get_server_regions,
+            pick_server,
             batch_thumbnails,
             get_avatar_headshots,
             get_asset_thumbnails,

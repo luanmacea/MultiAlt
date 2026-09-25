@@ -48,6 +48,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/scripts.md](features/scripts.md) — scripts do usuário e sandbox do frontend.
 
 ### Interface
+- [features/server-choice.md](features/server-choice.md) — preferência de servidor (aleatório/mais vazio/mais cheio), filtro por região e a aba Servers da Choose Game.
 - [features/server-list.md](features/server-list.md) — navegador de servidores/jogos, favoritos, recentes, VIP.
 - [features/friends.md](features/friends.md) — aba "Friends": amigos online por conta e entrada de todas as contas no servidor do amigo.
 - [features/join-links.md](features/join-links.md) — campo único de "Join link": convites de experiência, links VIP/privados, links de jogo e deep links.
@@ -55,6 +56,8 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/ui-layout.md](features/ui-layout.md) — shell da UI, temas/fontes, diálogos, lista de contas, barra de ações, tela "Choose Game".
 
 ## Registro de mudanças (2026-09-25)
+
+0. **Escolha de servidor**: preferência por lote (aleatório / mais vazio / mais cheio), filtro por país e aba **Servers** para escolher o servidor na mão — [server-choice.md](features/server-choice.md).
 
 1. **Painel de Sessão**: fila de contas entrando (cancelar uma, parar a fila — sem fechar cliente nenhum) e lista de contas em jogo (focar/fechar, com seleção múltipla). Na aba Console e num botão da barra principal — [ui-layout.md](features/ui-layout.md#painel-de-sessão), [multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento).
 2. **Aba Friends**: amigos online de cada conta selecionada; clicar num amigo manda todas as contas para o servidor dele — [friends.md](features/friends.md).

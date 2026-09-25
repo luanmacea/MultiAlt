@@ -249,3 +249,50 @@ export interface LaunchQueuePayload {
   placeId: number;
   jobId: string;
 }
+
+// ── Escolha de servidor ──────────────────────────────────────────────────────
+
+/**
+ * Preferência de servidor do lote.
+ *
+ * `default` mantém o comportamento antigo (Job ID vazio: o Roblox escolhe).
+ * As outras resolvem UM servidor para o lote inteiro antes de lançar, para as
+ * contas caírem juntas — ver `pick_server` no backend.
+ */
+export type ServerPreference = "default" | "random" | "emptiest" | "fullest";
+
+/** Geolocalização do IP da máquina que hospeda o servidor. */
+export interface IpRegion {
+  ip: string;
+  city: string;
+  /** Estado/província, quando o serviço informa. */
+  region: string;
+  country: string;
+  countryCode: string;
+}
+
+/** Região de um servidor (`get_server_regions`). */
+export interface ServerRegion {
+  jobId: string;
+  region: IpRegion | null;
+  /** Texto já formatado por `General.ServerRegionFormat`. */
+  label: string;
+  error: string | null;
+}
+
+/** Progresso do evento `server-region-progress`. */
+export interface ServerRegionProgress {
+  done: number;
+  total: number;
+}
+
+/** Resultado de `pick_server`. */
+export interface PickedServer {
+  jobId: string;
+  playing: number;
+  maxPlayers: number;
+  region: ServerRegion | null;
+  /** `true` quando não havia servidor na região pedida e a escolha caiu no
+   * melhor disponível — a UI pergunta antes de entrar. */
+  regionFallback: boolean;
+}
