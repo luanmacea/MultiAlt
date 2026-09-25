@@ -118,6 +118,12 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
     }
   }
 
+  /**
+   * Não passa pelo aviso de copiar credencial (`useCopyCredentialWarning`), de
+   * propósito: é **uma** conta, que está sendo criada nesta tela, e o painel já
+   * mostra usuário e senha em texto logo abaixo. O aviso existe para a cópia em
+   * lote que a pessoa não vê acontecer — aqui ele seria só ruído.
+   */
   function copyIdentity(value: SignupIdentity) {
     const text = `${value.username}\t${value.password}`;
     navigator.clipboard?.writeText(text).then(
