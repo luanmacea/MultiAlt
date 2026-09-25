@@ -14,6 +14,36 @@ import { isWindowsPlatform } from "../../utils/platform";
 
 type OptimizationProfileId = "Normal" | "BottingPlayer" | "BottingBot";
 
+/**
+ * Espelho de `WINDOWS_FASTFLAG_ALLOWLIST`
+ * (`src-tauri/src/platform/windows/optimization.rs`).
+ *
+ * Por que espelhar em vez de expor por comando Tauri: a validacao precisa
+ * acontecer enquanto o usuario digita, e a tela de Settings ja monta sem
+ * depender de ida ao backend; um comando novo traria estado assincrono (carga,
+ * falha, lista vazia no primeiro render) para uma lista de 15 strings que so
+ * muda quando alguem edita o .rs. O preco do espelho e pago por
+ * `fastFlagAllowlist.test.ts`, que le o proprio .rs e quebra a suite se as duas
+ * listas divergirem.
+ */
+export const WINDOWS_FASTFLAG_ALLOWLIST = [
+  "DFFlagTextureQualityOverrideEnabled",
+  "DFIntTextureQualityOverride",
+  "DFFlagDebugRenderForceTechnologyVoxel",
+  "DFFlagDebugRenderForceTechnologyFuture",
+  "DFFlagRenderForceLowQualityLightmaps",
+  "DFFlagDisableDPIScale",
+  "FFlagDebugGraphicsDisableDirect3D11",
+  "FFlagDebugGraphicsPreferD3D11FL10",
+  "FIntDebugForceMSAASamples",
+  "FFlagDebugSkyGray",
+  "DFFlagDebugPauseVoxelizer",
+  "DFFlagDebugRenderForceMoonAngularSize",
+  "DFIntDebugRenderForceMoonTextureSize",
+  "DFIntDebugFRMQualityLevelOverride",
+  "DFIntRenderShadowIntensity",
+] as const;
+
 function generalKey(profile: OptimizationProfileId, suffix: string): string {
   if (profile === "Normal") return suffix;
   return `${profile}${suffix}`;
@@ -32,6 +62,15 @@ function optimizationJsonError(raw: string, enabled: boolean, t: (text: string) 
     const parsed = JSON.parse(trimmed);
     if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
       return t("Allowlisted fast flags JSON must be a JSON object");
+    }
+    // O backend recusa o JSON INTEIRO por uma chave fora da allowlist e
+    // `launch_shared.rs` engole o erro num `eprintln!` — sem esta checagem o
+    // toggle ficava ligado, o JSON salvo, e nada era aplicado.
+    const invalidKeys = Object.keys(parsed).filter(
+      (key) => !(WINDOWS_FASTFLAG_ALLOWLIST as readonly string[]).includes(key)
+    );
+    if (invalidKeys.length > 0) {
+      return `${t("Only Roblox allowlisted keys are accepted")}: ${invalidKeys.join(", ")}`;
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -71,6 +110,34 @@ function OptimizationProfileSection({
   );
   const disableExperimentalEditor = customClientSettingsEnabled || !isWindows;
 
+  // Cada campo abaixo so e lido pelo backend quando o interruptor acima dele
+  // esta ligado (`windows_client_overrides` / `load_optimization_profile`).
+  // Editavel com o interruptor desligado, o valor era salvo e ignorado.
+  const unlockFpsEnabled =
+    !customClientSettingsEnabled && s.getBool("General", generalKey(profile, "UnlockFPS"));
+  const volumeOverrideEnabled = s.getBool("General", generalKey(profile, "OverrideClientVolume"));
+  const graphicsOverrideEnabled = s.getBool(
+    "General",
+    generalKey(profile, "OverrideClientGraphics")
+  );
+  const windowSizeOverrideEnabled = s.getBool(
+    "General",
+    generalKey(profile, "OverrideClientWindowSize")
+  );
+  const processPolicyEnabled = s.getBool(
+    "Optimization",
+    optimizationKey(profile, "EnableProcessPolicy")
+  );
+  const jobCpuLimitEnabled = s.getBool(
+    "Optimization",
+    optimizationKey(profile, "EnableJobCpuLimit")
+  );
+  const jobMemoryLimitEnabled = s.getBool(
+    "Optimization",
+    optimizationKey(profile, "EnableJobMemoryLimit")
+  );
+  const fastFlagsEditorDisabled = disableExperimentalEditor || !fastFlagsEnabled;
+
   return (
     <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
       <div className="flex items-center justify-between gap-3">
@@ -105,6 +172,8 @@ function OptimizationProfileSection({
         label="Max FPS"
         min={5}
         max={9999}
+        disabled={!unlockFpsEnabled}
+        description={!unlockFpsEnabled ? "Requires Unlock FPS" : undefined}
       />
       <TextField
         value={s.get("General", generalKey(profile, "CustomClientSettings"), "")}
@@ -131,6 +200,8 @@ function OptimizationProfileSection({
         min={0}
         max={100}
         suffix="%"
+        disabled={!volumeOverrideEnabled}
+        description={!volumeOverrideEnabled ? "Requires Override Client Volume" : undefined}
       />
       <Toggle
         checked={s.getBool("General", generalKey(profile, "OverrideClientGraphics"))}
@@ -144,6 +215,8 @@ function OptimizationProfileSection({
         label="Graphics Level"
         min={1}
         max={10}
+        disabled={!graphicsOverrideEnabled}
+        description={!graphicsOverrideEnabled ? "Requires Override Graphics Level" : undefined}
       />
       <Toggle
         checked={s.getBool("General", generalKey(profile, "OverrideClientWindowSize"))}
@@ -157,6 +230,8 @@ function OptimizationProfileSection({
         label="Window Width"
         min={320}
         max={7680}
+        disabled={!windowSizeOverrideEnabled}
+        description={!windowSizeOverrideEnabled ? "Requires Override Window Size" : undefined}
       />
       <NumberField
         value={s.getNumber("General", generalKey(profile, "ClientWindowHeight"), 720)}
@@ -164,6 +239,8 @@ function OptimizationProfileSection({
         label="Window Height"
         min={240}
         max={4320}
+        disabled={!windowSizeOverrideEnabled}
+        description={!windowSizeOverrideEnabled ? "Requires Override Window Size" : undefined}
       />
       <Toggle
         checked={s.getBool("General", generalKey(profile, "StartRobloxMinimized"))}
@@ -198,12 +275,22 @@ function OptimizationProfileSection({
             min={0}
             max={15000}
             suffix="ms"
+            disabled={!processPolicyEnabled}
+            description={
+              !processPolicyEnabled ? "Requires Enable Windows process optimization" : undefined
+            }
           />
 
           <div className="flex items-center gap-3 py-2 px-1">
-            <div className="text-[13px] text-zinc-300">{t("Priority Class")}</div>
+            <div
+              className={`text-[13px] ${processPolicyEnabled ? "text-zinc-300" : "text-zinc-500"}`}
+            >
+              {t("Priority Class")}
+            </div>
             <div className="ml-auto w-[170px]">
               <Select
+                ariaLabel="Priority Class"
+                disabled={!processPolicyEnabled}
                 value={s.get("Optimization", optimizationKey(profile, "PriorityClass"), "normal")}
                 onChange={(value) =>
                   s.set("Optimization", optimizationKey(profile, "PriorityClass"), value)
@@ -222,28 +309,49 @@ function OptimizationProfileSection({
             onChange={(v) =>
               s.setBool("Optimization", optimizationKey(profile, "BackgroundMode"), v)
             }
+            disabled={!processPolicyEnabled}
             label="Background Mode"
-            description="Lowers scheduling priority for off-screen or minimized Roblox clients"
+            description={
+              processPolicyEnabled
+                ? "Lowers scheduling priority for off-screen or minimized Roblox clients"
+                : "Requires Enable Windows process optimization"
+            }
           />
           <Toggle
             checked={s.getBool("Optimization", optimizationKey(profile, "EcoQos"))}
             onChange={(v) => s.setBool("Optimization", optimizationKey(profile, "EcoQos"), v)}
+            disabled={!processPolicyEnabled}
             label="EcoQoS"
-            description="Hints Windows to favor efficiency over burst performance"
+            description={
+              processPolicyEnabled
+                ? "Hints Windows to favor efficiency over burst performance"
+                : "Requires Enable Windows process optimization"
+            }
           />
           <Toggle
             checked={s.getBool("Optimization", optimizationKey(profile, "IgnoreTimerResolution"))}
             onChange={(v) =>
               s.setBool("Optimization", optimizationKey(profile, "IgnoreTimerResolution"), v)
             }
+            disabled={!processPolicyEnabled}
             label="Ignore Timer Resolution"
-            description="Reduces timer-resolution pressure for background Roblox clients"
+            description={
+              processPolicyEnabled
+                ? "Reduces timer-resolution pressure for background Roblox clients"
+                : "Requires Enable Windows process optimization"
+            }
           />
 
           <div className="flex items-center gap-3 py-2 px-1">
-            <div className="text-[13px] text-zinc-300">{t("Memory Priority")}</div>
+            <div
+              className={`text-[13px] ${processPolicyEnabled ? "text-zinc-300" : "text-zinc-500"}`}
+            >
+              {t("Memory Priority")}
+            </div>
             <div className="ml-auto w-[170px]">
               <Select
+                ariaLabel="Memory Priority"
+                disabled={!processPolicyEnabled}
                 value={s.get("Optimization", optimizationKey(profile, "MemoryPriority"), "normal")}
                 onChange={(value) =>
                   s.set("Optimization", optimizationKey(profile, "MemoryPriority"), value)
@@ -288,14 +396,30 @@ function OptimizationProfileSection({
             label="Allowlisted fast flags JSON"
             placeholder='{\n  "DFFlagTextureQualityOverrideEnabled": true,\n  "DFIntTextureQualityOverride": 0\n}'
             rows={6}
-            disabled={disableExperimentalEditor}
-            error={disableExperimentalEditor ? null : fastFlagsError}
+            disabled={fastFlagsEditorDisabled}
+            error={fastFlagsEditorDisabled ? null : fastFlagsError}
             description={
               customClientSettingsEnabled
                 ? "Custom ClientSettings disables generated fast flags for this profile"
-                : "Only Roblox allowlisted keys are accepted"
+                : fastFlagsEnabled
+                  ? "Only Roblox allowlisted keys are accepted"
+                  : "Requires Enable allowlisted fast flags"
             }
           />
+          {/* O usuario tinha que adivinhar as chaves aceitas: a allowlist fica a vista. */}
+          <div className="px-1 pb-2">
+            <div className="text-[11px] text-zinc-500">{t("Keys accepted by the launcher")}</div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {WINDOWS_FASTFLAG_ALLOWLIST.map((key) => (
+                <code
+                  key={key}
+                  className="rounded border border-zinc-800/70 bg-zinc-900/60 px-1.5 py-0.5 text-[10px] text-zinc-400"
+                >
+                  {key}
+                </code>
+              ))}
+            </div>
+          </div>
 
           <Toggle
             checked={s.getBool("Optimization", optimizationKey(profile, "EnableJobCpuLimit"))}
@@ -318,6 +442,8 @@ function OptimizationProfileSection({
             min={5}
             max={100}
             suffix="%"
+            disabled={!jobCpuLimitEnabled}
+            description={!jobCpuLimitEnabled ? "Requires Enable job CPU limit" : undefined}
           />
           <Toggle
             checked={s.getBool("Optimization", optimizationKey(profile, "EnableJobMemoryLimit"))}
@@ -340,6 +466,8 @@ function OptimizationProfileSection({
             min={256}
             max={32768}
             suffix="MB"
+            disabled={!jobMemoryLimitEnabled}
+            description={!jobMemoryLimitEnabled ? "Requires Enable job memory limit" : undefined}
           />
         </>
       ) : (

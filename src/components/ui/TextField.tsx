@@ -23,6 +23,9 @@ export function TextField({
         type="text"
         value={value}
         disabled={disabled}
+        // Sem rotulo associado o campo so era alcancavel pelo DOM ao redor;
+        // o `NumberField` ja expunha `ariaLabel` e o teste precisa do mesmo aqui.
+        aria-label={t(label)}
         onChange={(e) => {
           let v = e.target.value;
           if (pattern) v = v.replace(pattern, "");
