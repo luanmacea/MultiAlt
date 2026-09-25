@@ -25,6 +25,61 @@ interface UniversePlace {
   name: string;
 }
 
+function toPositiveId(digits: string): number | null {
+  const id = Number(digits);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/**
+ * Lê o Universe ID digitado ou colado no campo "Universe ID".
+ *
+ * O campo só aceitava dígitos crus via `parseInt`; colar a URL de um jogo (que
+ * não é puramente numérica) fazia `parseInt` devolver `NaN` e a função saía em
+ * silêncio. Aqui também aceita um link que carregue `universeId=` na query (o
+ * formato da página "Configure Universe" e do link de compartilhamento do
+ * Creator Hub) — o resto continua devolvendo `null` para a tela explicar o que
+ * faltou, em vez de não fazer nada.
+ */
+export function parseUniverseIdInput(text: string): number | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  if (/^\d+$/.test(trimmed)) return toPositiveId(trimmed);
+
+  const queryParam = trimmed.match(/[?&#/]universeid=(\d+)/i);
+  if (queryParam) return toPositiveId(queryParam[1]);
+
+  // Creator Hub: .../experiences/<universeId>/...
+  const experiencePath = trimmed.match(/\/experiences\/(\d+)/i);
+  if (experiencePath) return toPositiveId(experiencePath[1]);
+
+  return null;
+}
+
+/**
+ * Valida o JSON colado em "Custom Avatar JSON" antes de chamar `set_avatar`.
+ *
+ * Antes, `JSON.parse` corria dentro do mesmo `try` da chamada ao backend: um
+ * JSON malformado só virava o toast genérico "Error: {{error}}", depois de já
+ * ter tentado (e falhado) a chamada. Aqui a mesma checagem roda no
+ * onChange/onBlur do campo, então o erro aparece antes do clique em Apply.
+ */
+export function validateAvatarJson(text: string, t: (s: string, o?: Record<string, unknown>) => string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    return t("Not valid JSON: {{error}}", { error: e instanceof Error ? e.message : String(e) });
+  }
+  const assets = (parsed as { assets?: unknown } | null)?.assets;
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || !Array.isArray(assets)) {
+    return t('Expected an object with an "assets" array, like {"assets":[{"id":12345}]}.');
+  }
+  return "";
+}
+
 export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useTr();
   const store = useStore();
@@ -55,6 +110,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
   const [universeIdInput, setUniverseIdInput] = useState("");
   const [universePlaces, setUniversePlaces] = useState<UniversePlace[]>([]);
   const [avatarJsonInput, setAvatarJsonInput] = useState("");
+  const [avatarJsonError, setAvatarJsonError] = useState("");
 
   const [loading, setLoading] = useState("");
 
@@ -79,6 +135,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
     setUniverseIdInput("");
     setUniversePlaces([]);
     setAvatarJsonInput("");
+    setAvatarJsonError("");
     setLoading("");
   }, []);
 
@@ -111,11 +168,6 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
       } catch {}
     })();
 
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, [open, account?.UserID]);
 
   if (!visible || !account) return null;
@@ -367,8 +419,20 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
   }
 
   async function handleLoadUniversePlaces() {
-    const universeId = parseInt(universeIdInput.trim(), 10);
-    if (!Number.isFinite(universeId) || universeId <= 0) return;
+    const universeId = parseUniverseIdInput(universeIdInput);
+    if (universeId === null) {
+      // O campo fazia `parseInt` e, se não desse número, saía calado — colar a
+      // URL de um jogo (que não é numérica) não fazia nada e não dizia por
+      // quê. Agora aceita um link com `universeId=` e, quando mesmo assim não
+      // resolve, explica o que faltou em vez de ficar quieto.
+      store.addToast(
+        t(
+          'Couldn\'t find a Universe ID in "{{input}}". Paste a numeric Universe ID, or a link containing universeId=....',
+          { input: universeIdInput.trim() }
+        )
+      );
+      return;
+    }
     setLoading("universe");
     try {
       const places = await invoke<UniversePlace[]>("get_universe_places", {
@@ -384,10 +448,19 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
   }
 
   async function handleWearCustomAvatar() {
-    if (!avatarJsonInput.trim()) return;
+    const trimmed = avatarJsonInput.trim();
+    if (!trimmed) return;
+    // JSON.parse rodava dentro do try do set_avatar: um JSON inválido só
+    // aparecia como o toast genérico "Error: ...", depois de já ter tentado
+    // chamar o backend. Valida antes e mostra o motivo ao lado do campo.
+    const error = validateAvatarJson(avatarJsonInput, t);
+    if (error) {
+      setAvatarJsonError(error);
+      return;
+    }
     setLoading("custom_avatar");
     try {
-      const avatarJson = JSON.parse(avatarJsonInput);
+      const avatarJson = JSON.parse(trimmed);
       const invalidIds = await invoke<number[]>("set_avatar", {
         userId: account!.UserID,
         avatarJson,
@@ -406,6 +479,11 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
       store.addToast(t("Error: {{error}}", { error: String(e) }));
     }
     setLoading("");
+  }
+
+  function handleAvatarJsonChange(value: string) {
+    setAvatarJsonInput(value);
+    setAvatarJsonError(validateAvatarJson(value, t));
   }
 
   const privacyOptions = [
@@ -698,14 +776,23 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
 
           <SectionHeader>Custom Avatar JSON</SectionHeader>
           <div className="space-y-2">
+            <p className="text-[11px] text-zinc-500">
+              {t(
+                "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you."
+              )}
+            </p>
             <textarea
               value={avatarJsonInput}
-              onChange={(e) => setAvatarJsonInput(e.target.value)}
+              onChange={(e) => handleAvatarJsonChange(e.target.value)}
+              onBlur={(e) => setAvatarJsonError(validateAvatarJson(e.target.value, t))}
               placeholder='{"assets":[{"id":12345}]}'
-              className="w-full min-h-[80px] p-2 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-xs text-zinc-300 font-mono placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-600 transition-colors"
+              className={`w-full min-h-[80px] p-2 bg-zinc-800/50 border rounded-lg text-xs text-zinc-300 font-mono placeholder-zinc-600 resize-none focus:outline-none transition-colors ${
+                avatarJsonError ? "border-red-500/50 focus:border-red-500/70" : "border-zinc-700/50 focus:border-zinc-600"
+              }`}
               spellCheck={false}
             />
-            <UtilButton onClick={handleWearCustomAvatar} disabled={loading === "custom_avatar"}>
+            {avatarJsonError && <p className="text-[11px] text-red-400">{avatarJsonError}</p>}
+            <UtilButton onClick={handleWearCustomAvatar} disabled={loading === "custom_avatar" || !!avatarJsonError}>
               Apply Avatar JSON
             </UtilButton>
           </div>

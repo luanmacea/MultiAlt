@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -137,5 +137,142 @@ describe("AccountUtilsDialog", () => {
     for (const name of ["Change Password", "Change Email"]) {
       expect(screen.getByRole("button", { name })).toHaveClass("text-red-400");
     }
+  });
+
+  /**
+   * O campo aceitava só dígitos crus via `parseInt` e, se a pessoa colasse um
+   * link, falhava em silêncio (`return` sem toast nenhum). Agora aceita um
+   * link colado e sempre diz por que não deu, quando não dá.
+   */
+  describe("Universe ID", () => {
+    it("loads places from a plain numeric Universe ID", async () => {
+      setInvokeHandler((cmd) => {
+        switch (cmd) {
+          case "get_robux":
+            return 1234;
+          case "validate_cookie":
+            return { user_id: ACCOUNT.UserID, name: ACCOUNT.Username, is_email_verified: true };
+          case "get_private_server_invite_privacy":
+            return "AllUsers";
+          case "get_universe_places":
+            return [{ id: 606849621, name: "Jailbreak" }];
+          default:
+            return undefined;
+        }
+      });
+      renderDialog();
+
+      await userEvent.type(screen.getByPlaceholderText("Universe ID"), "555");
+      await userEvent.click(screen.getByRole("button", { name: "Load Places" }));
+
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith("get_universe_places", {
+          universeId: 555,
+          userId: ACCOUNT.UserID,
+        })
+      );
+      expect(await screen.findByText(/Jailbreak/)).toBeInTheDocument();
+    });
+
+    it("extracts the Universe ID from a pasted link instead of failing silently", async () => {
+      setInvokeHandler((cmd) => {
+        switch (cmd) {
+          case "get_robux":
+            return 1234;
+          case "validate_cookie":
+            return { user_id: ACCOUNT.UserID, name: ACCOUNT.Username, is_email_verified: true };
+          case "get_private_server_invite_privacy":
+            return "AllUsers";
+          case "get_universe_places":
+            return [{ id: 1, name: "Some Place" }];
+          default:
+            return undefined;
+        }
+      });
+      renderDialog();
+
+      await userEvent.type(
+        screen.getByPlaceholderText("Universe ID"),
+        "https://www.roblox.com/places/1818/universes/configure?universeId=987654"
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Load Places" }));
+
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith("get_universe_places", {
+          universeId: 987654,
+          userId: ACCOUNT.UserID,
+        })
+      );
+    });
+
+    it("explains why it could not resolve a Universe ID instead of doing nothing", async () => {
+      const { addToast } = renderDialog();
+
+      await userEvent.type(screen.getByPlaceholderText("Universe ID"), "not a universe id");
+      await userEvent.click(screen.getByRole("button", { name: "Load Places" }));
+
+      await waitFor(() => expect(addToast).toHaveBeenCalled());
+      const [message] = vi.mocked(addToast).mock.calls[0];
+      expect(message).toMatch(/universe id/i);
+      expect(invokeMock).not.toHaveBeenCalledWith("get_universe_places", expect.anything());
+    });
+  });
+
+  /**
+   * `JSON.parse` corria dentro do `try` do `set_avatar`: um JSON errado só
+   * aparecia como o toast genérico "Error: ...", depois de já ter tentado
+   * chamar o backend. Agora valida antes, no onChange, e aponta para o
+   * caminho que já monta o JSON sozinho (Wear Outfit).
+   */
+  describe("Custom Avatar JSON", () => {
+    function jsonField() {
+      return screen.getByPlaceholderText('{"assets":[{"id":12345}]}');
+    }
+
+    it("shows an inline error for invalid JSON without calling set_avatar", async () => {
+      renderDialog();
+
+      // userEvent.type interpreta `{` como início de tecla especial; um textarea
+      // JSON precisa de fireEvent.change para colar chaves literais.
+      fireEvent.change(jsonField(), { target: { value: "{not valid json" } });
+      // A regex tem ":" para não casar com o próprio texto digitado no textarea.
+      expect(await screen.findByText(/not valid json:/i)).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "Apply Avatar JSON" }));
+      expect(invokeMock).not.toHaveBeenCalledWith("set_avatar", expect.anything());
+    });
+
+    it("points to Wear Outfit as the easier path for named items", () => {
+      renderDialog();
+      expect(screen.getByText(/Wear Outfit/)).toBeInTheDocument();
+    });
+
+    it("applies valid avatar JSON once it parses cleanly", async () => {
+      setInvokeHandler((cmd) => {
+        switch (cmd) {
+          case "get_robux":
+            return 1234;
+          case "validate_cookie":
+            return { user_id: ACCOUNT.UserID, name: ACCOUNT.Username, is_email_verified: true };
+          case "get_private_server_invite_privacy":
+            return "AllUsers";
+          case "set_avatar":
+            return [];
+          default:
+            return undefined;
+        }
+      });
+      renderDialog();
+
+      fireEvent.change(jsonField(), { target: { value: '{"assets":[{"id":12345}]}' } });
+      await userEvent.click(screen.getByRole("button", { name: "Apply Avatar JSON" }));
+
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith("set_avatar", {
+          userId: ACCOUNT.UserID,
+          avatarJson: { assets: [{ id: 12345 }] },
+        })
+      );
+    });
   });
 });

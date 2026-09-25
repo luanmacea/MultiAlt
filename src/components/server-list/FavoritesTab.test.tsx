@@ -11,7 +11,7 @@ import { RecentTab } from "./RecentTab";
 import { loadFavorites, saveFavorites, saveRecentGames } from "./types";
 import type { FavoriteGame, RecentGame } from "./types";
 import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
-import { confirmMock, promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
+import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 
 function favorite(overrides: Partial<FavoriteGame> = {}): FavoriteGame {
   return {
@@ -101,29 +101,94 @@ describe("FavoritesTab", () => {
     expect(screen.getByText("1 VIP")).toBeInTheDocument();
   });
 
-  it("adds a VIP server through two prompts and persists it", async () => {
+  /**
+   * O fluxo era dois `prompt()` encadeados: cancelar o segundo (o nome,
+   * opcional) jogava fora o link que a pessoa acabou de digitar no primeiro.
+   * Agora é um formulário inline na própria linha, sem diálogos empilhados.
+   */
+  it("adds a VIP server through the inline form and persists it", async () => {
     saveFavorites([favorite()]);
     const { addToast } = renderFavorites();
     await userEvent.click(screen.getByText("Jailbreak"));
 
-    promptMock.mockImplementationOnce(async () => "https://vip.link/new");
-    promptMock.mockImplementationOnce(async () => "Squad server");
     await userEvent.click(screen.getByRole("button", { name: "Add VIP Server" }));
+    await userEvent.type(
+      screen.getByPlaceholderText("Private server link or VIP code"),
+      "https://vip.link/new"
+    );
+    await userEvent.type(
+      screen.getByPlaceholderText("Name for this server (optional)"),
+      "Squad server"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(addToast).toHaveBeenCalledWith("VIP server added"));
     expect(screen.getByText("Squad server")).toBeInTheDocument();
     expect(loadFavorites()[0].vipServers?.[0].link).toBe("https://vip.link/new");
+    // O formulário fecha depois de salvar; não sobra um segundo diálogo.
+    expect(screen.queryByPlaceholderText("Private server link or VIP code")).not.toBeInTheDocument();
   });
 
-  it("does not add a VIP server when the link prompt is cancelled", async () => {
+  it("does not add a VIP server when the inline form is cancelled", async () => {
     saveFavorites([favorite()]);
     const { addToast } = renderFavorites();
     await userEvent.click(screen.getByText("Jailbreak"));
 
-    promptAnswers.prompt = null;
     await userEvent.click(screen.getByRole("button", { name: "Add VIP Server" }));
-    await Promise.resolve();
+    await userEvent.type(
+      screen.getByPlaceholderText("Private server link or VIP code"),
+      "https://vip.link/discarded"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
     expect(addToast).not.toHaveBeenCalled();
+    expect(loadFavorites()[0].vipServers).toHaveLength(0);
+    expect(screen.queryByPlaceholderText("Private server link or VIP code")).not.toBeInTheDocument();
+  });
+
+  /**
+   * A validação roda ANTES do launch, não só lá na hora de entrar no
+   * servidor: texto claramente sem cara de link/código não é salvo, e a
+   * pessoa não descobre isso só quando o launch falhar.
+   */
+  it("rejects a clearly invalid VIP link and does not persist it", async () => {
+    saveFavorites([favorite()]);
+    const { addToast } = renderFavorites();
+    await userEvent.click(screen.getByText("Jailbreak"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Add VIP Server" }));
+    await userEvent.type(
+      screen.getByPlaceholderText("Private server link or VIP code"),
+      "this is not a link"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(addToast).not.toHaveBeenCalled();
+    expect(loadFavorites()[0].vipServers).toHaveLength(0);
+    // O formulário continua aberto com o erro explicado.
+    expect(screen.getByPlaceholderText("Private server link or VIP code")).toBeInTheDocument();
+    expect(
+      screen.getByText("That doesn't look like a private server link or VIP code.")
+    ).toBeInTheDocument();
+  });
+
+  it("accepts a bare vip: code without inventing a new format", async () => {
+    saveFavorites([favorite()]);
+    const { addToast } = renderFavorites();
+    await userEvent.click(screen.getByText("Jailbreak"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Add VIP Server" }));
+    await userEvent.type(
+      screen.getByPlaceholderText("Private server link or VIP code"),
+      "vip:11111111-2222-3333-4444-555555555555"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith("VIP server added"));
+    // O link é salvo cru, do jeito que o Rust (`extract_private_server_link_code`) espera.
+    expect(loadFavorites()[0].vipServers?.[0].link).toBe(
+      "vip:11111111-2222-3333-4444-555555555555"
+    );
   });
 
   it("removes a VIP server and persists the removal", async () => {

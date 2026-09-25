@@ -6,6 +6,36 @@ import { loadFavorites, saveFavorites, makeVipId } from "./types";
 import { FavoriteContextMenu } from "./FavoriteContextMenu";
 import { GameRowActions, browseServersIcon } from "./GamesTab";
 
+/**
+ * O texto colado em "Private server link or VIP code" parece plausível?
+ *
+ * O Rust (`extract_private_server_link_code` em
+ * `src-tauri/src/commands/launch_shared.rs`, e `normalize_private_server_link_code`
+ * em `api/roblox/private_links.rs`) aceita quase qualquer string não-vazia como
+ * código literal — inclusive um código puro sem prefixo `vip:` e sem formato de
+ * URL (ver o teste `normalize_private_server_link_code("  plain-code  ")`).
+ * Então não dá para inventar uma regra de formato nova aqui sem brigar com o
+ * que o Rust já aceita: a validação do front só rejeita o que é claramente
+ * OUTRA coisa — vazio, texto com espaço no meio (link/código nunca tem) ou sem
+ * nenhum caractere alfanumérico.
+ *
+ * O prefixo `vip:` (convenção de Job ID VIP do projeto) é descontado antes do
+ * teste de espaço, porque o próprio Rust aceita espaço logo depois dele
+ * (`extract_private_server_link_code("VIP:  ABC%20123 ")`).
+ */
+export function isPlausibleVipLink(text: string): boolean {
+  let value = text.trim();
+  if (!value) return false;
+
+  const vipPrefix = value.match(/^vip:\s*/i);
+  if (vipPrefix) value = value.slice(vipPrefix[0].length);
+  if (!value) return false;
+
+  if (/\s/.test(value)) return false;
+  if (!/[a-z0-9]/i.test(value)) return false;
+  return true;
+}
+
 export interface FavoritesTabProps {
   onSelectGame: (placeId: number, privateServer?: string) => void;
   addToast: (msg: string) => void;
@@ -27,6 +57,10 @@ export function FavoritesTab({
   const [favorites, setFavorites] = useState<FavoriteGame[]>(loadFavorites);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; game: FavoriteGame } | null>(null);
+  const [addingVipFor, setAddingVipFor] = useState<number | null>(null);
+  const [vipDraftLink, setVipDraftLink] = useState("");
+  const [vipDraftName, setVipDraftName] = useState("");
+  const [vipDraftError, setVipDraftError] = useState("");
 
   function persist(updated: FavoriteGame[]) {
     setFavorites(updated);
@@ -67,14 +101,36 @@ export function FavoritesTab({
     addToast(t("Removed from favorites"));
   }
 
-  async function handleAddVip(game: FavoriteGame) {
-    const link = await prompt(t("Private server link or VIP code:"), "");
-    if (!link?.trim()) return;
-    const label = await prompt(t("Name for this server (optional):"), "");
-    if (label === null) return; // cancelled
+  function startAddVip(placeId: number) {
+    setAddingVipFor(placeId);
+    setVipDraftLink("");
+    setVipDraftName("");
+    setVipDraftError("");
+  }
+
+  function cancelAddVip() {
+    setAddingVipFor(null);
+    setVipDraftLink("");
+    setVipDraftName("");
+    setVipDraftError("");
+  }
+
+  /**
+   * Era `prompt()` do link seguido de `prompt()` do nome: cancelar o segundo
+   * (o nome, opcional) jogava fora o link que a pessoa acabou de digitar no
+   * primeiro. Agora é um formulário inline na própria linha do favorito — os
+   * dois campos juntos, sem diálogo nenhum no meio — e o link é validado
+   * (`isPlausibleVipLink`) antes de salvar, não só lá no launch.
+   */
+  function handleSaveVip(game: FavoriteGame) {
+    const link = vipDraftLink.trim();
+    if (!isPlausibleVipLink(link)) {
+      setVipDraftError(t("That doesn't look like a private server link or VIP code."));
+      return;
+    }
     const vips = getVips(game);
-    const name = label.trim() || `${t("VIP")} ${vips.length + 1}`;
-    const newVip: VipServer = { id: makeVipId(), name, link: link.trim() };
+    const name = vipDraftName.trim() || `${t("VIP")} ${vips.length + 1}`;
+    const newVip: VipServer = { id: makeVipId(), name, link };
     persist(
       favorites.map((f) =>
         f.placeId === game.placeId
@@ -83,6 +139,7 @@ export function FavoritesTab({
       )
     );
     addToast(t("VIP server added"));
+    cancelAddVip();
   }
 
   async function handleRemoveVip(game: FavoriteGame, vipId: string) {
@@ -220,16 +277,62 @@ export function FavoritesTab({
                       </div>
                     )}
 
-                    <button
-                      onClick={() => handleAddVip(game)}
-                      className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <line x1="12" y1="5" x2="12" y2="19" />
-                        <line x1="5" y1="12" x2="19" y2="12" />
-                      </svg>
-                      {t("Add VIP Server")}
-                    </button>
+                    {addingVipFor === game.placeId ? (
+                      <div className="flex flex-col gap-1.5 mt-1 p-2 rounded-lg border border-dashed border-zinc-700">
+                        <input
+                          autoFocus
+                          value={vipDraftLink}
+                          onChange={(e) => {
+                            setVipDraftLink(e.target.value);
+                            if (vipDraftError) setVipDraftError("");
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveVip(game);
+                            if (e.key === "Escape") cancelAddVip();
+                          }}
+                          placeholder={t("Private server link or VIP code")}
+                          className="sidebar-input font-mono text-xs w-full"
+                        />
+                        <input
+                          value={vipDraftName}
+                          onChange={(e) => setVipDraftName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveVip(game);
+                            if (e.key === "Escape") cancelAddVip();
+                          }}
+                          placeholder={t("Name for this server (optional)")}
+                          className="sidebar-input text-xs w-full"
+                        />
+                        {vipDraftError && (
+                          <p className="text-[10px] text-red-400">{vipDraftError}</p>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleSaveVip(game)}
+                            className="flex-1 px-3 py-1 rounded-md text-[11px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                          >
+                            {t("Save")}
+                          </button>
+                          <button
+                            onClick={cancelAddVip}
+                            className="flex-1 px-3 py-1 rounded-md text-[11px] font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                          >
+                            {t("Cancel")}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => startAddVip(game.placeId)}
+                        className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <line x1="12" y1="5" x2="12" y2="19" />
+                          <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                        {t("Add VIP Server")}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
