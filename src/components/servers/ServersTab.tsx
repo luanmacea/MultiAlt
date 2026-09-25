@@ -112,8 +112,26 @@ export function fitScore(row: ServerRow, accounts: number): [number, number, num
  * 6"), e as duas coisas têm que concordar. Ordenar aqui também impede que uma
  * página da varredura chegando fora de ordem deixe servidores piores no topo.
  */
+/**
+ * Tira servidores repetidos, mantendo o primeiro.
+ *
+ * A lista do Roblox se mexe entre uma página e outra, então o mesmo Job ID
+ * volta em páginas diferentes (em dados reais do jogo do relato: 50 repetidos
+ * em 400). Cada repetido virava uma **chave de lista duplicada** no React, que
+ * então parava de reordenar a tabela — a lista "tentava" subir os servidores
+ * bons e travava no meio do caminho.
+ */
+export function dedupeRows(rows: ServerRow[]): ServerRow[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (!row.id || seen.has(row.id)) return false;
+    seen.add(row.id);
+    return true;
+  });
+}
+
 export function rankRows(rows: ServerRow[], accounts: number): ServerRow[] {
-  return [...rows].sort((a, b) => {
+  return dedupeRows(rows).sort((a, b) => {
     const scoreA = fitScore(a, accounts);
     const scoreB = fitScore(b, accounts);
     for (let i = 0; i < scoreA.length; i++) {

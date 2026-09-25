@@ -823,7 +823,7 @@ async fn start_server_scan(
                 }
             };
 
-            all.extend(batch);
+            extend_unique(&mut all, batch);
             let fitting = count_fitting(&all, accounts);
             let exhausted = next.as_deref().map(|c| c.trim().is_empty()).unwrap_or(true);
             let enough = fitting >= SCAN_ENOUGH_FITTING;
@@ -849,6 +849,24 @@ async fn start_server_scan(
     });
 
     Ok(scan_id)
+}
+
+/// Junta a página nova **sem repetir servidor**.
+///
+/// A lista do Roblox se mexe entre uma página e outra (jogador entra, jogador
+/// sai), então o mesmo Job ID volta em páginas diferentes — em dados reais, 50
+/// repetidos em 400. Isso inflava a contagem de "servidores examinados" e,
+/// principalmente, mandava ids repetidos para a UI, onde viravam chaves de
+/// lista duplicadas e travavam a reordenação do React.
+fn extend_unique(all: &mut Vec<api::roblox::ServerData>, batch: Vec<api::roblox::ServerData>) {
+    let seen: std::collections::HashSet<String> = all.iter().map(|s| s.id.clone()).collect();
+    let mut seen = seen;
+    for server in batch {
+        if server.id.trim().is_empty() || !seen.insert(server.id.clone()) {
+            continue;
+        }
+        all.push(server);
+    }
 }
 
 /// Quantos servidores da lista cabem o lote inteiro.
