@@ -871,12 +871,20 @@ fn scan_update(
     stopped_at_limit: bool,
     error: Option<String>,
 ) -> ServerScanUpdate {
-    let servers: Vec<api::roblox::ServerData> =
-        api::roblox::rank_servers(all, preference, accounts)
-            .into_iter()
-            .take(SCAN_VISIBLE_LIMIT)
-            .cloned()
-            .collect();
+    // Os que cabem o lote vão na frente **antes** do corte: a varredura pode
+    // achar milhares de servidores e o recorte não pode ser o que esconde os
+    // poucos que servem.
+    let ranked = api::roblox::rank_servers(all, preference, accounts);
+    let needed = accounts.max(1) as i32;
+    let (fits, rest): (Vec<_>, Vec<_>) = ranked
+        .into_iter()
+        .partition(|s| s.max_players > 0 && s.playing + needed <= s.max_players);
+    let servers: Vec<api::roblox::ServerData> = fits
+        .into_iter()
+        .chain(rest)
+        .take(SCAN_VISIBLE_LIMIT)
+        .cloned()
+        .collect();
 
     ServerScanUpdate {
         scan_id,
