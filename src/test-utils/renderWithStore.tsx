@@ -198,6 +198,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     setServerPreference: vi.fn(),
     serverRegionFilter: "",
     setServerRegionFilter: vi.fn(),
+    serverScanPages: 30,
+    setServerScanPages: vi.fn(),
     setShuffleJobId: vi.fn(),
 
     contextMenu: null,
@@ -342,6 +344,11 @@ export function storeModuleMock() {
   return {
     useStore: () => storeRef.current,
     StoreProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+    // Constantes puras do módulo continuam valendo no dublê: componentes as
+    // importam junto com o hook, e omiti-las quebra o render com um erro de
+    // mock em vez de um erro de teste.
+    DEFAULT_SERVER_SCAN_PAGES: 30,
+    MAX_SERVER_SCAN_PAGES: 500,
   };
 }
 

@@ -26,6 +26,20 @@ import { parseGroupName } from "./types";
  * Qualquer coisa desconhecida (ou um INI antigo) volta para `default`, que é o
  * comportamento de sempre: Job ID vazio e o Roblox escolhe o servidor.
  */
+/** Páginas varridas por padrão na aba Servers (100 servidores cada). */
+export const DEFAULT_SERVER_SCAN_PAGES = 30;
+/** Teto: o backend aplica o mesmo, uma varredura sem fim martelaria a API. */
+export const MAX_SERVER_SCAN_PAGES = 500;
+
+/**
+ * Valor guardado em `General.ServerScanPages` → número de páginas válido.
+ * Vazio, zero ou lixo voltam para o padrão.
+ */
+export function normalizeServerScanPages(value: number | undefined): number {
+  if (!Number.isFinite(value) || !value || value < 1) return DEFAULT_SERVER_SCAN_PAGES;
+  return Math.min(Math.floor(value as number), MAX_SERVER_SCAN_PAGES);
+}
+
 /** Abas do diálogo do gerador de contas. */
 export type GeneratorDialogTab = "provider" | "signup";
 
@@ -265,6 +279,12 @@ export interface StoreValue {
   /** Preferência de servidor do lote (item 4). Persistida em `General.ServerPreference`. */
   serverPreference: ServerPreference;
   setServerPreference: (preference: ServerPreference) => void;
+  /**
+   * Quantas páginas de 100 servidores a aba Servers varre antes de parar.
+   * Persistido em `General.ServerScanPages`.
+   */
+  serverScanPages: number;
+  setServerScanPages: (pages: number) => void;
   /** Código do país exigido ao escolher servidor (`BR`); vazio = sem filtro. */
   serverRegionFilter: string;
   setServerRegionFilter: (countryCode: string) => void;
@@ -468,6 +488,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       section: "General",
       key: "ServerPreference",
       value: preference,
+    }).catch(() => {});
+  }, []);
+
+  const [serverScanPages, _setServerScanPages] = useState(DEFAULT_SERVER_SCAN_PAGES);
+
+  const setServerScanPages = useCallback((pages: number) => {
+    const normalized = normalizeServerScanPages(pages);
+    _setServerScanPages(normalized);
+    invoke("update_setting", {
+      section: "General",
+      key: "ServerScanPages",
+      value: String(normalized),
     }).catch(() => {});
   }, []);
 
@@ -1618,6 +1650,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (s?.General?.ShuffleJobId === "true") setShuffleJobId(true);
         _setServerPreference(normalizeServerPreference(s?.General?.ServerPreference));
         _setServerRegionFilter((s?.General?.ServerRegionFilter || "").trim().toUpperCase());
+        _setServerScanPages(normalizeServerScanPages(Number(s?.General?.ServerScanPages)));
         if (s?.General?.SavedPlaceId) _setPlaceId(s.General.SavedPlaceId);
         if (s?.General?.SavedJobId) _setJobId(s.General.SavedJobId);
         if (s?.General?.SavedLaunchData) _setLaunchData(s.General.SavedLaunchData);
@@ -2279,6 +2312,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setServerPreference,
     serverRegionFilter,
     setServerRegionFilter,
+    serverScanPages,
+    setServerScanPages,
     contextMenu,
     openContextMenu,
     closeContextMenu,

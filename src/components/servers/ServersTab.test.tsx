@@ -57,7 +57,10 @@ const SCAN_ID = 7;
  * A lista chega por evento, página a página: a varredura roda em background no
  * backend e publica o que já achou, sempre reordenado.
  */
-function emitScan(rows: ServerRow[], extra: Partial<{ scanned: number; fitting: number; done: boolean }> = {}) {
+function emitScan(
+  rows: ServerRow[],
+  extra: Partial<{ scanned: number; fitting: number; done: boolean; stoppedAtLimit: boolean }> = {}
+) {
   emitTauriEvent("server-scan", {
     scanId: SCAN_ID,
     placeId: 606849621,
@@ -65,6 +68,7 @@ function emitScan(rows: ServerRow[], extra: Partial<{ scanned: number; fitting: 
     scanned: extra.scanned ?? rows.length,
     fitting: extra.fitting ?? rows.filter((r) => r.playing + 2 <= r.maxPlayers).length,
     done: extra.done ?? true,
+    stoppedAtLimit: extra.stoppedAtLimit ?? false,
     error: null,
   });
 }
@@ -282,6 +286,47 @@ describe("ServersTab — região", () => {
 
     expect(callsFor("get_server_regions")).toHaveLength(0);
     expect(store.addToast).toHaveBeenCalled();
+  });
+});
+
+describe("ServersTab — profundidade da varredura", () => {
+  it("manda o limite de páginas escolhido para a varredura", async () => {
+    renderTab([row({ id: "job-a" })], { serverScanPages: 80 });
+    await screen.findByText("job-a");
+
+    const args = (callsFor("start_server_scan")[0][1] ?? {}) as Record<string, unknown>;
+    expect(args.maxPages).toBe(80);
+  });
+
+  it("guarda no store o novo limite digitado", async () => {
+    const user = userEvent.setup();
+    const { store } = renderTab([row({ id: "job-a" })]);
+    await screen.findByText("job-a");
+
+    const field = screen.getByLabelText("Pages to scan");
+    await user.clear(field);
+    await user.type(field, "60");
+    expect(store.setServerScanPages).toHaveBeenCalled();
+  });
+
+  /**
+   * Parar no limite não é "acabaram os servidores": o jogo tem mais, e o
+   * usuário precisa de um jeito óbvio de continuar procurando.
+   */
+  it("oferece dobrar o limite quando a varredura para por causa dele", async () => {
+    const user = userEvent.setup();
+    const { store } = renderTab([row({ id: "job-a" })], { serverScanPages: 30 });
+    emitScan([row({ id: "job-a" })], { scanned: 3000, fitting: 0, done: true, stoppedAtLimit: true });
+
+    await screen.findByText(/Stopped after 30 pages/i);
+    await user.click(screen.getByRole("button", { name: /Scan 60 pages/i }));
+    expect(store.setServerScanPages).toHaveBeenCalledWith(60);
+  });
+
+  it("não oferece nada quando a varredura acabou por falta de servidores", async () => {
+    renderTab([row({ id: "job-a" })]);
+    await screen.findByText("job-a");
+    expect(screen.queryByText(/Stopped after/i)).not.toBeInTheDocument();
   });
 });
 

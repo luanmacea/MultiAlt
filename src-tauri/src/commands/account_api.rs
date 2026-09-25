@@ -703,9 +703,24 @@ async fn list_servers_ranked(
 // com a lista reordenada: o usuário vê o que existe agora e a lista vai
 // melhorando enquanto mais páginas chegam.
 
-/// Páginas no máximo (100 servidores cada). Teto para uma varredura não virar
-/// uma enxurrada de requisições num jogo com dezenas de milhares de servidores.
-const SCAN_MAX_PAGES: usize = 30;
+/// Páginas por varredura quando o usuário não escolheu nada (100 servidores
+/// cada). Cobre a maioria dos jogos sem virar uma enxurrada de requisições.
+pub const SCAN_DEFAULT_PAGES: usize = 30;
+
+/// Teto absoluto, mesmo que o usuário peça mais: 50 mil servidores já é mais do
+/// que qualquer jogo tem, e uma varredura infinita martelaria a API do Roblox.
+pub const SCAN_HARD_MAX_PAGES: usize = 500;
+
+/// Quantas páginas esta varredura pode percorrer.
+///
+/// `None` (a UI não mandou nada) usa o padrão; zero é erro de chamada e vira o
+/// padrão também; acima do teto, o teto.
+pub fn scan_page_budget(requested: Option<usize>) -> usize {
+    match requested {
+        Some(0) | None => SCAN_DEFAULT_PAGES,
+        Some(pages) => pages.min(SCAN_HARD_MAX_PAGES),
+    }
+}
 /// Pausa entre páginas, para não tomar 429 da API de servidores.
 const SCAN_PAGE_DELAY_MS: u64 = 250;
 /// Quantos servidores que cabem o lote bastam para parar de procurar.
@@ -731,6 +746,9 @@ pub struct ServerScanUpdate {
     /// Quantos deles cabem o lote inteiro.
     pub fitting: usize,
     pub done: bool,
+    /// Parou por ter batido o limite de páginas, não por falta de servidores.
+    /// A UI oferece aumentar o limite em vez de dizer que acabou.
+    pub stopped_at_limit: bool,
     pub error: Option<String>,
 }
 
@@ -757,10 +775,12 @@ async fn start_server_scan(
     user_id: Option<i64>,
     preference: String,
     accounts: Option<usize>,
+    max_pages: Option<usize>,
 ) -> Result<u64, String> {
     if place_id <= 0 {
         return Err("Place ID inválido".to_string());
     }
+    let budget = scan_page_budget(max_pages);
     let cookie = user_id.and_then(|id| get_cookie(&state, id).ok());
     let preference = api::roblox::parse_server_preference(&preference);
     let accounts = accounts.unwrap_or(1).max(1);
@@ -771,7 +791,7 @@ async fn start_server_scan(
         let mut all: Vec<api::roblox::ServerData> = Vec::new();
         let mut cursor: Option<String> = None;
 
-        for page in 0..SCAN_MAX_PAGES {
+        for page in 0..budget {
             if scan_cancelled(scan_id) {
                 return;
             }
@@ -794,7 +814,10 @@ async fn start_server_scan(
                     // uma tela de erro.
                     let _ = app.emit(
                         "server-scan",
-                        scan_update(scan_id, place_id, &all, preference, accounts, true, Some(error)),
+                        scan_update(
+                            scan_id, place_id, &all, preference, accounts, true, false,
+                            Some(error),
+                        ),
                     );
                     return;
                 }
@@ -803,14 +826,18 @@ async fn start_server_scan(
             all.extend(batch);
             let fitting = count_fitting(&all, accounts);
             let exhausted = next.as_deref().map(|c| c.trim().is_empty()).unwrap_or(true);
-            let done = exhausted || fitting >= SCAN_ENOUGH_FITTING || page + 1 == SCAN_MAX_PAGES;
+            let enough = fitting >= SCAN_ENOUGH_FITTING;
+            let hit_limit = page + 1 == budget && !exhausted && !enough;
+            let done = exhausted || enough || hit_limit;
 
             if scan_cancelled(scan_id) {
                 return;
             }
             let _ = app.emit(
                 "server-scan",
-                scan_update(scan_id, place_id, &all, preference, accounts, done, None),
+                scan_update(
+                    scan_id, place_id, &all, preference, accounts, done, hit_limit, None,
+                ),
             );
 
             if done {
@@ -841,6 +868,7 @@ fn scan_update(
     preference: api::roblox::ServerPreference,
     accounts: usize,
     done: bool,
+    stopped_at_limit: bool,
     error: Option<String>,
 ) -> ServerScanUpdate {
     let servers: Vec<api::roblox::ServerData> =
@@ -857,7 +885,36 @@ fn scan_update(
         scanned: all.len(),
         fitting: count_fitting(all, accounts),
         done,
+        stopped_at_limit,
         error,
+    }
+}
+
+#[cfg(test)]
+mod server_scan_budget_tests {
+    use super::*;
+
+    #[test]
+    fn the_default_budget_is_used_when_nothing_is_asked() {
+        assert_eq!(scan_page_budget(None), SCAN_DEFAULT_PAGES);
+        // Zero página é erro de chamada, não "não procure nada".
+        assert_eq!(scan_page_budget(Some(0)), SCAN_DEFAULT_PAGES);
+    }
+
+    #[test]
+    fn the_user_can_ask_for_more_pages() {
+        assert_eq!(scan_page_budget(Some(1)), 1);
+        assert_eq!(scan_page_budget(Some(120)), 120);
+    }
+
+    /// Mesmo pedindo mais, há um teto: uma varredura sem fim martelaria a API.
+    #[test]
+    fn the_budget_is_capped() {
+        assert_eq!(scan_page_budget(Some(usize::MAX)), SCAN_HARD_MAX_PAGES);
+        assert_eq!(
+            scan_page_budget(Some(SCAN_HARD_MAX_PAGES + 1)),
+            SCAN_HARD_MAX_PAGES
+        );
     }
 }
 

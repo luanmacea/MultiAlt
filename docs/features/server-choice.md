@@ -43,7 +43,9 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 
 ## Varredura da lista (aba Servers)
 
-Um jogo grande tem milhares de servidores e a API devolve 100 por página; com um lote de 6 contas, as primeiras páginas podem não ter **nenhum** servidor que caiba todo mundo. Por isso a aba não espera o fim: `start_server_scan` percorre as páginas em background (até 30, com 250 ms entre elas) e publica um evento `server-scan` a cada página, já com a lista reordenada. A varredura para quando acha 12 servidores que cabem o lote, quando as páginas acabam, ou quando o usuário troca de jogo/ordem (`stop_server_scan`).
+Um jogo grande tem milhares de servidores e a API devolve 100 por página; com um lote de 6 contas, as primeiras páginas podem não ter **nenhum** servidor que caiba todo mundo. Por isso a aba não espera o fim: `start_server_scan` percorre as páginas em background (250 ms entre elas) e publica um evento `server-scan` a cada página, já com a lista reordenada. A varredura para quando acha 12 servidores que cabem o lote, quando as páginas acabam, quando bate o limite de páginas, ou quando o usuário troca de jogo/ordem (`stop_server_scan`).
+
+**Quantas páginas** vem do campo *Pages to scan* (padrão 30 = 3000 servidores), guardado em `General.ServerScanPages`. O backend aplica um teto absoluto de 500 páginas: uma varredura sem fim martelaria a API do Roblox. Quando a varredura para **por causa do limite** (e não por falta de servidores), o evento traz `stoppedAtLimit` e a aba oferece dobrar o número em vez de dizer que acabou.
 
 **Sem nenhum servidor que caiba o lote**, a ordem deixa de ser a preferência e passa a ser **quantas contas cabem** — mais vagas primeiro, e entre iguais o mais cheio. Antes a lista abria com os de uma vaga só e os que levavam quatro contas ficavam escondidos lá embaixo.
 
