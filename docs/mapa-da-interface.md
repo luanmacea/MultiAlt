@@ -1,0 +1,158 @@
+# Mapa da interface
+
+Onde fica cada coisa e para que serve. Este arquivo existe porque o app nasceu de
+um fork e acumulou funcionalidade mais rápido do que explicação: muita coisa útil
+está a três cliques de distância sem nada na tela dizendo que existe.
+
+A interface está **em inglês** (ou alemão); aqui os nomes aparecem como na tela,
+com a explicação em português.
+
+> Avaliação de usabilidade deste mesmo inventário: [ux-checkup.md](ux-checkup.md).
+
+---
+
+## Como o app se organiza
+
+```
+Barra de título ─ GitHub · minimizar · maximizar · fechar
+Toolbar ──────── busca · selecionar tudo · Names · painel │ Add ▾ │ Session · Theme · Nexus · Scripts · Settings
+Lista de contas ─ agrupada, arrastável, com bolinhas de estado
+Barra inferior ── aparece ao selecionar: Clear · Account · Actions ▾ · Choose Game
+StatusBar ─────── contadores e legenda das cores
+```
+
+Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Game**
+(entrar em jogo, servidores, amigos) e o **Settings**. O resto são diálogos.
+
+---
+
+## 1. Toolbar
+
+| Na tela | O que faz |
+|---|---|
+| `Filter accounts...` | Filtra a lista. Atenção: contas escondidas pelo filtro **continuam selecionadas** e sujeitas às ações em lote. |
+| ícone de checkbox | `Select all` / `Deselect all`. |
+| `Names` / `Hidden` | Mascara os nomes de usuário na lista (para gravar tela). Quantas letras ficam visíveis: Settings › General › `Preview Letters`. |
+| ícone de painel | Mostra/esconde o painel de detalhes — **só aparece com exatamente uma conta selecionada**. |
+| `Add ▾` | Todas as formas de trazer conta para dentro (abaixo). |
+| ícone de gamepad | `Session`: fila de lançamento e clientes abertos. |
+| ícone de paleta | `Theme`: editor de cores e fontes. |
+| ícone de camadas | `Nexus`: controle de clientes por script Lua (exige executor externo). |
+| ícone de terminal | `Scripts`: automação em JavaScript **do próprio gerenciador**. |
+| ícone de engrenagem | `Settings`. |
+
+### Menu `Add`
+
+| Item | O que faz |
+|---|---|
+| `Quick Add` | Pede cookie **ou** nome de usuário. Com nome de usuário a conta entra **sem sessão** — serve só de marcador até você colar o cookie. |
+| `Browser Login` | Abre um navegador embutido para você logar normalmente. É o caminho mais seguro. |
+| `User:Pass Login` | Cola `usuario:senha`, uma por linha; abre o navegador para concluir cada login. |
+| `Import Cookie` | Cola um `.ROBLOSECURITY` por linha. O cookie sai do navegador em que você já está logado: DevTools › Application › Cookies › roblox.com. |
+| `Import Old Account Data` | Traz o `AccountData.json` da versão antiga do RAM. |
+| `Create Accounts` | Cria contas **de graça** no navegador embutido: o app preenche nome, senha, data e gênero; **você resolve o CAPTCHA**. |
+| `Account Generator` | Compra contas prontas de um serviço **pago de terceiro** (BloxGen), com chave de API. |
+| `Roblox Versions` | Gerencia versões instaladas do cliente Roblox (mora aqui por acidente histórico). |
+
+---
+
+## 2. Lista de contas
+
+- **Seleção**: clique, `Ctrl+clique` (alterna), `Shift+clique` (intervalo), arrastar no vazio (retângulo), `Ctrl+A`, `Esc`.
+- **Arrastar a alça `⋮⋮`** reordena dentro do grupo ou move para outro grupo.
+- **Largar texto com cookie** na lista adiciona a conta.
+- **Grupos**: o cabeçalho colapsa, aceita drop e tem checkbox. Um **número no começo do nome ordena o grupo** e some da exibição (`1 Main` mostra `Main`) — convenção herdada do RAM antigo.
+- **Bolinhas** (da esquerda para a direita): sessão inválida, conta parada há 20+ dias, cliente aberto pelo RAM, presença (online / em jogo / no Studio).
+
+### Clique direito numa conta
+
+`Set Alias` · `Set Description` · `Copy ▸` (Cookie, Username, Password, User:Pass, User ID, Profile Link) · `Focus client` · `Restart client` · `Move to Group ▸` · `Copy Group` · `Sort Alphabetically` · `Toggle Group Visibility` · `Show Details` · `Quick Login` (confirma o código de 6 dígitos que o Roblox mostra em outro dispositivo) · `Remove Account`.
+
+Com **Developer Mode** ligado aparecem também `Copy ▸ rbx-player Link`, `Copy ▸ App Link`, `Get Auth Ticket` e `View/Edit Fields`.
+Com **Botting Mode** ativo aparece `Add N account(s) to Botting Mode`.
+
+### Painel da conta (uma selecionada)
+
+Alias, descrição, versão do Roblox e as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`.
+
+### Barra inferior (qualquer seleção)
+
+`Clear` · `Account` (abre o painel) · `Actions ▾` · **`Choose Game`**.
+
+`Actions` reúne: `Refresh Cookies`, `Copy All Cookies`, `Make Friends` (modo *mesh* = todos com todos, *star* = todos com uma), `Move to Group`, `Restart Launched`, `Open Botting Mode`, `Add to Botting`, `Close All Roblox`, `Remove`.
+
+---
+
+## 3. Choose Game
+
+Abre com contas selecionadas e mostra `N accounts will be launched together` com chips removíveis. Sai com `Back` ou `Esc`.
+
+| Aba | Para que serve |
+|---|---|
+| `Favorites` | Seus jogos salvos, com servidores VIP/privados guardados por jogo. |
+| `Games` | Busca na Roblox. Passando o mouse no card aparecem `Browse servers` e `Join Game`. |
+| `Recent` | Jogos abertos recentemente (tamanho da lista em Settings › General › `Max Recent Games`). |
+| `Servers` | Varredura de servidores do place, ordenada por **quanto o lote cabe**. Filtros: `Sort by`, `Region`, `Pages to scan`. |
+| `Friends` | Amigos online de cada conta; `Join` manda o lote inteiro para o servidor do amigo. |
+| `Follow` | **`Join link`** (cola qualquer link de convite/servidor privado) e **`Follow a Player`** (por nome de usuário). Também atalhos para Server List, Utilities, Botting e Scripts. |
+| `Console` | Grade de janelas (`Arrange in grid`), painel de sessão e **log ao vivo dos lançamentos** — é aqui que aparece o motivo de uma falha. |
+
+### Aba Servers, em detalhe
+
+- `Sort by`: **Best fit** (padrão) procura o servidor mais cheio em que o lote ainda caiba deixando **uma vaga de folga**; depois `Fullest`, `Emptiest`, `Random` e `Let Roblox choose`.
+- `Pages to scan`: cada página são 100 servidores. Jogo grande precisa de mais páginas.
+- `Region` só filtra depois que as regiões forem resolvidas (`Load regions`), porque a região não vem da API do Roblox — sai do IP do servidor.
+- A linha diz `N free` ou `N free · needs M`; quando nada cabe, o resumo explica em vez de fingir.
+
+---
+
+## 4. Settings
+
+Nove abas. As mais úteis no dia a dia:
+
+| Aba | O que mora ali |
+|---|---|
+| `General` | Idioma, updates, **Multi Roblox**, **Botting Mode**, atrasos de lançamento, presença, nomes ocultos, navegador de login. |
+| `Developer` | `Enable Developer Mode` (destrava itens do menu de contexto), web server, diagnóstico de mutex. |
+| `WebServer` | API HTTP local para ferramentas externas. Só aparece com Developer Mode ou o servidor ligado. |
+| `Watcher` | Vigia o cliente do Roblox: fecha se cair a conexão, se a memória baixar, se o título mudar. |
+| `Generator` | Provedor pago de contas: endpoint, chave de API, tipo de conta, grupo de destino. |
+| `Isolation` | Limpeza de rastros antes de cada launch (cache, registro, MachineGuid, MAC). Windows. |
+| `Versions` | Versão padrão do Roblox e o baixador de versões. |
+| `Optimization` | FPS, gráficos, tamanho de janela e política de processo do Windows — um perfil por papel (normal / player / bot). |
+| `Misc` | Sincronia dos campos de launch, shuffle de Job ID, **Backups**, criptografia e "lembrar senha". |
+
+**Dois interruptores em General mudam o app inteiro:** `Multi Roblox` (várias instâncias ao mesmo tempo) e `Botting Mode` (destrava todo o ciclo de rejoin automático). Sem eles ligados, várias funcionalidades simplesmente não aparecem.
+
+---
+
+## 5. Diálogos de ferramenta
+
+| Diálogo | Onde | Para que serve |
+|---|---|---|
+| `Scripts` | toolbar | **JavaScript rodando dentro do RAM**, num Web Worker isolado, com a API `ram.*` para automatizar o gerenciador (lançar contas, ler settings, HTTP, UI própria). **Não** é executor de Roblox e **não** precisa de injector: nada disso entra no cliente do jogo. As 8 permissões por script controlam o que ele pode tocar. |
+| `Nexus` (título na tela: `Account Control`) | toolbar | Servidor WebSocket que conversa com o `Nexus.lua` **executado dentro do Roblox por um executor de terceiros**. Só então dá para mandar comandos e scripts Lua para os clientes. |
+| `Botting Mode` | Actions ▾ ou Choose Game › Follow | Mantém um grupo de contas "bot" dentro de um servidor: a cada N minutos **fecha e relança** cada cliente, com carência para as contas marcadas como `player`. Exige Multi Roblox. |
+| `Account Utilities` | painel da conta › Tools | Operações na conta Roblox: display name, privacidade, **trocar senha**, **trocar e-mail**, PIN, encerrar outras sessões, bloqueios, outfits, avatar por JSON. |
+| `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
+| `Backups` | Settings › Misc › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
+| `Theme Editor` | toolbar | Cores, estilo de botão e fontes; presets exportáveis. |
+| `Session` | toolbar | Fila de lançamento (cancelar) e clientes abertos (focar, fechar). |
+
+---
+
+## 6. Rodapé
+
+`N selected` · `N accounts` · `N online` · `N in game` · `N launched` · `botting next mm:ss`, e a legenda das cores.
+
+Cuidado com a leitura: **`online` inclui quem está em jogo** e **conta no Studio entra em `in game`**.
+
+---
+
+## 7. O que só existe no Windows
+
+Isolation inteiro (registro, MachineGuid, MAC), política de processo em Optimization (prioridade, EcoQoS, limites de CPU/memória, fast flags), grade de janelas, `Focus client`, autostart, diagnóstico de mutex, Multi Roblox e o "lembrar senha" (DPAPI).
+
+## 8. O que depende de flag de build
+
+`Nexus` (`VITE_ENABLE_NEXUS`) e o `WebServer` (`VITE_ENABLE_WEBSERVER`). Ambos ligados por padrão.
