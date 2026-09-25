@@ -1,7 +1,9 @@
 import { act, cleanup, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createElement, type ReactNode } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import i18n from "../i18n";
+import enCommon from "../locales/en/common.json";
 import { PromptProvider, useConfirm, useConfirmWithOptOut, usePrompt } from "./usePrompt";
 
 type Dialogs = {
@@ -284,5 +286,50 @@ describe("confirmWithOptOut", () => {
 
     fireEvent.keyDown(screen.getByText("Confirm"), { key: "Escape" });
     await waitFor(() => expect(resolved).toEqual({ confirmed: false, dontShowAgain: false }));
+  });
+});
+
+/**
+ * Contrato de i18n dos rótulos padrão: o diálogo passa cada rótulo por `t()`,
+ * então o padrão tem de ser **chave de catálogo**. "Don't show this again" era
+ * texto solto — nunca chegava ao catálogo, e a caixa de opt-out saía em inglês
+ * em todos os idiomas.
+ */
+const en = enCommon as Record<string, string>;
+
+/** Tradução **de teste**, não o catálogo do app: o "[pt]" é o sinal disso. */
+const PT_FIXTURE: Record<string, string> = {
+  "Don't show this again": "[pt] Não mostrar isto novamente",
+};
+
+describe("rótulos padrão do confirmWithOptOut", () => {
+  beforeEach(async () => {
+    i18n.addResourceBundle("pt", "translation", PT_FIXTURE, true, true);
+    await i18n.changeLanguage("pt");
+  });
+
+  afterEach(async () => {
+    cleanup();
+    await i18n.changeLanguage("en");
+  });
+
+  it("são chaves do catálogo em inglês", () => {
+    for (const key of ["Confirm", "Cancel"]) {
+      expect(en[key]).toBe(key);
+    }
+    // A chave nova pode ainda não estar no arquivo; estando, vale a mesma regra.
+    if ("Don't show this again" in en) expect(en["Don't show this again"]).toBe("Don't show this again");
+  });
+
+  it("chegam traduzidos à tela", async () => {
+    const { result } = renderDialogs();
+    act(() => {
+      void result.current.confirmWithOptOut("Join anyway?");
+    });
+
+    await waitFor(() => expect(screen.getByText("[pt] Não mostrar isto novamente")).toBeTruthy());
+    expect(screen.getByText("Confirmar")).toBeTruthy();
+    expect(screen.getByText("Cancelar")).toBeTruthy();
+    expect(screen.queryByText("Don't show this again")).toBeNull();
   });
 });

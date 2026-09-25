@@ -1,5 +1,7 @@
 import { act, cleanup, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account } from "../types";
@@ -16,9 +18,11 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: () => Promise.resolve(() => {}),
 }));
 
+import i18n from "../i18n";
+import enCommon from "../locales/en/common.json";
 import { StoreProvider, useStore } from "../store";
 import { PromptProvider } from "./usePrompt";
-import { useJoinOnlineWarning } from "./useJoinOnlineWarning";
+import { presenceLabelKey, useJoinOnlineWarning } from "./useJoinOnlineWarning";
 
 function account(userId: number, overrides: Partial<Account> = {}): Account {
   return {
@@ -45,6 +49,11 @@ let presenceFails = false;
 
 function invokeCalls(cmd: string) {
   return invokeMock.mock.calls.filter((c) => c[0] === cmd);
+}
+
+/** A fila de toasts guarda objetos (`{ id, message, tone }`), não strings. */
+function toastText(toasts: { message: string }[]) {
+  return toasts.map((toast) => toast.message).join(" ");
 }
 
 async function renderWarning() {
@@ -234,7 +243,7 @@ describe("useJoinOnlineWarning", () => {
       value: "false",
     });
     await waitFor(() =>
-      expect(result.current.store.toasts.join(" ")).toContain("Online-join warning disabled")
+      expect(toastText(result.current.store.toasts)).toContain("Online-join warning disabled")
     );
   });
 
@@ -256,5 +265,217 @@ describe("useJoinOnlineWarning", () => {
 
     await waitFor(() => expect(allowed).toBe(false));
     expect(invokeCalls("update_setting")).toHaveLength(0);
+  });
+});
+
+const en = enCommon as Record<string, string>;
+
+/**
+ * As chaves que o aviso **tem** de usar, escritas aqui de propósito: é o teste
+ * que guarda a frase, não o hook. Uma letra fora de lugar no hook e a tradução
+ * do catálogo não casa mais — a tela volta ao inglês, que é o bug que este
+ * arquivo existe para impedir.
+ */
+const KEYS = {
+  one: "{{name}} is currently {{state}}. Joining can disconnect its existing Roblox session. Continue anyway?",
+  many:
+    "{{count}} selected accounts are already online: {{list}}. Joining can disconnect their existing Roblox sessions. Continue anyway?",
+  more: "{{list}} and {{n}} more",
+  joinAnyway: "Join Anyway",
+  cancel: "Cancel",
+  optOut: "Don't show this warning again",
+  optOutToast: "Online-join warning disabled",
+  unknownUser: "User {{id}}",
+} as const;
+
+/** Nomes dos `{{placeholder}}` de uma frase, ordenados. */
+function placeholders(text: string): string[] {
+  return [...text.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)].map((m) => m[1]).sort();
+}
+
+/**
+ * Traduções **de teste**, não o catálogo do app: o "[pt]" na frente existe para
+ * não confundir uma com a outra. Se esse texto aparece na tela, é porque o hook
+ * entregou a *chave* ao diálogo e o `t()` a resolveu — é justamente isso que o
+ * contrato cobra. Frase montada por template literal nunca casaria com a chave,
+ * e sairia em inglês com o catálogo inteiro traduzido.
+ */
+const PT_FIXTURE: Record<string, string> = {
+  [KEYS.one]: "[pt] {{name}} está {{state}} agora. Continuar?",
+  [KEYS.many]: "[pt] {{count}} contas já estão online: {{list}}. Continuar?",
+  [KEYS.more]: "{{list}} e mais {{n}}",
+  [KEYS.joinAnyway]: "[pt] Entrar mesmo assim",
+  [KEYS.optOut]: "[pt] Não mostrar este aviso",
+  [KEYS.optOutToast]: "[pt] Aviso desativado",
+  [KEYS.unknownUser]: "[pt] Usuário {{id}}",
+};
+
+function dialogText(): string {
+  return document.querySelector(".fixed.inset-0")?.textContent ?? "";
+}
+
+const hookSource = readFileSync(
+  path.join(process.cwd(), "src", "hooks", "useJoinOnlineWarning.ts"),
+  "utf8"
+);
+
+describe("useJoinOnlineWarning: contrato de i18n", () => {
+  describe("as chaves do aviso", () => {
+    it("estão no código como literal, do jeito que o extrator de chaves acha", () => {
+      for (const key of [KEYS.one, KEYS.many, KEYS.more, KEYS.unknownUser]) {
+        expect(hookSource).toContain(`"${key}"`);
+      }
+      // `scripts/i18n/extract-keys.ts` descarta de propósito qualquer literal
+      // com `${`: montar a frase com template literal é o que a deixava fora do
+      // catálogo, por mais traduzido que o catálogo estivesse.
+      for (const phrase of ["is currently", "already online", "Continue anyway?", "User {{id}}"]) {
+        const interpolated = hookSource
+          .split("\n")
+          .filter((line) => line.includes(phrase) && line.includes("${"));
+        expect(interpolated).toEqual([]);
+      }
+    });
+
+    it("usam {{placeholder}} e nunca template literal", () => {
+      for (const key of Object.values(KEYS)) {
+        expect(key).not.toContain("${");
+      }
+      expect(placeholders(KEYS.one)).toEqual(["name", "state"]);
+      expect(placeholders(KEYS.many)).toEqual(["count", "list"]);
+      expect(placeholders(KEYS.more)).toEqual(["list", "n"]);
+      expect(placeholders(KEYS.unknownUser)).toEqual(["id"]);
+      for (const key of [KEYS.joinAnyway, KEYS.cancel, KEYS.optOut, KEYS.optOutToast]) {
+        expect(placeholders(key)).toEqual([]);
+      }
+    });
+
+    it("têm frase separada para uma conta e para várias, em vez de '(s)'", () => {
+      expect(KEYS.one).not.toMatch(/\(s\)/);
+      expect(KEYS.many).not.toMatch(/\(s\)/);
+      expect(KEYS.one).toContain("session.");
+      expect(KEYS.many).toContain("sessions.");
+      expect(KEYS.one).not.toBe(KEYS.many);
+    });
+
+    it("são chaves do catálogo em inglês, que devolve a própria frase", () => {
+      for (const key of Object.values(KEYS)) {
+        // A chave nova ainda pode não estar no arquivo; estando, o valor em
+        // inglês é a própria chave — é assim que `tr()` devolve a frase crua.
+        if (key in en) expect(en[key]).toBe(key);
+      }
+      expect(en[KEYS.cancel]).toBe("Cancel");
+    });
+
+    it("descrevem a presença por chave de catálogo, não por texto solto", () => {
+      for (const type of [0, 1, 2, 3]) {
+        expect(en[presenceLabelKey(type)]).toBeDefined();
+      }
+      expect(presenceLabelKey(2)).toBe("In Game");
+      expect(presenceLabelKey(3)).toBe("In Studio");
+      expect(presenceLabelKey(1)).toBe("Online");
+      expect(presenceLabelKey(0)).toBe("Offline");
+    });
+  });
+
+  describe("com o app em português", () => {
+    beforeEach(() => {
+      settingsData = { General: { Language: "pt" } };
+      i18n.addResourceBundle("pt", "translation", PT_FIXTURE, true, true);
+    });
+
+    afterEach(async () => {
+      cleanup();
+      await i18n.changeLanguage("en");
+    });
+
+    it("traduz a frase de uma conta e o estado dentro dela", async () => {
+      const user = userEvent.setup();
+      presenceRows = [{ userId: 1, userPresenceType: 2 }];
+      const { result } = await renderWarning();
+
+      act(() => {
+        void result.current.confirmJoin([1]);
+      });
+
+      await waitFor(() => expect(dialogText()).toContain("[pt]"));
+      expect(dialogText()).toContain("Main está Em jogo agora");
+      expect(dialogText()).not.toContain("In Game");
+      expect(dialogText()).not.toContain("{{");
+
+      await user.click(screen.getByText("Cancelar"));
+    });
+
+    it("traduz a frase de várias contas, a lista e o resto truncado", async () => {
+      const user = userEvent.setup();
+      presenceRows = [1, 2, 3, 4, 5].map((id) => ({ userId: id, userPresenceType: 3 }));
+      const { result } = await renderWarning();
+
+      act(() => {
+        void result.current.confirmJoin([1, 2, 3, 4, 5]);
+      });
+
+      await waitFor(() => expect(dialogText()).toContain("[pt]"));
+      const text = dialogText();
+      expect(text).toContain("[pt] 5 contas já estão online:");
+      expect(text).toContain("Main (No Studio)");
+      expect(text).toContain("e mais 1");
+      expect(text).not.toContain("and 1 more");
+      expect(text).not.toContain("In Studio");
+      expect(text).not.toContain("{{");
+
+      await user.click(screen.getByText("Cancelar"));
+    });
+
+    it("traduz os três rótulos do diálogo", async () => {
+      const user = userEvent.setup();
+      presenceRows = [{ userId: 1, userPresenceType: 1 }];
+      const { result } = await renderWarning();
+
+      act(() => {
+        void result.current.confirmJoin([1]);
+      });
+
+      await waitFor(() => expect(screen.getByText("[pt] Entrar mesmo assim")).toBeTruthy());
+      expect(screen.getByText("Cancelar")).toBeTruthy();
+      expect(screen.getByText("[pt] Não mostrar este aviso")).toBeTruthy();
+      expect(screen.queryByText("Join Anyway")).toBeNull();
+      expect(screen.queryByText("Don't show this warning again")).toBeNull();
+
+      await user.click(screen.getByText("Cancelar"));
+    });
+
+    it("traduz o toast do opt-out", async () => {
+      const user = userEvent.setup();
+      presenceRows = [{ userId: 1, userPresenceType: 1 }];
+      const { result } = await renderWarning();
+
+      act(() => {
+        void result.current.confirmJoin([1]);
+      });
+
+      await waitFor(() => expect(screen.getByRole("checkbox")).toBeTruthy());
+      await user.click(screen.getByRole("checkbox"));
+      await user.click(screen.getByText("[pt] Entrar mesmo assim"));
+
+      await waitFor(() =>
+        expect(toastText(result.current.store.toasts)).toContain("[pt] Aviso desativado")
+      );
+    });
+
+    it("traduz o nome genérico de um user id desconhecido", async () => {
+      const user = userEvent.setup();
+      presenceRows = [{ userId: 999, userPresenceType: 1 }];
+      const { result } = await renderWarning();
+
+      act(() => {
+        void result.current.confirmJoin([999]);
+      });
+
+      await waitFor(() => expect(dialogText()).toContain("[pt]"));
+      expect(dialogText()).toContain("Usuário 999 está Online agora");
+      expect(dialogText()).not.toContain("User 999");
+
+      await user.click(screen.getByText("Cancelar"));
+    });
   });
 });
