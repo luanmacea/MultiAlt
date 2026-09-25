@@ -77,10 +77,14 @@ export function MiscellaneousTab({
         label="Auto Close Roblox for Multi Roblox"
         description="If Multi Roblox cannot be enabled, close open Roblox windows automatically and continue"
       />
+      {/* O laco de presenca (store.tsx) so roda com `ShowPresence` ligado e o
+          intervalo e `max(30s, minutos)`: o campo aceitava minutos sem dizer
+          nem do que depende nem que existe um piso. */}
       <NumberField
         value={s.getNumber("General", "PresenceUpdateRate", 5)}
         onChange={(v) => s.setNumber("General", "PresenceUpdateRate", v)}
         label="Presence Refresh"
+        description="How often the online status of every account is re-checked. Needs Show Presence on, and never runs faster than every 30 seconds."
         min={1}
         max={9999}
         suffix="min"

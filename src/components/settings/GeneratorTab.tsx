@@ -85,6 +85,27 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
 
   return (
     <div className="space-y-0">
+      {/* A aba pedia endpoint e API key sem dizer de quem, nem que custa.
+          BloxGen e um servico externo (`https://core.bloxgen.net`) com saldo em
+          dinheiro — `generator_test_key` le `/api/balance`
+          (commands/generators.rs). A alternativa gratuita ja existe na outra
+          aba do mesmo dialogo ("Create in the browser"), so nao era dita em
+          lugar nenhum. */}
+      <div className="px-1 pt-1 pb-2">
+        <div className="space-y-1.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/80">
+          <div>
+            {t(
+              "BloxGen is a paid service run by someone else, not part of this app: you buy credit on their site, paste the API key below, and the accounts come from them. Test API key shows the credit left."
+            )}
+          </div>
+          <div>
+            {t(
+              "Free alternative: Create Accounts fills Roblox's own signup form for you — you solve the CAPTCHA and confirm, and nothing is charged."
+            )}
+          </div>
+        </div>
+      </div>
+
       <SectionLabel>Provider</SectionLabel>
       <div className="flex items-center gap-3 py-2 px-1">
         <span className="text-[13px] text-zinc-300 shrink-0">{t("Generator")}</span>

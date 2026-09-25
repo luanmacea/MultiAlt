@@ -160,10 +160,14 @@ function OptimizationProfileSection({
         }}
         disabled={customClientSettingsEnabled}
         label="Unlock FPS"
+        // O que o interruptor faz so aparecia no Rust: grava
+        // `DFIntTaskSchedulerTargetFps` no ClientAppSettings.json e
+        // `FramerateCap` no GlobalBasicSettings_13.xml antes do launch
+        // (platform/windows/client_settings.rs).
         description={
           customClientSettingsEnabled
             ? "Disabled while Custom ClientAppSettings is set"
-            : undefined
+            : "Lifts the client's frame cap to the Max FPS below by writing DFIntTaskSchedulerTargetFps before each launch."
         }
       />
       <NumberField
@@ -181,6 +185,16 @@ function OptimizationProfileSection({
         label="Custom ClientSettings"
         placeholder="C:\\path\\ClientAppSettings.json"
       />
+      {/* O caminho parecia inofensivo: o arquivo e COPIADO por cima do
+          ClientAppSettings.json da instalacao (`copy_custom_client_settings`) e
+          desliga o Unlock FPS e as fast flags geradas
+          (`patch_client_settings_for_launch`). `TextField` nao tem
+          `description`, entao a linha fica ao lado. */}
+      <div className="px-1 -mt-1 mb-1 text-[11px] text-zinc-500">
+        {t(
+          "Your own ClientAppSettings.json: the file is copied over the installed client's one at launch and takes over from Unlock FPS and the fast flags below."
+        )}
+      </div>
       <Toggle
         checked={s.getBool("General", generalKey(profile, "OverrideClientVolume"))}
         onChange={(v) => s.setBool("General", generalKey(profile, "OverrideClientVolume"), v)}
@@ -276,18 +290,31 @@ function OptimizationProfileSection({
             max={15000}
             suffix="ms"
             disabled={!processPolicyEnabled}
+            // A espera acontece depois de o PID aparecer e antes de aplicar a
+            // politica (`apply_windows_post_launch_profile`).
             description={
-              !processPolicyEnabled ? "Requires Enable Windows process optimization" : undefined
+              !processPolicyEnabled
+                ? "Requires Enable Windows process optimization"
+                : "Waits this long after the Roblox process shows up before applying the policy to it."
             }
           />
 
-          <div className="flex items-center gap-3 py-2 px-1">
-            <div
-              className={`text-[13px] ${processPolicyEnabled ? "text-zinc-300" : "text-zinc-500"}`}
-            >
-              {t("Priority Class")}
+          {/* Vira `SetPriorityClass` no processo do cliente; `BackgroundMode`
+              ignora a escolha e forca IDLE (platform/windows/optimization.rs). */}
+          <div className="flex items-start gap-3 py-2 px-1">
+            <div className="min-w-0">
+              <div
+                className={`text-[13px] ${processPolicyEnabled ? "text-zinc-300" : "text-zinc-500"}`}
+              >
+                {t("Priority Class")}
+              </div>
+              <div className="mt-0.5 text-[11px] text-zinc-500 leading-snug">
+                {t(
+                  "Windows CPU scheduling priority for the Roblox process. Background Mode overrides this with Idle."
+                )}
+              </div>
             </div>
-            <div className="ml-auto w-[170px]">
+            <div className="ml-auto w-[170px] shrink-0">
               <Select
                 ariaLabel="Priority Class"
                 disabled={!processPolicyEnabled}
@@ -342,13 +369,22 @@ function OptimizationProfileSection({
             }
           />
 
-          <div className="flex items-center gap-3 py-2 px-1">
-            <div
-              className={`text-[13px] ${processPolicyEnabled ? "text-zinc-300" : "text-zinc-500"}`}
-            >
-              {t("Memory Priority")}
+          {/* Vira `ProcessMemoryPriority` (SetProcessInformation): decide de
+              quem o Windows tira memoria primeiro quando a RAM aperta. */}
+          <div className="flex items-start gap-3 py-2 px-1">
+            <div className="min-w-0">
+              <div
+                className={`text-[13px] ${processPolicyEnabled ? "text-zinc-300" : "text-zinc-500"}`}
+              >
+                {t("Memory Priority")}
+              </div>
+              <div className="mt-0.5 text-[11px] text-zinc-500 leading-snug">
+                {t(
+                  "How readily Windows takes memory away from this client before other processes when RAM runs short."
+                )}
+              </div>
             </div>
-            <div className="ml-auto w-[170px]">
+            <div className="ml-auto w-[170px] shrink-0">
               <Select
                 ariaLabel="Memory Priority"
                 disabled={!processPolicyEnabled}
