@@ -47,6 +47,19 @@ describe("AccountList — empty and filtered states", () => {
     expect(await screen.findByText("Add Account")).toBeInTheDocument();
   });
 
+  /**
+   * Quem tem zero conta é justamente quem precisa criar uma. O diálogo do
+   * estado vazio escondia as duas entradas que criam conta nova, que só
+   * existiam no menu `Add` da toolbar.
+   */
+  it("reaches both ways of creating a new account from the empty state", async () => {
+    renderList({ accounts: [] });
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByRole("button", { name: /^Create Accounts/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Account Generator/ })).toBeInTheDocument();
+  });
+
   it("reports an empty search result instead of the empty-state", () => {
     renderList({ accounts: ACCOUNTS, groups: [], searchQuery: "zzz" });
     expect(screen.getByText(/No matches for/)).toBeInTheDocument();

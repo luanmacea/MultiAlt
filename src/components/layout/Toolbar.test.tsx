@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -28,30 +28,25 @@ async function openAddMenu() {
 }
 
 /**
- * The icon-only toolbar buttons carry no accessible name, so they are addressed
- * by their fixed render order. A "clear search" button is prepended whenever a
- * query is active, and the Nexus button only exists behind its feature flag.
+ * Todo botão de ícone da toolbar tem que se identificar por nome acessível —
+ * tooltip só aparece depois de 350 ms de mouse parado, o que não serve para
+ * leitor de tela nem para teste. Os nomes que mudam de estado (selecionar
+ * tudo, painel) são casados por trecho estável.
  */
-function iconButton(
-  name:
-    | "clear"
-    | "selectAll"
-    | "names"
-    | "panel"
-    | "add"
-    | "session"
-    | "theme"
-    | "nexus"
-    | "scripts"
-    | "settings",
-  hasQuery = false
-): HTMLElement {
-  const order: string[] = [];
-  if (hasQuery) order.push("clear");
-  order.push("selectAll", "names", "panel", "add", "session", "theme");
-  if (ENABLE_NEXUS) order.push("nexus");
-  order.push("scripts", "settings");
-  return screen.getAllByRole("button")[order.indexOf(name)];
+const ICON_BUTTONS = {
+  clear: /clear search/i,
+  selectAll: /select all/i,
+  panel: /panel/i,
+  session: /session/i,
+  theme: /theme/i,
+  nexus: /nexus/i,
+  scripts: /scripts/i,
+  settings: /settings/i,
+  help: /help/i,
+} as const;
+
+function iconButton(name: keyof typeof ICON_BUTTONS): HTMLElement {
+  return screen.getByRole("button", { name: ICON_BUTTONS[name] });
 }
 
 beforeEach(() => {
@@ -76,7 +71,7 @@ describe("Toolbar — search and toggles", () => {
     const store = renderToolbar({ searchQuery: "ann" });
     expect(screen.getAllByRole("button").length).toBe(before + 1);
 
-    await userEvent.click(iconButton("clear", true));
+    await userEvent.click(iconButton("clear"));
     expect(store.setSearchQuery).toHaveBeenCalledWith("");
   });
 
@@ -88,13 +83,73 @@ describe("Toolbar — search and toggles", () => {
 
   it("toggles name hiding and shows the current state", async () => {
     const store = renderToolbar({ hideUsernames: false });
-    await userEvent.click(screen.getByRole("button", { name: "Names" }));
+    await userEvent.click(screen.getByRole("button", { name: /names shown/i }));
     expect(store.setHideUsernames).toHaveBeenCalledWith(true);
 
     cleanup();
     const store2 = renderToolbar({ hideUsernames: true });
-    await userEvent.click(screen.getByRole("button", { name: "Hidden" }));
+    await userEvent.click(screen.getByRole("button", { name: /names hidden/i }));
     expect(store2.setHideUsernames).toHaveBeenCalledWith(false);
+  });
+
+  /**
+   * `Names`/`Hidden` não dizia o que o botão faz — nem no rótulo, nem em
+   * tooltip nenhum, porque era o único da toolbar sem. O texto tem que citar
+   * os nomes de usuário, que é o que some da lista.
+   */
+  it("explains that the name toggle masks usernames", async () => {
+    renderToolbar({ hideUsernames: false });
+    const button = screen.getByRole("button", { name: /names/i });
+    fireEvent.focus(button);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(/usernames/i);
+  });
+});
+
+/**
+ * O tour achava o botão de Sessão pelo `aria-label` traduzido e se perdia em
+ * outro idioma; o resto do walkthrough já usa `data-tour`.
+ */
+describe("Toolbar — walkthrough anchors", () => {
+  it("anchors the session step to a data-tour attribute", () => {
+    renderToolbar();
+    const anchor = document.querySelector("[data-tour='toolbar-session']");
+    expect(anchor).not.toBeNull();
+    expect(anchor).toContainElement(iconButton("session"));
+  });
+});
+
+describe("Toolbar — accessible names", () => {
+  it("names every icon-only button", () => {
+    renderToolbar({ searchQuery: "ann", selectedIds: new Set([1]) });
+
+    const expected: (keyof typeof ICON_BUTTONS)[] = [
+      "clear",
+      "selectAll",
+      "panel",
+      "session",
+      "theme",
+      "scripts",
+      "settings",
+      "help",
+    ];
+    if (ENABLE_NEXUS) expected.push("nexus");
+
+    for (const name of expected) {
+      expect(iconButton(name)).toBeInTheDocument();
+    }
+  });
+});
+
+/**
+ * A ajuda não existia em lugar nenhum: nem barra de título, nem toolbar. O
+ * botão reabre o walkthrough de primeira execução — conteúdo que já existe e
+ * já é mantido — em vez de inventar texto novo dentro do app.
+ */
+describe("Toolbar — help", () => {
+  it("reopens the first-run walkthrough", async () => {
+    const store = renderToolbar();
+    await userEvent.click(iconButton("help"));
+    expect(store.openFirstRunWalkthroughFromSettings).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -137,12 +192,30 @@ describe("Toolbar — Add menu", () => {
   it("opens the generator on the tab the menu entry asked for", async () => {
     const store = renderToolbar();
     await openAddMenu();
-    await userEvent.click(screen.getByRole("button", { name: "Create Accounts" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Create Accounts/ }));
     expect(store.openGeneratorDialog).toHaveBeenCalledWith("signup");
 
     await openAddMenu();
-    await userEvent.click(screen.getByRole("button", { name: "Account Generator" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Account Generator/ }));
     expect(store.openGeneratorDialog).toHaveBeenCalledWith("provider");
+  });
+
+  /**
+   * Uma cria conta de graça no navegador embutido (com o CAPTCHA resolvido
+   * pela pessoa) e a outra **compra** conta pronta de um serviço pago. Nada na
+   * tela dizia isso — ver docs/features/account-creation.md.
+   */
+  it("says which way is free and which one costs money", async () => {
+    renderToolbar();
+    await openAddMenu();
+
+    const create = screen.getByRole("button", { name: /^Create Accounts/ });
+    expect(create).toHaveTextContent(/free/i);
+    expect(create).toHaveTextContent(/CAPTCHA/);
+
+    const generator = screen.getByRole("button", { name: /^Account Generator/ });
+    expect(generator).toHaveTextContent(/paid/i);
+    expect(generator).toHaveTextContent(/BloxGen/);
   });
 
   it("opens the versions dialog", async () => {

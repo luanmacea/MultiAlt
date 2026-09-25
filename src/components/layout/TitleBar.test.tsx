@@ -10,7 +10,7 @@ import { TitleBar } from "./TitleBar";
 import { ModalWindowControls } from "./ModalWindowControls";
 import { resetTauriMocks, setInvokeHandler, windowMock } from "../../test-utils/tauriMocks";
 
-/** TitleBar's icon buttons carry no label; they render in a fixed order. */
+/** Ordem fixa de render; os nomes acessíveis são checados em teste próprio. */
 const TITLEBAR_BUTTONS = ["github", "minimize", "maximize", "close"] as const;
 
 function titleBarButton(which: (typeof TITLEBAR_BUTTONS)[number]): HTMLElement {
@@ -24,6 +24,21 @@ describe("TitleBar", () => {
   it("shows the app name", () => {
     render(<TitleBar />);
     expect(screen.getByText("Roblox Account Manager")).toBeInTheDocument();
+  });
+
+  /**
+   * Os quatro botões da barra de título são só ícone: sem nome acessível eles
+   * não existem para leitor de tela. O do GitHub é, na prática, a porta da
+   * documentação (docs/ mora no repositório), então o nome precisa dizer isso.
+   */
+  it("names every icon-only button", async () => {
+    setInvokeHandler(() => "false");
+    render(<TitleBar />);
+
+    expect(screen.getByRole("button", { name: /docs/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Minimize" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Maximize" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument());
   });
 
   it("minimizes and maximizes the window", async () => {

@@ -35,12 +35,43 @@ describe("AddAccountDialog", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("lists the four ways to add an account", () => {
+  /**
+   * O estado vazio da lista abre este diálogo — era a única porta de quem tem
+   * zero conta, e escondia justamente as duas entradas que criam conta nova.
+   * As duas portas (aqui e o menu `Add` da toolbar) oferecem o mesmo conjunto.
+   */
+  it("offers the same entries as the toolbar Add menu", () => {
     renderDialog();
     expect(screen.getByText("Add Account")).toBeInTheDocument();
-    for (const label of ["Quick Add", "Browser Login", "Import Cookie", "Import Old Account Data"]) {
-      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    for (const label of [
+      "Quick Add",
+      "Browser Login",
+      "User:Pass Login",
+      "Import Cookie",
+      "Import Old Account Data",
+      "Create Accounts",
+      "Account Generator",
+      "Roblox Versions",
+    ]) {
+      expect(screen.getByRole("button", { name: new RegExp(`^${label}`) })).toBeInTheDocument();
     }
+  });
+
+  /**
+   * `Create Accounts` cria de graça no navegador embutido (a pessoa resolve o
+   * CAPTCHA); `Account Generator` **compra** contas prontas de um serviço pago
+   * de terceiro. Ver docs/features/account-creation.md.
+   */
+  it("says which way is free and which one costs money", () => {
+    renderDialog();
+
+    const create = screen.getByRole("button", { name: /^Create Accounts/ });
+    expect(create).toHaveTextContent(/free/i);
+    expect(create).toHaveTextContent(/CAPTCHA/);
+
+    const generator = screen.getByRole("button", { name: /^Account Generator/ });
+    expect(generator).toHaveTextContent(/paid/i);
+    expect(generator).toHaveTextContent(/BloxGen/);
   });
 
   it("closes from the X button", async () => {
@@ -116,6 +147,7 @@ describe("AddAccountDialog", () => {
   });
 
   it.each([
+    ["User:Pass Login", "userpass"],
     ["Import Cookie", "cookie"],
     ["Import Old Account Data", "legacy"],
   ])("routes %s to the import dialog", async (label, tab) => {
@@ -124,5 +156,22 @@ describe("AddAccountDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(store.setImportDialogTab).toHaveBeenCalledWith(tab);
     expect(store.setImportDialogOpen).toHaveBeenCalledWith(true);
+  });
+
+  it.each([
+    ["Create Accounts", "signup"],
+    ["Account Generator", "provider"],
+  ])("opens the generator dialog on the %s tab", async (label, tab) => {
+    const { store, onClose } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: new RegExp(`^${label}`) }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(store.openGeneratorDialog).toHaveBeenCalledWith(tab);
+  });
+
+  it("opens the versions dialog", async () => {
+    const { store, onClose } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Roblox Versions" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(store.setVersionsDialogOpen).toHaveBeenCalledWith(true);
   });
 });

@@ -52,8 +52,14 @@ export function TitleBar({ controlsHidden = false }: { controlsHidden?: boolean 
             : "max-w-[176px] opacity-100 scale-100 translate-y-0",
         ].join(" ")}
       >
-        <Tooltip content={t("Open GitHub repository")} side="bottom" delayMs={500}>
+        {/*
+          A documentação do app (docs/, incluindo o mapa da interface) mora no
+          repositório — então este botão é a porta dela, e o rótulo diz isso.
+          A ajuda dentro do app é o botão de walkthrough na Toolbar.
+        */}
+        <Tooltip content={t("Open the GitHub repository (docs included)")} side="bottom" delayMs={500}>
           <button
+            aria-label={t("Open the GitHub repository (docs included)")}
             onClick={() => {
               void invoke("open_repo_url").catch(() => {
                 window.open(repoUrl, "_blank");
@@ -67,6 +73,7 @@ export function TitleBar({ controlsHidden = false }: { controlsHidden?: boolean 
         <Tooltip content={t("Minimize")} side="bottom" delayMs={500}>
           <button
             onClick={() => appWindow.minimize()}
+            aria-label={t("Minimize")}
             className="h-9 w-11 flex items-center justify-center theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors"
           >
             <Minus size={12} strokeWidth={1} />
@@ -75,6 +82,7 @@ export function TitleBar({ controlsHidden = false }: { controlsHidden?: boolean 
         <Tooltip content={maximized ? t("Restore") : t("Maximize")} side="bottom" delayMs={500}>
           <button
             onClick={() => appWindow.toggleMaximize()}
+            aria-label={maximized ? t("Restore") : t("Maximize")}
             className="h-9 w-11 flex items-center justify-center theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors"
           >
             {maximized ? (
@@ -87,6 +95,7 @@ export function TitleBar({ controlsHidden = false }: { controlsHidden?: boolean 
         <Tooltip content={minimizeToTray ? t("Minimize to tray") : t("Close")} side="bottom" delayMs={500}>
           <button
             onClick={handleClose}
+            aria-label={minimizeToTray ? t("Minimize to tray") : t("Close")}
             className="h-9 w-11 flex items-center justify-center theme-muted hover:text-white hover:bg-red-600/80 transition-colors rounded-tr-none"
           >
             <X size={12} strokeWidth={1.2} />
