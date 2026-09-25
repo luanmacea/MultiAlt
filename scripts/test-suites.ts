@@ -127,6 +127,7 @@ export const SUITES: Record<string, TestSuite> = {
   webserver: {
     description: "Servidor HTTP local: rotas, senha e bloqueio anti-CSRF",
     rust: [
+      "edit_permission_tests",
       "handlers_basic_tests",
       "handlers_launch_tests",
       "middleware_tests",

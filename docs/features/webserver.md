@@ -65,10 +65,10 @@ Todas as rotas existem em `/<Nome>` (v1, resposta `text/plain`; erro também no 
 | `SetField` | POST | `Account`, `Field`, `Value` | `AllowAccountEditing` | `check_password` |
 | `RemoveField` | POST | `Account`, `Field` | `AllowAccountEditing` | `check_password` |
 | `SetAlias` / `SetDescription` / `AppendDescription` | POST | `Account` + body | `AllowAccountEditing` | `check_password` |
-| `SetAvatar` | POST | `Account` + body JSON | — | `check_password` |
-| `BlockUser` / `UnblockUser` | POST | `Account`, `UserId` | — | `check_password` |
+| `SetAvatar` | POST | `Account` + body JSON | `AllowAccountEditing` | `check_password` |
+| `BlockUser` / `UnblockUser` | POST | `Account`, `UserId` | `AllowAccountEditing` | `check_password` |
 | `GetBlockedList` | GET | `Account` | — | `check_password` |
-| `UnblockEveryone` | POST | `Account` | — | `check_password` |
+| `UnblockEveryone` | POST | `Account` | `AllowAccountEditing` | `check_password` |
 
 `GetAccountsJson` devolve `Username`, `UserID`, `Alias`, `Description`, `Group`, `Fields` (+ `Cookie` quando permitido).
 
@@ -97,7 +97,7 @@ Todas as rotas existem em `/<Nome>` (v1, resposta `text/plain`; erro também no 
 | WebServer | `AllowGetAccounts` | `false` | Listagem e leitura de alias/descrição/campos |
 | WebServer | `AllowGetCookie` | `false` | Expor cookies |
 | WebServer | `AllowLaunchAccount` | `false` | LaunchAccount / FollowUser |
-| WebServer | `AllowAccountEditing` | `false` | Set/Remove Field, Alias, Description |
+| WebServer | `AllowAccountEditing` | `false` | Set/Remove Field, Alias, Description, SetAvatar, Block/Unblock/UnblockEveryone |
 | Developer | `UseOldJoin`, `IsTeleport`; General `EnableMultiRbx`, `AutoCloseLastProcess` | — | Usados pelo LaunchAccount |
 
 ## Armadilhas / cuidados
@@ -105,7 +105,7 @@ Todas as rotas existem em `/<Nome>` (v1, resposta `text/plain`; erro também no 
 - A feature `webserver` está no `default` do Cargo: builds normais incluem o servidor; só não sobe sem `EnableWebServer` ou start manual.
 - Sem `Password` configurada (≥ 6), praticamente toda rota protegida retorna 401, mesmo com `EveryRequestRequiresPassword = false`.
 - `GetCSRFToken`, `SetServer` e `SetRecommendedServer` não checam flag nem senha (a não ser via `EveryRequestRequiresPassword`) e usam o cookie da conta.
-- `SetAvatar`, `BlockUser`, `UnblockUser`, `GetBlockedList`, `UnblockEveryone` e `ImportCookie` não exigem flag `Allow*`.
+- `GetBlockedList` (leitura) e `ImportCookie` não exigem flag `Allow*`. As quatro rotas que **editam** a conta e ficavam de fora — `SetAvatar`, `BlockUser`, `UnblockUser` e `UnblockEveryone` — passaram a exigir `AllowAccountEditing`, como as de campo/apelido/descrição já exigiam. **Quebra de compatibilidade:** quem chamava essas rotas com o toggle desligado agora recebe 401 e precisa ligá-lo em Settings › Web Server.
 - Com `AllowExternalConnections`, cookies e launches ficam acessíveis na rede — sempre combine com `EveryRequestRequiresPassword`.
 - O launch pelo web server **não** usa catálogo de versões, isolamento, guarda de versão concorrente, `launch-log` nem detecção de conta moderada.
 - Antes de aplicar client settings, o web server chama `refresh_production_version().await`, para que os flags vão para a build production que será aberta (ver [launch.md](launch.md)).

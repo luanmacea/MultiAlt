@@ -308,6 +308,10 @@ async fn handle_set_avatar(
         return reply(401, "Invalid password", v2);
     }
 
+    if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
+        return reply(401, "AllowAccountEditing is disabled", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -343,6 +347,10 @@ async fn handle_block_user(
         return reply(401, "Invalid password", v2);
     }
 
+    if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
+        return reply(401, "AllowAccountEditing is disabled", v2);
+    }
+
     let identifier = match params.account {
         Some(ref a) if !a.is_empty() => a,
         _ => return reply(400, "Missing Account parameter", v2),
@@ -376,6 +384,10 @@ async fn handle_unblock_user(
 ) -> Response {
     if !check_password(&state, &params.password) {
         return reply(401, "Invalid password", v2);
+    }
+
+    if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
+        return reply(401, "AllowAccountEditing is disabled", v2);
     }
 
     let identifier = match params.account {
@@ -460,6 +472,10 @@ async fn handle_unblock_everyone(
 ) -> Response {
     if !check_password(&state, &params.password) {
         return reply(401, "Invalid password", v2);
+    }
+
+    if !state.settings.get_bool("WebServer", "AllowAccountEditing") {
+        return reply(401, "AllowAccountEditing is disabled", v2);
     }
 
     let identifier = match params.account {
@@ -609,6 +625,130 @@ mod password_tests {
 
         assert!(!check_password_required(&state, &None));
         assert!(check_password_required(&state, &Some("sup3rsecret".to_string())));
+        cleanup(paths);
+    }
+}
+
+/// `Allow Account Editing` existe para que o web server, mesmo com a senha certa,
+/// não possa editar a conta do Roblox sem o usuário ter liberado. Quatro rotas
+/// que editam a conta ficavam de fora do gate: `/SetAvatar`, `/BlockUser`,
+/// `/UnblockUser` e `/UnblockEveryone` — bastava a senha.
+#[cfg(test)]
+mod edit_permission_tests {
+    use super::*;
+    use axum::http::Uri;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    const PASSWORD: &str = "senha-boa-123";
+
+    fn unique_path(name: &str, ext: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!("ram-wsedit-{name}-{nanos}.{ext}"))
+    }
+
+    fn test_state(name: &str, allow_editing: bool) -> (AppState, Vec<PathBuf>) {
+        let settings_path = unique_path(name, "ini");
+        let accounts_path = unique_path(name, "json");
+        let settings: &'static SettingsStore =
+            Box::leak(Box::new(SettingsStore::new(settings_path.clone())));
+        settings.set("WebServer", "Password", PASSWORD).ok();
+        settings
+            .set(
+                "WebServer",
+                "AllowAccountEditing",
+                if allow_editing { "true" } else { "false" },
+            )
+            .unwrap();
+        let accounts: &'static AccountStore =
+            Box::leak(Box::new(AccountStore::new(accounts_path.clone())));
+        (
+            AppState { accounts, settings },
+            vec![settings_path, accounts_path],
+        )
+    }
+
+    fn cleanup(paths: Vec<PathBuf>) {
+        for path in paths {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    /// Query igual à que o axum monta a partir da URL de verdade.
+    fn query(extra: &str) -> Query<AccountQuery> {
+        let uri: Uri = format!("http://127.0.0.1/Endpoint?Password={PASSWORD}&{extra}")
+            .parse()
+            .unwrap();
+        Query::<AccountQuery>::try_from_uri(&uri).expect("query")
+    }
+
+    async fn body_of(response: Response) -> String {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        String::from_utf8_lossy(&bytes).to_string()
+    }
+
+    #[tokio::test]
+    async fn set_avatar_requires_the_editing_permission() {
+        let (state, paths) = test_state("avatar-off", false);
+        let response = handle_set_avatar(
+            Extension(state),
+            query("Account=ann"),
+            "{\"assets\":[]}".to_string(),
+            false,
+        )
+        .await;
+        assert_eq!(response.status(), 401);
+        assert!(body_of(response).await.contains("AllowAccountEditing"));
+        cleanup(paths);
+    }
+
+    #[tokio::test]
+    async fn block_user_requires_the_editing_permission() {
+        let (state, paths) = test_state("block-off", false);
+        let response = handle_block_user(Extension(state), query("Account=ann&UserId=7"), false).await;
+        assert_eq!(response.status(), 401);
+        assert!(body_of(response).await.contains("AllowAccountEditing"));
+        cleanup(paths);
+    }
+
+    #[tokio::test]
+    async fn unblock_user_requires_the_editing_permission() {
+        let (state, paths) = test_state("unblock-off", false);
+        let response =
+            handle_unblock_user(Extension(state), query("Account=ann&UserId=7"), false).await;
+        assert_eq!(response.status(), 401);
+        assert!(body_of(response).await.contains("AllowAccountEditing"));
+        cleanup(paths);
+    }
+
+    #[tokio::test]
+    async fn unblock_everyone_requires_the_editing_permission() {
+        let (state, paths) = test_state("unblockall-off", false);
+        let response = handle_unblock_everyone(Extension(state), query("Account=ann"), false).await;
+        assert_eq!(response.status(), 401);
+        assert!(body_of(response).await.contains("AllowAccountEditing"));
+        cleanup(paths);
+    }
+
+    /// Com a permissão ligada o gate sai da frente: a rota segue o seu caminho
+    /// normal (aqui, reclamar da conta que não existe) em vez de 401 de permissão.
+    #[tokio::test]
+    async fn the_gate_gets_out_of_the_way_once_editing_is_allowed() {
+        let (state, paths) = test_state("avatar-on", true);
+        let response = handle_set_avatar(
+            Extension(state),
+            query("Account=ann"),
+            "{\"assets\":[]}".to_string(),
+            false,
+        )
+        .await;
+        assert_ne!(response.status(), 401);
+        assert!(!body_of(response).await.contains("AllowAccountEditing"));
         cleanup(paths);
     }
 }
