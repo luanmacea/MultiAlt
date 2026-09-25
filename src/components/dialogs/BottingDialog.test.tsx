@@ -135,6 +135,100 @@ describe("BottingDialog — stop controls", () => {
   });
 });
 
+describe("BottingDialog — explains the cycle", () => {
+  // O ciclo em `src-tauri/src/commands/botting.rs` fecha o cliente da conta
+  // (`kill_for_user_graceful_async`) e relanca em seguida a cada intervalo. A
+  // tela precisa dizer isso, e dizer que so as contas bot da sessao fecham.
+  it("says each cycle closes and reopens the bot client", async () => {
+    renderDialog();
+
+    expect(screen.getByText("How each cycle works")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Every rejoin closes that bot account's Roblox client and opens it again, so the account leaves the server and joins back."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("says only this session's bot accounts are closed", async () => {
+    renderDialog();
+
+    expect(
+      screen.getByText(
+        "Only the bot accounts in this session are closed. Player accounts keep their client, and clients of accounts outside this session are left alone."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Stop + Close Bot Accounts closes those same bot clients; Stop Botting Mode leaves every client open."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the explanation in the classic view", async () => {
+    renderDialog({ settings: settings(true, { BottingDualPanelDialog: "false" }) });
+
+    await waitFor(() => expect(screen.getByText("How each cycle works")).toBeInTheDocument());
+    expect(
+      screen.getByText(
+        "Every rejoin closes that bot account's Roblox client and opens it again, so the account leaves the server and joins back."
+      )
+    ).toBeInTheDocument();
+  });
+});
+
+describe("BottingDialog — timing units", () => {
+  const unitLabels = [
+    "Rejoin Interval (minutes)",
+    "Launch Delay (seconds)",
+    "Player Grace (minutes)",
+  ];
+
+  it("shows the unit of every timing field in the default view", async () => {
+    renderDialog();
+
+    for (const label of unitLabels) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+      // O campo e um input de texto: sem nome acessivel a unidade nao chega
+      // a quem navega por teclado/leitor de tela.
+      expect(screen.getByRole("textbox", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("shows the unit of every timing field in the classic view", async () => {
+    renderDialog({ settings: settings(true, { BottingDualPanelDialog: "false" }) });
+
+    await waitFor(() => expect(screen.getByText(unitLabels[0])).toBeInTheDocument());
+    for (const label of unitLabels) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("states the accepted range of each timing field", async () => {
+    renderDialog();
+
+    // Limites reais: botting.rs `clamp_botting_interval_minutes` (10..120),
+    // `clamp_botting_launch_delay_seconds` (5..120) e
+    // `resolve_player_grace_minutes` (1..90).
+    expect(
+      screen.getByText(
+        "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120)."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Launch Delay: seconds between two launches, so the accounts do not all start at once (5-120)."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Player Grace: minutes a player account keeps its client after you remove it from Player Accounts, before it joins the cycle (1-90)."
+      )
+    ).toBeInTheDocument();
+  });
+});
+
 describe("BottingDialog — draft persistence", () => {
   it("restores the saved draft place/job when it opens", async () => {
     setInvokeHandler((cmd) =>
