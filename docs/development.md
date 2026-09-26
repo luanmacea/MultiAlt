@@ -114,6 +114,7 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 | `servers-page-limit` | Varredura parada pelo limite de páginas |
 | `servers-real-place` | Réplica com **dados reais** capturados da API (4 páginas do place 15101393044), inclusive com os Job IDs repetidos entre páginas |
 | `friends-online` | Amigos por conta, com uma conta falhando |
+| `friend-link` | Make Friends em andamento, com uma conta falhando |
 | `console-history` | Linhas de launch, Botting e Watcher chegando aos poucos no Console |
 | `groups` | Contas em grupos nomeados (um com prefixo numérico, um com vírgula no nome) para ver cabeçalhos e arrastar a ordem |
 | `launch-queue` | Fila de launch e contas em jogo |

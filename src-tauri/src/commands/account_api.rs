@@ -367,19 +367,206 @@ struct FriendLinkResult {
     errors: Vec<String>,
 }
 
-#[derive(Clone, serde::Serialize)]
+/// Estado de **uma conta** dentro de uma vinculação de amizades.
+///
+/// O progresso antigo era só `{phase, done, total}`, e na fase de envio o
+/// `done` contava **pares**, não contas: não dava para dizer quais contas já
+/// terminaram, qual está sendo processada e qual deu erro. O erro tampouco era
+/// atribuível — vinha como a string `"a->b: msg"`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FriendLinkProgress {
-    phase: String,
-    done: usize,
-    total: usize,
+struct FriendLinkAccount {
+    user_id: i64,
+    /// `pending` | `processing` | `done` | `failed`
+    state: String,
+    error: Option<String>,
 }
 
-fn emit_friend_progress(app: &tauri::AppHandle, phase: &str, done: usize, total: usize) {
-    let _ = app.emit(
-        "friend-link-progress",
-        FriendLinkProgress { phase: phase.to_string(), done, total },
-    );
+/// Retrato completo da operação, como o `launch-queue` faz: o backend guarda o
+/// estado e reemite o payload inteiro a cada mudança, e a UI só substitui. Sem
+/// isso, a tela que remonta no meio perde o progresso até o próximo evento.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FriendLinkSnapshot {
+    active: bool,
+    /// `idle` | `checking` | `linking` | `verifying` | `done`
+    phase: String,
+    /// Contas que já terminaram (concluídas ou com erro).
+    processed: usize,
+    total: usize,
+    accounts: Vec<FriendLinkAccount>,
+    mode: String,
+    main_user_id: Option<i64>,
+}
+
+/// Núcleo puro do acompanhamento: nada de `AppHandle` aqui, para os testes não
+/// precisarem de um app Tauri (mesma divisão do `LaunchQueue`).
+#[derive(Debug, Default)]
+struct FriendLinkRun {
+    active: bool,
+    phase: String,
+    mode: String,
+    main_user_id: Option<i64>,
+    /// Ordem da seleção, para a lista não dançar entre um evento e outro.
+    order: Vec<i64>,
+    states: std::collections::HashMap<i64, (String, Option<String>)>,
+    /// Pares que ainda faltam para a conta terminar.
+    pending_pairs: std::collections::HashMap<i64, usize>,
+}
+
+impl FriendLinkRun {
+    fn start(&mut self, ids: &[i64], mode: &str, main_user_id: Option<i64>) {
+        self.active = true;
+        self.phase = "checking".to_string();
+        self.mode = mode.to_string();
+        self.main_user_id = main_user_id;
+        self.order = ids.to_vec();
+        self.states = ids
+            .iter()
+            .map(|&id| (id, ("pending".to_string(), None)))
+            .collect();
+        self.pending_pairs.clear();
+    }
+
+    fn set_phase(&mut self, phase: &str) {
+        self.phase = phase.to_string();
+    }
+
+    /// Estado de uma conta, **sem** rebaixar quem já terminou: a fase de
+    /// verificação passa por todas as contas de novo, e marcar "processando"
+    /// em quem já falhou apagaria o erro.
+    fn set_state(&mut self, user_id: i64, state: &str) {
+        if let Some(entry) = self.states.get_mut(&user_id) {
+            if entry.0 == "done" || entry.0 == "failed" {
+                return;
+            }
+            entry.0 = state.to_string();
+        }
+    }
+
+    fn fail(&mut self, user_id: i64, error: String) {
+        if let Some(entry) = self.states.get_mut(&user_id) {
+            entry.0 = "failed".to_string();
+            if entry.1.is_none() {
+                entry.1 = Some(error);
+            }
+        }
+    }
+
+    /// Quantos pares faltam para cada conta. Conta sem par nenhum (já amiga de
+    /// todo mundo) termina aqui mesmo — não teria evento que a concluísse.
+    fn plan_pairs(&mut self, needed: &[(i64, i64)]) {
+        self.pending_pairs.clear();
+        for &(a, b) in needed {
+            *self.pending_pairs.entry(a).or_insert(0) += 1;
+            *self.pending_pairs.entry(b).or_insert(0) += 1;
+        }
+        let sem_par: Vec<i64> = self
+            .order
+            .iter()
+            .copied()
+            .filter(|id| !self.pending_pairs.contains_key(id))
+            .collect();
+        for id in sem_par {
+            self.set_state(id, "done");
+        }
+    }
+
+    fn pair_started(&mut self, a: i64, b: i64) {
+        self.set_state(a, "processing");
+        self.set_state(b, "processing");
+    }
+
+    /// Fecha um par. O erro é atribuído a quem **enviou** o pedido que falhou:
+    /// é o cookie/CSRF daquela conta que não funcionou.
+    fn pair_finished(&mut self, a: i64, b: i64, error_ab: Option<String>, error_ba: Option<String>) {
+        if let Some(e) = error_ab {
+            self.fail(a, e);
+        }
+        if let Some(e) = error_ba {
+            self.fail(b, e);
+        }
+        for id in [a, b] {
+            let restante = self.pending_pairs.entry(id).or_insert(0);
+            *restante = restante.saturating_sub(1);
+            if *restante == 0 {
+                self.set_state(id, "done");
+            }
+        }
+    }
+
+    /// O par não virou amizade na verificação, mesmo sem erro no envio.
+    fn pair_not_verified(&mut self, a: i64, b: i64, motivo: &str) {
+        self.fail(a, motivo.to_string());
+        self.fail(b, motivo.to_string());
+    }
+
+    fn finish(&mut self) {
+        self.active = false;
+        self.phase = "done".to_string();
+        let restantes: Vec<i64> = self.order.clone();
+        for id in restantes {
+            self.set_state(id, "done");
+        }
+    }
+
+    fn processed(&self) -> usize {
+        self.order
+            .iter()
+            .filter(|id| {
+                self.states
+                    .get(id)
+                    .map(|(state, _)| state == "done" || state == "failed")
+                    .unwrap_or(false)
+            })
+            .count()
+    }
+
+    fn snapshot(&self) -> FriendLinkSnapshot {
+        FriendLinkSnapshot {
+            active: self.active,
+            phase: if self.phase.is_empty() { "idle".to_string() } else { self.phase.clone() },
+            processed: self.processed(),
+            total: self.order.len(),
+            accounts: self
+                .order
+                .iter()
+                .map(|id| {
+                    let (state, error) = self
+                        .states
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_else(|| ("pending".to_string(), None));
+                    FriendLinkAccount { user_id: *id, state, error }
+                })
+                .collect(),
+            mode: self.mode.clone(),
+            main_user_id: self.main_user_id,
+        }
+    }
+}
+
+static FRIEND_LINK: std::sync::LazyLock<std::sync::Mutex<FriendLinkRun>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(FriendLinkRun::default()));
+
+/// Muda o estado e publica o retrato inteiro. Mutex envenenado não pode
+/// derrubar a vinculação: o acompanhamento é informativo.
+fn update_friend_link(app: &tauri::AppHandle, f: impl FnOnce(&mut FriendLinkRun)) {
+    let snapshot = {
+        let Ok(mut run) = FRIEND_LINK.lock() else { return };
+        f(&mut run);
+        run.snapshot()
+    };
+    let _ = app.emit("friend-link-state", snapshot);
+}
+
+/// Retrato atual, para a tela que abre (ou remonta) no meio da operação.
+#[tauri::command]
+fn get_friend_link_state() -> FriendLinkSnapshot {
+    FRIEND_LINK
+        .lock()
+        .map(|run| run.snapshot())
+        .unwrap_or_else(|_| FriendLinkRun::default().snapshot())
 }
 
 /// Best-effort fetch of an account's current friend IDs (empty on failure, so a
@@ -447,7 +634,9 @@ async fn send_directed_friend(
 /// friends; (2) for each remaining pair send A->B and B->A (mutual pending
 /// requests auto-become a friendship — no accept endpoint needed), reusing one
 /// CSRF token per source; (3) re-fetch friend lists and verify which pairs
-/// actually formed. Progress is emitted via the `friend-link-progress` event.
+/// actually formed. Progress is emitted via the `friend-link-state` event, with
+/// one entry per account (the old `{phase, done, total}` counted **pairs** in the
+/// linking phase, so it could not say which accounts were finished).
 #[tauri::command]
 async fn make_selected_friends(
     app: tauri::AppHandle,
@@ -473,12 +662,13 @@ async fn make_selected_friends(
     let store = state.inner();
 
     // ── Phase 1: fetch current friends of each involved account (dedupe). ──
-    emit_friend_progress(&app, "checking", 0, ids.len());
+    update_friend_link(&app, |run| run.start(&ids, &mode, main_user_id));
     let mut friend_sets: std::collections::HashMap<i64, std::collections::HashSet<i64>> =
         std::collections::HashMap::new();
-    for (i, &uid) in ids.iter().enumerate() {
+    for &uid in ids.iter() {
+        update_friend_link(&app, |run| run.set_state(uid, "processing"));
         friend_sets.insert(uid, fetch_friend_set(store, uid).await);
-        emit_friend_progress(&app, "checking", i + 1, ids.len());
+        update_friend_link(&app, |run| run.set_state(uid, "pending"));
     }
 
     let needed: Vec<(i64, i64)> = pairs
@@ -494,25 +684,34 @@ async fn make_selected_friends(
     let mut requests_sent = 0usize;
     let mut errors: Vec<String> = Vec::new();
 
-    emit_friend_progress(&app, "linking", 0, needed.len());
+    update_friend_link(&app, |run| {
+        run.set_phase("linking");
+        run.plan_pairs(&needed);
+    });
     for (idx, &(a, b)) in needed.iter().enumerate() {
+        update_friend_link(&app, |run| run.pair_started(a, b));
+
         requests_sent += 1;
+        let mut error_ab: Option<String> = None;
         if let Err(e) = send_directed_friend(store, &mut cookies, &mut csrfs, a, b).await {
             if errors.len() < 20 {
                 errors.push(format!("{}->{}: {}", a, b, e));
             }
+            error_ab = Some(e);
         }
         if delay > std::time::Duration::ZERO {
             tokio::time::sleep(delay).await;
         }
 
         requests_sent += 1;
+        let mut error_ba: Option<String> = None;
         if let Err(e) = send_directed_friend(store, &mut cookies, &mut csrfs, b, a).await {
             if errors.len() < 20 {
                 errors.push(format!("{}->{}: {}", b, a, e));
             }
+            error_ba = Some(e);
         }
-        emit_friend_progress(&app, "linking", idx + 1, needed.len());
+        update_friend_link(&app, |run| run.pair_finished(a, b, error_ab, error_ba));
 
         if delay > std::time::Duration::ZERO && idx + 1 < needed.len() {
             tokio::time::sleep(delay).await;
@@ -522,21 +721,32 @@ async fn make_selected_friends(
     // ── Phase 3: verify which needed pairs actually became friends. ──
     let mut verified_ok = 0usize;
     if !needed.is_empty() {
-        emit_friend_progress(&app, "verifying", 0, ids.len());
+        update_friend_link(&app, |run| run.set_phase("verifying"));
         let mut after: std::collections::HashMap<i64, std::collections::HashSet<i64>> =
             std::collections::HashMap::new();
-        for (i, &uid) in ids.iter().enumerate() {
+        for &uid in ids.iter() {
             after.insert(uid, fetch_friend_set(store, uid).await);
-            emit_friend_progress(&app, "verifying", i + 1, ids.len());
         }
         verified_ok = needed
             .iter()
             .filter(|&&(a, b)| friend_sets_contain(&after, a, b))
             .count();
+        // Par que não virou amizade marca as duas contas, mesmo sem erro de
+        // envio: o pedido saiu, a amizade não se formou.
+        let nao_formados: Vec<(i64, i64)> = needed
+            .iter()
+            .copied()
+            .filter(|&(a, b)| !friend_sets_contain(&after, a, b))
+            .collect();
+        update_friend_link(&app, |run| {
+            for (a, b) in nao_formados {
+                run.pair_not_verified(a, b, "A amizade não se formou");
+            }
+        });
     }
     let failed = needed.len() - verified_ok;
 
-    emit_friend_progress(&app, "done", needed.len(), needed.len());
+    update_friend_link(&app, |run| run.finish());
 
     Ok(FriendLinkResult {
         pairs_total: pairs.len(),
@@ -1687,17 +1897,114 @@ mod account_api_tests {
         assert_eq!(json["errors"][0], "1->2: boom");
     }
 
+    /// Contrato de serializacao: campo novo aqui tem que aparecer no teste,
+    /// senao a UI le `undefined` sem ninguem perceber.
     #[test]
-    fn friend_link_progress_serializes_with_the_camel_case_keys_the_ui_reads() {
-        let json = serde_json::to_value(FriendLinkProgress {
-            phase: "linking".to_string(),
-            done: 2,
-            total: 5,
-        })
-        .unwrap();
+    fn friend_link_state_serializes_with_the_camel_case_keys_the_ui_reads() {
+        let mut run = FriendLinkRun::default();
+        run.start(&[1, 2, 3], "star", Some(1));
+        run.set_phase("linking");
+        run.plan_pairs(&[(1, 2), (1, 3)]);
+        run.pair_started(1, 2);
+        run.pair_finished(1, 2, Some("boom".to_string()), None);
+
+        let json = serde_json::to_value(run.snapshot()).unwrap();
+        assert_eq!(json["active"], true);
         assert_eq!(json["phase"], "linking");
-        assert_eq!(json["done"], 2);
-        assert_eq!(json["total"], 5);
+        assert_eq!(json["total"], 3);
+        assert_eq!(json["mode"], "star");
+        assert_eq!(json["mainUserId"], 1);
+        assert_eq!(json["accounts"][0]["userId"], 1);
+        assert_eq!(json["accounts"][0]["state"], "failed");
+        assert_eq!(json["accounts"][0]["error"], "boom");
+        assert_eq!(json["accounts"][1]["state"], "done");
+        assert_eq!(json["processed"], 2);
+    }
+
+    /// O progresso antigo contava **pares** na fase de envio. Em `star` com 4
+    /// contas sao 3 pares: "2 de 3" nao dizia nada sobre quantas contas ja
+    /// tinham terminado, que e o que o usuario pediu.
+    #[test]
+    fn a_conta_so_termina_quando_todos_os_pares_dela_acabam() {
+        let mut run = FriendLinkRun::default();
+        run.start(&[1, 2, 3], "mesh", None);
+        run.plan_pairs(&[(1, 2), (1, 3), (2, 3)]);
+        assert_eq!(run.processed(), 0);
+
+        run.pair_finished(1, 2, None, None);
+        // 1 e 2 ainda tem um par cada: ninguem terminou.
+        assert_eq!(run.processed(), 0);
+
+        run.pair_finished(1, 3, None, None);
+        assert_eq!(run.snapshot().accounts[0].state, "done", "a conta 1 acabou");
+        assert_eq!(run.processed(), 1);
+
+        run.pair_finished(2, 3, None, None);
+        assert_eq!(run.processed(), 3);
+    }
+
+    #[test]
+    fn conta_ja_amiga_de_todo_mundo_termina_de_saida() {
+        let mut run = FriendLinkRun::default();
+        run.start(&[1, 2, 3], "mesh", None);
+        // A conta 3 nao aparece em par nenhum: nao existiria evento para
+        // conclui-la, e ela ficaria "aguardando" para sempre na tela.
+        run.plan_pairs(&[(1, 2)]);
+        assert_eq!(run.snapshot().accounts[2].state, "done");
+        assert_eq!(run.processed(), 1);
+    }
+
+    #[test]
+    fn o_erro_fica_na_conta_que_enviou_o_pedido_que_falhou() {
+        let mut run = FriendLinkRun::default();
+        run.start(&[1, 2], "mesh", None);
+        run.plan_pairs(&[(1, 2)]);
+        run.pair_finished(1, 2, None, Some("cookie invalido".to_string()));
+
+        let snap = run.snapshot();
+        assert_eq!(snap.accounts[0].state, "done");
+        assert_eq!(snap.accounts[1].state, "failed");
+        assert_eq!(snap.accounts[1].error.as_deref(), Some("cookie invalido"));
+    }
+
+    #[test]
+    fn terminar_a_operacao_nao_apaga_o_erro_de_quem_falhou() {
+        let mut run = FriendLinkRun::default();
+        run.start(&[1, 2], "mesh", None);
+        run.plan_pairs(&[(1, 2)]);
+        run.pair_finished(1, 2, Some("boom".to_string()), None);
+        run.finish();
+
+        let snap = run.snapshot();
+        assert_eq!(snap.active, false);
+        assert_eq!(snap.phase, "done");
+        assert_eq!(snap.accounts[0].state, "failed");
+        assert_eq!(snap.accounts[0].error.as_deref(), Some("boom"));
+        assert_eq!(snap.processed, 2);
+    }
+
+    #[test]
+    fn par_que_nao_virou_amizade_marca_as_duas_contas() {
+        let mut run = FriendLinkRun::default();
+        run.start(&[1, 2], "mesh", None);
+        run.plan_pairs(&[(1, 2)]);
+        run.pair_finished(1, 2, None, None);
+        run.pair_not_verified(1, 2, "A amizade nao se formou");
+
+        let snap = run.snapshot();
+        assert_eq!(snap.accounts[0].state, "failed");
+        assert_eq!(snap.accounts[1].state, "failed");
+    }
+
+    /// Antes de qualquer execucao a tela pergunta o estado: nao pode explodir
+    /// nem fingir que ha operacao em andamento.
+    #[test]
+    fn o_retrato_inicial_e_vazio_e_inativo() {
+        let snap = FriendLinkRun::default().snapshot();
+        assert_eq!(snap.active, false);
+        assert_eq!(snap.phase, "idle");
+        assert_eq!(snap.total, 0);
+        assert!(snap.accounts.is_empty());
     }
 }
 

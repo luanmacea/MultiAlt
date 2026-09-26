@@ -16,6 +16,7 @@ import type {
   ThumbnailData,
   ParsedGroup,
   PlatformCapabilities,
+  FriendLinkState,
   LaunchQueuePayload,
   ServerPreference,
 } from "./types";
@@ -332,6 +333,13 @@ export interface StoreValue {
 
   /** Fila de launch do lote atual (Painel de Sessão). */
   launchQueue: LaunchQueuePayload | null;
+  /**
+   * Make Friends em andamento: uma entrada por conta, com o estado de cada uma.
+   * Vem inteiro do backend (`friend-link-state`) — a tela que remonta no meio
+   * não perde o progresso, e os dois lugares que disparam a operação mostram a
+   * mesma coisa em vez de cada um manter o seu `useState`.
+   */
+  friendLinkState: FriendLinkState | null;
   refreshLaunchQueue: () => Promise<void>;
   /** Tira UMA conta da fila. Nunca fecha um cliente já aberto. */
   cancelAccountLaunch: (userId: number) => Promise<boolean>;
@@ -603,6 +611,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
+  const [friendLinkState, setFriendLinkState] = useState<FriendLinkState | null>(null);
   const [missingAssets, setMissingAssets] = useState<{ userId: number; username: string; assetIds: number[] } | null>(null);
   const [nexusOpen, setNexusOpen] = useState(false);
   const [scriptsOpen, setScriptsOpen] = useState(false);
@@ -2123,6 +2132,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .then((fn) => (disposed ? fn() : unsubs.push(fn)))
       .catch(() => {});
 
+    // Make Friends: mesmo par (retrato inicial + evento), pelo mesmo motivo.
+    invoke<FriendLinkState>("get_friend_link_state")
+      .then((payload) => {
+        if (!disposed) setFriendLinkState(payload ?? null);
+      })
+      .catch(() => {});
+    listen<FriendLinkState>("friend-link-state", (e) => {
+      setFriendLinkState(e.payload ?? null);
+    })
+      .then((fn) => (disposed ? fn() : unsubs.push(fn)))
+      .catch(() => {});
+
     return () => {
       disposed = true;
       unsubs.forEach((fn) => fn());
@@ -2472,6 +2493,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     closeRobloxClients,
     killAllRobloxProcesses,
     launchQueue,
+    friendLinkState,
     refreshLaunchQueue,
     cancelAccountLaunch,
     stopLaunchQueue,

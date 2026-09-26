@@ -67,7 +67,7 @@ Aparece com ≥ 1 conta selecionada:
 | Account settings | alterna o sidebar |
 | Refresh Cookies | `refresh_cookie` em série, 2 s entre contas |
 | Copy cookies | copia cookies (um por linha) |
-| Make Friends | `make_selected_friends` modo `mesh` ou `star`; confirma acima de 30 pedidos; progresso via `friend-link-progress` |
+| Make Friends | `make_selected_friends` modo `mesh` ou `star`; confirma acima de 30 pedidos; progresso via `friend-link-state`, com uma entrada **por conta** no Painel de Sessão (aguardando/processando/amizade feita/erro) e o contador "X / Y contas processadas" |
 | Move to Group / New group | `moveToGroup` |
 | Restart launched clients | só contas lançadas pelo app |
 | Botting | abre diálogo ou adiciona contas ao botting ativo |
@@ -99,7 +99,7 @@ Abas: Favorites, Games, Recent, **Servers**, Friends, Follow, Console. Na aba Ga
 
 ### Painel de Sessão (`SessionPanel`)
 
-Resolve duas dores de quem joga com muitas contas: cancelar entradas no meio do caminho e achar/fechar uma conta específica sem caçar janela por janela no Windows.
+Resolve as dores de quem joga com muitas contas: cancelar entradas no meio do caminho, acompanhar uma operação em lote conta por conta, e achar/fechar uma conta específica sem caçar janela por janela no Windows.
 
 Aparece em dois lugares, com o mesmo estado vindo do store:
 
@@ -109,9 +109,12 @@ Aparece em dois lugares, com o mesmo estado vindo do store:
 | Seção | Fonte | Ações |
 |---|---|---|
 | **Joining** | evento `launch-queue` ([multi-launch.md](multi-launch.md#fila-observável-e-cancelamento)) | ✕ por conta (`cancel_account_launch`), "Stop queue" (`stop_launch_queue`) |
+| **Make Friends** | evento `friend-link-state` | nenhuma (só acompanhamento) — uma linha por conta com aguardando/processando/amizade feita/erro, o erro **na conta que enviou** o pedido que falhou, marca de conta principal no modo `star`, e o contador "X / Y contas processadas" |
 | **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`), **Close** (`cmd_kill_roblox`), seleção múltipla com uma confirmação só |
 
 Regras: cancelar **nunca** chama `cmd_kill_roblox` (há teste de regressão para isso); os nomes respeitam o mascaramento de `hideUsernames`; linhas terminais (`done`/`failed`/`cancelled`) continuam visíveis até a próxima fila substituir.
+
+A seção **Make Friends** só aparece depois que houve uma execução (`total > 0`): uma seção vazia permanente roubaria altura de um painel que já tem teto de 45% na aba Console. O retrato da última execução fica na tela até a próxima começar — é onde se vê quais contas falharam. Uma conta só conta como "processada" quando **todos os pares dela** acabaram; conta que já era amiga de todo mundo termina de saída, senão ficaria "aguardando" para sempre.
 
 ### Tema e fontes
 

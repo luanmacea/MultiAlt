@@ -12,7 +12,12 @@ import { SessionPanel } from "./SessionPanel";
 import { makeAccount, renderWithStore, setStore } from "../../test-utils/renderWithStore";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
-import type { LaunchQueueEntry, LaunchQueuePayload, LaunchQueueState } from "../../types";
+import type {
+  FriendLinkState,
+  LaunchQueueEntry,
+  LaunchQueuePayload,
+  LaunchQueueState,
+} from "../../types";
 import type { StoreValue } from "../../store";
 
 const ACCOUNTS = [
@@ -323,5 +328,88 @@ describe("SessionPanel — live updates", () => {
 
     expect(screen.queryByTestId("session-running-2")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Close selected \(1\)/ })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Make Friends não tinha como ser acompanhado: o progresso era `{phase, done,
+ * total}` num `useState` de dois componentes, e na fase de envio o `done`
+ * contava **pares**. Agora o painel mostra conta por conta, no mesmo lugar em
+ * que se acompanha a fila de launch.
+ */
+describe("SessionPanel — Make Friends", () => {
+  function friendLink(overrides: Partial<FriendLinkState> = {}): FriendLinkState {
+    return {
+      active: true,
+      phase: "linking",
+      processed: 1,
+      total: 3,
+      mode: "star",
+      mainUserId: 1,
+      accounts: [
+        { userId: 1, state: "processing", error: null },
+        { userId: 2, state: "done", error: null },
+        { userId: 3, state: "pending", error: null },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("não ocupa espaço no painel enquanto ninguém rodou Make Friends", () => {
+    renderPanel({ launchQueue: queue([entry(1, "queued")]) });
+    expect(screen.queryByTestId("friend-link-panel")).not.toBeInTheDocument();
+  });
+
+  it("diz quantas contas já foram processadas e o estado de cada uma", () => {
+    renderPanel({ friendLinkState: friendLink() });
+
+    const painel = within(screen.getByTestId("friend-link-panel"));
+    expect(painel.getByText("1 / 3 accounts processed")).toBeInTheDocument();
+    expect(painel.getByText("Sending friend requests")).toBeInTheDocument();
+
+    expect(within(screen.getByTestId("friend-link-1")).getByText("Processing")).toBeInTheDocument();
+    expect(within(screen.getByTestId("friend-link-2")).getByText("Linked")).toBeInTheDocument();
+    expect(within(screen.getByTestId("friend-link-3")).getByText("Waiting")).toBeInTheDocument();
+  });
+
+  it("marca qual é a conta principal do modo star", () => {
+    renderPanel({ friendLinkState: friendLink() });
+    expect(within(screen.getByTestId("friend-link-1")).getByText("main")).toBeInTheDocument();
+    expect(within(screen.getByTestId("friend-link-2")).queryByText("main")).not.toBeInTheDocument();
+  });
+
+  it("mostra o erro na conta que falhou, e não num texto agregado", () => {
+    renderPanel({
+      friendLinkState: friendLink({
+        accounts: [
+          { userId: 1, state: "failed", error: "cookie inválido" },
+          { userId: 2, state: "done", error: null },
+          { userId: 3, state: "done", error: null },
+        ],
+      }),
+    });
+
+    const linha = within(screen.getByTestId("friend-link-1"));
+    expect(linha.getByText("Failed")).toBeInTheDocument();
+    expect(linha.getByText("cookie inválido")).toBeInTheDocument();
+  });
+
+  it("continua mostrando o resultado depois que a operação termina", () => {
+    renderPanel({
+      friendLinkState: friendLink({ active: false, phase: "done", processed: 3 }),
+    });
+
+    const painel = within(screen.getByTestId("friend-link-panel"));
+    expect(painel.getByText("3 / 3 accounts processed")).toBeInTheDocument();
+    expect(painel.getByText("Finished")).toBeInTheDocument();
+  });
+
+  it("usa o alias mascarado, como o resto do painel", () => {
+    renderPanel({
+      friendLinkState: friendLink(),
+      hideUsernames: true,
+      hiddenNameLetters: 2,
+    });
+    expect(within(screen.getByTestId("friend-link-2")).getByText("Br********")).toBeInTheDocument();
   });
 });

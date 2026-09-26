@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
@@ -19,7 +18,6 @@ export function BottomActionBar() {
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [friendMenuOpen, setFriendMenuOpen] = useState(false);
   const [friendBusy, setFriendBusy] = useState(false);
-  const [friendProgress, setFriendProgress] = useState<{ phase: string; done: number; total: number } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
 
@@ -75,17 +73,6 @@ export function BottomActionBar() {
     return () => document.removeEventListener("mousedown", handler);
   }, [actionsOpen, groupMenuOpen, friendMenuOpen]);
 
-  // Live progress for the friend-linking batch.
-  useEffect(() => {
-    const unlisten = listen<{ phase: string; done: number; total: number }>(
-      "friend-link-progress",
-      (e) => setFriendProgress(e.payload.phase === "done" ? null : e.payload)
-    );
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
-
   async function handleMakeFriends(mode: "mesh" | "star", mainUserId: number | null) {
     setFriendMenuOpen(false);
     setActionsOpen(false);
@@ -130,7 +117,6 @@ export function BottomActionBar() {
       store.addToast(tr("Friend linking failed: {{error}}", { error: String(e) }));
     } finally {
       setFriendBusy(false);
-      setFriendProgress(null);
     }
   }
 
@@ -234,13 +220,20 @@ export function BottomActionBar() {
     ? maskIfHidden(singleAccount.Alias || singleAccount.Username)
     : null;
 
-  const friendPhaseLabel = friendProgress
-    ? friendProgress.phase === "checking"
-      ? t("Checking {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
-      : friendProgress.phase === "verifying"
-      ? t("Verifying {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
-      : t("Linking {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
-    : t("Linking friends...");
+  /**
+   * Progresso do Make Friends vindo da store (evento `friend-link-state`).
+   * Conta **contas**, não pares: "2 de 3" com 3 pares não dizia quantas contas
+   * já tinham terminado. O estado morava aqui num `useState` + listener
+   * duplicado na sidebar; agora os dois leem a mesma fonte.
+   */
+  const friendLink = store.friendLinkState;
+  const friendPhaseLabel =
+    friendLink && friendLink.active && friendLink.total > 0
+      ? t("Friends {{done}}/{{total}}", {
+          done: friendLink.processed,
+          total: friendLink.total,
+        })
+      : t("Linking friends...");
 
   return (
     <div className="theme-border border-t shrink-0 flex items-center gap-3 px-4 h-14 bg-[var(--app-bg)]">

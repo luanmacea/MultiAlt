@@ -1304,6 +1304,55 @@ describe("toasts and action status", () => {
 });
 
 describe("backend events", () => {
+  /**
+   * Make Friends acompanhado como a fila de launch: retrato inicial pelo
+   * comando (para a tela que abre no meio da operação) e evento com o payload
+   * completo a cada mudança. Antes o progresso vivia em `useState` de dois
+   * componentes, e remontar significava perder tudo.
+   */
+  it("carrega e acompanha o estado do Make Friends", async () => {
+    results.set("get_friend_link_state", {
+      active: true,
+      phase: "checking",
+      processed: 0,
+      total: 2,
+      accounts: [
+        { userId: 1, state: "processing", error: null },
+        { userId: 2, state: "pending", error: null },
+      ],
+      mode: "mesh",
+      mainUserId: null,
+    });
+    const { result } = await renderStore();
+
+    await waitFor(() => expect(result.current.friendLinkState?.total).toBe(2));
+    expect(result.current.friendLinkState?.phase).toBe("checking");
+
+    await waitFor(() => expect(listenHandlers.has("friend-link-state")).toBe(true));
+    act(() =>
+      emit("friend-link-state", {
+        active: false,
+        phase: "done",
+        processed: 2,
+        total: 2,
+        accounts: [
+          { userId: 1, state: "done", error: null },
+          { userId: 2, state: "failed", error: "cookie inválido" },
+        ],
+        mode: "mesh",
+        mainUserId: null,
+      })
+    );
+
+    // O payload substitui o anterior inteiro: nada de mesclar deltas.
+    expect(result.current.friendLinkState?.active).toBe(false);
+    expect(result.current.friendLinkState?.accounts[1]).toEqual({
+      userId: 2,
+      state: "failed",
+      error: "cookie inválido",
+    });
+  });
+
   it("appends launch logs and caps the buffer at 500 entries", async () => {
     const { result } = await renderStore();
     await waitFor(() => expect(listenHandlers.has("launch-log")).toBe(true));

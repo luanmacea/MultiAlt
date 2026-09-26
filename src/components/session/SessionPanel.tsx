@@ -1,9 +1,13 @@
 import { useMemo, useState } from "react";
-import { Crosshair, Gamepad2, ListX, PowerOff, SquareStop, X } from "lucide-react";
+import { Crosshair, Gamepad2, ListX, PowerOff, SquareStop, UserPlus, X } from "lucide-react";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
-import type { LaunchQueueEntry, LaunchQueueState } from "../../types";
+import type {
+  FriendLinkAccountState,
+  LaunchQueueEntry,
+  LaunchQueueState,
+} from "../../types";
 
 /**
  * Painel de Sessão: o que está entrando agora e o que já está em jogo.
@@ -51,6 +55,48 @@ const STATE_STYLES: Record<LaunchQueueState, { dot: string; text: string }> = {
   cancelled: { dot: "bg-zinc-600", text: "theme-muted" },
 };
 
+/**
+ * Estados de uma conta no Make Friends. Cores iguais às da fila: a bolinha quer
+ * dizer a mesma coisa nas duas listas do painel.
+ */
+const FRIEND_STATE_STYLES: Record<FriendLinkAccountState, { dot: string; text: string }> = {
+  pending: { dot: "bg-[var(--panel-muted)]", text: "theme-muted" },
+  processing: { dot: "bg-[var(--accent-color)] animate-pulse", text: "text-[var(--accent-color)]" },
+  done: { dot: "bg-emerald-500", text: "text-emerald-400" },
+  failed: { dot: "bg-red-500", text: "text-red-400" },
+};
+
+function friendStateLabel(state: FriendLinkAccountState, t: Translate): string {
+  switch (state) {
+    case "pending":
+      return t("Waiting");
+    case "processing":
+      return t("Processing");
+    case "done":
+      return t("Linked");
+    case "failed":
+      return t("Failed");
+    default:
+      return state;
+  }
+}
+
+/** O que a operação está fazendo agora — as três fases custam tempo diferente. */
+function friendPhaseLabel(phase: string, t: Translate): string {
+  switch (phase) {
+    case "checking":
+      return t("Checking who is already friends");
+    case "linking":
+      return t("Sending friend requests");
+    case "verifying":
+      return t("Verifying the friendships");
+    case "done":
+      return t("Finished");
+    default:
+      return "";
+  }
+}
+
 /** Estados em que a conta ainda pode sair da fila. */
 function isPending(entry: LaunchQueueEntry): boolean {
   return entry.state === "queued" || entry.state === "launching";
@@ -70,6 +116,10 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
 
   const entries = store.launchQueue?.entries ?? [];
   const pending = entries.filter(isPending);
+  // Só aparece depois que houve um Make Friends: uma seção vazia permanente
+  // roubaria altura de um painel que já tem teto de 45% na aba Console.
+  const friendLink = store.friendLinkState;
+  const showFriendLink = !!friendLink && friendLink.total > 0;
 
   // Contas com cliente rodando agora, na ordem da lista de contas (estável
   // entre polls). IDs sem conta correspondente ainda aparecem, pelo ID.
@@ -226,6 +276,61 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
           </ul>
         )}
       </section>
+
+      {/* ── Make Friends ───────────────────────────────────────────────── */}
+      {showFriendLink && friendLink && (
+        <section
+          data-testid="friend-link-panel"
+          className="rounded-lg border theme-border bg-[var(--panel-soft)]"
+        >
+          <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
+            <div className="flex items-baseline gap-2 min-w-0">
+              <h3 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5">
+                <UserPlus size={13} strokeWidth={1.5} />
+                {t("Make Friends")}
+              </h3>
+              <span className="text-[11px] theme-muted truncate">
+                {t("{{done}} / {{total}} accounts processed", {
+                  done: friendLink.processed,
+                  total: friendLink.total,
+                })}
+              </span>
+            </div>
+            <span className="text-[11px] theme-muted shrink-0 truncate">
+              {friendPhaseLabel(friendLink.phase, t)}
+            </span>
+          </header>
+
+          <ul className="max-h-48 overflow-y-auto py-1">
+            {friendLink.accounts.map((entry) => {
+              const style = FRIEND_STATE_STYLES[entry.state] ?? FRIEND_STATE_STYLES.pending;
+              return (
+                <li
+                  key={entry.userId}
+                  data-testid={`friend-link-${entry.userId}`}
+                  className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                >
+                  <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                  <span className="text-[var(--panel-fg)] truncate max-w-[40%]">
+                    {nameFor(entry.userId)}
+                  </span>
+                  {friendLink.mainUserId === entry.userId && (
+                    <span className="shrink-0 theme-muted">{t("main")}</span>
+                  )}
+                  <span className={`shrink-0 ${style.text}`}>
+                    {friendStateLabel(entry.state, t)}
+                  </span>
+                  {entry.error && (
+                    <span className="text-red-400 truncate" title={entry.error}>
+                      {entry.error}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {/* ── Em jogo ────────────────────────────────────────────────────── */}
       <section className="rounded-lg border theme-border bg-[var(--panel-soft)]">

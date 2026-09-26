@@ -445,6 +445,76 @@ const SCENARIOS: Record<string, () => void> = {
     });
   },
 
+  /**
+   * Make Friends em andamento: o backend manda o retrato completo a cada
+   * mudança, incluindo uma conta que falha. Serve para ver se dá para
+   * acompanhar conta por conta e se o erro aparece onde deveria.
+   */
+  "friend-link"() {
+    const ids = accounts.map((a) => a.UserID);
+    let estado = {
+      active: false,
+      phase: "idle",
+      processed: 0,
+      total: 0,
+      accounts: [] as { userId: number; state: string; error: string | null }[],
+      mode: "mesh",
+      mainUserId: null as number | null,
+    };
+
+    function publica(mudanca: Partial<typeof estado>) {
+      estado = { ...estado, ...mudanca };
+      estado.processed = estado.accounts.filter(
+        (a) => a.state === "done" || a.state === "failed"
+      ).length;
+      harnessEmit("friend-link-state", estado);
+    }
+
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_friend_link_state") return estado;
+      if (cmd === "make_selected_friends") {
+        publica({
+          active: true,
+          phase: "checking",
+          total: ids.length,
+          accounts: ids.map((userId) => ({ userId, state: "pending", error: null })),
+        });
+        ids.forEach((userId, index) => {
+          setTimeout(() => {
+            publica({
+              phase: index === 0 ? "checking" : "linking",
+              accounts: estado.accounts.map((a) =>
+                a.userId === userId
+                  ? {
+                      ...a,
+                      state: index === ids.length - 1 ? "failed" : "done",
+                      error: index === ids.length - 1 ? "429 Too Many Requests" : null,
+                    }
+                  : a.userId === ids[index + 1]
+                    ? { ...a, state: "processing" }
+                    : a
+              ),
+            });
+          }, 700 * (index + 1));
+        });
+        setTimeout(
+          () => publica({ active: false, phase: "done" }),
+          700 * (ids.length + 1)
+        );
+        return {
+          pairsTotal: ids.length,
+          alreadyFriends: 0,
+          attempted: ids.length,
+          verifiedOk: ids.length - 1,
+          failed: 1,
+          requestsSent: ids.length * 2,
+          errors: [],
+        };
+      }
+      return baseHandler(cmd, args);
+    });
+  },
+
   /** Fila de launch e contas em jogo (Painel de Sessão). */
   "launch-queue"() {
     setInvokeHandler((cmd, args) => {

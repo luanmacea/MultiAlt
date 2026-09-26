@@ -16,7 +16,6 @@ import {
   setStore,
 } from "../../test-utils/renderWithStore";
 import {
-  emitTauriEvent,
   invokeMock,
   resetTauriMocks,
   setInvokeHandler,
@@ -330,26 +329,55 @@ describe("BottomActionBar — friend linking", () => {
     expect(invokeMock).not.toHaveBeenCalledWith("make_selected_friends", expect.anything());
   });
 
-  it("shows the live friend-link progress on the Actions button", async () => {
+  /**
+   * O progresso vem da store (`friend-link-state`), não de um listener próprio
+   * desta barra: a sidebar mantinha uma cópia do mesmo código, e quem remontava
+   * no meio ficava sem progresso. O número é de **contas**, não de pares.
+   */
+  it("mostra no botão quantas contas o Make Friends já processou", async () => {
     let release: (value: unknown) => void = () => {};
     setInvokeHandler(() => new Promise((resolve) => { release = resolve; }));
-    renderBar([A, B]);
+    renderBar([A, B], {
+      friendLinkState: {
+        active: true,
+        phase: "linking",
+        processed: 2,
+        total: 5,
+        accounts: [],
+        mode: "mesh",
+        mainUserId: null,
+      },
+    });
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Make Friends \(2\)/ }));
     await userEvent.click(screen.getByRole("button", { name: /Mesh - all friend all/ }));
 
-    emitTauriEvent("friend-link-progress", { phase: "checking", done: 1, total: 4 });
-    expect(await screen.findByRole("button", { name: /Checking 1\/4/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Friends 2\/5/ })).toBeInTheDocument();
 
-    emitTauriEvent("friend-link-progress", { phase: "verifying", done: 3, total: 4 });
-    expect(await screen.findByRole("button", { name: /Verifying 3\/4/ })).toBeInTheDocument();
+    release({ pairsTotal: 2, alreadyFriends: 0, verifiedOk: 2, failed: 0 });
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Actions/ })).toBeInTheDocument());
+  });
 
-    emitTauriEvent("friend-link-progress", { phase: "linking", done: 4, total: 4 });
-    expect(await screen.findByRole("button", { name: /Linking 4\/4/ })).toBeInTheDocument();
+  it("sem operação ativa, o botão não finge progresso", async () => {
+    let release: (value: unknown) => void = () => {};
+    setInvokeHandler(() => new Promise((resolve) => { release = resolve; }));
+    renderBar([A, B], {
+      friendLinkState: {
+        active: false,
+        phase: "done",
+        processed: 5,
+        total: 5,
+        accounts: [],
+        mode: "mesh",
+        mainUserId: null,
+      },
+    });
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Make Friends \(2\)/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Mesh - all friend all/ }));
 
-    emitTauriEvent("friend-link-progress", { phase: "done", done: 4, total: 4 });
+    // Retrato de uma execução antiga não pode virar progresso da atual.
     expect(await screen.findByRole("button", { name: /Linking friends\.\.\./ })).toBeInTheDocument();
-
     release({ pairsTotal: 2, alreadyFriends: 0, verifiedOk: 2, failed: 0 });
     await waitFor(() => expect(screen.getByRole("button", { name: /^Actions/ })).toBeInTheDocument());
   });

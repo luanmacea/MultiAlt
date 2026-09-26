@@ -43,7 +43,7 @@ export function SessionDialog({ open, onClose }: SessionDialogProps) {
               {t("Session")}
             </h2>
             <p className="text-[11px] theme-muted mt-0.5">
-              {t("Cancel accounts that are joining, or find and close a client that is already in game.")}
+              {t("Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.")}
             </p>
           </div>
           <button
