@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { parsePlaceIdInput, type PlaceDetails } from "../components/server-list/types";
+import { parsePlaceIdInput } from "../components/server-list/types";
+
+/**
+ * O que o backend devolve em `batched_get_game_info` (serde camelCase).
+ * Espelha `api::batch::GameInfo`.
+ */
+interface GameInfoPayload {
+  placeId: number;
+  universeId: number | null;
+  name: string | null;
+  iconUrl: string | null;
+}
 
 /**
  * Quem é o jogo por trás de um Place ID.
@@ -62,32 +73,29 @@ function cached(placeId: number): CacheEntry | null {
 }
 
 /**
- * Nome e ícone numa tacada. `allSettled` de propósito: ícone indisponível não
- * pode esconder o nome, e vice-versa.
+ * Nome e ícone numa chamada só (`batched_get_game_info`).
+ *
+ * Eram dois comandos: `get_place_details`, **sem cache nenhum** no backend, e
+ * `batched_get_game_icon`, que descartava o nome vindo no mesmo corpo da API
+ * do Roblox. Agora o backend guarda os dois e a rede é tocada uma vez por
+ * place, não uma vez por place por execução do app.
  *
  * **Nunca rejeita.** Quem chama guarda o resultado no cache, e um erro precisa
  * virar "não sei" guardado — senão cada tela que abrisse o place tentaria de
  * novo na hora, e uma queda de rede viraria um gerador de requisições.
  */
 async function resolveIdentity(placeId: number, userId: number | null): Promise<CacheEntry> {
-  const [detailsRes, iconRes] = await Promise.allSettled([
-    Promise.resolve().then(() =>
-      invoke<PlaceDetails[]>("get_place_details", { placeIds: [placeId], userId })
-    ),
-    Promise.resolve().then(() =>
-      invoke<string | null>("batched_get_game_icon", { placeId, userId })
-    ),
-  ]);
+  let payload: GameInfoPayload | null = null;
+  try {
+    payload = await invoke<GameInfoPayload>("batched_get_game_info", { placeId, userId });
+  } catch {
+    payload = null;
+  }
 
-  let name: string | null = null;
-  let iconUrl: string | null = null;
-  if (detailsRes.status === "fulfilled" && Array.isArray(detailsRes.value)) {
-    const found = detailsRes.value[0]?.name;
-    if (typeof found === "string" && found.trim()) name = found.trim();
-  }
-  if (iconRes.status === "fulfilled" && typeof iconRes.value === "string" && iconRes.value) {
-    iconUrl = iconRes.value;
-  }
+  const found = payload?.name;
+  const name = typeof found === "string" && found.trim() ? found.trim() : null;
+  const icon = payload?.iconUrl;
+  const iconUrl = typeof icon === "string" && icon ? icon : null;
 
   const entry: CacheEntry = { name, iconUrl };
   if (!name && !iconUrl) entry.failedAt = Date.now();

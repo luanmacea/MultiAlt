@@ -28,6 +28,11 @@ const MAX_CACHED_PLACE_UNIVERSES: usize = 1_000;
 /// segurar para sempre um place aberto uma única vez.
 const PLACE_UNIVERSE_CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// `placeId -> nome do jogo`. Mesmo teto e mesma validade do mapa de universo,
+/// porque vem da **mesma** requisição: o corpo de `multiget-place-details`
+/// traz nome e `universeId` juntos, e o nome era jogado fora.
+const MAX_CACHED_PLACE_NAMES: usize = 1_000;
+
 /// Cache em memória com teto de tamanho e validade por entrada.
 ///
 /// **Política (escolhida por ser previsível, não por taxa de acerto):**
@@ -160,12 +165,24 @@ struct PendingPlaceRequest {
     sender: oneshot::Sender<Option<i64>>,
 }
 
+/// O que a tela precisa para dizer **que jogo** é um Place ID.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameInfo {
+    pub place_id: i64,
+    pub universe_id: Option<i64>,
+    pub name: Option<String>,
+    pub icon_url: Option<String>,
+}
+
 pub struct ImageCache {
     thumbnail_queue: Arc<Mutex<Vec<PendingRequest>>>,
     #[allow(dead_code)]
     place_queue: Arc<Mutex<Vec<PendingPlaceRequest>>>,
     cache: Arc<Mutex<BoundedCache<String, String>>>,
     place_universe_cache: Arc<Mutex<BoundedCache<i64, i64>>>,
+    /// Nome vazio = "perguntei e o Roblox não deu nome", para não repetir.
+    place_name_cache: Arc<Mutex<BoundedCache<i64, String>>>,
     batch_active: Arc<Mutex<bool>>,
     #[allow(dead_code)]
     place_batch_active: Arc<Mutex<bool>>,
@@ -182,6 +199,10 @@ impl ImageCache {
             ))),
             place_universe_cache: Arc::new(Mutex::new(BoundedCache::new(
                 MAX_CACHED_PLACE_UNIVERSES,
+                PLACE_UNIVERSE_CACHE_TTL,
+            ))),
+            place_name_cache: Arc::new(Mutex::new(BoundedCache::new(
+                MAX_CACHED_PLACE_NAMES,
                 PLACE_UNIVERSE_CACHE_TTL,
             ))),
             batch_active: Arc::new(Mutex::new(false)),
@@ -298,7 +319,25 @@ impl ImageCache {
         }
 
         let body: serde_json::Value = response.json().await.ok()?;
-        let universe_id = body.as_array()?.first()?.get("universeId")?.as_i64()?;
+        let entry = body.as_array()?.first()?;
+
+        // O nome vem no MESMO corpo. Guardar aqui é o que evita uma segunda
+        // requisição (`get_place_details`, sem cache) só para dizer que jogo é
+        // aquele place. Nome ausente vira string vazia de propósito: é o
+        // registro de "já perguntei", e sem ele a tela perguntaria de novo a
+        // cada abertura.
+        {
+            let name = entry
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let mut name_cache = self.place_name_cache.lock().await;
+            name_cache.insert(place_id, name);
+        }
+
+        let universe_id = entry.get("universeId")?.as_i64()?;
 
         {
             let mut pu_cache = self.place_universe_cache.lock().await;
@@ -306,6 +345,49 @@ impl ImageCache {
         }
 
         Some(universe_id)
+    }
+
+    /// Nome + ícone + universo de um place, numa chamada e com cache.
+    ///
+    /// Existe porque a tela quer as duas coisas ao mesmo tempo (“que jogo é
+    /// este Place ID?”) e o caminho antigo eram dois comandos: um sem cache
+    /// nenhum (`get_place_details`) e outro que descartava o nome que já tinha
+    /// em mãos. Nunca falha: o que não deu para descobrir volta como `None`.
+    pub async fn get_game_info(
+        &self,
+        place_id: i64,
+        security_token: Option<&str>,
+    ) -> GameInfo {
+        let cached_name = {
+            let mut name_cache = self.place_name_cache.lock().await;
+            name_cache.get(&place_id)
+        };
+
+        // Sem nome guardado, uma resolução resolve os dois — e `get_game_icon`
+        // logo abaixo reaproveita o universo que ela deixou em cache.
+        if cached_name.is_none() {
+            let _ = self.resolve_place_to_universe(place_id, security_token).await;
+        }
+
+        let name = match cached_name {
+            Some(name) => Some(name),
+            None => {
+                let mut name_cache = self.place_name_cache.lock().await;
+                name_cache.get(&place_id)
+            }
+        };
+
+        let universe_id = {
+            let mut pu_cache = self.place_universe_cache.lock().await;
+            pu_cache.get(&place_id)
+        };
+
+        GameInfo {
+            place_id,
+            universe_id,
+            name: name.filter(|n| !n.is_empty()),
+            icon_url: self.get_game_icon(place_id, security_token).await,
+        }
     }
 
     async fn ensure_batch_running(&self) {

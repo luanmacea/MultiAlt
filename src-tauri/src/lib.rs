@@ -307,6 +307,7 @@ pub fn run() {
             batched_get_image,
             batched_get_avatar_headshots,
             batched_get_game_icon,
+            batched_get_game_info,
             get_cached_thumbnail,
             clear_image_cache,
             launch_roblox,
