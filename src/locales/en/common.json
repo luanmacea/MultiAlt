@@ -1604,5 +1604,7 @@
   "Move down": "Move down",
   "Move group down": "Move group down",
   "Move group up": "Move group up",
-  "Move up": "Move up"
+  "Move up": "Move up",
+  "Name prefix (optional)": "Name prefix (optional)",
+  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Only letters and digits. Each account becomes prefix_ plus 5 random characters."
 }
