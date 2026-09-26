@@ -5,11 +5,13 @@ import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useJoinOnlineWarning } from "../../hooks/useJoinOnlineWarning";
+import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
 import { isMultiRobloxCloseProcessError } from "../../utils/robloxErrors";
 import { parseGroupName } from "../../types";
 import { SidebarSection } from "./SidebarSection";
 import { AccountChip } from "./AccountChip";
+import { GameBadge } from "../ui/GameBadge";
 import { tr, useTr } from "../../i18n/text";
 
 export function MultiSelectSidebar() {
@@ -20,6 +22,8 @@ export function MultiSelectSidebar() {
   const confirmJoinOnline = useJoinOnlineWarning();
   const confirmCopyCredential = useCopyCredentialWarning();
   const accounts = store.selectedAccounts;
+  /** Que jogo é o place da barra de launch. */
+  const game = useGameIdentity(store.placeId, accounts[0]?.UserID ?? null);
   const count = accounts.length;
   const [refreshing, setRefreshing] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -296,6 +300,12 @@ export function MultiSelectSidebar() {
                 className="sidebar-input flex-1 font-mono text-xs"
               />
             </div>
+            {/* Qual jogo é esse place: o botão abaixo manda TODAS as contas. */}
+            {game && (game.name || game.iconUrl) && (
+              <div className="flex items-center gap-1.5 pl-[46px]">
+                <GameBadge name={game.name} iconUrl={game.iconUrl} placeId={game.placeId} />
+              </div>
+            )}
             <div className="flex items-center gap-1.5">
               <label className="theme-label text-[10px] w-10 shrink-0">{t("Job")}</label>
               <input
