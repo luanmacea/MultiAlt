@@ -158,36 +158,37 @@ export function addRecentGame(game: RecentGame, maxCount: number) {
   saveRecentGames(existing.slice(0, maxCount));
 }
 
+/**
+ * Nome e ícone de um place, para completar uma entrada de "recentes".
+ *
+ * Uma chamada só (`batched_get_game_info`): eram duas, e a do nome
+ * (`get_place_details`) não tinha cache nenhum no backend. Não usa o
+ * `useGameIdentity` de propósito — isso criaria um ciclo de import entre este
+ * módulo e o hook, que lê `parsePlaceIdInput` daqui. O cache que importa é o
+ * do backend, e ele é o mesmo para os dois caminhos.
+ */
 async function resolveNameAndIcon(
   placeId: number,
   userId: number | null,
-  needName: boolean,
-  needIcon: boolean,
   fallbackName: string,
   fallbackIcon: string | null
 ): Promise<{ name: string; iconUrl: string | null }> {
-  const [detailsRes, iconRes] = await Promise.allSettled([
-    needName
-      ? invoke<PlaceDetails[]>("get_place_details", { placeIds: [placeId], userId })
-      : Promise.resolve(null),
-    needIcon
-      ? invoke<string | null>("batched_get_game_icon", { placeId, userId })
-      : Promise.resolve(null),
-  ]);
+  let info: { name?: string | null; iconUrl?: string | null } | null = null;
+  try {
+    info = await invoke<{ name: string | null; iconUrl: string | null }>(
+      "batched_get_game_info",
+      { placeId, userId }
+    );
+  } catch {
+    info = null;
+  }
 
-  let name = fallbackName;
-  let iconUrl = fallbackIcon;
-  if (
-    detailsRes.status === "fulfilled" &&
-    Array.isArray(detailsRes.value) &&
-    detailsRes.value[0]?.name
-  ) {
-    name = detailsRes.value[0].name;
-  }
-  if (iconRes.status === "fulfilled" && typeof iconRes.value === "string" && iconRes.value) {
-    iconUrl = iconRes.value;
-  }
-  return { name, iconUrl };
+  const foundName = typeof info?.name === "string" ? info.name.trim() : "";
+  const foundIcon = typeof info?.iconUrl === "string" ? info.iconUrl : "";
+  return {
+    name: foundName || fallbackName,
+    iconUrl: foundIcon || fallbackIcon,
+  };
 }
 
 export async function recordRecentGame(
@@ -219,8 +220,6 @@ export async function recordRecentGame(
   const { name, iconUrl } = await resolveNameAndIcon(
     placeId,
     userId,
-    needName,
-    needIcon,
     optimisticName,
     optimisticIcon
   );
@@ -245,8 +244,6 @@ export async function resolveRecentGame(
   const { name, iconUrl } = await resolveNameAndIcon(
     game.placeId,
     userId,
-    needName,
-    needIcon,
     game.name,
     game.iconUrl
   );

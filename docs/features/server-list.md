@@ -19,7 +19,7 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 | Links privados / share links | [api/roblox/private_links.rs](../../src-tauri/src/api/roblox/private_links.rs) |
 | Resolução do alvo VIP no launch | [commands/launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) (`resolve_launch_job`, `resolve_private_join`) |
 | Comandos Tauri | [commands/account_api.rs](../../src-tauri/src/commands/account_api.rs) (`get_servers`, `get_place_details`, `search_games`, `join_game_instance`, `parse_private_server_link_code`) |
-| Ícones em lote | [commands/image_cache.rs](../../src-tauri/src/commands/image_cache.rs), [api/batch.rs](../../src-tauri/src/api/batch.rs) (`batched_get_game_icon`) |
+| Ícones em lote e identidade do jogo | [commands/image_cache.rs](../../src-tauri/src/commands/image_cache.rs), [api/batch.rs](../../src-tauri/src/api/batch.rs) (`batched_get_game_icon`, `batched_get_game_info`) |
 
 ## Fluxo
 
@@ -57,7 +57,7 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 
 1. `recordRecentGame(placeId, userId, maxCount)` é chamado ao selecionar jogo no Server List ([ServerListDialog.tsx](../../src/components/server-list/ServerListDialog.tsx)) e pela store ([store.tsx](../../src/store.tsx)) após um `joinServer`/`launchMultiple` **bem-sucedido** (qualquer origem, incl. Choose Game). Launch que falha não entra nos recentes.
 2. Insere otimisticamente no topo (nome = placeId se desconhecido), remove duplicata do mesmo placeId e corta em `MaxRecentGames`.
-3. Em seguida resolve nome (`get_place_details`) e ícone (`batched_get_game_icon`) e atualiza a entrada. `RecentGamesList` também completa entradas antigas sem nome/ícone ao exibir.
+3. Em seguida resolve nome e ícone (`batched_get_game_info`, uma chamada) e atualiza a entrada. `RecentGamesList` também completa entradas antigas sem nome/ícone ao exibir.
 4. Persistência em `localStorage["ram_recent_games"]`.
 
 ### Ações do jogo pelo clique direito
@@ -85,7 +85,7 @@ Regras:
 Padrão do app: **toda tela que trabalha com um Place ID mostra qual jogo é aquele**, sempre que der para descobrir. Um número de 10 dígitos não informa nada, e telas de lote (aba Servers, barra de launch, Botting) agem sobre várias contas de uma vez — entrar no jogo errado por um número copiado torto é caro.
 
 1. O caminho único é o hook [useGameIdentity.ts](../../src/hooks/useGameIdentity.ts): recebe o texto do campo (número **ou** link do jogo colado) e devolve `{ placeId, name, iconUrl, loading }`.
-2. Ele resolve nome (`get_place_details`) e ícone (`batched_get_game_icon`) em paralelo, com **cache de módulo por place** lido de forma síncrona — a segunda tela que abre o mesmo jogo já nasce com o nome, sem piscar — e **dedupe** das chamadas em voo.
+2. Ele resolve nome e ícone num **comando só** (`batched_get_game_info`), com **cache de módulo por place** lido de forma síncrona — a segunda tela que abre o mesmo jogo já nasce com o nome, sem piscar — e **dedupe** das chamadas em voo. Do outro lado, o backend também guarda: o corpo de `multiget-place-details` traz nome e `universeId` juntos e o nome era descartado, então quem queria o nome pagava `get_place_details`, que não tem cache nenhum. Nome ausente é guardado como string vazia de propósito — é o registro de "já perguntei", e sem ele a tela perguntaria de novo a cada abertura.
 3. Espera 400 ms de digitação parada antes de perguntar (`6`, `60`, `606`… não são places), descarta resposta que chega depois de o usuário trocar de place, e marca como "não sei" o place que falhou (nova tentativa só depois de 30 s, para queda de rede não virar laço de requisições).
 4. Quem desenha é [GameBadge.tsx](../../src/components/ui/GameBadge.tsx), puramente visual: **sem nome e sem ícone não desenha nada** — "Place 606849621" não informa mais que o número já visível no campo ao lado.
 5. Telas ligadas hoje: aba Servers da Choose Game, Botting Mode (os dois layouts) e Nexus. Games/Favoritos/Recentes já mostravam nome e ícone pelo caminho próprio das listas.

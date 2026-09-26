@@ -196,21 +196,22 @@ describe("recordRecentGame", () => {
     expect(loadRecentGames()[0]).toMatchObject({ name: "Known", iconUrl: "known.png" });
   });
 
-  it("resolves both the name and the icon when nothing is known", async () => {
-    invokeMock.mockImplementation(async (cmd: string) => {
-      if (cmd === "get_place_details") return [{ placeId: 123, name: "Resolved Game" }];
-      if (cmd === "batched_get_game_icon") return "resolved.png";
-      return null;
-    });
+  it("resolves both the name and the icon in a single call", async () => {
+    invokeMock.mockImplementation(async (cmd: string) =>
+      cmd === "batched_get_game_info"
+        ? { placeId: 123, universeId: 9, name: "Resolved Game", iconUrl: "resolved.png" }
+        : null
+    );
 
     await recordRecentGame(123, 42, 10);
 
-    expect(invokeMock).toHaveBeenCalledTimes(2);
-    expect(invokeMock).toHaveBeenCalledWith("get_place_details", {
-      placeIds: [123],
+    // Uma chamada: nome e ícone saem do mesmo corpo da API do Roblox, e o
+    // backend guarda os dois. Antes eram duas, e a do nome não tinha cache.
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith("batched_get_game_info", {
+      placeId: 123,
       userId: 42,
     });
-    expect(invokeMock).toHaveBeenCalledWith("batched_get_game_icon", { placeId: 123, userId: 42 });
 
     expect(loadRecentGames()[0]).toMatchObject({
       placeId: 123,
@@ -219,16 +220,17 @@ describe("recordRecentGame", () => {
     });
   });
 
-  it("only fetches the icon when the name is already known", async () => {
+  it("mantém o nome que já tinha quando só falta o ícone", async () => {
     saveRecentGames([{ placeId: 123, name: "Known", iconUrl: null, lastPlayed: 1 }]);
     invokeMock.mockImplementation(async (cmd: string) =>
-      cmd === "batched_get_game_icon" ? "late.png" : null
+      cmd === "batched_get_game_info"
+        ? { placeId: 123, universeId: null, name: null, iconUrl: "late.png" }
+        : null
     );
 
     await recordRecentGame(123, null, 10);
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("batched_get_game_icon", { placeId: 123, userId: null });
     expect(loadRecentGames()[0]).toMatchObject({ name: "Known", iconUrl: "late.png" });
   });
 
@@ -258,7 +260,9 @@ describe("resolveRecentGame", () => {
 
   it("resolves a placeholder name", async () => {
     invokeMock.mockImplementation(async (cmd: string) =>
-      cmd === "get_place_details" ? [{ placeId: 9, name: "Real Name" }] : null
+      cmd === "batched_get_game_info"
+        ? { placeId: 9, universeId: null, name: "Real Name", iconUrl: null }
+        : null
     );
 
     const resolved = await resolveRecentGame(

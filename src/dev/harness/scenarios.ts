@@ -115,6 +115,16 @@ const baseHandler: InvokeHandler = (cmd, args) => {
       const game = GAME_FIXTURES[id];
       return game ? iconForGame(id, game.name) : null;
     }
+    case "batched_get_game_info": {
+      const id = Number(args?.placeId ?? 0);
+      const game = GAME_FIXTURES[id];
+      return {
+        placeId: id,
+        universeId: game?.universeId ?? null,
+        name: game?.name ?? null,
+        iconUrl: game ? iconForGame(id, game.name) : null,
+      };
+    }
     // Sem atualização: o diálogo de update não pode tapar a tela em teste.
     case "check_for_updates_with_channels":
       return null;

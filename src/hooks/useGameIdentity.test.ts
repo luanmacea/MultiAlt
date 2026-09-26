@@ -15,20 +15,14 @@ const ICON = "https://tr.rbxcdn.com/jailbreak.png";
 
 /** Resposta boa: o backend conhece o place. */
 function backendKnowsJailbreak(cmd: string) {
-  if (cmd === "get_place_details") {
-    return [
-      {
-        placeId: 606849621,
-        universeId: 245662005,
-        name: "Jailbreak",
-        description: "",
-        sourceName: "Jailbreak",
-        sourceDescription: "",
-        url: "https://www.roblox.com/games/606849621",
-      },
-    ];
+  if (cmd === "batched_get_game_info") {
+    return {
+      placeId: 606849621,
+      universeId: 245662005,
+      name: "Jailbreak",
+      iconUrl: ICON,
+    };
   }
-  if (cmd === "batched_get_game_icon") return ICON;
   return undefined;
 }
 
@@ -60,14 +54,13 @@ describe("useGameIdentity", () => {
     expect(result.current?.placeId).toBe(606849621);
     expect(result.current?.loading).toBe(false);
 
-    expect(invokeMock).toHaveBeenCalledWith("get_place_details", {
-      placeIds: [606849621],
-      userId: 5,
-    });
-    expect(invokeMock).toHaveBeenCalledWith("batched_get_game_icon", {
+    // Um comando só: nome, ícone e universo saem do mesmo corpo, e o backend
+    // guarda os três. Antes eram dois, e o do nome não tinha cache nenhum.
+    expect(invokeMock).toHaveBeenCalledWith("batched_get_game_info", {
       placeId: 606849621,
       userId: 5,
     });
+    expect(callsFor("batched_get_game_info")).toHaveLength(1);
   });
 
   it("aceita o link do jogo colado, não só o número", async () => {
@@ -93,7 +86,7 @@ describe("useGameIdentity", () => {
   it("pergunta uma vez por place: a segunda tela lê do cache, sem esperar", async () => {
     const primeira = renderHook(() => useGameIdentity("606849621", null));
     await waitFor(() => expect(primeira.result.current?.name).toBe("Jailbreak"));
-    expect(callsFor("get_place_details")).toHaveLength(1);
+    expect(callsFor("batched_get_game_info")).toHaveLength(1);
     primeira.unmount();
 
     const segunda = renderHook(() => useGameIdentity("606849621", null));
@@ -101,7 +94,7 @@ describe("useGameIdentity", () => {
     // nome pisca em toda tela que abre com o mesmo place.
     expect(segunda.result.current?.name).toBe("Jailbreak");
     expect(segunda.result.current?.loading).toBe(false);
-    expect(callsFor("get_place_details")).toHaveLength(1);
+    expect(callsFor("batched_get_game_info")).toHaveLength(1);
   });
 
   it("espera a digitação parar em vez de pedir um place por tecla", async () => {
@@ -119,9 +112,9 @@ describe("useGameIdentity", () => {
         vi.advanceTimersByTime(1000);
       });
 
-      expect(callsFor("get_place_details")).toHaveLength(1);
-      expect(callsFor("get_place_details")[0][1]).toEqual({
-        placeIds: [606849621],
+      expect(callsFor("batched_get_game_info")).toHaveLength(1);
+      expect(callsFor("batched_get_game_info")[0][1]).toEqual({
+        placeId: 606849621,
         userId: null,
       });
     } finally {
@@ -139,24 +132,24 @@ describe("useGameIdentity", () => {
     expect(result.current?.name).toBeNull();
     expect(result.current?.iconUrl).toBeNull();
 
-    const depois = callsFor("get_place_details").length;
+    const depois = callsFor("batched_get_game_info").length;
     await sleep(600);
-    expect(callsFor("get_place_details")).toHaveLength(depois);
+    expect(callsFor("batched_get_game_info")).toHaveLength(depois);
 
     // Outra tela abrindo o mesmo place não repete o pedido que acabou de falhar.
     renderHook(() => useGameIdentity("606849621", null));
     await sleep(600);
-    expect(callsFor("get_place_details")).toHaveLength(depois);
+    expect(callsFor("batched_get_game_info")).toHaveLength(depois);
   });
 
   it("resposta atrasada não carimba o nome do place que o usuário já abandonou", async () => {
     const atrasado: { libera: (() => void) | null } = { libera: null };
     invokeMock.mockImplementation((cmd: string, args: Record<string, unknown>) => {
-      const place = (args.placeIds as number[] | undefined)?.[0] ?? args.placeId;
+      const place = args.placeId;
       if (place === 1818) {
         return new Promise((resolve) => {
           atrasado.libera = () =>
-            resolve(cmd === "get_place_details" ? [{ name: "Classic" }] : null);
+            resolve({ placeId: 1818, universeId: null, name: "Classic", iconUrl: null });
         });
       }
       return backendKnowsJailbreak(cmd);
@@ -175,7 +168,9 @@ describe("useGameIdentity", () => {
     expect(result.current?.placeId).toBe(606849621);
   });
 
-  it("aguenta o backend devolvendo lista vazia em vez de dado", async () => {
+  it("aguenta o backend devolvendo vazio em vez de dado", async () => {
+    // O harness devolve `[]` para comando sem dublê; o backend devolve o
+    // registro com os campos nulos quando não descobriu nada.
     invokeMock.mockImplementation(() => []);
 
     const { result } = renderHook(() => useGameIdentity("606849621", null));

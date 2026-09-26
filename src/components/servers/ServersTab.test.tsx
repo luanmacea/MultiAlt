@@ -701,8 +701,12 @@ describe("ServersTab — qual jogo é este place", () => {
       start_server_scan: SCAN_ID,
       stop_server_scan: null,
       get_server_regions: [],
-      get_place_details: [{ placeId: 606849621, universeId: 245662005, name: "Jailbreak" }],
-      batched_get_game_icon: "https://tr.rbxcdn.com/jailbreak.png",
+      batched_get_game_info: {
+        placeId: 606849621,
+        universeId: 245662005,
+        name: "Jailbreak",
+        iconUrl: "https://tr.rbxcdn.com/jailbreak.png",
+      },
     });
   }
 
@@ -716,8 +720,8 @@ describe("ServersTab — qual jogo é este place", () => {
       "src",
       "https://tr.rbxcdn.com/jailbreak.png"
     );
-    expect(callsFor("get_place_details")[0][1]).toEqual({
-      placeIds: [606849621],
+    expect(callsFor("batched_get_game_info")[0][1]).toEqual({
+      placeId: 606849621,
       userId: ACCOUNT_A.UserID,
     });
   });

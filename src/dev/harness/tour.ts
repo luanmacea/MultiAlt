@@ -90,6 +90,16 @@ export function tourHandler(base: InvokeHandler, userIds: number[]): InvokeHandl
         // Antes isto devolvia sempre `null` e nenhuma tela era vista com ícone.
         return game ? iconForGame(placeId, game.name) : null;
       }
+      case "batched_get_game_info": {
+        const placeId = Number(args.placeId ?? 0);
+        const game = GAMES.find((g) => g.rootPlaceId === placeId);
+        return {
+          placeId,
+          universeId: game?.universeId ?? null,
+          name: game?.name ?? null,
+          iconUrl: game ? iconForGame(placeId, game.name) : null,
+        };
+      }
       case "get_place_details": {
         const ids = (args.placeIds as number[]) || [];
         return ids.map((placeId) => {

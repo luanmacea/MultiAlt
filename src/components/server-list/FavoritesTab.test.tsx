@@ -335,7 +335,9 @@ describe("FavoritesTab — ícone que faltou", () => {
   it("busca o ícone do favorito salvo sem ele, e guarda o resultado", async () => {
     saveFavorites([favorite({ iconUrl: null })]);
     setInvokeHandler((cmd) =>
-      cmd === "batched_get_game_icon" ? "https://tr.rbxcdn.com/jb.png" : undefined
+      cmd === "batched_get_game_info"
+        ? { placeId: 606849621, universeId: 1, name: "Jailbreak", iconUrl: "https://tr.rbxcdn.com/jb.png" }
+        : undefined
     );
 
     renderFavorites();
@@ -357,7 +359,7 @@ describe("FavoritesTab — ícone que faltou", () => {
     renderFavorites();
     await new Promise((resolve) => setTimeout(resolve, 600));
 
-    expect(chamadas.filter((c) => c === "batched_get_game_icon")).toHaveLength(0);
+    expect(chamadas.filter((c) => c === "batched_get_game_info")).toHaveLength(0);
   });
 });
 
@@ -513,8 +515,14 @@ describe("RecentTab", () => {
   it("backfills a missing game name from the backend", async () => {
     saveRecentGames([recent({ placeId: 555, name: "555", iconUrl: null })]);
     setInvokeHandler((cmd) => {
-      if (cmd === "get_place_details") return [{ name: "Resolved Game" }];
-      if (cmd === "batched_get_game_icon") return "https://example.invalid/resolved.png";
+      if (cmd === "batched_get_game_info") {
+        return {
+          placeId: 555,
+          universeId: null,
+          name: "Resolved Game",
+          iconUrl: "https://example.invalid/resolved.png",
+        };
+      }
       return undefined;
     });
     renderRecent();

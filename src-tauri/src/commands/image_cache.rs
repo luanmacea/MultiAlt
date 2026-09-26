@@ -65,6 +65,22 @@ async fn batched_get_game_icon(
     Ok(image_cache.get_game_icon(place_id, cookie.as_deref()).await)
 }
 
+/// Nome + ícone + universo de um place, numa chamada só e com cache.
+///
+/// A tela que mostra "que jogo é este Place ID" precisava de dois comandos:
+/// `get_place_details` (sem cache nenhum, bate na rede toda vez) e
+/// `batched_get_game_icon` (que descartava o nome vindo no mesmo corpo).
+#[tauri::command]
+async fn batched_get_game_info(
+    image_cache: tauri::State<'_, ImageCache>,
+    account_store: tauri::State<'_, AccountStore>,
+    place_id: i64,
+    user_id: Option<i64>,
+) -> Result<api::batch::GameInfo, String> {
+    let cookie = user_id.and_then(|id| get_cookie(&account_store, id).ok());
+    Ok(image_cache.get_game_info(place_id, cookie.as_deref()).await)
+}
+
 #[tauri::command]
 async fn get_cached_thumbnail(
     image_cache: tauri::State<'_, ImageCache>,
