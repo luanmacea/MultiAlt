@@ -222,6 +222,7 @@ function AppContent() {
       <BottingDialog
         open={store.bottingDialogOpen}
         onClose={() => store.setBottingDialogOpen(false)}
+        initialPlaceId={store.bottingDialogPlaceId}
       />
 
       <GeneratorDialog

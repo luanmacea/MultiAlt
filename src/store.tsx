@@ -407,6 +407,15 @@ export interface StoreValue {
   setThemeEditorOpen: (open: boolean) => void;
   bottingDialogOpen: boolean;
   setBottingDialogOpen: (open: boolean) => void;
+  /**
+   * Place com que o Botting deve abrir quando a abertura partiu de um jogo
+   * (clique direito numa lista de jogos). **Vence o rascunho salvo**: quem
+   * acabou de escolher o jogo quer aquele jogo, não o da vez passada.
+   * `null` quando a abertura não trouxe jogo nenhum.
+   */
+  bottingDialogPlaceId: string | null;
+  /** Abre o Botting, opcionalmente já com um jogo escolhido. */
+  openBottingDialog: (placeId?: string) => void;
   bottingStatus: BottingStatus | null;
   generatorDialogOpen: boolean;
   /**
@@ -557,6 +566,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [importDialogTab, setImportDialogTab] = useState<"cookie" | "userpass" | "legacy">("cookie");
   const [themeEditorOpen, setThemeEditorOpen] = useState(false);
   const [bottingDialogOpen, setBottingDialogOpen] = useState(false);
+  const [bottingDialogPlaceId, setBottingDialogPlaceId] = useState<string | null>(null);
+  /**
+   * Abrir sem jogo **limpa** o jogo da abertura anterior: senão o place escolhido
+   * num clique direito continuaria carimbando o diálogo aberto pela barra.
+   */
+  const openBottingDialog = useCallback((placeId?: string) => {
+    setBottingDialogPlaceId(placeId?.trim() ? placeId.trim() : null);
+    setBottingDialogOpen(true);
+  }, []);
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
@@ -2460,6 +2478,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setThemeEditorOpen,
     bottingDialogOpen,
     setBottingDialogOpen,
+    bottingDialogPlaceId,
+    openBottingDialog,
     bottingStatus,
     generatorDialogOpen,
     generatorDialogTab,

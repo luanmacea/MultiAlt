@@ -1,8 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { createPortal } from "react-dom";
+import { Code2, Repeat, Server } from "lucide-react";
 import { useTr } from "../../i18n/text";
 
+/**
+ * Menu do favorito. Além de gerenciar o favorito em si, oferece as ações que
+ * agem **sobre aquele jogo** — sem isso, usar o Botting no jogo favorito exigia
+ * copiar o Place ID e abrir a tela do Botting à mão.
+ *
+ * Ação sem callback não aparece (o Server List não tem para onde abri-las).
+ */
 export function FavoriteContextMenu({
   x,
   y,
@@ -11,6 +19,9 @@ export function FavoriteContextMenu({
   onRename,
   onRemove,
   onCopyPlaceId,
+  onBrowseServers,
+  onBotting,
+  onScripts,
 }: {
   x: number;
   y: number;
@@ -19,6 +30,9 @@ export function FavoriteContextMenu({
   onRename: () => void;
   onRemove: () => void;
   onCopyPlaceId: () => void;
+  onBrowseServers?: () => void;
+  onBotting?: () => void;
+  onScripts?: () => void;
 }) {
   const t = useTr();
   const ref = useRef<HTMLDivElement>(null);
@@ -52,7 +66,8 @@ export function FavoriteContextMenu({
   return createPortal(
     <div
       ref={ref}
-      className="theme-modal-scope theme-panel theme-border fixed z-[60] bg-zinc-900/98 border border-zinc-700/60 rounded-xl shadow-2xl py-1 w-44 backdrop-blur-xl animate-scale-in"
+      data-testid="favorite-context-menu"
+      className="theme-modal-scope theme-panel theme-border fixed z-[60] bg-zinc-900/98 border border-zinc-700/60 rounded-xl shadow-2xl py-1 w-48 backdrop-blur-xl animate-scale-in"
       style={{ top: pos.top, left: pos.left }}
     >
       <button
@@ -74,6 +89,36 @@ export function FavoriteContextMenu({
         </svg>
         {t("Rename")}
       </button>
+      {(onBrowseServers || onBotting || onScripts) && (
+        <div className="h-px bg-zinc-800 my-0.5" />
+      )}
+      {onBrowseServers && (
+        <button
+          onClick={() => { onBrowseServers(); onClose(); }}
+          className="flex items-center gap-2.5 w-full px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-800 text-left"
+        >
+          <Server size={12} strokeWidth={2} className="text-sky-400" />
+          {t("Browse servers")}
+        </button>
+      )}
+      {onBotting && (
+        <button
+          onClick={() => { onBotting(); onClose(); }}
+          className="flex items-center gap-2.5 w-full px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-800 text-left"
+        >
+          <Repeat size={12} strokeWidth={2} className="text-violet-400" />
+          {t("Botting Mode")}
+        </button>
+      )}
+      {onScripts && (
+        <button
+          onClick={() => { onScripts(); onClose(); }}
+          className="flex items-center gap-2.5 w-full px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-800 text-left"
+        >
+          <Code2 size={12} strokeWidth={2} className="text-zinc-400" />
+          {t("Scripts")}
+        </button>
+      )}
       <div className="h-px bg-zinc-800 my-0.5" />
       <button
         onClick={() => { onCopyPlaceId(); onClose(); }}

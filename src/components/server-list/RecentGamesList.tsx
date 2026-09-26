@@ -4,6 +4,7 @@ import { loadRecentGames, saveRecentGames, resolveRecentGame } from "./types";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { GameRowActions, browseServersIcon, favoriteIcon, joinGameIcon } from "./GamesTab";
+import { GameContextMenu } from "./GameContextMenu";
 
 export interface RecentGamesListProps {
   userId: number | null;
@@ -13,6 +14,9 @@ export interface RecentGamesListProps {
   onBrowseServers?: (placeId: number) => void;
   /** Salva o jogo nos favoritos (mesma ação da aba Games). */
   onAddFavorite?: (game: GameEntry) => void;
+  /** Abre o Botting Mode / os Scripts **com este jogo**. */
+  onBotting?: (placeId: number) => void;
+  onScripts?: (placeId: number) => void;
 }
 
 export function RecentGamesList({
@@ -21,10 +25,19 @@ export function RecentGamesList({
   onSelect,
   onBrowseServers,
   onAddFavorite,
+  onBotting,
+  onScripts,
 }: RecentGamesListProps) {
   const t = useTr();
   const confirm = useConfirm();
   const [games, setGames] = useState<RecentGame[]>(loadRecentGames);
+  /**
+   * Os recentes eram a única lista de jogos sem clique direito: as ações do
+   * jogo estavam só nos botões da linha, e Botting/Scripts em lugar nenhum.
+   */
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; game: RecentGame } | null>(
+    null
+  );
   const backfilledRef = useRef(false);
 
   useEffect(() => {
@@ -118,6 +131,10 @@ export function RecentGamesList({
               tabIndex={0}
               className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800/40 transition-colors cursor-pointer outline-none"
               onClick={() => onSelect(game.placeId, game.name, game.iconUrl)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, game });
+              }}
               onKeyDown={(e) => {
                 if (e.target !== e.currentTarget) return;
                 if (e.key === "Enter" || e.key === " ") {
@@ -186,6 +203,41 @@ export function RecentGamesList({
           ))}
         </div>
       </div>
+
+      {contextMenu && (
+        <GameContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          game={{
+            placeId: contextMenu.game.placeId,
+            name: contextMenu.game.name,
+            playerCount: 0,
+            likeRatio: null,
+            iconUrl: contextMenu.game.iconUrl,
+          }}
+          onClose={() => setContextMenu(null)}
+          onJoin={() =>
+            onSelect(contextMenu.game.placeId, contextMenu.game.name, contextMenu.game.iconUrl)
+          }
+          onFavorite={() =>
+            onAddFavorite?.({
+              placeId: contextMenu.game.placeId,
+              name: contextMenu.game.name,
+              playerCount: 0,
+              likeRatio: null,
+              iconUrl: contextMenu.game.iconUrl,
+            })
+          }
+          onCopyPlaceId={() => {
+            navigator.clipboard.writeText(String(contextMenu.game.placeId));
+          }}
+          onBrowseServers={
+            onBrowseServers ? () => onBrowseServers(contextMenu.game.placeId) : undefined
+          }
+          onBotting={onBotting ? () => onBotting(contextMenu.game.placeId) : undefined}
+          onScripts={onScripts ? () => onScripts(contextMenu.game.placeId) : undefined}
+        />
+      )}
     </div>
   );
 }

@@ -14,6 +14,12 @@ import { X, ChevronDown, Check } from "lucide-react";
 interface BottingDialogProps {
   open: boolean;
   onClose: () => void;
+  /**
+   * Jogo escolhido na abertura (clique direito num jogo → "Botting Mode").
+   * **Vence o rascunho salvo**: quem acabou de escolher o jogo quer aquele
+   * jogo, não o place da vez passada.
+   */
+  initialPlaceId?: string | null;
 }
 
 type BottingRowAction = "disconnect" | "close" | "closeDisconnect" | "restartClient" | "restartLoop";
@@ -122,7 +128,7 @@ function TimingFieldHints() {
   );
 }
 
-export function BottingDialog({ open, onClose }: BottingDialogProps) {
+export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingDialogProps) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
@@ -173,9 +179,12 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
       if (cancelled) return;
 
       const shouldShareLaunchFields = general.BottingAutoShareLaunchFields === "true";
-      const draftPlace = shouldShareLaunchFields
-        ? store.placeId || ""
-        : general.BottingDraftPlaceId || store.placeId || "";
+      const escolhidoNaAbertura = initialPlaceId?.trim() || "";
+      const draftPlace =
+        escolhidoNaAbertura ||
+        (shouldShareLaunchFields
+          ? store.placeId || ""
+          : general.BottingDraftPlaceId || store.placeId || "");
       const draftJob = shouldShareLaunchFields
         ? store.jobId || ""
         : general.BottingDraftJobId || store.jobId || "";
@@ -211,6 +220,7 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
       cancelled = true;
     };
   }, [
+    initialPlaceId,
     selectedIds,
     status?.playerGraceMinutes,
     store.jobId,
