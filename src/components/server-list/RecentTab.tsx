@@ -9,6 +9,9 @@ export interface RecentTabProps {
   onBrowseServers?: (placeId: number) => void;
   /** Salva o jogo nos favoritos (mesma ação da aba Games). */
   onAddFavorite?: (game: GameEntry) => void;
+  /** Abre o Botting Mode / os Scripts **com este jogo**. */
+  onBotting?: (placeId: number) => void;
+  onScripts?: (placeId: number) => void;
 }
 
 export function RecentTab({
@@ -17,6 +20,8 @@ export function RecentTab({
   userId,
   onBrowseServers,
   onAddFavorite,
+  onBotting,
+  onScripts,
 }: RecentTabProps) {
   return (
     <RecentGamesList
@@ -25,6 +30,8 @@ export function RecentTab({
       onSelect={onSelectGame}
       onBrowseServers={onBrowseServers}
       onAddFavorite={onAddFavorite}
+      onBotting={onBotting}
+      onScripts={onScripts}
     />
   );
 }

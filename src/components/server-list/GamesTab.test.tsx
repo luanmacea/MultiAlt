@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -30,20 +30,22 @@ function searchHandler() {
   });
 }
 
-async function renderGames() {
+async function renderGames(overrides: Record<string, unknown> = {}) {
   const props = {
     onSelectGame: vi.fn(),
     onJoinGame: vi.fn(),
     addToast: vi.fn(),
     onAddFavorite: vi.fn(),
     onBrowseServers: vi.fn(),
+    onBotting: vi.fn(),
+    onScripts: vi.fn(),
   };
   setStore({
     accounts: [ACCOUNT],
     selectedIds: new Set([1001]),
     selectedAccounts: [ACCOUNT],
   });
-  render(<GamesTab {...props} />);
+  render(<GamesTab {...props} {...overrides} />);
   await screen.findByText("Jailbreak");
   return props;
 }
@@ -141,5 +143,61 @@ describe("GamesTab — teclado", () => {
     await userEvent.keyboard("{Enter}");
     expect(props.onAddFavorite).toHaveBeenCalledTimes(1);
     expect(props.onSelectGame).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * As funcionalidades que agem sobre um jogo viviam atrás de "abra a tela e cole
+ * o Place ID à mão". O menu do jogo é o atalho: a ação já sabe de que jogo se
+ * trata, e nada precisa ser copiado.
+ */
+describe("GamesTab — ações do jogo pelo menu de contexto", () => {
+  /**
+   * As buscas são presas ao menu: as ações do card usam alguns dos mesmos
+   * rótulos, então uma busca solta passaria clicando no botão do card.
+   */
+  async function abrirMenu(overrides: Record<string, unknown> = {}) {
+    const props = await renderGames(overrides);
+    fireEvent.contextMenu(screen.getByText("Jailbreak"));
+    const menu = within(screen.getByTestId("game-context-menu"));
+    return { ...props, menu };
+  }
+
+  it("abre o Botting Mode já com este jogo", async () => {
+    const props = await abrirMenu();
+
+    await userEvent.click(props.menu.getByRole("button", { name: "Botting Mode" }));
+
+    expect(props.onBotting).toHaveBeenCalledWith(606849621);
+    // Abrir uma tela sobre o jogo não é entrar no jogo.
+    expect(props.onJoinGame).not.toHaveBeenCalled();
+    expect(props.onSelectGame).not.toHaveBeenCalled();
+  });
+
+  it("abre os Scripts já com este jogo", async () => {
+    const props = await abrirMenu();
+
+    await userEvent.click(props.menu.getByRole("button", { name: "Scripts" }));
+
+    expect(props.onScripts).toHaveBeenCalledWith(606849621);
+    expect(props.onJoinGame).not.toHaveBeenCalled();
+  });
+
+  it("leva aos servidores deste jogo", async () => {
+    const props = await abrirMenu();
+
+    await userEvent.click(props.menu.getByRole("button", { name: "Browse servers" }));
+
+    expect(props.onBrowseServers).toHaveBeenCalledWith(606849621, "Jailbreak");
+    expect(props.onJoinGame).not.toHaveBeenCalled();
+  });
+
+  /** No diálogo antigo não há para onde abrir o Botting: o item não pode aparecer morto. */
+  it("esconde a ação que a tela não oferece", async () => {
+    const { menu } = await abrirMenu({ onBotting: undefined, onScripts: undefined });
+
+    expect(menu.queryByRole("button", { name: "Botting Mode" })).not.toBeInTheDocument();
+    expect(menu.queryByRole("button", { name: "Scripts" })).not.toBeInTheDocument();
+    expect(menu.getByRole("button", { name: "Join Game" })).toBeInTheDocument();
   });
 });

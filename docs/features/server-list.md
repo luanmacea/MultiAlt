@@ -59,6 +59,26 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 3. Em seguida resolve nome (`get_place_details`) e ícone (`batched_get_game_icon`) e atualiza a entrada. `RecentGamesList` também completa entradas antigas sem nome/ícone ao exibir.
 4. Persistência em `localStorage["ram_recent_games"]`.
 
+### Ações do jogo pelo clique direito
+
+Toda lista de jogos (Games, Favoritos, Recentes) abre um menu com **o que se pode fazer com aquele jogo**. O motivo: funcionalidades como o Botting Mode só podiam ser usadas abrindo a tela delas e **colando o Place ID à mão** — a ação agora já sabe de que jogo se trata.
+
+| Item | O que faz | Onde aparece |
+|---|---|---|
+| Join Game | Lança o jogo (comportamento antigo) | sempre |
+| Browse servers | Vai para a aba Servers com o place preenchido | quando a tela dona passa `onBrowseServers` |
+| Favorite / Rename / Remove | Gerência do favorito | Games (favoritar) e Favoritos |
+| Botting Mode | Abre o Botting **com aquele jogo** | Choose Game |
+| Scripts | Abre os Scripts com aquele place como place atual (é o que `ram.window` expõe) | Choose Game |
+| Copy Place ID | Copia o número | sempre |
+
+Regras:
+
+- **Ação sem callback não aparece.** O diálogo antigo (Server List) não tem para onde abrir Botting/Scripts; item morto é pior que item ausente.
+- A lista de **Recentes** não tinha clique direito nenhum — ganhou o mesmo `GameContextMenu` das outras.
+- Abrir uma tela sobre o jogo **não entra no jogo**: nenhuma dessas ações lança cliente (travado por teste nas três listas).
+- Para o Botting o place vai **explícito na abertura** (`openBottingDialog(placeId)`), e não só por `store.placeId`: o rascunho salvo (`General.BottingDraftPlaceId`) vence a store, então sem isso o usuário escolhia um jogo e via outro. Abrir o Botting **sem** jogo (barra de ações, toolbar) limpa o jogo da abertura anterior.
+
 ### Identificação do jogo pelo Place ID
 
 Padrão do app: **toda tela que trabalha com um Place ID mostra qual jogo é aquele**, sempre que der para descobrir. Um número de 10 dígitos não informa nada, e telas de lote (aba Servers, barra de launch, Botting) agem sobre várias contas de uma vez — entrar no jogo errado por um número copiado torto é caro.

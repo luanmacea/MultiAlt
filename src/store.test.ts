@@ -1177,6 +1177,30 @@ describe("toasts and action status", () => {
     act(() => result.current.closeContextMenu());
     expect(result.current.contextMenu).toBeNull();
   });
+
+  /**
+   * O Botting pode ser aberto por um jogo (clique direito na lista) ou pela
+   * barra. Abrir pela barra tem que **limpar** o jogo da abertura anterior,
+   * senão o place escolhido num clique direito continuaria carimbando a tela.
+   */
+  it("carrega o jogo escolhido ao abrir o Botting, e o limpa quando não há jogo", async () => {
+    const { result } = await renderStore();
+
+    act(() => result.current.openBottingDialog("606849621"));
+    expect(result.current.bottingDialogOpen).toBe(true);
+    expect(result.current.bottingDialogPlaceId).toBe("606849621");
+
+    act(() => result.current.setBottingDialogOpen(false));
+    act(() => result.current.openBottingDialog());
+    expect(result.current.bottingDialogOpen).toBe(true);
+    expect(result.current.bottingDialogPlaceId).toBeNull();
+  });
+
+  it("place em branco na abertura conta como sem jogo", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.openBottingDialog("   "));
+    expect(result.current.bottingDialogPlaceId).toBeNull();
+  });
 });
 
 describe("backend events", () => {

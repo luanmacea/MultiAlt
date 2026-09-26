@@ -244,7 +244,9 @@ describe("BottomActionBar — actions", () => {
     const store = renderBar([A, B], { settings, bottingStatus: makeBottingStatus({ active: false }) });
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Open Botting Mode/ }));
-    expect(store.setBottingDialogOpen).toHaveBeenCalledWith(true);
+    // Sem argumento de propósito: abrir pela barra não escolhe jogo nenhum, e
+    // por isso limpa o jogo de uma abertura anterior vinda de um clique direito.
+    expect(store.openBottingDialog).toHaveBeenCalledWith();
   });
 
   it("adds only the accounts missing from an active botting loop", async () => {
@@ -382,6 +384,7 @@ describe("BottomActionBar — Botting Mode discovery", () => {
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Botting Mode/ }));
     expect(store.setSettingsOpen).toHaveBeenCalledWith(true);
+    expect(store.openBottingDialog).not.toHaveBeenCalled();
     expect(store.setBottingDialogOpen).not.toHaveBeenCalled();
   });
 });

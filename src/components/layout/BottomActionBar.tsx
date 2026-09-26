@@ -175,7 +175,7 @@ export function BottomActionBar() {
     setActionsOpen(false);
     if (!bottingActive) {
       store.addToast(t("Start Botting Mode first"));
-      store.setBottingDialogOpen(true);
+      store.openBottingDialog();
       return;
     }
     if (addableBottingIds.length === 0) {
@@ -401,7 +401,7 @@ export function BottomActionBar() {
             {showBottingButton ? (
               <>
                 <button
-                  onClick={() => { setActionsOpen(false); store.setBottingDialogOpen(true); }}
+                  onClick={() => { setActionsOpen(false); store.openBottingDialog(); }}
                   title={bottingSummary}
                   className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] flex items-center gap-2"
                 >

@@ -44,12 +44,17 @@ export interface FavoritesTabProps {
    * servidores (fora da Choose Game) não tem para onde levar.
    */
   onBrowseServers?: (placeId: number) => void;
+  /** Abre o Botting Mode / os Scripts **com este jogo**, sem copiar Place ID. */
+  onBotting?: (placeId: number) => void;
+  onScripts?: (placeId: number) => void;
 }
 
 export function FavoritesTab({
   onSelectGame,
   addToast,
   onBrowseServers,
+  onBotting,
+  onScripts,
 }: FavoritesTabProps) {
   const t = useTr();
   const prompt = usePrompt();
@@ -355,6 +360,11 @@ export function FavoritesTab({
             navigator.clipboard.writeText(String(contextMenu.game.placeId));
             addToast(t("Copied Place ID"));
           }}
+          onBrowseServers={
+            onBrowseServers ? () => onBrowseServers(contextMenu.game.placeId) : undefined
+          }
+          onBotting={onBotting ? () => onBotting(contextMenu.game.placeId) : undefined}
+          onScripts={onScripts ? () => onScripts(contextMenu.game.placeId) : undefined}
         />
       )}
     </div>

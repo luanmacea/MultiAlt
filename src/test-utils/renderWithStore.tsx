@@ -295,6 +295,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     setThemeEditorOpen: vi.fn(),
     bottingDialogOpen: false,
     setBottingDialogOpen: vi.fn(),
+    bottingDialogPlaceId: null,
+    openBottingDialog: vi.fn(),
     bottingStatus: null,
     generatorDialogOpen: false,
     generatorDialogTab: "provider" as const,

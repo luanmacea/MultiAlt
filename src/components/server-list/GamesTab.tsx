@@ -75,6 +75,12 @@ export interface GamesTabProps {
    * servidores (fora da Choose Game) já tem a própria aba Servers.
    */
   onBrowseServers?: (placeId: number, name?: string) => void;
+  /**
+   * Abre o Botting Mode / os Scripts **com este jogo**. Opcional pelo mesmo
+   * motivo: são diálogos globais, e o Server List não é o lugar de abri-los.
+   */
+  onBotting?: (placeId: number) => void;
+  onScripts?: (placeId: number) => void;
 }
 
 export function GamesTab({
@@ -83,6 +89,8 @@ export function GamesTab({
   addToast,
   onAddFavorite,
   onBrowseServers,
+  onBotting,
+  onScripts,
 }: GamesTabProps) {
   const t = useTr();
   const [search, setSearch] = useState("");
@@ -297,6 +305,13 @@ export function GamesTab({
             navigator.clipboard.writeText(String(contextMenu.game.placeId));
             addToast(tr("Copied Place ID"));
           }}
+          onBrowseServers={
+            onBrowseServers
+              ? () => onBrowseServers(contextMenu.game.placeId, contextMenu.game.name)
+              : undefined
+          }
+          onBotting={onBotting ? () => onBotting(contextMenu.game.placeId) : undefined}
+          onScripts={onScripts ? () => onScripts(contextMenu.game.placeId) : undefined}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../store", async () => (await import("../test-utils/renderWithStore")).storeModuleMock());
@@ -716,6 +716,40 @@ describe("ChooseGameScreen — descoberta", () => {
 
     expect(store.setPlaceId).toHaveBeenCalledWith("920587237");
     expect(await screen.findByLabelText("Place ID")).toBeInTheDocument();
+    expect(store.joinServer).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Item do dono: "Right click no jogo > Botting Mode deve abrir a tela já
+   * configurada com aquele jogo, sem copiar e colar o Place ID". O place vai
+   * **explícito** na abertura porque o rascunho salvo vence a store.
+   */
+  it("abre o Botting Mode pelo menu do jogo favorito, já com o jogo", async () => {
+    seedFavorite();
+    const store = renderScreen();
+
+    fireEvent.contextMenu(await screen.findByText("Jailbreak"), { clientX: 5, clientY: 5 });
+    const menu = within(await screen.findByTestId("favorite-context-menu"));
+    await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+
+    expect(store.openBottingDialog).toHaveBeenCalledWith("606849621");
+    expect(store.setPlaceId).toHaveBeenCalledWith("606849621");
+    // Escolher o jogo para o Botting não lança nada.
+    expect(store.joinServer).not.toHaveBeenCalled();
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+  });
+
+  it("abre os Scripts pelo menu do jogo recente, já com o jogo", async () => {
+    seedRecent();
+    const store = renderScreen();
+
+    await userEvent.click(screen.getByRole("button", { name: "Recent" }));
+    fireEvent.contextMenu(await screen.findByText("Adopt Me"), { clientX: 5, clientY: 5 });
+    const menu = within(await screen.findByTestId("game-context-menu"));
+    await userEvent.click(menu.getByRole("button", { name: "Scripts" }));
+
+    expect(store.setScriptsOpen).toHaveBeenCalledWith(true);
+    expect(store.setPlaceId).toHaveBeenCalledWith("920587237");
     expect(store.joinServer).not.toHaveBeenCalled();
   });
 

@@ -343,7 +343,7 @@ export function MultiSelectSidebar() {
           </button>
           {showBottingButton && (
             <button
-              onClick={() => store.setBottingDialogOpen(true)}
+              onClick={() => store.openBottingDialog()}
               className="sidebar-btn theme-btn mt-1.5 bg-[var(--buttons-bg)]/80 border-[var(--buttons-bc)] animate-fade-in"
             >
               {t("Open Botting Mode")}

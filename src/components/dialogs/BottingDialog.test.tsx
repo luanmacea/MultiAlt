@@ -31,7 +31,11 @@ function settings(multiRbx: boolean, draft: Record<string, string> = {}) {
   return s;
 }
 
-function renderDialog(overrides: Partial<StoreValue> = {}, selected = [A, B]) {
+function renderDialog(
+  overrides: Partial<StoreValue> = {},
+  selected = [A, B],
+  initialPlaceId: string | null = null
+) {
   const store = setStore({
     accounts: [A, B],
     selectedIds: new Set(selected.map((a) => a.UserID)),
@@ -40,7 +44,7 @@ function renderDialog(overrides: Partial<StoreValue> = {}, selected = [A, B]) {
     ...overrides,
   });
   const onClose = vi.fn();
-  render(<BottingDialog open onClose={onClose} />);
+  render(<BottingDialog open onClose={onClose} initialPlaceId={initialPlaceId} />);
   return { store, onClose };
 }
 
@@ -386,4 +390,32 @@ describe("BottingDialog — draft persistence", () => {
       })
     );
   });
+
+  /**
+   * Clique direito num jogo → "Botting Mode" abre esta tela para **aquele**
+   * jogo. O rascunho salvo vence a store, então o place escolhido tem que vir
+   * explícito na abertura, senão o usuário escolhe um jogo e vê outro.
+   */
+  it("o jogo escolhido na abertura vence o rascunho salvo", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings"
+        ? { General: { BottingDraftPlaceId: "1234", BottingDraftJobId: "saved-job" } }
+        : undefined
+    );
+    renderDialog({}, [A, B], "606849621");
+
+    await waitFor(() => expect(placeIdField()).toHaveValue("606849621"));
+    // O resto do rascunho continua valendo: só o jogo foi escolhido de fora.
+    expect(screen.getByPlaceholderText("Job ID (optional)")).toHaveValue("saved-job");
+  });
+
+  it("sem jogo na abertura, o rascunho continua mandando", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlaceId: "1234" } } : undefined
+    );
+    renderDialog({}, [A, B], null);
+
+    await waitFor(() => expect(placeIdField()).toHaveValue("1234"));
+  });
 });
+

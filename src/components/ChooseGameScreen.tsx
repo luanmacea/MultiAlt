@@ -386,7 +386,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
           {[
             { label: t("Server List"), icon: "🖥", onClick: () => store.setServerListOpen(true) },
             { label: t("Utilities"), icon: "🔧", onClick: () => store.setAccountUtilsOpen(true) },
-            { label: t("Botting Mode"), icon: "🤖", onClick: () => store.setBottingDialogOpen(true) },
+            { label: t("Botting Mode"), icon: "🤖", onClick: () => store.openBottingDialog() },
             { label: t("Scripts"), icon: "📜", onClick: () => store.setScriptsOpen(true) },
           ].map(({ label, icon, onClick }) => (
             <button
@@ -738,6 +738,22 @@ export function ChooseGameScreen() {
   }
 
   /**
+   * Abre o Botting Mode **com o jogo escolhido**. O place vai explícito na
+   * abertura porque o rascunho salvo (`General.BottingDraftPlaceId`) vence a
+   * store: sem isso, escolher o jogo aqui e ver outro place no diálogo.
+   */
+  function handleBottingForGame(placeId: number) {
+    store.setPlaceId(String(placeId));
+    store.openBottingDialog(String(placeId));
+  }
+
+  /** Abre os Scripts com este jogo como place atual (é o que `ram.window` expõe). */
+  function handleScriptsForGame(placeId: number) {
+    store.setPlaceId(String(placeId));
+    store.setScriptsOpen(true);
+  }
+
+  /**
    * Tira uma conta do lote pelo "x" do chip. A última não sai: um lote vazio
    * deixaria a tela sem nada para lançar.
    */
@@ -929,6 +945,8 @@ export function ChooseGameScreen() {
               onSelectGame={handleFavoritesSelectGame}
               addToast={store.addToast}
               onBrowseServers={handleBrowseServers}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           </div>
         )}
@@ -940,6 +958,8 @@ export function ChooseGameScreen() {
               addToast={store.addToast}
               onAddFavorite={handleAddFavorite}
               onBrowseServers={(placeId) => handleBrowseServers(placeId)}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           </div>
         )}
@@ -951,6 +971,8 @@ export function ChooseGameScreen() {
               userId={userIds[0] ?? null}
               onBrowseServers={handleBrowseServers}
               onAddFavorite={handleAddFavorite}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           </div>
         )}

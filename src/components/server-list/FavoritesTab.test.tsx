@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
@@ -38,14 +38,18 @@ function renderFavorites() {
   const onSelectGame = vi.fn();
   const addToast = vi.fn();
   const onBrowseServers = vi.fn();
+  const onBotting = vi.fn();
+  const onScripts = vi.fn();
   render(
     <FavoritesTab
       onSelectGame={onSelectGame}
       addToast={addToast}
       onBrowseServers={onBrowseServers}
+      onBotting={onBotting}
+      onScripts={onScripts}
     />
   );
-  return { onSelectGame, addToast, onBrowseServers };
+  return { onSelectGame, addToast, onBrowseServers, onBotting, onScripts };
 }
 
 beforeEach(() => {
@@ -312,11 +316,50 @@ describe("FavoritesTab", () => {
   });
 });
 
+/**
+ * Usar o Botting no jogo favorito exigia copiar o Place ID e abrir a tela do
+ * Botting à mão. O menu do favorito passa a oferecer as ações do jogo.
+ */
+describe("FavoritesTab — ações do jogo no menu", () => {
+  async function abrirMenu() {
+    saveFavorites([favorite()]);
+    const props = renderFavorites();
+    fireEvent.contextMenu(screen.getByText("Jailbreak"), { clientX: 5, clientY: 5 });
+    const menu = within(await screen.findByTestId("favorite-context-menu"));
+    return { ...props, menu };
+  }
+
+  it("abre o Botting Mode com o jogo favorito", async () => {
+    const { menu, onBotting, onSelectGame } = await abrirMenu();
+
+    await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+
+    expect(onBotting).toHaveBeenCalledWith(606849621);
+    // Abrir a tela do jogo não é entrar no jogo (nem no VIP dele).
+    expect(onSelectGame).not.toHaveBeenCalled();
+  });
+
+  it("abre os Scripts e os servidores com o jogo favorito", async () => {
+    const { menu, onScripts, onBrowseServers, onSelectGame } = await abrirMenu();
+
+    await userEvent.click(menu.getByRole("button", { name: "Scripts" }));
+    expect(onScripts).toHaveBeenCalledWith(606849621);
+
+    fireEvent.contextMenu(screen.getByText("Jailbreak"), { clientX: 5, clientY: 5 });
+    const outra = within(await screen.findByTestId("favorite-context-menu"));
+    await userEvent.click(outra.getByRole("button", { name: "Browse servers" }));
+    expect(onBrowseServers).toHaveBeenCalledWith(606849621);
+    expect(onSelectGame).not.toHaveBeenCalled();
+  });
+});
+
 describe("RecentTab", () => {
   function renderRecent(userId: number | null = 1001) {
     const onSelectGame = vi.fn();
     const onBrowseServers = vi.fn();
     const onAddFavorite = vi.fn();
+    const onBotting = vi.fn();
+    const onScripts = vi.fn();
     render(
       <RecentTab
         onSelectGame={onSelectGame}
@@ -324,9 +367,11 @@ describe("RecentTab", () => {
         userId={userId}
         onBrowseServers={onBrowseServers}
         onAddFavorite={onAddFavorite}
+        onBotting={onBotting}
+        onScripts={onScripts}
       />
     );
-    return { onSelectGame, onBrowseServers, onAddFavorite };
+    return { onSelectGame, onBrowseServers, onAddFavorite, onBotting, onScripts };
   }
 
   it("shows the empty state when nothing has been played", () => {
@@ -433,5 +478,52 @@ describe("RecentTab", () => {
     });
     renderRecent();
     expect(await screen.findByText("Resolved Game")).toBeInTheDocument();
+  });
+
+  /** Era a única lista de jogos sem clique direito. */
+  describe("menu de contexto do jogo recente", () => {
+    async function abrirMenu() {
+      saveRecentGames([recent()]);
+      const props = renderRecent();
+      fireEvent.contextMenu(screen.getByText("Adopt Me"), { clientX: 5, clientY: 5 });
+      const menu = within(await screen.findByTestId("game-context-menu"));
+      return { ...props, menu };
+    }
+
+    it("abre o Botting Mode com o jogo recente", async () => {
+      const { menu, onBotting, onSelectGame } = await abrirMenu();
+
+      await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+
+      expect(onBotting).toHaveBeenCalledWith(920587237);
+      expect(onSelectGame).not.toHaveBeenCalled();
+    });
+
+    it("abre os Scripts com o jogo recente", async () => {
+      const { menu, onScripts } = await abrirMenu();
+
+      await userEvent.click(menu.getByRole("button", { name: "Scripts" }));
+
+      expect(onScripts).toHaveBeenCalledWith(920587237);
+    });
+
+    it("favorita pelo menu", async () => {
+      const { menu, onAddFavorite } = await abrirMenu();
+
+      await userEvent.click(menu.getByRole("button", { name: "Favorite" }));
+
+      expect(onAddFavorite).toHaveBeenCalledWith(
+        expect.objectContaining({ placeId: 920587237, name: "Adopt Me" })
+      );
+    });
+
+    it("entra pelo menu com o nome e o ícone que já estavam em cache", async () => {
+      const { menu, onSelectGame } = await abrirMenu();
+
+      await userEvent.click(menu.getByRole("button", { name: "Join Game" }));
+
+      // Mesmo caminho do clique na linha: nome e ícone vão com o place.
+      expect(onSelectGame).toHaveBeenCalledWith(920587237, "Adopt Me", expect.anything());
+    });
   });
 });
