@@ -1586,5 +1586,16 @@
   "Drag to reorder groups": "Arraste para reordenar os grupos",
   "Launch a game or start Botting Mode to see the activity here": "Inicie um jogo ou ligue o Botting Mode para ver a atividade aqui",
   "No activity yet": "Nenhuma atividade ainda",
-  "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line.": "Histórico ao vivo do que o app fez: launch, Botting Mode, Watcher e erros, com a origem de cada linha."
+  "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line.": "Histórico ao vivo do que o app fez: launch, Botting Mode, Watcher e erros, com a origem de cada linha.",
+  "{{done}} / {{total}} accounts processed": "{{done}} / {{total}} contas processadas",
+  "Checking who is already friends": "Vendo quem já é amigo",
+  "Linked": "Amizade feita",
+  "main": "principal",
+  "Make Friends": "Fazer amizades",
+  "Processing": "Processando",
+  "Sending friend requests": "Enviando pedidos de amizade",
+  "Verifying the friendships": "Conferindo as amizades",
+  "Waiting": "Aguardando",
+  "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.": "Acompanhe o que está rodando agora: contas entrando, Make Friends em andamento e clientes já em jogo.",
+  "Friends {{done}}/{{total}}": "Amigos {{done}}/{{total}}"
 }

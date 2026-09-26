@@ -1,7 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { ChevronDown, Users } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useJoinOnlineWarning } from "../../hooks/useJoinOnlineWarning";
@@ -33,19 +32,6 @@ export function MultiSelectSidebar() {
   const [friendMain, setFriendMain] = useState<number | null>(null);
   const [friendBusy, setFriendBusy] = useState(false);
   const [friendDelay, setFriendDelay] = useState("2.5");
-  const [friendProgress, setFriendProgress] = useState<{ phase: string; done: number; total: number } | null>(null);
-
-  useEffect(() => {
-    const unlisten = listen<{ phase: string; done: number; total: number }>(
-      "friend-link-progress",
-      (e) => {
-        setFriendProgress(e.payload.phase === "done" ? null : e.payload);
-      }
-    );
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
 
   const previewAccounts = accounts.slice(0, 5);
   const remaining = count - previewAccounts.length;
@@ -109,13 +95,17 @@ export function MultiSelectSidebar() {
   const effectiveMain = friendMain ?? accounts[0]?.UserID ?? null;
   const friendRequestCount =
     friendMode === "mesh" ? count * (count - 1) : Math.max(0, count - 1) * 2;
-  const friendBtnLabel = friendProgress
-    ? friendProgress.phase === "checking"
-      ? t("Checking {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
-      : friendProgress.phase === "verifying"
-      ? t("Verifying {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
-      : t("Linking {{d}}/{{t}}", { d: friendProgress.done, t: friendProgress.total })
-    : t("Linking friends...");
+  /**
+   * O progresso vem da store (evento `friend-link-state`), não de um listener
+   * próprio: esta barra e a `BottomActionBar` mantinham cada uma o seu, com o
+   * mesmo código, e quem remontasse no meio ficava sem progresso nenhum.
+   * O número agora é de **contas**, não de pares.
+   */
+  const friendLink = store.friendLinkState;
+  const friendBtnLabel =
+    friendLink && friendLink.active && friendLink.total > 0
+      ? t("Friends {{done}}/{{total}}", { done: friendLink.processed, total: friendLink.total })
+      : t("Linking friends...");
 
   async function handleMakeFriends() {
     if (count < 2) {
@@ -167,7 +157,6 @@ export function MultiSelectSidebar() {
       store.addToast(tr("Friend linking failed: {{error}}", { error: String(e) }));
     } finally {
       setFriendBusy(false);
-      setFriendProgress(null);
     }
   }
 

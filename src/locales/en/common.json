@@ -1586,5 +1586,16 @@
   "Drag to reorder groups": "Drag to reorder groups",
   "Launch a game or start Botting Mode to see the activity here": "Launch a game or start Botting Mode to see the activity here",
   "No activity yet": "No activity yet",
-  "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line.": "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line."
+  "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line.": "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line.",
+  "{{done}} / {{total}} accounts processed": "{{done}} / {{total}} accounts processed",
+  "Checking who is already friends": "Checking who is already friends",
+  "Linked": "Linked",
+  "main": "main",
+  "Make Friends": "Make Friends",
+  "Processing": "Processing",
+  "Sending friend requests": "Sending friend requests",
+  "Verifying the friendships": "Verifying the friendships",
+  "Waiting": "Waiting",
+  "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.": "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.",
+  "Friends {{done}}/{{total}}": "Friends {{done}}/{{total}}"
 }

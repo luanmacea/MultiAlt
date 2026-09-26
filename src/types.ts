@@ -366,6 +366,37 @@ export interface LaunchQueuePayload {
   jobId: string;
 }
 
+/**
+ * Vinculação de amizades em andamento (Make Friends), no Painel de Sessão.
+ *
+ * Mesmo desenho da fila de launch: o backend guarda o estado e emite
+ * `friend-link-state` com o retrato **completo** a cada mudança; a tela só
+ * substitui. Antes o progresso era `{phase, done, total}` guardado em `useState`
+ * de dois componentes — a tela que remontava no meio perdia tudo, e na fase de
+ * envio o `done` contava **pares**, não contas.
+ */
+export type FriendLinkAccountState = "pending" | "processing" | "done" | "failed";
+
+export interface FriendLinkAccountEntry {
+  userId: number;
+  state: FriendLinkAccountState;
+  /** Mensagem quando `state === "failed"`. */
+  error: string | null;
+}
+
+export interface FriendLinkState {
+  /** `true` enquanto a operação roda. */
+  active: boolean;
+  phase: "idle" | "checking" | "linking" | "verifying" | "done";
+  /** Contas que já terminaram (concluídas ou com erro). */
+  processed: number;
+  total: number;
+  accounts: FriendLinkAccountEntry[];
+  mode: string;
+  /** Conta principal no modo `star`. */
+  mainUserId: number | null;
+}
+
 // ── Escolha de servidor ──────────────────────────────────────────────────────
 
 /**

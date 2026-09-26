@@ -266,6 +266,7 @@ pub fn run() {
             lookup_user,
             send_friend_request,
             make_selected_friends,
+            get_friend_link_state,
             resolve_join_link,
             block_user,
             unblock_user,
