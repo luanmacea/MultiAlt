@@ -63,6 +63,15 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
   const t = useTr();
   const store = useStore();
   const [count, setCount] = useState(5);
+  /**
+   * Padrão do nome das contas criadas: "arvore" gera "arvore_k3p9z".
+   *
+   * Guardado em `Generator.SignupUsernamePrefix` para valer no próximo lote sem
+   * ser digitado de novo. Só letras e dígitos: o underscore que separa o
+   * prefixo do sorteio já gasta o **único** que o Roblox aceita num nome, e o
+   * teto de 14 vem de 20 (limite do Roblox) − 1 underscore − 5 sorteados.
+   */
+  const [usernamePrefix, setUsernamePrefix] = useState("");
   const [status, setStatus] = useState<SignupStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
@@ -72,6 +81,15 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
     return () => {
       mounted.current = false;
     };
+  }, []);
+
+  // O prefixo salvo aparece preenchido ao abrir.
+  useEffect(() => {
+    invoke<Record<string, Record<string, string>>>("get_all_settings")
+      .then((all) => {
+        if (mounted.current) setUsernamePrefix(all?.Generator?.SignupUsernamePrefix ?? "");
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -98,9 +116,24 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
   const running = status?.active === true;
   const identity = status?.identity ?? null;
 
+  /** Grava o prefixo; o backend lê essa chave ao montar cada nome. */
+  async function persistPrefix(value: string) {
+    try {
+      await invoke("update_setting", {
+        section: "Generator",
+        key: "SignupUsernamePrefix",
+        value,
+      });
+    } catch (e) {
+      store.addToast(String(e));
+    }
+  }
+
   async function handleStart() {
     setBusy(true);
     try {
+      // Grava antes de começar: o nome do primeiro lote já sai no padrão.
+      await persistPrefix(usernamePrefix);
       const started = await invoke<SignupStatus>("start_signup_session", { count });
       setStatus(started);
     } catch (e) {
@@ -160,6 +193,22 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
               max={MAX_ACCOUNTS}
               disabled={running}
               onChange={setCount}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] theme-muted">{t("Name prefix (optional)")}</span>
+            <input
+              type="text"
+              value={usernamePrefix}
+              // Filtra na digitação: o que o Roblox recusa nem chega ao campo.
+              onChange={(e) => setUsernamePrefix(e.target.value.replace(/[^A-Za-z0-9]/g, ""))}
+              onBlur={() => void persistPrefix(usernamePrefix)}
+              disabled={running}
+              maxLength={14}
+              aria-label={t("Name prefix (optional)")}
+              title={t("Only letters and digits. Each account becomes prefix_ plus 5 random characters.")}
+              className="w-[132px] px-2.5 py-1 rounded-md text-[12px] bg-[var(--forms-bg)] border theme-border text-[var(--panel-fg)] placeholder-[var(--panel-muted)] focus:outline-none disabled:opacity-50"
             />
           </label>
 

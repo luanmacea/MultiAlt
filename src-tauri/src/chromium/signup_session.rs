@@ -150,7 +150,11 @@ const USERNAME_ATTEMPTS: usize = 6;
 ///
 /// Falha de rede não trava a sessão: segue com o nome sorteado e o formulário
 /// valida como sempre validou.
-async fn pick_free_username(identity: &mut SignupIdentity, seed: u64) {
+///
+/// O `prefix` viaja junto porque o re-sorteio tem que manter o padrão que o
+/// usuário escolheu: sem ele, a segunda tentativa entregaria um nome de
+/// palavras no meio de um lote "arvore_*".
+async fn pick_free_username(identity: &mut SignupIdentity, seed: u64, prefix: &str) {
     let birthday = crate::api::roblox::signup_birthday_iso(
         &identity.day,
         &identity.month,
@@ -168,7 +172,7 @@ async fn pick_free_username(identity: &mut SignupIdentity, seed: u64) {
             return;
         }
         let mut rng = SeededRng::new(seed ^ ((attempt as u64 + 1).wrapping_mul(0x9E37_79B9)));
-        identity.username = super::signup::generate_username(&mut rng);
+        identity.username = super::signup::generate_username(&mut rng, prefix);
     }
 }
 
@@ -284,6 +288,10 @@ pub async fn start_signup_session(
     chromium.close_login_session();
 
     let stealth = settings.get_bool("Login", "StealthMode");
+    // Padrão de nome escolhido pelo usuário: "arvore" gera "arvore_k3p9z".
+    // Vazio mantém o nome de palavras de sempre.
+    let username_prefix =
+        super::signup::sanitize_username_prefix(&settings.get_string("Generator", "SignupUsernamePrefix"));
     let profile = ChromiumManager::login_profile(&app)?;
     super::commands::wipe_profile_dir(&profile)?;
 
@@ -347,8 +355,8 @@ pub async fn start_signup_session(
             }
 
             let seed = identity_seed(index);
-            let mut identity = generate_identity(seed, current_year());
-            pick_free_username(&mut identity, seed).await;
+            let mut identity = generate_identity(seed, current_year(), &username_prefix);
+            pick_free_username(&mut identity, seed, &username_prefix).await;
             let missing = fill_signup_form(&mut cdp, &identity).await;
 
             update(&app_task, |s| {

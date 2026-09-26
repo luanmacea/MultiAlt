@@ -93,12 +93,57 @@ impl SeededRng {
     }
 }
 
+/// Caracteres do sufixo aleatório quando o usuário escolhe um prefixo.
+///
+/// Minúsculas e dígitos: 36^5 = 60 milhões de combinações, e o nome não fica
+/// com uma maiúscula no meio quando o prefixo é minúsculo.
+const SUFFIX_ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+
+/// Quantos caracteres aleatórios entram depois do underscore.
+const PREFIX_SUFFIX_LEN: usize = 5;
+
+/// Sobra para o prefixo: 20 (teto do Roblox) − 1 underscore − 5 do sufixo.
+pub const MAX_USERNAME_PREFIX: usize = 20 - 1 - PREFIX_SUFFIX_LEN;
+
+/// Limpa o prefixo digitado pelo usuário.
+///
+/// Só letras e dígitos ASCII sobrevivem: o underscore que separa o prefixo do
+/// sufixo já gasta o **único** que o Roblox permite, então um underscore
+/// digitado aqui faria o nome inteiro ser recusado. Acentos e espaços somem
+/// pelo mesmo motivo. O corte em [`MAX_USERNAME_PREFIX`] garante que o nome
+/// final caiba nos 20 caracteres.
+pub fn sanitize_username_prefix(raw: &str) -> String {
+    raw.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(MAX_USERNAME_PREFIX)
+        .collect()
+}
+
 /// Nome de usuário válido para o Roblox: 3–20 caracteres, letras e dígitos com
 /// no máximo **um** underscore, que não pode ficar na ponta.
 ///
-/// O formato é `Cabeça_Cauda##`; se passar de 20 caracteres, o sufixo numérico
-/// é cortado antes das palavras, para o nome continuar legível.
-pub fn generate_username(rng: &mut SeededRng) -> String {
+/// Com `prefix` vazio o formato é `Cabeça_Cauda##`; se passar de 20 caracteres,
+/// o sufixo numérico é cortado antes das palavras, para o nome continuar
+/// legível.
+///
+/// Com prefixo, o formato é `prefixo_xxxxx` — cinco caracteres sorteados. Serve
+/// para padronizar os nomes de um lote ("arvore_k3p9z", "arvore_71waq"). O
+/// prefixo é passado **por parâmetro obrigatório** de propósito: quem sorteia
+/// um nome novo (o re-sorteio quando o Roblox diz que o nome está em uso, por
+/// exemplo) é obrigado pelo compilador a dizer qual prefixo usar, e não dá para
+/// esquecer dele no meio do caminho.
+pub fn generate_username(rng: &mut SeededRng, prefix: &str) -> String {
+    let prefix = sanitize_username_prefix(prefix);
+    if !prefix.is_empty() {
+        let mut name = String::with_capacity(prefix.len() + 1 + PREFIX_SUFFIX_LEN);
+        name.push_str(&prefix);
+        name.push('_');
+        for _ in 0..PREFIX_SUFFIX_LEN {
+            name.push(SUFFIX_ALPHABET[rng.below(SUFFIX_ALPHABET.len())] as char);
+        }
+        return name;
+    }
+
     let head = NAME_HEADS[rng.below(NAME_HEADS.len())];
     let tail = NAME_TAILS[rng.below(NAME_TAILS.len())];
     // 4 dígitos: com 24x24 combinações de palavras, 3 dígitos colidiam com
@@ -145,9 +190,9 @@ pub fn generate_birthday(rng: &mut SeededRng, current_year: i32) -> (String, Str
 }
 
 /// Uma identidade completa a partir de uma semente.
-pub fn generate_identity(seed: u64, current_year: i32) -> SignupIdentity {
+pub fn generate_identity(seed: u64, current_year: i32, username_prefix: &str) -> SignupIdentity {
     let mut rng = SeededRng::new(seed);
-    let username = generate_username(&mut rng);
+    let username = generate_username(&mut rng, username_prefix);
     let password = generate_password(&mut rng);
     let (day, month, year) = generate_birthday(&mut rng, current_year);
     SignupIdentity {
@@ -276,8 +321,66 @@ mod signup_identity_tests {
     #[test]
     fn generated_usernames_always_follow_the_roblox_rules() {
         for seed in 0..500u64 {
-            assert_valid_username(&generate_username(&mut SeededRng::new(seed)));
+            assert_valid_username(&generate_username(&mut SeededRng::new(seed), ""));
         }
+    }
+
+    /// O dono quer padronizar os nomes: digita "arvore" e as contas saem
+    /// "arvore_" + 5 caracteres aleatorios. As regras do Roblox continuam
+    /// valendo — e e o `assert_valid_username` acima quem cobra isso.
+    #[test]
+    fn a_prefix_becomes_the_start_of_the_name_with_five_random_characters() {
+        for seed in 0..500u64 {
+            let name = generate_username(&mut SeededRng::new(seed), "arvore");
+            assert!(name.starts_with("arvore_"), "prefixo perdido: {}", name);
+            assert_eq!(name.len(), "arvore_".len() + 5, "sufixo fora de 5: {}", name);
+            assert_valid_username(&name);
+        }
+    }
+
+    #[test]
+    fn the_five_characters_really_vary() {
+        let nomes: std::collections::HashSet<String> = (0..200u64)
+            .map(|seed| generate_username(&mut SeededRng::new(seed), "arvore"))
+            .collect();
+        assert!(nomes.len() > 150, "sorteio repetitivo demais: {}", nomes.len());
+    }
+
+    /// Prefixo digitado com o que o Roblox nao aceita. O underscore do
+    /// separador ja gasta o unico permitido, entao ele sai do prefixo.
+    #[test]
+    fn the_prefix_is_cleaned_before_it_reaches_the_name() {
+        assert_eq!(sanitize_username_prefix("arvore"), "arvore");
+        assert_eq!(sanitize_username_prefix(" Arvore 2 "), "Arvore2");
+        assert_eq!(sanitize_username_prefix("min_ha"), "minha");
+        assert_eq!(sanitize_username_prefix("maçã-01"), "ma01");
+        // 14 e o que sobra de 20 depois do underscore e dos 5 do sufixo.
+        assert_eq!(sanitize_username_prefix(&"a".repeat(30)).len(), 14);
+    }
+
+    #[test]
+    fn a_prefix_that_survives_nothing_falls_back_to_the_old_name() {
+        for prefixo in ["", "   ", "___", "??"] {
+            let name = generate_username(&mut SeededRng::new(7), prefixo);
+            // Nunca "_abcde": sem prefixo, volta o nome de palavras de sempre.
+            assert!(!name.starts_with('_'), "underscore na ponta: {}", name);
+            assert_eq!(name, generate_username(&mut SeededRng::new(7), ""));
+            assert_valid_username(&name);
+        }
+    }
+
+    /// O prefixo mais longo possivel nao pode estourar os 20 caracteres.
+    #[test]
+    fn the_longest_prefix_still_fits_the_roblox_limit() {
+        let name = generate_username(&mut SeededRng::new(3), &"a".repeat(40));
+        assert_eq!(name.len(), 20);
+        assert_valid_username(&name);
+    }
+
+    #[test]
+    fn the_identity_carries_the_prefix() {
+        let identity = generate_identity(42, 2026, "arvore");
+        assert!(identity.username.starts_with("arvore_"), "{}", identity.username);
     }
 
     #[test]
@@ -317,13 +420,13 @@ mod signup_identity_tests {
 
     #[test]
     fn the_same_seed_always_produces_the_same_identity() {
-        assert_eq!(generate_identity(4242, 2026), generate_identity(4242, 2026));
+        assert_eq!(generate_identity(4242, 2026, ""), generate_identity(4242, 2026, ""));
     }
 
     #[test]
     fn different_seeds_produce_different_accounts() {
         let names: std::collections::HashSet<String> = (0..200u64)
-            .map(|seed| generate_identity(seed, 2026).username)
+            .map(|seed| generate_identity(seed, 2026, "").username)
             .collect();
         // Colisão ocasional é aceitável (o Roblox recusa e o usuário tenta de
         // novo); um gerador que repete quase tudo não é.
@@ -341,7 +444,7 @@ mod signup_identity_tests {
 
     #[test]
     fn the_identity_exposes_a_readable_birthday() {
-        let identity = generate_identity(7, 2026);
+        let identity = generate_identity(7, 2026, "");
         assert_eq!(
             identity.birthday(),
             format!("{}/{}/{}", identity.day, identity.month, identity.year)

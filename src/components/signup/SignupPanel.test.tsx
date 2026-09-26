@@ -83,6 +83,52 @@ describe("SignupPanel — sessão", () => {
     expect(callsFor("start_signup_session")[0][1]).toMatchObject({ count: 5 });
   });
 
+  /**
+   * O dono quer padronizar o nome das contas de um lote: digita "arvore" e
+   * elas saem "arvore_k3p9z". O prefixo fica guardado porque é padrão dele, não
+   * escolha de uma vez só.
+   */
+  it("grava o prefixo do nome ao sair do campo", async () => {
+    const user = userEvent.setup();
+    setInvokeMap({ get_signup_status: status(), get_all_settings: {}, update_setting: null });
+    renderWithStore(<SignupPanel />);
+
+    const campo = await screen.findByLabelText("Name prefix (optional)");
+    await user.type(campo, "arvore");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(callsFor("update_setting")).toContainEqual([
+        "update_setting",
+        { section: "Generator", key: "SignupUsernamePrefix", value: "arvore" },
+      ])
+    );
+  });
+
+  it("abre com o prefixo que já estava salvo", async () => {
+    setInvokeMap({
+      get_signup_status: status(),
+      get_all_settings: { Generator: { SignupUsernamePrefix: "arvore" } },
+    });
+    renderWithStore(<SignupPanel />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Name prefix (optional)")).toHaveValue("arvore")
+    );
+  });
+
+  it("recusa na digitação o que o Roblox não aceita no nome", async () => {
+    const user = userEvent.setup();
+    setInvokeMap({ get_signup_status: status(), get_all_settings: {}, update_setting: null });
+    renderWithStore(<SignupPanel />);
+
+    const campo = await screen.findByLabelText("Name prefix (optional)");
+    // O underscore do separador já gasta o único que o Roblox permite.
+    await user.type(campo, "min_ha 2!");
+
+    expect(campo).toHaveValue("minha2");
+  });
+
   it("lê o estado inicial, porque a sessão pode já estar rodando", async () => {
     setInvokeMap({
       get_signup_status: status({ active: true, total: 3, created: 1, phase: "waiting-user" }),
