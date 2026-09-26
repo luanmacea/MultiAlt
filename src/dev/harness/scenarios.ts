@@ -21,6 +21,7 @@ import {
   setInvokeHandler,
   type InvokeHandler,
 } from "./bus";
+import { GAME_FIXTURES, iconForGame } from "./games";
 import { seedTourStorage, tourHandler } from "./tour";
 
 const params = new URLSearchParams(window.location.search);
@@ -62,7 +63,7 @@ const settings: Record<string, Record<string, string>> = {
 };
 
 /** Base comum: o app sobe destrancado, com contas e settings. */
-const baseHandler: InvokeHandler = (cmd) => {
+const baseHandler: InvokeHandler = (cmd, args) => {
   switch (cmd) {
     case "needs_password":
       return false;
@@ -82,8 +83,38 @@ const baseHandler: InvokeHandler = (cmd) => {
       return [];
     case "batched_get_avatar_headshots":
       return [];
-    case "update_setting":
+    case "update_setting": {
+      // Guarda de verdade (em memória): sem isso, qualquer tela que releia as
+      // settings depois de gravar volta a ver o valor antigo e parece bug.
+      const { section, key, value } = (args ?? {}) as {
+        section?: string;
+        key?: string;
+        value?: string;
+      };
+      if (section && key) {
+        settings[section] = { ...(settings[section] ?? {}), [key]: String(value ?? "") };
+      }
       return null;
+    }
+    case "get_place_details": {
+      const ids = ((args?.placeIds as number[] | undefined) ?? []).map(Number);
+      return ids
+        .filter((id) => GAME_FIXTURES[id])
+        .map((id) => ({
+          placeId: id,
+          universeId: GAME_FIXTURES[id].universeId,
+          name: GAME_FIXTURES[id].name,
+          description: "Fixture do harness.",
+          sourceName: GAME_FIXTURES[id].name,
+          sourceDescription: "",
+          url: `https://www.roblox.com/games/${id}`,
+        }));
+    }
+    case "batched_get_game_icon": {
+      const id = Number(args?.placeId ?? 0);
+      const game = GAME_FIXTURES[id];
+      return game ? iconForGame(id, game.name) : null;
+    }
     // Sem atualização: o diálogo de update não pode tapar a tela em teste.
     case "check_for_updates_with_channels":
       return null;

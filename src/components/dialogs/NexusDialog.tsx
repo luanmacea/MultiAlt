@@ -7,6 +7,8 @@ import { useModalClose } from "../../hooks/useModalClose";
 import { SlidingTabBar } from "../ui/SlidingTabBar";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
+import { GameBadge } from "../ui/GameBadge";
+import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { tr, useTr } from "../../i18n/text";
 import { X, ChevronRight } from "lucide-react";
 
@@ -540,6 +542,8 @@ function ControlPanel({
   onClearLog: () => void;
 }) {
   const t = useTr();
+  /** Que jogo é o place digitado para a conta escolhida. */
+  const game = useGameIdentity(placeInput, null);
   return (
     <div className="flex h-full">
       <div className="w-[240px] border-r border-zinc-800/60 flex flex-col shrink-0">
@@ -633,7 +637,15 @@ function ControlPanel({
         {selectedAcc && (
           <div className="flex items-center gap-2">
             <div className="flex-1">
-              <label className="text-[10px] text-zinc-600 mb-0.5 block">{t("Place ID")}</label>
+              <label className="text-[10px] text-zinc-600 mb-0.5 flex items-center gap-1.5">
+                {t("Place ID")}
+                <GameBadge
+                  name={game?.name ?? null}
+                  iconUrl={game?.iconUrl ?? null}
+                  placeId={game?.placeId}
+                  iconSize={12}
+                />
+              </label>
               <input
                 value={placeInput}
                 onChange={(e) => setPlaceInput(e.target.value)}

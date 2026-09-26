@@ -59,6 +59,16 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 3. Em seguida resolve nome (`get_place_details`) e ícone (`batched_get_game_icon`) e atualiza a entrada. `RecentGamesList` também completa entradas antigas sem nome/ícone ao exibir.
 4. Persistência em `localStorage["ram_recent_games"]`.
 
+### Identificação do jogo pelo Place ID
+
+Padrão do app: **toda tela que trabalha com um Place ID mostra qual jogo é aquele**, sempre que der para descobrir. Um número de 10 dígitos não informa nada, e telas de lote (aba Servers, barra de launch, Botting) agem sobre várias contas de uma vez — entrar no jogo errado por um número copiado torto é caro.
+
+1. O caminho único é o hook [useGameIdentity.ts](../../src/hooks/useGameIdentity.ts): recebe o texto do campo (número **ou** link do jogo colado) e devolve `{ placeId, name, iconUrl, loading }`.
+2. Ele resolve nome (`get_place_details`) e ícone (`batched_get_game_icon`) em paralelo, com **cache de módulo por place** lido de forma síncrona — a segunda tela que abre o mesmo jogo já nasce com o nome, sem piscar — e **dedupe** das chamadas em voo.
+3. Espera 400 ms de digitação parada antes de perguntar (`6`, `60`, `606`… não são places), descarta resposta que chega depois de o usuário trocar de place, e marca como "não sei" o place que falhou (nova tentativa só depois de 30 s, para queda de rede não virar laço de requisições).
+4. Quem desenha é [GameBadge.tsx](../../src/components/ui/GameBadge.tsx), puramente visual: **sem nome e sem ícone não desenha nada** — "Place 606849621" não informa mais que o número já visível no campo ao lado.
+5. Telas ligadas hoje: aba Servers da Choose Game, barra de launch em multi-seleção ([MultiSelectSidebar.tsx](../../src/components/accounts/MultiSelectSidebar.tsx)), Botting Mode (os dois layouts) e Nexus. Games/Favoritos/Recentes já mostravam nome e ícone pelo caminho próprio das listas.
+
 ### Resolução do alvo VIP/privado no launch (backend)
 
 `resolve_launch_job(job_id, join_vip, link_code)` ([launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)):
@@ -86,6 +96,7 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 - Favoritos: um favorito por `placeId` ("Already in favorites"); nome customizado é obrigatório.
 - Migração: favorito antigo com `privateServer` (string única) é convertido em `vipServers: [{ name: "VIP", link }]` ao carregar; ao adicionar VIP o campo antigo é removido.
 - Recentes: no máximo `General.MaxRecentGames` (default 8), mais recente primeiro, sem duplicatas.
+- Tela nova que aceite Place ID usa `useGameIdentity` + `GameBadge` em vez de resolver nome/ícone por conta: era assim antes (cada tela com seu jeito, sem cache) e a maioria simplesmente não mostrava jogo nenhum.
 - Na Choose Game, o alvo (`placeId`/`jobId`) é passado **explicitamente** para `joinServer`/`launchMultiple` — o comentário no código explica que ler da store causava entrar no VIP do jogo anterior.
 
 ## Configurações relacionadas

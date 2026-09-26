@@ -11,6 +11,7 @@
  * Roblox devolveria.
  */
 import type { InvokeHandler } from "./bus";
+import { iconForGame } from "./games";
 
 /** Jogos populares como a busca devolve (nomes e places reais, contagem inventada). */
 const GAMES = [
@@ -83,8 +84,12 @@ export function tourHandler(base: InvokeHandler, userIds: number[]): InvokeHandl
           ],
         };
       }
-      case "batched_get_game_icon":
-        return null;
+      case "batched_get_game_icon": {
+        const placeId = Number(args.placeId ?? 0);
+        const game = GAMES.find((g) => g.rootPlaceId === placeId);
+        // Antes isto devolvia sempre `null` e nenhuma tela era vista com ícone.
+        return game ? iconForGame(placeId, game.name) : null;
+      }
       case "get_place_details": {
         const ids = (args.placeIds as number[]) || [];
         return ids.map((placeId) => {

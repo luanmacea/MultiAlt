@@ -4,6 +4,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Copy, Globe, Loader2, RefreshCw, Search, Server, Wifi } from "lucide-react";
 import { MAX_SERVER_SCAN_PAGES, useStore } from "../../store";
+import { useGameIdentity } from "../../hooks/useGameIdentity";
+import { GameBadge } from "../ui/GameBadge";
 import { useTr } from "../../i18n/text";
 import type {
   ServerPreference,
@@ -320,6 +322,8 @@ export function ServersTab({
   const [joining, setJoining] = useState<string | null>(null);
 
   const accountForApi = userIds[0] ?? null;
+  /** Que jogo é o place digitado — um número de 10 dígitos não diz nada. */
+  const game = useGameIdentity(placeId, accountForApi);
   const preference = store.serverPreference;
   const regionFilter = store.serverRegionFilter;
   const scanPages = store.serverScanPages;
@@ -626,6 +630,18 @@ export function ServersTab({
           {t("Refresh")}
         </button>
       </div>
+
+      {/* ── Que jogo é este place ── */}
+      {game && (game.name || game.iconUrl) && (
+        <div className="shrink-0 flex items-center gap-2 -mt-1">
+          <GameBadge
+            name={game.name}
+            iconUrl={game.iconUrl}
+            placeId={game.placeId}
+            className="max-w-[320px]"
+          />
+        </div>
+      )}
 
       {/* ── Resumo do que está na tela ── */}
       {scan && (

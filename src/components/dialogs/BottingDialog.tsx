@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
+import { useGameIdentity } from "../../hooks/useGameIdentity";
+import { GameBadge } from "../ui/GameBadge";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useConfirm } from "../../hooks/usePrompt";
 import { isMultiRobloxCloseProcessError } from "../../utils/robloxErrors";
@@ -136,6 +138,8 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
   );
   const status = store.bottingStatus;
   const [placeId, setPlaceId] = useState("");
+  /** Que jogo é o place do ciclo — o número sozinho não diz nada. */
+  const game = useGameIdentity(placeId, selectedAccounts[0]?.UserID ?? null);
   const [jobId, setJobId] = useState("");
   const [launchData, setLaunchData] = useState("");
   const [shareLaunchFields, setShareLaunchFields] = useState(false);
@@ -863,7 +867,16 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
                   </section>
 
                   <section className="theme-surface rounded-xl border theme-border p-3">
-                    <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2">{t("Server")}</div>
+                    <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2 flex items-center gap-2">
+                      {t("Server")}
+                      {/* Qual jogo o ciclo vai rejogar, sem precisar sair da tela. */}
+                      <GameBadge
+                        name={game?.name ?? null}
+                        iconUrl={game?.iconUrl ?? null}
+                        placeId={game?.placeId}
+                        className="font-normal"
+                      />
+                    </div>
                     <div className="grid grid-cols-1 gap-2">
                       <input
                         value={placeId}
@@ -1611,7 +1624,16 @@ export function BottingDialog({ open, onClose }: BottingDialogProps) {
           </section>
 
           <section className="theme-surface rounded-xl border theme-border p-3 animate-fade-in">
-            <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2">{t("Server")}</div>
+            <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2 flex items-center gap-2">
+              {t("Server")}
+              {/* Qual jogo o ciclo vai rejogar, sem precisar sair da tela. */}
+              <GameBadge
+                name={game?.name ?? null}
+                iconUrl={game?.iconUrl ?? null}
+                placeId={game?.placeId}
+                className="font-normal"
+              />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <input
                 value={placeId}

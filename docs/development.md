@@ -118,6 +118,8 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 
 Um cenário entrega os mesmos dados que o backend entregaria, **inclusive na ordem ruim** — quem tem que se virar é a UI. Ele nunca implementa o comportamento que está sendo testado.
 
+Jogos do harness ficam em [games.ts](../src/dev/harness/games.ts): três places conhecidos (Jailbreak, Blox Fruits, Steal a Brainrot) com nome e um ícone SVG embutido. Place fora dessa lista devolve vazio **de propósito** — é assim que se vê na tela o estado "não sei que jogo é esse". Antes o `batched_get_game_icon` devolvia sempre `null` e nenhuma tela era vista com ícone carregado. O `update_setting` do harness guarda o valor em memória: sem isso, tela que relê settings depois de gravar volta a ver o valor antigo e parece bug (a persistência de verdade é do INI, coberta pelos testes Rust).
+
 ### Fluxo com agentes
 
 1. Um agente por área. Cada um abre o seu `?scenario=`, dirige a tela e **só relata**: o que fez, o que esperava, o que viu.

@@ -16,6 +16,7 @@ import {
   resetTauriMocks,
   setInvokeMap,
 } from "../../test-utils/tauriMocks";
+import { clearGameIdentityCache } from "../../hooks/useGameIdentity";
 import type { ServerRegion } from "../../types";
 import type { StoreValue } from "../../store";
 
@@ -108,6 +109,9 @@ function callsFor(cmd: string) {
 
 beforeEach(() => {
   resetTauriMocks();
+  // O cache de identidade do jogo é de módulo (vive a sessão inteira do app):
+  // sem zerar, um teste entrega o nome ao seguinte e esconde a regressão.
+  clearGameIdentityCache();
   launchAll.mockReset();
   launchAll.mockResolvedValue({ ok: true });
   setPlaceId.mockReset();
@@ -683,5 +687,47 @@ describe("ServersTab — região sem conta", () => {
     renderTab([]);
     await screen.findByText(/No public server was found/i);
     expect(screen.getByRole("button", { name: /Load regions/i })).toBeDisabled();
+  });
+});
+
+/**
+ * Um Place ID de 10 dígitos não diz a ninguém que jogo é aquele. A aba manda em
+ * todas as contas selecionadas de uma vez: entrar no jogo errado por causa de um
+ * número copiado torto é o erro caro que essa identificação evita.
+ */
+describe("ServersTab — qual jogo é este place", () => {
+  function knowsJailbreak() {
+    setInvokeMap({
+      start_server_scan: SCAN_ID,
+      stop_server_scan: null,
+      get_server_regions: [],
+      get_place_details: [{ placeId: 606849621, universeId: 245662005, name: "Jailbreak" }],
+      batched_get_game_icon: "https://tr.rbxcdn.com/jailbreak.png",
+    });
+  }
+
+  it("mostra nome e ícone do jogo ao lado do campo de Place ID", async () => {
+    renderTab([row({ id: "job-a" })]);
+    knowsJailbreak();
+
+    expect(await screen.findByText("Jailbreak", {}, { timeout: 3000 })).toBeInTheDocument();
+    const badge = screen.getByTestId("game-badge");
+    expect(badge.querySelector("img")).toHaveAttribute(
+      "src",
+      "https://tr.rbxcdn.com/jailbreak.png"
+    );
+    expect(callsFor("get_place_details")[0][1]).toEqual({
+      placeIds: [606849621],
+      userId: ACCOUNT_A.UserID,
+    });
+  });
+
+  it("não inventa nome quando o backend não sabe que jogo é", async () => {
+    renderTab([row({ id: "job-a" })]);
+    await screen.findByText("job-a");
+
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(screen.queryByTestId("game-badge")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Place 606849621/)).not.toBeInTheDocument();
   });
 });
