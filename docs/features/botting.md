@@ -28,6 +28,7 @@ Manter um grupo de contas ("bots") dentro de um place, **relançando cada bot pe
    - bot sem agendamento → agenda `agora + interval`.
 4. Relançar = `wait_for_launch_slot` → `kill_for_user_graceful_async(uid, 4500)` → 450 ms → `launch_account_for_cycle`.
 5. Cada ciclo emite `botting-account-cycle {userId, ok, error}` e `botting-status` (payload completo).
+6. **Console:** o mesmo helper (`emit_botting_cycle`) que emite o evento escreve a linha no console — as duas passagens (fila inicial e laço) passam por ele, senão uma ficaria sem histórico. Também viram linha: início e fim da sessão (`emit_session_log`, `userId` nulo), cada reinício com o **número de reinícios da conta nesta sessão**, o rate limit com o tempo de espera, e a falha em fechar o cliente anterior. Antes disso o Botting não deixava rastro nenhum no console.
 6. Ao parar: limpa a sessão (se ainda for a mesma), `notify_waiters`, emite `botting-stopped`.
 
 `launch_account_for_cycle` (por conta):

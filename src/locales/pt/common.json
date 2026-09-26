@@ -1583,5 +1583,8 @@
   "Nexus.lua saved in {{path}}": "Nexus.lua salvo em {{path}}",
   "Could not save Nexus.lua: {{error}}": "Não foi possível salvar o Nexus.lua: {{error}}",
   "Nexus.lua saved in the app folder": "Nexus.lua salvo na pasta do app",
-  "Drag to reorder groups": "Arraste para reordenar os grupos"
+  "Drag to reorder groups": "Arraste para reordenar os grupos",
+  "Launch a game or start Botting Mode to see the activity here": "Inicie um jogo ou ligue o Botting Mode para ver a atividade aqui",
+  "No activity yet": "Nenhuma atividade ainda",
+  "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line.": "Histórico ao vivo do que o app fez: launch, Botting Mode, Watcher e erros, com a origem de cada linha."
 }

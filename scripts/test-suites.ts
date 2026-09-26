@@ -82,7 +82,12 @@ export const SUITES: Record<string, TestSuite> = {
   },
   botting: {
     description: "Modo botting e watcher de processos",
-    rust: ["botting_command_tests", "watcher_tests"],
+    rust: [
+      "botting_command_tests",
+      "botting_console_tests",
+      "watcher_tests",
+      "watcher_console_tests",
+    ],
     front: ["src/components/dialogs/BottingDialog.test.tsx"],
   },
   isolation: {

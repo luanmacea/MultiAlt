@@ -421,6 +421,30 @@ const SCENARIOS: Record<string, () => void> = {
     setInvokeHandler(baseHandler);
   },
 
+  /**
+   * Console como histórico geral: linhas de launch, de Botting e do Watcher
+   * chegando aos poucos, como o backend manda. Serve para ver se dá para
+   * distinguir a origem de cada linha e se o log ainda é legível cheio.
+   */
+  "console-history"() {
+    setInvokeHandler(baseHandler);
+    const linhas: { userId: number | null; level: string; step: string; message: string }[] = [
+      { userId: null, level: "info", step: "botting", message: "Botting Mode iniciado — 4 conta(s), place 606849621, ciclo de 19 min, 20s entre launches" },
+      { userId: accounts[0].UserID, level: "info", step: "start", message: "Iniciando launch — place 606849621" },
+      { userId: accounts[0].UserID, level: "success", step: "pid", message: "Cliente detectado (pid 8124)" },
+      { userId: accounts[1].UserID, level: "success", step: "botting", message: "Entrou no jogo pelo ciclo do Botting" },
+      { userId: accounts[2].UserID, level: "warn", step: "botting-retry", message: "Rate limit do Roblox (tentativa 2) — nova tentativa em 45s: 429 Too Many Requests" },
+      { userId: accounts[1].UserID, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s" },
+      { userId: accounts[1].UserID, level: "info", step: "botting", message: "Reiniciando a conta (reinicio #1 nesta sessao)" },
+      { userId: accounts[3 % accountCount].UserID, level: "error", step: "botting-retry", message: "Falha no ciclo (tentativa 1) — nova tentativa em 8s: auth ticket vazio" },
+      { userId: accounts[0].UserID, level: "warn", step: "watcher", message: "Cliente do Roblox fechou (o processo morreu)" },
+      { userId: null, level: "info", step: "botting", message: "Botting Mode parado" },
+    ];
+    linhas.forEach((linha, index) => {
+      setTimeout(() => harnessEmit("launch-log", linha), 400 * (index + 1));
+    });
+  },
+
   /** Fila de launch e contas em jogo (Painel de Sessão). */
   "launch-queue"() {
     setInvokeHandler((cmd, args) => {

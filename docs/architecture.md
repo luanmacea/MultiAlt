@@ -144,7 +144,7 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 
 | Evento | Emitido em | Payload | Quem escuta |
 |---|---|---|---|
-| `launch-log` | [launch_shared.rs](../src-tauri/src/commands/launch_shared.rs) `emit_launch_log` | `{ userId, level, step, message }` | [store.tsx](../src/store.tsx) (console de launch, buffer de 500) |
+| `launch-log` | [launch_shared.rs](../src-tauri/src/commands/launch_shared.rs) `emit_launch_log` (uma conta) e `emit_session_log` (`userId` nulo) | `{ userId, level, step, message }` | [store.tsx](../src/store.tsx) (console, buffer de 500) — **histórico geral**: launch, Botting e Watcher. O `step` é a origem da linha e é desenhado no console |
 | `launch-progress` | [launch.rs](../src-tauri/src/commands/launch.rs) | `{ userId, index, total }` | [store.tsx](../src/store.tsx) |
 | `launch-complete` | [launch.rs](../src-tauri/src/commands/launch.rs) | `{}` | [store.tsx](../src/store.tsx) |
 | `isolation-report` | [launch.rs](../src-tauri/src/commands/launch.rs) | relatório de isolamento | nenhum listener no frontend atualmente |

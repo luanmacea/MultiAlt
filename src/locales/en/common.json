@@ -1583,5 +1583,8 @@
   "Nexus.lua saved in {{path}}": "Nexus.lua saved in {{path}}",
   "Could not save Nexus.lua: {{error}}": "Could not save Nexus.lua: {{error}}",
   "Nexus.lua saved in the app folder": "Nexus.lua saved in the app folder",
-  "Drag to reorder groups": "Drag to reorder groups"
+  "Drag to reorder groups": "Drag to reorder groups",
+  "Launch a game or start Botting Mode to see the activity here": "Launch a game or start Botting Mode to see the activity here",
+  "No activity yet": "No activity yet",
+  "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line.": "Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line."
 }

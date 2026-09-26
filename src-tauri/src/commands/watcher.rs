@@ -116,6 +116,8 @@ async fn start_watcher(
                             "userId": uid,
                         }),
                     );
+                    // O console e o historico geral: evento do Watcher tambem vira linha la.
+                    emit_launch_log(&app_handle, *uid, "warn", "watcher", String::from("Cliente do Roblox fechou (o processo morreu)"));
                 }
 
                 let instances = tracker.get_all();
@@ -153,6 +155,8 @@ async fn start_watcher(
                                         "memoryMb": mem,
                                     }),
                                 );
+                                // O console e o historico geral: evento do Watcher tambem vira linha la.
+                                emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: memoria em {} MB, abaixo do minimo", mem));
                                 disconnected_since.remove(&inst.user_id);
                                 startup_seen.remove(&inst.user_id);
                                 last_saved_positions.remove(&inst.user_id);
@@ -188,6 +192,8 @@ async fn start_watcher(
                                     "expected": cfg.expected_title.clone(),
                                 }),
                             );
+                            // O console e o historico geral: evento do Watcher tambem vira linha la.
+                            emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: titulo \"{}\" nao e o esperado", title));
                             disconnected_since.remove(&inst.user_id);
                             startup_seen.remove(&inst.user_id);
                             last_saved_positions.remove(&inst.user_id);
@@ -204,6 +210,8 @@ async fn start_watcher(
                                     "title": title,
                                 }),
                             );
+                            // O console e o historico geral: evento do Watcher tambem vira linha la.
+                            emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", String::from("Cliente fechado pelo Watcher: Roblox Beta detectado"));
                             disconnected_since.remove(&inst.user_id);
                             startup_seen.remove(&inst.user_id);
                             last_saved_positions.remove(&inst.user_id);
@@ -229,6 +237,8 @@ async fn start_watcher(
                                             "timeout": cfg.no_connection_timeout_secs,
                                         }),
                                     );
+                                    // O console e o historico geral: evento do Watcher tambem vira linha la.
+                                    emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: sem conexao por {}s", cfg.no_connection_timeout_secs));
                                     disconnected_since.remove(&inst.user_id);
                                     startup_seen.remove(&inst.user_id);
                                     last_saved_positions.remove(&inst.user_id);
@@ -399,6 +409,8 @@ async fn start_watcher(
                                 "userId": uid,
                             }),
                         );
+                        // O console e o historico geral: evento do Watcher tambem vira linha la.
+                        emit_launch_log(&app_handle, *uid, "warn", "watcher", String::from("Cliente do Roblox fechou (o processo morreu)"));
                     }
 
                     let instances = tracker.get_all();
@@ -471,6 +483,8 @@ async fn start_watcher(
                                         "logPath": log_path.to_string_lossy(),
                                     }),
                                 );
+                                // O console e o historico geral: evento do Watcher tambem vira linha la.
+                                emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", String::from("Cliente fechado pelo Watcher: Roblox Beta detectado"));
                                 disconnected_since.remove(&inst.user_id);
                                 log_paths.remove(&inst.pid);
                                 log_offsets.remove(&inst.pid);
@@ -491,6 +505,8 @@ async fn start_watcher(
                                             "logPath": log_path.to_string_lossy(),
                                         }),
                                     );
+                                    // O console e o historico geral: evento do Watcher tambem vira linha la.
+                                    emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: sem conexao por {}s", cfg.no_connection_timeout_secs));
                                     disconnected_since.remove(&inst.user_id);
                                     log_paths.remove(&inst.pid);
                                     log_offsets.remove(&inst.pid);
@@ -688,5 +704,43 @@ mod watcher_tests {
         assert!(windows_title_indicates_beta("ROBLOX BETA"));
         assert!(!windows_title_indicates_beta("Roblox"));
         assert!(!windows_title_indicates_beta(""));
+    }
+}
+
+/// O Watcher fecha clientes sozinho (memoria baixa, sem conexao, beta, titulo
+/// errado). Isso so virava toast, que some em 2,5 s: quem voltasse depois nao
+/// tinha como saber por que a conta caiu. Cada evento tem que deixar linha no
+/// console.
+///
+/// O teste le o proprio arquivo porque assim cobre tambem o ramo de macOS, que
+/// nem compila nesta plataforma.
+#[cfg(test)]
+mod watcher_console_tests {
+    const FONTE: &str = include_str!("watcher.rs");
+
+    #[test]
+    fn todo_evento_do_watcher_deixa_linha_no_console() {
+        let linhas: Vec<&str> = FONTE.lines().collect();
+        let mut vistos = 0;
+        for (i, linha) in linhas.iter().enumerate() {
+            if !linha.contains("app_handle.emit(") {
+                continue;
+            }
+            let evento = linhas.get(i + 1).copied().unwrap_or("");
+            if !evento.contains("\"roblox-") {
+                continue;
+            }
+            vistos += 1;
+            let janela = linhas[i..(i + 14).min(linhas.len())].join("\n");
+            assert!(
+                janela.contains("emit_launch_log("),
+                "evento sem linha de console: {}",
+                evento.trim()
+            );
+        }
+        assert!(
+            vistos >= 8,
+            "esperava os eventos das duas plataformas, achei {vistos}"
+        );
     }
 }

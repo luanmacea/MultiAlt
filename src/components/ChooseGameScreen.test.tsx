@@ -779,7 +779,7 @@ describe("ChooseGameScreen — descoberta", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Console" }));
     expect(screen.queryByText("Window layout")).not.toBeInTheDocument();
-    expect(screen.getByText("No launch activity yet")).toBeInTheDocument();
+    expect(screen.getByText("No activity yet")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Windows" }));
     expect(await screen.findByText("Window layout")).toBeInTheDocument();
@@ -802,10 +802,53 @@ describe("ChooseGameScreen — descoberta", () => {
     expect(panelWrapper.className).toMatch(/overflow-y-auto/);
 
     const log = screen
-      .getByText("Launch a game to see live progress here")
+      .getByText("Launch a game or start Botting Mode to see the activity here")
       .closest(".font-mono") as HTMLElement;
     expect(log.className).toMatch(/min-h-\[160px\]/);
     expect(log.className).not.toMatch(/min-h-0/);
+  });
+});
+
+/**
+ * O console era só do launch: ação do Botting Mode não aparecia em lugar
+ * nenhum, e o Watcher fechava cliente deixando só um toast de 2,5 s. Agora ele
+ * é o histórico geral, e cada linha diz de onde veio.
+ */
+describe("ChooseGameScreen — console como histórico geral", () => {
+  function renderConsole() {
+    const store = setStore({
+      accounts: [ACCOUNT_A],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [ACCOUNT_A],
+      launchLogs: [
+        { id: 1, userId: 1001, level: "success", step: "botting", message: "Entrou no jogo pelo ciclo do Botting", ts: Date.now() },
+        { id: 2, userId: 1001, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s", ts: Date.now() },
+        { id: 3, userId: null, level: "info", step: "botting", message: "Botting Mode parado", ts: Date.now() },
+      ],
+    });
+    render(<ChooseGameScreen />);
+    return store;
+  }
+
+  it("mostra linha de Botting e de Watcher, com a origem de cada uma", async () => {
+    renderConsole();
+
+    await userEvent.click(screen.getByRole("button", { name: "Console" }));
+
+    expect(screen.getByText("Entrou no jogo pelo ciclo do Botting")).toBeInTheDocument();
+    expect(screen.getByText(/sem conexao por 30s/)).toBeInTheDocument();
+    const origens = screen.getAllByTestId("log-step").map((el) => el.textContent);
+    expect(origens).toEqual(["[botting]", "[watcher]", "[botting]"]);
+  });
+
+  it("linha de sessão não finge pertencer a uma conta", async () => {
+    renderConsole();
+
+    await userEvent.click(screen.getByRole("button", { name: "Console" }));
+
+    // `userId: null` desenha "—": passar 0 imprimiria "0" no lugar do nome.
+    const linha = screen.getByText("Botting Mode parado").closest("div") as HTMLElement;
+    expect(linha.textContent).toContain("—");
   });
 });
 

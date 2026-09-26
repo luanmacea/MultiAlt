@@ -20,6 +20,26 @@ pub(crate) fn emit_launch_log(
     );
 }
 
+/// Linha de console que nao pertence a uma conta: inicio/fim de uma sessao de
+/// Botting, por exemplo. O frontend ja aceita `userId: null` e desenha "—";
+/// passar `0` faria o console imprimir "0" no lugar do nome.
+pub(crate) fn emit_session_log(
+    app: &tauri::AppHandle,
+    level: &str,
+    step: &str,
+    message: impl Into<String>,
+) {
+    let _ = app.emit(
+        "launch-log",
+        serde_json::json!({
+            "userId": serde_json::Value::Null,
+            "level": level,
+            "step": step,
+            "message": message.into(),
+        }),
+    );
+}
+
 /// Group name used to bucket accounts that failed to launch because Roblox
 /// reports them as moderated/banned.
 pub(crate) const MODERATED_GROUP: &str = "moderadas";

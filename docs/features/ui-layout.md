@@ -85,7 +85,7 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 | Games | busca de jogos; clicar lança todas as selecionadas. |
 | Recent | jogos recentes. |
 | Follow | `lookup_user` + `get_presence`; se o alvo não estiver em jogo (`presence < 2`) pede confirmação; chama `launch_roblox` com `followUser: true` para cada conta, 3 s entre elas. Atalhos para Server List, Utilities, Botting e Scripts. |
-| Console | log ao vivo do evento `launch-log` (auto-scroll, limpar) + controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)` para ladrilhar janelas do Roblox. |
+| Console | **histórico geral das ações** (evento `launch-log`, auto-scroll, limpar): launch, Botting Mode e Watcher, cada linha com a origem (`step`) numa coluna de largura fixa — sem ela, `[watcher]` e `[botting-retry]` empurram o nome da conta para colunas diferentes. Linha de sessão (início/fim do Botting) vem com `userId` nulo e aparece como `—`. Mais os controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)`. |
 
 `launchAll` (hook `useLauncher`): confirma contas online, muda para a aba Console, grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
 
