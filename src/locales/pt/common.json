@@ -1600,5 +1600,9 @@
   "Friends {{done}}/{{total}}": "Amigos {{done}}/{{total}}",
   "Could not save: {{error}}": "Não foi possível salvar: {{error}}",
   "Delay between requests (s)": "Intervalo entre pedidos (s)",
-  "Roblox rate-limits new accounts. Slower is safer.": "O Roblox limita contas novas. Mais devagar é mais seguro."
+  "Roblox rate-limits new accounts. Slower is safer.": "O Roblox limita contas novas. Mais devagar é mais seguro.",
+  "Move down": "Descer",
+  "Move group down": "Descer o grupo",
+  "Move group up": "Subir o grupo",
+  "Move up": "Subir"
 }

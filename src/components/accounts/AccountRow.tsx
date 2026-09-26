@@ -1,4 +1,4 @@
-import { Check, User, GripVertical } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, User, GripVertical } from "lucide-react";
 import { useStore } from "../../store";
 import type { Account } from "../../types";
 import { timeAgo, getFreshnessColor, AGED_AFTER_DAYS } from "../../types";
@@ -18,6 +18,28 @@ export function AccountRow({ account }: { account: Account }) {
   const selected = store.selectedIds.has(account.UserID);
   const multiMode = store.selectedIds.size > 1;
   const avatarUrl = store.avatarUrls.get(account.UserID);
+
+  /**
+   * Vizinhos da conta **dentro do grupo dela**. As setas fazem o mesmo
+   * `reorderAccounts` do arrasto, uma posição por clique — o dono pediu um
+   * caminho que não dependa de arrastar, e é também o único que funciona pelo
+   * teclado. Subir a primeira do grupo ficaria fora do grupo, então nas pontas
+   * a seta fica desligada em vez de fazer algo inesperado.
+   */
+  const irmaos = store.accounts.filter(
+    (a) => (a.Group || "Default") === (account.Group || "Default")
+  );
+  const posicao = irmaos.findIndex((a) => a.UserID === account.UserID);
+  const contaAcima = posicao > 0 ? irmaos[posicao - 1] : null;
+  const contaAbaixo =
+    posicao >= 0 && posicao < irmaos.length - 1 ? irmaos[posicao + 1] : null;
+
+  function moverPara(alvo: Account | null, e: React.MouseEvent) {
+    // Sem isto o clique sobe para a linha e seleciona a conta.
+    e.stopPropagation();
+    if (!alvo) return;
+    void store.reorderAccounts(account.UserID, alvo.UserID);
+  }
   const freshness =
     store.settings?.General?.DisableAgingAlert === "true"
       ? null
@@ -241,6 +263,30 @@ export function AccountRow({ account }: { account: Account }) {
         ) : (
           <span className="theme-muted">{t(timeAgo(account.LastUse))}</span>
         )}
+      </div>
+
+      {/* Setas de ordem: o caminho que não depende de arrastar. */}
+      <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+        <button
+          type="button"
+          onClick={(e) => moverPara(contaAcima, e)}
+          disabled={!contaAcima}
+          aria-label={t("Move up")}
+          title={t("Move up")}
+          className="p-0.5 rounded theme-muted opacity-40 group-hover/row:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronUp size={13} strokeWidth={2} />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => moverPara(contaAbaixo, e)}
+          disabled={!contaAbaixo}
+          aria-label={t("Move down")}
+          title={t("Move down")}
+          className="p-0.5 rounded theme-muted opacity-40 group-hover/row:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronDown size={13} strokeWidth={2} />
+        </button>
       </div>
     </div>
   );
