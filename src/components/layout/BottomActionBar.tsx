@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
-import { maskAccountName, parseGroupName } from "../../types";
+import { collectGroupNames, maskAccountName, parseGroupName } from "../../types";
 import { tr, useTr } from "../../i18n/text";
 import { ChevronDown, Gamepad2, Settings2, Users } from "lucide-react";
 
@@ -53,11 +53,9 @@ export function BottomActionBar() {
     [accounts, store.launchedByProgram]
   );
 
-  const allGroups = useMemo(() => {
-    const set = new Set<string>();
-    store.accounts.forEach((a) => set.add(a.Group || "Default"));
-    return [...set].sort();
-  }, [store.accounts]);
+  // Mesma fonte que o resto do app (`collectGroupNames`): a cópia manual daqui
+  // era a última sobrevivente depois que a sidebar de multi-seleção saiu.
+  const allGroups = useMemo(() => collectGroupNames(store.accounts), [store.accounts]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

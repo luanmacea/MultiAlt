@@ -13,7 +13,7 @@ Lançar várias contas, **uma por vez e em sequência**, no mesmo place/Job ID, 
 | [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | Flags `launcher_cancelled` e `next_account` |
 | [platform/windows/launch.rs](../../src-tauri/src/platform/windows/launch.rs) | Spawn (protocolo com canal fixado ou old join) |
 | [store.tsx](../../src/store.tsx) | `launchMultiple`, `killAllRobloxProcesses`, listeners `launch-progress` / `launch-complete` / `launch-log` |
-| [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx), [MultiSelectSidebar.tsx](../../src/components/accounts/MultiSelectSidebar.tsx) | Chamadores (1 conta → `joinServer`; várias → `launchMultiple`) |
+| [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx) | Chamador (1 conta → `joinServer`; várias → `launchMultiple`) |
 
 ## Fluxo
 

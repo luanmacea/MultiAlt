@@ -125,7 +125,7 @@ describe("getFreshnessColor", () => {
 });
 
 describe("collectGroupNames", () => {
-  // Fonte compartilhada por BottomActionBar.tsx e MultiSelectSidebar.tsx
+  // Fonte compartilhada: o `allGroups` da BottomActionBar sai daqui
   // (allGroups), e agora tambem pelos campos de texto livre que viram
   // <datalist> (GeneratorDialog, GeneratorTab). Mesma logica: valor cru de
   // `Group`, "Default" para vazio, ordenado, sem repetir.

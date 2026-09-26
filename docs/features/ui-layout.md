@@ -15,7 +15,6 @@ Descrever como a janela principal é montada, como temas e fontes são aplicados
 | Lista de contas | [AccountList.tsx](../../src/components/accounts/AccountList.tsx), [GroupSection.tsx](../../src/components/accounts/GroupSection.tsx), [AccountRow.tsx](../../src/components/accounts/AccountRow.tsx), [AccountChip.tsx](../../src/components/accounts/AccountChip.tsx) |
 | Sidebar (conta única) | [DetailSidebar.tsx](../../src/components/accounts/DetailSidebar.tsx) → [SingleSelectSidebar.tsx](../../src/components/accounts/SingleSelectSidebar.tsx), [SidebarSection.tsx](../../src/components/accounts/SidebarSection.tsx) |
 | Ações em lote | [BottomActionBar.tsx](../../src/components/layout/BottomActionBar.tsx) |
-| Sidebar multi-seleção (não usada) | [MultiSelectSidebar.tsx](../../src/components/accounts/MultiSelectSidebar.tsx) |
 | Tela de escolha de jogo / launch em lote | [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx) |
 | Menu de contexto | [ContextMenu.tsx](../../src/components/menus/ContextMenu.tsx), [MenuItemView.tsx](../../src/components/menus/MenuItemView.tsx) |
 | Diálogos | [src/components/dialogs/](../../src/components/dialogs), [SettingsDialog.tsx](../../src/components/settings/SettingsDialog.tsx), [ServerListDialog.tsx](../../src/components/server-list/ServerListDialog.tsx) |
@@ -168,7 +167,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 
 ## Armadilhas / cuidados
 
-- `MultiSelectSidebar.tsx` não é importado em nenhum lugar (código morto); [DetailSidebar.tsx](../../src/components/accounts/DetailSidebar.tsx) documenta que ações multi-conta vivem na `BottomActionBar` e na `ChooseGameScreen`. Mudanças de ações em lote devem ir para esses dois.
+- **Ação em lote vai para a [BottomActionBar.tsx](../../src/components/layout/BottomActionBar.tsx) ou para a [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx)** — não existe mais painel lateral de multi-seleção. Havia um (`MultiSelectSidebar.tsx`, 517 linhas) que ninguém conseguia abrir desde que o painel virou de uma conta só; foi apagado depois de ser editado três vezes por engano. A [DetailSidebar.tsx](../../src/components/accounts/DetailSidebar.tsx) continua sendo só para **uma** conta.
 - `store.tsx` é um Context único com ~2100 linhas; qualquer mudança de estado re-renderiza todos os consumidores de `useStore()`.
 - Estado de UI como `placeId`/`jobId` é gravado no INI a **cada** mudança (`SavedPlaceId`, `SavedJobId`, `SavedLaunchData`).
 - `ScriptsDialog` e demais diálogos ficam sempre montados; efeitos deles (ex.: auto-start de scripts) rodam mesmo com o diálogo fechado.

@@ -165,8 +165,9 @@ export function parseGroupName(group: string): { sortKey: number; displayName: s
 /**
  * Nomes de grupo distintos entre as contas, para oferecer como sugestão
  * (`<datalist>`) num campo que ainda precisa ficar editável para criar grupo
- * novo — mesma fonte que `BottomActionBar.tsx` e `MultiSelectSidebar.tsx` já
- * calculam cada um por conta própria (`allGroups`).
+ * novo — mesma fonte que `BottomActionBar.tsx` usa em `allGroups` (antes cada
+ * tela calculava a sua, e a sidebar de multi-seleção, hoje apagada, tinha a
+ * terceira cópia).
  *
  * Devolve o texto **cru** de `Account.Group`, nunca o resultado de
  * `parseGroupName`: essa função só existe para decidir ordenação/rótulo de

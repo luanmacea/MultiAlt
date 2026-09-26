@@ -88,7 +88,7 @@ Padrão do app: **toda tela que trabalha com um Place ID mostra qual jogo é aqu
 2. Ele resolve nome (`get_place_details`) e ícone (`batched_get_game_icon`) em paralelo, com **cache de módulo por place** lido de forma síncrona — a segunda tela que abre o mesmo jogo já nasce com o nome, sem piscar — e **dedupe** das chamadas em voo.
 3. Espera 400 ms de digitação parada antes de perguntar (`6`, `60`, `606`… não são places), descarta resposta que chega depois de o usuário trocar de place, e marca como "não sei" o place que falhou (nova tentativa só depois de 30 s, para queda de rede não virar laço de requisições).
 4. Quem desenha é [GameBadge.tsx](../../src/components/ui/GameBadge.tsx), puramente visual: **sem nome e sem ícone não desenha nada** — "Place 606849621" não informa mais que o número já visível no campo ao lado.
-5. Telas ligadas hoje: aba Servers da Choose Game, Botting Mode (os dois layouts) e Nexus. Games/Favoritos/Recentes já mostravam nome e ícone pelo caminho próprio das listas. A `MultiSelectSidebar` também foi ligada, mas **hoje ela não é montada em lugar nenhum** (ver o achado em [ux-checkup.md](../ux-checkup.md)).
+5. Telas ligadas hoje: aba Servers da Choose Game, Botting Mode (os dois layouts) e Nexus. Games/Favoritos/Recentes já mostravam nome e ícone pelo caminho próprio das listas.
 
 ### Resolução do alvo VIP/privado no launch (backend)
 

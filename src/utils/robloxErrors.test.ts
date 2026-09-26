@@ -4,7 +4,8 @@ import { isMultiRobloxCloseProcessError } from "./robloxErrors";
 /**
  * Esta deteção decide se a tela oferece o botão "Fechar todos os Roblox" — é o
  * único caminho de saída quando o Windows recusa a segunda instância. Ela vivia
- * copiada em três lugares (`App`, `MultiSelectSidebar`, `BottingDialog`), com o
+ * copiada em três lugares (`App`, a sidebar de multi-seleção — hoje apagada — e
+ * `BottingDialog`), com o
  * mesmo par de substrings escrito à mão em cada um: mudar a mensagem do backend
  * exigia lembrar dos três.
  */
