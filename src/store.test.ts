@@ -259,6 +259,106 @@ describe("groups and filtering", () => {
     expect(result.current.groups[2].sortKey).toBe(999999);
   });
 
+  /**
+   * Arrastar conta por conta era inviável; reordenar **grupos** é o que o dono
+   * pediu. A ordem vive em `General.GroupOrder` (JSON, porque nome de grupo
+   * pode ter vírgula) e tem que sobreviver a fechar e reabrir o app.
+   */
+  it("respeita a ordem manual dos grupos guardada nas settings", async () => {
+    accountsData = [
+      account({ UserID: 1, Group: "20 Bots" }),
+      account({ UserID: 2, Group: "5 Mains" }),
+      account({ UserID: 3, Group: "Zeta" }),
+    ];
+    settingsData = { General: { GroupOrder: '["Zeta","20 Bots"]' } };
+    const { result } = await renderStore();
+
+    // Zeta e Bots foram arrastados; Mains, que ninguém tocou, fica no fim.
+    expect(result.current.groups.map((g) => g.key)).toEqual(["Zeta", "20 Bots", "5 Mains"]);
+  });
+
+  it("ordem estragada no INI não quebra a lista: cai na ordem automática", async () => {
+    accountsData = [
+      account({ UserID: 1, Group: "Zeta" }),
+      account({ UserID: 2, Group: "5 Mains" }),
+    ];
+    settingsData = { General: { GroupOrder: "Zeta,5 Mains" } };
+    const { result } = await renderStore();
+
+    expect(result.current.groups.map((g) => g.key)).toEqual(["5 Mains", "Zeta"]);
+  });
+
+  it("arrastar um grupo grava a ordem inteira e reordena na hora", async () => {
+    accountsData = [
+      account({ UserID: 1, Group: "5 Mains" }),
+      account({ UserID: 2, Group: "20 Bots" }),
+      account({ UserID: 3, Group: "Zeta" }),
+    ];
+    const { result } = await renderStore();
+    expect(result.current.groups.map((g) => g.key)).toEqual(["5 Mains", "20 Bots", "Zeta"]);
+
+    await act(async () => {
+      await result.current.reorderGroups("Zeta", "5 Mains");
+    });
+
+    const gravado = invokeMock.mock.calls.filter(
+      (c) => c[0] === "update_setting" && (c[1] as { key?: string })?.key === "GroupOrder"
+    );
+    expect(gravado).toHaveLength(1);
+    // A lista inteira é gravada: um arrasto congela a ordem de todos os grupos,
+    // senão o próximo grupo novo se enfiaria no meio.
+    expect(JSON.parse(String((gravado[0][1] as { value?: string }).value))).toEqual([
+      "Zeta",
+      "5 Mains",
+      "20 Bots",
+    ]);
+    expect(result.current.groups.map((g) => g.key)).toEqual(["Zeta", "5 Mains", "20 Bots"]);
+  });
+
+  /**
+   * Com busca ativa a lista mostra só os grupos que casam. Gravar "a ordem
+   * visível" apagaria da ordem os grupos escondidos pelo filtro.
+   */
+  it("não perde grupo escondido pela busca ao reordenar", async () => {
+    accountsData = [
+      account({ UserID: 1, Username: "needle-a", Group: "Mains" }),
+      account({ UserID: 2, Username: "needle-b", Group: "Bots" }),
+      account({ UserID: 3, Username: "outro", Group: "Escondido" }),
+    ];
+    const { result } = await renderStore();
+    act(() => result.current.setSearchQuery("needle"));
+    expect(result.current.groups.map((g) => g.key)).toEqual(["Bots", "Mains"]);
+
+    await act(async () => {
+      await result.current.reorderGroups("Mains", "Bots");
+    });
+
+    const gravado = invokeMock.mock.calls.filter(
+      (c) => c[0] === "update_setting" && (c[1] as { key?: string })?.key === "GroupOrder"
+    );
+    expect(JSON.parse(String((gravado[0][1] as { value?: string }).value))).toEqual([
+      "Mains",
+      "Bots",
+      "Escondido",
+    ]);
+  });
+
+  it("arrastar grupo para o próprio lugar não grava nada", async () => {
+    accountsData = [account({ UserID: 1, Group: "A" }), account({ UserID: 2, Group: "B" })];
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.reorderGroups("A", "A");
+      await result.current.reorderGroups("A", "__all__");
+    });
+
+    expect(
+      invokeMock.mock.calls.filter(
+        (c) => c[0] === "update_setting" && (c[1] as { key?: string })?.key === "GroupOrder"
+      )
+    ).toHaveLength(0);
+  });
+
   it("returns one synthetic group when grouping is disabled", async () => {
     accountsData = [account({ UserID: 1, Group: "A" }), account({ UserID: 2, Group: "B" })];
     const { result } = await renderStore();

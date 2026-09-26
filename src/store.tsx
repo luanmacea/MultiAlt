@@ -19,7 +19,12 @@ import type {
   LaunchQueuePayload,
   ServerPreference,
 } from "./types";
-import { parseGroupName } from "./types";
+import {
+  orderGroupKeys,
+  parseGroupName,
+  parseGroupOrder,
+  serializeGroupOrder,
+} from "./types";
 
 /**
  * Valor guardado em `General.ServerPreference` → preferência válida.
@@ -356,6 +361,16 @@ export interface StoreValue {
   dragState: { userId: number; sourceGroup: string } | null;
   setDragState: (s: { userId: number; sourceGroup: string } | null) => void;
 
+  /**
+   * Grupo sendo arrastado pelo cabeçalho. Separado do `dragState` (que é de
+   * conta) de propósito: misturar os dois faria o drop de conta agir sobre um
+   * arrasto de grupo.
+   */
+  groupDragState: { groupKey: string } | null;
+  setGroupDragState: (s: { groupKey: string } | null) => void;
+  /** Move um grupo para a posição de outro e guarda a ordem em `General.GroupOrder`. */
+  reorderGroups: (draggedKey: string, targetKey: string) => Promise<void>;
+
   toasts: Toast[];
   addToast: (msg: string, tone?: ToastTone) => void;
   actionStatus: ActionStatusState | null;
@@ -555,6 +570,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [firstRunWalkthroughMode, setFirstRunWalkthroughMode] = useState<"firstRun" | "manual">("firstRun");
   const [initialized, setInitialized] = useState(false);
   const [dragState, setDragState] = useState<{ userId: number; sourceGroup: string } | null>(null);
+  const [groupDragState, setGroupDragState] = useState<{ groupKey: string } | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(0);
   const [modal, setModal] = useState<{ title: string; content: string } | null>(null);
@@ -655,7 +671,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const { sortKey, displayName } = parseGroupName(key);
       parsed.push({ key, displayName, sortKey, accounts: accts });
     }
-    parsed.sort((a, b) => a.sortKey - b.sortKey || a.displayName.localeCompare(b.displayName));
+    // Ordem manual (arrastada pelo usuário) primeiro; o resto na ordem
+    // automática de sempre. Sem `GroupOrder`, nada muda.
+    const manual = orderGroupKeys(
+      parsed.map((g) => g.key),
+      parseGroupOrder(settings?.General?.GroupOrder)
+    );
+    const posicao = new Map(manual.map((key, index) => [key, index]));
+    parsed.sort((a, b) => (posicao.get(a.key) ?? 0) - (posicao.get(b.key) ?? 0));
 
     // If only one group and it's "Default", treat as flat list (no header).
     // Headers only appear when the user has created named groups.
@@ -664,7 +687,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     return parsed;
-  }, [filteredAccounts, showGroups]);
+  }, [filteredAccounts, settings?.General?.GroupOrder, showGroups]);
 
   const orderedUserIds = useMemo(() => {
     const ids: number[] = [];
@@ -1014,6 +1037,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return next;
     });
     addToast(tr("Sorted {{group}}", { group: parseGroupName(groupKey).displayName }));
+  }
+
+  /**
+   * Reordena grupos. Grava a lista **inteira** de grupos existentes, não só a
+   * visível: com busca ativa a tela mostra um subconjunto, e gravar "o que está
+   * na tela" apagaria da ordem os grupos escondidos pelo filtro.
+   */
+  async function reorderGroups(draggedKey: string, targetKey: string) {
+    if (!draggedKey || !targetKey || draggedKey === targetKey) return;
+    // `__all__` é o grupo sintético da lista sem cabeçalho: não tem o que ordenar.
+    if (draggedKey === "__all__" || targetKey === "__all__") return;
+
+    const existentes = accounts.map((a) => a.Group || "Default");
+    const atual = orderGroupKeys(existentes, parseGroupOrder(settings?.General?.GroupOrder));
+    const from = atual.indexOf(draggedKey);
+    const to = atual.indexOf(targetKey);
+    if (from < 0 || to < 0 || from === to) return;
+
+    const proxima = [...atual];
+    const [movido] = proxima.splice(from, 1);
+    proxima.splice(to, 0, movido);
+
+    // Otimista: a lista reordena na hora, sem esperar o disco.
+    setSettings((prev) => ({
+      ...(prev || {}),
+      General: { ...(prev?.General || {}), GroupOrder: serializeGroupOrder(proxima) },
+    }));
+    try {
+      await invoke("update_setting", {
+        section: "General",
+        key: "GroupOrder",
+        value: serializeGroupOrder(proxima),
+      });
+    } catch (e) {
+      setError(String(e));
+    }
   }
 
   async function reorderAccounts(draggedUserId: number, targetUserId: number) {
@@ -2429,12 +2488,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     moveToGroup,
     sortGroupAlphabetically,
     reorderAccounts,
+    reorderGroups,
     joiningAccounts,
     launchProgress,
     launchLogs,
     clearLaunchLogs,
     dragState,
     setDragState,
+    groupDragState,
+    setGroupDragState,
     toasts,
     addToast,
     actionStatus,

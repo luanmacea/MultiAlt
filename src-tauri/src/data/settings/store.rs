@@ -53,6 +53,13 @@ impl SettingsStore {
                 Some("Tokens: <city>, <region>, <country>, <countryCode>, <ip>; other text is kept as typed"),
             ),
             ("MaxRecentGames", "8", None),
+            (
+                "GroupOrder",
+                "[]",
+                // JSON, e nao lista por virgula como as outras chaves de lista:
+                // nome de grupo e texto livre do usuario e pode conter virgula.
+                Some("Manual order of the account groups, as a JSON array of group names"),
+            ),
             ("Language", "en", None),
             ("AutoCookieRefresh", "true", None),
             ("AutoCloseLastProcess", "false", None),
@@ -503,6 +510,7 @@ mod settings_store_tests {
                 ("HideUsernames", "false"),
                 ("ServerRegionFormat", "<city>, <countryCode>"),
                 ("MaxRecentGames", "8"),
+                ("GroupOrder", "[]"),
                 ("Language", "en"),
                 ("AutoCookieRefresh", "true"),
                 ("AutoCloseLastProcess", "false"),
@@ -1045,6 +1053,35 @@ mod settings_store_tests {
             "plain-text-secret",
             "secrets are stored in clear text"
         );
+    }
+
+    /// A ordem manual dos grupos e gravada em JSON porque nome de grupo e texto
+    /// livre: um grupo chamado "Alts, velhas" quebraria uma lista por virgula.
+    /// O risco real fica no INI, que corta a linha no primeiro `=` — este teste
+    /// prova que o JSON volta inteiro do arquivo.
+    #[test]
+    fn group_order_json_survives_the_ini_round_trip_even_with_commas() {
+        let s = fresh("group-order-round-trip");
+        let value = r#"["Alts, velhas","5 Mains","Zeta"]"#;
+        s.set("General", "GroupOrder", value).unwrap();
+
+        let reopened = SettingsStore::new(s.file_path.clone());
+        assert_eq!(reopened.get_string("General", "GroupOrder"), value);
+    }
+
+    /// Armadilha documentada do INI: valor vazio **apaga** a chave (`IniSection::set`).
+    /// Como `GroupOrder` tem default, apagar nao deixa a chave ausente: o default
+    /// `[]` volta no proximo boot, e `[]` significa "sem ordem manual". De um jeito
+    /// ou de outro, quem le nunca recebe erro.
+    #[test]
+    fn an_empty_group_order_falls_back_to_the_default_instead_of_erroring() {
+        let s = fresh("group-order-empty");
+        s.set("General", "GroupOrder", r#"["Zeta"]"#).unwrap();
+        s.set("General", "GroupOrder", "").unwrap();
+        assert_eq!(s.get_string("General", "GroupOrder"), "", "a chave sai do arquivo");
+
+        let reopened = SettingsStore::new(s.file_path.clone());
+        assert_eq!(reopened.get_string("General", "GroupOrder"), "[]");
     }
 
     #[test]

@@ -407,6 +407,20 @@ const SCENARIOS: Record<string, () => void> = {
     });
   },
 
+  /**
+   * Contas espalhadas em grupos nomeados, para ver a lista com cabeçalhos e
+   * arrastar a ordem. Os nomes são escolhidos de propósito: um com prefixo
+   * numérico (ordena e some do rótulo), um com vírgula (o motivo de a ordem ser
+   * guardada em JSON) e um sem nada.
+   */
+  groups() {
+    const nomes = ["5 Mains", "20 Bots", "Alts, velhas", "Zeta"];
+    accounts.forEach((account, index) => {
+      account.Group = nomes[index % nomes.length];
+    });
+    setInvokeHandler(baseHandler);
+  },
+
   /** Fila de launch e contas em jogo (Painel de Sessão). */
   "launch-queue"() {
     setInvokeHandler((cmd, args) => {

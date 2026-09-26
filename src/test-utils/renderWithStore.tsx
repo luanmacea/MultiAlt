@@ -246,6 +246,9 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     clearLaunchLogs: vi.fn(),
 
     dragState: null,
+    groupDragState: null,
+    setGroupDragState: vi.fn(),
+    reorderGroups: vi.fn(),
     setDragState: vi.fn(),
 
     toasts: [],

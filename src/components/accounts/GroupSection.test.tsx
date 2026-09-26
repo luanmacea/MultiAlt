@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -33,6 +33,15 @@ function header(): HTMLElement {
   return el as HTMLElement;
 }
 
+/**
+ * A checkbox do grupo é procurada pelo papel, não pela posição no DOM: a busca
+ * por `firstElementChild` quebrava a cada elemento novo no cabeçalho (foi o que
+ * aconteceu quando ele ganhou o punho de arrastar).
+ */
+function groupCheckbox(): HTMLElement {
+  return within(header()).getByRole("checkbox");
+}
+
 afterEach(cleanup);
 
 describe("GroupSection", () => {
@@ -56,6 +65,53 @@ describe("GroupSection", () => {
     expect(onDrop).toHaveBeenCalledWith("Alts");
   });
 
+  /**
+   * Arrastar conta por conta para ordenar era inviável; reordenar **grupos** é o
+   * que dá para fazer. O arrasto começa num punho, não no cabeçalho inteiro:
+   * o cabeçalho também é alvo de drop de conta e botão de colapsar.
+   */
+  describe("reordenar grupos", () => {
+    function punho(): HTMLElement {
+      return screen.getByTitle("Drag to reorder groups");
+    }
+
+    it("começa o arrasto do grupo pelo punho e limpa ao terminar", () => {
+      const { store } = renderGroup();
+
+      fireEvent.dragStart(punho(), { dataTransfer: { setData: () => {}, effectAllowed: "" } });
+      expect(store.setGroupDragState).toHaveBeenCalledWith({ groupKey: "Alts" });
+
+      // Arrasto cancelado (Esc, soltar fora) não pode deixar estado velho.
+      fireEvent.dragEnd(punho());
+      expect(store.setGroupDragState).toHaveBeenLastCalledWith(null);
+    });
+
+    it("clicar no punho não colapsa o grupo", async () => {
+      const { onToggle } = renderGroup();
+      await userEvent.click(punho());
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+
+    it("soltar um grupo em outro reordena, e não move conta nenhuma", () => {
+      const { store, onDrop } = renderGroup({ groupDragState: { groupKey: "Mains" } });
+
+      fireEvent.drop(header(), { dataTransfer: { getData: () => "" } });
+
+      expect(store.reorderGroups).toHaveBeenCalledWith("Mains", "Alts");
+      // `onDrop` é o caminho de mover conta para o grupo: não pode disparar aqui.
+      expect(onDrop).not.toHaveBeenCalled();
+      expect(store.setGroupDragState).toHaveBeenCalledWith(null);
+    });
+
+    it("soltar o grupo nele mesmo não faz nada", () => {
+      const { store } = renderGroup({ groupDragState: { groupKey: "Alts" } });
+
+      fireEvent.drop(header(), { dataTransfer: { getData: () => "" } });
+
+      expect(store.reorderGroups).not.toHaveBeenCalled();
+    });
+  });
+
   it("hides the header when groups are turned off", () => {
     renderGroup({ showGroups: false });
     expect(document.querySelector("[data-group-header='true']")).toBeNull();
@@ -65,14 +121,14 @@ describe("GroupSection", () => {
 
   it("adds every member to the selection from the group checkbox", async () => {
     const { store } = renderGroup({ selectedIds: new Set([11, 99]) });
-    const checkbox = header().firstElementChild?.firstElementChild as HTMLElement;
+    const checkbox = groupCheckbox();
     await userEvent.click(checkbox);
     expect(store.setSelectedIds).toHaveBeenCalledWith(new Set([11, 99, 12]));
   });
 
   it("removes every member when the whole group is already selected", async () => {
     const { store } = renderGroup({ selectedIds: new Set([11, 12, 99]) });
-    const checkbox = header().firstElementChild?.firstElementChild as HTMLElement;
+    const checkbox = groupCheckbox();
     await userEvent.click(checkbox);
     expect(store.setSelectedIds).toHaveBeenCalledWith(new Set([99]));
   });
@@ -98,7 +154,7 @@ describe("GroupSection", () => {
 
     it("exposes the group checkbox with role=checkbox and toggles it with Space", async () => {
       const { store } = renderGroup({ selectedIds: new Set([11, 99]) });
-      const checkbox = header().firstElementChild?.firstElementChild as HTMLElement;
+      const checkbox = groupCheckbox();
       expect(checkbox).toHaveAttribute("role", "checkbox");
       // 11 (do grupo) e 99 (fora) estão selecionados, 12 não: misto, não "false".
       expect(checkbox).toHaveAttribute("aria-checked", "mixed");
@@ -110,13 +166,13 @@ describe("GroupSection", () => {
 
     it("reports aria-checked=true once the whole group is selected", () => {
       renderGroup({ selectedIds: new Set([11, 12]) });
-      const checkbox = header().firstElementChild?.firstElementChild as HTMLElement;
+      const checkbox = groupCheckbox();
       expect(checkbox).toHaveAttribute("aria-checked", "true");
     });
 
     it("reports aria-checked=mixed when only part of the group is selected", () => {
       renderGroup({ selectedIds: new Set([11]) });
-      const checkbox = header().firstElementChild?.firstElementChild as HTMLElement;
+      const checkbox = groupCheckbox();
       expect(checkbox).toHaveAttribute("aria-checked", "mixed");
     });
   });

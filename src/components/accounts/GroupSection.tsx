@@ -1,4 +1,4 @@
-import { Check, ChevronRight } from "lucide-react";
+import { Check, ChevronRight, GripVertical } from "lucide-react";
 import { useStore } from "../../store";
 import type { ParsedGroup } from "../../types";
 import { AccountRow } from "./AccountRow";
@@ -24,8 +24,19 @@ export function GroupSection({
     e.dataTransfer.dropEffect = "move";
   }
 
+  /**
+   * O cabeçalho recebe dois arrastos diferentes: conta (mover para o grupo) e
+   * grupo (reordenar). O `groupDragState` é separado do `dragState` justamente
+   * para poder distinguir aqui — misturados, soltar um grupo moveria contas.
+   */
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
+    const arrastado = store.groupDragState?.groupKey;
+    if (arrastado) {
+      store.setGroupDragState(null);
+      if (arrastado !== group.key) void store.reorderGroups(arrastado, group.key);
+      return;
+    }
     onDrop(group.key);
   }
 
@@ -68,8 +79,10 @@ export function GroupSection({
           role="button"
           tabIndex={0}
           aria-expanded={!collapsed}
-          className={`theme-group-header flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none text-xs transition-all duration-150 outline-none ${
-            store.dragState ? "hover:bg-[var(--accent-soft)] hover:pl-4" : "hover:bg-[var(--row-hover)]"
+          className={`theme-group-header group/ghead flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none text-xs transition-all duration-150 outline-none ${
+            store.dragState || store.groupDragState
+              ? "hover:bg-[var(--accent-soft)] hover:pl-4"
+              : "hover:bg-[var(--row-hover)]"
           }`}
           onClick={onToggle}
           onKeyDown={(e) => {
@@ -81,6 +94,26 @@ export function GroupSection({
           onDragOver={handleDragOver}
           onDrop={handleDrop}
         >
+          {/* Punho do arrasto: começa aqui, e não no cabeçalho inteiro, porque o
+              cabeçalho também colapsa o grupo e recebe drop de conta. */}
+          <div
+            draggable
+            onDragStart={(e) => {
+              e.stopPropagation();
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", group.key);
+              store.setGroupDragState({ groupKey: group.key });
+            }}
+            // Arrasto cancelado não pode deixar estado velho: o próximo drop de
+            // conta acharia que ainda há um grupo sendo movido.
+            onDragEnd={() => store.setGroupDragState(null)}
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 opacity-30 group-hover/ghead:opacity-100 transition-opacity cursor-grab active:cursor-grabbing -ml-1.5 px-0.5"
+            title={t("Drag to reorder groups")}
+          >
+            <GripVertical size={12} strokeWidth={1.5} className="theme-muted" />
+          </div>
+
           <div className={`shrink-0 overflow-hidden transition-all duration-150 ease-out ${
             multiMode ? "w-3.5 opacity-100" : "w-0 opacity-0"
           }`}>

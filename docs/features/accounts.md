@@ -106,7 +106,13 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 - **Grupos**:
   - string livre; vazio é tratado como `"Default"`;
   - prefixo numérico de 1–3 dígitos define a ordem (`"01 Main"` → sortKey 1, exibido como `Main`); sem prefixo → sortKey 999999, depois ordem alfabética ([types.ts](../../src/types.ts) `parseGroupName`);
-  - se o único grupo existente é `Default`, a lista é mostrada sem cabeçalho.
+  - se o único grupo existente é `Default`, a lista é mostrada sem cabeçalho;
+  - **ordem manual**: arrastar um grupo pelo punho do cabeçalho reordena e grava `General.GroupOrder`. A partir daí manda a ordem manual, e o prefixo numérico/alfabética só ordena o que ficou de fora. Detalhes que importam:
+    - grava a lista **inteira** dos grupos existentes, não só os visíveis — com busca ativa a tela mostra um subconjunto, e gravar "o que está na tela" apagaria da ordem os grupos escondidos pelo filtro;
+    - o valor é **JSON** (`["Zeta","Alts, velhas"]`), não lista por vírgula como as outras chaves de lista do INI: nome de grupo é texto livre e pode conter vírgula;
+    - valor estragado (texto que não é JSON, JSON que não é lista) vira "sem ordem manual" — a lista de contas não pode deixar de abrir por causa de uma linha torta no INI;
+    - grupo que não existe mais sai da ordem; grupo novo entra no fim, não no meio;
+    - o arrasto começa num **punho** no cabeçalho, não no cabeçalho inteiro, porque o cabeçalho também colapsa o grupo e recebe drop de conta. O estado do arrasto de grupo (`groupDragState`) é separado do de conta (`dragState`) pelo mesmo motivo: misturados, soltar um grupo moveria contas. Soltar um grupo sobre uma **linha de conta** não faz nada — o alvo é o cabeçalho.
 - **Grupo `moderadas`**: quando obter o auth ticket falha no launch e o erro contém `moderated`, `is banned` ou `account has been` (case-insensitive), `mark_account_moderated` move a conta para o grupo `moderadas`, persiste e emite `account-moderated`. Não faz nada se já estiver nesse grupo. O frontend recarrega a lista e mostra o toast "`<nome>` is moderated — moved to 'moderadas'". Chamado em [launch.rs](../../src-tauri/src/commands/launch.rs) nos fluxos de launch único e múltiplo.
 - **Indicadores na linha** ([AccountRow.tsx](../../src/components/accounts/AccountRow.tsx)): ponto vermelho = `Valid == false`; cor de "idade" quando `LastUse` > 20 dias (ou seja, 20 dias **sem jogar**, não desde o cadastro) (amarelo → vermelho em 30 dias; desligável com `DisableAgingAlert`); âmbar = lançado pelo app; presença (Online/In Game/In Studio) se `ShowPresence`.
 - **Busca** filtra por `Username`, `Alias`, `Description` e `Group` (case-insensitive).
@@ -154,6 +160,7 @@ Os que usam o cookie da conta passam por `run_with_session_retry` (ver [authenti
 | `General.EncryptionOnboardingState` | `pending` em instalação nova, `completed` se o INI já existia | Abre o onboarding. |
 | `General.AutoCookieRefresh` | `true` | Auto-refresh (ver [authentication.md](authentication.md)). |
 | `General.DisableAgingAlert` | `false` | Esconde indicador de idade. |
+| `General.GroupOrder` | `[]` | Ordem manual dos grupos, em JSON. Vazio/`[]` = ordem automática (prefixo numérico, depois alfabética). |
 | `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden` | `false` / `0` | Mascaramento de nomes. |
 | `General.ShowPresence`, `PresenceUpdateRate` | `true`, `5` | Presença na lista. |
 | `Friends.RequestDelayMs` | (sem default no INI → 2500) | Intervalo entre pedidos de amizade. |

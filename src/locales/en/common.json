@@ -1582,5 +1582,6 @@
   "Nexus.lua saved in {{path}} (path copied)": "Nexus.lua saved in {{path}} (path copied)",
   "Nexus.lua saved in {{path}}": "Nexus.lua saved in {{path}}",
   "Could not save Nexus.lua: {{error}}": "Could not save Nexus.lua: {{error}}",
-  "Nexus.lua saved in the app folder": "Nexus.lua saved in the app folder"
+  "Nexus.lua saved in the app folder": "Nexus.lua saved in the app folder",
+  "Drag to reorder groups": "Drag to reorder groups"
 }

@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { collectGroupNames, getFreshnessColor, maskAccountName, parseGroupName, timeAgo } from "./types";
+import {
+  collectGroupNames,
+  getFreshnessColor,
+  maskAccountName,
+  orderGroupKeys,
+  parseGroupName,
+  parseGroupOrder,
+  serializeGroupOrder,
+  timeAgo,
+} from "./types";
 import { makeAccount } from "./test-utils/renderWithStore";
 
 const NOW = new Date("2026-01-15T12:00:00.000Z").getTime();
@@ -169,5 +178,68 @@ describe("maskAccountName", () => {
   it("hides the whole name when the preview would show all of it", () => {
     expect(maskAccountName("ann", true, 3)).toBe("************");
     expect(maskAccountName("ann", true, 9)).toBe("************");
+  });
+});
+
+/**
+ * A ordem manual dos grupos vive em `General.GroupOrder`. Ela é guardada em
+ * JSON porque nome de grupo é texto livre e pode conter vírgula — o separador
+ * que as outras chaves de lista do INI usam.
+ */
+describe("parseGroupOrder", () => {
+  it("lê a lista gravada, na ordem", () => {
+    expect(parseGroupOrder('["Zeta","5 Mains","Alts, velhas"]')).toEqual([
+      "Zeta",
+      "5 Mains",
+      "Alts, velhas",
+    ]);
+  });
+
+  it("nome com vírgula sobrevive à volta completa", () => {
+    const nomes = ["Alts, velhas", "Mains"];
+    expect(parseGroupOrder(serializeGroupOrder(nomes))).toEqual(nomes);
+  });
+
+  it("valor estragado vira 'sem ordem manual' em vez de erro", () => {
+    // A lista de contas não pode deixar de abrir por uma linha torta no INI.
+    expect(parseGroupOrder(undefined)).toEqual([]);
+    expect(parseGroupOrder("")).toEqual([]);
+    expect(parseGroupOrder("Zeta,Mains")).toEqual([]);
+    expect(parseGroupOrder('{"a":1}')).toEqual([]);
+    expect(parseGroupOrder("[1,2]")).toEqual([]);
+  });
+
+  it("ignora repetido e vazio", () => {
+    expect(parseGroupOrder('["Zeta","Zeta","","Mains"]')).toEqual(["Zeta", "Mains"]);
+  });
+});
+
+describe("orderGroupKeys", () => {
+  it("põe na frente o que foi arrastado, na ordem deixada", () => {
+    expect(orderGroupKeys(["Zeta", "5 Mains", "20 Bots"], ["Zeta", "20 Bots"])).toEqual([
+      "Zeta",
+      "20 Bots",
+      "5 Mains",
+    ]);
+  });
+
+  it("sem ordem manual, mantém a regra antiga: prefixo numérico e depois alfabética", () => {
+    expect(orderGroupKeys(["Zeta", "20 Bots", "5 Mains"], [])).toEqual([
+      "5 Mains",
+      "20 Bots",
+      "Zeta",
+    ]);
+  });
+
+  it("grupo novo entra no fim, não no meio onde ninguém o pôs", () => {
+    expect(orderGroupKeys(["Zeta", "Mains", "Recem"], ["Zeta", "Mains"])).toEqual([
+      "Zeta",
+      "Mains",
+      "Recem",
+    ]);
+  });
+
+  it("grupo que não existe mais sai da ordem", () => {
+    expect(orderGroupKeys(["Mains"], ["Apagado", "Mains"])).toEqual(["Mains"]);
   });
 });
