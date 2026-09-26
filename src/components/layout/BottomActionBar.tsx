@@ -7,6 +7,15 @@ import { collectGroupNames, maskAccountName, parseGroupName } from "../../types"
 import { tr, useTr } from "../../i18n/text";
 import { ChevronDown, Gamepad2, Settings2, Users } from "lucide-react";
 
+/**
+ * Faixa aceita para o delay entre pedidos de amizade, em segundos. É a mesma
+ * do backend (`resolve_friend_delay_ms` limita a 500–60000 ms): um campo que
+ * mostra 0,1 s enquanto o backend usa 0,5 s estaria mentindo.
+ */
+const FRIEND_DELAY_MIN_S = 0.5;
+const FRIEND_DELAY_MAX_S = 60;
+const FRIEND_DELAY_DEFAULT_S = 2.5;
+
 export function BottomActionBar() {
   const t = useTr();
   const store = useStore();
@@ -101,7 +110,7 @@ export function BottomActionBar() {
         userIds: accounts.map((a) => a.UserID),
         mode,
         mainUserId: mode === "star" ? mainUserId : null,
-        delayMs: null,
+        delayMs: friendDelayMs(),
       });
       store.addToast(
         tr("Friends linked: {{ok}} formed, {{already}} already, {{fail}} failed (of {{total}} pairs)", {
@@ -224,6 +233,51 @@ export function BottomActionBar() {
    * já tinham terminado. O estado morava aqui num `useState` + listener
    * duplicado na sidebar; agora os dois leem a mesma fonte.
    */
+  /**
+   * Segundos entre pedidos de amizade. O ritmo é o que decide se o Roblox
+   * aplica rate limit (ou pede captcha) no lote inteiro, e o controle existia
+   * só na barra lateral de multi-seleção — que ninguém conseguia abrir e foi
+   * apagada, deixando o valor editável apenas pelo INI.
+   *
+   * Guardado em `Friends.RequestDelayMs` (o mesmo que o backend já consultava
+   * quando o pedido vem sem delay explícito): ajustar uma vez basta.
+   */
+  const savedDelayMs = Number(store.settings?.Friends?.RequestDelayMs);
+  const savedDelaySeconds =
+    Number.isFinite(savedDelayMs) && savedDelayMs > 0 ? savedDelayMs / 1000 : FRIEND_DELAY_DEFAULT_S;
+  const [friendDelay, setFriendDelay] = useState(String(savedDelaySeconds));
+
+  // A tela pode abrir antes de as settings chegarem; quando chegam, o campo
+  // acompanha — desde que o usuário ainda não tenha digitado nada nele.
+  const delayTouchedRef = useRef(false);
+  useEffect(() => {
+    if (!delayTouchedRef.current) setFriendDelay(String(savedDelaySeconds));
+  }, [savedDelaySeconds]);
+
+  /** Fecha a edição: limita à faixa que o backend respeita e persiste. */
+  function commitFriendDelay() {
+    const parsed = parseFloat(friendDelay.replace(",", "."));
+    const seconds = Number.isFinite(parsed)
+      ? Math.min(Math.max(parsed, FRIEND_DELAY_MIN_S), FRIEND_DELAY_MAX_S)
+      : savedDelaySeconds;
+    setFriendDelay(String(seconds));
+    delayTouchedRef.current = false;
+    const ms = Math.round(seconds * 1000);
+    if (ms === Math.round(savedDelaySeconds * 1000)) return;
+    invoke("update_setting", { section: "Friends", key: "RequestDelayMs", value: String(ms) })
+      .then(() => store.reloadSettings())
+      .catch((e) => store.addToast(tr("Could not save: {{error}}", { error: String(e) })));
+  }
+
+  /** O que vai no `invoke`: o campo manda, já limitado. */
+  function friendDelayMs(): number {
+    const parsed = parseFloat(friendDelay.replace(",", "."));
+    const seconds = Number.isFinite(parsed)
+      ? Math.min(Math.max(parsed, FRIEND_DELAY_MIN_S), FRIEND_DELAY_MAX_S)
+      : savedDelaySeconds;
+    return Math.round(seconds * 1000);
+  }
+
   const friendLink = store.friendLinkState;
   const friendPhaseLabel =
     friendLink && friendLink.active && friendLink.total > 0
@@ -325,6 +379,27 @@ export function BottomActionBar() {
                 </button>
                 {friendMenuOpen && (
                   <div className="theme-panel theme-border absolute bottom-0 right-full mr-1 border rounded-xl shadow-2xl z-40 py-1 w-56 animate-scale-in max-h-72 overflow-y-auto">
+                    <label className="flex items-center justify-between gap-2 px-3 py-1.5 text-[12px] theme-muted">
+                      <span>{t("Delay between requests (s)")}</span>
+                      <input
+                        type="number"
+                        min={FRIEND_DELAY_MIN_S}
+                        max={FRIEND_DELAY_MAX_S}
+                        step={0.5}
+                        value={friendDelay}
+                        onChange={(e) => {
+                          delayTouchedRef.current = true;
+                          setFriendDelay(e.target.value);
+                        }}
+                        onBlur={commitFriendDelay}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitFriendDelay();
+                        }}
+                        title={t("Roblox rate-limits new accounts. Slower is safer.")}
+                        className="sidebar-input w-16 text-[12px] tabular-nums text-right"
+                      />
+                    </label>
+                    <div className="theme-border h-px border-t my-1" />
                     <button
                       onClick={() => handleMakeFriends("mesh", null)}
                       className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)]"
