@@ -297,6 +297,57 @@ async fn launch_account_for_cycle(
 }
 
 #[cfg(target_os = "windows")]
+/// Publica o fim de um ciclo do Botting: o evento que a UI ja ouvia **e** a
+/// linha no console.
+///
+/// As duas passagens (fila inicial e laco permanente) chamam daqui de
+/// proposito. Era exatamente esse o buraco que o console tinha: acao de
+/// Botting nao aparecia no historico porque so o `launch.rs` escrevia linha.
+#[cfg(target_os = "windows")]
+fn emit_botting_cycle(
+    app: &tauri::AppHandle,
+    user_id: i64,
+    ok: bool,
+    error: &Option<String>,
+    // `(segundos ate a proxima tentativa, foi rate limit, numero da tentativa)`
+    falha: Option<(i64, bool, u32)>,
+) {
+    let _ = app.emit(
+        "botting-account-cycle",
+        serde_json::json!({
+            "userId": user_id,
+            "ok": ok,
+            "error": error,
+        }),
+    );
+
+    if ok {
+        emit_launch_log(app, user_id, "success", "botting", "Entrou no jogo pelo ciclo do Botting");
+        return;
+    }
+
+    let motivo = error
+        .clone()
+        .unwrap_or_else(|| String::from("erro desconhecido"));
+    match falha {
+        Some((delay, true, tentativa)) => emit_launch_log(
+            app,
+            user_id,
+            "warn",
+            "botting-retry",
+            format!("Rate limit do Roblox (tentativa {tentativa}) — nova tentativa em {delay}s: {motivo}"),
+        ),
+        Some((delay, false, tentativa)) => emit_launch_log(
+            app,
+            user_id,
+            "error",
+            "botting-retry",
+            format!("Falha no ciclo (tentativa {tentativa}) — nova tentativa em {delay}s: {motivo}"),
+        ),
+        None => emit_launch_log(app, user_id, "error", "botting", format!("Falha no ciclo: {motivo}")),
+    }
+}
+
 async fn run_botting_session(
     app: tauri::AppHandle,
     session_id: u64,
@@ -311,6 +362,24 @@ async fn run_botting_session(
         .unwrap_or_else(|_| Vec::new());
     let mut last_launch_at: Option<std::time::Instant> = None;
     let mut auth429_cooldowns: HashMap<i64, std::time::Instant> = HashMap::new();
+    // Quantas vezes cada conta ja foi reiniciada nesta sessao. O usuario pediu
+    // esse numero no console, e nao existe em lugar nenhum do estado.
+    let mut restarts: HashMap<i64, u32> = HashMap::new();
+
+    if let Ok(cfg) = config.lock() {
+        emit_session_log(
+            &app,
+            "info",
+            "botting",
+            format!(
+                "Botting Mode iniciado — {} conta(s), place {}, ciclo de {} min, {}s entre launches",
+                initial_user_ids.len(),
+                cfg.place_id,
+                cfg.interval_minutes,
+                cfg.launch_delay_seconds
+            ),
+        );
+    }
 
     for uid in &initial_user_ids {
         if stop_flag.load(Ordering::Relaxed) {
@@ -377,6 +446,9 @@ async fn run_botting_session(
         let now = now_ms();
         let launch_ok = launch_result.is_ok();
         let launch_error = launch_result.err();
+        // O que o console precisa dizer sobre a falha e calculado dentro do
+        // lock (delay, tentativa) e publicado fora dele.
+        let mut falha: Option<(i64, bool, u32)> = None;
 
         if let Ok(mut map) = accounts.lock() {
             if let Some(entry) = map.get_mut(uid) {
@@ -417,17 +489,11 @@ async fn run_botting_session(
                     entry.phase = "retry-backoff";
                     entry.last_error = launch_error.clone();
                     entry.next_restart_at_ms = Some(now + delay * 1000);
+                    falha = Some((delay, is_429, entry.retry_count));
                 }
             }
         }
-        let _ = app.emit(
-            "botting-account-cycle",
-            serde_json::json!({
-                "userId": uid,
-                "ok": launch_ok,
-                "error": launch_error,
-            }),
-        );
+        emit_botting_cycle(&app, *uid, launch_ok, &launch_error, falha);
         emit_botting_status(&app);
     }
 
@@ -517,12 +583,24 @@ async fn run_botting_session(
             if stop_flag.load(Ordering::Relaxed) {
                 break;
             }
+            let numero = restarts.entry(uid).or_insert(0);
+            *numero = numero.saturating_add(1);
+            let numero = *numero;
+            emit_launch_log(
+                &app,
+                uid,
+                "info",
+                "botting",
+                format!("Reiniciando a conta (reinicio #{numero} nesta sessao)"),
+            );
+
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;
             if !closed {
                 let pid_hint = tracker
                     .get_pid(uid)
                     .map(|pid| format!(" (pid {})", pid))
                     .unwrap_or_default();
+                let mut atraso = 0u64;
                 if let Ok(mut map) = accounts.lock() {
                     if let Some(entry) = map.get_mut(&uid) {
                         entry.retry_count = entry.retry_count.saturating_add(1);
@@ -541,8 +619,18 @@ async fn run_botting_session(
                             now_ms()
                                 .saturating_add((retry_delay_seconds as i64).saturating_mul(1000)),
                         );
+                        atraso = retry_delay_seconds;
                     }
                 }
+                emit_launch_log(
+                    &app,
+                    uid,
+                    "warn",
+                    "botting-retry",
+                    format!(
+                        "O cliente anterior nao fechou a tempo{pid_hint} — nova tentativa em {atraso}s"
+                    ),
+                );
                 emit_botting_status(&app);
                 continue;
             }
@@ -561,6 +649,7 @@ async fn run_botting_session(
             let now_after = now_ms();
             let launch_ok = launch_result.is_ok();
             let launch_error = launch_result.err();
+            let mut falha: Option<(i64, bool, u32)> = None;
 
             if let Ok(mut map) = accounts.lock() {
                 if let Some(entry) = map.get_mut(&uid) {
@@ -615,18 +704,12 @@ async fn run_botting_session(
                         entry.last_error = launch_error.clone();
                         entry.next_restart_at_ms = Some(now_after + delay * 1000);
                         entry.is_player = is_player;
+                        falha = Some((delay, is_429, entry.retry_count));
                     }
                 }
             }
 
-            let _ = app.emit(
-                "botting-account-cycle",
-                serde_json::json!({
-                    "userId": uid,
-                    "ok": launch_ok,
-                    "error": launch_error,
-                }),
-            );
+            emit_botting_cycle(&app, uid, launch_ok, &launch_error, falha);
             emit_botting_status(&app);
         }
 
@@ -641,6 +724,7 @@ async fn run_botting_session(
         BOTTING_MANAGER.replace_session(None);
     }
     stopped_notify.notify_waiters();
+    emit_session_log(&app, "info", "botting", "Botting Mode parado");
     let _ = app.emit("botting-stopped", serde_json::json!({}));
     emit_botting_status(&app);
 }

@@ -634,7 +634,7 @@ function ConsoleTab() {
       <div className="shrink-0 flex items-center justify-between px-1 pb-2">
         <span className="text-[11px] theme-muted">
           {logs.length === 0
-            ? t("No launch activity yet")
+            ? t("No activity yet")
             : t("{{count}} log lines", { count: logs.length })}
         </span>
         <button
@@ -657,7 +657,9 @@ function ConsoleTab() {
         {logs.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
             <Terminal size={22} strokeWidth={1.5} />
-            <p className="text-[11px]">{t("Launch a game to see live progress here")}</p>
+            <p className="text-[11px]">
+              {t("Launch a game or start Botting Mode to see the activity here")}
+            </p>
           </div>
         ) : (
           logs.map((log) => {
@@ -666,6 +668,21 @@ function ConsoleTab() {
               <div key={log.id} className="flex items-start gap-2 py-0.5">
                 <span className="theme-muted shrink-0 tabular-nums">{fmtTime(log.ts)}</span>
                 <span className={`shrink-0 w-1.5 h-1.5 rounded-full mt-[6px] ${style.dot}`} />
+                {/* De onde veio a linha. O `step` sempre existiu no evento e
+                    nunca era desenhado; agora que o console tem launch,
+                    Botting e Watcher juntos, ele é o que separa um do outro. */}
+                {log.step ? (
+                  <span
+                    data-testid="log-step"
+                    // Largura fixa: sem ela, `[watcher]` e `[botting-retry]`
+                    // empurram o nome da conta para colunas diferentes e a
+                    // leitura vertical do log se perde.
+                    className="shrink-0 theme-muted w-[104px] truncate"
+                    title={log.step}
+                  >
+                    [{log.step}]
+                  </span>
+                ) : null}
                 <span className="shrink-0 text-[var(--accent-color)] max-w-[120px] truncate">
                   {nameFor(log.userId)}
                 </span>
@@ -821,7 +838,7 @@ export function ChooseGameScreen() {
     {
       id: "console",
       label: t("Console"),
-      hint: t("Live launch log: which account is joining which game, auth ticket, isolation, process PID and errors."),
+      hint: t("Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line."),
     },
     {
       id: "windows",
