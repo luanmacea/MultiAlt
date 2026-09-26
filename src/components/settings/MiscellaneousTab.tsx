@@ -95,7 +95,7 @@ export function MiscellaneousTab({
       <div className="flex items-center justify-between gap-3 py-2 px-1 rounded-lg border border-zinc-800/70 bg-zinc-900/35">
         <div className="min-w-0">
           <div className="text-[13px] text-zinc-200">{t("Backups")}</div>
-          <div className="text-[11px] text-zinc-500 mt-0.5">
+          <div className="text-[12px] text-zinc-500 mt-0.5">
             {t("Save and restore a copy of your accounts, settings, scripts and themes.")}
           </div>
         </div>
@@ -113,7 +113,7 @@ export function MiscellaneousTab({
       <div className="flex items-center justify-between gap-3 py-2 px-1 rounded-lg border border-zinc-800/70 bg-zinc-900/35">
         <div className="min-w-0">
           <div className="text-[13px] text-zinc-200">{t("Change Encryption Method")}</div>
-          <div className="text-[11px] text-zinc-500 mt-0.5">
+          <div className="text-[12px] text-zinc-500 mt-0.5">
             {t("Re-encrypts your current AccountData.json with the selected method.")}
           </div>
         </div>
@@ -130,7 +130,7 @@ export function MiscellaneousTab({
         <div className="flex items-center justify-between gap-3 py-2 px-1 mt-2 rounded-lg border border-zinc-800/70 bg-zinc-900/35">
           <div className="min-w-0">
             <div className="text-[13px] text-zinc-200">{t("Stay signed in on this computer")}</div>
-            <div className="text-[11px] text-zinc-500 mt-0.5">
+            <div className="text-[12px] text-zinc-500 mt-0.5">
               {remembered.active
                 ? t("Your password is stored for this Windows user, protected by the system, and expires on its own.")
                 : t("Not stored. Tick the box on the password screen to skip typing it for a while.")}

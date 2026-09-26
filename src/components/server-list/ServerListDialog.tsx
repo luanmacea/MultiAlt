@@ -115,7 +115,7 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
           <div className="flex items-center gap-2.5">
             <h2 className="text-[15px] font-semibold text-zinc-100 tracking-tight">{t("Server List")}</h2>
             {userId && (
-              <span className="text-[10px] text-zinc-600 bg-zinc-800/60 px-2 py-0.5 rounded">
+              <span className="text-[11px] text-zinc-600 bg-zinc-800/60 px-2 py-0.5 rounded">
                 {store.selectedAccount?.Alias || store.selectedAccount?.Username}
               </span>
             )}

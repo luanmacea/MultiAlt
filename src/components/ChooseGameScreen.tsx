@@ -191,15 +191,15 @@ function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoTo
           <Link2 size={14} strokeWidth={1.5} />
           {t("Join link")}
         </h3>
-        <span className="text-[10px] bg-[var(--accent-soft)] text-[var(--accent-color)] px-2 py-0.5 rounded-md font-medium">
+        <span className="text-[11px] bg-[var(--accent-soft)] text-[var(--accent-color)] px-2 py-0.5 rounded-md font-medium">
           {userIds.length === 1 ? t("1 account") : t("{{count}} accounts", { count: userIds.length })}
         </span>
       </div>
-      <p className="text-[11px] theme-muted mb-4 leading-relaxed">
+      <p className="text-[12px] theme-muted mb-4 leading-relaxed">
         {t("Paste an experience invite, a VIP/private server link or a plain game link. All selected accounts join the same place.")}
       </p>
 
-      <label className="text-[11px] theme-label font-medium block mb-1.5">{t("Link")}</label>
+      <label className="text-[12px] theme-label font-medium block mb-1.5">{t("Link")}</label>
       <div className="flex gap-2 mb-3">
         <input
           value={link}
@@ -224,12 +224,12 @@ function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoTo
       </div>
 
       {resolved && (
-        <div className="flex items-center justify-between gap-2 text-[11px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-2">
+        <div className="flex items-center justify-between gap-2 text-[12px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-2">
           <span className="truncate">{describeTarget(resolved)}</span>
           {onGoToConsole && (
             <button
               onClick={onGoToConsole}
-              className="shrink-0 text-[11px] theme-muted hover:text-[var(--panel-fg)] transition-colors"
+              className="shrink-0 text-[12px] theme-muted hover:text-[var(--panel-fg)] transition-colors"
             >
               {t("View console")}
             </button>
@@ -238,7 +238,7 @@ function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoTo
       )}
 
       {resolved?.note && (
-        <div className="flex items-start gap-2 text-[11px] text-amber-400 bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-2 leading-relaxed">
+        <div className="flex items-start gap-2 text-[12px] text-amber-400 bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-2 leading-relaxed">
           <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
           <span>
             {t("This invite is no longer valid ({{note}}) — joining the game's public servers instead.", {
@@ -249,7 +249,7 @@ function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoTo
       )}
 
       {error && (
-        <div className="flex items-start gap-2 text-[11px] text-red-400 bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 leading-relaxed">
+        <div className="flex items-start gap-2 text-[12px] text-red-400 bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 leading-relaxed">
           <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
           <span className="break-words">{error}</span>
         </div>
@@ -335,19 +335,19 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
       <div className="theme-panel theme-border border rounded-xl p-5 mb-4">
         <div className="flex items-start justify-between mb-1">
           <h3 className="text-sm font-semibold text-[var(--panel-fg)]">{t("Follow a Player")}</h3>
-          <span className="text-[10px] bg-[var(--accent-soft)] text-[var(--accent-color)] px-2 py-0.5 rounded-md font-medium">
+          <span className="text-[11px] bg-[var(--accent-soft)] text-[var(--accent-color)] px-2 py-0.5 rounded-md font-medium">
             {userIds.length === 1
               ? t("1 account")
               : t("{{count}} accounts", { count: userIds.length })}
           </span>
         </div>
-        <p className="text-[11px] theme-muted mb-4 leading-relaxed">
+        <p className="text-[12px] theme-muted mb-4 leading-relaxed">
           {userIds.length === 1
             ? t("This account will join the game that this player is currently in.")
             : t("All {{count}} selected accounts will join the same game that this player is currently in, launched one at a time.", { count: userIds.length })}
         </p>
 
-        <label className="text-[11px] theme-label font-medium block mb-1.5">
+        <label className="text-[12px] theme-label font-medium block mb-1.5">
           {t("Roblox Username")}
         </label>
         <div className="flex gap-2 mb-3">
@@ -369,7 +369,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
           </button>
         </div>
 
-        <div className="text-[11px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed">
+        <div className="text-[12px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed">
           ℹ️ {t("If the player is not currently in a game, you'll be asked to confirm before proceeding. The player's profile must be public.")}
         </div>
       </div>
@@ -395,7 +395,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
               className="sidebar-btn-tool flex items-center gap-2 text-left"
             >
               <span>{icon}</span>
-              <span className="text-[11px]">{label}</span>
+              <span className="text-[12px]">{label}</span>
             </button>
           ))}
         </div>
@@ -510,7 +510,7 @@ function GridControls() {
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="min-w-0">
           <h3 className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Window layout")}</h3>
-          <p className="text-[11px] theme-muted">
+          <p className="text-[12px] theme-muted">
             {t("Tile all open Roblox windows across the selected monitors.")}
           </p>
         </div>
@@ -527,7 +527,7 @@ function GridControls() {
 
       <div className="flex flex-wrap items-center gap-1.5">
         {monitors.length === 0 ? (
-          <span className="text-[10px] theme-muted">{t("No monitors detected")}</span>
+          <span className="text-[11px] theme-muted">{t("No monitors detected")}</span>
         ) : (
           monitors.map((m) => {
             const on = selected.has(m.index);
@@ -535,7 +535,7 @@ function GridControls() {
               <button
                 key={m.index}
                 onClick={() => toggleMonitor(m.index)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[11px] transition-colors ${
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[12px] transition-colors ${
                   on
                     ? "border-[var(--accent-color)] text-[var(--panel-fg)] bg-[var(--accent-soft)]"
                     : "theme-border theme-muted hover:text-[var(--panel-fg)]"
@@ -560,7 +560,7 @@ function GridControls() {
         )}
 
         <div className="flex items-center gap-1.5 ml-auto">
-          <label className="text-[10px] theme-label">{t("Gap")}</label>
+          <label className="text-[11px] theme-label">{t("Gap")}</label>
           <input
             type="number"
             min={0}
@@ -573,7 +573,7 @@ function GridControls() {
             }}
             className="sidebar-input w-16 text-xs tabular-nums"
           />
-          <span className="text-[10px] theme-muted">px</span>
+          <span className="text-[11px] theme-muted">px</span>
         </div>
       </div>
     </div>
@@ -632,7 +632,7 @@ function ConsoleTab() {
       </div>
 
       <div className="shrink-0 flex items-center justify-between px-1 pb-2">
-        <span className="text-[11px] theme-muted">
+        <span className="text-[12px] theme-muted">
           {logs.length === 0
             ? t("No activity yet")
             : t("{{count}} log lines", { count: logs.length })}
@@ -640,7 +640,7 @@ function ConsoleTab() {
         <button
           onClick={() => store.clearLaunchLogs()}
           disabled={logs.length === 0}
-          className="flex items-center gap-1.5 text-[11px] theme-muted hover:text-[var(--panel-fg)] px-2 py-1 rounded-md theme-btn-ghost border theme-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 text-[12px] theme-muted hover:text-[var(--panel-fg)] px-2 py-1 rounded-md theme-btn-ghost border theme-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <Trash2 size={12} strokeWidth={1.5} />
           {t("Clear")}
@@ -652,12 +652,12 @@ function ConsoleTab() {
         onScroll={onScroll}
         // Piso de 160px: sem ele o Painel de Sessão cheio espremia o log a
         // ~2px de texto visível (26px com 24px de padding).
-        className="flex-1 min-h-[160px] overflow-y-auto rounded-lg border theme-border bg-[var(--panel-soft)] font-mono text-[11px] leading-relaxed p-3"
+        className="flex-1 min-h-[160px] overflow-y-auto rounded-lg border theme-border bg-[var(--panel-soft)] font-mono text-[12px] leading-relaxed p-3"
       >
         {logs.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
             <Terminal size={22} strokeWidth={1.5} />
-            <p className="text-[11px]">
+            <p className="text-[12px]">
               {t("Launch a game or start Botting Mode to see the activity here")}
             </p>
           </div>
@@ -676,8 +676,11 @@ function ConsoleTab() {
                     data-testid="log-step"
                     // Largura fixa: sem ela, `[watcher]` e `[botting-retry]`
                     // empurram o nome da conta para colunas diferentes e a
-                    // leitura vertical do log se perde.
-                    className="shrink-0 theme-muted w-[104px] truncate"
+                    // leitura vertical do log se perde. 112px é o `[botting-retry]`
+                    // medido na tela (108px na fonte mono de 12px) com folga —
+                    // a 104px de antes ele passou a ser cortado quando a fonte
+                    // do app subiu de 11 para 12.
+                    className="shrink-0 theme-muted w-[112px] truncate"
                     title={log.step}
                   >
                     [{log.step}]
@@ -859,7 +862,7 @@ export function ChooseGameScreen() {
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={() => store.setChooseGameOpen(false)}
-            className="flex items-center gap-1.5 text-[11px] theme-muted hover:text-[var(--panel-fg)] px-2.5 py-1.5 rounded-md theme-btn-ghost border theme-border transition-colors"
+            className="flex items-center gap-1.5 text-[12px] theme-muted hover:text-[var(--panel-fg)] px-2.5 py-1.5 rounded-md theme-btn-ghost border theme-border transition-colors"
           >
             <ArrowLeft size={13} strokeWidth={1.5} />
             {t("Back")}
@@ -868,7 +871,7 @@ export function ChooseGameScreen() {
             <h2 className="text-sm font-semibold text-[var(--panel-fg)]">
               {t("Choose Game")}
             </h2>
-            <p className="text-[10px] theme-muted">
+            <p className="text-[11px] theme-muted">
               {accounts.length === 1
                 ? t("1 account will be launched")
                 : t("{{count}} accounts will be launched together", { count: accounts.length })}
@@ -885,7 +888,7 @@ export function ChooseGameScreen() {
             return (
               <div
                 key={a.UserID}
-                className="group flex items-center gap-1.5 bg-[var(--panel-soft)] border theme-border rounded-full pl-0.5 pr-1 py-0.5 text-[11px] text-[var(--panel-fg)]"
+                className="group flex items-center gap-1.5 bg-[var(--panel-soft)] border theme-border rounded-full pl-0.5 pr-1 py-0.5 text-[12px] text-[var(--panel-fg)]"
               >
                 {avatarUrl ? (
                   <img src={avatarUrl} alt="" className="w-4 h-4 rounded-full" />
@@ -912,7 +915,7 @@ export function ChooseGameScreen() {
             );
           })}
           {accounts.length > 8 && (
-            <div className="bg-[var(--panel-soft)] border theme-border rounded-full px-2.5 py-0.5 text-[11px] theme-muted">
+            <div className="bg-[var(--panel-soft)] border theme-border rounded-full px-2.5 py-0.5 text-[12px] theme-muted">
               +{accounts.length - 8}
             </div>
           )}
@@ -939,12 +942,12 @@ export function ChooseGameScreen() {
       {/* ── Tab hint ── */}
       {activeHint && (
         <div className="shrink-0 px-4 pt-2.5 pb-0">
-          <div className="flex items-center gap-3 text-[11px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed border theme-border">
+          <div className="flex items-center gap-3 text-[12px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed border theme-border">
             <p className="min-w-0">💡 {activeHint}</p>
             {activeAction && (
               <button
                 onClick={activeAction.onClick}
-                className="shrink-0 ml-auto flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md theme-btn-ghost border theme-border text-[var(--panel-fg)] transition-colors"
+                className="shrink-0 ml-auto flex items-center gap-1.5 text-[12px] px-2.5 py-1 rounded-md theme-btn-ghost border theme-border text-[var(--panel-fg)] transition-colors"
               >
                 <Link2 size={12} strokeWidth={1.5} />
                 {activeAction.label}
@@ -1023,7 +1026,7 @@ export function ChooseGameScreen() {
       {/* ── Launch progress ── */}
       {store.launchProgress && (
         <div className="shrink-0 px-4 py-2.5 border-t theme-border bg-[var(--panel-soft)] animate-fade-in">
-          <div className="flex items-center gap-2 text-[11px] theme-accent">
+          <div className="flex items-center gap-2 text-[12px] theme-accent">
             <span className="w-2 h-2 rounded-full bg-[var(--accent-color)] animate-pulse" />
             {store.launchProgress.mode === "multi"
               ? t("Launching {{current}}/{{total}} accounts...", {

@@ -528,7 +528,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
               <div className="text-sm font-medium text-zinc-100 truncate">
                 {account.Alias || account.Username}
               </div>
-              <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+              <div className="flex items-center gap-3 text-[12px] text-zinc-500">
                 <span className="font-mono">{account.UserID}</span>
                 {robux !== null && <span>R$ {robux.toLocaleString()}</span>}
                 <span>{emailStatus}</span>
@@ -576,7 +576,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
                 PIN da própria conta Roblox (nem a senha do app, nem a da
                 criptografia local) e que quem decide quanto tempo o desbloqueio
                 dura é o Roblox — o backend só lê `unlockedUntil`. */}
-            <p className="text-[11px] text-zinc-500">
+            <p className="text-[12px] text-zinc-500">
               {t(
                 "This is the Roblox account PIN set on roblox.com, not this app's password and not the encryption password. Unlocking it lets this account's Roblox settings be changed again; Roblox decides how long that lasts and re-locks the account on its own."
               )}
@@ -603,7 +603,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
               Danger Zone, igual ao que a sidebar de multi-seleção já usa. */}
           <SectionHeader>Danger Zone</SectionHeader>
           <div className="space-y-2 rounded-xl border border-red-500/20 bg-red-500/[0.04] p-2.5">
-            <p className="text-[11px] text-red-400/80">
+            <p className="text-[12px] text-red-400/80">
               {t(
                 'These change the real Roblox account "{{account}}", not just this app.',
                 { account: accountLabel }
@@ -667,24 +667,24 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
             </div>
             <button
               onClick={handleLoadBlocked}
-              className="text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors"
             >
               {blockedExpanded ? t("Hide blocked users") : t("View blocked users")}
             </button>
             {blockedExpanded && (
               <div className="bg-zinc-800/30 rounded-lg p-2 space-y-1 max-h-[120px] overflow-y-auto">
                 {blockedError && (
-                  <p className="text-[11px] text-zinc-500">{blockedError}</p>
+                  <p className="text-[12px] text-zinc-500">{blockedError}</p>
                 )}
                 {blockedUsers.length === 0 && !blockedError && (
-                  <p className="text-[11px] text-zinc-500">{t("No blocked users")}</p>
+                  <p className="text-[12px] text-zinc-500">{t("No blocked users")}</p>
                 )}
                 {blockedUsers.map((u) => (
                   <div key={u.userId} className="flex items-center justify-between">
                     <span className="text-xs text-zinc-300">{u.name}</span>
                     <button
                       onClick={() => handleUnblock(u.userId, u.name)}
-                      className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors"
+                      className="text-[11px] text-red-400/60 hover:text-red-400 transition-colors"
                     >
                       {t("Unblock")}
                     </button>
@@ -694,7 +694,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
                   <button
                     onClick={handleUnblockAll}
                     disabled={loading === "unblockall"}
-                    className="text-[10px] text-red-400/60 hover:text-red-400 transition-colors mt-1"
+                    className="text-[11px] text-red-400/60 hover:text-red-400 transition-colors mt-1"
                   >
                     {t("Unblock All ({{count}})", { count: blockedUsers.length })}
                   </button>
@@ -720,7 +720,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
             {outfitsLoaded && (
               <div className="bg-zinc-800/30 rounded-lg p-2 max-h-[140px] overflow-y-auto space-y-0.5">
                 {outfits.length === 0 && (
-                  <p className="text-[11px] text-zinc-500">{t("No outfits found")}</p>
+                  <p className="text-[12px] text-zinc-500">{t("No outfits found")}</p>
                 )}
                 {outfits.map((o) => (
                   <button
@@ -778,7 +778,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
 
           <SectionHeader>Custom Avatar JSON</SectionHeader>
           <div className="space-y-2">
-            <p className="text-[11px] text-zinc-500">
+            <p className="text-[12px] text-zinc-500">
               {t(
                 "Looking for an item by name instead? Use Wear Outfit above — it lists outfits by name and builds this JSON for you."
               )}
@@ -793,7 +793,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
               }`}
               spellCheck={false}
             />
-            {avatarJsonError && <p className="text-[11px] text-red-400">{avatarJsonError}</p>}
+            {avatarJsonError && <p className="text-[12px] text-red-400">{avatarJsonError}</p>}
             <UtilButton onClick={handleWearCustomAvatar} disabled={loading === "custom_avatar" || !!avatarJsonError}>
               Apply Avatar JSON
             </UtilButton>

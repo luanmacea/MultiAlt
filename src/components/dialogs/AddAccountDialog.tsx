@@ -168,7 +168,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
 
             <div className="my-1 border-t border-zinc-800/70" />
 
-            <p className="px-3 pt-1 text-[11px] text-zinc-500">{t("No account yet? Get a new one")}</p>
+            <p className="px-3 pt-1 text-[12px] text-zinc-500">{t("No account yet? Get a new one")}</p>
 
             {/*
               Mesmo texto do menu da toolbar, de propósito: uma cria de graça no
@@ -183,7 +183,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
               <UserPlus size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
               <span className="min-w-0">
                 {t("Create Accounts")}
-                <span className="block text-[11px] theme-muted leading-snug">
+                <span className="block text-[12px] theme-muted leading-snug">
                   {t("Free — the app fills Roblox's signup form; you solve the CAPTCHA")}
                 </span>
               </span>
@@ -196,7 +196,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
               <Sparkles size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
               <span className="min-w-0">
                 {t("Account Generator")}
-                <span className="block text-[11px] theme-muted leading-snug">
+                <span className="block text-[12px] theme-muted leading-snug">
                   {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
                 </span>
               </span>

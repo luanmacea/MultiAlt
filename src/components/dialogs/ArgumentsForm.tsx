@@ -132,7 +132,7 @@ export function ArgumentsForm({
           : { top: 0, left: 0, transformOrigin: "top right" }
       }
     >
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
         {t("Launch Arguments")}
       </div>
 

@@ -111,7 +111,7 @@ export function SingleSelectSidebar() {
               <div className="text-xs theme-muted truncate">@{account.Username}</div>
             )}
             {store.settings?.General?.ShowPresence === "true" && (
-              <div className={`inline-flex items-center gap-1 text-[10px] mt-0.5 ${presenceMeta.text}`}>
+              <div className={`inline-flex items-center gap-1 text-[11px] mt-0.5 ${presenceMeta.text}`}>
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${presenceMeta.dot} ${presenceType >= 1 ? "animate-pulse" : ""}`}
                   style={presenceMeta.dotStyle}
@@ -122,7 +122,7 @@ export function SingleSelectSidebar() {
           </div>
         </div>
 
-        <div className="mt-2 text-[11px]">
+        <div className="mt-2 text-[12px]">
           <span className={account.Valid ? "text-emerald-500" : "text-red-400"}>
             {account.Valid ? t("Valid") : t("Invalid")}
           </span>
@@ -135,7 +135,7 @@ export function SingleSelectSidebar() {
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         <SidebarSection title={t("Alias")}>
-          <p className="text-[10px] theme-muted mb-1.5">{t("Display name shown in the account list")}</p>
+          <p className="text-[11px] theme-muted mb-1.5">{t("Display name shown in the account list")}</p>
           <div className="flex gap-1.5">
             <input
               value={alias}
@@ -152,7 +152,7 @@ export function SingleSelectSidebar() {
         </SidebarSection>
 
         <SidebarSection title={t("Description")}>
-          <p className="text-[10px] theme-muted mb-1.5">{t("Private notes about this account")}</p>
+          <p className="text-[11px] theme-muted mb-1.5">{t("Private notes about this account")}</p>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -171,7 +171,7 @@ export function SingleSelectSidebar() {
             descrição precisam dizer que o ajuste vale para todas as contas. */}
         {installedVersions.length > 0 && (
           <SidebarSection title={t("Roblox Version (all accounts)")}>
-            <p className="text-[10px] theme-muted mb-1.5">{t("Global setting — every account launches with this version, not just this one.")}</p>
+            <p className="text-[11px] theme-muted mb-1.5">{t("Global setting — every account launches with this version, not just this one.")}</p>
             <Select
               value={store.settings?.Versions?.DefaultVersion ?? ""}
               options={[
@@ -188,7 +188,7 @@ export function SingleSelectSidebar() {
             />
             <button
               onClick={() => store.setVersionsDialogOpen(true)}
-              className="flex items-center gap-1 mt-1.5 text-[11px] text-sky-400 hover:text-sky-300"
+              className="flex items-center gap-1 mt-1.5 text-[12px] text-sky-400 hover:text-sky-300"
             >
               <Package size={11} strokeWidth={1.5} />
               {t("Manage versions...")}
@@ -197,7 +197,7 @@ export function SingleSelectSidebar() {
         )}
 
         <SidebarSection title={t("Tools")}>
-          <p className="text-[10px] theme-muted mb-1.5">{t("Account utilities and quick actions")}</p>
+          <p className="text-[11px] theme-muted mb-1.5">{t("Account utilities and quick actions")}</p>
           <div className="grid grid-cols-2 gap-1.5">
             <button
               onClick={() => store.setServerListOpen(true)}

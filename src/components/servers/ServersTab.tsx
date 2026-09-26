@@ -275,7 +275,11 @@ function JobIdCell({ jobId, onCopy }: { jobId: string; onCopy: (jobId: string) =
         }}
         title={t("{{jobId}} — click to copy", { jobId })}
         aria-label={t("Copy Job ID")}
-        className="w-[250px] shrink-0 truncate text-left text-[11px] font-mono theme-muted hover:text-[var(--panel-fg)] transition-colors"
+        // 264px é o Job ID inteiro medido na tela (259px na fonte mono de
+        // 12px) com folga: a 250px de antes ele passou a ser cortado quando a
+        // fonte do app subiu de 11 para 12, e um Job ID pela metade não serve
+        // para nada. A barra de ocupação ao lado é flexível e cede o espaço.
+        className="w-[264px] shrink-0 truncate text-left text-[12px] font-mono theme-muted hover:text-[var(--panel-fg)] transition-colors"
       >
         {jobId}
       </button>
@@ -548,7 +552,7 @@ export function ServersTab({
       {/* ── Controles ── */}
       <div className="shrink-0 flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] theme-muted">{t("Place ID")}</span>
+          <span className="text-[11px] theme-muted">{t("Place ID")}</span>
           <div className="relative">
             <Search
               size={12}
@@ -569,7 +573,7 @@ export function ServersTab({
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] theme-muted">{t("Sort by")}</span>
+          <span className="text-[11px] theme-muted">{t("Sort by")}</span>
           <select
             value={preference}
             onChange={(e) => store.setServerPreference(e.target.value as ServerPreference)}
@@ -585,7 +589,7 @@ export function ServersTab({
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] theme-muted">{t("Region")}</span>
+          <span className="text-[11px] theme-muted">{t("Region")}</span>
           <select
             value={regionFilter}
             onChange={(e) => store.setServerRegionFilter(e.target.value)}
@@ -602,7 +606,7 @@ export function ServersTab({
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-[10px] theme-muted">{t("Pages to scan")}</span>
+          <span className="text-[11px] theme-muted">{t("Pages to scan")}</span>
           <input
             type="number"
             min={1}
@@ -645,7 +649,7 @@ export function ServersTab({
 
       {/* ── Resumo do que está na tela ── */}
       {scan && (
-        <p className="shrink-0 flex items-center gap-1.5 text-[11px] theme-muted">
+        <p className="shrink-0 flex items-center gap-1.5 text-[12px] theme-muted">
           {!scan.done && <Loader2 size={11} className="animate-spin" />}
           {scan.fitting > 0
             ? t("{{fitting}} of {{scanned}} servers fit your {{accounts}} account(s).", {
@@ -685,12 +689,12 @@ export function ServersTab({
 
       {/* ── Lista ── */}
       <div className="flex-1 min-h-0 overflow-y-auto rounded-xl border theme-border theme-surface">
-        {error && <p className="text-[11px] text-red-400 p-4">{error}</p>}
+        {error && <p className="text-[12px] text-red-400 p-4">{error}</p>}
 
         {!error && rows === null && (
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10 px-6 text-center">
             <Server size={22} strokeWidth={1.5} />
-            <p className="text-[11px] max-w-[42ch]">
+            <p className="text-[12px] max-w-[42ch]">
               {t("Enter a Place ID to list its servers, or open a game from the Games tab.")}
             </p>
           </div>
@@ -699,13 +703,13 @@ export function ServersTab({
         {!error && rows !== null && visible.length === 0 && loading && (
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
             <Loader2 size={18} className="animate-spin" />
-            <p className="text-[11px]">{t("Looking for servers...")}</p>
+            <p className="text-[12px]">{t("Looking for servers...")}</p>
           </div>
         )}
         {!error && rows !== null && visible.length === 0 && !loading && (
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10 px-6 text-center">
             <Server size={22} strokeWidth={1.5} />
-            <p className="text-[11px] max-w-[42ch]">
+            <p className="text-[12px] max-w-[42ch]">
               {regionFilter
                 ? t("No server matched {{region}}. Load more regions or clear the filter.", {
                     region: regionFilter,
@@ -732,11 +736,11 @@ export function ServersTab({
                       <span className="text-[15px] tabular-nums text-[var(--panel-fg)]">
                         {row.playing}
                       </span>
-                      <span className="text-[11px] tabular-nums theme-muted">
+                      <span className="text-[12px] tabular-nums theme-muted">
                         / {row.maxPlayers}
                       </span>
                       <span
-                        className={`ml-auto text-[10px] tabular-nums ${
+                        className={`ml-auto text-[11px] tabular-nums ${
                           room ? "theme-muted" : "text-amber-400/80"
                         }`}
                       >
@@ -758,7 +762,7 @@ export function ServersTab({
                   {/* Região — flex-1: era a coluna de tamanho fixo (150px) que
                       truncava nomes de cidade enquanto o Job ID sobrava vazio
                       ao lado. Agora quem sobra é ela. */}
-                  <div className="flex-1 min-w-0 truncate text-[11px]">
+                  <div className="flex-1 min-w-0 truncate text-[12px]">
                     {region ? (
                       region.label ? (
                         <span className="text-[var(--panel-fg)]">{region.label}</span>
@@ -776,7 +780,7 @@ export function ServersTab({
                   <JobIdCell jobId={row.id} onCopy={handleCopyJobId} />
 
                   {/* Ping */}
-                  <div className="w-[64px] shrink-0 flex items-center justify-end gap-1 text-[11px] tabular-nums theme-muted">
+                  <div className="w-[64px] shrink-0 flex items-center justify-end gap-1 text-[12px] tabular-nums theme-muted">
                     <Wifi size={11} strokeWidth={1.5} />
                     {row.ping ?? "—"}
                   </div>
@@ -789,7 +793,7 @@ export function ServersTab({
                         ? undefined
                         : t("Not enough room for {{count}} accounts", { count: batchSize })
                     }
-                    className="shrink-0 px-3 py-1 rounded-lg text-[11px] theme-btn-ghost border theme-border text-[var(--panel-fg)] disabled:opacity-30 transition-colors"
+                    className="shrink-0 px-3 py-1 rounded-lg text-[12px] theme-btn-ghost border theme-border text-[var(--panel-fg)] disabled:opacity-30 transition-colors"
                   >
                     {joining === row.id ? t("Joining...") : t("Join")}
                   </button>

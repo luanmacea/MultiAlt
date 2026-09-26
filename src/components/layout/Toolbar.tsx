@@ -273,7 +273,7 @@ export function Toolbar() {
                 <UserPlus size={14} strokeWidth={1.5} className="theme-muted mt-0.5 shrink-0" />
                 <span className="min-w-0">
                   {t("Create Accounts")}
-                  <span className="block text-[11px] theme-muted leading-snug">
+                  <span className="block text-[12px] theme-muted leading-snug">
                     {t("Free — the app fills Roblox's signup form; you solve the CAPTCHA")}
                   </span>
                 </span>
@@ -285,7 +285,7 @@ export function Toolbar() {
                 <Sparkles size={14} strokeWidth={1.5} className="theme-muted mt-0.5 shrink-0" />
                 <span className="min-w-0">
                   {t("Account Generator")}
-                  <span className="block text-[11px] theme-muted leading-snug">
+                  <span className="block text-[12px] theme-muted leading-snug">
                     {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
                   </span>
                 </span>

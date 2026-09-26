@@ -206,7 +206,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
           <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-2.5">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-widest text-zinc-600 font-medium">
+                <div className="text-[12px] uppercase tracking-widest text-zinc-600 font-medium">
                   {t("Data folder")}
                 </div>
                 <div
@@ -216,7 +216,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
                   {info?.dir || "—"}
                 </div>
                 {info && (
-                  <div className="mt-1 text-[11px] text-zinc-500">
+                  <div className="mt-1 text-[12px] text-zinc-500">
                     {t("{{n}} backups", { n: info.count })} ·{" "}
                     {formatBytes(info.totalBytes)}
                   </div>
@@ -232,7 +232,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
               </button>
             </div>
             {info?.portable && (
-              <div className="mt-2.5 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-300">
+              <div className="mt-2.5 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[12px] text-amber-300">
                 <AlertTriangle size={13} strokeWidth={1.75} className="mt-px shrink-0" />
                 <span>
                   {t(
@@ -246,14 +246,14 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
           {error && (
             <div
               role="alert"
-              className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 text-[11px] text-rose-300"
+              className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 text-[12px] text-rose-300"
             >
               {error}
             </div>
           )}
 
           {report && (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-[11px] text-emerald-200 space-y-1">
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-[12px] text-emerald-200 space-y-1">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[12px] font-medium">{t("Backup restored")}</span>
                 <button
@@ -311,7 +311,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
           )}
 
           <div className="flex items-center justify-between">
-            <div className="text-[11px] text-zinc-500">
+            <div className="text-[12px] text-zinc-500">
               {t("A backup keeps a copy of your accounts, settings, scripts and themes.")}
             </div>
             <button
@@ -352,18 +352,18 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
                         {entryTitle(entry)}
                       </span>
                       {entry.automatic && (
-                        <span className="px-1.5 py-0.5 rounded bg-zinc-700/50 text-[10px] text-zinc-300 shrink-0">
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-700/50 text-[11px] text-zinc-300 shrink-0">
                           {t("Automatic")}
                         </span>
                       )}
                       {!entry.valid && (
-                        <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-[10px] text-rose-300 shrink-0">
+                        <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-[11px] text-rose-300 shrink-0">
                           {t("Invalid")}
                         </span>
                       )}
                     </div>
                     <div
-                      className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-500 truncate"
+                      className="mt-0.5 flex items-center gap-2 text-[12px] text-zinc-500 truncate"
                       title={absoluteDate(entry.createdAt)}
                     >
                       <span>{relativeLabel(entry.createdAt, t)}</span>
@@ -374,7 +374,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
                         {t("{{n}} files", { n: entry.files.length })}
                       </span>
                     </div>
-                    <div className="mt-0.5 text-[10px] font-mono text-zinc-600 truncate">
+                    <div className="mt-0.5 text-[11px] font-mono text-zinc-600 truncate">
                       {entry.fileName}
                     </div>
                   </div>
@@ -387,7 +387,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
                           ? t("Restore this backup")
                           : t("This backup is damaged and cannot be restored")
                       }
-                      className="flex items-center gap-1.5 rounded-lg border border-zinc-700/70 bg-zinc-800 px-2.5 py-1 text-[11px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1.5 rounded-lg border border-zinc-700/70 bg-zinc-800 px-2.5 py-1 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <RotateCcw size={12} strokeWidth={1.75} />
                       {t("Restore")}
@@ -409,7 +409,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
 
         <div className="h-px bg-zinc-800/60 mx-5" />
         <div className="flex items-center justify-between px-5 py-3 shrink-0">
-          <span className="text-[10px] text-zinc-600">
+          <span className="text-[11px] text-zinc-600">
             {t("Restoring replaces the files in your data folder.")}
           </span>
           <button

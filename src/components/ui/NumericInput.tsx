@@ -174,7 +174,7 @@ export function NumericInput({
             type="button"
             aria-label={incrementLabel}
             disabled={disabled}
-            className="flex h-1/2 items-center justify-center border-b theme-border text-[9px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[rgba(255,255,255,0.06)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex h-1/2 items-center justify-center border-b theme-border text-[11px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[rgba(255,255,255,0.06)] transition disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={() => nudge(1)}
           >
             ^
@@ -183,7 +183,7 @@ export function NumericInput({
             type="button"
             aria-label={decrementLabel}
             disabled={disabled}
-            className="flex h-1/2 items-center justify-center text-[9px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[rgba(255,255,255,0.06)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex h-1/2 items-center justify-center text-[11px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[rgba(255,255,255,0.06)] transition disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={() => nudge(-1)}
           >
             v

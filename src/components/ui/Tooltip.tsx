@@ -135,7 +135,7 @@ export function Tooltip({
             >
               <div
                 className={[
-                  "relative theme-panel border theme-border rounded-lg px-2.5 py-2 shadow-2xl text-[11px] text-[var(--panel-fg)]",
+                  "relative theme-panel border theme-border rounded-lg px-2.5 py-2 shadow-2xl text-[12px] text-[var(--panel-fg)]",
                   "animate-tooltip-pop",
                   pos.side === "top" ? "origin-bottom" : "origin-top",
                 ].join(" ")}

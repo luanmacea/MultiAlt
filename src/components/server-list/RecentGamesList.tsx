@@ -112,12 +112,12 @@ export function RecentGamesList({
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center justify-between px-1 pb-2">
-        <span className="text-[10px] text-zinc-600">{t("{{count}} of {{max}} max", { count: games.length, max: maxRecent })}</span>
+        <span className="text-[11px] text-zinc-600">{t("{{count}} of {{max}} max", { count: games.length, max: maxRecent })}</span>
         <button
           onClick={() => {
             void handleClear();
           }}
-          className="text-[10px] text-zinc-600 hover:text-red-400 transition-colors"
+          className="text-[11px] text-zinc-600 hover:text-red-400 transition-colors"
         >
           {t("Clear all")}
         </button>
@@ -157,9 +157,9 @@ export function RecentGamesList({
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[12px] text-zinc-200 truncate">{game.name}</div>
-                <div className="text-[10px] text-zinc-600 font-mono">{t("ID: {{id}}", { id: game.placeId })}</div>
+                <div className="text-[11px] text-zinc-600 font-mono">{t("ID: {{id}}", { id: game.placeId })}</div>
               </div>
-              <span className="text-[10px] text-zinc-600 shrink-0">{formatTime(game.lastPlayed)}</span>
+              <span className="text-[11px] text-zinc-600 shrink-0">{formatTime(game.lastPlayed)}</span>
               {/* Mesmas ações da aba Games: aqui a lista só sabia lançar. */}
               <GameRowActions
                 placeId={game.placeId}

@@ -68,7 +68,7 @@ function renderMarkdown(src: string): React.ReactNode[] {
 
       if (match[1]) {
         parts.push(
-          <code key={key++} className="font-mono text-[11px] px-1 py-0.5 rounded bg-black/30 border border-white/10 text-zinc-200">
+          <code key={key++} className="font-mono text-[12px] px-1 py-0.5 rounded bg-black/30 border border-white/10 text-zinc-200">
             {match[1]}
           </code>
         );
@@ -166,11 +166,11 @@ function renderMarkdown(src: string): React.ReactNode[] {
         nodes.push(
           <div key={key++} className="my-2 rounded-lg border theme-border bg-black/25 overflow-hidden">
             {lang ? (
-              <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-zinc-400/80 border-b theme-border bg-black/20">
+              <div className="px-2.5 py-1 text-[11px] uppercase tracking-wide text-zinc-400/80 border-b theme-border bg-black/20">
                 {lang}
               </div>
             ) : null}
-            <pre className="px-3 py-2.5 text-[11px] leading-relaxed overflow-x-auto">
+            <pre className="px-3 py-2.5 text-[12px] leading-relaxed overflow-x-auto">
               <code className="font-mono whitespace-pre text-zinc-200">{code}</code>
             </pre>
           </div>
@@ -245,7 +245,7 @@ function renderMarkdown(src: string): React.ReactNode[] {
         const Icon = style.icon;
         nodes.push(
           <div key={key++} className={`my-2 rounded-md border-l-2 px-3 py-2 ${style.wrapper}`}>
-            <div className={`flex items-center gap-1.5 text-[11px] font-semibold ${style.labelColor}`}>
+            <div className={`flex items-center gap-1.5 text-[12px] font-semibold ${style.labelColor}`}>
               <Icon size={13} strokeWidth={2.1} />
               <span>{style.label}</span>
             </div>
@@ -356,7 +356,7 @@ function renderMarkdown(src: string): React.ReactNode[] {
       let valueNode: React.ReactNode = inlinePass(value);
       if (normalizedLabel === "release commit" && shaLike) {
         valueNode = (
-          <code className="font-mono text-[11px] px-1 py-0.5 rounded bg-black/30 border border-white/10 text-zinc-200">
+          <code className="font-mono text-[12px] px-1 py-0.5 rounded bg-black/30 border border-white/10 text-zinc-200">
             {value}
           </code>
         );

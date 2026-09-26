@@ -323,11 +323,11 @@ export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => v
                 fica como subtítulo. */}
             <div className="flex items-baseline gap-2">
               <h2 className="text-[15px] font-semibold text-zinc-100 tracking-tight">{tr("Nexus")}</h2>
-              <span className="text-[11px] text-zinc-500">{tr("Account Control")}</span>
+              <span className="text-[12px] text-zinc-500">{tr("Account Control")}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className={`w-1.5 h-1.5 rounded-full ${status.running ? "bg-emerald-400" : "bg-zinc-600"}`} />
-              <span className="text-[10px] text-zinc-500 font-mono">
+              <span className="text-[11px] text-zinc-500 font-mono">
                 {status.running
                   ? tr("Port {{port}} - {{count}} connected", { port: status.port, count: status.connected_count })
                   : tr("Offline")}
@@ -337,7 +337,7 @@ export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => v
           <div className="flex items-center gap-2">
             <button
               onClick={handleStartStop}
-              className={`px-3 py-1 rounded-lg text-[11px] font-medium transition-all ${
+              className={`px-3 py-1 rounded-lg text-[12px] font-medium transition-all ${
                 status.running
                   ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
                   : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
@@ -554,8 +554,8 @@ function ControlPanel({
             onChange={() => onCheckAll(!allChecked)}
             className="accent-sky-500 w-3.5 h-3.5 cursor-pointer"
           />
-          <span className="text-[11px] text-zinc-400 font-medium flex-1">{t("Accounts")}</span>
-          <span className="text-[10px] text-zinc-600 font-mono">{accounts.length}</span>
+          <span className="text-[12px] text-zinc-400 font-medium flex-1">{t("Accounts")}</span>
+          <span className="text-[11px] text-zinc-600 font-mono">{accounts.length}</span>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -589,14 +589,14 @@ function ControlPanel({
               }`} />
               <span className="text-[12px] text-zinc-300 truncate flex-1">{acc.username}</span>
               {acc.in_game_job_id && acc.status === "Online" && (
-                <span className="text-[9px] text-zinc-600 font-mono truncate max-w-[60px]">
+                <span className="text-[11px] text-zinc-600 font-mono truncate max-w-[60px]">
                   {acc.in_game_job_id.slice(0, 8)}
                 </span>
               )}
             </div>
           ))}
           {accounts.length === 0 && (
-            <div className="px-3 py-6 text-center text-[11px] text-zinc-600">
+            <div className="px-3 py-6 text-center text-[12px] text-zinc-600">
               {t("No accounts added")}
             </div>
           )}
@@ -608,11 +608,11 @@ function ControlPanel({
             onChange={(e) => setAddInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && onAdd()}
             placeholder={t("Username")}
-            className="flex-1 px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded-md text-[11px] text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+            className="flex-1 px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded-md text-[12px] text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
           />
           <button
             onClick={onAdd}
-            className="px-2 py-1 bg-zinc-800 border border-zinc-700/50 rounded-md text-[10px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+            className="px-2 py-1 bg-zinc-800 border border-zinc-700/50 rounded-md text-[11px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
           >
             {t("Add")}
           </button>
@@ -637,7 +637,7 @@ function ControlPanel({
         {selectedAcc && (
           <div className="flex items-center gap-2">
             <div className="flex-1">
-              <label className="text-[10px] text-zinc-600 mb-0.5 flex items-center gap-1.5">
+              <label className="text-[11px] text-zinc-600 mb-0.5 flex items-center gap-1.5">
                 {t("Place ID")}
                 <GameBadge
                   name={game?.name ?? null}
@@ -654,7 +654,7 @@ function ControlPanel({
               />
             </div>
             <div className="flex-1">
-              <label className="text-[10px] text-zinc-600 mb-0.5 block">{t("Job ID")}</label>
+              <label className="text-[11px] text-zinc-600 mb-0.5 block">{t("Job ID")}</label>
               <input
                 value={jobInput}
                 onChange={(e) => setJobInput(e.target.value)}
@@ -675,7 +675,7 @@ function ControlPanel({
           />
           <button
             onClick={onSendCommand}
-            className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-[11px] font-medium transition-colors"
+            className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg text-[12px] font-medium transition-colors"
           >
             {t("Send")}
           </button>
@@ -685,19 +685,19 @@ function ControlPanel({
           <textarea
             value={scriptText}
             onChange={(e) => setScriptText(e.target.value)}
-            className="w-full h-24 px-2.5 py-2 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-[11px] text-zinc-300 font-mono resize-none focus:outline-none focus:border-zinc-600"
+            className="w-full h-24 px-2.5 py-2 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-[12px] text-zinc-300 font-mono resize-none focus:outline-none focus:border-zinc-600"
             placeholder={t("Lua script...")}
           />
           <div className="flex items-center gap-1.5 mt-1.5">
             <button
               onClick={onExecuteScript}
-              className="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded-md text-[10px] font-medium transition-colors"
+              className="px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded-md text-[11px] font-medium transition-colors"
             >
               {t("Execute")}
             </button>
             <button
               onClick={() => setScriptText("")}
-              className="px-3 py-1 bg-zinc-800 border border-zinc-700/50 rounded-md text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="px-3 py-1 bg-zinc-800 border border-zinc-700/50 rounded-md text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors"
             >
               {t("Clear")}
             </button>
@@ -710,23 +710,23 @@ function ControlPanel({
               value={autoExecText}
               onChange={(e) => setAutoExecText(e.target.value)}
               onBlur={onAutoExecBlur}
-              className="w-full h-20 px-2.5 py-2 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-[11px] text-zinc-300 font-mono resize-none focus:outline-none focus:border-zinc-600"
+              className="w-full h-20 px-2.5 py-2 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-[12px] text-zinc-300 font-mono resize-none focus:outline-none focus:border-zinc-600"
               placeholder={t("Script to execute on connect...")}
             />
           </CollapsibleSection>
         )}
 
         <CollapsibleSection title={t("Output")} open={outputOpen} onToggle={() => setOutputOpen(!outputOpen)} actions={
-          <button onClick={onClearLog} className="text-[9px] text-zinc-600 hover:text-zinc-400 transition-colors">
+          <button onClick={onClearLog} className="text-[11px] text-zinc-600 hover:text-zinc-400 transition-colors">
             {t("Clear")}
           </button>
         }>
           <div ref={logRef} className="h-28 overflow-y-auto bg-zinc-950/50 border border-zinc-800/40 rounded-lg p-2 space-y-0.5">
             {log.length === 0 && (
-              <span className="text-[10px] text-zinc-600">{t("No output")}</span>
+              <span className="text-[11px] text-zinc-600">{t("No output")}</span>
             )}
             {log.map((msg, i) => (
-              <div key={i} className="text-[10px] text-zinc-400 font-mono leading-relaxed break-all">
+              <div key={i} className="text-[11px] text-zinc-400 font-mono leading-relaxed break-all">
                 {msg}
               </div>
             ))}
@@ -743,7 +743,7 @@ function ControlPanel({
                   <button
                     key={el.name}
                     onClick={() => onElementClick(el.name)}
-                    className="px-2.5 py-1 bg-zinc-800 border border-zinc-700/50 rounded-md text-[11px] text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
+                    className="px-2.5 py-1 bg-zinc-800 border border-zinc-700/50 rounded-md text-[12px] text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
                   >
                     {el.content}
                   </button>
@@ -756,7 +756,7 @@ function ControlPanel({
                     key={el.name}
                     value={el.value}
                     onChange={(e) => onElementChange(el.name, e.target.value)}
-                    className="px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded-md text-[11px] text-zinc-300 focus:outline-none focus:border-zinc-600"
+                    className="px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded-md text-[12px] text-zinc-300 focus:outline-none focus:border-zinc-600"
                     style={{ width: el.size ? el.size[0] : 75 }}
                   />
                 );
@@ -772,7 +772,7 @@ function ControlPanel({
                       onChange={(next) => onElementChange(el.name, String(next))}
                       step={Number.isFinite(stepValue) && stepValue > 0 ? stepValue : 1}
                       integer={el.decimal_places !== null ? el.decimal_places <= 0 : undefined}
-                      className="w-full px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded-md text-[11px] text-zinc-300 font-mono focus:outline-none focus:border-zinc-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      className="w-full px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded-md text-[12px] text-zinc-300 font-mono focus:outline-none focus:border-zinc-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   </div>
                 );
@@ -780,7 +780,7 @@ function ControlPanel({
 
               if (el.element_type === "Label") {
                 return (
-                  <span key={el.name} className="text-[11px] text-zinc-400 py-1 px-1">
+                  <span key={el.name} className="text-[12px] text-zinc-400 py-1 px-1">
                     {el.content}
                   </span>
                 );
@@ -809,7 +809,7 @@ function ControlPanel({
                 }
                 setContextMenu(null);
               }}
-              className="w-full px-3 py-1.5 text-left text-[11px] text-zinc-300 hover:bg-zinc-800 transition-colors"
+              className="w-full px-3 py-1.5 text-left text-[12px] text-zinc-300 hover:bg-zinc-800 transition-colors"
             >
               {t("Copy Job ID")}
             </button>
@@ -818,7 +818,7 @@ function ControlPanel({
                 onRemove([contextMenu.username]);
                 setContextMenu(null);
               }}
-              className="w-full px-3 py-1.5 text-left text-[11px] text-red-400 hover:bg-zinc-800 transition-colors"
+              className="w-full px-3 py-1.5 text-left text-[12px] text-red-400 hover:bg-zinc-800 transition-colors"
             >
               {t("Remove")}
             </button>
@@ -866,7 +866,7 @@ function CollapsibleSection({
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
-        <button onClick={onToggle} className="flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors">
+        <button onClick={onToggle} className="flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-300 transition-colors">
           <ChevronRight size={10} strokeWidth={2} className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
           {title}
         </button>
@@ -1011,7 +1011,7 @@ function SettingNumber({
           integer
           className="w-16 px-2 py-0.5 bg-zinc-800/60 border border-zinc-700/50 rounded-md text-[12px] text-zinc-200 text-right font-mono focus:outline-none focus:border-zinc-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
-        {suffix && <span className="text-[10px] text-zinc-600">{t(suffix)}</span>}
+        {suffix && <span className="text-[11px] text-zinc-600">{t(suffix)}</span>}
       </div>
     </div>
   );
@@ -1034,7 +1034,7 @@ function HelpPanel({ port }: { port: number }) {
           <p>{t("Your executor must support WebSockets. Nexus.lua stops with a message when it does not.")}</p>
           <p>
             {t("Clients connect to")}{" "}
-            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">
+            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[12px] font-mono">
               {t("ws://localhost:{{port}}/Nexus", { port })}
             </code>
             {" "}
@@ -1074,25 +1074,25 @@ function HelpPanel({ port }: { port: number }) {
         <h3 className="text-[13px] font-medium text-zinc-200 mb-2">{t("Commands")}</h3>
         <div className="text-[12px] text-zinc-400 leading-relaxed space-y-1">
           <p>
-            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">execute &lt;script&gt;</code>
+            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[12px] font-mono">execute &lt;script&gt;</code>
             {" "} - {t("Run Lua script on clients")}
           </p>
           <p>
-            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">teleport &lt;placeId&gt; [jobId]</code>
+            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[12px] font-mono">teleport &lt;placeId&gt; [jobId]</code>
             {" "} - {t("Teleport to place")}
           </p>
           <p>
-            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">rejoin</code>
+            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[12px] font-mono">rejoin</code>
             {" "} - {t("Rejoin current server")}
           </p>
           <p>
-            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">mute</code>
+            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[12px] font-mono">mute</code>
             {" "} /{" "}
-            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">unmute</code>
+            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[12px] font-mono">unmute</code>
             {" "} - {t("Toggle audio")}
           </p>
           <p>
-            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[11px] font-mono">performance [fps]</code>
+            <code className="text-zinc-300 bg-zinc-800/60 px-1.5 py-0.5 rounded text-[12px] font-mono">performance [fps]</code>
             {" "} - {t("Low performance mode")}
           </p>
         </div>
@@ -1122,7 +1122,7 @@ function HelpPanel({ port }: { port: number }) {
               store.addToast(t("Could not save Nexus.lua: {{error}}", { error: String(e) }));
             }
           }}
-          className="px-3 py-1.5 bg-zinc-800 border border-zinc-700/50 rounded-lg text-[11px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+          className="px-3 py-1.5 bg-zinc-800 border border-zinc-700/50 rounded-lg text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
         >
           {t("Save Nexus.lua")}
         </button>
@@ -1130,7 +1130,7 @@ function HelpPanel({ port }: { port: number }) {
           onClick={() => {
             window.open("https://github.com/niccsprojects/Roblox-Account-Manager/blob/v4/RBX%20Alt%20Manager/Nexus/NexusDocs.md");
           }}
-          className="px-3 py-1.5 bg-zinc-800 border border-zinc-700/50 rounded-lg text-[11px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+          className="px-3 py-1.5 bg-zinc-800 border border-zinc-700/50 rounded-lg text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
         >
           {t("Documentation")}
         </button>

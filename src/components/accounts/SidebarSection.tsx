@@ -4,7 +4,7 @@ export function SidebarSection({ title, children }: { title: string; children: R
   const t = useTr();
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="theme-label text-[10px] font-medium uppercase tracking-wider">{t(title)}</div>
+      <div className="theme-label text-[11px] font-medium uppercase tracking-wider">{t(title)}</div>
       {children}
     </div>
   );

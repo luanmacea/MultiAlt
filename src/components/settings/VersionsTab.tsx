@@ -67,7 +67,7 @@ export function VersionsTab({ s }: { s: UseSettingsReturn }) {
     <div className="space-y-0">
       <SectionLabel>Default Roblox version</SectionLabel>
       <div className="px-1 -mt-1 mb-2">
-        <span className="text-[11px] text-zinc-500">
+        <span className="text-[12px] text-zinc-500">
           {t(
             "Launch every account with this version unless an account has its own override. Pick 'Roblox official install' to use the version Roblox installs itself."
           )}
@@ -121,7 +121,7 @@ export function VersionsTab({ s }: { s: UseSettingsReturn }) {
       <Divider />
       <SectionLabel>Credits</SectionLabel>
       <div className="px-1 py-2">
-        <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 text-[11px] text-zinc-400 space-y-1.5">
+        <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 text-[12px] text-zinc-400 space-y-1.5">
           <div>
             {t("Downloader logic adapted from")}{" "}
             <a

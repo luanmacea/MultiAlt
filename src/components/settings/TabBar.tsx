@@ -54,7 +54,7 @@ export function TabBar({
             if (el) tabRefs.current.set(tab.id, el);
           }}
           onClick={() => onTabChange(tab.id)}
-          className={`relative z-[1] flex items-center gap-1 px-1 py-1.5 rounded-lg text-[11px] font-medium whitespace-nowrap transition-colors duration-200 ${
+          className={`relative z-[1] flex items-center gap-1 px-1 py-1.5 rounded-lg text-[12px] font-medium whitespace-nowrap transition-colors duration-200 ${
             activeTab === tab.id
               ? "text-zinc-100"
               : "text-zinc-500 hover:text-zinc-300"

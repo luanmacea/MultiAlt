@@ -108,7 +108,7 @@ function phaseTone(phase: string): string {
 function TimingFieldHints() {
   const t = useTr();
   return (
-    <ul className="mt-2 space-y-0.5 text-[10px] theme-muted list-disc pl-4">
+    <ul className="mt-2 space-y-0.5 text-[11px] theme-muted list-disc pl-4">
       <li>
         {t(
           "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120)."
@@ -678,7 +678,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
               <button
                 type="button"
                 onClick={() => handleLayoutModeChange("split")}
-                className={`px-2.5 py-1 text-[11px] rounded-md transition ${
+                className={`px-2.5 py-1 text-[12px] rounded-md transition ${
                   useSplitLayout
                     ? "theme-accent-bg theme-accent border theme-accent-border"
                     : "theme-muted hover:text-[var(--panel-fg)]"
@@ -689,7 +689,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
               <button
                 type="button"
                 onClick={() => handleLayoutModeChange("classic")}
-                className={`px-2.5 py-1 text-[11px] rounded-md transition ${
+                className={`px-2.5 py-1 text-[12px] rounded-md transition ${
                   !useSplitLayout
                     ? "theme-accent-bg theme-accent border theme-accent-border"
                     : "theme-muted hover:text-[var(--panel-fg)]"
@@ -699,7 +699,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
               </button>
             </div>
             <span
-              className={`px-2 py-1 rounded-full text-[10px] border ${
+              className={`px-2 py-1 rounded-full text-[11px] border ${
                 status?.active
                   ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300 animate-pulse"
                   : "theme-border theme-soft theme-muted"
@@ -758,7 +758,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
             <div className="text-[12px] font-medium text-[var(--panel-fg)]">
               {t("How each cycle works")}
             </div>
-            <ul className="mt-1 space-y-0.5 text-[10px] theme-muted list-disc pl-4">
+            <ul className="mt-1 space-y-0.5 text-[11px] theme-muted list-disc pl-4">
               <li>
                 {t(
                   "Every rejoin closes that bot account's Roblox client and opens it again, so the account leaves the server and joins back."
@@ -793,7 +793,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                           <span
                             key={a.UserID}
                             className={[
-                              "px-2 py-1 rounded-md text-[11px] border theme-soft",
+                              "px-2 py-1 rounded-md text-[12px] border theme-soft",
                               isPlayer ? "theme-accent-bg theme-accent-border theme-accent" : "theme-border text-[var(--panel-fg)]",
                             ].join(" ")}
                           >
@@ -803,7 +803,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                       })}
                     </div>
                     <div className="flex items-center gap-2">
-                      <label className="text-[11px] theme-muted w-24 shrink-0">{t("Player Accounts")}</label>
+                      <label className="text-[12px] theme-muted w-24 shrink-0">{t("Player Accounts")}</label>
                       <div ref={playerMenuRef} className="relative w-full">
                         <button
                           type="button"
@@ -865,7 +865,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="truncate">{a.Alias || a.Username}</span>
                                   {active ? (
-                                    <span className="text-[11px] opacity-80">{t("Selected")}</span>
+                                    <span className="text-[12px] opacity-80">{t("Selected")}</span>
                                   ) : null}
                                 </div>
                               </button>
@@ -959,7 +959,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                       />
                     </div>
                     {shareLaunchFields ? (
-                      <div className="mt-2 text-[10px] theme-muted">
+                      <div className="mt-2 text-[11px] theme-muted">
                         {t("Launch fields are currently synced with Sidebar")}
                       </div>
                     ) : (
@@ -982,7 +982,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                     <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2">{t("Timing")}</div>
                     <div className="grid grid-cols-1 gap-2">
                       <div className="flex items-center gap-2">
-                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Rejoin Interval (minutes)")}</label>
+                        <label className="text-[12px] theme-muted w-32 shrink-0">{t("Rejoin Interval (minutes)")}</label>
                         <NumericInput
                           ariaLabel={t("Rejoin Interval (minutes)")}
                           value={intervalMinutes}
@@ -1007,7 +1007,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Launch Delay (seconds)")}</label>
+                        <label className="text-[12px] theme-muted w-32 shrink-0">{t("Launch Delay (seconds)")}</label>
                         <NumericInput
                           ariaLabel={t("Launch Delay (seconds)")}
                           value={launchDelaySeconds}
@@ -1032,7 +1032,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         />
                       </div>
                       <div className="flex items-center gap-2">
-                        <label className="text-[11px] theme-muted w-32 shrink-0">{t("Player Grace (minutes)")}</label>
+                        <label className="text-[12px] theme-muted w-32 shrink-0">{t("Player Grace (minutes)")}</label>
                         <NumericInput
                           ariaLabel={t("Player Grace (minutes)")}
                           value={playerGraceMinutes}
@@ -1058,13 +1058,13 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                       </div>
                     </div>
                     <TimingFieldHints />
-                    <div className="text-[10px] theme-muted mt-2">
+                    <div className="text-[11px] theme-muted mt-2">
                       {t("Player account demotion grace is {{minutes}} minutes before it enters normal restart cycle.", {
                         minutes: playerGraceMinutes,
                       })}
                     </div>
                     {!multiRbxEnabled ? (
-                      <div className="text-[10px] text-amber-300 mt-1">
+                      <div className="text-[11px] text-amber-300 mt-1">
                         {t("Botting Mode currently requires Multi Roblox to be enabled")}
                       </div>
                     ) : null}
@@ -1106,11 +1106,11 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("Live Botting List")}</div>
-                      <div className="text-[10px] theme-muted mt-0.5">
+                      <div className="text-[11px] theme-muted mt-0.5">
                         {t("Track each account cycle, quick actions, and retry pressure in one place")}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-1.5 text-[11px]">
+                    <div className="flex flex-wrap gap-1.5 text-[12px]">
                       <div className="rounded-md border theme-border px-2 py-1 bg-[rgba(16,185,129,0.14)] text-emerald-200">
                         {t("Accounts")}: {liveRows.length}
                       </div>
@@ -1128,7 +1128,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
 
                   <div className="mt-3 rounded-xl border theme-border theme-soft p-2.5 animate-fade-in-up">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <label className="inline-flex items-center gap-1.5 rounded-md border theme-border px-2 py-1 text-[11px]">
+                      <label className="inline-flex items-center gap-1.5 rounded-md border theme-border px-2 py-1 text-[12px]">
                         <ThemedCheckbox
                           checked={allVisibleBulkSelected}
                           disabled={actionButtonsLocked || liveRows.length === 0}
@@ -1148,7 +1148,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         type="button"
                         onClick={() => setBulkSelected(visibleBotRowIds)}
                         disabled={actionButtonsLocked || visibleBotRowIds.length === 0}
-                        className="px-2.5 py-1 text-[11px] rounded-md border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-2.5 py-1 text-[12px] rounded-md border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {t("Select bots")}
                       </button>
@@ -1157,7 +1157,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         type="button"
                         onClick={() => setBulkSelected(liveRows.map(({ userId }) => userId))}
                         disabled={actionButtonsLocked || liveRows.length === 0}
-                        className="px-2.5 py-1 text-[11px] rounded-md border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-2.5 py-1 text-[12px] rounded-md border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {t("Select all")}
                       </button>
@@ -1166,12 +1166,12 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         type="button"
                         onClick={() => setBulkSelected([])}
                         disabled={actionButtonsLocked || bulkSelectedUserIds.length === 0}
-                        className="px-2.5 py-1 text-[11px] rounded-md border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-2.5 py-1 text-[12px] rounded-md border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {t("Clear")}
                       </button>
 
-                      <div className="ml-auto rounded-md border border-sky-500/30 bg-sky-500/12 text-sky-200 text-[11px] px-2 py-1">
+                      <div className="ml-auto rounded-md border border-sky-500/30 bg-sky-500/12 text-sky-200 text-[12px] px-2 py-1">
                         {t("Selected")}: {bulkSelectedUserIds.length}
                       </div>
                     </div>
@@ -1191,7 +1191,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                             void runBulkAction("disconnect");
                           }}
                           disabled={actionButtonsLocked || !status?.active || bulkEligibleCounts.disconnect === 0}
-                          className="px-3 py-1 text-[11px] font-medium rounded-lg border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1 text-[12px] font-medium rounded-lg border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {t("Disconnect")} ({bulkEligibleCounts.disconnect})
                         </button>
@@ -1202,7 +1202,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                             void runBulkAction("close");
                           }}
                           disabled={actionButtonsLocked || !status?.active || bulkEligibleCounts.close === 0}
-                          className="px-3 py-1 text-[11px] font-medium rounded-lg border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1 text-[12px] font-medium rounded-lg border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {t("Close client")} ({bulkEligibleCounts.close})
                         </button>
@@ -1213,7 +1213,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                             void runBulkAction("restartClient");
                           }}
                           disabled={actionButtonsLocked || !status?.active || bulkEligibleCounts.restartClient === 0}
-                          className="px-3 py-1 text-[11px] font-medium rounded-lg border border-emerald-400/30 bg-[rgba(16,185,129,0.10)] text-emerald-100 hover:bg-[rgba(16,185,129,0.18)] hover:border-emerald-300/40 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1 text-[12px] font-medium rounded-lg border border-emerald-400/30 bg-[rgba(16,185,129,0.10)] text-emerald-100 hover:bg-[rgba(16,185,129,0.18)] hover:border-emerald-300/40 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {t("Restart client")} ({bulkEligibleCounts.restartClient})
                         </button>
@@ -1224,7 +1224,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                             void runBulkAction("restartLoop");
                           }}
                           disabled={actionButtonsLocked || !status?.active || bulkEligibleCounts.restartLoop === 0}
-                          className="px-3 py-1 text-[11px] font-medium rounded-lg border border-amber-400/30 bg-[rgba(245,158,11,0.10)] text-amber-100 hover:bg-[rgba(245,158,11,0.18)] hover:border-amber-300/40 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1 text-[12px] font-medium rounded-lg border border-amber-400/30 bg-[rgba(245,158,11,0.10)] text-amber-100 hover:bg-[rgba(245,158,11,0.18)] hover:border-amber-300/40 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {t("Restart loop")} ({bulkEligibleCounts.restartLoop})
                         </button>
@@ -1235,7 +1235,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                             void runBulkAction("closeDisconnect");
                           }}
                           disabled={actionButtonsLocked || !status?.active || bulkEligibleCounts.closeDisconnect === 0}
-                          className="px-3 py-1 text-[11px] font-medium rounded-lg border border-red-400/25 bg-[rgba(239,68,68,0.10)] text-red-200 hover:bg-[rgba(239,68,68,0.18)] hover:border-red-400/35 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="px-3 py-1 text-[12px] font-medium rounded-lg border border-red-400/25 bg-[rgba(239,68,68,0.10)] text-red-200 hover:bg-[rgba(239,68,68,0.18)] hover:border-red-400/35 transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {t("Close + Disconnect")} ({bulkEligibleCounts.closeDisconnect})
                         </button>
@@ -1243,7 +1243,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                     </div>
 
                     <div
-                      className={`mt-2 text-[10px] theme-muted transition-opacity duration-220 ease-out ${
+                      className={`mt-2 text-[11px] theme-muted transition-opacity duration-220 ease-out ${
                         bulkSelectedUserIds.length > 0 ? "opacity-85" : "opacity-100"
                       }`}
                     >
@@ -1326,7 +1326,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                     loading="lazy"
                                   />
                                 ) : (
-                                  <div className="theme-avatar w-7 h-7 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-[10px] font-medium shrink-0">
+                                  <div className="theme-avatar w-7 h-7 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-[11px] font-medium shrink-0">
                                     {(account?.Username || "?").charAt(0).toUpperCase()}
                                   </div>
                                 )}
@@ -1334,11 +1334,11 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                   <div className="text-[13px] text-[var(--panel-fg)] truncate">
                                     {account?.Alias || account?.Username || `${t("User ID")}: ${userId}`}
                                   </div>
-                                  <div className={`text-[11px] ${phaseTone(row?.phase || "idle")}`}>
+                                  <div className={`text-[12px] ${phaseTone(row?.phase || "idle")}`}>
                                     {t(row?.phase || "idle")}
                                   </div>
                                   {row?.lastError ? (
-                                    <div className="text-[11px] text-red-300/90 truncate mt-0.5">
+                                    <div className="text-[12px] text-red-300/90 truncate mt-0.5">
                                       {row.lastError}
                                     </div>
                                   ) : null}
@@ -1347,15 +1347,15 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
 
                               <div className="grid grid-cols-3 gap-1.5 w-full xl:w-auto xl:min-w-[300px]">
                                 <div className={`rounded-lg border px-2.5 py-1.5 ${dueTone}`}>
-                                  <div className="text-[9px] uppercase tracking-[0.08em] opacity-80">{t("due")}</div>
+                                  <div className="text-[11px] uppercase tracking-[0.08em] opacity-80">{t("due")}</div>
                                   <div className="text-[12px] font-mono leading-tight">{dueCountdown}</div>
                                 </div>
                                 <div className="rounded-lg border theme-border px-2.5 py-1.5 bg-[rgba(0,0,0,0.18)]">
-                                  <div className="text-[9px] uppercase tracking-[0.08em] theme-muted">{t("next")}</div>
+                                  <div className="text-[11px] uppercase tracking-[0.08em] theme-muted">{t("next")}</div>
                                   <div className="text-[12px] font-mono text-[var(--panel-fg)] leading-tight">{dueClock}</div>
                                 </div>
                                 <div className={`rounded-lg border px-2.5 py-1.5 ${retryTone}`}>
-                                  <div className="text-[9px] uppercase tracking-[0.08em] opacity-80">{t("retries")}</div>
+                                  <div className="text-[11px] uppercase tracking-[0.08em] opacity-80">{t("retries")}</div>
                                   <div className="text-[12px] font-mono leading-tight">{retryCount}</div>
                                 </div>
                               </div>
@@ -1377,7 +1377,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                     type="button"
                                     disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "disconnect")}
                                     className={[
-                                      "px-3 py-1 text-[11px] font-medium rounded-lg border theme-border",
+                                      "px-3 py-1 text-[12px] font-medium rounded-lg border theme-border",
                                       "bg-[var(--buttons-bg)] text-[var(--buttons-fg)]",
                                       "hover:text-[var(--panel-fg)] hover:brightness-110 transition",
                                       "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1404,7 +1404,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                     type="button"
                                     disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "close")}
                                     className={[
-                                      "px-3 py-1 text-[11px] font-medium rounded-lg border theme-border",
+                                      "px-3 py-1 text-[12px] font-medium rounded-lg border theme-border",
                                       "bg-[var(--buttons-bg)] text-[var(--buttons-fg)]",
                                       "hover:text-[var(--panel-fg)] hover:brightness-110 transition",
                                       "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1431,7 +1431,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                     type="button"
                                     disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "restartClient")}
                                     className={[
-                                      "px-3 py-1 text-[11px] font-medium rounded-lg border border-emerald-400/30",
+                                      "px-3 py-1 text-[12px] font-medium rounded-lg border border-emerald-400/30",
                                       "bg-[rgba(16,185,129,0.10)] text-emerald-100",
                                       "hover:bg-[rgba(16,185,129,0.18)] hover:border-emerald-300/40 transition",
                                       "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1458,7 +1458,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                     type="button"
                                     disabled={!canFocus || isRowBusy}
                                     className={[
-                                      "px-3 py-1 text-[11px] font-medium rounded-lg border border-sky-400/25",
+                                      "px-3 py-1 text-[12px] font-medium rounded-lg border border-sky-400/25",
                                       "bg-[rgba(56,189,248,0.10)] text-sky-100",
                                       "hover:bg-[rgba(56,189,248,0.18)] hover:border-sky-300/35 transition",
                                       "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1485,7 +1485,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                     type="button"
                                     disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "restartLoop")}
                                     className={[
-                                      "px-3 py-1 text-[11px] font-medium rounded-lg border border-amber-400/30",
+                                      "px-3 py-1 text-[12px] font-medium rounded-lg border border-amber-400/30",
                                       "bg-[rgba(245,158,11,0.10)] text-amber-100",
                                       "hover:bg-[rgba(245,158,11,0.18)] hover:border-amber-300/40 transition",
                                       "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1512,7 +1512,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                     type="button"
                                     disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "closeDisconnect")}
                                     className={[
-                                      "px-3 py-1 text-[11px] font-medium rounded-lg border border-red-400/25",
+                                      "px-3 py-1 text-[12px] font-medium rounded-lg border border-red-400/25",
                                       "bg-[rgba(239,68,68,0.10)] text-red-200",
                                       "hover:bg-[rgba(239,68,68,0.18)] hover:border-red-400/35 transition",
                                       "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1550,7 +1550,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                   <span
                     key={a.UserID}
                     className={[
-                      "px-2 py-1 rounded-md text-[11px] border theme-soft",
+                      "px-2 py-1 rounded-md text-[12px] border theme-soft",
                       isPlayer ? "theme-accent-bg theme-accent-border theme-accent" : "theme-border text-[var(--panel-fg)]",
                     ].join(" ")}
                   >
@@ -1560,7 +1560,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
               })}
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-[11px] theme-muted w-24 shrink-0">{t("Player Accounts")}</label>
+              <label className="text-[12px] theme-muted w-24 shrink-0">{t("Player Accounts")}</label>
               <div ref={playerMenuRef} className="relative w-full">
                 <button
                   type="button"
@@ -1622,7 +1622,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate">{a.Alias || a.Username}</span>
                           {active ? (
-                            <span className="text-[11px] opacity-80">{t("Selected")}</span>
+                            <span className="text-[12px] opacity-80">{t("Selected")}</span>
                           ) : null}
                         </div>
                       </button>
@@ -1716,7 +1716,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
               />
             </div>
             {shareLaunchFields ? (
-              <div className="mt-2 text-[10px] theme-muted">
+              <div className="mt-2 text-[11px] theme-muted">
                 {t("Launch fields are currently synced with Sidebar")}
               </div>
             ) : (
@@ -1739,7 +1739,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
             <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2">{t("Timing")}</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
               <div className="flex items-center gap-2">
-                <label className="text-[11px] theme-muted w-36 shrink-0">{t("Rejoin Interval (minutes)")}</label>
+                <label className="text-[12px] theme-muted w-36 shrink-0">{t("Rejoin Interval (minutes)")}</label>
                 <NumericInput
                   ariaLabel={t("Rejoin Interval (minutes)")}
                   value={intervalMinutes}
@@ -1764,7 +1764,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-[11px] theme-muted w-36 shrink-0">{t("Launch Delay (seconds)")}</label>
+                <label className="text-[12px] theme-muted w-36 shrink-0">{t("Launch Delay (seconds)")}</label>
                 <NumericInput
                   ariaLabel={t("Launch Delay (seconds)")}
                   value={launchDelaySeconds}
@@ -1789,7 +1789,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                 />
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-[11px] theme-muted w-36 shrink-0">{t("Player Grace (minutes)")}</label>
+                <label className="text-[12px] theme-muted w-36 shrink-0">{t("Player Grace (minutes)")}</label>
                 <NumericInput
                   ariaLabel={t("Player Grace (minutes)")}
                   value={playerGraceMinutes}
@@ -1815,13 +1815,13 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
               </div>
             </div>
             <TimingFieldHints />
-            <div className="text-[10px] theme-muted mt-2">
+            <div className="text-[11px] theme-muted mt-2">
               {t("Player account demotion grace is {{minutes}} minutes before it enters normal restart cycle.", {
                 minutes: playerGraceMinutes,
               })}
             </div>
             {!multiRbxEnabled ? (
-              <div className="text-[10px] text-amber-300 mt-1">
+              <div className="text-[11px] text-amber-300 mt-1">
                 {t("Botting Mode currently requires Multi Roblox to be enabled")}
               </div>
             ) : null}
@@ -1877,7 +1877,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         <div className="text-[13px] text-[var(--panel-fg)] truncate">
                           {account?.Alias || account?.Username || `${t("User ID")}: ${userId}`}
                         </div>
-                        <div className={`text-[11px] ${phaseTone(row?.phase || "idle")}`}>
+                        <div className={`text-[12px] ${phaseTone(row?.phase || "idle")}`}>
                           {t(row?.phase || "idle")}
                           {row?.lastError ? ` - ${row.lastError}` : ""}
                         </div>
@@ -1904,7 +1904,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                 type="button"
                                 disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "disconnect")}
                                 className={[
-                                  "px-3 py-1 text-[11px] font-medium rounded-lg border theme-border",
+                                  "px-3 py-1 text-[12px] font-medium rounded-lg border theme-border",
                                   "bg-[var(--buttons-bg)] text-[var(--buttons-fg)]",
                                   "hover:text-[var(--panel-fg)] hover:brightness-110 transition",
                                   "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1931,7 +1931,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                 type="button"
                                 disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "close")}
                                 className={[
-                                  "px-3 py-1 text-[11px] font-medium rounded-lg border theme-border",
+                                  "px-3 py-1 text-[12px] font-medium rounded-lg border theme-border",
                                   "bg-[var(--buttons-bg)] text-[var(--buttons-fg)]",
                                   "hover:text-[var(--panel-fg)] hover:brightness-110 transition",
                                   "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1958,7 +1958,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                 type="button"
                                 disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "restartClient")}
                                 className={[
-                                  "px-3 py-1 text-[11px] font-medium rounded-lg border border-emerald-400/30",
+                                  "px-3 py-1 text-[12px] font-medium rounded-lg border border-emerald-400/30",
                                   "bg-[rgba(16,185,129,0.10)] text-emerald-100",
                                   "hover:bg-[rgba(16,185,129,0.18)] hover:border-emerald-300/40 transition",
                                   "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -1985,7 +1985,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                 type="button"
                                 disabled={!canFocus || isRowBusy}
                                 className={[
-                                  "px-3 py-1 text-[11px] font-medium rounded-lg border border-sky-400/25",
+                                  "px-3 py-1 text-[12px] font-medium rounded-lg border border-sky-400/25",
                                   "bg-[rgba(56,189,248,0.10)] text-sky-100",
                                   "hover:bg-[rgba(56,189,248,0.18)] hover:border-sky-300/35 transition",
                                   "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -2012,7 +2012,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                 type="button"
                                 disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "restartLoop")}
                                 className={[
-                                  "px-3 py-1 text-[11px] font-medium rounded-lg border border-amber-400/30",
+                                  "px-3 py-1 text-[12px] font-medium rounded-lg border border-amber-400/30",
                                   "bg-[rgba(245,158,11,0.10)] text-amber-100",
                                   "hover:bg-[rgba(245,158,11,0.18)] hover:border-amber-300/40 transition",
                                   "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -2039,7 +2039,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                 type="button"
                                 disabled={!canAct || isRowBusy || !canRunBottingActionOnRow(row, "closeDisconnect")}
                                 className={[
-                                  "px-3 py-1 text-[11px] font-medium rounded-lg border border-red-400/25",
+                                  "px-3 py-1 text-[12px] font-medium rounded-lg border border-red-400/25",
                                   "bg-[rgba(239,68,68,0.10)] text-red-200",
                                   "hover:bg-[rgba(239,68,68,0.18)] hover:border-red-400/35 transition",
                                   "disabled:opacity-50 disabled:cursor-not-allowed",
@@ -2056,19 +2056,19 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
 
                         <div className="grid grid-cols-3 gap-1.5 w-full md:min-w-[300px]">
                           <div className={`rounded-lg border px-2.5 py-1.5 ${dueTone}`}>
-                            <div className="text-[9px] uppercase tracking-[0.08em] opacity-80">{t("due")}</div>
+                            <div className="text-[11px] uppercase tracking-[0.08em] opacity-80">{t("due")}</div>
                             <div className="text-[12px] font-mono leading-tight">
                               {dueCountdown}
                             </div>
                           </div>
                           <div className="rounded-lg border theme-border px-2.5 py-1.5 bg-[rgba(0,0,0,0.18)]">
-                            <div className="text-[9px] uppercase tracking-[0.08em] theme-muted">{t("next")}</div>
+                            <div className="text-[11px] uppercase tracking-[0.08em] theme-muted">{t("next")}</div>
                             <div className="text-[12px] font-mono text-[var(--panel-fg)] leading-tight">
                               {dueClock}
                             </div>
                           </div>
                           <div className={`rounded-lg border px-2.5 py-1.5 ${retryTone}`}>
-                            <div className="text-[9px] uppercase tracking-[0.08em] opacity-80">{t("retries")}</div>
+                            <div className="text-[11px] uppercase tracking-[0.08em] opacity-80">{t("retries")}</div>
                             <div className="text-[12px] font-mono leading-tight">
                               {retryCount}
                             </div>

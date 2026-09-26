@@ -41,7 +41,7 @@ export function AccountChip({
       ) : avatarUrl ? (
         <img src={avatarUrl} alt="" className="theme-avatar w-5 h-5 rounded-full bg-[var(--panel-soft)] shrink-0" />
       ) : (
-        <div className="theme-avatar w-5 h-5 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-[9px] font-medium shrink-0">
+        <div className="theme-avatar w-5 h-5 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-[11px] font-medium shrink-0">
           {(account.Username || "?").charAt(0).toUpperCase()}
         </div>
       )}

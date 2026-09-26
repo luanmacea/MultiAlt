@@ -385,7 +385,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
               <span className="text-xs text-[var(--panel-fg)]">{t("Button Style")}</span>
                 <button
                   onClick={cycleButtonStyle}
-                  className="theme-btn px-2.5 py-1 rounded text-[10px]"
+                  className="theme-btn px-2.5 py-1 rounded text-[11px]"
                 >
                   {t(theme.button_style)}
                 </button>
@@ -485,7 +485,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
               </button>
             </div>
 
-            <div className="text-[11px] theme-muted">
+            <div className="text-[12px] theme-muted">
               {/* Uma frase so: com os nomes de arquivo em <span> separados, cada
                   pedaco ia para o catalogo sozinho e nao dava para traduzir. */}
               {t(
@@ -536,7 +536,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
                 }`}
               >
                 <div className="theme-panel theme-border border rounded-xl shadow-2xl max-h-56 overflow-y-auto p-1.5">
-                  <div className="px-2 py-1 text-[10px] uppercase tracking-wide theme-muted font-semibold">{t("Built-in")}</div>
+                  <div className="px-2 py-1 text-[11px] uppercase tracking-wide theme-muted font-semibold">{t("Built-in")}</div>
                   {builtInPresetOptions.map((preset) => {
                     const active = preset.key === presetId;
                     return (
@@ -554,7 +554,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
                     );
                   })}
                   <div className="mx-2 my-1 border-t theme-border" />
-                  <div className="px-2 py-1 text-[10px] uppercase tracking-wide theme-muted font-semibold">{t("Custom")}</div>
+                  <div className="px-2 py-1 text-[11px] uppercase tracking-wide theme-muted font-semibold">{t("Custom")}</div>
                   {customPresetOptions.length > 0 ? (
                     customPresetOptions.map((preset) => {
                       const active = preset.key === presetId;
@@ -573,7 +573,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
                       );
                     })
                   ) : (
-                    <div className="px-2.5 py-2 text-[11px] theme-muted">{t("No custom presets yet")}</div>
+                    <div className="px-2.5 py-2 text-[12px] theme-muted">{t("No custom presets yet")}</div>
                   )}
                 </div>
               </div>
@@ -634,7 +634,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
           </div>
 
           <div className="flex-1 px-5 py-3 overflow-y-auto">
-            <div className="text-[10px] font-semibold uppercase tracking-wider theme-muted mb-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wider theme-muted mb-3">
               {t(category)}
             </div>
             {renderControls()}

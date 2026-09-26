@@ -267,7 +267,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
         ? Math.round((p.current / p.total) * 100)
         : 0;
     return (
-      <div className="rounded-md bg-zinc-950/50 px-2.5 py-2 text-[11px] text-zinc-300">
+      <div className="rounded-md bg-zinc-950/50 px-2.5 py-2 text-[12px] text-zinc-300">
         <div className="flex items-center justify-between">
           <span>
             {t("Installing")} <span className="font-mono text-zinc-400">{shortHash(p.versionHash)}</span>
@@ -283,7 +283,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
           </div>
         )}
         {p.package && (
-          <div className="mt-1 truncate text-[10px] text-zinc-500">{p.package}</div>
+          <div className="mt-1 truncate text-[11px] text-zinc-500">{p.package}</div>
         )}
       </div>
     );
@@ -377,7 +377,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
                             />
                             <button
                               onClick={() => void handleSaveLabel(entry, renaming.value)}
-                              className="text-[11px] text-sky-400 hover:text-sky-300"
+                              className="text-[12px] text-sky-400 hover:text-sky-300"
                             >
                               {t("Save")}
                             </button>
@@ -388,13 +388,13 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
                               {entry.userLabel ?? entry.displayVersion ?? shortHash(entry.versionHash)}
                             </span>
                             {isDefault && (
-                              <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-[10px] text-sky-400">
+                              <span className="px-1.5 py-0.5 rounded bg-sky-500/15 text-[11px] text-sky-400">
                                 {t("Default")}
                               </span>
                             )}
                           </div>
                         )}
-                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-500 font-mono truncate">
+                        <div className="mt-0.5 flex items-center gap-2 text-[12px] text-zinc-500 font-mono truncate">
                           <span>{entry.channel}</span>
                           <span>•</span>
                           <span className="truncate">{entry.versionHash}</span>
@@ -451,13 +451,13 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
           {tab === "browse" && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <div className="text-[11px] text-zinc-500">
+                <div className="text-[12px] text-zinc-500">
                   {t("Versions exposed by weao.xyz/api/versions")}
                 </div>
                 <button
                   onClick={() => refreshRemote(true)}
                   disabled={remoteLoading}
-                  className="flex items-center gap-1.5 text-[11px] text-sky-400 hover:text-sky-300 disabled:opacity-60"
+                  className="flex items-center gap-1.5 text-[12px] text-sky-400 hover:text-sky-300 disabled:opacity-60"
                 >
                   <RefreshCw size={11} strokeWidth={2} />
                   {remoteLoading ? t("Loading...") : t("Refresh")}
@@ -470,7 +470,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
               )}
               {remote && (
                 <>
-                  <div className="text-[10px] uppercase tracking-widest text-zinc-600 font-medium pt-2">
+                  <div className="text-[11px] uppercase tracking-widest text-zinc-600 font-medium pt-2">
                     {t("Current")}
                   </div>
                   {remote.current
@@ -485,11 +485,11 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
                         onInstall={() => startInstall(entry.channel, entry.versionHash)}
                       />
                     ))}
-                  <div className="text-[10px] uppercase tracking-widest text-zinc-600 font-medium pt-2">
+                  <div className="text-[11px] uppercase tracking-widest text-zinc-600 font-medium pt-2">
                     {t("Previous")}
                   </div>
                   {remote.pastError && (
-                    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-300">
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[12px] text-amber-300">
                       {t("Could not load previous versions: {{error}}", { error: remote.pastError })}
                     </div>
                   )}
@@ -515,14 +515,14 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
 
           {tab === "manual" && (
             <div className="space-y-3">
-              <div className="text-[11px] text-zinc-500">
+              <div className="text-[12px] text-zinc-500">
                 {t(
                   "Paste an arbitrary Roblox version hash to install older builds that don't appear in the catalog."
                 )}
               </div>
               <div className="space-y-2">
                 <label className="block">
-                  <span className="text-[11px] text-zinc-500">{t("Channel")}</span>
+                  <span className="text-[12px] text-zinc-500">{t("Channel")}</span>
                   <input
                     value={manualChannel}
                     list="versions-manual-channel-options"
@@ -537,7 +537,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
                   </datalist>
                 </label>
                 <label className="block">
-                  <span className="text-[11px] text-zinc-500">{t("Version hash")}</span>
+                  <span className="text-[12px] text-zinc-500">{t("Version hash")}</span>
                   <input
                     value={manualHash}
                     onChange={(e) => setManualHash(e.target.value)}
@@ -546,7 +546,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-[11px] text-zinc-500">{t("Nickname (optional)")}</span>
+                  <span className="text-[12px] text-zinc-500">{t("Nickname (optional)")}</span>
                   <input
                     value={manualLabel}
                     onChange={(e) => setManualLabel(e.target.value)}
@@ -580,7 +580,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
 
         <div className="h-px bg-zinc-800/60 mx-5" />
         <div className="px-5 py-3 shrink-0">
-          <div className="rounded-md border border-zinc-800/70 bg-zinc-900/35 px-3 py-2 text-[10px] text-zinc-500">
+          <div className="rounded-md border border-zinc-800/70 bg-zinc-900/35 px-3 py-2 text-[11px] text-zinc-500">
             {t("Downloader logic adapted from")}{" "}
             <a
               href="https://github.com/latte-soft/rdd"
@@ -625,11 +625,11 @@ function RemoteRow({
           <span className="text-[13px] text-zinc-200">
             {entry.displayVersion ?? "—"}
           </span>
-          <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+          <span className="text-[11px] uppercase tracking-wider text-zinc-500">
             {entry.binaryType}
           </span>
         </div>
-        <div className="mt-0.5 text-[11px] font-mono text-zinc-500 truncate">
+        <div className="mt-0.5 text-[12px] font-mono text-zinc-500 truncate">
           {entry.versionHash}
           {entry.deployDate ? ` · ${entry.deployDate}` : ""}
         </div>
@@ -637,7 +637,7 @@ function RemoteRow({
       <button
         onClick={onInstall}
         disabled={installed}
-        className="rounded-lg border border-zinc-700/70 bg-zinc-800 px-2.5 py-1 text-[11px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-50"
+        className="rounded-lg border border-zinc-700/70 bg-zinc-800 px-2.5 py-1 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:opacity-50"
       >
         {installed ? t("Installed") : t("Install")}
       </button>

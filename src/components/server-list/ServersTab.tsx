@@ -270,7 +270,7 @@ export function ServersTab({
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-1 pb-3">
         <div className="flex-1 flex items-center gap-2">
-          <label className="text-[10px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Place ID")}</label>
+          <label className="text-[11px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Place ID")}</label>
           <input
             value={placeId}
             onChange={(e) => readPlaceIdField(e.target.value, setPlaceId)}
@@ -294,7 +294,7 @@ export function ServersTab({
 
       <div className="flex items-center gap-2 px-1 pb-3">
         <div className="flex-1 flex items-center gap-2">
-          <label className="text-[10px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Job ID")}</label>
+          <label className="text-[11px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Job ID")}</label>
           <input
             value={manualJobId}
             onChange={(e) => setManualJobId(e.target.value)}
@@ -312,7 +312,7 @@ export function ServersTab({
       </div>
 
       {placeName && (
-        <div className="px-1 pb-2 text-[11px] text-zinc-500 truncate">
+        <div className="px-1 pb-2 text-[12px] text-zinc-500 truncate">
           {placeName}
         </div>
       )}
@@ -320,7 +320,7 @@ export function ServersTab({
       <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-zinc-800/60 bg-zinc-950/50">
         <table className="w-full text-left">
           <thead className="sticky top-0 bg-zinc-900/95 backdrop-blur-sm z-10">
-            <tr className="text-[10px] uppercase tracking-wider text-zinc-600 border-b border-zinc-800/60">
+            <tr className="text-[11px] uppercase tracking-wider text-zinc-600 border-b border-zinc-800/60">
               <th className="py-2 px-3 font-medium w-10">#</th>
               <th className="py-2 px-3 font-medium">{t("Players")}</th>
               <th className="py-2 px-3 font-medium w-16">{t("Ping")}</th>
@@ -354,14 +354,14 @@ export function ServersTab({
                     setContextMenu({ x: e.clientX, y: e.clientY, server });
                   }}
                 >
-                  <td className="py-1.5 px-3 text-[11px] text-zinc-600 font-mono">{idx + 1}</td>
+                  <td className="py-1.5 px-3 text-[12px] text-zinc-600 font-mono">{idx + 1}</td>
                   <td className="py-1.5 px-3">
                     <div className="flex items-center gap-2">
                       <span className={`text-[12px] font-mono ${fillColor}`}>
                         {server.playing}
                       </span>
-                      <span className="text-[11px] text-zinc-600">/</span>
-                      <span className="text-[11px] text-zinc-500 font-mono">{server.maxPlayers}</span>
+                      <span className="text-[12px] text-zinc-600">/</span>
+                      <span className="text-[12px] text-zinc-500 font-mono">{server.maxPlayers}</span>
                       <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden max-w-[60px]">
                         <div
                           className={`h-full rounded-full transition-all ${
@@ -372,13 +372,13 @@ export function ServersTab({
                       </div>
                     </div>
                   </td>
-                  <td className="py-1.5 px-3 text-[11px] text-zinc-400 font-mono">
+                  <td className="py-1.5 px-3 text-[12px] text-zinc-400 font-mono">
                     {server.ping != null ? `${server.ping}ms` : "\u2014"}
                   </td>
-                  <td className="py-1.5 px-3 text-[11px] text-zinc-400 font-mono">
+                  <td className="py-1.5 px-3 text-[12px] text-zinc-400 font-mono">
                     {server.fps > 0 ? server.fps.toFixed(0) : "\u2014"}
                   </td>
-                  <td className="py-1.5 px-3 text-[11px] text-zinc-500">
+                  <td className="py-1.5 px-3 text-[12px] text-zinc-500">
                     {regionData ? (
                       <span className={regionData.loading ? "animate-pulse" : ""}>
                         {regionData.region}
@@ -397,7 +397,7 @@ export function ServersTab({
         {loading && (
           <div className="flex items-center justify-center py-4 gap-2">
             <div className="w-3 h-3 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-[12px] text-zinc-500">
               {t("Loading servers... ({{count}} found)", { count: servers.length })}
             </span>
           </div>
@@ -406,7 +406,7 @@ export function ServersTab({
 
       <div className="flex items-center gap-2 pt-3 border-t border-zinc-800/40 mt-3">
         <div className="flex items-center gap-2 flex-1">
-          <label className="text-[10px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Teleport")}</label>
+          <label className="text-[11px] text-zinc-600 shrink-0 uppercase tracking-wider">{t("Teleport")}</label>
           <input
             value={teleportPlaceId}
             onChange={(e) => readPlaceIdField(e.target.value, setTeleportPlaceId)}
@@ -441,7 +441,7 @@ export function ServersTab({
       </div>
 
       <div className="flex items-center justify-between pt-2">
-        <span className="text-[10px] text-zinc-600">
+        <span className="text-[11px] text-zinc-600">
           {servers.length === 1
             ? t("{{count}} server", { count: servers.length })
             : t("{{count}} servers", { count: servers.length })}

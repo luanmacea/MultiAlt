@@ -31,7 +31,7 @@ export function NumberField({
       <div className="min-w-0">
         <div className="text-[13px] text-zinc-300">{t(label)}</div>
         {description && (
-          <div className="text-[11px] text-zinc-500 leading-snug mt-0.5">{t(description)}</div>
+          <div className="text-[12px] text-zinc-500 leading-snug mt-0.5">{t(description)}</div>
         )}
       </div>
       <div className="flex items-center gap-1.5 ml-auto shrink-0">
@@ -50,7 +50,7 @@ export function NumberField({
               : "bg-zinc-800/60 border border-zinc-700/60 text-zinc-200 focus:outline-none focus:border-sky-500/40"
           }`}
         />
-        {suffix && <span className="text-[11px] text-zinc-600">{t(suffix)}</span>}
+        {suffix && <span className="text-[12px] text-zinc-600">{t(suffix)}</span>}
       </div>
     </div>
   );

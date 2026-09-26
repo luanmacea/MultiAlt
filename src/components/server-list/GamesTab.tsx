@@ -241,7 +241,7 @@ export function GamesTab({
                   </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     {game.playerCount > 0 && (
-                      <span className="text-[10px] text-zinc-500">
+                      <span className="text-[11px] text-zinc-500">
                         {game.playerCount >= 1000
                           ? `${(game.playerCount / 1000).toFixed(1)}K`
                           : game.playerCount} {t("playing")}
@@ -255,7 +255,7 @@ export function GamesTab({
                             style={{ width: `${game.likeRatio}%` }}
                           />
                         </div>
-                        <span className="text-[9px] text-zinc-600">{game.likeRatio}%</span>
+                        <span className="text-[11px] text-zinc-600">{game.likeRatio}%</span>
                       </div>
                     )}
                   </div>

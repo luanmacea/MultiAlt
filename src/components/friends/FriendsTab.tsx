@@ -219,7 +219,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
             <Users size={14} strokeWidth={1.5} />
             {t("Online friends")}
           </h3>
-          <p className="text-[11px] theme-muted truncate">
+          <p className="text-[12px] theme-muted truncate">
             {loading
               ? progress
                 ? t("Checking friends {{done}}/{{total}}...", {
@@ -244,7 +244,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
       {error && (
         <div
           role="alert"
-          className="flex items-start gap-2 mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-400"
+          className="flex items-start gap-2 mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-400"
         >
           <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
           <span className="break-words">{error}</span>
@@ -257,7 +257,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
           className="flex flex-col items-center justify-center gap-2 py-12 theme-muted"
         >
           <Gamepad2 size={22} strokeWidth={1.5} />
-          <p className="text-[11px]">{t("No friends online right now")}</p>
+          <p className="text-[12px]">{t("No friends online right now")}</p>
         </div>
       )}
 
@@ -280,18 +280,18 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
               <h4 className="text-[12px] font-semibold text-[var(--panel-fg)] truncate">
                 {accountName(row.userId)}
               </h4>
-              <span className="ml-auto shrink-0 text-[11px] theme-muted">
+              <span className="ml-auto shrink-0 text-[12px] theme-muted">
                 {t("{{count}} online", { count: row.friends.length })}
               </span>
             </header>
 
             {row.error ? (
-              <div className="flex items-start gap-2 px-3 py-2.5 text-[11px] text-red-400">
+              <div className="flex items-start gap-2 px-3 py-2.5 text-[12px] text-red-400">
                 <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
                 <span className="break-words">{row.error}</span>
               </div>
             ) : row.friends.length === 0 ? (
-              <p className="px-3 py-2.5 text-[11px] theme-muted">{t("No friends online")}</p>
+              <p className="px-3 py-2.5 text-[12px] theme-muted">{t("No friends online")}</p>
             ) : (
               <ul className="py-1">
                 {row.friends.map((friend) => {
@@ -313,7 +313,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
                         <span className="text-[12px] text-[var(--panel-fg)] truncate max-w-[220px]">
                           {label}
                         </span>
-                        <span className="text-[10px] theme-muted truncate max-w-[220px]">
+                        <span className="text-[11px] theme-muted truncate max-w-[220px]">
                           {target.joinable ? friend.lastLocation || t("In Game") : target.reason}
                         </span>
                       </span>
@@ -334,7 +334,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
                           title={t("Send every selected account into {{name}}'s server", { name: label })}
                         >
                           {inner}
-                          <span className="ml-auto shrink-0 text-[10px] text-[var(--accent-color)]">
+                          <span className="ml-auto shrink-0 text-[11px] text-[var(--accent-color)]">
                             {busy ? t("Joining...") : t("Join")}
                           </span>
                         </button>
@@ -344,7 +344,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
                           title={target.reason}
                         >
                           {inner}
-                          <span className="ml-auto shrink-0 text-[10px] theme-muted">{target.reason}</span>
+                          <span className="ml-auto shrink-0 text-[11px] theme-muted">{target.reason}</span>
                         </div>
                       )}
                     </li>
