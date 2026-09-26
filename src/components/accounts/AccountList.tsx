@@ -122,6 +122,12 @@ export function AccountList() {
     const target = e.target;
     if (!(target instanceof Element)) return;
 
+    // Punho de arrastar (conta ou cabeçalho de grupo): o `preventDefault` logo
+    // abaixo **cancela o arrasto nativo** do navegador, então o gesto virava
+    // uma caixa de seleção e o grupo nunca saía do lugar. A linha de conta já
+    // escapava pelo teste seguinte; o cabeçalho de grupo, não.
+    if (target.closest("[draggable='true']")) return;
+
     const rowTarget = target.closest<HTMLElement>("[data-account-row='true']");
     if (rowTarget) {
       const onRowBackground = target === rowTarget;

@@ -39,7 +39,71 @@ function fakeDataTransfer() {
   return { setData: vi.fn(), effectAllowed: "", dropEffect: "" };
 }
 
+/**
+ * O dono pediu um caminho de ordenar que não dependa de arrastar. As setas
+ * fazem o mesmo `reorderAccounts` do arrasto, uma posição por clique, e são a
+ * única forma de reordenar por teclado.
+ */
+const TRIO = [
+  makeAccount({ UserID: 1, Username: "um", Group: "Alts" }),
+  makeAccount({ UserID: 2, Username: "dois", Group: "Alts" }),
+  makeAccount({ UserID: 3, Username: "tres", Group: "Alts" }),
+  makeAccount({ UserID: 9, Username: "outro", Group: "Mains" }),
+];
+
+function renderNoTrio(userId: number) {
+  const conta = TRIO.find((a) => a.UserID === userId)!;
+  const store = setStore({ accounts: TRIO });
+  render(<AccountRow account={conta} />);
+  return store;
+}
+
 afterEach(cleanup);
+
+describe("AccountRow — setas de ordem", () => {
+  it("sobe a conta uma posição, trocando com a de cima", async () => {
+    const store = renderNoTrio(2);
+
+    await userEvent.click(screen.getByRole("button", { name: /Move up/i }));
+
+    expect(store.reorderAccounts).toHaveBeenCalledWith(2, 1);
+  });
+
+  it("desce a conta uma posição, trocando com a de baixo", async () => {
+    const store = renderNoTrio(2);
+
+    await userEvent.click(screen.getByRole("button", { name: /Move down/i }));
+
+    expect(store.reorderAccounts).toHaveBeenCalledWith(2, 3);
+  });
+
+  /** Subir a primeira do grupo não pode empurrá-la para dentro de outro grupo. */
+  it("não oferece subir na primeira nem descer na última do grupo", () => {
+    renderNoTrio(1);
+    expect(screen.getByRole("button", { name: /Move up/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Move down/i })).toBeEnabled();
+
+    cleanup();
+    renderNoTrio(3);
+    expect(screen.getByRole("button", { name: /Move up/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Move down/i })).toBeDisabled();
+  });
+
+  it("conta sozinha no grupo tem as duas setas desligadas", () => {
+    renderNoTrio(9);
+    expect(screen.getByRole("button", { name: /Move up/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Move down/i })).toBeDisabled();
+  });
+
+  it("clicar na seta não seleciona a conta nem abre o menu", async () => {
+    const store = renderNoTrio(2);
+
+    await userEvent.click(screen.getByRole("button", { name: /Move up/i }));
+
+    expect(store.handleSelect).not.toHaveBeenCalled();
+    expect(store.openContextMenu).not.toHaveBeenCalled();
+  });
+});
 
 describe("AccountRow", () => {
   it("shows the username and falls back to it when no alias is set", () => {

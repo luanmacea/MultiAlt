@@ -1600,5 +1600,9 @@
   "Friends {{done}}/{{total}}": "Friends {{done}}/{{total}}",
   "Could not save: {{error}}": "Could not save: {{error}}",
   "Delay between requests (s)": "Delay between requests (s)",
-  "Roblox rate-limits new accounts. Slower is safer.": "Roblox rate-limits new accounts. Slower is safer."
+  "Roblox rate-limits new accounts. Slower is safer.": "Roblox rate-limits new accounts. Slower is safer.",
+  "Move down": "Move down",
+  "Move group down": "Move group down",
+  "Move group up": "Move group up",
+  "Move up": "Move up"
 }

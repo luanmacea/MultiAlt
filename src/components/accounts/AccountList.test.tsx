@@ -38,6 +38,33 @@ function dropText(target: HTMLElement, text: string) {
 beforeEach(resetTauriMocks);
 afterEach(cleanup);
 
+/**
+ * O `mousedown` da lista chama `preventDefault` para desenhar a caixa de
+ * seleção — e `preventDefault` no mousedown **cancela o arrasto nativo** do
+ * navegador. A linha de conta já era poupada; o cabeçalho de grupo não, então
+ * puxar um grupo pelo punho desenhava uma caixinha de seleção em vez de
+ * arrastar o grupo. Foi o que o dono viu na tela.
+ */
+describe("AccountList — punho de arrastar vs. caixa de seleção", () => {
+  it("não cancela o arrasto que começa num punho", () => {
+    renderList({ accounts: ACCOUNTS });
+
+    for (const punho of document.querySelectorAll("[draggable='true']")) {
+      const evento = fireEvent.mouseDown(punho, { button: 0, clientX: 10, clientY: 10 });
+      // `fireEvent` devolve false quando alguém chamou preventDefault.
+      expect(evento).toBe(true);
+    }
+  });
+
+  it("continua desenhando a caixa de seleção no fundo da lista", () => {
+    renderList({ accounts: ACCOUNTS });
+
+    const evento = fireEvent.mouseDown(listEl(), { button: 0, clientX: 10, clientY: 10 });
+
+    expect(evento).toBe(false);
+  });
+});
+
 describe("AccountList — empty and filtered states", () => {
   it("offers to add an account when the list is empty", async () => {
     renderList({ accounts: [] });

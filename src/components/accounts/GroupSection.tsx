@@ -1,4 +1,4 @@
-import { Check, ChevronRight, GripVertical } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, GripVertical } from "lucide-react";
 import { useStore } from "../../store";
 import type { ParsedGroup } from "../../types";
 import { AccountRow } from "./AccountRow";
@@ -38,6 +38,23 @@ export function GroupSection({
       return;
     }
     onDrop(group.key);
+  }
+
+  /**
+   * Vizinhos deste grupo na ordem que está na tela. Arrastar depende de mouse
+   * firme e de o navegador cooperar; as setas fazem o mesmo `reorderGroups`,
+   * uma posição por clique, e são a única forma de reordenar por teclado.
+   */
+  const ordem = store.groups.filter((g) => g.key !== "__all__");
+  const posicao = ordem.findIndex((g) => g.key === group.key);
+  const acima = posicao > 0 ? ordem[posicao - 1] : null;
+  const abaixo = posicao >= 0 && posicao < ordem.length - 1 ? ordem[posicao + 1] : null;
+
+  function moverPara(alvo: { key: string } | null, e: React.MouseEvent) {
+    // Sem isto o clique sobe para o cabeçalho e colapsa o grupo.
+    e.stopPropagation();
+    if (!alvo) return;
+    void store.reorderGroups(group.key, alvo.key);
   }
 
   const groupIds = group.accounts.map((a) => a.UserID);
@@ -145,6 +162,32 @@ export function GroupSection({
           <ChevronRight size={12} fill="currentColor" stroke="none" className={`theme-muted transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
           <span className="theme-label font-medium">{group.displayName === "Default" ? t("Default") : group.displayName}</span>
           <span className="theme-muted text-[11px] tabular-nums">{group.accounts.length}</span>
+
+          {/* Setas à direita: o caminho que não depende de arrastar. */}
+          <span className="ml-auto flex items-center gap-0.5 shrink-0">
+            <button
+              type="button"
+              onClick={(e) => moverPara(acima, e)}
+              onKeyDown={(e) => e.stopPropagation()}
+              disabled={!acima}
+              aria-label={t("Move group up")}
+              title={t("Move group up")}
+              className="p-0.5 rounded theme-muted opacity-40 group-hover/ghead:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronUp size={13} strokeWidth={2} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => moverPara(abaixo, e)}
+              onKeyDown={(e) => e.stopPropagation()}
+              disabled={!abaixo}
+              aria-label={t("Move group down")}
+              title={t("Move group down")}
+              className="p-0.5 rounded theme-muted opacity-40 group-hover/ghead:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronDown size={13} strokeWidth={2} />
+            </button>
+          </span>
         </div>
       )}
 

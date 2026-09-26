@@ -112,6 +112,74 @@ describe("GroupSection", () => {
     });
   });
 
+  /**
+   * Arrastar depende de mouse firme e de o navegador cooperar; o dono pediu um
+   * caminho que sempre funciona. As setas fazem o mesmo `reorderGroups`, uma
+   * posição por clique, e são a única forma de reordenar por teclado.
+   */
+  describe("setas de ordem", () => {
+    const TRES = [
+      makeAccount({ UserID: 11, Username: "ann", Group: "Alts" }),
+      makeAccount({ UserID: 21, Username: "bob", Group: "Mains" }),
+      makeAccount({ UserID: 31, Username: "cid", Group: "Zeta" }),
+    ];
+
+    /** Renderiza o grupo `key` no meio de uma lista de três. */
+    function renderComVizinhos(key: string) {
+      const grupos = groupAccounts(TRES);
+      const grupo = grupos.find((g) => g.key === key)!;
+      const store = setStore({ accounts: TRES, groups: grupos });
+      render(<GroupSection group={grupo} collapsed={false} onToggle={vi.fn()} onDrop={vi.fn()} />);
+      return store;
+    }
+
+    it("sobe o grupo uma posição por clique", async () => {
+      const store = renderComVizinhos("Mains");
+
+      await userEvent.click(screen.getByRole("button", { name: /Move group up/i }));
+
+      // Troca com o vizinho de cima (Alts), não vai para o topo de uma vez.
+      expect(store.reorderGroups).toHaveBeenCalledWith("Mains", "Alts");
+    });
+
+    it("desce o grupo uma posição por clique", async () => {
+      const store = renderComVizinhos("Mains");
+
+      await userEvent.click(screen.getByRole("button", { name: /Move group down/i }));
+
+      expect(store.reorderGroups).toHaveBeenCalledWith("Mains", "Zeta");
+    });
+
+    it("não oferece subir no primeiro nem descer no último", () => {
+      renderComVizinhos("Alts");
+      expect(screen.getByRole("button", { name: /Move group up/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /Move group down/i })).toBeEnabled();
+
+      cleanup();
+      renderComVizinhos("Zeta");
+      expect(screen.getByRole("button", { name: /Move group up/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /Move group down/i })).toBeDisabled();
+    });
+
+    it("clicar na seta não colapsa o grupo", async () => {
+      const grupos = groupAccounts(TRES);
+      setStore({ accounts: TRES, groups: grupos });
+      const onToggle = vi.fn();
+      render(
+        <GroupSection
+          group={grupos.find((g) => g.key === "Mains")!}
+          collapsed={false}
+          onToggle={onToggle}
+          onDrop={vi.fn()}
+        />
+      );
+
+      await userEvent.click(screen.getByRole("button", { name: /Move group up/i }));
+
+      expect(onToggle).not.toHaveBeenCalled();
+    });
+  });
+
   it("hides the header when groups are turned off", () => {
     renderGroup({ showGroups: false });
     expect(document.querySelector("[data-group-header='true']")).toBeNull();
