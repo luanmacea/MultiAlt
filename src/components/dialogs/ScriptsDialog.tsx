@@ -2953,7 +2953,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
           ? "border-red-500/30 bg-red-500/15 text-red-300"
           : "theme-border bg-zinc-800/40 text-zinc-400";
     return (
-      <span className={`px-1.5 py-0.5 text-[10px] rounded-md border ${className}`}>
+      <span className={`px-1.5 py-0.5 text-[11px] rounded-md border ${className}`}>
         {t(status).toUpperCase()}
       </span>
     );
@@ -3035,10 +3035,10 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
               que isto executa/injeta Lua no cliente do Roblox. */}
           <div className="min-w-0">
             <div className="text-[15px] font-semibold text-zinc-100">{t("Scripts")}</div>
-            <div className="text-[11px] text-zinc-400">
+            <div className="text-[12px] text-zinc-400">
               {t("JavaScript automation that runs inside RAM, not a Roblox executor or injector")}
             </div>
-            <div className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+            <div className="mt-0.5 text-[12px] leading-snug text-zinc-500">
               {t(
                 "Scripts run in a sandboxed Web Worker and talk to the app through the ram.* API. They cannot inject code into the Roblox client and never receive account cookies or passwords."
               )}
@@ -3072,7 +3072,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
               </div>
               <button
                 onClick={() => setRunningOnly((prev) => !prev)}
-                className={`px-2 py-1.5 rounded-lg border text-[11px] transition-colors ${
+                className={`px-2 py-1.5 rounded-lg border text-[12px] transition-colors ${
                   runningOnly
                     ? "bg-sky-500/15 border-sky-500/35 text-sky-300"
                     : "bg-zinc-800/40 border-zinc-700/60 text-zinc-400"
@@ -3086,7 +3086,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
               <div ref={newMenuRef} className="relative">
                 <button
                   onClick={() => setNewMenuOpen((prev) => !prev)}
-                  className={`px-2.5 py-1 rounded-md border text-[11px] transition-all duration-200 ${
+                  className={`px-2.5 py-1 rounded-md border text-[12px] transition-all duration-200 ${
                     newMenuOpen
                       ? "bg-sky-500/18 border-sky-500/35 text-sky-300 shadow-[0_0_0_1px_rgba(56,189,248,0.2)]"
                       : "bg-zinc-800/40 border-zinc-700/60 text-zinc-300 hover:bg-zinc-700/50 hover:-translate-y-[1px]"
@@ -3155,7 +3155,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
 
               <button
                 onClick={() => importRef.current?.click()}
-                className="px-2 py-1 rounded-md bg-zinc-800/40 border border-zinc-700/60 text-[11px] text-zinc-300 hover:bg-zinc-700/50 hover:-translate-y-[1px] transition-all duration-200"
+                className="px-2 py-1 rounded-md bg-zinc-800/40 border border-zinc-700/60 text-[12px] text-zinc-300 hover:bg-zinc-700/50 hover:-translate-y-[1px] transition-all duration-200"
               >
                 <span className="inline-flex items-center gap-1">
                   <Upload size={11} strokeWidth={2} />
@@ -3174,7 +3174,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                   void handleImportScript(file);
                 }}
               />
-              <span className="ml-auto text-[11px] text-zinc-600">
+              <span className="ml-auto text-[12px] text-zinc-600">
                 {filteredScripts.length} {t("items")}
               </span>
             </div>
@@ -3210,12 +3210,12 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                       )}
                       <span className="ml-auto">{renderStatusChip(script)}</span>
                     </div>
-                    <div className="mt-1 text-[10px] text-zinc-500 truncate">
+                    <div className="mt-1 text-[11px] text-zinc-500 truncate">
                       {script.description || t("No description")}
                     </div>
                     <div className="mt-1.5 flex items-center gap-1.5">
                       <span
-                        className={`px-1.5 py-0.5 rounded border text-[10px] ${
+                        className={`px-1.5 py-0.5 rounded border text-[11px] ${
                           script.enabled
                             ? "border-emerald-500/25 text-emerald-300 bg-emerald-500/10"
                             : "border-zinc-700 text-zinc-500"
@@ -3224,7 +3224,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         {script.enabled ? t("enabled") : t("disabled")}
                       </span>
                       {runtime.lastError ? (
-                        <span className="px-1.5 py-0.5 rounded border text-[10px] border-red-500/30 bg-red-500/12 text-red-300 truncate">
+                        <span className="px-1.5 py-0.5 rounded border text-[11px] border-red-500/30 bg-red-500/12 text-red-300 truncate">
                           {t("error")}
                         </span>
                       ) : null}
@@ -3268,7 +3268,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
 
                   <button
                     onClick={() => handleToggleEnabled(selectedScript, !selectedScript.enabled)}
-                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] transition-colors ${
+                    className={`px-2.5 py-1.5 rounded-lg border text-[12px] transition-colors ${
                       selectedScript.enabled
                         ? "border-emerald-500/35 bg-emerald-500/15 text-emerald-300"
                         : "border-zinc-700 bg-zinc-800/45 text-zinc-400"
@@ -3285,7 +3285,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         handleRunScript(selectedScript.id);
                       }
                     }}
-                    className={`px-2.5 py-1.5 rounded-lg border text-[11px] transition-colors ${
+                    className={`px-2.5 py-1.5 rounded-lg border text-[12px] transition-colors ${
                       workersRef.current.has(selectedScript.id)
                         ? "border-red-500/35 bg-red-500/15 text-red-300"
                         : "border-sky-500/35 bg-sky-500/15 text-sky-300"
@@ -3303,7 +3303,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
 
                   <button
                     onClick={() => handleRestartScript(selectedScript.id)}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[11px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
                   >
                     <span className="inline-flex items-center gap-1">
                       <RotateCcw size={11} strokeWidth={2} />
@@ -3315,7 +3315,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                     onClick={() => {
                       void handleExportScript(selectedScript);
                     }}
-                    className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[11px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                    className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
                   >
                     <span className="inline-flex items-center gap-1">
                       <Download size={11} strokeWidth={2} />
@@ -3327,7 +3327,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                     onClick={() => {
                       void handleDeleteScript(selectedScript.id);
                     }}
-                    className="px-2.5 py-1.5 rounded-lg border border-red-500/35 bg-red-500/12 text-[11px] text-red-300 hover:bg-red-500/20 transition-colors"
+                    className="px-2.5 py-1.5 rounded-lg border border-red-500/35 bg-red-500/12 text-[12px] text-red-300 hover:bg-red-500/20 transition-colors"
                   >
                     <span className="inline-flex items-center gap-1">
                       <Trash2 size={11} strokeWidth={2} />
@@ -3346,7 +3346,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                     <button
                       key={id}
                       onClick={() => setTab(id)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] border transition-colors ${
+                      className={`px-2.5 py-1 rounded-md text-[12px] border transition-colors ${
                         tab === id
                           ? "border-sky-500/35 bg-sky-500/15 text-sky-300"
                           : "border-zinc-700/70 bg-zinc-800/40 text-zinc-400 hover:text-zinc-200"
@@ -3361,7 +3361,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                       onClick={() => {
                         void handleTrustToggle(selectedScript, !selectedScript.trusted);
                       }}
-                      className={`px-2 py-1 rounded-md text-[10px] border transition-colors ${
+                      className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
                         selectedScript.trusted
                           ? "border-emerald-500/35 bg-emerald-500/15 text-emerald-300"
                           : "border-amber-500/35 bg-amber-500/12 text-amber-300"
@@ -3379,7 +3379,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
 
                     <button
                       onClick={() => setShowUnsafe((prev) => !prev)}
-                      className="px-2 py-1 rounded-md border border-zinc-700 bg-zinc-800/45 text-[10px] text-zinc-400 hover:text-zinc-200 transition-colors"
+                      className="px-2 py-1 rounded-md border border-zinc-700 bg-zinc-800/45 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors"
                     >
                       {showUnsafe ? t("Hide Unsafe Details") : t("Show Unsafe Details")}
                     </button>
@@ -3510,7 +3510,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                             : "max-h-0 opacity-0 -translate-y-1 pointer-events-none"
                         }`}
                       >
-                        <div className="rounded-lg border border-zinc-700/70 bg-zinc-900/45 px-3 py-2 text-[11px] space-y-1.5">
+                        <div className="rounded-lg border border-zinc-700/70 bg-zinc-900/45 px-3 py-2 text-[12px] space-y-1.5">
                           <div className="text-zinc-300 font-medium tracking-wide">{t("Unsafe capability details")}</div>
                           <div className="text-zinc-500">{t("Effective access is trust mode + permission toggle.")}</div>
                           <div className="text-zinc-500">
@@ -3567,7 +3567,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                       />
 
                       <div className="flex items-center justify-between">
-                        <span className="text-[11px] text-zinc-500">
+                        <span className="text-[12px] text-zinc-500">
                           {draftDirty
                             ? t("Unsaved changes")
                             : t("Saved at {{time}}", {
@@ -3659,7 +3659,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                           {visibleLogs.map((entry) => (
                             <div
                               key={entry.id}
-                              className={`text-[11px] font-mono px-2 py-1 rounded border ${
+                              className={`text-[12px] font-mono px-2 py-1 rounded border ${
                                 entry.level === "error"
                                   ? "border-red-500/25 bg-red-500/10 text-red-200"
                                   : entry.level === "warn"
@@ -3690,7 +3690,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                               setStickLogsToBottom(true);
                               scrollLogsToBottom("smooth");
                             }}
-                            className="absolute right-3 bottom-3 px-2.5 py-1 rounded-md border border-sky-500/35 bg-sky-500/18 text-[11px] text-sky-300 hover:bg-sky-500/28 transition-all duration-200"
+                            className="absolute right-3 bottom-3 px-2.5 py-1 rounded-md border border-sky-500/35 bg-sky-500/18 text-[12px] text-sky-300 hover:bg-sky-500/28 transition-all duration-200"
                           >
                             {t("Jump to latest")}
                           </button>
@@ -3711,14 +3711,14 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                             onClick={() => {
                               void handleCopyApiSnippet();
                             }}
-                            className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[11px] text-zinc-300 hover:bg-zinc-700 transition-colors"
+                            className="px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
                           >
                             <span className="inline-flex items-center gap-1">
                               <Copy size={11} strokeWidth={2} />
                               {t("Copy snippet")}
                             </span>
                           </button>
-                          <span className="text-[11px] text-zinc-500">
+                          <span className="text-[12px] text-zinc-500">
                             {selectedScript.trusted
                               ? t("Trusted mode is enabled")
                               : t("Trusted mode is disabled")}
@@ -3750,7 +3750,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                               await navigator.clipboard.writeText(command);
                               store.addToast(t("Copied {{name}}", { name: command }));
                             }}
-                            className="text-left px-2.5 py-1.5 rounded-md border border-zinc-700/50 bg-zinc-800/30 text-[11px] text-zinc-300 hover:bg-zinc-700/50 transition-colors font-mono"
+                            className="text-left px-2.5 py-1.5 rounded-md border border-zinc-700/50 bg-zinc-800/30 text-[12px] text-zinc-300 hover:bg-zinc-700/50 transition-colors font-mono"
                           >
                             {command}
                           </button>
@@ -3760,7 +3760,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         )}
                       </div>
 
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[11px] text-zinc-500 leading-relaxed">
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[12px] text-zinc-500 leading-relaxed">
                         <div className="mb-1 text-zinc-300 font-medium">{t("WebSocket helper")}</div>
                         <div>{t("Connect with ram.ws.connect({ url, protocols? }).")}</div>
                         <div>{t("Subscribe with ram.ws.on((evt) => ...).")}</div>
@@ -3769,7 +3769,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         <div>{t("Close one or all connections with ram.ws.close(...).")}</div>
                       </div>
 
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[11px] text-zinc-500 leading-relaxed">
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/30 p-3 text-[12px] text-zinc-500 leading-relaxed">
                         <div className="mb-1 text-zinc-300 font-medium">{t("Trust Mode")}</div>
                         <div>
                           {t("Untrusted scripts keep read-only behavior. Trusted scripts can invoke commands, use HTTP/WebSocket, and write script-scoped settings.")}
@@ -3785,7 +3785,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                   )}
                 </div>
 
-                <div className="px-4 py-2 border-t theme-border flex items-center justify-between gap-3 text-[11px]">
+                <div className="px-4 py-2 border-t theme-border flex items-center justify-between gap-3 text-[12px]">
                   <div className="text-zinc-500 flex items-center gap-2">
                     {(selectedRuntime?.status || "idle") === "running" ? (
                       <>
@@ -3882,7 +3882,7 @@ function PermissionRow({
         />
         <span className="min-w-0">
           <span className="block">{label}</span>
-          <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">{description}</span>
+          <span className="mt-0.5 block text-[12px] leading-snug text-zinc-500">{description}</span>
         </span>
       </span>
     </button>
@@ -3943,7 +3943,7 @@ function ScriptUiRenderer({
           return (
             <div
               key={element.id}
-              className={`inline-flex px-2 py-1 rounded-md border border-zinc-700/70 bg-zinc-800/50 text-[11px] ${toneClass}`}
+              className={`inline-flex px-2 py-1 rounded-md border border-zinc-700/70 bg-zinc-800/50 text-[12px] ${toneClass}`}
             >
               {element.text || element.label || element.id}
             </div>
@@ -3971,7 +3971,7 @@ function ScriptUiRenderer({
 
         if (element.type === "text") {
           return (
-            <label key={element.id} className="block text-[11px] text-zinc-400">
+            <label key={element.id} className="block text-[12px] text-zinc-400">
               {element.label || element.id}
               <input
                 value={typeof element.value === "string" ? element.value : ""}
@@ -3995,7 +3995,7 @@ function ScriptUiRenderer({
 
         if (element.type === "textarea") {
           return (
-            <label key={element.id} className="block text-[11px] text-zinc-400">
+            <label key={element.id} className="block text-[12px] text-zinc-400">
               {element.label || element.id}
               <textarea
                 value={typeof element.value === "string" ? element.value : ""}
@@ -4024,7 +4024,7 @@ function ScriptUiRenderer({
               ? element.value
               : Number.parseFloat(String(element.value || "0"));
           return (
-            <label key={element.id} className="block text-[11px] text-zinc-400">
+            <label key={element.id} className="block text-[12px] text-zinc-400">
               {element.label || element.id}
               <input
                 type="number"
@@ -4076,7 +4076,7 @@ function ScriptUiRenderer({
         if (element.type === "select") {
           const value = String(element.value || "");
           return (
-            <label key={element.id} className="block text-[11px] text-zinc-400">
+            <label key={element.id} className="block text-[12px] text-zinc-400">
               {element.label || element.id}
               <select
                 value={value}

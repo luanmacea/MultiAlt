@@ -25,7 +25,7 @@ export function WatcherTab({ s }: { s: UseSettingsReturn }) {
       {/* O watcher e um loop que FECHA clientes (`kill_for_user`). Sem estas
           linhas o usuario liga um interruptor e descobre o efeito pelo cliente
           que sumiu. Tudo aqui sai de `start_watcher` (commands/watcher.rs). */}
-      <div className="mx-1 mt-1 rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-2.5 text-[11px] leading-relaxed text-zinc-400 space-y-1">
+      <div className="mx-1 mt-1 rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-2.5 text-[12px] leading-relaxed text-zinc-400 space-y-1">
         <div>
           {t(
             "Every few seconds the watcher checks each Roblox client this app launched and closes the ones that match a rule below."

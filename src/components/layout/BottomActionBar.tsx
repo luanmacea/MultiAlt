@@ -294,14 +294,14 @@ export function BottomActionBar() {
         {isSingle && displayName ? (
           <div>
             <div className="text-sm font-medium text-[var(--panel-fg)] truncate">{displayName}</div>
-            <div className="text-[10px] theme-muted">{t("1 account selected")}</div>
+            <div className="text-[11px] theme-muted">{t("1 account selected")}</div>
           </div>
         ) : (
           <div>
             <div className="text-sm font-medium text-[var(--panel-fg)]">
               {t("{{count}} accounts selected", { count })}
             </div>
-            <div className="text-[10px] theme-muted">
+            <div className="text-[11px] theme-muted">
               {t("Ctrl+click to toggle · Shift+click for range · Ctrl+A for all")}
             </div>
           </div>
@@ -311,7 +311,7 @@ export function BottomActionBar() {
       {/* Deselect */}
       <button
         onClick={store.deselectAll}
-        className="theme-btn-ghost text-[11px] px-2.5 py-1.5 rounded-md"
+        className="theme-btn-ghost text-[12px] px-2.5 py-1.5 rounded-md"
       >
         {t("Clear")}
       </button>
@@ -320,7 +320,7 @@ export function BottomActionBar() {
       {isSingle && (
         <button
           onClick={handleOpenAccountSettings}
-          className={`flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg border transition-colors ${
+          className={`flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg border transition-colors ${
             store.sidebarOpen
               ? "theme-border bg-[var(--panel-soft)] text-[var(--panel-fg)]"
               : "theme-border theme-btn-ghost"
@@ -336,7 +336,7 @@ export function BottomActionBar() {
       <div className="relative" ref={actionsRef}>
         <button
           onClick={() => { setActionsOpen((v) => !v); setGroupMenuOpen(false); }}
-          className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg border theme-border theme-btn-ghost"
+          className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg border theme-border theme-btn-ghost"
         >
           {friendBusy ? friendPhaseLabel : refreshing ? t("Refreshing...") : t("Actions")}
           <ChevronDown size={11} strokeWidth={2} className={`transition-transform ${actionsOpen ? "rotate-180" : ""}`} />
@@ -344,7 +344,7 @@ export function BottomActionBar() {
 
         {actionsOpen && (
           <div className="theme-panel theme-border absolute bottom-full mb-1.5 right-0 border rounded-xl shadow-2xl z-30 py-1.5 w-52 animate-scale-in">
-            <div className="px-3 py-1 text-[9px] theme-muted uppercase tracking-widest font-semibold">
+            <div className="px-3 py-1 text-[11px] theme-muted uppercase tracking-widest font-semibold">
               {t("Batch Actions")}
             </div>
 
@@ -379,7 +379,9 @@ export function BottomActionBar() {
                 </button>
                 {friendMenuOpen && (
                   <div className="theme-panel theme-border absolute bottom-0 right-full mr-1 border rounded-xl shadow-2xl z-40 py-1 w-56 animate-scale-in max-h-72 overflow-y-auto">
-                    <label className="flex items-center justify-between gap-2 px-3 py-1.5 text-[12px] theme-muted">
+                    {/* Rótulo em cima: lado a lado com o campo, ele quebrava em
+                        três linhas dentro do menu (medido na tela). */}
+                    <label className="flex flex-col gap-1 px-3 py-1.5 text-[12px] theme-muted">
                       <span>{t("Delay between requests (s)")}</span>
                       <input
                         type="number"
@@ -396,7 +398,7 @@ export function BottomActionBar() {
                           if (e.key === "Enter") commitFriendDelay();
                         }}
                         title={t("Roblox rate-limits new accounts. Slower is safer.")}
-                        className="sidebar-input w-16 text-[12px] tabular-nums text-right"
+                        className="sidebar-input w-full text-[12px] tabular-nums"
                       />
                     </label>
                     <div className="theme-border h-px border-t my-1" />
@@ -407,7 +409,7 @@ export function BottomActionBar() {
                       🕸 {t("Mesh - all friend all ({{n}} req)", { n: count * (count - 1) })}
                     </button>
                     <div className="theme-border h-px border-t my-1" />
-                    <div className="px-3 py-1 text-[9px] theme-muted uppercase tracking-widest font-semibold">
+                    <div className="px-3 py-1 text-[11px] theme-muted uppercase tracking-widest font-semibold">
                       {t("Star - pick main")}
                     </div>
                     {accounts.map((a) => (
@@ -490,9 +492,9 @@ export function BottomActionBar() {
                   className="w-full text-left px-3 py-1.5 text-[12px] theme-muted hover:bg-[var(--panel-soft)] flex items-center justify-between gap-2"
                 >
                   <span>🤖 {t("Botting Mode")}</span>
-                  <span className="text-[9px] uppercase tracking-widest">{t("Off")}</span>
+                  <span className="text-[11px] uppercase tracking-widest">{t("Off")}</span>
                 </button>
-                <div className="px-3 pb-1.5 text-[10px] theme-muted leading-snug">
+                <div className="px-3 pb-1.5 text-[11px] theme-muted leading-snug">
                   {bottingOffHint}
                 </div>
               </>

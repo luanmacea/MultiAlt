@@ -107,7 +107,7 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
 
         <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-1.5">
           {rows.length === 0 && (
-            <p className="text-[11px] text-zinc-600 text-center py-6">{t("No fields. Click + to add one.")}</p>
+            <p className="text-[12px] text-zinc-600 text-center py-6">{t("No fields. Click + to add one.")}</p>
           )}
           {rows.map((row) => (
             <div key={row.id} className="flex items-center gap-1.5">

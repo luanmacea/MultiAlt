@@ -271,13 +271,13 @@ export function ImportDialog({
                 senha e sem verificação em duas etapas. Isso tem que estar na
                 tela, não só no aviso que o próprio cookie carrega no texto.
               */}
-              <p className="text-[11px] text-zinc-500 mb-1.5">{t("Paste one .ROBLOSECURITY cookie per line")}</p>
-              <p className="text-[11px] text-amber-300/80 leading-snug mb-1.5">
+              <p className="text-[12px] text-zinc-500 mb-1.5">{t("Paste one .ROBLOSECURITY cookie per line")}</p>
+              <p className="text-[12px] text-amber-300/80 leading-snug mb-1.5">
                 {t(
                   "This cookie is the account's whole session: anyone holding it is signed in as that account, with no password and no 2-step verification. Treat it like the account itself."
                 )}
               </p>
-              <p className="text-[11px] text-zinc-500 leading-snug mb-2">
+              <p className="text-[12px] text-zinc-500 leading-snug mb-2">
                 {t(
                   "Where to find it: sign in to roblox.com in your browser, open DevTools (F12) › Application › Cookies › https://www.roblox.com and copy the .ROBLOSECURITY value."
                 )}
@@ -296,7 +296,7 @@ export function ImportDialog({
             </>
           ) : tab === "userpass" ? (
             <>
-              <p className="text-[11px] text-zinc-500 mb-2">{t("Paste one username:password per line. A secure browser opens for each to finish sign-in.")}</p>
+              <p className="text-[12px] text-zinc-500 mb-2">{t("Paste one username:password per line. A secure browser opens for each to finish sign-in.")}</p>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -305,11 +305,11 @@ export function ImportDialog({
                 className="flex-1 min-h-[100px] max-h-[140px] w-full p-3 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-xs text-zinc-300 font-mono placeholder-zinc-600 resize-none focus:outline-none focus:border-zinc-600 transition-colors disabled:opacity-50"
                 spellCheck={false}
               />
-              <p className="text-[11px] text-zinc-600 mt-2">{t("Complete any CAPTCHA or 2-step verification in the browser window. This finishes automatically.")}</p>
+              <p className="text-[12px] text-zinc-600 mt-2">{t("Complete any CAPTCHA or 2-step verification in the browser window. This finishes automatically.")}</p>
             </>
           ) : (
             <>
-              <p className="text-[11px] text-zinc-500 mb-3">{t("Select an old AccountData.json file to merge into your current accounts.")}</p>
+              <p className="text-[12px] text-zinc-500 mb-3">{t("Select an old AccountData.json file to merge into your current accounts.")}</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -331,11 +331,11 @@ export function ImportDialog({
                   </div>
                   <div>
                     <div className="text-xs text-zinc-200 font-medium">{t("Choose AccountData.json")}</div>
-                    <div className="text-[11px] text-zinc-500">{t("Click to browse or drop file here")}</div>
+                    <div className="text-[12px] text-zinc-500">{t("Click to browse or drop file here")}</div>
                   </div>
                 </div>
               </button>
-              <div className="mt-2 text-[11px] text-zinc-500 min-h-[16px] truncate">
+              <div className="mt-2 text-[12px] text-zinc-500 min-h-[16px] truncate">
                 {selectedFileName
                   ? t("Selected file: {{name}}", { name: selectedFileName })
                   : t("No file selected")}
@@ -346,7 +346,7 @@ export function ImportDialog({
           {results.length > 0 && (
             <div className="mt-2 max-h-[80px] overflow-y-auto space-y-0.5">
               {results.map((r, i) => (
-                <div key={i} className={`text-[11px] ${r.ok ? "text-emerald-400" : "text-red-400"}`}>
+                <div key={i} className={`text-[12px] ${r.ok ? "text-emerald-400" : "text-red-400"}`}>
                   {r.text}
                 </div>
               ))}
@@ -354,7 +354,7 @@ export function ImportDialog({
           )}
 
           <div className={`flex items-center mt-3 ${tab === "legacy" ? "justify-start" : "justify-between"}`}>
-            <span className="text-[11px] text-zinc-500">{progress}</span>
+            <span className="text-[12px] text-zinc-500">{progress}</span>
             {tab === "cookie" && (
               <button
                 onClick={handleImportCookie}

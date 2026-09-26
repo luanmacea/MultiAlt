@@ -82,7 +82,7 @@ function optimizationJsonError(raw: string, enabled: boolean, t: (text: string) 
 
 function AppliesBadge({ text }: { text: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-sky-500/20 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-400/80">
+    <span className="inline-flex items-center gap-1 rounded border border-sky-500/20 bg-sky-500/10 px-1.5 py-0.5 text-[11px] text-sky-400/80">
       {text}
     </span>
   );
@@ -145,7 +145,7 @@ function OptimizationProfileSection({
         <AppliesBadge text={t("Applies on next launch")} />
       </div>
 
-      <div className="mt-1 text-[11px] text-zinc-500">
+      <div className="mt-1 text-[12px] text-zinc-500">
         {t("These settings apply only to Roblox processes launched by RAM")}
       </div>
 
@@ -192,7 +192,7 @@ function OptimizationProfileSection({
           desliga o Unlock FPS e as fast flags geradas
           (`patch_client_settings_for_launch`). `TextField` nao tem
           `description`, entao a linha fica ao lado. */}
-      <div className="px-1 -mt-1 mb-1 text-[11px] text-zinc-500">
+      <div className="px-1 -mt-1 mb-1 text-[12px] text-zinc-500">
         {t(
           "Your own ClientAppSettings.json: the file is copied over the installed client's one at launch and takes over from Unlock FPS and the fast flags below."
         )}
@@ -310,7 +310,7 @@ function OptimizationProfileSection({
               >
                 {t("Priority Class")}
               </div>
-              <div className="mt-0.5 text-[11px] text-zinc-500 leading-snug">
+              <div className="mt-0.5 text-[12px] text-zinc-500 leading-snug">
                 {t(
                   "Windows CPU scheduling priority for the Roblox process. Background Mode overrides this with Idle."
                 )}
@@ -380,7 +380,7 @@ function OptimizationProfileSection({
               >
                 {t("Memory Priority")}
               </div>
-              <div className="mt-0.5 text-[11px] text-zinc-500 leading-snug">
+              <div className="mt-0.5 text-[12px] text-zinc-500 leading-snug">
                 {t(
                   "How readily Windows takes memory away from this client before other processes when RAM runs short."
                 )}
@@ -409,7 +409,7 @@ function OptimizationProfileSection({
             <WarningBadge>advanced</WarningBadge>
           </div>
 
-          <div className="px-1 pt-1 text-[11px] text-amber-400/80">
+          <div className="px-1 pt-1 text-[12px] text-amber-400/80">
             {t("These settings are experimental and may stop working after Roblox updates")}
           </div>
 
@@ -449,12 +449,12 @@ function OptimizationProfileSection({
           />
           {/* O usuario tinha que adivinhar as chaves aceitas: a allowlist fica a vista. */}
           <div className="px-1 pb-2">
-            <div className="text-[11px] text-zinc-500">{t("Keys accepted by the launcher")}</div>
+            <div className="text-[12px] text-zinc-500">{t("Keys accepted by the launcher")}</div>
             <div className="mt-1 flex flex-wrap gap-1">
               {WINDOWS_FASTFLAG_ALLOWLIST.map((key) => (
                 <code
                   key={key}
-                  className="rounded border border-zinc-800/70 bg-zinc-900/60 px-1.5 py-0.5 text-[10px] text-zinc-400"
+                  className="rounded border border-zinc-800/70 bg-zinc-900/60 px-1.5 py-0.5 text-[11px] text-zinc-400"
                 >
                   {key}
                 </code>
@@ -600,7 +600,7 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
           <AppliesBadge text={t("Applies on next launch")} />
           {!isWindows ? <AppliesBadge text={t("Windows only")} /> : null}
         </div>
-        <div className="mt-3 text-[11px] leading-5 text-zinc-500">
+        <div className="mt-3 text-[12px] leading-5 text-zinc-500">
           {isWindows
             ? t("These settings apply only to Roblox processes launched by RAM")
             : t("Windows-only process policies are unavailable on this platform")}

@@ -204,7 +204,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
       {error && (
         <div
           role="alert"
-          className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-400"
+          className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-400"
         >
           {error}
         </div>
@@ -215,7 +215,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
           <div className="flex items-baseline gap-2 min-w-0">
             <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Joining")}</h3>
-            <span className="text-[11px] theme-muted truncate">
+            <span className="text-[12px] theme-muted truncate">
               {pending.length > 0
                 ? t("{{count}} waiting", { count: pending.length })
                 : t("idle")}
@@ -235,7 +235,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         {entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
             <ListX size={20} strokeWidth={1.5} />
-            <p className="text-[11px] text-center">
+            <p className="text-[12px] text-center">
               {t("Nothing in the launch queue. Pick a game to start joining accounts.")}
             </p>
           </div>
@@ -248,7 +248,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                 <li
                   key={entry.userId}
                   data-testid={`session-queue-${entry.userId}`}
-                  className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
                 >
                   <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
                   <span className="text-[var(--panel-fg)] truncate max-w-[40%]">{name}</span>
@@ -289,14 +289,14 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                 <UserPlus size={13} strokeWidth={1.5} />
                 {t("Make Friends")}
               </h3>
-              <span className="text-[11px] theme-muted truncate">
+              <span className="text-[12px] theme-muted truncate">
                 {t("{{done}} / {{total}} accounts processed", {
                   done: friendLink.processed,
                   total: friendLink.total,
                 })}
               </span>
             </div>
-            <span className="text-[11px] theme-muted shrink-0 truncate">
+            <span className="text-[12px] theme-muted shrink-0 truncate">
               {friendPhaseLabel(friendLink.phase, t)}
             </span>
           </header>
@@ -308,7 +308,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                 <li
                   key={entry.userId}
                   data-testid={`friend-link-${entry.userId}`}
-                  className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
                 >
                   <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
                   <span className="text-[var(--panel-fg)] truncate max-w-[40%]">
@@ -346,7 +346,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
               />
             )}
             <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("In game")}</h3>
-            <span className="text-[11px] theme-muted truncate">
+            <span className="text-[12px] theme-muted truncate">
               {t("{{count}} running", { count: runningIds.length })}
             </span>
           </div>
@@ -365,7 +365,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         {runningIds.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
             <Gamepad2 size={20} strokeWidth={1.5} />
-            <p className="text-[11px] text-center">
+            <p className="text-[12px] text-center">
               {t("No Roblox client is running. Accounts you launch show up here.")}
             </p>
           </div>
@@ -377,7 +377,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                 <li
                   key={userId}
                   data-testid={`session-running-${userId}`}
-                  className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
                 >
                   <input
                     type="checkbox"

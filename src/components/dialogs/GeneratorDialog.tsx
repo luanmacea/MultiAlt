@@ -251,7 +251,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
           <div className="text-[15px] font-semibold text-[var(--panel-fg)]">{t("New Accounts")}</div>
           <div className="flex items-center gap-2">
             <span
-              className={`px-2 py-1 rounded-full text-[10px] border ${
+              className={`px-2 py-1 rounded-full text-[11px] border ${
                 running
                   ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300 animate-pulse"
                   : "theme-border theme-soft theme-muted"
@@ -296,7 +296,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
               }`}
             >
               {tab.label}
-              <span className="block text-[10px] theme-muted leading-snug">{tab.hint}</span>
+              <span className="block text-[11px] theme-muted leading-snug">{tab.hint}</span>
             </button>
           ))}
         </div>
@@ -333,12 +333,12 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                   <Info size={13} strokeWidth={1.75} className="shrink-0" />
                   {t("BloxGen is a third-party service, not part of this app")}
                 </div>
-                <p className="text-[11px] text-amber-100/80 leading-snug">
+                <p className="text-[12px] text-amber-100/80 leading-snug">
                   {t(
                     "Every account it hands over is charged to the balance on your API key, so generating costs money. The app only calls their API with the key you paste — the accounts, the prices and the balance are theirs."
                   )}
                 </p>
-                <p className="text-[11px] text-amber-100/80 leading-snug">
+                <p className="text-[12px] text-amber-100/80 leading-snug">
                   {t(
                     "Free alternative: the Create Accounts tab signs up on Roblox's own form at no cost — the app fills the form and you solve the CAPTCHA."
                   )}
@@ -407,7 +407,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                   </button>
                   {testResult ? (
                     <div
-                      className={`text-[11px] ${testResult.ok ? "text-emerald-300" : "text-red-300"} break-words`}
+                      className={`text-[12px] ${testResult.ok ? "text-emerald-300" : "text-red-300"} break-words`}
                     >
                       {testResult.message}
                     </div>
@@ -419,7 +419,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                 <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2">{t("Generation")}</div>
                 <div className="grid grid-cols-1 gap-2">
                   <label className="flex items-center gap-2">
-                    <span className="text-[11px] theme-muted w-40 shrink-0">{t("Extra delay after cooldown")}</span>
+                    <span className="text-[12px] theme-muted w-40 shrink-0">{t("Extra delay after cooldown")}</span>
                     <NumericInput
                       value={extraDelaySeconds}
                       min={0}
@@ -431,10 +431,10 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                       containerClassName="relative flex-1"
                       className="sidebar-input text-xs w-full disabled:opacity-60"
                     />
-                    <span className="text-[11px] theme-muted">{t("sec")}</span>
+                    <span className="text-[12px] theme-muted">{t("sec")}</span>
                   </label>
                   <label className="flex items-center gap-2">
-                    <span className="text-[11px] theme-muted w-40 shrink-0">{t("Add To Group")}</span>
+                    <span className="text-[12px] theme-muted w-40 shrink-0">{t("Add To Group")}</span>
                     <input
                       value={targetGroup}
                       disabled={configDisabled}
@@ -451,7 +451,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                     </datalist>
                   </label>
                   <label className="flex items-center gap-2">
-                    <span className="text-[11px] theme-muted w-40 shrink-0">{t("Stop after")}</span>
+                    <span className="text-[12px] theme-muted w-40 shrink-0">{t("Stop after")}</span>
                     <NumericInput
                       value={maxAccounts}
                       min={0}
@@ -463,9 +463,9 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                       containerClassName="relative flex-1"
                       className="sidebar-input text-xs w-full disabled:opacity-60"
                     />
-                    <span className="text-[11px] theme-muted">{t("accts")}</span>
+                    <span className="text-[12px] theme-muted">{t("accts")}</span>
                   </label>
-                  <div className="text-[10px] theme-muted">{t("Set Stop After to 0 to keep generating until stopped")}</div>
+                  <div className="text-[11px] theme-muted">{t("Set Stop After to 0 to keep generating until stopped")}</div>
                 </div>
               </section>
 
@@ -494,17 +494,17 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
             <section className="theme-surface rounded-2xl border theme-border h-full p-3 flex flex-col min-h-0">
               <div className="grid grid-cols-3 gap-2">
                 <div className="rounded-xl border theme-border bg-[rgba(0,0,0,0.18)] px-3 py-2.5">
-                  <div className="text-[9px] uppercase tracking-[0.08em] theme-muted">{t("Status")}</div>
+                  <div className="text-[11px] uppercase tracking-[0.08em] theme-muted">{t("Status")}</div>
                   <div className={`text-[13px] font-medium leading-tight mt-0.5 ${phaseTone(status?.phase || "idle")}`}>
                     {phaseLabel(status?.phase || "idle", t)}
                   </div>
                 </div>
                 <div className="rounded-xl border theme-border bg-[rgba(0,0,0,0.18)] px-3 py-2.5">
-                  <div className="text-[9px] uppercase tracking-[0.08em] theme-muted">{t("Generated")}</div>
+                  <div className="text-[11px] uppercase tracking-[0.08em] theme-muted">{t("Generated")}</div>
                   <div className="text-[15px] font-mono text-[var(--panel-fg)] leading-tight mt-0.5">
                     {status?.totalGenerated ?? 0}
                     {status && status.maxAccounts > 0 ? (
-                      <span className="text-[11px] theme-muted"> / {status.maxAccounts}</span>
+                      <span className="text-[12px] theme-muted"> / {status.maxAccounts}</span>
                     ) : null}
                   </div>
                 </div>
@@ -515,7 +515,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                       : "theme-border bg-[rgba(0,0,0,0.18)]"
                   }`}
                 >
-                  <div className="text-[9px] uppercase tracking-[0.08em] theme-muted">{t("Next in")}</div>
+                  <div className="text-[11px] uppercase tracking-[0.08em] theme-muted">{t("Next in")}</div>
                   <div
                     className={`text-[15px] font-mono leading-tight mt-0.5 ${
                       showCountdown ? "text-cyan-200" : "theme-muted"
@@ -527,7 +527,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
               </div>
 
               {status?.lastError ? (
-                <div className="mt-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-[11px] text-red-300 break-words animate-fade-in">
+                <div className="mt-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-[12px] text-red-300 break-words animate-fade-in">
                   {status.lastError}
                 </div>
               ) : null}
@@ -537,7 +537,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                 {log.length > 0 ? (
                   <button
                     onClick={() => setLog([])}
-                    className="text-[11px] theme-muted hover:text-[var(--panel-fg)] transition-colors"
+                    className="text-[12px] theme-muted hover:text-[var(--panel-fg)] transition-colors"
                   >
                     {t("Clear")}
                   </button>
@@ -570,15 +570,15 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                             loading="lazy"
                           />
                         ) : (
-                          <div className="w-7 h-7 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-[10px] font-medium shrink-0">
+                          <div className="w-7 h-7 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-[11px] font-medium shrink-0">
                             {(entry.username || "?").charAt(0).toUpperCase()}
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="text-[12px] text-[var(--panel-fg)] truncate">{entry.username}</div>
-                          <div className="text-[10px] theme-muted font-mono">{entry.userId}</div>
+                          <div className="text-[11px] theme-muted font-mono">{entry.userId}</div>
                         </div>
-                        <div className="text-[10px] theme-muted shrink-0">
+                        <div className="text-[11px] theme-muted shrink-0">
                           {new Date(entry.at).toLocaleTimeString([], {
                             hour: "2-digit",
                             minute: "2-digit",

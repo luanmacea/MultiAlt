@@ -42,7 +42,7 @@ export function SessionDialog({ open, onClose }: SessionDialogProps) {
             <h2 className="text-[15px] font-semibold text-[var(--panel-fg)] tracking-tight">
               {t("Session")}
             </h2>
-            <p className="text-[11px] theme-muted mt-0.5">
+            <p className="text-[12px] theme-muted mt-0.5">
               {t("Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.")}
             </p>
           </div>
@@ -86,7 +86,7 @@ export function SessionToolbarButton() {
         {running > 0 && (
           <span
             data-testid="session-button-count"
-            className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--accent-color)] text-[9px] font-semibold leading-[15px] text-center text-black"
+            className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--accent-color)] text-[11px] font-semibold leading-[15px] text-center text-black"
           >
             {running}
           </span>

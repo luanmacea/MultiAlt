@@ -142,10 +142,10 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
           <UserPlus size={14} strokeWidth={1.5} />
           {t("Create Accounts")}
         </div>
-        <p className="mt-0.5 text-[11px] theme-muted">
+        <p className="mt-0.5 text-[12px] theme-muted">
           {t("Free — the app fills Roblox's signup form; you solve the CAPTCHA")}
         </p>
-        <p className="mt-1 text-[11px] theme-muted">
+        <p className="mt-1 text-[12px] theme-muted">
           {t(
             "The app fills in username, password, birthday (18+) and gender. You solve the CAPTCHA and press Create Account — the app saves each account and moves on to the next."
           )}
@@ -153,7 +153,7 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
 
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] theme-muted">{t("How many accounts")}</span>
+            <span className="text-[11px] theme-muted">{t("How many accounts")}</span>
             <NumericInput
               value={count}
               min={1}
@@ -186,7 +186,7 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
             reduzem moram longe daqui (Settings › General › Login Browser).
             Referência, não cópia: os toggles continuam morando lá. */}
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border theme-border theme-soft px-2.5 py-2">
-          <p className="min-w-0 flex-1 text-[11px] theme-muted">
+          <p className="min-w-0 flex-1 text-[12px] theme-muted">
             {t(
               "Getting a lot of CAPTCHAs? Settings › General › Login Browser has Persistent login profile and Reduce automation signals, which make this browser look less automated."
             )}
@@ -194,7 +194,7 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
           {onOpenLoginSettings && (
             <button
               onClick={onOpenLoginSettings}
-              className="shrink-0 flex items-center gap-1.5 px-2 py-1 text-[11px] rounded-md theme-btn-ghost border theme-border theme-muted"
+              className="shrink-0 flex items-center gap-1.5 px-2 py-1 text-[12px] rounded-md theme-btn-ghost border theme-border theme-muted"
             >
               <SlidersHorizontal size={11} strokeWidth={1.5} />
               {t("Open login settings")}
@@ -213,14 +213,14 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
           </div>
 
           {status.phase === "waiting-user" && (
-            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-amber-300">
+            <p className="mt-2 flex items-center gap-1.5 text-[12px] text-amber-300">
               <ShieldCheck size={12} strokeWidth={1.5} />
               {t("Solve the CAPTCHA in the browser window and press Create Account.")}
             </p>
           )}
 
           {identity && (
-            <div className="mt-2 rounded-lg border theme-border theme-soft p-2.5 text-[11px]">
+            <div className="mt-2 rounded-lg border theme-border theme-soft p-2.5 text-[12px]">
               <div className="flex items-center justify-between gap-2">
                 <span className="theme-muted">{t("Account being created")}</span>
                 <button
@@ -245,13 +245,13 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
           )}
 
           {status.lastError && (
-            <p className="mt-2 text-[11px] text-red-400">{status.lastError}</p>
+            <p className="mt-2 text-[12px] text-red-400">{status.lastError}</p>
           )}
 
           {status.createdUsernames.length > 0 && (
             <div className="mt-2">
-              <div className="text-[10px] theme-muted mb-1">{t("Created in this session")}</div>
-              <ul className="space-y-0.5 text-[11px] font-mono text-[var(--panel-fg)]">
+              <div className="text-[11px] theme-muted mb-1">{t("Created in this session")}</div>
+              <ul className="space-y-0.5 text-[12px] font-mono text-[var(--panel-fg)]">
                 {status.createdUsernames.map((name) => (
                   <li key={name}>{name}</li>
                 ))}

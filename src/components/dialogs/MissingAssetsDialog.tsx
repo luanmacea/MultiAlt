@@ -143,10 +143,10 @@ export function MissingAssetsDialog() {
 
         <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-1.5">
           {loading && (
-            <p className="text-[11px] text-zinc-500 text-center py-6">{t("Loading asset details...")}</p>
+            <p className="text-[12px] text-zinc-500 text-center py-6">{t("Loading asset details...")}</p>
           )}
           {!loading && assets.length === 0 && (
-            <p className="text-[11px] text-zinc-500 text-center py-6">{t("No missing assets")}</p>
+            <p className="text-[12px] text-zinc-500 text-center py-6">{t("No missing assets")}</p>
           )}
           {assets.map((asset) => (
             <div
@@ -164,7 +164,7 @@ export function MissingAssetsDialog() {
               )}
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-zinc-200 truncate">{asset.name}</div>
-                <div className="text-[10px] text-zinc-500">
+                <div className="text-[11px] text-zinc-500">
                   {asset.price !== null ? `R$ ${asset.price}` : t("Not for sale")}
                 </div>
               </div>
@@ -172,7 +172,7 @@ export function MissingAssetsDialog() {
                 <button
                   onClick={() => handleBuy(asset)}
                   disabled={purchasing.has(asset.id)}
-                  className="px-2.5 py-1 bg-emerald-600/80 hover:bg-emerald-500 disabled:bg-zinc-700 text-white text-[10px] font-medium rounded-lg transition-colors shrink-0"
+                  className="px-2.5 py-1 bg-emerald-600/80 hover:bg-emerald-500 disabled:bg-zinc-700 text-white text-[11px] font-medium rounded-lg transition-colors shrink-0"
                 >
                   {purchasing.has(asset.id) ? "..." : t("Buy")}
                 </button>

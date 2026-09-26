@@ -103,11 +103,11 @@ export function IsolationProgressOverlay() {
                 ? t("Isolation issue")
                 : t("Pre-launch isolation")}
             </div>
-            <div className="mt-0.5 text-[11px] text-zinc-400 leading-snug break-words">
+            <div className="mt-0.5 text-[12px] text-zinc-400 leading-snug break-words">
               {progress.message}
             </div>
             {(progress.pathsCleaned > 0 || progress.bytesFreed > 0) && (
-              <div className="mt-1.5 flex items-center gap-3 text-[10px] text-zinc-500 font-mono">
+              <div className="mt-1.5 flex items-center gap-3 text-[11px] text-zinc-500 font-mono">
                 <span>
                   {t("{{count}} paths", { count: progress.pathsCleaned })}
                 </span>
@@ -115,7 +115,7 @@ export function IsolationProgressOverlay() {
               </div>
             )}
             {isElevation && (
-              <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1 text-[10px] text-amber-300">
+              <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-1 text-[11px] text-amber-300">
                 {t("Accept the UAC prompt to continue")}
               </div>
             )}

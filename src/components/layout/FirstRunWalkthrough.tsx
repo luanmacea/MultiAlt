@@ -435,7 +435,7 @@ export function FirstRunWalkthrough() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-[15px] font-semibold tracking-tight text-[var(--panel-fg)]">{activeStep.title}</h2>
-              <span className="text-[11px] theme-muted shrink-0">
+              <span className="text-[12px] theme-muted shrink-0">
                 {t("Walkthrough step {{current}} of {{total}}", {
                   current: stepIndex + 1,
                   total: steps.length,
@@ -447,7 +447,7 @@ export function FirstRunWalkthrough() {
 
           {isLanguageStep ? (
             <div className="mt-3">
-              <div className="text-[11px] uppercase tracking-wide theme-muted mb-1.5">{t("Language")}</div>
+              <div className="text-[12px] uppercase tracking-wide theme-muted mb-1.5">{t("Language")}</div>
               <Select
                 value={normalizeLanguage(currentLanguage)}
                 options={LANGUAGE_OPTIONS}
@@ -460,7 +460,7 @@ export function FirstRunWalkthrough() {
                 <div className="walkthrough-inline-tip mt-2">{t("Please select a language to continue")}</div>
               )}
               {languageSaving && (
-                <div className="text-[11px] theme-muted mt-2">{t("Applying language...")}</div>
+                <div className="text-[12px] theme-muted mt-2">{t("Applying language...")}</div>
               )}
             </div>
           ) : null}
@@ -535,7 +535,7 @@ export function FirstRunWalkthrough() {
           </div>
         </div>
 
-        <div className="mt-3 text-[11px] theme-muted">
+        <div className="mt-3 text-[12px] theme-muted">
           {t("You can skip now and replay this anytime in Settings.")}
         </div>
       </div>

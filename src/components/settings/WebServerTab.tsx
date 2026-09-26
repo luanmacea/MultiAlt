@@ -64,12 +64,12 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
         {/* A aba aparece sempre (SettingsDialog), entao este estado e a unica
             explicacao que o usuario recebe: o que o servidor faz e onde liga. */}
         <div className="text-sm text-zinc-400">{t("Web Server is off")}</div>
-        <div className="mt-1.5 max-w-[340px] text-[11px] leading-relaxed text-zinc-500">
+        <div className="mt-1.5 max-w-[340px] text-[12px] leading-relaxed text-zinc-500">
           {t(
             "It serves a local HTTP API so external tools and scripts can list your accounts, read their cookies and launch them."
           )}
         </div>
-        <div className="mt-2 text-[11px] text-zinc-500">
+        <div className="mt-2 text-[12px] text-zinc-500">
           {t("Turn on Enable Web Server in the Developer tab to unlock these settings.")}
         </div>
       </div>
@@ -81,7 +81,7 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
       <SectionLabel>Permissions</SectionLabel>
       {/* Cada interruptor abaixo e uma porta de entrada real: sem uma linha
           dizendo O QUE cada um expoe, a aba e uma lista de nomes de endpoint. */}
-      <p className="px-1 pb-1 text-[11px] leading-relaxed text-zinc-500">
+      <p className="px-1 pb-1 text-[12px] leading-relaxed text-zinc-500">
         {t("Each switch below opens part of the local HTTP API to anything that can reach the port.")}
       </p>
       <Toggle
@@ -100,7 +100,7 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
           `handle_get_accounts_json` embute o mesmo cookie com
           `IncludeCookies=true`: e a conta inteira saindo pela porta. Nao pode
           sair no mesmo cinza das outras dicas. */}
-      <div className="mx-1 mb-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/80">
+      <div className="mx-1 mb-2 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-[12px] leading-relaxed text-amber-200/80">
         <div>
           {t(
             "Hands out the .ROBLOSECURITY cookie of any account: whoever reads it is logged into that Roblox account, with no password and no 2FA."
@@ -182,7 +182,7 @@ export function WebServerTab({ s }: { s: UseSettingsReturn }) {
           (api/server/middleware.rs:53), entao o servidor "liga" e nao responde
           nada — sem isto aqui o usuario nao tem como saber por que. */}
       {password.length < MIN_PASSWORD_LENGTH && (
-        <p className="px-1 pb-2 text-[11px] text-amber-400/90">
+        <p className="px-1 pb-2 text-[12px] text-amber-400/90">
           {t("Too short: the server answers 401 to everything until it has 6 characters.")}
         </p>
       )}

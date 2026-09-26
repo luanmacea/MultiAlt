@@ -133,6 +133,14 @@ Jogos do harness ficam em [games.ts](../src/dev/harness/games.ts): três places 
 
 O harness **não substitui** `bun run check`.
 
+### Piso de legibilidade do texto
+
+Nada de interface abaixo de **11px**, e prosa (descrição, dica, ajuda) em **12px**. O app tem tamanho em pixel absoluto espalhado pelo JSX (`text-[11px]`, `text-[12px]`…), então **não existe alavanca global**: mudar a fonte do `:root` não mexe em nada, e `zoom` no `body` quebraria os menus de contexto, que posicionam por `clientX/clientY`. A escala pequena foi subida de uma vez (9 e 10 → 11, 11 → 12) a pedido do dono, que não conseguia ler certas descrições sem se aproximar da tela.
+
+[textSize.test.ts](../src/components/ui/textSize.test.ts) varre o `src/` e reprova qualquer `text-[<11px]` novo — bloco antigo copiado com `text-[10px]` é pego ali, não meses depois na tela de alguém.
+
+Texto maior cabe menos: ao mexer nisso, meça a tela. Duas colunas de largura fixa precisaram crescer junto (o `step` do console, 104 → 112px, e o Job ID da aba Servers, 250 → 264px), senão passavam a cortar conteúdo que antes cabia inteiro.
+
 ### Armadilha: cache de pré-empacotamento
 
 O alias troca um **pacote** (`@tauri-apps/api/...`) por um arquivo nosso, e o Vite

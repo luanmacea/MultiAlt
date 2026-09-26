@@ -121,7 +121,7 @@ export function RecentGamesPopover({
           : { top: 0, left: 0, transformOrigin: "top right" }
       }
     >
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 px-1 pb-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 px-1 pb-2">
         {t("Recent games")}
       </div>
       <div className="flex-1 min-h-0">

@@ -99,7 +99,7 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
           aba do mesmo dialogo ("Create in the browser"), so nao era dita em
           lugar nenhum. */}
       <div className="px-1 pt-1 pb-2">
-        <div className="space-y-1.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/80">
+        <div className="space-y-1.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-[12px] leading-relaxed text-amber-200/80">
           <div>
             {t(
               "BloxGen is a paid service run by someone else, not part of this app: you buy credit on their site, paste the API key below, and the accounts come from them. Test API key shows the credit left."
@@ -124,7 +124,7 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
         />
       </div>
       <div className="px-1 -mt-1 mb-1">
-        <span className="text-[11px] text-zinc-500">
+        <span className="text-[12px] text-zinc-500">
           {t("Pulls fresh Roblox accounts from the provider and adds them automatically")}
         </span>
       </div>
@@ -169,7 +169,7 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
         />
       </div>
       <div className="flex items-center justify-between gap-3 py-2 px-1">
-        <span className="text-[11px] text-zinc-500 min-w-0 truncate">
+        <span className="text-[12px] text-zinc-500 min-w-0 truncate">
           {testResult ? (
             <span className={testResult.ok ? "text-emerald-400" : "text-red-400"}>
               {testResult.message}
@@ -223,7 +223,7 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
         suffix="accounts"
       />
       <div className="px-1 -mt-1 mb-1">
-        <span className="text-[11px] text-zinc-500">{t("Set Stop After to 0 to keep generating until stopped")}</span>
+        <span className="text-[12px] text-zinc-500">{t("Set Stop After to 0 to keep generating until stopped")}</span>
       </div>
 
       <Divider />
@@ -237,7 +237,7 @@ export function GeneratorTab({ s }: { s: UseSettingsReturn }) {
               : ""}
           </span>
           {status?.lastError ? (
-            <span className="text-[11px] text-red-400/90 truncate mt-0.5">{status.lastError}</span>
+            <span className="text-[12px] text-red-400/90 truncate mt-0.5">{status.lastError}</span>
           ) : null}
         </div>
         <button

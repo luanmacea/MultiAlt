@@ -25,7 +25,7 @@ export function ColorRow({
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="theme-input w-28 px-2 py-1 rounded text-[10px] font-mono"
+          className="theme-input w-28 px-2 py-1 rounded text-[11px] font-mono"
           spellCheck={false}
         />
       </div>

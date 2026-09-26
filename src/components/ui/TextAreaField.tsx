@@ -25,7 +25,7 @@ export function TextAreaField({
     <div className="py-2 px-1">
       <div className="text-[13px] text-zinc-300">{t(label)}</div>
       {description ? (
-        <div className="mt-0.5 text-[11px] text-zinc-500">{t(description)}</div>
+        <div className="mt-0.5 text-[12px] text-zinc-500">{t(description)}</div>
       ) : null}
       <textarea
         value={value}
@@ -44,7 +44,7 @@ export function TextAreaField({
               : "border-zinc-700/60 focus:border-sky-500/40"
         }`}
       />
-      {error ? <div className="mt-1.5 text-[11px] text-red-400">{t(error)}</div> : null}
+      {error ? <div className="mt-1.5 text-[12px] text-red-400">{t(error)}</div> : null}
     </div>
   );
 }

@@ -46,7 +46,7 @@ export function GameBadge({
         />
       ) : null}
       {name ? (
-        <span className="truncate text-[11px] text-[var(--panel-fg)]">{name}</span>
+        <span className="truncate text-[12px] text-[var(--panel-fg)]">{name}</span>
       ) : null}
     </span>
   );

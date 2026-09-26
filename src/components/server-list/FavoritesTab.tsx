@@ -221,7 +221,7 @@ export function FavoritesTab({
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
         </svg>
         <p className="text-xs text-zinc-700 mb-1">{t("No favorites yet")}</p>
-        <p className="text-[10px] text-zinc-700">{t("Use the star on a game in the Games or Recent tab to add one")}</p>
+        <p className="text-[11px] text-zinc-700">{t("Use the star on a game in the Games or Recent tab to add one")}</p>
       </div>
     );
   }
@@ -256,10 +256,10 @@ export function FavoritesTab({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-[12px] text-zinc-200 truncate">{game.name}</div>
-                    <div className="text-[10px] text-zinc-600 font-mono">{t("ID: {{id}}", { id: game.placeId })}</div>
+                    <div className="text-[11px] text-zinc-600 font-mono">{t("ID: {{id}}", { id: game.placeId })}</div>
                   </div>
                   {vips.length > 0 && (
-                    <span className="text-[9px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded shrink-0">
+                    <span className="text-[11px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded shrink-0">
                       {vips.length} {t("VIP")}
                     </span>
                   )}
@@ -305,12 +305,12 @@ export function FavoritesTab({
                         {vips.map((vip) => (
                           <div key={vip.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-zinc-800/40">
                             <div className="flex-1 min-w-0">
-                              <div className="text-[11px] text-amber-300/90 truncate">{vip.name}</div>
-                              <div className="text-[9px] text-zinc-600 font-mono truncate">{vip.link}</div>
+                              <div className="text-[12px] text-amber-300/90 truncate">{vip.name}</div>
+                              <div className="text-[11px] text-zinc-600 font-mono truncate">{vip.link}</div>
                             </div>
                             <button
                               onClick={() => onSelectGame(game.placeId, vip.link)}
-                              className="px-3 py-1 rounded-md text-[11px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0"
+                              className="px-3 py-1 rounded-md text-[12px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0"
                             >
                               {t("Join")}
                             </button>
@@ -358,18 +358,18 @@ export function FavoritesTab({
                           className="sidebar-input text-xs w-full"
                         />
                         {vipDraftError && (
-                          <p className="text-[10px] text-red-400">{vipDraftError}</p>
+                          <p className="text-[11px] text-red-400">{vipDraftError}</p>
                         )}
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleSaveVip(game)}
-                            className="flex-1 px-3 py-1 rounded-md text-[11px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                            className="flex-1 px-3 py-1 rounded-md text-[12px] font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
                           >
                             {t("Save")}
                           </button>
                           <button
                             onClick={cancelAddVip}
-                            className="flex-1 px-3 py-1 rounded-md text-[11px] font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                            className="flex-1 px-3 py-1 rounded-md text-[12px] font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors"
                           >
                             {t("Cancel")}
                           </button>
@@ -378,7 +378,7 @@ export function FavoritesTab({
                     ) : (
                       <button
                         onClick={() => startAddVip(game.placeId)}
-                        className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-[11px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
+                        className="flex items-center justify-center gap-1.5 w-full px-3 py-1.5 rounded-lg text-[12px] font-medium text-zinc-400 border border-dashed border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 transition-colors mt-1"
                       >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <line x1="12" y1="5" x2="12" y2="19" />

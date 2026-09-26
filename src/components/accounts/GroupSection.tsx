@@ -144,7 +144,7 @@ export function GroupSection({
           </div>
           <ChevronRight size={12} fill="currentColor" stroke="none" className={`theme-muted transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
           <span className="theme-label font-medium">{group.displayName === "Default" ? t("Default") : group.displayName}</span>
-          <span className="theme-muted text-[10px] tabular-nums">{group.accounts.length}</span>
+          <span className="theme-muted text-[11px] tabular-nums">{group.accounts.length}</span>
         </div>
       )}
 

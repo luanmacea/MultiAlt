@@ -82,7 +82,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
       <div className="flex items-center gap-3 py-2 px-1">
         <div className="min-w-0">
           <div className="text-[13px] text-zinc-300">{t("Update Release Channel")}</div>
-          <div className="mt-0.5 text-[11px] text-zinc-500">
+          <div className="mt-0.5 text-[12px] text-zinc-500">
             {t("Pick which release stream is used by the updater")}
           </div>
         </div>
@@ -103,7 +103,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
       <div className="flex items-center gap-3 py-2 px-1">
         <div className="min-w-0">
           <div className="text-[13px] text-zinc-300">{t("Update Feature Channel")}</div>
-          <div className="mt-0.5 text-[11px] text-zinc-500">
+          <div className="mt-0.5 text-[12px] text-zinc-500">
             {t("Choose whether updates use the standard or Nexus/WebServer build")}
           </div>
         </div>
@@ -125,7 +125,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-2">
           <div className="min-w-0">
             <div className="text-[13px] text-zinc-200">{t("Manual Update Check")}</div>
-            <div className="mt-0.5 text-[11px] text-zinc-500">
+            <div className="mt-0.5 text-[12px] text-zinc-500">
               {t("Run an update check immediately")}
             </div>
           </div>
@@ -146,7 +146,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-2">
           <div className="min-w-0">
             <div className="text-[13px] text-zinc-200">{t("First-Time Walkthrough")}</div>
-            <div className="mt-0.5 text-[11px] text-zinc-500">
+            <div className="mt-0.5 text-[12px] text-zinc-500">
               {t("Replay the guided setup tour with launch and safety essentials")}
             </div>
           </div>
@@ -163,7 +163,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
       <div className="flex items-center gap-3 py-2 px-1">
         <div className="min-w-0">
           <div className="text-[13px] text-zinc-300">{t("Restricted Screen Style")}</div>
-          <div className="mt-0.5 text-[11px] text-zinc-500">
+          <div className="mt-0.5 text-[12px] text-zinc-500">
             {t("Choose the animated background used on the password screen")}
           </div>
         </div>
@@ -353,10 +353,10 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
           intacto, e template que nao resolve nada cai no IP cru.
           `TextField` nao tem `description`, entao a ajuda fica ao lado. */}
       <div className="px-1 -mt-1 mb-1 space-y-0.5">
-        <div className="text-[11px] text-zinc-500">
+        <div className="text-[12px] text-zinc-500">
           {t("Tokens: <city>, <region>, <country>, <countryCode>, <ip>. Any other text is kept as typed.")}
         </div>
-        <div className="text-[11px] text-zinc-500">
+        <div className="text-[12px] text-zinc-500">
           {t(
             'Example: "<city>, <countryCode>" shows as "Ashburn, US" in the server list. A template that fills in empty falls back to the raw IP.'
           )}

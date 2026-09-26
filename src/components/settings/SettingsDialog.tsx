@@ -146,7 +146,7 @@ export function SettingsDialog({
           <h2 className="text-[15px] font-semibold text-zinc-100 tracking-tight">{t("Settings")}</h2>
           <div className="flex items-center gap-2">
             {s.saving && (
-              <span className="text-[10px] text-zinc-600 animate-pulse">{t("saving...")}</span>
+              <span className="text-[11px] text-zinc-600 animate-pulse">{t("saving...")}</span>
             )}
             <button
               onClick={handleClose}
@@ -173,7 +173,7 @@ export function SettingsDialog({
 
         <div className="h-px bg-zinc-800/60 mx-5" />
         <div className="flex items-center justify-between px-5 py-3 shrink-0">
-          <span className="text-[10px] text-zinc-600">
+          <span className="text-[11px] text-zinc-600">
             {t("Changes are saved automatically")}
           </span>
           <button

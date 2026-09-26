@@ -70,7 +70,7 @@ export function EncryptionSetupScreen() {
             </p>
           </div>
           {!isFirstRun && currentMethodLabel ? (
-            <div className="mt-3 text-[11px] theme-muted animate-fade-in-up" style={{ animationDelay: "0.07s" }}>
+            <div className="mt-3 text-[12px] theme-muted animate-fade-in-up" style={{ animationDelay: "0.07s" }}>
               {currentMethodLabel}
             </div>
           ) : null}
@@ -95,7 +95,7 @@ export function EncryptionSetupScreen() {
                 <div className="flex-1">
                   <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("Pass Lock (Recommended)")}</div>
                   <div className={[
-                    "text-[11px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
+                    "text-[12px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
                     method === "password" ? "max-h-24 opacity-100" : "max-h-10 opacity-90",
                   ].join(" ")}>
                     {t("Use a password to encrypt AccountData.json. You'll enter it when RAM starts.")}
@@ -127,7 +127,7 @@ export function EncryptionSetupScreen() {
                 <div className="flex-1">
                   <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("No Password (Not Encrypted)")}</div>
                   <div className={[
-                    "text-[11px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
+                    "text-[12px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
                     method === "default" ? "max-h-24 opacity-100" : "max-h-10 opacity-90",
                   ].join(" ")}>
                     {t("AccountData.json is saved as plain JSON: cookies and passwords stay readable on this PC.")}
@@ -174,7 +174,7 @@ export function EncryptionSetupScreen() {
                       }
                     }}
                   />
-                  <div className="text-[11px] theme-muted">{t("At least 8 characters.")}</div>
+                  <div className="text-[12px] theme-muted">{t("At least 8 characters.")}</div>
                 </div>
               ) : (
                 <div className="text-[12px] text-amber-300/90 pt-0.5">
@@ -192,7 +192,7 @@ export function EncryptionSetupScreen() {
         </div>
 
         <div className="px-6 py-4 border-t theme-border flex items-center justify-between gap-4 animate-fade-in-up" style={{ animationDelay: "0.2s" }}>
-          <div className="text-[11px] theme-muted max-w-[62%]">
+          <div className="text-[12px] theme-muted max-w-[62%]">
             {isFirstRun
               ? method === "password"
                 ? t("Required on first setup to secure your account vault.")

@@ -55,7 +55,7 @@ export function Toggle({
       <div className="min-w-0">
         <div className="text-[13px] text-zinc-200 leading-tight">{trNode(label, t)}</div>
         {description && (
-          <div className="text-[11px] text-zinc-500 leading-snug mt-0.5">{t(description)}</div>
+          <div className="text-[12px] text-zinc-500 leading-snug mt-0.5">{t(description)}</div>
         )}
       </div>
     </div>

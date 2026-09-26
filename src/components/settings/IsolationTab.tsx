@@ -128,7 +128,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
   return (
     <div className="space-y-0">
       <div className="px-1 pt-1 pb-2">
-        <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/80">
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-[12px] leading-relaxed text-amber-200/80">
           {t(
             "Roblox has expanded what it checks before it bans. Your IP and some device-level signals can link accounts together, and its Ban API can flag suspected alts. If you're doing something that could get an account banned, a reputable VPN helps stop your IP from tying your accounts to each other. Full isolation rotates local hardware IDs for an extra layer. Hardware bans are rare and Roblox has not confirmed them, so treat this as a precaution, not a guarantee."
           )}
@@ -137,7 +137,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
 
       <SectionLabel>Isolation</SectionLabel>
       <div className="px-1 -mt-1 mb-2">
-        <span className="text-[11px] text-zinc-500">
+        <span className="text-[12px] text-zinc-500">
           {t(
             "Off leaves Roblox untouched. Full clears local Roblox traces before each launch to break ban-linking, which may force a Roblox reinstall."
           )}
@@ -162,7 +162,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
             />
             <div className="min-w-0">
               <div className="text-[13px] text-zinc-200">{opt.label}</div>
-              <div className="mt-0.5 text-[11px] text-zinc-500">{opt.desc}</div>
+              <div className="mt-0.5 text-[12px] text-zinc-500">{opt.desc}</div>
             </div>
           </button>
         ))}
@@ -173,7 +173,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
           de descobrir uma secao "Advanced". */}
       <div className="px-1 pt-2">
         <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 space-y-2">
-          <div className="text-[11px] text-zinc-500">
+          <div className="text-[12px] text-zinc-500">
             {t("Show what would be deleted without actually deleting anything")}
           </div>
           <button
@@ -185,7 +185,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
             {dryRunning ? t("Checking...") : t("Preview what gets wiped")}
           </button>
           {dryReport && (
-            <div className="space-y-1 rounded-md bg-zinc-950/50 px-2.5 py-2 text-[11px] text-zinc-400 max-h-48 overflow-y-auto font-mono">
+            <div className="space-y-1 rounded-md bg-zinc-950/50 px-2.5 py-2 text-[12px] text-zinc-400 max-h-48 overflow-y-auto font-mono">
               {dryReport.paths.length === 0 && dryReport.registryKeys.length === 0 ? (
                 <div className="text-zinc-500">{t("Nothing would be removed")}</div>
               ) : (
@@ -206,7 +206,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
       <Divider />
       <SectionLabel>Hardware Identifiers</SectionLabel>
       <div className="px-1 -mt-1 mb-1">
-        <span className="text-[11px] text-zinc-500">
+        <span className="text-[12px] text-zinc-500">
           {t(
             "Rotate machine identifiers separately from cleanup. The originals are backed up so you can restore them later."
           )}
@@ -242,7 +242,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
       {/* O desfazer mora ao lado do que ele desfaz. */}
       <div className="px-1 py-2">
         <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 space-y-2">
-          <div className="text-[11px] text-zinc-500">
+          <div className="text-[12px] text-zinc-500">
             {hasBackup
               ? t("Reverts MachineGuid and MAC address to the values captured before the first spoof")
               : t("No backups stored yet. Enable a spoof option and launch once to capture originals.")}
@@ -257,7 +257,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
           </button>
           {restoreMessage && (
             <div
-              className={`text-[11px] ${
+              className={`text-[12px] ${
                 restoreMessage.ok ? "text-emerald-400" : "text-red-400"
               }`}
             >
@@ -281,7 +281,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
         <div>
           {spoofMac && (
             <div className="px-1 py-2">
-              <div className="text-[11px] text-zinc-500 mb-1.5">{t("Target adapter")}</div>
+              <div className="text-[12px] text-zinc-500 mb-1.5">{t("Target adapter")}</div>
               <Select
                 value={targetAdapter}
                 options={adapterOptions}
@@ -292,7 +292,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
                 <button
                   onClick={loadAdapters}
                   disabled={adaptersLoading}
-                  className="text-[11px] text-sky-400 hover:text-sky-300 disabled:opacity-60"
+                  className="text-[12px] text-sky-400 hover:text-sky-300 disabled:opacity-60"
                 >
                   {adaptersLoading ? t("Loading...") : t("Refresh adapter list")}
                 </button>
@@ -324,7 +324,7 @@ export function IsolationTab({ s }: { s: UseSettingsReturn }) {
           <Divider />
           <SectionLabel>Credits</SectionLabel>
           <div className="px-1 py-2">
-            <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 text-[11px] text-zinc-400 space-y-1.5">
+            <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-3 text-[12px] text-zinc-400 space-y-1.5">
               <div>
                 {t("Cleanup and network-identifier rotation are adapted from")}{" "}
                 <a

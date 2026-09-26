@@ -216,7 +216,7 @@ export function AccountRow({ account }: { account: Account }) {
           </div>
         </div>
         {showUsername && (
-          <div className="text-[11px] theme-muted truncate leading-tight">
+          <div className="text-[12px] theme-muted truncate leading-tight">
             @{account.Username}
           </div>
         )}
@@ -225,14 +225,14 @@ export function AccountRow({ account }: { account: Account }) {
       {description && (
         <div className="min-w-0 max-w-[38%]">
           <Tooltip content={description}>
-            <div className="text-[11px] theme-muted truncate leading-tight text-right">
+            <div className="text-[12px] theme-muted truncate leading-tight text-right">
               {description}
             </div>
           </Tooltip>
         </div>
       )}
 
-      <div className="text-[11px] w-14 text-right flex-shrink-0 tabular-nums">
+      <div className="text-[12px] w-14 text-right flex-shrink-0 tabular-nums">
         {isJoining ? (
           <span className="inline-flex items-center gap-1 theme-accent">
             <span className="w-2 h-2 border border-[var(--accent-color)] border-t-transparent rounded-full animate-spin" />

@@ -359,7 +359,9 @@ describe("ServersTab — Job ID copiável", () => {
     await screen.findByText("job-a");
 
     const jobIdButton = screen.getByRole("button", { name: "Copy Job ID" });
-    expect(jobIdButton.className).toMatch(/w-\[250px\]/);
+    // 264px: o Job ID inteiro na fonte mono de 12px mede 259px (medido na
+    // tela). A largura fixa é o que impede a coluna de dançar entre linhas.
+    expect(jobIdButton.className).toMatch(/w-\[264px\]/);
     expect(jobIdButton.className).not.toMatch(/flex-1/);
   });
 
