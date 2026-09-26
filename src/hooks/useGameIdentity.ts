@@ -94,6 +94,32 @@ async function resolveIdentity(placeId: number, userId: number | null): Promise<
   return entry;
 }
 
+/**
+ * A mesma descoberta, fora do React (efeito, callback, backfill de lista).
+ * Divide o cache e o dedupe com o hook: quem já perguntou por este place não
+ * pergunta de novo, e quem falhou não é retentado antes de `RETRY_AFTER_MS`.
+ */
+export async function loadGameIdentity(
+  placeId: number,
+  userId: number | null = null
+): Promise<GameIdentity> {
+  const hit = cached(placeId);
+  if (hit) {
+    return { placeId, name: hit.name, iconUrl: hit.iconUrl, loading: false };
+  }
+  let pending = inFlight.get(placeId);
+  if (!pending) {
+    pending = resolveIdentity(placeId, userId).then((resolved) => {
+      cache.set(placeId, resolved);
+      inFlight.delete(placeId);
+      return resolved;
+    });
+    inFlight.set(placeId, pending);
+  }
+  const resolved = await pending;
+  return { placeId, name: resolved.name, iconUrl: resolved.iconUrl, loading: false };
+}
+
 /** Só places plausíveis viram consulta. Texto pode ser o link colado do jogo. */
 function toPlaceId(input: string | number | null | undefined): number | null {
   if (typeof input === "number") {
@@ -129,18 +155,9 @@ export function useGameIdentity(
     setLoading(true);
     let alive = true;
     const timer = setTimeout(() => {
-      let pending = inFlight.get(placeId);
-      if (!pending) {
-        pending = resolveIdentity(placeId, userId).then((resolved) => {
-          cache.set(placeId, resolved);
-          inFlight.delete(placeId);
-          return resolved;
-        });
-        inFlight.set(placeId, pending);
-      }
-      void pending.then((resolved) => {
+      void loadGameIdentity(placeId, userId).then((resolved) => {
         if (!alive) return;
-        setEntry(resolved);
+        setEntry({ name: resolved.name, iconUrl: resolved.iconUrl });
         setLoading(false);
       });
     }, RESOLVE_DEBOUNCE_MS);
