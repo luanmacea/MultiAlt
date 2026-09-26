@@ -3,7 +3,7 @@ name: Crowdin Sync
 on:
   push:
     branches:
-      - v4
+      - main
       - feat/translations-adding
     paths:
       - "src/locales/en/**"
@@ -19,7 +19,7 @@ permissions:
 jobs:
   upload-sources:
     if: github.event_name == 'push'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
 
   download-translations:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -44,10 +44,32 @@ if (!token) {
 
 const tmpDir = mkdtempSync(join(tmpdir(), "ram-update-manifest-"));
 
+const remote = `https://x-access-token:${token}@github.com/${repo}.git`;
+
 try {
-  execSync(`git clone --depth 1 --branch update-manifests --single-branch "https://x-access-token:${token}@github.com/${repo}.git" "${tmpDir}"`, {
-    stdio: "inherit",
-  });
+  // O branch `update-manifests` e um orfao: so os `latest.json`, sem historico
+  // de codigo. Num repositorio que nunca publicou (ou recem-bifurcado) ele nao
+  // existe, e o clone falharia no primeiro release — entao ele e criado aqui.
+  let temBranch = true;
+  try {
+    execSync(`git ls-remote --exit-code --heads "${remote}" update-manifests`, { stdio: "ignore" });
+  } catch {
+    temBranch = false;
+  }
+
+  if (temBranch) {
+    execSync(`git clone --depth 1 --branch update-manifests --single-branch "${remote}" "${tmpDir}"`, {
+      stdio: "inherit",
+    });
+  } else {
+    console.log("Branch update-manifests nao existe ainda; criando");
+    execSync(`git -C "${tmpDir}" init -b update-manifests`, { stdio: "inherit" });
+    execSync(`git -C "${tmpDir}" remote add origin "${remote}"`, { stdio: "inherit" });
+    writeFileSync(
+      join(tmpDir, "README.md"),
+      "Manifestos do updater: um latest.json por canal. Gerado pelo release; nao editar a mao.\n"
+    );
+  }
 
   const channelDir = join(tmpDir, channel);
   mkdirSync(channelDir, { recursive: true });
@@ -62,7 +84,7 @@ try {
     execSync(`git -C "${tmpDir}" commit -m "update ${channel}/latest.json to ${version}"`, {
       stdio: "inherit",
     });
-    execSync(`git -C "${tmpDir}" push origin update-manifests`, { stdio: "inherit" });
+    execSync(`git -C "${tmpDir}" push -u origin update-manifests`, { stdio: "inherit" });
 
     console.log(`Updated ${channel}/latest.json to ${version}`);
   }

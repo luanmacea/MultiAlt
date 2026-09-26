@@ -3,7 +3,7 @@ name: Release v4
 on:
   push:
     branches:
-      - v4
+      - main
     paths-ignore:
       - "**/*.md"
       - "**/*.MD"
@@ -25,7 +25,7 @@ concurrency:
 jobs:
   release:
     if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip release]') }}
-    runs-on: blacksmith-4vcpu-windows-2025
+    runs-on: windows-latest
     permissions:
       contents: write
       pull-requests: read

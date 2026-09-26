@@ -5,13 +5,14 @@ import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useTr } from "../../i18n/text";
 import { getUpdaterSkipVersionKey } from "../../updaterChannels";
+import { REPO_API_URL, REPO_URL } from "../../repo";
 
 type Phase = "available" | "downloading" | "ready" | "installing" | "error";
 
 function renderMarkdown(src: string): React.ReactNode[] {
   const lines = src.split(/\r?\n/);
   const htmlTag = /<[a-z][^>]*>/i;
-  const repoBaseUrl = "https://github.com/niccsprojects/Roblox-Account-Manager";
+  const repoBaseUrl = REPO_URL;
   const nodes: React.ReactNode[] = [];
   let key = 0;
 
@@ -460,7 +461,7 @@ function buildCommitMessagesSection(
       const shortSha = sha.slice(0, 7);
       const subject = String(commit.message || "").split(/\r?\n/, 1)[0].trim();
       if (!sha || !subject) return "";
-      return `- ${subject} ([${shortSha}](https://github.com/niccsprojects/Roblox-Account-Manager/commit/${sha}))`;
+      return `- ${subject} ([${shortSha}](${REPO_URL}/commit/${sha}))`;
     })
     .filter(Boolean);
 
@@ -520,7 +521,7 @@ export function UpdateDialog() {
       if (!hasDetailedSections) {
         try {
           const releaseResponse = await fetch(
-            `https://api.github.com/repos/niccsprojects/roblox-account-manager/releases/tags/${releaseTag}`,
+            `${REPO_API_URL}/releases/tags/${releaseTag}`,
             {
               signal: controller.signal,
               headers: {
@@ -542,7 +543,7 @@ export function UpdateDialog() {
       if (!hasAllCommitMessages && currentTag !== releaseTag) {
         try {
           const compareResponse = await fetch(
-            `https://api.github.com/repos/niccsprojects/roblox-account-manager/compare/${encodeURIComponent(currentTag)}...${encodeURIComponent(releaseTag)}`,
+            `${REPO_API_URL}/compare/${encodeURIComponent(currentTag)}...${encodeURIComponent(releaseTag)}`,
             {
               signal: controller.signal,
               headers: {

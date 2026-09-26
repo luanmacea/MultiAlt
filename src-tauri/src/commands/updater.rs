@@ -1,5 +1,17 @@
+/// Onde o app procura o manifesto de atualizacao.
+///
+/// **Este repositorio, nao o original.** Ate aqui o app apontava para
+/// `niccsprojects/Roblox-Account-Manager`, de onde este projeto foi bifurcado:
+/// o banner "atualizacao disponivel" anunciava a versao **do outro projeto** e,
+/// se instalada, substituiria este app pelo binario de la. Nao era so um botao
+/// sobrando — era um caminho para perder o proprio app.
+///
+/// O manifesto fica no branch `update-manifests`, um arquivo por canal:
+/// `update-manifests/<canal>/latest.json`. O canal vem de
+/// [`resolve_manifest_channel`] (`stable`, `beta`, `stable-nexus-ws`,
+/// `beta-nexus-ws`). Quem publica e o workflow `.github/workflows/release.yml`.
 const UPDATER_MANIFEST_BASE: &str =
-    "https://raw.githubusercontent.com/niccsprojects/Roblox-Account-Manager/update-manifests";
+    "https://raw.githubusercontent.com/luanmacea/roblox-account-manager/update-manifests";
 
 type PendingUpdate = (tauri_plugin_updater::Update, String, String);
 

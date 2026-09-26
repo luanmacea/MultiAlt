@@ -24,7 +24,7 @@ on:
 
 jobs:
   verify:
-    runs-on: blacksmith-4vcpu-windows-2025
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
