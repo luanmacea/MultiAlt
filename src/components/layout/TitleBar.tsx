@@ -4,10 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { Minus, Square, Copy, X, Github } from "lucide-react";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
+import { REPO_URL } from "../../repo";
 
 export function TitleBar({ controlsHidden = false }: { controlsHidden?: boolean }) {
   const t = useTr();
-  const repoUrl = "https://github.com/niccsprojects/Roblox-Account-Manager";
+  const repoUrl = REPO_URL;
   const [maximized, setMaximized] = useState(false);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
   const appWindow = getCurrentWindow();

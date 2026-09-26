@@ -11,6 +11,7 @@ import { GameBadge } from "../ui/GameBadge";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { tr, useTr } from "../../i18n/text";
 import { X, ChevronRight } from "lucide-react";
+import { REPO_URL } from "../../repo";
 
 interface NexusAccount {
   username: string;
@@ -1128,7 +1129,7 @@ function HelpPanel({ port }: { port: number }) {
         </button>
         <button
           onClick={() => {
-            window.open("https://github.com/niccsprojects/Roblox-Account-Manager/blob/v4/RBX%20Alt%20Manager/Nexus/NexusDocs.md");
+            window.open(`${REPO_URL}/blob/main/docs/features/nexus.md`);
           }}
           className="px-3 py-1.5 bg-zinc-800 border border-zinc-700/50 rounded-lg text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
         >

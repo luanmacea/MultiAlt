@@ -246,6 +246,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/i18n",
       "src/types.test.ts",
       "src/tauriWindowConfig.test.ts",
+      "src/repoOwnership.test.ts",
       "src/utils",
       "src/featureFlags.test.ts",
     ],

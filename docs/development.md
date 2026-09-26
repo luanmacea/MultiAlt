@@ -133,6 +133,20 @@ Jogos do harness ficam em [games.ts](../src/dev/harness/games.ts): três places 
 
 O harness **não substitui** `bun run check`.
 
+### Atualizacoes: este repositorio, com chave propria
+
+O app **era bifurcado** de `niccsprojects/Roblox-Account-Manager` e continuava amarrado a ele: o updater lia o manifesto daquele repositorio e a chave publica em `tauri.conf.json` era a de la. O banner "atualizacao disponivel" anunciava a versao **do outro projeto** e instalar teria substituido este app pelo binario deles — com assinatura valida, porque a chave conferia. Nao era um botao sobrando.
+
+Como funciona agora:
+
+1. **Manifesto**: `https://raw.githubusercontent.com/luanmacea/roblox-account-manager/update-manifests/<canal>/latest.json`. Canais: `stable`, `beta`, `stable-nexus-ws`, `beta-nexus-ws` ([updater.rs](../src-tauri/src/commands/updater.rs), `resolve_manifest_channel`).
+2. **Publicacao**: o workflow [release-v4.yml](../.github/workflows/release-v4.yml) roda a cada push em `main`, calcula a versao, compila as duas variantes (padrao e Nexus+WebServer), cria a release e escreve o `latest.json` no branch `update-manifests` ([generate-update-manifest.mjs](../.github/scripts/generate-update-manifest.mjs), que cria o branch se ele ainda nao existir). Commit com `[skip release]` na mensagem nao publica.
+3. **Assinatura**: o updater do Tauri so aceita manifesto assinado pela chave privada correspondente a `pubkey` do `tauri.conf.json`. A chave deste projeto foi gerada em 26/09/2026 e mora **fora do repositorio**, em `%USERPROFILE%\.taurioblox-account-manager.key` (o `.gitignore` barra `*.key`). Perder a chave = nao conseguir mais publicar atualizacao para quem ja instalou.
+4. **Segredos que o repositorio precisa** (Settings › Secrets and variables › Actions): `TAURI_SIGNING_PRIVATE_KEY` (conteudo do arquivo `.key`), `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (vazio, a chave foi gerada sem senha) e `TAURI_SIGNING_PUBLIC_KEY` (conteudo do `.key.pub`, que o workflow injeta no `tauri.conf.json` antes de compilar).
+5. **Build local**: sem `TAURI_SIGNING_PRIVATE_KEY` no ambiente, `bun run tauri build` grava os instaladores e **depois** sai com erro na assinatura do artefato de update. Ver a regra de build no [CLAUDE.md](../CLAUDE.md).
+
+O endereco do projeto vive em um lugar por lado — [src/repo.ts](../src/repo.ts) e o `REPO_URL` de [services.rs](../src-tauri/src/commands/services.rs) — e [repoOwnership.test.ts](../src/repoOwnership.test.ts) varre `src/`, `src-tauri/src/` e `.github/` reprovando qualquer volta do endereco antigo.
+
 ### Piso de legibilidade do texto
 
 Nada de interface abaixo de **11px**, e prosa (descrição, dica, ajuda) em **12px**. O app tem tamanho em pixel absoluto espalhado pelo JSX (`text-[11px]`, `text-[12px]`…), então **não existe alavanca global**: mudar a fonte do `:root` não mexe em nada, e `zoom` no `body` quebraria os menus de contexto, que posicionam por `clientX/clientY`. A escala pequena foi subida de uma vez (9 e 10 → 11, 11 → 12) a pedido do dono, que não conseguia ler certas descrições sem se aproximar da tela.

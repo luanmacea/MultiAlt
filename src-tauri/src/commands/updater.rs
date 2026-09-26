@@ -1,5 +1,17 @@
+/// Onde o app procura o manifesto de atualizacao.
+///
+/// **Este repositorio, nao o original.** Ate aqui o app apontava para
+/// `niccsprojects/Roblox-Account-Manager`, de onde este projeto foi bifurcado:
+/// o banner "atualizacao disponivel" anunciava a versao **do outro projeto** e,
+/// se instalada, substituiria este app pelo binario de la. Nao era so um botao
+/// sobrando — era um caminho para perder o proprio app.
+///
+/// O manifesto fica no branch `update-manifests`, um arquivo por canal:
+/// `update-manifests/<canal>/latest.json`. O canal vem de
+/// [`resolve_manifest_channel`] (`stable`, `beta`, `stable-nexus-ws`,
+/// `beta-nexus-ws`). Quem publica e o workflow `.github/workflows/release.yml`.
 const UPDATER_MANIFEST_BASE: &str =
-    "https://raw.githubusercontent.com/niccsprojects/Roblox-Account-Manager/update-manifests";
+    "https://raw.githubusercontent.com/luanmacea/roblox-account-manager/update-manifests";
 
 type PendingUpdate = (tauri_plugin_updater::Update, String, String);
 
@@ -310,6 +322,25 @@ mod updater_tests {
         );
         assert_eq!(nexus.scheme(), "https");
         assert_eq!(nexus.host_str(), Some("raw.githubusercontent.com"));
+    }
+
+    /// O app ja apontou para o repositorio de onde este projeto foi bifurcado.
+    /// O banner anunciava a versao do outro projeto e instalar substituiria
+    /// este app pelo binario de la — com assinatura valida, porque a chave
+    /// publica tambem era de la. Este teste existe para isso nao voltar por
+    /// descuido num merge.
+    #[test]
+    fn the_updater_never_points_at_the_upstream_project() {
+        let url = build_manifest_endpoint("stable", "standard").unwrap();
+        let alvo = url.as_str().to_ascii_lowercase();
+        assert!(
+            !alvo.contains("niccsprojects"),
+            "o updater voltou a apontar para o projeto original: {alvo}"
+        );
+        assert!(
+            alvo.contains("/luanmacea/"),
+            "o manifesto tem que vir deste repositorio: {alvo}"
+        );
     }
 
     // ---- parse_semver --------------------------------------------------------

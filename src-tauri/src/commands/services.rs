@@ -300,8 +300,13 @@ fn export_nexus_lua() -> Result<String, String> {
     Err(NEXUS_DISABLED_ERR.into())
 }
 
-/// Project page opened by the "repository" button.
-const REPO_URL: &str = "https://github.com/niccsprojects/Roblox-Account-Manager";
+/// Pagina do projeto, aberta pelo botao do repositorio na barra de titulo.
+///
+/// **Este repositorio.** O app foi bifurcado de `niccsprojects/...` e o botao
+/// continuava levando para la; o mesmo endereco vivia espalhado no frontend e
+/// no updater (que oferecia instalar o binario do outro projeto por cima
+/// deste). O lado TS tem o par disto em `src/repo.ts`.
+const REPO_URL: &str = "https://github.com/luanmacea/roblox-account-manager";
 
 #[tauri::command]
 fn open_repo_url() -> Result<(), String> {
@@ -385,7 +390,7 @@ mod services_command_tests {
 
     #[test]
     fn repo_url_points_at_the_project_over_https() {
-        assert_eq!(REPO_URL, "https://github.com/niccsprojects/Roblox-Account-Manager");
+        assert_eq!(REPO_URL, "https://github.com/luanmacea/roblox-account-manager");
         assert!(REPO_URL.starts_with("https://github.com/"));
         // No shell metacharacters: the URL is handed to `cmd /C start`.
         assert!(!REPO_URL.contains(|c: char| c.is_whitespace() || c == '&' || c == '"'));

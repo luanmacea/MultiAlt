@@ -67,6 +67,7 @@ export function normalizeServerPreference(value: string | undefined): ServerPref
 }
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
 import i18n, { normalizeLanguage } from "./i18n";
+import { REPO_URL } from "./repo";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import {
@@ -2397,7 +2398,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       "",
       "Channel: Beta",
       "Release commit: d9530e6",
-      "Release commit message: Merge pull request #21 from niccsprojects/fix/windows-client-settings-runtime-overrides",
+      "Release commit message: Merge pull request #21 from luanmacea/fix/windows-client-settings-runtime-overrides",
       "App version: 4.2.6",
       "",
       "## What's Changed",
@@ -2406,7 +2407,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       "* fix(update-dialog): render release notes with GitHub-style bullets, callouts, and links",
       "* chore(ui): improve update modal note spacing for long changelogs",
       "",
-      "Full Changelog: https://github.com/niccsprojects/Roblox-Account-Manager/compare/v4.2.5-beta...v4.2.6-beta",
+      `Full Changelog: ${REPO_URL}/compare/v4.2.5-beta...v4.2.6-beta`,
       "",
       "## Contributors",
       "",

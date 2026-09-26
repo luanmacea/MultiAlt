@@ -340,3 +340,9 @@ src-tauri/gen/
 
 # Relatórios de cobertura de testes (vitest)
 /coverage
+
+# Chave privada do updater. Ela mora fora do repositorio
+# (%USERPROFILE%\.taurioblox-account-manager.key) e NUNCA deve ser commitada:
+# quem a tiver consegue assinar uma atualizacao que o app instala sozinho.
+*.key
+*.key.pub
