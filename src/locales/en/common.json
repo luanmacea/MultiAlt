@@ -1597,5 +1597,8 @@
   "Verifying the friendships": "Verifying the friendships",
   "Waiting": "Waiting",
   "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.": "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.",
-  "Friends {{done}}/{{total}}": "Friends {{done}}/{{total}}"
+  "Friends {{done}}/{{total}}": "Friends {{done}}/{{total}}",
+  "Could not save: {{error}}": "Could not save: {{error}}",
+  "Delay between requests (s)": "Delay between requests (s)",
+  "Roblox rate-limits new accounts. Slower is safer.": "Roblox rate-limits new accounts. Slower is safer."
 }

@@ -1597,5 +1597,8 @@
   "Verifying the friendships": "Conferindo as amizades",
   "Waiting": "Aguardando",
   "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.": "Acompanhe o que está rodando agora: contas entrando, Make Friends em andamento e clientes já em jogo.",
-  "Friends {{done}}/{{total}}": "Amigos {{done}}/{{total}}"
+  "Friends {{done}}/{{total}}": "Amigos {{done}}/{{total}}",
+  "Could not save: {{error}}": "Não foi possível salvar: {{error}}",
+  "Delay between requests (s)": "Intervalo entre pedidos (s)",
+  "Roblox rate-limits new accounts. Slower is safer.": "O Roblox limita contas novas. Mais devagar é mais seguro."
 }

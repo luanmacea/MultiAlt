@@ -280,7 +280,9 @@ describe("BottomActionBar — friend linking", () => {
         userIds: [1, 2],
         mode: "mesh",
         mainUserId: null,
-        delayMs: null,
+        // O campo de delay manda o valor (antes ia `null` e o backend caía no
+        // setting — que só dava para editar no INI).
+        delayMs: 2500,
       })
     );
   });
@@ -327,6 +329,88 @@ describe("BottomActionBar — friend linking", () => {
     await userEvent.click(screen.getByRole("button", { name: /Mesh - all friend all \(42 req\)/ }));
     await waitFor(() => expect(confirmMock).toHaveBeenCalled());
     expect(invokeMock).not.toHaveBeenCalledWith("make_selected_friends", expect.anything());
+  });
+
+  /**
+   * O ritmo dos pedidos é o que decide se o Roblox aplica rate limit (ou pede
+   * captcha) no lote inteiro. O controle existia só na barra lateral de
+   * multi-seleção, que ninguém conseguia abrir e foi apagada: o valor tinha
+   * virado editável apenas pelo INI.
+   */
+  describe("delay entre pedidos", () => {
+    async function abrirSubmenu(settings?: Record<string, Record<string, string>>) {
+      const store = renderBar([A, B], settings ? { settings } : {});
+      await openActions();
+      await userEvent.click(screen.getByRole("button", { name: /Make Friends \(2\)/ }));
+      return store;
+    }
+
+    it("manda o delay escolhido, em milissegundos", async () => {
+      await abrirSubmenu();
+      const campo = screen.getByLabelText(/Delay between requests/i);
+
+      await userEvent.clear(campo);
+      await userEvent.type(campo, "5");
+      await userEvent.click(screen.getByRole("button", { name: /Mesh - all friend all/ }));
+
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith(
+          "make_selected_friends",
+          expect.objectContaining({ delayMs: 5000 })
+        )
+      );
+    });
+
+    it("guarda o valor: quem ajustou uma vez não ajusta de novo a cada lote", async () => {
+      await abrirSubmenu();
+      const campo = screen.getByLabelText(/Delay between requests/i);
+
+      await userEvent.clear(campo);
+      await userEvent.type(campo, "5");
+      await userEvent.tab();
+
+      await waitFor(() =>
+        expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+          section: "Friends",
+          key: "RequestDelayMs",
+          value: "5000",
+        })
+      );
+    });
+
+    it("abre com o valor salvo, em segundos", async () => {
+      const settings = defaultSettings();
+      settings.Friends = { RequestDelayMs: "4000" };
+      await abrirSubmenu(settings);
+
+      expect(screen.getByLabelText(/Delay between requests/i)).toHaveValue(4);
+    });
+
+    it("não mostra um número que o backend não vai respeitar", async () => {
+      await abrirSubmenu();
+      const campo = screen.getByLabelText(/Delay between requests/i);
+
+      // O backend limita a 0,5–60 s: um campo mostrando 0,1 seria mentira.
+      await userEvent.clear(campo);
+      await userEvent.type(campo, "0.1");
+      await userEvent.tab();
+      expect(campo).toHaveValue(0.5);
+
+      await userEvent.clear(campo);
+      await userEvent.type(campo, "999");
+      await userEvent.tab();
+      expect(campo).toHaveValue(60);
+    });
+
+    it("texto sem número nenhum volta ao valor anterior", async () => {
+      await abrirSubmenu();
+      const campo = screen.getByLabelText(/Delay between requests/i);
+
+      await userEvent.clear(campo);
+      await userEvent.tab();
+
+      expect(campo).toHaveValue(2.5);
+    });
   });
 
   /**

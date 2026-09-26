@@ -251,10 +251,10 @@ limpeza de imports) antes de alguém notar que ninguém consegue abri-la. Apagad
 com o teste junto, a pedido do dono.
 
 Nada de função se perdeu: os campos de launch dela vivem na Choose Game, e as
-ações em lote na `BottomActionBar`. **Uma exceção:** o campo de **delay entre
-pedidos de amizade** só existia nela, então hoje o valor só é ajustável por
-`Friends.RequestDelayMs` no INI (pela barra o `delayMs` vai `null` e o backend
-cai no setting). Se esse controle voltar, o lugar é a `BottomActionBar`.
+ações em lote na `BottomActionBar`. A única exceção era o campo de **delay
+entre pedidos de amizade**, que só existia nela — ✅ voltou no submenu Make
+Friends da própria `BottomActionBar`, gravando `Friends.RequestDelayMs` e
+limitado à mesma faixa do backend.
 
 ---
 
