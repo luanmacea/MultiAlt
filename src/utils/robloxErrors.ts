@@ -4,7 +4,8 @@
  * oferece "Fechar todos os Roblox", que é a única saída — daí a necessidade de
  * reconhecer a mensagem.
  *
- * A deteção vivia copiada em `App`, `MultiSelectSidebar` e `BottingDialog`, com o
+ * A deteção vivia copiada em três telas (`App`, a sidebar de multi-seleção — hoje
+ * apagada — e `BottingDialog`), com o
  * mesmo par de substrings escrito à mão nos três: mudar a frase no Rust exigia
  * lembrar de todos. Agora é um lugar só, com teste.
  */
