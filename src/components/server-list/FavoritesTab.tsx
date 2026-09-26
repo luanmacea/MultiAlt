@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import type { FavoriteGame, VipServer } from "./types";
 import { loadFavorites, saveFavorites, makeVipId } from "./types";
 import { FavoriteContextMenu } from "./FavoriteContextMenu";
 import { GameRowActions, browseServersIcon } from "./GamesTab";
+import { loadGameIdentity } from "../../hooks/useGameIdentity";
 
 /**
  * O texto colado em "Private server link or VIP code" parece plausível?
@@ -63,6 +64,54 @@ export function FavoritesTab({
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; game: FavoriteGame } | null>(null);
   const [addingVipFor, setAddingVipFor] = useState<number | null>(null);
+  const backfilledRef = useRef(false);
+
+  /**
+   * Completa o ícone dos favoritos salvos sem ele.
+   *
+   * O favorito guarda o ícone no `localStorage` na hora em que é salvo: quem
+   * entrou antes de o ícone existir (ou por um caminho que não o tinha em mãos)
+   * ficava com o quadrado vazio **para sempre**, porque ninguém tentava de
+   * novo — enquanto a aba Games, ao lado, mostra o ícone de todos. Os Recentes
+   * já se completavam assim.
+   *
+   * Uma passada só por montagem (`backfilledRef`), e o resultado é gravado para
+   * a próxima abertura não custar rede nenhuma.
+   */
+  useEffect(() => {
+    if (backfilledRef.current) return;
+    backfilledRef.current = true;
+
+    let cancelled = false;
+    void (async () => {
+      const pendentes = loadFavorites().filter((f) => !f.iconUrl);
+      if (pendentes.length === 0) return;
+
+      let mudou = false;
+      const achados = new Map<number, string>();
+      for (const favorito of pendentes) {
+        const { iconUrl } = await loadGameIdentity(favorito.placeId, null);
+        if (cancelled) return;
+        if (iconUrl) {
+          achados.set(favorito.placeId, iconUrl);
+          mudou = true;
+        }
+      }
+      if (!mudou) return;
+
+      // Relê na hora de gravar: o usuário pode ter renomeado ou removido
+      // favorito enquanto os ícones vinham.
+      const atuais = loadFavorites().map((f) =>
+        !f.iconUrl && achados.has(f.placeId) ? { ...f, iconUrl: achados.get(f.placeId)! } : f
+      );
+      saveFavorites(atuais);
+      setFavorites(atuais);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [vipDraftLink, setVipDraftLink] = useState("");
   const [vipDraftName, setVipDraftName] = useState("");
   const [vipDraftError, setVipDraftError] = useState("");

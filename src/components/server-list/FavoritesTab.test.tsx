@@ -11,6 +11,7 @@ import { RecentTab } from "./RecentTab";
 import { loadFavorites, saveFavorites, saveRecentGames } from "./types";
 import type { FavoriteGame, RecentGame } from "./types";
 import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
+import { clearGameIdentityCache } from "../../hooks/useGameIdentity";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 
 function favorite(overrides: Partial<FavoriteGame> = {}): FavoriteGame {
@@ -56,6 +57,9 @@ beforeEach(() => {
   resetTauriMocks();
   resetPromptMocks();
   localStorage.clear();
+  // O cache de identidade do jogo é de módulo e guarda inclusive "não achei"
+  // (por 30 s): sem zerar, um teste anterior decide o resultado do seguinte.
+  clearGameIdentityCache();
   // RecentGamesList resolves missing names/icons through the backend.
   setInvokeHandler(() => null);
 });
@@ -320,6 +324,43 @@ describe("FavoritesTab", () => {
  * Usar o Botting no jogo favorito exigia copiar o Place ID e abrir a tela do
  * Botting à mão. O menu do favorito passa a oferecer as ações do jogo.
  */
+/**
+ * Visto ao dirigir a tela: a aba Games mostra o ícone de cada jogo e a de
+ * Favoritos mostrava um quadrado vazio. O favorito guarda o ícone no
+ * `localStorage` na hora em que é salvo — quem foi salvo antes de o ícone
+ * existir (ou por um caminho que não tinha o ícone em mãos) ficava sem para
+ * sempre, porque ninguém tentava de novo. Os Recentes já se completavam assim.
+ */
+describe("FavoritesTab — ícone que faltou", () => {
+  it("busca o ícone do favorito salvo sem ele, e guarda o resultado", async () => {
+    saveFavorites([favorite({ iconUrl: null })]);
+    setInvokeHandler((cmd) =>
+      cmd === "batched_get_game_icon" ? "https://tr.rbxcdn.com/jb.png" : undefined
+    );
+
+    renderFavorites();
+
+    const icone = await screen.findByRole("presentation", { hidden: true });
+    expect(icone).toHaveAttribute("src", "https://tr.rbxcdn.com/jb.png");
+    // Guardado: reabrir a aba não pode custar outra rodada de requisições.
+    await waitFor(() => expect(loadFavorites()[0].iconUrl).toBe("https://tr.rbxcdn.com/jb.png"));
+  });
+
+  it("não fica pedindo ícone para quem já tem", async () => {
+    saveFavorites([favorite({ iconUrl: "https://tr.rbxcdn.com/ja-tem.png" })]);
+    const chamadas: string[] = [];
+    setInvokeHandler((cmd) => {
+      chamadas.push(cmd);
+      return undefined;
+    });
+
+    renderFavorites();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    expect(chamadas.filter((c) => c === "batched_get_game_icon")).toHaveLength(0);
+  });
+});
+
 describe("FavoritesTab — ações do jogo no menu", () => {
   async function abrirMenu() {
     saveFavorites([favorite()]);

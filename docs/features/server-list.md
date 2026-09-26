@@ -48,6 +48,7 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 ### Favoritos e VIPs
 
 1. Guardados em `localStorage["ram_favorite_games"]` como `FavoriteGame { placeId, name, iconUrl, addedAt, vipServers[] }`.
+   - O ícone é gravado junto quando o favorito é salvo. Favorito salvo **sem** ícone é completado ao abrir a aba (`loadGameIdentity`, uma passada por montagem, resultado gravado de volta): antes ficava com o quadrado vazio para sempre, ao lado de uma aba Games que mostra o ícone de todos. A releitura na hora de gravar evita ressuscitar favorito removido enquanto os ícones vinham.
 2. "Add VIP Server" pede o link/código e um rótulo (default `VIP <n>`), gera `id` com `crypto.randomUUID()` (fallback timestamp+random).
 3. Clicar num VIP → `onSelectGame(placeId, vip.link)`: no Server List pré-preenche o campo de Job ID; na Choose Game lança **todas as contas selecionadas** direto com `jobId = vip.link`.
 4. Remover VIP filtra pelo `id`; renomear/remover favorito pelo menu de contexto.
