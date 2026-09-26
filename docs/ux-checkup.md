@@ -243,6 +243,26 @@ Sobrou fora de escopo, para quem continuar: `aria-label` nos 26 botões só-íco
 (espalhados por arquivos de várias áreas), foco inicial e `aria-modal` nos 13
 diálogos, e os outros 33 `focus:outline-none` que não foram tocados.
 
+**Código morto que está cobrando pedágio (decisão do dono):**
+[MultiSelectSidebar.tsx](../src/components/accounts/MultiSelectSidebar.tsx) —
+517 linhas — não é renderizada em lugar nenhum. Isso **já estava documentado**
+em [accounts.md](features/accounts.md) e [ui-layout.md](features/ui-layout.md);
+o que é novo é o custo: ela foi editada três vezes só nesta leva de mudanças
+(identificação do jogo pelo Place ID, Make Friends pela store, limpeza de
+imports) antes de alguém notar que ninguém consegue abri-la. O `App.tsx:152` só
+monta a `DetailSidebar`, que existe para **uma** conta e documenta que
+"multi-select is handled by BottomActionBar". Duas consequências práticas:
+
+- ela duplica ações que a `BottomActionBar` já faz (Make Friends, refresh de
+  cookies, fechar Roblox), e a duplicação custa em toda mudança;
+- o **campo de delay entre pedidos de amizade** só existe nela: pela barra o
+  `delayMs` vai `null`, então hoje o valor só é ajustável editando
+  `Friends.RequestDelayMs` no INI.
+
+Caminhos: apagar (está no histórico do git) ou voltar a montá-la para
+multi-seleção. Enquanto não se decide, tudo que se fizer nela é trabalho que
+ninguém vê.
+
 ---
 
 ## O que está bom e não deve ser mexido
