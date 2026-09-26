@@ -53,6 +53,13 @@ impl SettingsStore {
                 Some("Tokens: <city>, <region>, <country>, <countryCode>, <ip>; other text is kept as typed"),
             ),
             ("MaxRecentGames", "8", None),
+            (
+                "GroupOrder",
+                "[]",
+                // JSON, e nao lista por virgula como as outras chaves de lista:
+                // nome de grupo e texto livre do usuario e pode conter virgula.
+                Some("Manual order of the account groups, as a JSON array of group names"),
+            ),
             ("Language", "en", None),
             ("AutoCookieRefresh", "true", None),
             ("AutoCloseLastProcess", "false", None),

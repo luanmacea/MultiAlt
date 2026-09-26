@@ -182,6 +182,60 @@ export function collectGroupNames(accounts: Account[]): string[] {
   return [...set].sort();
 }
 
+/**
+ * Ordem manual dos grupos, como fica guardada em `General.GroupOrder`.
+ *
+ * **JSON, não lista separada por vírgula** (que é o padrão das outras chaves de
+ * lista do INI): nome de grupo é texto livre digitado pelo usuário e pode conter
+ * vírgula. O INI mantém tudo depois do primeiro `=`, então o JSON passa intacto.
+ *
+ * Valor estragado (chave apagada, texto que não é JSON, JSON que não é lista)
+ * vira "sem ordem manual" em vez de erro: a lista de contas não pode deixar de
+ * abrir por causa de uma linha torta no arquivo de settings.
+ */
+export function parseGroupOrder(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of parsed) {
+    if (typeof item !== "string" || !item || seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
+}
+
+export function serializeGroupOrder(keys: string[]): string {
+  return JSON.stringify(keys);
+}
+
+/**
+ * Ordem final dos grupos: primeiro os que o usuário arrastou (na ordem que ele
+ * deixou), depois os que ele nunca tocou, na ordem automática de sempre
+ * (prefixo numérico, e alfabética pelo nome exibido).
+ *
+ * Grupo que não existe mais **sai** da ordem manual, e grupo novo entra no fim
+ * — não no meio, onde ninguém o pôs.
+ */
+export function orderGroupKeys(keys: Iterable<string>, manualOrder: string[]): string[] {
+  const existing = new Set(keys);
+  const manual = manualOrder.filter((key) => existing.has(key));
+  const placed = new Set(manual);
+  const rest = [...existing]
+    .filter((key) => !placed.has(key))
+    .map((key) => ({ key, ...parseGroupName(key) }))
+    .sort((a, b) => a.sortKey - b.sortKey || a.displayName.localeCompare(b.displayName))
+    .map((entry) => entry.key);
+  return [...manual, ...rest];
+}
+
 export function timeAgo(dateStr: string): string {
   if (!dateStr) return "never";
   const date = new Date(dateStr);

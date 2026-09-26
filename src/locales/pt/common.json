@@ -1582,5 +1582,6 @@
   "Nexus.lua saved in {{path}} (path copied)": "Nexus.lua salvo em {{path}} (caminho copiado)",
   "Nexus.lua saved in {{path}}": "Nexus.lua salvo em {{path}}",
   "Could not save Nexus.lua: {{error}}": "Não foi possível salvar o Nexus.lua: {{error}}",
-  "Nexus.lua saved in the app folder": "Nexus.lua salvo na pasta do app"
+  "Nexus.lua saved in the app folder": "Nexus.lua salvo na pasta do app",
+  "Drag to reorder groups": "Arraste para reordenar os grupos"
 }
