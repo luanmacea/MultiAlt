@@ -172,13 +172,14 @@ fn channel_is_production(channel: &str) -> bool {
 
 /// clientsettings endpoint for a channel. The literal "production" has no
 /// `/channel/` route (it answers 401), so it uses the default URL.
-fn channel_version_url(channel: &str) -> String {
+/// `production_url` is [`PRODUCTION_VERSION_URL`] outside the tests.
+fn channel_version_url(production_url: &str, channel: &str) -> String {
     if channel_is_production(channel) {
-        PRODUCTION_VERSION_URL.to_string()
+        production_url.to_string()
     } else {
         format!(
             "{}/channel/{}",
-            PRODUCTION_VERSION_URL,
+            production_url,
             channel.to_ascii_lowercase()
         )
     }
@@ -352,6 +353,65 @@ fn cached_production_player_dir() -> Option<String> {
         .then(|| dir.to_string_lossy().into_owned())
 }
 
+/// O que a consulta de build de um canal decidiu.
+#[derive(Debug, PartialEq)]
+enum ChannelBuild {
+    /// O endpoint do próprio canal respondeu.
+    Channel(String),
+    /// Build de produção no lugar da do canal. Só é seguro abri-la gravando
+    /// `production` no registro (`set_player_channel`): senão o cliente
+    /// consulta o canal antigo e o instalador do Roblox roda.
+    RetiredUseProduction(String),
+}
+
+/// Consulta, em `production_url` (a URL de produção do clientsettings), a
+/// build que o cliente vai exigir para `channel`.
+///
+/// Só um canal **aposentado** — o endpoint dele responde 401/404 — cai na
+/// build de produção (e no reparo do registro). Timeout, 429, 5xx ou resposta
+/// ilegível não dizem nada sobre o canal: dá `None`, e quem chama usa o cache
+/// vencido sem tocar no registro.
+async fn fetch_channel_build(
+    client: &reqwest::Client,
+    production_url: &str,
+    channel: &str,
+) -> Option<ChannelBuild> {
+    let resp = client
+        .get(channel_version_url(production_url, channel))
+        .send()
+        .await
+        .ok()?;
+    let retired = matches!(
+        resp.status(),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::NOT_FOUND
+    );
+    if retired && !channel_is_production(channel) {
+        let production = client.get(production_url).send().await.ok()?;
+        return read_build(production)
+            .await
+            .map(ChannelBuild::RetiredUseProduction);
+    }
+    read_build(resp).await.map(ChannelBuild::Channel)
+}
+
+/// A build (`version-...`) de uma resposta do clientsettings.
+async fn read_build(resp: reqwest::Response) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ClientVersion {
+        client_version_upload: String,
+    }
+
+    let body = resp
+        .error_for_status()
+        .ok()?
+        .json::<ClientVersion>()
+        .await
+        .ok()?;
+    let version = body.client_version_upload.trim().to_string();
+    version.starts_with("version-").then_some(version)
+}
+
 /// Build que o cliente vai exigir para `channel`: o que o endpoint
 /// clientsettings reporta para ele.
 async fn build_version_for_channel(channel: &str) -> Option<String> {
@@ -367,12 +427,6 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         }
     }
 
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ClientVersion {
-        client_version_upload: String,
-    }
-
     let fetched = async {
         // Teto próprio e curto: esta consulta tem fallback (o cache vencido),
         // então esperar mais que isso só atrasa o launch. `connect_timeout` vem
@@ -383,32 +437,13 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         )
         .build()
         .ok()?;
-        let mut urls = vec![(channel_version_url(&channel), false)];
-        if !channel_is_production(&channel) {
-            // A channel Roblox retired answers 401/404. Falling back to the
-            // production build is only safe if the client reads the same
-            // channel, so that fallback also repairs the registry value.
-            urls.push((PRODUCTION_VERSION_URL.to_string(), true));
-        }
-        for (url, repair_channel) in urls {
-            let Ok(resp) = client.get(&url).send().await else {
-                continue;
-            };
-            let Ok(resp) = resp.error_for_status() else {
-                continue;
-            };
-            let Ok(body) = resp.json::<ClientVersion>().await else {
-                continue;
-            };
-            let version = body.client_version_upload.trim().to_string();
-            if version.starts_with("version-") {
-                if repair_channel {
-                    set_player_channel(PRODUCTION_CHANNEL);
-                }
-                return Some(version);
+        match fetch_channel_build(&client, PRODUCTION_VERSION_URL, &channel).await? {
+            ChannelBuild::Channel(version) => Some(version),
+            ChannelBuild::RetiredUseProduction(version) => {
+                set_player_channel(PRODUCTION_CHANNEL);
+                Some(version)
             }
         }
-        None
     }
     .await;
 
