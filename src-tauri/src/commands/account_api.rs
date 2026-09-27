@@ -1228,9 +1228,58 @@ async fn join_group(
     .await
 }
 
+/// Escolhe o cookie de "quem está olhando" para uma chamada de presença sem
+/// `viewer_user_id` explícito: prefere uma conta válida com cookie não vazio e
+/// cai para qualquer conta com cookie não vazio se nenhuma válida sobrar.
+///
+/// Ressalva: o `gameId` (job id) que a Roblox devolve para as outras contas
+/// passa a depender da privacidade/configuração de amigos de quem foi
+/// escolhida como "viewer" — é assim que a API funciona, não uma falha daqui.
+fn pick_viewer_cookie(accounts: &[data::accounts::Account]) -> Option<String> {
+    accounts
+        .iter()
+        .find(|account| account.valid && !account.security_token.trim().is_empty())
+        .or_else(|| accounts.iter().find(|account| !account.security_token.trim().is_empty()))
+        .map(|account| account.security_token.clone())
+}
+
+/// Presença dos usuários pedidos, com o cookie de uma conta quando possível —
+/// sem cookie a Roblox devolve a versão degradada, sem `gameId`, e a lista
+/// perde as bolinhas In Game/Online precisas (`src/store.tsx`).
+///
+/// **Nunca** usa `run_with_session_retry` aqui: é leitura, e o refresh chama
+/// `signoutfromallsessionsandreauthenticate`, que derrubaria as sessões
+/// abertas da conta escolhida só para colorir bolinhas de presença.
+///
+/// **Fallback obrigatório:** se a chamada autenticada falhar (cookie morto,
+/// rede, o que for), repete sem cookie em vez de propagar o erro — uma única
+/// conta com sessão inválida não pode apagar a presença de todo mundo.
+async fn presence_with_viewer_cookie(
+    state: &AccountStore,
+    user_ids: &[i64],
+    viewer_user_id: Option<i64>,
+) -> Result<Vec<api::roblox::UserPresence>, String> {
+    let cookie = viewer_user_id
+        .and_then(|id| get_cookie(state, id).ok())
+        .filter(|token| !token.trim().is_empty())
+        .or_else(|| state.get_all().ok().and_then(|accounts| pick_viewer_cookie(&accounts)));
+
+    if let Some(token) = cookie {
+        if let Ok(presences) = api::roblox::get_presence_as(Some(&token), user_ids).await {
+            return Ok(presences);
+        }
+    }
+
+    api::roblox::get_presence(user_ids).await
+}
+
 #[tauri::command]
-async fn get_presence(user_ids: Vec<i64>) -> Result<Vec<api::roblox::UserPresence>, String> {
-    api::roblox::get_presence(&user_ids).await
+async fn get_presence(
+    state: tauri::State<'_, AccountStore>,
+    user_ids: Vec<i64>,
+    viewer_user_id: Option<i64>,
+) -> Result<Vec<api::roblox::UserPresence>, String> {
+    presence_with_viewer_cookie(state.inner(), &user_ids, viewer_user_id).await
 }
 
 // ── Amigos online ─────────────────────────────────────────────────────────────
