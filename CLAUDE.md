@@ -46,14 +46,21 @@ Fluxo com agentes (é assim que se usa):
 
 Regras do harness: ele **não substitui** `bun run check`, não fala com a rede nem com o Roblox, e um cenário nunca implementa o comportamento que está sendo testado (senão o teste passa sozinho).
 
-**Git (padrão do projeto):** ao terminar uma tarefa, **commitar e dar push imediatamente**, sem perguntar — um commit por tarefa, mensagem em português descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes de commitar. Push é `git push` na branch atual (hoje `main` → `origin/main`).
+**Git (padrão do projeto):** ao terminar uma tarefa, **commitar e dar push imediatamente**, sem perguntar — um commit por tarefa, mensagem em português descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes de commitar.
+
+**O trabalho vive em `develop`.** É para lá que vão os commits do dia a dia (`git push` na branch atual). A `main` é a branch de **release**: todo push nela dispara o workflow que compila, assina e publica ([docs/development.md](docs/development.md)). Por isso:
+
+- **nunca commitar nem fazer merge na `main` sem o usuário pedir** — cada merge vira uma versão publicada;
+- quando ele mandar publicar, o caminho é merge de `develop` em `main` e push;
+- depois de uma release, **trazer a `main` de volta para a `develop`** (`git merge main`) antes de seguir: o workflow commita o número da versão em `package.json`, `tauri.conf.json` e `Cargo.toml`, e sem isso esses três arquivos conflitam no merge seguinte.
 
 Limites do push automático: **nunca** `--force`/`--force-with-lease` e nunca reescrever histórico já publicado. Se o push for recusado porque a branch divergiu, integrar o remoto (`git pull --rebase`), rodar `bun run check` de novo e só então empurrar; se houver conflito, parar e avisar o usuário. Não criar branch nem PR sem o usuário pedir.
 
 **Build ao terminar (padrão do projeto):** depois do `bun run check`, do commit e do push, **gerar o executável e dizer onde ele está**, sem perguntar. É como o dono testa o que foi feito — `bun run check` compila o Rust só em modo debug e não produz executável nenhum.
 
 - Executável: `bun run tauri build --no-bundle` → `src-tauri/target/release/roblox-account-manager.exe`.
-- Assinatura do artefato de update: exportar `TAURI_SIGNING_PRIVATE_KEY` (conteúdo de `%USERPROFILE%\.taurioblox-account-manager.key`) e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (conteúdo do `.password.txt` ao lado). Sem isso, ver a ressalva abaixo. Detalhes em [docs/development.md](docs/development.md).
+- Assinatura do artefato de update: exportar `TAURI_SIGNING_PRIVATE_KEY` (conteúdo de `%USERPROFILE%\.tauri
+oblox-account-manager.key`) e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (conteúdo do `.password.txt` ao lado). Sem isso, ver a ressalva abaixo. Detalhes em [docs/development.md](docs/development.md).
 - Instalador (quando pedido): `bun run tauri build` → `src-tauri/target/release/bundle/nsis/*-setup.exe` e `bundle/msi/*.msi`. ⚠️ **Sem as variáveis de assinatura o comando sai com erro mesmo dando certo:** `createUpdaterArtifacts` está ligado no [tauri.conf.json](src-tauri/tauri.conf.json) e, sem `TAURI_SIGNING_PRIVATE_KEY` no ambiente, a assinatura do artefato de update falha *depois* de os dois instaladores já estarem gravados ("Finished 2 bundles" aparece antes do erro). Medido em 26/09/2026. Ou seja: o código de saída 1 aqui **não** quer dizer que o instalador não saiu — confira a data dos arquivos antes de dizer que falhou. O que de fato não sai é o `.sig` do auto-update.
 - Na entrega, citar o caminho, o tamanho e o horário do arquivo — sem isso não dá para saber se o que está na pasta é a build nova ou a da semana passada.
 - Se a build falhar, isso é resultado da tarefa: reportar o erro junto, não omitir.

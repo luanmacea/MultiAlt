@@ -4,7 +4,7 @@ on:
   pull_request:
     branches:
       - main
-      - v4
+      - develop
     paths:
       - "src/**"
       - "src-tauri/**"
@@ -14,7 +14,7 @@ on:
   push:
     branches:
       - main
-      - v4
+      - develop
     paths:
       - "src/**"
       - "src-tauri/**"
