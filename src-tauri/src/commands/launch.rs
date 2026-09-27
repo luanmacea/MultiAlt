@@ -50,6 +50,35 @@ fn has_version_conflict(
     running_keys.iter().any(|k| k != target_version_id)
 }
 
+/// Nomes das versões abertas, em ordem estável, para a mensagem da guarda.
+/// A instalação do sistema entra como texto em vez de sumir: `None` é uma
+/// "versão" como as do catálogo, e é justamente a que o usuário não reconhece
+/// como "versão aberta" ao olhar a lista.
+fn running_version_names(running_keys: &HashSet<Option<String>>) -> Vec<String> {
+    let mut names: Vec<String> = running_keys
+        .iter()
+        .map(|key| key.clone().unwrap_or_else(|| "system install".to_string()))
+        .collect();
+    names.sort();
+    names
+}
+
+/// A frase da recusa por conflito de versão — a mesma no launch de uma conta e
+/// no da fila.
+///
+/// Ela **tem** que dizer quais versões estão abertas. A guarda compara com uma
+/// versão alvo, então basta o tracker ter duas chaves distintas (o Auto Rejoin
+/// não checa conflito, por desenho — `docs/features/botting.md`) para nenhum
+/// alvo satisfazê-la: aí "feche o cliente" sem dizer *qual* deixa o usuário sem
+/// ação possível. E nada aqui sai como código interno: esta frase é desenhada
+/// crua na tela, tanto no toast do launch único quanto na linha da fila.
+fn version_conflict_message(running_keys: &HashSet<Option<String>>) -> String {
+    format!(
+        "A Roblox client is already running on a different Roblox version. Open now: {}. Close these clients before launching this account. Concurrent multi-version support is planned for a future update.",
+        running_version_names(running_keys).join(", ")
+    )
+}
+
 /// How long to wait for the new client's PID. A Full-isolation launch has to
 /// download Roblox again first, which is far slower than a normal start.
 fn pid_wait_seconds(isolation_wipes_install: bool) -> u64 {
@@ -803,9 +832,7 @@ async fn launch_roblox_windows(
     let _ = tracker_check.cleanup_dead_processes();
     let running_keys = tracker_check.running_version_keys();
     if has_version_conflict(&running_keys, &resolved_version_id) {
-        return Err(
-            "A Roblox client is already running on a different version. Close it before launching this account on a different Roblox version. Concurrent multi-version support is planned for a future update.".into(),
-        );
+        return Err(version_conflict_message(&running_keys));
     }
 
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
@@ -1327,10 +1354,12 @@ async fn launch_multiple(
         let _ = tracker.cleanup_dead_processes();
         let running_keys = tracker.running_version_keys();
         if has_version_conflict(&running_keys, &acct_version_id) {
+            // O painel de sessão desenha `entry.error` cru: aqui vai frase, não
+            // o código `version-conflict` que viaja no evento `launch-progress`.
             sequence.mark(
                 uid,
                 LaunchQueueState::Failed,
-                Some("version-conflict".to_string()),
+                Some(version_conflict_message(&running_keys)),
             );
             let _ = app.emit(
                 "launch-progress",
