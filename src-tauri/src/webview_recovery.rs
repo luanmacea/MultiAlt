@@ -22,7 +22,7 @@
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -159,6 +159,86 @@ fn merge_browser_arguments(existing: &str, safe_mode: bool) -> String {
     merged
 }
 
+/// O que o watchdog faz quando o prazo do primeiro quadro estoura.
+///
+/// Existe separado da thread porque **errar a mensagem aqui manda o usuário
+/// consertar a coisa errada**: dizer "nem o safe mode funcionou" quando o safe
+/// mode nunca foi tentado faz a pessoa reparar o WebView2 e trocar driver de
+/// vídeo, enquanto o problema de verdade é a pasta de dados não aceitar escrita
+/// — que também vai derrubar o `RAMSettings.ini` e o `AccountData.json` dela.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WatchdogAction {
+    /// O frontend pintou dentro do prazo: nada a fazer.
+    Nothing,
+    /// Já era a tentativa em safe mode e ela também não pintou. Reabrir seria
+    /// um laço, então só resta o reparo do runtime.
+    WarnRepairRuntime,
+    /// O marcador não pôde ser gravado. Sem ele o safe mode não sobrevive ao
+    /// reinício, e a causa é a pasta de dados, não o vídeo.
+    WarnDataFolderNotWritable,
+    /// Marcador gravado: avisa e reabre com a aceleração de vídeo desligada.
+    RestartInSafeMode,
+}
+
+/// `write_marker` é preguiçoso de propósito: nos dois primeiros ramos o
+/// marcador **não** deve ser tocado.
+fn decide_watchdog_action(
+    painted: bool,
+    safe_mode: bool,
+    write_marker: impl FnOnce() -> bool,
+) -> WatchdogAction {
+    if painted {
+        return WatchdogAction::Nothing;
+    }
+    if safe_mode {
+        return WatchdogAction::WarnRepairRuntime;
+    }
+    if write_marker() {
+        WatchdogAction::RestartInSafeMode
+    } else {
+        WatchdogAction::WarnDataFolderNotWritable
+    }
+}
+
+/// Estado do safe mode como o frontend o vê.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebviewSafeModeState {
+    /// Este boot está com a aceleração de vídeo desligada.
+    pub active: bool,
+    /// Existe marcador em disco, então a próxima abertura também vem em safe
+    /// mode. É o que decide se vale oferecer "voltar ao modo normal": safe mode
+    /// que veio só do Shift acaba sozinho no próximo boot.
+    pub sticky: bool,
+}
+
+fn safe_mode_state(active: bool, marker_exists: bool) -> WebviewSafeModeState {
+    WebviewSafeModeState {
+        active,
+        sticky: marker_exists,
+    }
+}
+
+/// Apaga o marcador do safe mode — é a saída do modo degradado pelas mãos do
+/// usuário, sem depender de o runtime do WebView2 mudar.
+///
+/// Recebe o caminho para ser testável sem tocar a pasta do usuário.
+fn remove_safe_mode_marker(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        // Já não existe: o app já está no modo normal. Erro aqui seria assustar
+        // o usuário por causa de um clique a mais.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        // O caminho vai na mensagem porque, se o app não consegue apagar, a
+        // única saída que sobra é o usuário apagar o arquivo na mão.
+        Err(e) => Err(format!(
+            "Could not delete {}: {}. Delete this file manually to leave graphics safe mode.",
+            path.display(),
+            e
+        )),
+    }
+}
+
 fn marker_path() -> PathBuf {
     get_settings_path().with_file_name(MARKER_FILE)
 }
@@ -205,6 +285,19 @@ fn message_box(title: &str, text: &str, icon: u32) {
             MB_OK | icon | MB_SETFOREGROUND | MB_TOPMOST,
         );
     }
+}
+
+/// Aviso do ramo em que o safe mode **nunca foi tentado**: o que falhou foi
+/// gravar na pasta de dados. Mandar reparar o WebView2 aqui seria diagnóstico
+/// errado — e a pasta sem escrita vai derrubar as contas e as settings também.
+fn warn_data_folder_not_writable(folder: &str) {
+    message_box(
+        "Roblox Account Manager",
+        &format!(
+            "Roblox Account Manager could not draw its interface, and it could not write to its data folder to remember that:\n\n{folder}\n\nThat folder has to be writable — the account file and the settings file live there too. Check the folder's permissions and free disk space, or run RAM from a folder you own.\n\nMeanwhile you can start RAM with graphics safe mode by holding Shift while it opens, or by adding --safe-mode to the shortcut's Target field."
+        ),
+        MB_ICONERROR,
+    );
 }
 
 fn warn_restarting_in_safe_mode() {
@@ -275,21 +368,41 @@ pub fn start_watchdog(app: AppHandle<Wry>) {
     }
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(READY_TIMEOUT_SECS));
-        if FRONTEND_PAINTED.load(Ordering::SeqCst) {
-            return;
+        let marker = marker_path();
+        let action = decide_watchdog_action(
+            FRONTEND_PAINTED.load(Ordering::SeqCst),
+            SAFE_MODE.load(Ordering::SeqCst),
+            || std::fs::write(&marker, runtime_version()).is_ok(),
+        );
+        match action {
+            WatchdogAction::Nothing => {}
+            WatchdogAction::WarnRepairRuntime => warn_repair_runtime(),
+            WatchdogAction::WarnDataFolderNotWritable => {
+                let folder = marker
+                    .parent()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| marker.display().to_string());
+                warn_data_folder_not_writable(&folder);
+            }
+            WatchdogAction::RestartInSafeMode => {
+                warn_restarting_in_safe_mode();
+                app.restart();
+            }
         }
-        if SAFE_MODE.load(Ordering::SeqCst) {
-            // Já era a tentativa degradada: reabrir de novo seria um laço.
-            warn_repair_runtime();
-            return;
-        }
-        if std::fs::write(marker_path(), runtime_version()).is_err() {
-            // Sem marcador o safe mode não sobrevive ao reinício, então
-            // reabrir seria só repetir a tela em branco.
-            warn_repair_runtime();
-            return;
-        }
-        warn_restarting_in_safe_mode();
-        app.restart();
     });
+}
+
+/// Estado do safe mode para o frontend poder dizer que está ligado.
+pub fn current_state() -> WebviewSafeModeState {
+    safe_mode_state(SAFE_MODE.load(Ordering::SeqCst), marker_path().exists())
+}
+
+/// Saída do safe mode pelas mãos do usuário: apaga o marcador para a próxima
+/// abertura voltar ao normal, sem depender de o runtime do WebView2 mudar.
+///
+/// Não desliga o safe mode **deste** boot: as flags já foram entregues ao
+/// WebView2 na criação da janela, então só reabrindo o app a GPU volta. Quem
+/// chama é que reinicia.
+pub fn leave_safe_mode() -> Result<(), String> {
+    remove_safe_mode_marker(&marker_path())
 }
