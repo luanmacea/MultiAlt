@@ -336,12 +336,12 @@ describe("BottingDialog — timing units", () => {
   it("states the accepted range of each timing field", async () => {
     renderDialog();
 
-    // Limites reais: botting.rs `clamp_botting_interval_minutes` (10..120),
+    // Limites reais: botting.rs `clamp_botting_interval_minutes` (10..480),
     // `clamp_botting_launch_delay_seconds` (5..120) e
     // `resolve_player_grace_minutes` (1..90).
     expect(
       screen.getByText(
-        "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120)."
+        "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480)."
       )
     ).toBeInTheDocument();
     expect(

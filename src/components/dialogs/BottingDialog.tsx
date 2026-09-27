@@ -101,7 +101,7 @@ function phaseTone(phase: string): string {
 /**
  * Unidade, significado e faixa de cada campo de Timing. Os limites sao os do
  * backend (`src-tauri/src/commands/botting.rs`): `clamp_botting_interval_minutes`
- * 10..120, `clamp_botting_launch_delay_seconds` 5..120 e
+ * 10..480, `clamp_botting_launch_delay_seconds` 5..120 e
  * `resolve_player_grace_minutes` 1..90. Fica num componente para as duas vistas
  * do dialogo mostrarem exatamente o mesmo texto.
  */
@@ -111,7 +111,7 @@ function TimingFieldHints() {
     <ul className="mt-2 space-y-0.5 text-[11px] theme-muted list-disc pl-4">
       <li>
         {t(
-          "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120)."
+          "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480)."
         )}
       </li>
       <li>
@@ -987,7 +987,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                           ariaLabel={t("Rejoin Interval (minutes)")}
                           value={intervalMinutes}
                           min={10}
-                          max={120}
+                          max={480}
                           step={1}
                           integer
                           showStepper
@@ -1744,7 +1744,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                   ariaLabel={t("Rejoin Interval (minutes)")}
                   value={intervalMinutes}
                   min={10}
-                  max={120}
+                  max={480}
                   step={1}
                   integer
                   showStepper

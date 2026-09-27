@@ -1462,7 +1462,7 @@
   "Quick login code from your clipboard entered as {{account}}": "Código de login rápido da área de transferência enviado como {{account}}",
   "Reads and writes only this script's own section of RAMSettings.ini.": "Lê e escreve só a seção do próprio script no RAMSettings.ini.",
   "Reads app state on demand: account list, aliases, groups, selection, presence and the current Place/Job ID. No cookies or passwords.": "Lê o estado do app quando o script pede: lista de contas, apelidos, grupos, seleção, presença e o Place/Job ID atual. Sem cookies nem senhas.",
-  "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120).": "Intervalo de rejoin: minutos que uma conta bot fica no servidor antes de o cliente dela ser fechado e aberto de novo (10-120).",
+  "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480).": "Intervalo de rejoin: minutos que uma conta bot fica no servidor antes de o cliente dela ser fechado e aberto de novo (10-480).",
   "Requirements": "Requisitos",
   "Roblox account PIN (4 digits)": "PIN da conta Roblox (4 dígitos)",
   "Run that Nexus.lua in each Roblox client, through your own executor.": "Rode esse Nexus.lua em cada cliente Roblox, pelo seu próprio executor.",
