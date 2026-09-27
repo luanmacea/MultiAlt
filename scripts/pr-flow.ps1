@@ -1,5 +1,5 @@
 param(
-    [string]$Base = "v4",
+    [string]$Base = "develop",
     [string]$Remote = ""
 )
 

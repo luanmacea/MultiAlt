@@ -52,6 +52,9 @@ jobs:
 
       # The same gate contributors run locally (bun run check), split into
       # steps so a failure points straight at the layer that broke.
+      - name: Test suite audit (every test mapped in scripts/test-suites.ts)
+        run: bun run test:audit
+
       - name: Frontend tests (vitest)
         run: bun run test
 

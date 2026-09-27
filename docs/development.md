@@ -41,7 +41,7 @@ Scripts definidos em [package.json](../package.json) e hooks de build em [tauri.
 7. `cargo check --locked` (features default)
 8. `cargo check --locked --no-default-features`
 
-A CI **não** roda a auditoria das suítes (`test:audit`) — só o `bun run check` local roda. Antes de commitar, `bun run check`; mudança em feature do Cargo pede também o `cargo check --no-default-features`.
+A CI roda o mesmo portão do `bun run check`, em passos separados (typecheck, auditoria das suítes, vitest, `cargo test`). Antes de commitar, `bun run check`; mudança em feature do Cargo pede também o `cargo check --no-default-features`.
 
 ## Testes
 
@@ -274,7 +274,7 @@ Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das p
 - **Settings no frontend**: leia com `store.settings?.Section?.Key` (sempre string) ou, em telas de configuração, com o hook [useSettings.ts](../src/hooks/useSettings.ts) (`get/getBool/getNumber/set`), que agrupa gravações com debounce de 160 ms.
 - **Erros** do backend são `String`; no frontend vão para `store.setError` (faixa vermelha em [App.tsx](../src/App.tsx)) ou `store.addToast`.
 - **Commits** majoritariamente em português, curtos (ex.: `juste de tempo no join`, `multiplos servidores vips`); também há commits em inglês. Mensagens do log de launch em Rust também estão em português (ex.: `"Alvo resolvido: servidor privado/VIP"` em [launch.rs](../src-tauri/src/commands/launch.rs)).
-- **PRs**: [scripts/pr-flow.ps1](../scripts/pr-flow.ps1) automatiza o fluxo com `gh`, mas o script ainda tem base default `v4` — branch que **não existe mais** (hoje são `develop` e `main`); passe `-Base develop`. E PR só com pedido do dono (regra de Git do [CLAUDE.md](../CLAUDE.md)).
+- **PRs**: [scripts/pr-flow.ps1](../scripts/pr-flow.ps1) automatiza o fluxo com `gh`, com base default `develop` (onde o trabalho vive; a `main` é só release). E PR só com pedido do dono (regra de Git do [CLAUDE.md](../CLAUDE.md)).
 
 ## Como adicionar um novo comando Tauri (ponta a ponta)
 
