@@ -45,6 +45,18 @@ jobs:
     env:
       RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
+      # ── Anexos opcionais da release ──────────────────────────────────────
+      # O instalador (.exe) sai sempre, nas duas variantes. Estes dois ligam e
+      # desligam os formatos extras; "true" volta a publica-los, e nenhum passo
+      # foi removido do workflow.
+      #
+      # MSI: mesmo app em formato de instalacao corporativa (silenciosa, por
+      # politica de dominio). Ligar tambem acrescenta o alvo `msi` ao bundle do
+      # Tauri no passo "Configure bundle targets".
+      PUBLISH_MSI: "false"
+      # Portatil: o executavel solto, sem instalar. Nao passa pelo updater.
+      PUBLISH_PORTABLE: "false"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -141,6 +153,18 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
 
+      - name: Configure bundle targets
+        shell: pwsh
+        run: |
+          $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $targets = @("nsis")
+          if ($env:PUBLISH_MSI -eq "true") {
+            $targets += "msi"
+          }
+          $config.bundle.targets = $targets
+          $config | ConvertTo-Json -Depth 100 | Set-Content src-tauri/tauri.conf.json
+          Write-Host "Bundle targets: $($targets -join ', ')"
+
       - name: Inject updater public key
         shell: pwsh
         run: |
@@ -174,6 +198,7 @@ jobs:
           releaseDraft: false
 
       - name: Stage standard portable binary
+        if: env.PUBLISH_PORTABLE == 'true'
         shell: pwsh
         run: |
           Copy-Item "src-tauri/target/release/roblox-account-manager.exe" "src-tauri/target/release/portable-standard.exe" -Force
@@ -253,12 +278,14 @@ jobs:
           }
           New-Item -ItemType Directory -Path $stageDir | Out-Null
 
-          if (-not (Test-Path $standardPortableSrc)) {
-            throw "Standard portable binary not found"
-          }
+          if ($env:PUBLISH_PORTABLE -eq "true") {
+            if (-not (Test-Path $standardPortableSrc)) {
+              throw "Standard portable binary not found"
+            }
 
-          if (-not (Test-Path $fullPortableSrc)) {
-            throw "Full feature portable binary not found"
+            if (-not (Test-Path $fullPortableSrc)) {
+              throw "Full feature portable binary not found"
+            }
           }
 
           $fullSetupSrc = $null
@@ -287,31 +314,34 @@ jobs:
           }
 
           $fullMsiSrc = $null
-          if (Test-Path $msiDir) {
-            $fullMsiSrc = Get-ChildItem $msiDir -File -Recurse -Filter "*.msi" |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-          }
+          $fullMsiSigSrc = $null
+          if ($env:PUBLISH_MSI -eq "true") {
+            if (Test-Path $msiDir) {
+              $fullMsiSrc = Get-ChildItem $msiDir -File -Recurse -Filter "*.msi" |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+            }
 
-          if (-not $fullMsiSrc) {
-            $fullMsiSrc = Get-ChildItem $bundleRoot -File -Recurse -Filter "*.msi" |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-          }
+            if (-not $fullMsiSrc) {
+              $fullMsiSrc = Get-ChildItem $bundleRoot -File -Recurse -Filter "*.msi" |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+            }
 
-          if (-not $fullMsiSrc) {
-            throw "Full feature MSI not found"
+            if (-not $fullMsiSrc) {
+              throw "Full feature MSI not found"
+            }
+
+            $fullMsiSigSrc = "$($fullMsiSrc.FullName).sig"
+            if (-not (Test-Path $fullMsiSigSrc)) {
+              throw "Full feature MSI signature not found"
+            }
           }
 
           $fullSetupSigSrc = "$($fullSetupSrc.FullName).sig"
-          $fullMsiSigSrc = "$($fullMsiSrc.FullName).sig"
 
           if (-not (Test-Path $fullSetupSigSrc)) {
             throw "Full feature setup signature not found"
-          }
-
-          if (-not (Test-Path $fullMsiSigSrc)) {
-            throw "Full feature MSI signature not found"
           }
 
           $v = $env:RELEASE_VERSION
@@ -322,33 +352,52 @@ jobs:
 
           Copy-Item $fullSetupSrc.FullName (Join-Path $stageDir $fullSetupName) -Force
           Copy-Item $fullSetupSigSrc (Join-Path $stageDir "$fullSetupName.sig") -Force
-          Copy-Item $fullMsiSrc.FullName (Join-Path $stageDir $fullMsiName) -Force
-          Copy-Item $fullMsiSigSrc (Join-Path $stageDir "$fullMsiName.sig") -Force
-          Copy-Item $standardPortableSrc (Join-Path $stageDir $standardPortableName) -Force
-          Copy-Item $fullPortableSrc (Join-Path $stageDir $fullPortableName) -Force
+
+          if ($env:PUBLISH_MSI -eq "true") {
+            Copy-Item $fullMsiSrc.FullName (Join-Path $stageDir $fullMsiName) -Force
+            Copy-Item $fullMsiSigSrc (Join-Path $stageDir "$fullMsiName.sig") -Force
+          }
+
+          if ($env:PUBLISH_PORTABLE -eq "true") {
+            Copy-Item $standardPortableSrc (Join-Path $stageDir $standardPortableName) -Force
+            Copy-Item $fullPortableSrc (Join-Path $stageDir $fullPortableName) -Force
+          }
 
           $baseUrl = "https://github.com/$($env:GITHUB_REPOSITORY)/releases/download/$($env:RELEASE_TAG)"
           $fullSetupSignature = (Get-Content $fullSetupSigSrc -Raw).Trim()
-          $fullMsiSignature = (Get-Content $fullMsiSigSrc -Raw).Trim()
+          $fullMsiSignature = if ($fullMsiSigSrc) { (Get-Content $fullMsiSigSrc -Raw).Trim() } else { $null }
+
+          # `windows-x86_64` e a chave que o updater consulta. Com o MSI
+          # publicado ela aponta para ele (era o comportamento historico); sem
+          # MSI ela precisa apontar para o instalador, senao a atualizacao da
+          # variante completa quebraria em silencio, baixando um arquivo que
+          # nao existe mais na release.
+          $platforms = [ordered]@{}
+          if ($env:PUBLISH_MSI -eq "true") {
+            $platforms["windows-x86_64"] = [ordered]@{
+              signature = $fullMsiSignature
+              url = "$baseUrl/$fullMsiName"
+            }
+            $platforms["windows-x86_64-msi"] = [ordered]@{
+              signature = $fullMsiSignature
+              url = "$baseUrl/$fullMsiName"
+            }
+          } else {
+            $platforms["windows-x86_64"] = [ordered]@{
+              signature = $fullSetupSignature
+              url = "$baseUrl/$fullSetupName"
+            }
+          }
+          $platforms["windows-x86_64-nsis"] = [ordered]@{
+            signature = $fullSetupSignature
+            url = "$baseUrl/$fullSetupName"
+          }
 
           $manifest = [ordered]@{
             version = $v
             notes = ""
             pub_date = (Get-Date).ToUniversalTime().ToString("o")
-            platforms = [ordered]@{
-              "windows-x86_64" = [ordered]@{
-                signature = $fullMsiSignature
-                url = "$baseUrl/$fullMsiName"
-              }
-              "windows-x86_64-msi" = [ordered]@{
-                signature = $fullMsiSignature
-                url = "$baseUrl/$fullMsiName"
-              }
-              "windows-x86_64-nsis" = [ordered]@{
-                signature = $fullSetupSignature
-                url = "$baseUrl/$fullSetupName"
-              }
-            }
+            platforms = $platforms
           }
 
           $fullManifestOut = Join-Path $stageDir "latest-full.json"
@@ -369,11 +418,15 @@ jobs:
           $tag = "${{ steps.meta.outputs.tag }}"
           $repo = "${{ github.repository }}"
           $fullSetupPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_SETUP_NAME
-          $fullMsiPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_MSI_NAME
           gh release upload $tag "$fullSetupPath" --repo $repo --clobber
-          gh release upload $tag "$fullMsiPath" --repo $repo --clobber
+
+          if ($env:PUBLISH_MSI -eq "true") {
+            $fullMsiPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_MSI_NAME
+            gh release upload $tag "$fullMsiPath" --repo $repo --clobber
+          }
 
       - name: Upload portable binaries
+        if: env.PUBLISH_PORTABLE == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
@@ -427,7 +480,7 @@ jobs:
             Copy-Item $fullSetupSig (Join-Path $tmpDir (Split-Path $fullSetupSig -Leaf)) -Force
           }
 
-          if (Test-Path $fullMsiSig) {
+          if ($env:PUBLISH_MSI -eq "true" -and (Test-Path $fullMsiSig)) {
             Copy-Item $fullMsiSig (Join-Path $tmpDir (Split-Path $fullMsiSig -Leaf)) -Force
           }
 

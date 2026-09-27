@@ -145,6 +145,10 @@ Como funciona agora:
 4. **Segredos que o repositorio precisa** (Settings › Secrets and variables › Actions): `TAURI_SIGNING_PRIVATE_KEY` (conteudo do arquivo `.key`), `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (conteudo do `.password.txt`) e `TAURI_SIGNING_PUBLIC_KEY` (conteudo do `.key.pub`, que o workflow injeta no `tauri.conf.json` antes de compilar).
 5. **Build local**: sem `TAURI_SIGNING_PRIVATE_KEY` no ambiente, `bun run tauri build` grava os instaladores e **depois** sai com erro na assinatura do artefato de update. Ver a regra de build no [CLAUDE.md](../CLAUDE.md).
 
+**Quais arquivos a release publica:** por padrao, so o instalador (`.exe`) das duas variantes, mais as assinaturas. MSI e portatil continuam implementados no workflow, atras de dois interruptores no topo do job `release` ([release-v4.yml](../.github/workflows/release-v4.yml)): `PUBLISH_MSI` e `PUBLISH_PORTABLE`, ambos `"false"`. Trocar para `"true"` volta a publica-los — o `PUBLISH_MSI` tambem acrescenta o alvo `msi` ao bundle do Tauri no passo "Configure bundle targets", entao e um lugar so.
+
+⚠️ Detalhe que so aparece quando se mexe nisso: no manifesto do updater, a chave `windows-x86_64` (a que o app consulta) apontava para o **MSI**. Sem MSI publicado ela passa a apontar para o instalador; se apontasse para o MSI ausente, a atualizacao da variante completa quebraria em silencio, baixando um arquivo que nao existe na release.
+
 O endereco do projeto vive em um lugar por lado — [src/repo.ts](../src/repo.ts) e o `REPO_URL` de [services.rs](../src-tauri/src/commands/services.rs) — e [repoOwnership.test.ts](../src/repoOwnership.test.ts) varre `src/`, `src-tauri/src/` e `.github/` reprovando qualquer volta do endereco antigo.
 
 ### Piso de legibilidade do texto
