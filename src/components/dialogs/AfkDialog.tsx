@@ -102,12 +102,30 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
     return store.accounts.filter((a) => ids.has(a.UserID));
   }, [store.accounts, store.launchedByProgram, inAfk]);
 
+  const focusDenied = (status?.accounts ?? []).some((a) => a.lastErrorCode === "focusDenied");
   const keyAllowed = store.afkKeys.includes(effectiveKey);
   const canStart = keyAllowed && inAfk.length > 0 && !busy;
   const statusByUserId = useMemo(
     () => new Map((status?.accounts ?? []).map((a) => [a.userId, a])),
     [status]
   );
+
+  /** A frase que explica por que uma conta não recebeu a tecla. */
+  function sendErrorText(code: string | null, raw: string | null, name: string): string {
+    switch (code) {
+      case "focusDenied":
+        return t(
+          "{{name}}: Windows did not let this account's window come to the front, so nothing was sent.",
+          { name }
+        );
+      case "noWindow":
+        return t("{{name}}: has no Roblox client open right now.", { name });
+      case "keyRefused":
+        return t("{{name}}: Windows refused the key.", { name });
+      default:
+        return `${name}: ${raw ?? ""}`.trim();
+    }
+  }
 
   function persist(settingKey: string, value: string) {
     void invoke("update_setting", { section: "Afk", key: settingKey, value }).catch(() => {});
@@ -148,7 +166,9 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
   }
 
   async function handleSendNow() {
-    if (!keyAllowed || inAfk.length === 0) return;
+    // Sem sessão não há conta no modo, e envio manual não pode alcançar cliente
+    // de conta fora dele.
+    if (!running || !keyAllowed || inAfk.length === 0) return;
     setSendingNow(true);
     try {
       const sent = await store.afkTriggerNow(inAfk, effectiveKey);
@@ -265,6 +285,9 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
               )}{" "}
               {t(
                 "If you are typing in another program at that instant, the key can land in the wrong window."
+              )}{" "}
+              {t(
+                "And when Windows keeps the window in the background — which is what it usually does while this app is not the one you are using — nothing is sent at all, and the account below says so."
               )}
             </div>
           </section>
@@ -313,6 +336,11 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
                           {formatCountdown(row?.nextSendAtMs ?? null, nowMs)}
                         </span>
                       ) : null}
+                      {row?.lastErrorCode === "focusDenied" ? (
+                        <span className="text-[11px] text-amber-300/90 shrink-0">
+                          {t("not sent")}
+                        </span>
+                      ) : null}
                       {!store.launchedByProgram.has(account.UserID) ? (
                         <span className="text-[11px] text-amber-300/90 shrink-0">
                           {t("no client")}
@@ -332,17 +360,32 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
             ) : null}
             {running
               ? [...statusByUserId.values()]
-                  .filter((a) => a.lastError)
-                  .slice(0, 3)
-                  .map((a) => (
-                    <div
-                      key={a.userId}
-                      className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-200 break-words"
-                    >
-                      {a.lastError}
-                    </div>
-                  ))
+                  .filter((a) => a.lastError || a.lastErrorCode)
+                  .slice(0, 4)
+                  .map((a) => {
+                    const account = store.accounts.find((it) => it.UserID === a.userId);
+                    const name =
+                      account?.Alias || account?.Username || `${t("User ID")}: ${a.userId}`;
+                    return (
+                      <div
+                        key={a.userId}
+                        className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-200 break-words"
+                      >
+                        {sendErrorText(a.lastErrorCode, a.lastError, name)}
+                      </div>
+                    );
+                  })
               : null}
+            {running && focusDenied ? (
+              <div className="mt-2 text-[11px] theme-muted leading-4">
+                {t(
+                  "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while."
+                )}{" "}
+                {t(
+                  "\"Send the key now\" works because you just clicked this window, and the manager being the window you are using makes the next cycle go through."
+                )}
+              </div>
+            ) : null}
           </section>
 
           <section className="theme-surface rounded-xl border theme-border p-3">
@@ -365,7 +408,7 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
             )}
             <button
               onClick={handleSendNow}
-              disabled={sendingNow || !keyAllowed || inAfk.length === 0}
+              disabled={sendingNow || !running || !keyAllowed || inAfk.length === 0}
               className="sidebar-btn-sm w-full mt-1.5 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send size={13} strokeWidth={1.75} />

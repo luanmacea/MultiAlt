@@ -72,6 +72,44 @@ fn validate_afk_start(key: &str, user_ids: &[i64]) -> Result<(), String> {
     Ok(())
 }
 
+/// Por que uma conta não recebeu a tecla. O código vai para a tela, que escreve
+/// a frase traduzida — a mensagem em inglês fica para log e para caso novo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AfkSendError {
+    /// A conta não tem janela de cliente de pé.
+    NoWindow,
+    /// O Windows recusou trazer a janela para o primeiro plano. **Nada foi
+    /// enviado**: a tecla cairia na janela que o usuário está usando.
+    FocusDenied,
+    /// O `SendInput` foi recusado (ou o "solta a tecla" não passou).
+    KeyRefused,
+    /// Falha inesperada do ciclo.
+    Internal(String),
+}
+
+impl AfkSendError {
+    fn code(&self) -> &'static str {
+        match self {
+            AfkSendError::NoWindow => "noWindow",
+            AfkSendError::FocusDenied => "focusDenied",
+            AfkSendError::KeyRefused => "keyRefused",
+            AfkSendError::Internal(_) => "internal",
+        }
+    }
+
+    fn message(&self) -> String {
+        match self {
+            AfkSendError::NoWindow => "No Roblox window for this account".into(),
+            AfkSendError::FocusDenied => {
+                "Windows did not bring this account's Roblox window to the front, so nothing was sent"
+                    .into()
+            }
+            AfkSendError::KeyRefused => "Windows refused the synthetic key".into(),
+            AfkSendError::Internal(message) => message.clone(),
+        }
+    }
+}
+
 /// Estado de uma conta que **está** no AFK mode.
 #[derive(Debug, Clone)]
 struct AfkAccountRuntime {
@@ -80,7 +118,7 @@ struct AfkAccountRuntime {
     /// que sai o "está na hora desta conta?".
     last_send_at_ms: i64,
     sends: u64,
-    last_error: Option<String>,
+    last_error: Option<AfkSendError>,
 }
 
 impl AfkAccountRuntime {
@@ -146,6 +184,42 @@ fn afk_cycle_step(stopping: bool, window_alive: bool) -> AfkCycleStep {
     }
 }
 
+/// A janela do alvo chegou de fato ao primeiro plano?
+///
+/// `SendInput` entrega na janela em **primeiro plano**, e o Windows recusa
+/// `SetForegroundWindow` de processo que não está em primeiro plano nem recebeu o
+/// último evento de entrada — que é o caso normal do AFK mode, com o app em
+/// segundo plano. Sem esta conferência a tecla ia, **todo ciclo**, para a janela
+/// em que o usuário está digitando, e o ciclo se declarava bem-sucedido.
+///
+/// `foreground` e `target` são handles de janela em forma de número; `0` é
+/// "nenhuma janela", e alvo nulo nunca está pronto.
+fn afk_window_is_ready(focus_requested: bool, foreground: isize, target: isize) -> bool {
+    focus_requested && target != 0 && foreground == target
+}
+
+/// A janela volta a ser minimizada? Trazer para frente desminimiza (o
+/// `focus_window` faz `SW_RESTORE`); quem trabalha com os clientes minimizados
+/// não pediu para vê-los na tela. Só vale para janela que o ciclo mexeu, e só se
+/// o usuário a tinha minimizado.
+fn afk_should_reminimize(was_minimized: bool, focus_attempted: bool) -> bool {
+    was_minimized && focus_attempted
+}
+
+/// As contas de um envio manual: **interseção** com quem está no AFK mode, na
+/// ordem que o usuário pediu.
+///
+/// Sem isso o botão "enviar agora" puxava para frente e teclava cliente de conta
+/// que nunca entrou no modo — o único ponto que contrariava a regra de não mexer
+/// em cliente de conta fora do modo.
+fn afk_manual_targets(requested: &[i64], accounts: &HashMap<i64, AfkAccountRuntime>) -> Vec<i64> {
+    requested
+        .iter()
+        .copied()
+        .filter(|user_id| accounts.contains_key(user_id))
+        .collect()
+}
+
 /// Devolver o foco é coisa de ciclo que terminou: quem está parando não mexe em
 /// foco nenhum, e ciclo que não roubou o foco não tem o que devolver.
 fn afk_should_restore_focus(stopping: bool, focus_taken: bool) -> bool {
@@ -160,6 +234,9 @@ struct AfkAccountStatus {
     next_send_at_ms: i64,
     sends: u64,
     last_error: Option<String>,
+    /// `noWindow`, `focusDenied`, `keyRefused` ou `internal` — a tela escolhe a
+    /// frase traduzida por aqui, em vez de casar texto em inglês.
+    last_error_code: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Default)]
@@ -200,6 +277,10 @@ struct AfkConfig {
 struct AfkSession {
     id: u64,
     stop_flag: Arc<AtomicBool>,
+    /// Ligado pelo laço quando ele realmente saiu. Quem manda parar olha isto
+    /// antes de esperar: sem ele, laço que terminou **antes** de o `notified()`
+    /// ser registrado fazia o parar esperar os 2 s inteiros.
+    stopped: Arc<AtomicBool>,
     stopped_notify: Arc<tokio::sync::Notify>,
     started_at_ms: i64,
     config: Arc<Mutex<AfkConfig>>,
@@ -264,6 +345,12 @@ static AFK_MANAGER: LazyLock<AfkManager> = LazyLock::new(AfkManager::new);
 static AFK_CYCLE_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
 
+/// O mesmo "um ciclo por vez", mas do lado bloqueante: `abort` numa task de
+/// `spawn_blocking` não para a closure que já começou, então o lock assíncrono
+/// sozinho não impede dois corpos de ciclo se sobreporem.
+#[cfg(target_os = "windows")]
+static AFK_CYCLE_SEQ: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
 /// Sessão nova. Cada conta entra com o relógio marcando `started_at_ms`, e é o
 /// que faz a tela **já saber** quando é o primeiro envio (`started_at` +
 /// intervalo) antes de qualquer tecla sair: sem isso, quem liga o modo passa o
@@ -282,10 +369,42 @@ fn new_afk_session(
     AfkSession {
         id,
         stop_flag: Arc::new(AtomicBool::new(false)),
+        stopped: Arc::new(AtomicBool::new(false)),
         stopped_notify: Arc::new(tokio::sync::Notify::new()),
         started_at_ms,
         config: Arc::new(Mutex::new(config)),
         accounts: Arc::new(Mutex::new(accounts)),
+    }
+}
+
+/// O status que a tela recebe, montado a partir das partes — separado de
+/// `afk_status_from` para o teste poder montar um sem sessão viva.
+fn afk_status_from_parts(
+    started_at_ms: Option<i64>,
+    interval_minutes: u64,
+    key: &str,
+    accounts: &HashMap<i64, AfkAccountRuntime>,
+) -> AfkStatusPayload {
+    let interval_ms = (interval_minutes as i64).saturating_mul(60_000);
+    let mut rows: Vec<AfkAccountStatus> = accounts
+        .values()
+        .map(|entry| AfkAccountStatus {
+            user_id: entry.user_id,
+            last_send_at_ms: entry.last_send_at_ms,
+            next_send_at_ms: afk_next_send_at_ms(entry.last_send_at_ms, interval_ms),
+            sends: entry.sends,
+            last_error: entry.last_error.as_ref().map(|e| e.message()),
+            last_error_code: entry.last_error.as_ref().map(|e| e.code().to_string()),
+        })
+        .collect();
+    rows.sort_by_key(|a| a.user_id);
+
+    AfkStatusPayload {
+        active: started_at_ms.is_some(),
+        started_at_ms,
+        interval_minutes,
+        key: key.to_string(),
+        accounts: rows,
     }
 }
 
@@ -299,32 +418,18 @@ fn afk_status_from(session: &AfkSession) -> AfkStatusPayload {
             interval_minutes: 0,
             key: String::new(),
         });
-    let interval_ms = (config.interval_minutes as i64).saturating_mul(60_000);
-
-    let mut accounts: Vec<AfkAccountStatus> = session
+    let accounts = session
         .accounts
         .lock()
-        .map(|map| {
-            map.values()
-                .map(|entry| AfkAccountStatus {
-                    user_id: entry.user_id,
-                    last_send_at_ms: entry.last_send_at_ms,
-                    next_send_at_ms: afk_next_send_at_ms(entry.last_send_at_ms, interval_ms),
-                    sends: entry.sends,
-                    last_error: entry.last_error.clone(),
-                })
-                .collect()
-        })
+        .map(|map| map.clone())
         .unwrap_or_default();
-    accounts.sort_by_key(|a| a.user_id);
 
-    AfkStatusPayload {
-        active: true,
-        started_at_ms: Some(session.started_at_ms),
-        interval_minutes: config.interval_minutes,
-        key: config.key,
-        accounts,
-    }
+    afk_status_from_parts(
+        Some(session.started_at_ms),
+        config.interval_minutes,
+        &config.key,
+        &accounts,
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -363,11 +468,19 @@ fn run_afk_cycle_blocking(
     key: &str,
     targets: &[i64],
     stop_flag: &AtomicBool,
-) -> Result<Vec<(i64, Option<String>)>, String> {
+) -> Result<Vec<(i64, Option<AfkSendError>)>, String> {
     use platform::windows;
 
-    let (vk, scan) = windows::vk_and_scan(key)
-        .ok_or_else(|| format!("Key not allowed in AFK mode: {}", key))?;
+    // Um ciclo por vez **de verdade**: `JoinHandle::abort` não interrompe uma
+    // closure de `spawn_blocking` que já começou, então o lock assíncrono lá fora
+    // pode ser liberado com este corpo ainda rodando.
+    let _serial = AFK_CYCLE_SEQ
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if afk_virtual_key(key).is_none() {
+        return Err(format!("Key not allowed in AFK mode: {}", key));
+    }
 
     let previous_foreground = windows::get_foreground_hwnd();
     // PID de cliente que já morreu pode ter sido reaproveitado pelo Windows por
@@ -376,7 +489,7 @@ fn run_afk_cycle_blocking(
     let tracker = windows::tracker();
 
     let mut focus_taken = false;
-    let mut outcome: Vec<(i64, Option<String>)> = Vec::new();
+    let mut outcome: Vec<(i64, Option<AfkSendError>)> = Vec::new();
 
     for &user_id in targets {
         let hwnd = tracker
@@ -388,27 +501,40 @@ fn run_afk_cycle_blocking(
         match afk_cycle_step(stop_flag.load(Ordering::Relaxed), hwnd.is_some()) {
             AfkCycleStep::Abort => break,
             AfkCycleStep::Skip => {
-                outcome.push((user_id, Some("No Roblox window for this account".into())));
+                outcome.push((user_id, Some(AfkSendError::NoWindow)));
             }
             AfkCycleStep::Send => {
                 let hwnd = match hwnd {
                     Some(hwnd) => hwnd,
                     None => continue,
                 };
-                windows::focus_window(hwnd);
+                // Quem trabalha com os clientes minimizados não pediu para
+                // vê-los: o estado é devolvido depois do envio.
+                let was_minimized = windows::window_is_minimized(hwnd);
+                let requested = windows::focus_window(hwnd);
                 focus_taken = true;
                 std::thread::sleep(std::time::Duration::from_millis(AFK_FOCUS_SETTLE_MS));
-                let down = windows::send_key(vk, scan, false);
-                std::thread::sleep(std::time::Duration::from_millis(AFK_KEY_HOLD_MS));
-                let up = windows::send_key(vk, scan, true);
-                outcome.push((
-                    user_id,
-                    if down && up {
-                        None
-                    } else {
-                        Some("Windows refused the synthetic key".into())
-                    },
-                ));
+
+                let ready = afk_window_is_ready(
+                    requested,
+                    windows::get_foreground_hwnd() as isize,
+                    hwnd as isize,
+                );
+
+                let result = if ready {
+                    windows::tap_afk_key(key, AFK_KEY_HOLD_MS)
+                        .err()
+                        .map(|_| AfkSendError::KeyRefused)
+                } else {
+                    // O Windows não deixou a janela vir para frente. Mandar a
+                    // tecla aqui a entregaria na janela do usuário.
+                    Some(AfkSendError::FocusDenied)
+                };
+
+                if afk_should_reminimize(was_minimized, true) {
+                    windows::minimize_window(hwnd);
+                }
+                outcome.push((user_id, result));
                 std::thread::sleep(std::time::Duration::from_millis(AFK_BETWEEN_WINDOWS_MS));
             }
         }
@@ -446,6 +572,10 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             let key = config.key.clone();
             let stop = session.stop_flag.clone();
             let cycle_targets = targets.clone();
+            // Marcado **antes** do ciclo: lido depois, o relógio de cada conta
+            // escorregaria a duração do ciclo a cada volta e o intervalo
+            // efetivo cresceria com o número de contas.
+            let cycle_at = now_ms();
             let result = {
                 let _guard = AFK_CYCLE_LOCK.lock().await;
                 tokio::task::spawn_blocking(move || {
@@ -460,7 +590,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             };
 
             if let Ok(mut map) = session.accounts.lock() {
-                let attempted_at = now_ms();
+                let attempted_at = cycle_at;
                 match result {
                     Ok(outcome) => {
                         // Só quem o ciclo visitou tem o relógio remarcado: uma
@@ -479,7 +609,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
                         for user_id in &targets {
                             if let Some(entry) = map.get_mut(user_id) {
                                 entry.last_send_at_ms = attempted_at;
-                                entry.last_error = Some(error.clone());
+                                entry.last_error = Some(AfkSendError::Internal(error.clone()));
                             }
                         }
                     }
@@ -502,7 +632,10 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
     if owns_session {
         AFK_MANAGER.replace_session(None);
     }
-    session.stopped_notify.notify_waiters();
+    session.stopped.store(true, Ordering::SeqCst);
+    // `notify_one` guarda a permissão: quem for esperar depois disto não fica
+    // preso até o timeout.
+    session.stopped_notify.notify_one();
     let _ = app.emit("afk-stopped", ());
     emit_afk_status(&app);
 }
@@ -516,12 +649,14 @@ async fn stop_afk_session() {
         AFK_MANAGER.abort_task();
         return;
     };
-    session.stop_flag.store(true, Ordering::Relaxed);
-    let _ = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        session.stopped_notify.notified(),
-    )
-    .await;
+    session.stop_flag.store(true, Ordering::SeqCst);
+    if !session.stopped.load(Ordering::SeqCst) {
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            session.stopped_notify.notified(),
+        )
+        .await;
+    }
     AFK_MANAGER.abort_task();
     AFK_MANAGER.replace_session(None);
 }
@@ -613,7 +748,21 @@ async fn afk_trigger_now(
     user_ids: Vec<i64>,
     key: String,
 ) -> Result<u32, String> {
-    let user_ids = dedupe_preserving_order(user_ids);
+    let requested = dedupe_preserving_order(user_ids);
+
+    // Envio manual só alcança conta que **está** no modo: fora dele, nem trazer
+    // a janela para frente é permitido.
+    let Some(session) = AFK_MANAGER.get_session() else {
+        return Err("Start AFK mode before sending the key by hand".into());
+    };
+    let user_ids = session
+        .accounts
+        .lock()
+        .map(|map| afk_manual_targets(&requested, &map))
+        .unwrap_or_default();
+    if user_ids.is_empty() {
+        return Err("None of those accounts is in AFK mode".into());
+    }
     validate_afk_start(&key, &user_ids)?;
 
     let cycle_key = key.clone();
@@ -629,21 +778,19 @@ async fn afk_trigger_now(
         .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))?
     };
 
-    if let Some(session) = AFK_MANAGER.get_session() {
-        if let Ok(mut map) = session.accounts.lock() {
-            let attempted_at = now_ms();
-            for (user_id, error) in &outcome {
-                if let Some(entry) = map.get_mut(user_id) {
-                    entry.last_send_at_ms = attempted_at;
-                    if error.is_none() {
-                        entry.sends += 1;
-                    }
-                    entry.last_error = error.clone();
+    if let Ok(mut map) = session.accounts.lock() {
+        let attempted_at = now_ms();
+        for (user_id, error) in &outcome {
+            if let Some(entry) = map.get_mut(user_id) {
+                entry.last_send_at_ms = attempted_at;
+                if error.is_none() {
+                    entry.sends += 1;
                 }
+                entry.last_error = error.clone();
             }
         }
-        emit_afk_status(&app);
     }
+    emit_afk_status(&app);
 
     let sent = outcome.iter().filter(|(_, error)| error.is_none()).count() as u32;
     if sent > 0 {
