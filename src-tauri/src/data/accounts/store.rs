@@ -467,6 +467,30 @@ impl AccountStore {
         watchers.retain(|tx| tx.send(warning.cloned()).is_ok());
     }
 
+    /// A chave do aparelho não pôde ser montada e **não há sessão**: o
+    /// `AccountData.json` continua em texto puro — ou vai nascer assim, no
+    /// primeiro boot. É isso que a faixa tem que dizer, e por isso o
+    /// `migrationFailed` **vence** aqui.
+    ///
+    /// `refresh_key_file` já deixou no slot um aviso sobre o `.key`, e os dois
+    /// textos possíveis mentem neste caso: o transitório promete "tento de novo na
+    /// próxima alteração", mas sem sessão o `save_locked` nem toca no `.key`; o
+    /// `writeFailed` diz "pode não abrir depois de fechar", mas o arquivo está
+    /// legível e abre. O que importa é o cookie de todas as contas legível no
+    /// disco. Com sessão (senha, ou chave do aparelho já em uso) o arquivo não
+    /// está em texto puro, e isto não mexe em nada.
+    fn warn_left_in_plain_text(&self, detail: &str) {
+        let no_session = self
+            .session
+            .lock()
+            .map(|session| session.is_none())
+            // Envenenado: sem saber, o aviso grave é o lado seguro.
+            .unwrap_or(true);
+        if no_session {
+            self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, detail));
+        }
+    }
+
     /// O que a UI mostra sobre o arquivo de chave. `None` = tudo em ordem.
     ///
     /// Estruturado (código + caminho), não frase pronta: a frase mora no catálogo
@@ -683,8 +707,12 @@ impl AccountStore {
             //
             // Falhar aqui **não** trava o app: sem chave, o store segue sem
             // segredo e grava em texto puro, como antes desta mudança. É uma
-            // proteção a menos, não um usuário sem acesso às contas.
-            return self.ensure_device_session();
+            // proteção a menos, não um usuário sem acesso às contas — e a faixa
+            // diz exatamente isso (`warn_left_in_plain_text`).
+            return self.ensure_device_session().map_err(|e| {
+                self.warn_left_in_plain_text(&e);
+                e
+            });
         }
 
         if crypto::is_encrypted(&data) {
@@ -752,11 +780,10 @@ impl AccountStore {
         if let Err(e) = self.ensure_device_session() {
             // Sem chave o arquivo fica como está — em texto puro, legível, mas
             // **inteiro**. Perder o arquivo é pior que ficar sem a criptografia.
-            // `ensure_device_session` já avisou pelo `refresh_key_file`; aqui só
-            // garantimos que o aviso exista mesmo se a falha vier de outro ponto.
-            if self.vault_key_warning().is_none() {
-                self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
-            }
+            // E a faixa diz isso **por cima** do aviso sobre o `.key` que o
+            // `refresh_key_file` deixou: antes o `migrationFailed` só entrava com
+            // o slot vazio, e a faixa ficava falando do `.key`.
+            self.warn_left_in_plain_text(&e);
             return Err(format!(
                 "Accounts are loaded, but the file could not be encrypted and was left as-is: {}",
                 e
@@ -1140,7 +1167,14 @@ impl AccountStore {
                 // texto puro. A chave é montada (e o `.key` gravado) antes de a
                 // sessão da senha ser trocada: erro aqui deixa o arquivo e a
                 // sessão exatamente como estavam.
-                let device_session = self.build_device_session()?;
+                let device_session = self.build_device_session().map_err(|e| {
+                    // Nova tentativa depois de uma migração ou primeiro boot que
+                    // falharam (é o que a faixa manda fazer): sem sessão, o
+                    // arquivo segue em texto puro, e a faixa não pode trocar isso
+                    // pelo aviso do `.key` desta tentativa.
+                    self.warn_left_in_plain_text(&e);
+                    e
+                })?;
                 {
                     let mut slot = self.session.lock().map_err(|e| e.to_string())?;
                     *slot = Some(device_session);
