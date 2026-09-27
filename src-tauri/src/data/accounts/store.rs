@@ -1074,20 +1074,36 @@ impl AccountStore {
 
         match password {
             Some(value) => {
-                {
-                    let mut slot = self.session.lock().map_err(|e| e.to_string())?;
-                    *slot = Some(SessionKey::derive(value.trim())?);
-                }
-                // Solta `session` antes de pegar `accounts`: a ordem de lock do
-                // resto do arquivo é accounts → session, e inverter aqui criaria
-                // deadlock.
+                // A sessão da senha só passa a valer **depois** de o vault estar
+                // gravado com ela. Trocar antes (como era) fazia a senha valer
+                // mesmo quando a gravação falhava: a UI dizia que não aplicou, e a
+                // próxima gravação de fundo que desse certo cifrava com a senha —
+                // com o `.key` ainda no disco, o boot seguinte mandava restaurar
+                // uma chave em vez de pedir a senha.
+                //
+                // O argon2 roda antes do lock (custa caro). A troca, a gravação e
+                // a volta no erro acontecem com `accounts` seguro, então nenhuma
+                // gravação de fundo usa a sessão da senha antes de ela valer.
+                // Ordem de lock do arquivo: accounts → session.
+                let password_session = SessionKey::derive(value.trim())?;
                 let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-                self.save_locked(&accounts)?;
-                drop(accounts);
+                let previous = self
+                    .session
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .replace(password_session);
+                if let Err(e) = self.save_locked(&accounts) {
+                    *self
+                        .session
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = previous;
+                    return Err(e);
+                }
                 // O `.key` só sai **depois** de o vault estar gravado com a
                 // senha. Na ordem contrária, uma falha na gravação deixaria um
                 // vault cifrado pela chave do aparelho sem a chave para abri-lo.
                 crate::data::vault_key::remove_key_file(&key_path);
+                drop(accounts);
                 // A partir daqui o `.key` não importa mais, então um aviso sobre
                 // ele é falso alarme. Sem isto, quem estava com a faixa vermelha e
                 // definia uma senha ficava com ela na tela o resto da sessão,
