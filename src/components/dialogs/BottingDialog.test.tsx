@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -397,6 +397,72 @@ describe("BottingDialog — long alias chips", () => {
   it("keeps the full name reachable via title when the chip is truncated", () => {
     renderDialog({}, [longAccount]);
     expect(targetsChip()).toHaveAttribute("title", longAlias);
+  });
+});
+
+/**
+ * O chip de Targets já mostrava o nome inteiro no `title`; os outros lugares do
+ * diálogo que cortam o nome não. Medido no harness a 1100x700: na lista ao vivo
+ * da New View o nome tinha 556 de 1765 px, no menu Main Accounts 192 px, no
+ * botão Main Accounts 240 px, e no Live Cycle da Classic uma caixa de **90 px**
+ * — que corta até nome comum (`MyFarmAccount01` mede 109 px), e as alts
+ * numeradas viravam todas "MyFarmAccou…" sem jeito de ler o resto.
+ */
+describe("BottingDialog — nome cortado tem o nome inteiro no title", () => {
+  const longAlias = "a".repeat(MAX_ALIAS_LENGTH);
+  const longAccount = makeAccount({ UserID: 1, Username: "ann", Alias: longAlias });
+
+  /** O `title` que o navegador mostra ao passar o mouse: o do ancestral mais próximo. */
+  function tituloDe(el: Element): string | null {
+    return el.closest("[title]")?.getAttribute("title") ?? null;
+  }
+
+  function comMainAccount() {
+    // O rascunho salvo traz a conta 1 como Main Account.
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlayerAccountIds: "1" } } : undefined
+    );
+  }
+
+  it("na lista ao vivo da New View", () => {
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const secao = screen.getByText("Live Auto Rejoin List").closest("section") as HTMLElement;
+    expect(tituloDe(within(secao).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("nos itens do menu Main Accounts", () => {
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const gatilho = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    const menu = gatilho.nextElementSibling as HTMLElement;
+    expect(tituloDe(within(menu).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("no botão Main Accounts com uma conta escolhida", async () => {
+    comMainAccount();
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const botao = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent(longAlias));
+    expect(tituloDe(within(botao).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("no botão Main Accounts com várias contas, o title diz quais são", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlayerAccountIds: "1,2" } } : undefined
+    );
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const botao = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent("2 selected"));
+    expect(tituloDe(within(botao).getByText("2 selected"))).toBe(`${longAlias}, bob`);
+  });
+
+  it("no Live Cycle da visão Classic", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDualPanelDialog: "false" } } : undefined
+    );
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const titulo = await screen.findByText("Live Cycle");
+    const secao = titulo.closest("section") as HTMLElement;
+    expect(tituloDe(within(secao).getByText(longAlias))).toBe(longAlias);
   });
 });
 
