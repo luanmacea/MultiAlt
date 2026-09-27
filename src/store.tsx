@@ -124,6 +124,14 @@ interface ActionStatusState {
   at: number;
 }
 
+/** Estado do botão "Download"/"Reinstall" de Settings > General. */
+export interface BrowserDownloadState {
+  active: boolean;
+  stage: "resolving" | "downloading" | "extracting" | "ready" | "error";
+  percent: number | null;
+  error: string | null;
+}
+
 /**
  * Um toast na fila. O tom é calculado uma vez, em `addToast`, e viaja junto —
  * quem desenha (`App`) não precisa reinspecionar o texto. O `id` é a chave
@@ -505,6 +513,9 @@ export interface StoreValue {
 
   openLoginBrowser: () => Promise<void>;
   openAccountBrowser: (userId: number) => Promise<void>;
+  browserDownload: BrowserDownloadState | null;
+  /** `force=true` apaga a instalação existente e baixa de novo (botão Reinstall). */
+  ensureBrowserDownload: (force?: boolean) => Promise<boolean>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -659,6 +670,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   accountsRef.current = accounts;
   const clearLaunchLogs = useCallback(() => setLaunchLogs([]), []);
   const [actionStatus, setActionStatus] = useState<ActionStatusState | null>(null);
+  const [browserDownload, setBrowserDownload] = useState<BrowserDownloadState | null>(null);
 
   const avatarLoadingRef = useRef<Set<number>>(new Set());
   const launchClearTimeoutRef = useRef<number | null>(null);
@@ -1144,6 +1156,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await invoke("open_account_browser", { userId });
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  async function ensureBrowserDownload(force?: boolean): Promise<boolean> {
+    setBrowserDownload({ active: true, stage: "resolving", percent: null, error: null });
+    try {
+      await invoke("ensure_browser", { force: force === true });
+      setBrowserDownload({ active: false, stage: "ready", percent: 100, error: null });
+      return true;
+    } catch (e) {
+      setBrowserDownload({ active: false, stage: "error", percent: null, error: String(e) });
+      return false;
     }
   }
 
@@ -2050,17 +2074,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // O backend também emite este evento durante um login/browser normal
+    // (download automático na primeira vez), não só pelo botão de Settings —
+    // por isso `browserDownload` fica de fora da dependência: ele só reflete o
+    // que chegou pelo evento, nunca reinicia o listener.
+    let lastPercent = -1;
     const unlisten = listen<{ stage: string; downloaded: number; total: number }>(
       "chromium-download-progress",
       (e) => {
         const { stage, downloaded, total } = e.payload;
-        if (stage === "downloading") {
+        if (stage === "resolving") {
+          lastPercent = -1;
+          setBrowserDownload({ active: true, stage: "resolving", percent: null, error: null });
+        } else if (stage === "downloading") {
           const pct = total > 0 ? Math.round((downloaded / total) * 100) : 0;
           setActionStatusMessage(tr("Downloading browser ({{percent}}%)", { percent: pct }), "info", 4000);
+          // Um `chromium-download-progress` por bloco de ~2MB baixado geraria
+          // uma re-render por bloco; sem o dedupe, uma conexão rápida virava
+          // uma barra de progresso "tremendo" em vez de andar suave.
+          if (pct === lastPercent) return;
+          lastPercent = pct;
+          setBrowserDownload({ active: true, stage: "downloading", percent: pct, error: null });
         } else if (stage === "extracting") {
           setActionStatusMessage(tr("Preparing browser..."), "info", 4000);
+          setBrowserDownload({ active: true, stage: "extracting", percent: null, error: null });
         } else if (stage === "ready") {
           setActionStatusMessage(tr("Browser ready"), "success", 3000);
+          setBrowserDownload({ active: false, stage: "ready", percent: 100, error: null });
+        } else if (stage === "error") {
+          // O texto do erro vem só do `catch` de `ensureBrowserDownload`
+          // (`invoke` rejeita com a mensagem do backend); este evento é
+          // disparado antes disso e não carrega o texto, então preserva o que
+          // já estava guardado em vez de apagar.
+          setBrowserDownload((prev) => ({
+            active: false,
+            stage: "error",
+            percent: null,
+            error: prev?.error ?? null,
+          }));
         }
       }
     );
@@ -2068,6 +2119,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       unlisten.then((fn) => fn());
     };
   }, [setActionStatusMessage]);
+
+  useEffect(() => {
+    // Disparado por `resolve_browser_binary` quando o download falhou (ou
+    // ninguém baixou nada ainda) e um Chrome/Edge/Chromium/Brave instalado foi
+    // usado no lugar. O usuário continua conseguindo logar; só o navegador por
+    // trás é outro, com flags e versão fora do nosso controle.
+    const unlisten = listen<{ browser: string; error: string }>("chromium-fallback", (e) => {
+      addToast(
+        tr(
+          "Browser download failed, using {{browser}} instead. You can point Settings > General > Login Browser at your own copy, or retry the download.",
+          { browser: e.payload.browser }
+        ),
+        "warn"
+      );
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [addToast]);
 
   useEffect(() => {
     if (needsPassword || !initialized) return;
@@ -2725,6 +2795,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     openUpdatePreviewDialog,
     openLoginBrowser,
     openAccountBrowser,
+    browserDownload,
+    ensureBrowserDownload,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
