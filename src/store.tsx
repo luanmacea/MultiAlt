@@ -1160,6 +1160,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setActionStatusMessage(message, "warn", 4000);
   }
 
+  /**
+   * Launch de uma conta. Erro comum de launch é reportado aqui e **não** sobe
+   * (é o contrato de sempre); a única exceção é a recusa por já haver uma
+   * sequência em andamento, que é relançada porque a tela precisa saber que nada
+   * começou.
+   */
   async function joinServer(userId: number, target?: LaunchTarget) {
     clearLaunchTimeout();
     setJoiningAccounts(new Set([userId]));
@@ -1220,8 +1226,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Recusa, não falha: o backend não deixa duas sequências de launch
         // rodarem juntas. A faixa vermelha de erro (com "abrir o log") diria a
         // coisa errada, então isto sai como aviso.
+        //
+        // E **relança**, ao contrário dos outros erros daqui: quem chamou tem de
+        // saber que não começou. Engolir fazia a Choose Game anunciar "seguindo
+        // com 1 conta..." em cima do aviso de recusa.
         reportLaunchAlreadyActive();
-        return;
+        throw e;
       }
       setError(String(e));
       setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
@@ -1397,7 +1407,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     if (launchedIds.length === 1) {
-      await joinServer(launchedIds[0]);
+      // `joinServer` relança a recusa por launch em andamento (já avisada na
+      // tela): aqui não há o que fazer além de não derrubar a promessa.
+      try {
+        await joinServer(launchedIds[0]);
+      } catch {
+        // já reportado
+      }
       return;
     }
 

@@ -746,8 +746,10 @@ describe("joinServer", () => {
     const { result } = await setup();
     failures.set("launch_roblox", "launch-already-active");
 
+    // E relança: quem chamou precisa saber que **não** começou, senão a tela
+    // mostra "seguindo com 1 conta..." em cima do aviso de recusa.
     await act(async () => {
-      await result.current.joinServer(1);
+      await expect(result.current.joinServer(1)).rejects.toBeTruthy();
     });
 
     expect(result.current.toasts.map((toast) => toast.message)).toContain(
@@ -759,6 +761,17 @@ describe("joinServer", () => {
     expect(result.current.error).toBeNull();
     expect(result.current.joiningAccounts.size).toBe(0);
     expect(result.current.launchProgress).toBeNull();
+  });
+
+  it("não relança uma falha comum de launch (só a recusa é relançada)", async () => {
+    const { result } = await setup();
+    failures.set("launch_roblox", "backend exploded");
+
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBeUndefined();
+    });
+
+    expect(result.current.error).toBe("backend exploded");
   });
 
   it("announces the account alias in the action status while launching", async () => {

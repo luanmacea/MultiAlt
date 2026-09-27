@@ -285,6 +285,27 @@ describe("ChooseGameScreen — FollowTab", () => {
     return [{ userPresenceType: 2, placeId: 111, rootPlaceId: 606849621, gameId: "job-x", ...overrides }];
   }
 
+  it("não anuncia que está seguindo quando o launch de UMA conta é recusado", async () => {
+    // Uma conta vai por `joinServer`. Se a recusa for engolida, `launchAll`
+    // devolve ok e a tela mostra "Following ... with 1 account(s)..." em cima do
+    // aviso "Já existe um launch em andamento".
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence();
+      return undefined;
+    });
+    const store = await renderFollowTab([ACCOUNT_A]);
+    (store.joinServer as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("launch-already-active")
+    );
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() => expect(store.joinServer).toHaveBeenCalledTimes(1));
+    expect(store.addToast).not.toHaveBeenCalled();
+  });
+
   it("resolves the target once and launches every account through the batch launcher", async () => {
     setInvokeHandler((cmd) => {
       if (cmd === "lookup_user") return { id: 42 };
