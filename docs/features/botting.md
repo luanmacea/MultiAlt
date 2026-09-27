@@ -64,6 +64,11 @@ sequenceDiagram
 
 ## Regras de negócio
 
+- **Adotar contas que já estão em jogo** (`adoptRunning`): o Start normal **fecha e relança** cada conta na primeira passagem — ligar o ciclo em contas que já estavam jogando derrubava todas elas. Com a adoção, quem já tem cliente aberto não é tocado: entra no ciclo valendo um intervalo inteiro a partir de agora, e o primeiro reinício acontece no vencimento. Decidido em `botting_first_pass` (adota / lança / pula desconectada), com teste.
+  - O gesto está no **Painel de Sessão**, seção "In game": o botão `Botting` age nas contas marcadas ou, sem marcação, em todas as que estão rodando. Com sessão ativa ele usa `add_botting_accounts` (que já adotava sem relançar); sem sessão, cria uma.
+  - **O place vem da presença da conta** (`get_account_game_location`, presença autenticada), não do campo da tela: com o place errado, o primeiro reinício jogaria a conta em outro jogo. Essa leitura **não** passa por `run_with_session_retry` — o refresh derruba as sessões abertas, que são justamente os clientes que se quer preservar. Sem descobrir o place, o app avisa em vez de chutar.
+  - O **job id não é fixado** na sessão: o ciclo relança no place, e prender o servidor atual mandaria todo reinício para um servidor que pode não existir mais.
+  - Continua valendo o mínimo de **duas contas** para abrir uma sessão; com uma só, a mensagem diz isso em vez de deixar o backend recusar.
 - **Abertura com jogo escolhido:** o diálogo aceita `initialPlaceId` (`store.openBottingDialog(placeId)`), usado pelo clique direito num jogo nas listas da Choose Game. Esse place **vence** o rascunho `General.BottingDraftPlaceId`, que por sua vez vence a store — sem essa precedência, escolher o jogo no menu e ver outro place no diálogo. Abrir sem jogo (barra de ações, toolbar, sidebar) limpa o jogo da abertura anterior.
 - **Pré-requisitos:** pelo menos 2 contas únicas; `placeId > 0`; `EnableMultiRbx` ligado; players precisam estar entre as contas selecionadas.
 - **Limites (clamp):** `interval_minutes` 10–120; `launch_delay_seconds` 5–120; `player_grace_minutes` 1–90 (≤ 0 usa `BottingPlayerGraceMinutes`, default 15); `BottingRetryMax` 1–20 (default 6); `BottingRetryBaseSeconds` 5–120 (default 8).

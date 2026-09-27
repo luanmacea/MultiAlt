@@ -346,3 +346,5 @@ src-tauri/gen/
 # quem a tiver consegue assinar uma atualizacao que o app instala sozinho.
 *.key
 *.key.pub
+.superpowers/
+.claude/worktrees/

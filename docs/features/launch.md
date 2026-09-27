@@ -21,6 +21,7 @@ Abrir **um** cliente Roblox (`RobloxPlayerBeta.exe`) autenticado como uma conta 
 ## Fluxo
 
 1. Frontend chama `launch_roblox(userId, placeId, jobId, launchData, followUser, joinVip, linkCode, shuffleJob)`. `shuffleJob` é opcional no backend (`Option<bool>`, ausente = `false`).
+1.1. Reserva a sequência de launch (`launch_queue_start`): com outro launch em andamento — inclusive uma fila de várias contas — o comando devolve `launch-already-active` e nada é lançado (ver [multi-launch.md](multi-launch.md#uma-sequência-de-launch-por-vez)).
 2. Emite `launch-log` `start` ("Iniciando launch — place …").
 3. Lê settings (`IsTeleport`, `UseOldJoin`, `AutoCloseLastProcess`, `AutoCloseRobloxForMultiRbx`, `StartRobloxMinimized`).
 4. Resolve a instalação: `resolve_roblox_install_path(account.fields["RobloxVersion"], …)` → `(base_path, version_id)` (ver [roblox-versions.md](roblox-versions.md)).
@@ -142,6 +143,7 @@ Checklist:
 ## Regras de negócio
 
 - **Escolha de `use_old_join`:** `false` se `Isolation.Mode = Full` **e** a versão resolvida não é do catálogo (o Full vai apagar a instalação do sistema); caso contrário `Developer.UseOldJoin || version_id.is_some()`. Ou seja: qualquer versão gerenciada pelo catálogo (override da conta, `DefaultVersion` ou a mais recente do catálogo) sempre usa old join.
+- **Um launch por vez:** o launch de uma conta e a fila de várias contas compartilham a mesma reserva; disparar o segundo enquanto o primeiro anda é recusado com `launch-already-active` ("Já existe um launch em andamento"), não enfileirado. Detalhes e caminhos de liberação em [multi-launch.md](multi-launch.md#uma-sequência-de-launch-por-vez).
 - **Clientes simultâneos devem estar na mesma versão:** se o tracker tiver qualquer processo/launch pendente com `version_id` diferente, o launch é recusado.
 - **Multi Roblox (`EnableMultiRbx`) — são duas travas diferentes, e o app trata as duas** ([core.rs](../../src-tauri/src/platform/windows/core.rs), [singleton.rs](../../src-tauri/src/platform/windows/singleton.rs)):
   1. **`ROBLOX_singletonMutex` (preventivo).** O app cria (com `bInitialOwner = 0`) e adquire o mutex numa **thread dedicada de longa duração** (`multi-roblox-mutex`), que o segura até receber o sinal de liberação por um canal `mpsc` (`release_multi_roblox_mutex`, usado por `disable_multi_roblox` e `release_multi_roblox_handle`); só então faz `ReleaseMutex` + `CloseHandle` nessa mesma thread. Motivo: posse de mutex Win32 é por thread — `ReleaseMutex` só funciona na thread que adquiriu e, se ela terminar, o mutex fica abandonado e um cliente Roblox pode pegá-lo (voltando ao modo instância única); threads do tokio não garantem nenhuma das duas coisas. **Só resolve se o app pegar o mutex antes de qualquer cliente subir**: com um jogo já aberto (usuário entrou pelo site), o mutex é do cliente e não há como tomá-lo sem matar o processo.
@@ -177,7 +179,29 @@ Arquivo `RAMSettings.ini`.
 | Isolation | `Mode` | `Off` | Ver [isolation.md](isolation.md); `Full` altera a escolha de old join e a espera do PID |
 | Versions | `DefaultVersion` | vazio | Ver [roblox-versions.md](roblox-versions.md) |
 
-Campos por conta (`account.fields`): `RobloxVersion`, `Window_Position_X`, `Window_Position_Y`, `Window_Width`, `Window_Height`.
+Campos por conta (`account.fields`): `RobloxVersion`, `Window_Position_X`, `Window_Position_Y`, `Window_Width`, `Window_Height`, e as exceções de launch abaixo.
+
+## Exceções de launch por conta
+
+Uma conta pode abrir com FPS, volume, qualidade, modo de tela e "minimizar ao abrir" próprios, por cima do perfil global. Serve para o caso "a conta principal abre em tela cheia a 240 fps e as outras abrem no jeito limitado".
+
+Onde fica: `Account.fields` (`AccountData.json`), lido por `account_client_overrides` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs). Tela: seção **Launch Exceptions** na sidebar da conta ([AccountLaunchOverrides.tsx](../../src/components/accounts/AccountLaunchOverrides.tsx)).
+
+| Campo | Valores | Efeito |
+|---|---|---|
+| `ClientOverridesEnabled` | `true` | Interruptor. Sem ele em `true`, os outros campos são ignorados (dá para guardar uma configuração desligada). |
+| `ClientOverrideMaxFPS` | inteiro > 0 | `FramerateCap` + `DFIntTaskSchedulerTargetFps`. Ignorado quando há `CustomClientSettings` válido, igual ao global. |
+| `ClientOverrideVolume` | fração `0.0`–`1.0` | `MasterVolume`. A tela mostra a escala de 0 a 10 do jogo e grava a fração. |
+| `ClientOverrideGraphics` | `auto` ou `1`–`10` | `auto` grava `SavedQualityLevel=0` (qualidade automática) e **não** mexe no `GraphicsQualityLevel`; um número grava o nível fixo. |
+| `ClientOverrideFullscreen` | `true` / `false` | `Fullscreen`. `true` também descarta o tamanho de janela global (senão o XML gravaria `Fullscreen=false` ao lado). |
+| `ClientOverrideStartMinimized` | `true` / `false` | Substitui `StartRobloxMinimized` para esta conta (vale no launch e no Botting). |
+| `ClientOverrideWindowWidth` / `ClientOverrideWindowHeight` | inteiros > 0 | `StartScreenSize`. Só valem **em par** — largura sem altura é ignorada. |
+
+Campo vazio quer dizer "herda o global", não "zero": um FPS apagado não é FPS 0.
+
+Aplicado em: launch de uma conta, fila de várias contas (dentro do laço, por conta) e Botting. O servidor HTTP local não tem contexto de conta nesse ponto e usa só o perfil global.
+
+**Ressalva importante.** `ClientAppSettings.json` é por pasta de versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows — os dois são **globais**. "Por conta" funciona porque a fila é sequencial e o patch roda imediatamente antes de cada spawn; não é isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o Roblox reescreve o XML e o valor pode vazar para a próxima conta que abrir sem exceção própria.
 
 ## Armadilhas / cuidados
 

@@ -1261,6 +1261,74 @@ async fn get_presence(user_ids: Vec<i64>) -> Result<Vec<api::roblox::UserPresenc
     api::roblox::get_presence(&user_ids).await
 }
 
+/// Onde uma conta esta jogando agora.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountGameLocation {
+    user_id: i64,
+    in_game: bool,
+    /// Place do jogo (`rootPlaceId` quando existe: e o que a tela usa).
+    place_id: Option<i64>,
+    /// Job id do servidor. **So vem com o cookie da propria conta** — sem ele a
+    /// API do Roblox omite o campo.
+    job_id: Option<String>,
+}
+
+/// Descobre o place e o servidor de uma conta que ja esta em jogo.
+///
+/// Serve para ligar o Botting Mode numa conta que o usuario lancou por fora:
+/// sem saber onde ela esta, o primeiro ciclo a relancaria no place da sessao e
+/// a tiraria do servidor em que estava.
+///
+/// **Sem `run_with_session_retry`** de proposito: e leitura, e o refresh chama
+/// `signoutfromallsessionsandreauthenticate`, que derruba justamente o cliente
+/// aberto que se quer preservar.
+#[tauri::command]
+async fn get_account_game_location(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+) -> Result<AccountGameLocation, String> {
+    get_account_game_location_inner(state.inner(), user_id).await
+}
+
+/// O miolo, sem o `State` do Tauri, para o teste poder chamar.
+async fn get_account_game_location_inner(
+    state: &AccountStore,
+    user_id: i64,
+) -> Result<AccountGameLocation, String> {
+    let presences = read_without_refresh(state, user_id, |cookie| async move {
+        api::roblox::get_presence_as(Some(&cookie), &[user_id]).await
+    })
+    .await?;
+
+    let found = presences.into_iter().find(|p| p.user_id == user_id);
+    let Some(presence) = found else {
+        return Ok(AccountGameLocation {
+            user_id,
+            in_game: false,
+            place_id: None,
+            job_id: None,
+        });
+    };
+
+    // 2 = InGame na API de presenca do Roblox.
+    let in_game = presence.user_presence_type == 2;
+    Ok(AccountGameLocation {
+        user_id,
+        in_game,
+        place_id: if in_game {
+            presence.root_place_id.or(presence.place_id)
+        } else {
+            None
+        },
+        job_id: if in_game {
+            presence.game_id.filter(|j| !j.is_empty())
+        } else {
+            None
+        },
+    })
+}
+
 // ── Amigos online ─────────────────────────────────────────────────────────────
 
 /// Uma conta e os amigos online dela. `error` preenchido substitui a lista
@@ -2433,6 +2501,98 @@ mod account_api_http_tests {
             "Account 8888 not found"
         );
     }
+    /// Adotar uma conta que ja esta em jogo exige saber ONDE ela esta: sem
+    /// isso o primeiro ciclo do Botting a relancaria no place da sessao e a
+    /// tiraria do servidor. O `gameId` (job) so vem com o cookie da conta.
+    #[tokio::test]
+    async fn the_game_location_comes_from_the_authenticated_presence() {
+        let server = mock_server().await;
+        let store = store_with(4242, "loc-in-game", "loc-in-game");
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(header("cookie", cookie_of("loc-in-game")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{
+                    "userPresenceType": 2,
+                    "lastLocation": "Jailbreak",
+                    "placeId": 606849621,
+                    "rootPlaceId": 606849621,
+                    "gameId": "job-abc",
+                    "universeId": 245662005,
+                    "userId": 4242,
+                    "lastOnline": ""
+                }]
+            })))
+            .mount(server)
+            .await;
+
+        let local = super::get_account_game_location_inner(&store, 4242)
+            .await
+            .expect("presenca lida");
+
+        assert!(local.in_game);
+        assert_eq!(local.place_id, Some(606849621));
+        assert_eq!(local.job_id.as_deref(), Some("job-abc"));
+    }
+
+    /// Conta online mas fora de jogo nao tem place: devolver um place velho
+    /// faria a sessao de Botting nascer apontando para o lugar errado.
+    #[tokio::test]
+    async fn an_account_that_is_not_in_game_reports_no_place() {
+        let server = mock_server().await;
+        let store = store_with(4243, "loc-online", "loc-online");
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(header("cookie", cookie_of("loc-online")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{
+                    "userPresenceType": 1,
+                    "lastLocation": "Website",
+                    "placeId": null,
+                    "rootPlaceId": null,
+                    "gameId": null,
+                    "universeId": null,
+                    "userId": 4243,
+                    "lastOnline": ""
+                }]
+            })))
+            .mount(server)
+            .await;
+
+        let local = super::get_account_game_location_inner(&store, 4243)
+            .await
+            .expect("presenca lida");
+
+        assert!(!local.in_game);
+        assert_eq!(local.place_id, None);
+        assert_eq!(local.job_id, None);
+    }
+
+    /// A leitura **nao** pode passar pelo refresh de sessao: ele chama
+    /// `signoutfromallsessionsandreauthenticate`, que derruba justamente o
+    /// cliente aberto que se quer adotar. Sem mock de sign-out montado, um
+    /// refresh apareceria como falha aqui.
+    #[tokio::test]
+    async fn reading_the_location_never_refreshes_the_session() {
+        let server = mock_server().await;
+        let store = store_with(4244, "loc-no-refresh", "loc-no-refresh");
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(header("cookie", cookie_of("loc-no-refresh")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(server)
+            .await;
+
+        let erro = super::get_account_game_location_inner(&store, 4244)
+            .await
+            .expect_err("401 vira erro, nao refresh");
+
+        assert!(!erro.to_lowercase().contains("signout"), "{erro}");
+    }
+
 }
 
 /// O lote de amigos online: sequencial, com progresso, e com o erro de uma

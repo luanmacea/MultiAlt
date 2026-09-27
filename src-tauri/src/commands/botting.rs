@@ -106,6 +106,40 @@ fn botting_add_schedule(
     }
 }
 
+/// O que a primeira passagem da sessao faz com uma conta.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BottingFirstPass {
+    /// Conta marcada como desconectada: fica de fora do ciclo.
+    Disconnected,
+    /// Ja esta em jogo e a sessao foi aberta em modo adocao: **nao** relanca.
+    /// O cliente que o usuario abriu continua de pe e so entra no ciclo no
+    /// primeiro vencimento do intervalo.
+    Adopt,
+    /// O caminho de sempre: fecha o que houver e lanca.
+    Launch,
+}
+
+/// Decide entre adotar o cliente que ja esta aberto e relancar do zero.
+///
+/// Sem a adocao, ligar o Botting em contas que ja estavam jogando derrubava
+/// todas elas: a primeira passagem fecha o cliente e abre outro no place da
+/// sessao. Quem ja esta no lugar certo nao precisa disso.
+#[cfg(target_os = "windows")]
+fn botting_first_pass(
+    adopt_running: bool,
+    has_running_client: bool,
+    disconnected: bool,
+) -> BottingFirstPass {
+    if disconnected {
+        return BottingFirstPass::Disconnected;
+    }
+    if adopt_running && has_running_client {
+        return BottingFirstPass::Adopt;
+    }
+    BottingFirstPass::Launch
+}
+
 /// `(disconnect, close, restart_client, restart_loop)` for a context-menu
 /// action on one botting account.
 #[cfg(target_os = "windows")]
@@ -131,6 +165,41 @@ fn botting_action_flags(action: &BottingAccountAction) -> (bool, bool, bool, boo
     )
 }
 
+/// Qual pasta o Botting usa como base do launch e do patch de client settings
+/// (Task 1): a pasta resolvida do catálogo (versão da conta, `DefaultVersion`,
+/// ou a mais usada recentemente) só entra quando a conta tem **versão própria
+/// configurada** *e* o launch realmente vai pelo old join.
+///
+/// Regra do projeto (`CLAUDE.md`, Global Constraint do plano de sync com o
+/// upstream): pelo protocolo (`launch_url`) o cliente sempre abre a build de
+/// **produção** — o `channel:` vazio da URL vence o registro — e versão por
+/// conta não se aplica nesse caminho. Como `resolve_use_old_join` já força old
+/// join sempre que existe uma versão resolvida (de qualquer origem), esse
+/// "tem versão própria mas vai por URL" não deveria acontecer na prática — mas
+/// se algum dia acontecer (ex.: um bug muda o cálculo de `use_old_join` sem
+/// mexer aqui), a pasta cai para produção em vez de arriscar escrever o patch
+/// ou abrir o old join na pasta errada.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BottingBasePath {
+    /// Pasta devolvida por `resolve_roblox_install_path` — cobre tanto a
+    /// versão própria da conta quanto `DefaultVersion`/mais recente do
+    /// catálogo (nesses dois últimos casos ela já É a produção, quando não há
+    /// nenhum dos dois configurados).
+    Resolved,
+    /// Build de produção (`get_roblox_path()`) — o que o protocolo abre.
+    Production,
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_botting_base_path(has_account_version: bool, use_old_join: bool) -> BottingBasePath {
+    if has_account_version && !use_old_join {
+        BottingBasePath::Production
+    } else {
+        BottingBasePath::Resolved
+    }
+}
+
 async fn launch_account_for_cycle(
     app: &tauri::AppHandle,
     user_id: i64,
@@ -154,7 +223,7 @@ async fn launch_account_for_cycle(
 
     let (
         is_teleport,
-        use_old_join,
+        configured_old_join,
         auto_close_last_process,
         multi_rbx,
         auto_close_multi_conflicts,
@@ -171,6 +240,44 @@ async fn launch_account_for_cycle(
         )
     };
 
+    // Exceções da conta valem no Botting também: a conta principal continua
+    // sendo a mesma conta, esteja ela numa fila de launch ou num ciclo de bot.
+    let account_snapshot = app.state::<AccountStore>().get_all().ok();
+    let account_overrides = account_snapshot
+        .as_ref()
+        .and_then(|list| list.iter().find(|a| a.user_id == user_id))
+        .and_then(|a| account_client_overrides(&a.fields));
+    let start_minimized = account_overrides
+        .as_ref()
+        .and_then(|o| o.start_minimized)
+        .unwrap_or(start_minimized);
+
+    // Versão do catálogo que a conta usa — a mesma resolução que
+    // `commands/launch.rs` já faz para o launch avulso e para a fila (Task 3
+    // do plano de sync com o upstream, `docs/superpowers/plans/upstream-sync-2026-09.md`).
+    // Sem isso, uma conta com `RobloxVersion` própria abria no Botting sempre
+    // na build padrão.
+    let account_version_override = account_snapshot
+        .as_ref()
+        .and_then(|list| list.iter().find(|a| a.user_id == user_id))
+        .and_then(|a| a.fields.get("RobloxVersion").cloned())
+        .filter(|v| !v.trim().is_empty());
+    let has_account_version = account_version_override.is_some();
+    let (resolved_base_path, resolved_version_id) = {
+        let settings = app.state::<SettingsStore>();
+        let versions = app.state::<data::versions::VersionsCatalogStore>();
+        windows::resolve_roblox_install_path(
+            account_version_override.as_deref(),
+            &settings,
+            &versions,
+        )?
+    };
+    // O Botting não roda isolamento pré-launch (`run_pre_launch_isolation` é
+    // exclusivo da fila em `commands/launch.rs`), então não há pasta sendo
+    // apagada por baixo do old join aqui — `isolation_wipes_install` sempre
+    // `false`.
+    let use_old_join = resolve_use_old_join(false, configured_old_join, resolved_version_id.as_deref());
+
     let resolved_launch = resolve_launch_job(job_id, false, "");
 
     if multi_rbx {
@@ -179,10 +286,27 @@ async fn launch_account_for_cycle(
         let _ = windows::disable_multi_roblox();
     }
 
+    // Pelo protocolo (`launch_url`) a build é sempre a de produção — versão
+    // por conta não se aplica nesse caminho (Global Constraint 1 do plano de
+    // sync com o upstream / CLAUDE.md). `resolve_botting_base_path` garante
+    // essa regra mesmo que `use_old_join` algum dia saia diferente do que
+    // `resolved_version_id` sugere.
+    let base_path_for_patch = match resolve_botting_base_path(has_account_version, use_old_join) {
+        BottingBasePath::Resolved => resolved_base_path.clone(),
+        BottingBasePath::Production => {
+            windows::get_roblox_path().unwrap_or_else(|_| resolved_base_path.clone())
+        }
+    };
+
     {
         let settings = app.state::<SettingsStore>();
         windows::refresh_production_version().await;
-        patch_client_settings_for_launch(&settings, launch_profile);
+        patch_client_settings_for_launch(
+            &settings,
+            launch_profile,
+            account_overrides.as_ref(),
+            Some(&base_path_for_patch),
+        );
     }
 
     let tracker = windows::tracker();
@@ -235,7 +359,17 @@ async fn launch_account_for_cycle(
     let pids_before = windows::get_roblox_pids();
 
     let launch_result = if use_old_join {
-        windows::launch_old_join(
+        // Sem versão resolvida (nem da conta, nem do catálogo), a pasta do old
+        // join vem do canal do registro — igual ao `default_player_dir` que
+        // `commands/launch.rs` já usa — porque é o registro quem decide o
+        // canal nesse caminho (CLAUDE.md#regras-críticas).
+        let base_path = if resolved_version_id.is_none() {
+            windows::default_player_dir(&base_path_for_patch).await
+        } else {
+            base_path_for_patch.clone()
+        };
+        windows::launch_old_join_from(
+            &base_path,
             &ticket,
             private_join.place_id,
             &resolved_launch.job_id,
@@ -245,7 +379,7 @@ async fn launch_account_for_cycle(
             &private_join.access_code,
             &private_join.link_code,
             is_teleport,
-        ).await
+        )
     } else {
         let url = windows::build_launch_url(
             &ticket,
@@ -386,21 +520,46 @@ async fn run_botting_session(
             break;
         }
 
+        let adopt_running = config.lock().map(|c| c.adopt_running).unwrap_or(false);
+        let interval_ms = config
+            .lock()
+            .map(|c| c.interval_minutes as i64 * 60_000)
+            .unwrap_or(0);
+        let has_client = platform::windows::tracker().get_pid(*uid).is_some();
+
         let mut skip_launch = false;
         if let Ok(mut map) = accounts.lock() {
             if let Some(entry) = map.get_mut(uid) {
-                if entry.disconnected {
-                    entry.phase = if platform::windows::tracker().get_pid(*uid).is_some() {
-                        "disconnected-running"
-                    } else {
-                        "disconnected"
-                    };
-                    entry.next_restart_at_ms = None;
-                    entry.player_grace_until_ms = None;
-                    skip_launch = true;
-                } else {
-                    entry.phase = "launching";
-                    entry.last_error = None;
+                match botting_first_pass(adopt_running, has_client, entry.disconnected) {
+                    BottingFirstPass::Disconnected => {
+                        entry.phase = if has_client {
+                            "disconnected-running"
+                        } else {
+                            "disconnected"
+                        };
+                        entry.next_restart_at_ms = None;
+                        entry.player_grace_until_ms = None;
+                        skip_launch = true;
+                    }
+                    BottingFirstPass::Adopt => {
+                        // O cliente que o usuario abriu continua de pe. A conta
+                        // entra no ciclo valendo um intervalo inteiro a partir
+                        // de agora, como quem acabou de ser lancada.
+                        entry.last_error = None;
+                        entry.retry_count = 0;
+                        if entry.is_player {
+                            entry.phase = "running-player";
+                            entry.next_restart_at_ms = None;
+                        } else {
+                            entry.phase = "running";
+                            entry.next_restart_at_ms = Some(now_ms().saturating_add(interval_ms));
+                        }
+                        skip_launch = true;
+                    }
+                    BottingFirstPass::Launch => {
+                        entry.phase = "launching";
+                        entry.last_error = None;
+                    }
                 }
             }
         }
@@ -743,6 +902,9 @@ async fn start_botting_mode(
     interval_minutes: i64,
     launch_delay_seconds: i64,
     player_grace_minutes: i64,
+    // `true` quando a sessao nasce de contas que ja estao em jogo: elas nao
+    // sao fechadas nem relancadas na primeira passagem.
+    adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
     if user_ids.len() < 2 {
         return Err("Select at least two accounts for Botting Mode".into());
@@ -796,6 +958,7 @@ async fn start_botting_mode(
         retry_max,
         retry_base_seconds,
         player_grace_minutes,
+        adopt_running: adopt_running.unwrap_or(false),
     };
 
     let mut runtime_map = HashMap::new();
@@ -860,6 +1023,7 @@ async fn start_botting_mode(
     _interval_minutes: i64,
     _launch_delay_seconds: i64,
     _player_grace_minutes: i64,
+    _adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
     Err("Botting Mode is only supported on Windows".into())
 }
@@ -1477,6 +1641,43 @@ mod botting_command_tests {
         assert_eq!(due, Some(i64::MAX));
     }
 
+    // ---- adocao de conta ja em jogo -----------------------------------------
+
+    /// Ligar o Botting em contas que ja estavam jogando derrubava todas elas:
+    /// a primeira passagem fecha o cliente e abre outro no place da sessao. Em
+    /// modo adocao, quem ja esta em jogo fica de pe e so entra no ciclo no
+    /// primeiro vencimento do intervalo.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn adopting_keeps_the_client_that_is_already_running() {
+        assert_eq!(botting_first_pass(true, true, false), BottingFirstPass::Adopt);
+        // Sem cliente aberto nao ha o que adotar: lanca como sempre.
+        assert_eq!(botting_first_pass(true, false, false), BottingFirstPass::Launch);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn without_adoption_the_old_behaviour_is_untouched() {
+        assert_eq!(botting_first_pass(false, true, false), BottingFirstPass::Launch);
+        assert_eq!(botting_first_pass(false, false, false), BottingFirstPass::Launch);
+    }
+
+    /// Conta desconectada fica fora do ciclo, adotando ou nao — senao o modo
+    /// adocao ressuscitaria quem o usuario tirou de proposito.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_disconnected_account_is_never_launched_nor_adopted() {
+        for adopt in [true, false] {
+            for running in [true, false] {
+                assert_eq!(
+                    botting_first_pass(adopt, running, true),
+                    BottingFirstPass::Disconnected,
+                    "adopt={adopt} running={running}"
+                );
+            }
+        }
+    }
+
     // ---- botting_action_flags ----------------------------------------------
 
     #[cfg(target_os = "windows")]
@@ -1534,6 +1735,53 @@ mod botting_command_tests {
         assert!(!parse("\"close_disconnect\""));
         assert!(!parse("\"\""));
         assert!(!parse("null"));
+    }
+
+    // ---- resolve_botting_base_path ------------------------------------------
+
+    /// A pasta resolvida (versão própria da conta) só vale quando o launch
+    /// realmente vai pelo old join — é o caso normal, já que
+    /// `resolve_use_old_join` força old join sempre que há uma versão
+    /// resolvida.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn resolve_botting_base_path_uses_the_resolved_folder_for_an_account_version_on_old_join() {
+        assert_eq!(
+            resolve_botting_base_path(true, true),
+            BottingBasePath::Resolved
+        );
+    }
+
+    /// O caso que a Global Constraint 1 do plano de sync com o upstream exige:
+    /// pelo protocolo (`launch_url`) a build é sempre a de produção, mesmo que
+    /// a conta tenha uma versão própria configurada. Na prática
+    /// `resolve_use_old_join` nunca deixa essa combinação acontecer, mas a
+    /// função tem que ser segura por conta própria.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn resolve_botting_base_path_falls_back_to_production_when_the_account_version_would_go_by_url()
+    {
+        assert_eq!(
+            resolve_botting_base_path(true, false),
+            BottingBasePath::Production
+        );
+    }
+
+    /// Sem versão própria da conta, a pasta resolvida por
+    /// `resolve_roblox_install_path` já é a certa em qualquer um dos dois
+    /// caminhos (ela cai para `DefaultVersion`/mais recente do catálogo, ou
+    /// para a própria produção quando nada está configurado).
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn resolve_botting_base_path_uses_resolved_without_an_account_override() {
+        assert_eq!(
+            resolve_botting_base_path(false, true),
+            BottingBasePath::Resolved
+        );
+        assert_eq!(
+            resolve_botting_base_path(false, false),
+            BottingBasePath::Resolved
+        );
     }
 
     // ---- status payload ------------------------------------------------------

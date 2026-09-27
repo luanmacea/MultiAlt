@@ -1,3 +1,5 @@
+use crate::GraphicsQuality;
+
 fn load_client_app_settings(settings_file: &std::path::Path) -> serde_json::Value {
     if settings_file.exists() {
         std::fs::read_to_string(settings_file)
@@ -48,10 +50,14 @@ fn merge_client_app_settings(
 }
 
 fn apply_client_app_settings_overrides(
+    base_path: Option<&str>,
     max_fps: Option<u32>,
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
 ) -> Result<(), String> {
-    let settings_file = get_client_settings_file()?;
+    let settings_file = match base_path {
+        Some(base) => get_client_settings_file_in(base)?,
+        None => get_client_settings_file()?,
+    };
     let mut settings = load_client_app_settings(&settings_file);
 
     merge_client_app_settings(&mut settings, max_fps, fast_flags);
@@ -60,7 +66,7 @@ fn apply_client_app_settings_overrides(
 }
 
 pub fn apply_fps_unlock(max_fps: u32) -> Result<(), String> {
-    apply_client_app_settings_overrides(Some(max_fps), None)
+    apply_client_app_settings_overrides(None, Some(max_fps), None)
 }
 
 fn get_global_basic_settings_file() -> Option<PathBuf> {
@@ -129,26 +135,21 @@ fn upsert_vector2_property(props: &mut String, name: &str, x: u32, y: u32) {
     props.push('\n');
 }
 
-fn apply_global_basic_settings_overrides(
+/// Aplica as opções no XML **em memória**. Separado do arquivo de propósito: a
+/// parte que escolhe o que gravar é a que precisa de teste, e o caminho real do
+/// `GlobalBasicSettings_13.xml` não pode ser tocado por um teste.
+///
+/// `None` quando o XML não tem o bloco de `UserGameSettings` — nesse caso não há
+/// nada para reescrever.
+fn rewrite_global_basic_settings(
+    xml: &str,
     max_fps: Option<u32>,
     master_volume: Option<f32>,
-    graphics_level: Option<u32>,
+    graphics: Option<GraphicsQuality>,
+    fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
-) -> Result<(), String> {
-    let Some(path) = get_global_basic_settings_file() else {
-        return Ok(());
-    };
-    if !path.exists() {
-        return Ok(());
-    }
-
-    let mut xml = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read GlobalBasicSettings_13.xml: {}", e))?;
-
-    let Some((start, end)) = find_user_game_settings_properties_range(&xml) else {
-        return Ok(());
-    };
-
+) -> Option<String> {
+    let (start, end) = find_user_game_settings_properties_range(xml)?;
     let mut props = xml[start..end].to_string();
 
     if let Some(fps) = max_fps {
@@ -165,60 +166,125 @@ fn apply_global_basic_settings_overrides(
         );
     }
 
-    if let Some(level) = graphics_level {
-        let clamped = level.clamp(1, 10);
-        upsert_scalar_property(
-            &mut props,
-            "int",
-            "GraphicsQualityLevel",
-            &clamped.to_string(),
-        );
-        upsert_scalar_property(
-            &mut props,
-            "token",
-            "SavedQualityLevel",
-            &clamped.to_string(),
-        );
-        upsert_scalar_property(&mut props, "int", "QualityResetLevel", &clamped.to_string());
-        upsert_scalar_property(&mut props, "bool", "MaxQualityEnabled", "false");
+    match graphics {
+        // `SavedQualityLevel` é o token que o Roblox lê para saber se o jogador
+        // escolheu um nível ou deixou no automático; `0` é o automático. O
+        // `GraphicsQualityLevel` não é tocado aqui de propósito: ele guarda o
+        // último nível manual, e o cliente o ignora enquanto o token é `0`.
+        Some(GraphicsQuality::Automatic) => {
+            upsert_scalar_property(&mut props, "token", "SavedQualityLevel", "0");
+            upsert_scalar_property(&mut props, "bool", "MaxQualityEnabled", "false");
+        }
+        Some(GraphicsQuality::Level(level)) => {
+            let clamped = level.clamp(1, 10);
+            upsert_scalar_property(
+                &mut props,
+                "int",
+                "GraphicsQualityLevel",
+                &clamped.to_string(),
+            );
+            upsert_scalar_property(
+                &mut props,
+                "token",
+                "SavedQualityLevel",
+                &clamped.to_string(),
+            );
+            upsert_scalar_property(&mut props, "int", "QualityResetLevel", &clamped.to_string());
+            upsert_scalar_property(&mut props, "bool", "MaxQualityEnabled", "false");
+        }
+        None => {}
+    }
+
+    // Quem decide `Fullscreen` é o pedido explícito. Só quando não há pedido é
+    // que um tamanho de janela implica "em janela" — é o comportamento antigo,
+    // e sem ele pedir 1280x720 abriria em tela cheia do mesmo jeito.
+    let janela_explicita = fullscreen == Some(false);
+    if fullscreen == Some(true) {
+        upsert_scalar_property(&mut props, "bool", "Fullscreen", "true");
+        upsert_scalar_property(&mut props, "bool", "StartMaximized", "false");
+    } else if janela_explicita || window_size.is_some() {
+        upsert_scalar_property(&mut props, "bool", "Fullscreen", "false");
+        upsert_scalar_property(&mut props, "bool", "StartMaximized", "false");
     }
 
     if let Some((w, h)) = window_size {
         let width = w.max(320);
         let height = h.max(240);
-        upsert_scalar_property(&mut props, "bool", "StartMaximized", "false");
-        upsert_scalar_property(&mut props, "bool", "Fullscreen", "false");
         upsert_vector2_property(&mut props, "StartScreenSize", width, height);
     }
 
-    xml.replace_range(start..end, &props);
-    std::fs::write(&path, xml)
+    let mut out = xml.to_string();
+    out.replace_range(start..end, &props);
+    Some(out)
+}
+
+fn apply_global_basic_settings_overrides(
+    max_fps: Option<u32>,
+    master_volume: Option<f32>,
+    graphics: Option<GraphicsQuality>,
+    fullscreen: Option<bool>,
+    window_size: Option<(u32, u32)>,
+) -> Result<(), String> {
+    let Some(path) = get_global_basic_settings_file() else {
+        return Ok(());
+    };
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let xml = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read GlobalBasicSettings_13.xml: {}", e))?;
+
+    let Some(patched) = rewrite_global_basic_settings(
+        &xml,
+        max_fps,
+        master_volume,
+        graphics,
+        fullscreen,
+        window_size,
+    ) else {
+        return Ok(());
+    };
+
+    std::fs::write(&path, patched)
         .map_err(|e| format!("Failed to write GlobalBasicSettings_13.xml: {}", e))
 }
 
 pub fn apply_runtime_client_settings(
+    base_path: Option<&str>,
     max_fps: Option<u32>,
     master_volume: Option<f32>,
-    graphics_level: Option<u32>,
+    graphics: Option<GraphicsQuality>,
+    fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
 ) -> Result<(), String> {
     if max_fps.is_some() || fast_flags.is_some() {
-        apply_client_app_settings_overrides(max_fps, fast_flags)?;
+        apply_client_app_settings_overrides(base_path, max_fps, fast_flags)?;
     }
 
     if max_fps.is_some()
         || master_volume.is_some()
-        || graphics_level.is_some()
+        || graphics.is_some()
+        || fullscreen.is_some()
         || window_size.is_some()
     {
-        apply_global_basic_settings_overrides(max_fps, master_volume, graphics_level, window_size)?;
+        apply_global_basic_settings_overrides(
+            max_fps,
+            master_volume,
+            graphics,
+            fullscreen,
+            window_size,
+        )?;
     }
 
     Ok(())
 }
 
-pub fn copy_custom_client_settings(custom_settings_path: &str) -> Result<(), String> {
+pub fn copy_custom_client_settings(
+    base_path: Option<&str>,
+    custom_settings_path: &str,
+) -> Result<(), String> {
     let custom_path = std::path::Path::new(custom_settings_path);
     if !custom_path.exists() {
         return Err("Custom ClientAppSettings.json path does not exist".into());
@@ -229,7 +295,10 @@ pub fn copy_custom_client_settings(custom_settings_path: &str) -> Result<(), Str
     serde_json::from_str::<serde_json::Value>(&content)
         .map_err(|e| format!("Custom settings file is not valid JSON: {}", e))?;
 
-    let settings_file = get_client_settings_file()?;
+    let settings_file = match base_path {
+        Some(base) => get_client_settings_file_in(base)?,
+        None => get_client_settings_file()?,
+    };
     std::fs::write(settings_file, content)
         .map_err(|e| format!("Failed to copy custom ClientAppSettings.json: {}", e))
 }
@@ -478,6 +547,98 @@ mod win_client_settings_tests {
         "</roblox>\n"
     );
 
+
+    // ── rewrite_global_basic_settings: tela cheia e qualidade automática ────
+
+    #[test]
+    fn rewrite_global_basic_settings_asks_for_fullscreen() {
+        let out = rewrite_global_basic_settings(SAMPLE_XML, None, None, None, Some(true), None)
+            .expect("bloco UserGameSettings");
+        assert!(out.contains("<bool name=\"Fullscreen\">true</bool>"));
+        assert!(out.contains("<bool name=\"StartMaximized\">false</bool>"));
+        // Tela cheia não carrega um tamanho de janela atrás.
+        assert!(!out.contains("StartScreenSize"));
+    }
+
+    #[test]
+    fn rewrite_global_basic_settings_keeps_fullscreen_when_a_size_comes_along() {
+        // O tamanho continua gravado (serve para quando o jogador sair da tela
+        // cheia), mas quem pediu tela cheia não pode receber Fullscreen=false.
+        let out = rewrite_global_basic_settings(
+            SAMPLE_XML,
+            None,
+            None,
+            None,
+            Some(true),
+            Some((1920, 1080)),
+        )
+        .expect("bloco UserGameSettings");
+        assert!(out.contains("<bool name=\"Fullscreen\">true</bool>"));
+        assert!(out.contains("StartScreenSize"));
+    }
+
+    #[test]
+    fn rewrite_global_basic_settings_still_windows_a_plain_size_request() {
+        // Comportamento antigo: pedir um tamanho sem falar de tela cheia abre em
+        // janela. Sem isto, 1280x720 abriria em tela cheia do mesmo jeito.
+        let out =
+            rewrite_global_basic_settings(SAMPLE_XML, None, None, None, None, Some((1280, 720)))
+                .expect("bloco UserGameSettings");
+        assert!(out.contains("<bool name=\"Fullscreen\">false</bool>"));
+        assert!(out.contains("<bool name=\"StartMaximized\">false</bool>"));
+    }
+
+    #[test]
+    fn rewrite_global_basic_settings_leaves_fullscreen_alone_when_nobody_asked() {
+        let out = rewrite_global_basic_settings(SAMPLE_XML, Some(240), None, None, None, None)
+            .expect("bloco UserGameSettings");
+        assert!(out.contains("<int name=\"FramerateCap\">240</int>"));
+        assert!(!out.contains("Fullscreen"));
+        assert!(!out.contains("StartMaximized"));
+    }
+
+    #[test]
+    fn rewrite_global_basic_settings_writes_automatic_quality_as_the_zero_token() {
+        let out = rewrite_global_basic_settings(
+            SAMPLE_XML,
+            None,
+            None,
+            Some(GraphicsQuality::Automatic),
+            None,
+            None,
+        )
+        .expect("bloco UserGameSettings");
+        assert!(out.contains("<token name=\"SavedQualityLevel\">0</token>"));
+        assert!(out.contains("<bool name=\"MaxQualityEnabled\">false</bool>"));
+        // O nível manual guardado não é mexido: o cliente o ignora enquanto o
+        // token é 0, e sobrescrevê-lo com 1 daria a pior qualidade quando o
+        // jogador voltasse para o modo manual.
+        assert!(!out.contains("GraphicsQualityLevel"));
+        assert!(!out.contains("QualityResetLevel"));
+    }
+
+    #[test]
+    fn rewrite_global_basic_settings_writes_a_fixed_quality_level() {
+        let out = rewrite_global_basic_settings(
+            SAMPLE_XML,
+            None,
+            None,
+            Some(GraphicsQuality::Level(7)),
+            None,
+            None,
+        )
+        .expect("bloco UserGameSettings");
+        assert!(out.contains("<int name=\"GraphicsQualityLevel\">7</int>"));
+        assert!(out.contains("<token name=\"SavedQualityLevel\">7</token>"));
+        assert!(out.contains("<int name=\"QualityResetLevel\">7</int>"));
+    }
+
+    #[test]
+    fn rewrite_global_basic_settings_returns_none_without_the_user_game_settings_item() {
+        let xml = "<roblox>\n\t<Item class=\"Other\"><Properties></Properties></Item>\n</roblox>\n";
+        assert!(rewrite_global_basic_settings(xml, Some(240), None, None, Some(true), None).is_none());
+    }
+
     #[test]
     fn find_user_game_settings_properties_range_selects_the_right_item() {
         let (start, end) = find_user_game_settings_properties_range(SAMPLE_XML).expect("range");
@@ -563,7 +724,7 @@ mod win_client_settings_tests {
     fn copy_custom_client_settings_rejects_a_missing_path() {
         let temp = TempDir::new("copymissing");
         let err =
-            copy_custom_client_settings(temp.file("nope.json").to_str().unwrap()).unwrap_err();
+            copy_custom_client_settings(None, temp.file("nope.json").to_str().unwrap()).unwrap_err();
         assert_eq!(err, "Custom ClientAppSettings.json path does not exist");
     }
 
@@ -575,7 +736,7 @@ mod win_client_settings_tests {
         let path = temp.file("custom.json");
         std::fs::write(&path, "{ not json at all").unwrap();
 
-        let err = copy_custom_client_settings(path.to_str().unwrap()).unwrap_err();
+        let err = copy_custom_client_settings(None, path.to_str().unwrap()).unwrap_err();
         assert!(
             err.starts_with("Custom settings file is not valid JSON"),
             "got {}",

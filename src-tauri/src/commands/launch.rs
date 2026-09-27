@@ -198,8 +198,68 @@ struct LaunchQueue {
 }
 
 impl LaunchQueue {
+    /// Há sequência de launch em andamento enquanto existir conta que não chegou
+    /// a um estado final.
+    ///
+    /// A reserva **não** olha o flag `active` de propósito: se um dia alguém
+    /// esquecer de fechar o lote, o pior que acontece é a fila liberar cedo — e
+    /// não o app recusar todo launch até o usuário reiniciar, que é o jeito mais
+    /// caro de errar isto.
+    fn has_active_sequence(&self) -> bool {
+        self.entries.iter().any(|entry| !entry.state.is_terminal())
+    }
+
+    /// Reserva a fila para este lote e devolve `false` — sem tocar em nada —
+    /// quando já há sequência em andamento.
+    ///
+    /// A reserva cobre as contas **todas** aqui, antes de qualquer launch:
+    /// reservar conta a conta dentro do laço deixaria uma segunda sequência
+    /// entrar no meio da primeira, e as duas disputariam o mutex do Multi
+    /// Roblox, o registro e o `ClientAppSettings.json` (que é global por pasta
+    /// de versão).
+    fn try_start(&mut self, user_ids: &[i64], place_id: i64, job_id: &str, now_ms: u64) -> bool {
+        if self.has_active_sequence() {
+            return false;
+        }
+        self.start(user_ids, place_id, job_id, now_ms);
+        true
+    }
+
+    /// Solta a reserva: fecha toda conta que não chegou a estado final
+    /// (`queued` nunca foi tentada, `launching` acabou sem resposta) e desativa
+    /// a fila. Devolve se algo mudou, para o chamador só emitir evento quando há
+    /// novidade.
+    ///
+    /// É o ponto único de saída da sequência — chamado pelo `Drop` da reserva —,
+    /// então vale para o lote que terminou, para o que falhou no meio, para o
+    /// que o usuário cancelou e para o erro que abortou tudo.
+    fn release(&mut self, now_ms: u64) -> bool {
+        let mut changed = false;
+        for entry in self.entries.iter_mut() {
+            if entry.state.is_terminal() {
+                continue;
+            }
+            entry.state = if entry.state == LaunchQueueState::Launching {
+                // A conta estava no meio do trabalho e o comando voltou sem
+                // dizer no que deu: não dá para afirmar que entrou.
+                entry.error = Some("Launch interrompido antes de terminar".to_string());
+                LaunchQueueState::Failed
+            } else {
+                LaunchQueueState::Cancelled
+            };
+            entry.updated_at_ms = now_ms;
+            changed = true;
+        }
+        if self.active {
+            self.active = false;
+            changed = true;
+        }
+        changed
+    }
+
     /// Começa um lote novo. A fila é **por execução**: o lote anterior é
-    /// descartado inteiro, porque a UI mostra sempre o lote atual.
+    /// descartado inteiro, porque a UI mostra sempre o lote atual. Passa por
+    /// `try_start`, que é quem garante que o lote anterior já acabou.
     fn start(&mut self, user_ids: &[i64], place_id: i64, job_id: &str, now_ms: u64) {
         self.entries = user_ids
             .iter()
@@ -316,11 +376,53 @@ fn emit_launch_queue(app: &tauri::AppHandle, payload: &LaunchQueuePayload) {
     let _ = app.emit("launch-queue", payload);
 }
 
-/// Substitui a fila pelo lote que está começando e publica o estado inicial.
-fn launch_queue_start(app: &tauri::AppHandle, user_ids: &[i64], place_id: i64, job_id: &str) {
-    let (_, payload) =
-        with_launch_queue(|queue| queue.start(user_ids, place_id, job_id, launch_queue_now_ms()));
+/// Código devolvido quando o usuário dispara um launch com outro em andamento.
+/// É um código, não uma frase: quem traduz é o frontend
+/// (`isLaunchAlreadyActiveError` em `src/utils/robloxErrors.ts`).
+const LAUNCH_ALREADY_ACTIVE: &str = "launch-already-active";
+
+/// A reserva da sequência de launch. Enquanto ela existe, nenhuma outra
+/// sequência entra; quando sai de escopo, a fila é liberada.
+///
+/// A liberação é no `Drop` porque os caminhos de saída do launch são muitos —
+/// erro por conta, erro que aborta o lote, `?` no meio, cancelamento pelo
+/// usuário, `panic` — e uma reserva esquecida em qualquer um deles travaria o
+/// app até reiniciar.
+struct LaunchSequenceGuard {
+    app: tauri::AppHandle,
+}
+
+impl Drop for LaunchSequenceGuard {
+    fn drop(&mut self) {
+        let (changed, payload) = with_launch_queue(|queue| queue.release(launch_queue_now_ms()));
+        if changed {
+            emit_launch_queue(&self.app, &payload);
+        }
+    }
+}
+
+/// Reserva a sequência, substitui a fila pelo lote que está começando e publica
+/// o estado inicial. Recusa (sem tocar na fila) quando já há um launch em
+/// andamento: dois lotes ao mesmo tempo disputariam o mutex do Multi Roblox, o
+/// registro e o patch de client settings, e a UI mostraria só o segundo.
+///
+/// O valor devolvido **tem que ser amarrado a uma variável** que viva até o fim
+/// do launch: é ele que segura a reserva.
+#[must_use = "a reserva da sequência é liberada quando este valor sai de escopo"]
+fn launch_queue_start(
+    app: &tauri::AppHandle,
+    user_ids: &[i64],
+    place_id: i64,
+    job_id: &str,
+) -> Result<LaunchSequenceGuard, String> {
+    let (reserved, payload) = with_launch_queue(|queue| {
+        queue.try_start(user_ids, place_id, job_id, launch_queue_now_ms())
+    });
+    if !reserved {
+        return Err(LAUNCH_ALREADY_ACTIVE.to_string());
+    }
     emit_launch_queue(app, &payload);
+    Ok(LaunchSequenceGuard { app: app.clone() })
 }
 
 /// Aplica uma transição e publica o evento. Devolve `false` quando a transição
@@ -439,8 +541,10 @@ async fn launch_roblox(
     shuffle_job: Option<bool>,
 ) -> Result<(), String> {
     // O launch de uma conta única também alimenta a fila (com uma entrada só),
-    // para a UI mostrar e cancelar do mesmo jeito que num lote.
-    launch_queue_start(&app, &[user_id], place_id, &job_id);
+    // para a UI mostrar e cancelar do mesmo jeito que num lote — e por isso ele
+    // reserva a sequência igual a um lote: um launch avulso disparado durante
+    // uma fila brigaria com ela pelo mutex e pelo client settings.
+    let _sequence = launch_queue_start(&app, &[user_id], place_id, &job_id)?;
     let result = launch_roblox_windows(
         app.clone(),
         state,
@@ -498,14 +602,23 @@ async fn launch_roblox_windows(
     let configured_old_join = settings.get_bool("Developer", "UseOldJoin");
     let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
     let auto_close_multi_conflicts = settings.get_bool("General", "AutoCloseRobloxForMultiRbx");
-    let start_minimized = settings.get_bool("General", "StartRobloxMinimized");
-
     let account_snapshot_for_version = state.get_all()?;
     let account_version_override = account_snapshot_for_version
         .iter()
         .find(|a| a.user_id == user_id)
         .and_then(|a| a.fields.get("RobloxVersion").cloned())
         .filter(|v| !v.trim().is_empty());
+    // Exceções desta conta (FPS, volume, qualidade, tela cheia, minimizar).
+    // Lidas antes do `start_minimized` porque podem trocá-lo.
+    let account_overrides = account_snapshot_for_version
+        .iter()
+        .find(|a| a.user_id == user_id)
+        .and_then(|a| account_client_overrides(&a.fields));
+
+    let start_minimized = account_overrides
+        .as_ref()
+        .and_then(|o| o.start_minimized)
+        .unwrap_or_else(|| settings.get_bool("General", "StartRobloxMinimized"));
 
     let (resolved_base_path, resolved_version_id) =
         windows::resolve_roblox_install_path(account_version_override.as_deref(), &settings, &versions)?;
@@ -546,7 +659,12 @@ async fn launch_roblox_windows(
     }
 
     windows::refresh_production_version().await;
-    patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
+    patch_client_settings_for_launch(
+        &settings,
+        LaunchClientProfile::Normal,
+        account_overrides.as_ref(),
+        Some(&resolved_base_path),
+    );
 
     let tracker = windows::tracker();
     if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -728,8 +846,10 @@ async fn launch_roblox(
     shuffle_job: Option<bool>,
 ) -> Result<(), String> {
     // O launch de uma conta única também alimenta a fila (com uma entrada só),
-    // para a UI mostrar e cancelar do mesmo jeito que num lote.
-    launch_queue_start(&app, &[user_id], place_id, &job_id);
+    // para a UI mostrar e cancelar do mesmo jeito que num lote — e por isso ele
+    // reserva a sequência igual a um lote: um launch avulso disparado durante
+    // uma fila brigaria com ela pelo mutex e pelo client settings.
+    let _sequence = launch_queue_start(&app, &[user_id], place_id, &job_id)?;
     launch_queue_mark(&app, user_id, LaunchQueueState::Launching, None);
     let result = launch_roblox_other(
         app.clone(),
@@ -790,7 +910,17 @@ async fn launch_roblox_other(
             let _ = macos::disable_multi_roblox();
         }
 
-        patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
+        let account_overrides = state
+            .get_all()
+            .ok()
+            .and_then(|list| list.into_iter().find(|a| a.user_id == user_id))
+            .and_then(|a| account_client_overrides(&a.fields));
+        patch_client_settings_for_launch(
+            &settings,
+            LaunchClientProfile::Normal,
+            account_overrides.as_ref(),
+            None,
+        );
 
         let tracker = macos::tracker();
         if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -915,11 +1045,14 @@ async fn launch_multiple(
     let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
     let auto_close_multi_conflicts = settings.get_bool("General", "AutoCloseRobloxForMultiRbx");
     let start_minimized = settings.get_bool("General", "StartRobloxMinimized");
+    // A fila é por execução: este lote substitui o anterior — desde que o
+    // anterior tenha acabado. A reserva cobre o lote inteiro aqui, antes de
+    // qualquer launch, e antes de mexer no tracker: um lote recusado não pode
+    // apagar o cancelamento (`Close All Roblox`) do lote que está rodando.
+    let _sequence = launch_queue_start(&app, &user_ids, place_id, &job_id)?;
+
     let tracker = windows::tracker();
     tracker.reset_launch_cancelled();
-
-    // A fila é por execução: este lote substitui o anterior.
-    launch_queue_start(&app, &user_ids, place_id, &job_id);
 
     let isolation_report = match run_pre_launch_isolation(&app, &settings).await {
         Ok(value) => value,
@@ -972,6 +1105,13 @@ async fn launch_multiple(
         let acct_version_override = account
             .and_then(|a| a.fields.get("RobloxVersion").cloned())
             .filter(|v| !v.trim().is_empty());
+        // Exceções desta conta. A fila é sequencial e o patch roda logo antes de
+        // cada spawn, então cada cliente abre com o que a sua conta pediu.
+        let acct_overrides = account.and_then(|a| account_client_overrides(&a.fields));
+        let acct_start_minimized = acct_overrides
+            .as_ref()
+            .and_then(|o| o.start_minimized)
+            .unwrap_or(start_minimized);
 
         let acct_target_desc = launch_target_description(false, "", &acct_job);
         emit_launch_log(
@@ -1078,7 +1218,12 @@ async fn launch_multiple(
         }
 
         windows::refresh_production_version().await;
-        patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
+        patch_client_settings_for_launch(
+            &settings,
+            LaunchClientProfile::Normal,
+            acct_overrides.as_ref(),
+            Some(&acct_base_path),
+        );
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;
@@ -1228,7 +1373,7 @@ async fn launch_multiple(
                 pid,
             )
             .await;
-            if start_minimized {
+            if acct_start_minimized {
                 let baseline = pids_before.clone();
                 tokio::spawn(async move {
                     minimize_new_roblox_windows(baseline, std::time::Duration::from_secs(14)).await;
@@ -1311,11 +1456,14 @@ async fn launch_multiple(
         let is_teleport = settings.get_bool("Developer", "IsTeleport");
         let use_old_join = settings.get_bool("Developer", "UseOldJoin");
         let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
+        // A fila é por execução: este lote substitui o anterior — desde que o
+        // anterior tenha acabado. A reserva cobre o lote inteiro aqui, antes de
+        // qualquer launch, e antes de mexer no tracker: um lote recusado não
+        // pode apagar o cancelamento (`Close All Roblox`) do lote que roda.
+        let _sequence = launch_queue_start(&app, &user_ids, place_id, &job_id)?;
+
         let tracker = macos::tracker();
         tracker.reset_launch_cancelled();
-
-        // A fila é por execução: este lote substitui o anterior.
-        launch_queue_start(&app, &user_ids, place_id, &job_id);
 
         for (i, &uid) in user_ids.iter().enumerate() {
             if tracker.is_launch_cancelled() {
@@ -1373,7 +1521,16 @@ async fn launch_multiple(
                 let _ = macos::disable_multi_roblox();
             }
 
-            patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
+            let acct_overrides = accounts
+                .iter()
+                .find(|a| a.user_id == uid)
+                .and_then(|a| account_client_overrides(&a.fields));
+            patch_client_settings_for_launch(
+                &settings,
+                LaunchClientProfile::Normal,
+                acct_overrides.as_ref(),
+                None,
+            );
 
             if auto_close_last_process && tracker.get_pid(uid).is_some() {
                 tracker.kill_for_user(uid);
@@ -1851,6 +2008,140 @@ mod launch_queue_tests {
         let ids: Vec<i64> = snapshot.entries.iter().map(|entry| entry.user_id).collect();
         assert_eq!(ids, vec![9, 8]);
         assert_eq!(queue.state_of(1), None);
+    }
+
+    // ---- reserva da sequência -------------------------------------------------
+
+    #[test]
+    fn a_free_queue_accepts_a_new_sequence() {
+        let mut queue = LaunchQueue::default();
+        assert!(queue.try_start(&[1, 2], 123, "job-abc", 1_000));
+        assert!(queue.snapshot().active);
+        assert_eq!(states(&queue), vec![LaunchQueueState::Queued; 2]);
+    }
+
+    #[test]
+    fn a_second_sequence_is_refused_while_the_first_one_runs() {
+        // Dois cliques no botão de launch, ou um launch de uma conta durante a
+        // fila: o segundo lote não pode entrar disputando o mutex do Multi
+        // Roblox, o registro e o patch de client settings com o primeiro.
+        let mut queue = queue_with(&[1, 2, 3]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+
+        assert!(!queue.try_start(&[9], 777, "outro-job", 2_000));
+
+        // E a recusa não encosta na fila do primeiro lote.
+        let snapshot = queue.snapshot();
+        let ids: Vec<i64> = snapshot.entries.iter().map(|entry| entry.user_id).collect();
+        assert_eq!(ids, vec![1, 2, 3]);
+        assert_eq!(snapshot.place_id, 123);
+        assert_eq!(snapshot.job_id, "job-abc");
+        assert_eq!(queue.state_of(1), Some(LaunchQueueState::Launching));
+    }
+
+    #[test]
+    fn two_sequences_starting_back_to_back_only_let_the_first_one_in() {
+        // A corrida: nada acontece entre as duas chamadas. A reserva cobre o
+        // lote inteiro no primeiro `try_start`, então a segunda não acha vaga.
+        let mut queue = LaunchQueue::default();
+        assert!(queue.try_start(&[1, 2], 123, "job-abc", 1_000));
+        assert!(!queue.try_start(&[3, 4], 123, "job-abc", 1_001));
+        let ids: Vec<i64> = queue
+            .snapshot()
+            .entries
+            .iter()
+            .map(|entry| entry.user_id)
+            .collect();
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn a_single_account_launch_reserves_the_sequence_too() {
+        let mut queue = LaunchQueue::default();
+        assert!(queue.try_start(&[1], 123, "job-abc", 1_000));
+        assert!(!queue.try_start(&[2], 123, "job-abc", 1_100));
+    }
+
+    #[test]
+    fn a_new_sequence_is_accepted_once_every_account_reached_a_final_state() {
+        let mut queue = queue_with(&[1, 2]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        // Enquanto a 2 está na fila, a reserva vale.
+        assert!(!queue.try_start(&[9], 777, "outro-job", 1_300));
+        queue.set_state(2, LaunchQueueState::Launching, None, 1_400);
+        queue.set_state(2, LaunchQueueState::Failed, Some("boom".into()), 1_500);
+
+        assert!(queue.try_start(&[9], 777, "outro-job", 2_000));
+    }
+
+    #[test]
+    fn stopping_the_queue_releases_the_reservation() {
+        // `stop_launch_queue` / "Close All Roblox" cancelam quem está `queued`:
+        // sem liberar a reserva aqui, o app não lançaria mais nada até
+        // reiniciar.
+        let mut queue = queue_with(&[1, 2, 3]);
+        assert_eq!(queue.cancel_queued(1_400), 3);
+        assert!(queue.try_start(&[9], 777, "outro-job", 2_000));
+    }
+
+    #[test]
+    fn the_account_in_flight_keeps_the_reservation_until_it_finishes() {
+        // Cancelar não aborta o auth ticket da conta em andamento: ela ainda vai
+        // abrir um cliente, então uma sequência nova continua recusada.
+        let mut queue = queue_with(&[1, 2, 3]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.cancel_queued(1_400);
+        assert!(!queue.try_start(&[9], 777, "outro-job", 1_500));
+        queue.set_state(1, LaunchQueueState::Done, None, 1_600);
+        assert!(queue.try_start(&[9], 777, "outro-job", 2_000));
+    }
+
+    #[test]
+    fn releasing_closes_every_account_that_never_reached_a_final_state() {
+        // É o `Drop` da reserva: qualquer saída do launch (erro por conta, abort
+        // do lote, cancelamento, `?` no meio) passa por aqui. Uma conta deixada
+        // em `queued` ou `launching` manteria a fila ocupada para sempre.
+        let mut queue = queue_with(&[1, 2, 3]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        queue.set_state(2, LaunchQueueState::Launching, None, 1_300);
+
+        assert!(queue.release(1_900));
+
+        assert_eq!(
+            states(&queue),
+            vec![
+                LaunchQueueState::Done,
+                LaunchQueueState::Failed,
+                LaunchQueueState::Cancelled
+            ]
+        );
+        assert!(!queue.snapshot().active);
+        assert!(queue.try_start(&[9], 777, "outro-job", 2_000));
+    }
+
+    #[test]
+    fn releasing_an_already_finished_batch_changes_nothing() {
+        // O `finish()` explícito do fim do lote já rodou: o `Drop` não pode
+        // emitir evento nem reescrever estado nenhum.
+        let mut queue = queue_with(&[1]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        queue.finish();
+
+        assert!(!queue.release(1_900));
+        assert_eq!(queue.state_of(1), Some(LaunchQueueState::Done));
+        assert_eq!(queue.entries[0].updated_at_ms, 1_200);
+    }
+
+    #[test]
+    fn an_empty_sequence_never_holds_the_reservation() {
+        // Lote sem conta nenhuma não tem o que disputar; travar a fila por causa
+        // dele seria travar o app por nada.
+        let mut queue = LaunchQueue::default();
+        assert!(queue.try_start(&[], 123, "job-abc", 1_000));
+        assert!(queue.try_start(&[1], 123, "job-abc", 1_100));
     }
 
     // ---- cancelar UMA conta --------------------------------------------------

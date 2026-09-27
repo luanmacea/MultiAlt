@@ -229,6 +229,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     cancelAccountLaunch: vi.fn(async () => true),
     stopLaunchQueue: vi.fn(async () => 0),
     startBottingMode: vi.fn(async () => {}),
+    adoptRunningIntoBotting: vi.fn(async () => {}),
     stopBottingMode: vi.fn(async () => {}),
     addBottingAccounts: vi.fn(async () => {}),
     setBottingPlayerAccounts: vi.fn(async () => {}),

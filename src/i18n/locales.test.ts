@@ -27,6 +27,10 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "botting",
   "studio",
   "Multi Roblox",
+  // Nome da funcionalidade na tela; traduzir "Botting" isolado criaria um
+  // segundo nome para a mesma coisa (o rotulo do diálogo ja e "Botting Mode").
+  "Botting",
+  "Botting ({{count}})",
   "Botting Mode",
   "OK",
   "Nexus",
@@ -37,6 +41,8 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "cookie",
   "Cookie",
   "FPS",
+  // Rotulo de campo na sidebar da conta: "Volume" e a mesma palavra em pt-BR.
+  "Volume",
   "ID: ********",
   "username:password",
   "Job",

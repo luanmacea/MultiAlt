@@ -311,6 +311,7 @@ pub fn run() {
             parse_private_server_link_code,
             join_group,
             get_presence,
+            get_account_game_location,
             get_online_friends,
             get_online_friends_for_accounts,
             get_server_regions,

@@ -204,6 +204,22 @@ describe("ChooseGameScreen — JoinLinkSection", () => {
     expect(linkInput()).toHaveValue("https://www.roblox.com/games/1");
   });
 
+  it("explica a recusa por launch já em andamento sem repetir o toast do store", async () => {
+    // O store já avisou (é ele que traduz o código do backend). A tela mostra a
+    // frase na linha inline e não empilha um "Launch failed: <código>" em cima.
+    setInvokeHandler(() => joinTarget({ kind: "place" }));
+    const store = await renderFollowTab();
+    (store.launchMultiple as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("launch-already-active")
+    );
+
+    await userEvent.type(linkInput(), "https://www.roblox.com/games/1");
+    await userEvent.click(joinButton());
+
+    expect(await screen.findByText(/A launch is already in progress/i)).toBeInTheDocument();
+    expect(store.addToast).not.toHaveBeenCalled();
+  });
+
   it("submits on Enter", async () => {
     setInvokeHandler(() => joinTarget({ kind: "place" }));
     const store = await renderFollowTab();

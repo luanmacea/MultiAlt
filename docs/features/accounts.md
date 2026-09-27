@@ -48,6 +48,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | `RobloxVersion` | [commands/versions.rs](../../src-tauri/src/commands/versions.rs), [launch.rs](../../src-tauri/src/commands/launch.rs) | Override de versão do Roblox por conta. |
 | `NoCookieRefresh` | [store.tsx](../../src/store.tsx) | `"true"` exclui a conta do auto-refresh de cookie. |
 | `Window_Position_X`, `Window_Position_Y`, `Window_Width`, ... | [watcher.rs](../../src-tauri/src/commands/watcher.rs) | Posição de janela salva pelo Watcher (`SaveWindowPositions`). |
+| `ClientOverridesEnabled`, `ClientOverrideMaxFPS`, `ClientOverrideVolume`, `ClientOverrideGraphics`, `ClientOverrideFullscreen`, `ClientOverrideStartMinimized`, `ClientOverrideWindowWidth`, `ClientOverrideWindowHeight` | [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) | Exceções de launch por conta — ver [launch.md](launch.md#exceções-de-launch-por-conta). |
 
 Qualquer outra chave é livre (editável em "View/Edit Fields").
 
