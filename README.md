@@ -3,11 +3,9 @@ Full credit to [ic3w0lf22](https://github.com/ic3w0lf22) for the original Roblox
 # Roblox Account Manager
 ![github-large](Images/Image5.png)
 
-**[Download Latest v4 Pre-release](https://github.com/niccsprojects/Roblox-Account-Manager/releases?q=beta)**
+**[Baixar a versão mais recente](https://github.com/luanmacea/roblox-account-manager/releases/latest)**
 
-[![Total Downloads](https://img.shields.io/github/downloads/niccsprojects/Roblox-Account-Manager/total?label=Total%20Downloads&color=2ea043)](https://github.com/niccsprojects/Roblox-Account-Manager/releases)
-[![Latest Release Downloads](https://img.shields.io/github/downloads/niccsprojects/Roblox-Account-Manager/latest/total?label=Latest%20Release%20Downloads&color=3b82f6)](https://github.com/niccsprojects/Roblox-Account-Manager/releases/latest)
-[![Latest Release](https://img.shields.io/github/v/release/niccsprojects/Roblox-Account-Manager?include_prereleases&label=Latest%20Release)](https://github.com/niccsprojects/Roblox-Account-Manager/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
 
 Desktop app para gerenciar múltiplas contas Roblox: adicionar contas, rodar vários clientes ao mesmo tempo, alternar entre alts sem trocar de login, e automatizar rejoin (botting).
 
@@ -52,10 +50,10 @@ A primeira execução de `tauri dev`/`tauri build` compila todas as crates Rust 
 `bun run tauri build` gera o(s) instalador(es) em `src-tauri/target/release/bundle/` (`nsis/` para o installer `.exe`, `msi/` para o `.msi`). O `.exe` solto (sem installer) fica direto em `src-tauri/target/release/`.
 
 # Download
-Releases prontas: [GitHub Releases](https://github.com/niccsprojects/Roblox-Account-Manager/releases).
+Releases prontas: [GitHub Releases](https://github.com/luanmacea/roblox-account-manager/releases).
 
-Para v4, use o asset Windows mais recente (installer ou portable):
-- Assets sem `_full-nexus-ws` = recomendado
+A release publica **só o instalador** (`.exe`), em duas variantes:
+- sem `_full-nexus-ws` = **recomendado** (não abre porta nenhuma)
 - Assets com `_full-nexus-ws.exe`/`.msi` = versão full-feature
 
 Não precisa instalar .NET Framework ou VC++ manualmente. Baixe só da página oficial de releases.
