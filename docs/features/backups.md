@@ -29,9 +29,9 @@ Anda junto com a mudança de pasta: os dados saíram de "ao lado do executável"
 - **Retenção:** no máximo 10 backups **automáticos** (os de segurança criados antes de restaurar). Backup criado pelo usuário nunca é apagado pelo app; zip ilegível também não (não dá para afirmar que era automático).
 - **O que exige reiniciar o app**, informado em `requiresRestart` + `restartReasons` e mostrado na tela:
   - settings, tema, presets, scripts e catálogo de versões — os stores são construídos no startup e não têm recarga; sem reiniciar, a memória antiga sobrescreveria o que foi restaurado na gravação seguinte;
-  - `AccountData.json` restaurado **criptografado** — a chave em memória é a da senha antiga;
+  - `AccountData.json` restaurado **criptografado** — a chave em memória é a da senha/chave antiga. Com o formato cifrado por padrão, este é agora o caso **normal**: praticamente toda restauração de contas pede reinício;
   - `AccountData.json` em texto puro **com senha configurada** — a próxima gravação recriptografaria com a senha da sessão.
-  - Só o caso "texto puro, sem senha na sessão" recarrega na hora (`accountsReloaded: true`).
+  - Só o caso "texto puro, sem senha na sessão" recarrega na hora (`accountsReloaded: true`), e ele só aparece restaurando backup antigo, de antes da criptografia por padrão.
 - O catálogo de versões é restaurado no caminho real de `get_versions_catalog_path()`, que fica fora da pasta de dados no modo portátil.
 - O rótulo é saneado para virar nome de arquivo (barra, `..`, caminho absoluto, controles, tamanho), mas o rótulo **exibido** é o que o usuário digitou, guardado no manifesto.
 
@@ -43,7 +43,9 @@ Na primeira execução, o que estava ao lado do executável é **copiado** para 
 
 ## Armadilhas / cuidados
 
-- Backup **não** é criptografado além do que já estava: se o `AccountData.json` estava em texto puro, o zip contém cookies legíveis. Guardar em lugar sincronizado (OneDrive, Drive) espalha isso.
+- **O zip leva o `AccountData.key` junto com o `AccountData.json`** (os dois estão em `DATA_FILES`). Tem que levar: o vault é cifrado por uma chave mestra aleatória, então um backup sem a chave dele é um backup que **não restaura** — nem com senha, porque não existe senha nesse modo. O custo é honesto: num backup vazado o que protege o vault deixa de ser o DPAPI (que só abre no perfil de origem) e passa a ser o embrulho do **hash do aparelho**, que alguém com o zip pode atacar sabendo o nome da máquina e do usuário. Ainda é muito melhor que o formato anterior (JSON puro, cookies legíveis sem esforço nenhum), mas quem guarda backup em OneDrive/Drive deve usar **senha** (Pass Lock) — aí a chave não está no zip. Ver [accounts.md](accounts.md#a-chave-do-aparelho-accountdatakey).
+- Backup **não** é criptografado além do que já estava. Em particular, um `AccountData.json.bak` deixado pela migração para o formato cifrado é o arquivo **em texto puro** — ele não entra no zip (não está em `DATA_FILES`), mas continua na pasta de dados até alguém apagar.
 - Restaurar com o Roblox aberto pode falhar em arquivo em uso — a troca é atômica por arquivo e falha alto em vez de truncar, mas o resultado fica parcial (`restored`/`skipped` mostram o que entrou).
 - `open_backups_folder` é Windows-only.
-- O modo portátil coloca os dados junto do `.exe`: mover ou atualizar a pasta leva/deixa os dados junto. O diálogo avisa isso.
+- O modo portátil coloca os dados junto do `.exe`: mover ou atualizar a pasta leva/deixa os dados junto. O diálogo avisa isso. **Mas levar os arquivos para outra máquina não abre as contas**: a chave do vault é presa ao aparelho de origem. Ver [accounts.md](accounts.md#a-chave-do-aparelho-accountdatakey) — em mais de um PC, o caminho é senha (Pass Lock).
+- **Restaurar o `AccountData.key` exige reiniciar o app**, mesmo sem o `AccountData.json` no mesmo zip: o segredo da sessão é o de antes, e gravar com ele por cima de uma chave diferente deixaria o vault sem abrir no próximo boot. O relatório diz isso em `restartReasons` e `accountsReloaded` volta a `false`.

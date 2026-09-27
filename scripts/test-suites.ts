@@ -74,6 +74,8 @@ export const SUITES: Record<string, TestSuite> = {
       "account_api_http_tests",
       "remember_unlock_tests",
       "crypto_tests",
+      "vault_key_tests",
+      "vault_migration_tests",
       "model_tests",
       "data::accounts::tests",
     ],

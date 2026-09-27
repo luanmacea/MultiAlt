@@ -63,7 +63,7 @@ Registradas com `.manage(...)` em [lib.rs](../src-tauri/src/lib.rs) e acessadas 
 
 | Store | Definição | Estado interno | Arquivo |
 |---|---|---|---|
-| `AccountStore` | [data/accounts/store.rs](../src-tauri/src/data/accounts/store.rs) | `Mutex<Vec<Account>>` + `Mutex<Option<Vec<u8>>>` (hash da senha) | `AccountData.json` |
+| `AccountStore` | [data/accounts/store.rs](../src-tauri/src/data/accounts/store.rs) | `Mutex<Vec<Account>>` + `Mutex<Option<SessionKey>>` (segredo da sessão: senha do usuário ou chave do aparelho) | `AccountData.json` + `AccountData.key` |
 | `SettingsStore` | [data/settings/store.rs](../src-tauri/src/data/settings/store.rs) | `Mutex<IniFile>` | `RAMSettings.ini` |
 | `ThemeStore` | [data/settings/theme.rs](../src-tauri/src/data/settings/theme.rs) | tema atual | `RAMTheme.ini` |
 | `ThemePresetStore` | [data/settings/presets.rs](../src-tauri/src/data/settings/presets.rs) | `Mutex<Vec<ThemePresetData>>` | `RAMThemePresets.json` |
@@ -88,7 +88,8 @@ O diretório base é a **pasta de dados do usuário**, resolvida uma vez por pro
 
 | Arquivo | Onde | Formato | Código |
 |---|---|---|---|
-| `AccountData.json` | pasta de dados | JSON (PascalCase, compatível com RAM v3) ou binário criptografado com header RAM | [data/accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `get_account_data_path` |
+| `AccountData.json` | pasta de dados | **Sempre** binário criptografado com header RAM (senha do usuário ou chave do aparelho). JSON puro em PascalCase só é **lido**, para migrar arquivos de RAM v3/v4 | [data/accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `get_account_data_path` |
+| `AccountData.key` | pasta de dados, ao lado do vault | JSON com a chave mestra de 32 bytes embrulhada duas vezes (DPAPI do usuário + hash do aparelho). Existe só quando **não** há senha de usuário | [data/vault_key.rs](../src-tauri/src/data/vault_key.rs) `key_file_path_for` |
 | `RAMSettings.ini` | pasta de dados | INI | [paths.rs](../src-tauri/src/data/settings/paths.rs) `get_settings_path` |
 | `RAMTheme.ini` | pasta de dados | INI (seção `Roblox Account Manager`, fallback `RBX Alt Manager`) | [paths.rs](../src-tauri/src/data/settings/paths.rs), [theme.rs](../src-tauri/src/data/settings/theme.rs) |
 | `RAMThemePresets.json` | pasta de dados | JSON | [paths.rs](../src-tauri/src/data/settings/paths.rs) |
@@ -177,7 +178,7 @@ A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depoi
 ### Backend — `run()` em [lib.rs](../src-tauri/src/lib.rs)
 
 1. `crypto::init()` (inicializa sodiumoxide).
-2. Cria `AccountStore` com `AccountData.json`. Se `needs_password()` for `true` (arquivo tem header criptografado e não há hash em memória), **não carrega** as contas; caso contrário chama `load()`. Erros viram apenas `eprintln!`, mas um `load()` que falha marca `load_failed` e bloqueia qualquer `save()` posterior (o arquivo original fica intacto).
+2. Cria `AccountStore` com `AccountData.json` e chama **`load()`**, que é a única porta: ele abre pela chave do aparelho (`AccountData.key`) e migra um arquivo em texto puro, deixando `AccountData.json.bak` antes de qualquer escrita. Só depois consulta `needs_password()` — `true` quando o arquivo está cifrado e nada em memória abre, e aí a UI mostra a tela de senha. Erros viram apenas `eprintln!` (falha de criptografia não pode impedir o app de subir; é na tela dele que o usuário lê o que houve), mas um `load()` que falha marca `load_failed` e bloqueia qualquer `save()` posterior (o arquivo original fica intacto). Ver [accounts.md](features/accounts.md#carregamento--desbloqueio).
 3. Cria `SettingsStore` (aplica defaults e já regrava o INI), `ThemeStore`, `ThemePresetStore`, `ScriptStore`, `VersionsCatalogStore`, `ImageCache`.
 4. Registra plugins: `single-instance` (segunda instância só mostra/foca a janela `main`), `window-state`, `autostart` (LaunchAgent no macOS), `process`, `updater`.
 5. `.manage(...)` de todas as stores + `UpdaterRuntimeState` + `ChromiumManager`.

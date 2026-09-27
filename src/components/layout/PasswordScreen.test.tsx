@@ -211,33 +211,46 @@ describe("EncryptionSetupScreen", () => {
     expect(store.applyEncryptionMethod).toHaveBeenCalledWith("default", undefined);
   });
 
-  // Regressão: a opção sem senha se chamava "Default Encryption" / "local
-  // default protection", mas grava AccountData.json em JSON puro. O texto
-  // precisa dizer isso, senão o usuário escolhe achando que está protegido.
-  it("says out loud that the no-password option is not encrypted", async () => {
+  // Regressão, duas vezes no mesmo texto: primeiro a opção sem senha se chamava
+  // "Default Encryption" e gravava JSON puro (o rótulo escondia isso); agora ela
+  // **é** criptografada, pela chave do aparelho, e o rótulo antigo ("Not
+  // Encrypted", "plain JSON") passou a ser a mentira oposta. O texto tem que
+  // dizer onde a chave fica, senão o usuário escolhe sem saber o que ganhou.
+  it("says the no-password option is locked with a device key, not plain JSON", async () => {
     renderSetup();
     expect(screen.queryByText(/Default Encryption/)).not.toBeInTheDocument();
     expect(screen.queryByText(/local default protection/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/plain JSON/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Not Encrypted/i)).not.toBeInTheDocument();
 
     const plainOption = screen.getByRole("button", { name: /No Password/ });
-    expect(plainOption).toHaveTextContent(/Not Encrypted/i);
-    expect(plainOption).toHaveTextContent(/plain JSON/i);
-    expect(plainOption).toHaveTextContent(/cookies and passwords/i);
+    expect(plainOption).toHaveTextContent(/Device Key/i);
+    expect(plainOption).toHaveTextContent(/encrypted with a key stored on this device/i);
   });
 
-  it("warns about plain text once the no-password option is picked", async () => {
+  // O limite da proteção tem que estar na tela: ela para arquivo copiado,
+  // backup vazado e outro usuário do PC, e **não** para malware rodando como o
+  // próprio usuário. Vender mais que isso é vender proteção que não existe.
+  it("states the real limit of the device key once the no-password option is picked", async () => {
     renderSetup();
     await userEvent.click(screen.getByRole("button", { name: /No Password/ }));
-    expect(screen.getByText(/there is no encryption/i)).toBeInTheDocument();
+    const warning = screen.getByText(/the key sits in a file next to AccountData\.json/i);
+    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveTextContent(/copied file/i);
+    expect(warning).toHaveTextContent(/leaked backup/i);
+    expect(warning).toHaveTextContent(/another user on this PC/i);
+    expect(warning).toHaveTextContent(/but not a program running as you/i);
     expect(
-      screen.getByText("You can continue without a password, but your accounts will not be encrypted.")
+      screen.getByText(
+        "You can continue without a password: the vault is locked with this device key instead.",
+      ),
     ).toBeInTheDocument();
   });
 
-  it("describes the current method honestly when nothing is encrypted", () => {
+  it("describes the current method honestly when there is no password", () => {
     renderSetup({ encryptionSetupMode: "settings", accountsEncrypted: false });
     expect(
-      screen.getByText("Current method: No password (AccountData.json is plain text)")
+      screen.getByText("Current method: Device Key (no password)"),
     ).toBeInTheDocument();
   });
 

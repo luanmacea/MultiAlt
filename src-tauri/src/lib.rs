@@ -87,13 +87,17 @@ pub fn run() {
 
     let account_store = AccountStore::new(get_account_data_path());
 
+    // `load()` é a única porta: ele abre pela chave do aparelho (arquivo `.key`
+    // ao lado do vault) e migra um `AccountData.json` em texto puro, deixando
+    // `.json.bak` antes. Só quando nada disso abre é que a senha é necessária —
+    // e nem falha de criptografia nem chave perdida podem impedir o app de
+    // subir, porque é na tela dele que o usuário lê o que aconteceu.
+    if let Err(e) = account_store.load() {
+        eprintln!("Warning: Failed to load accounts: {}", e);
+    }
     match account_store.needs_password() {
         Ok(true) => eprintln!("Encrypted account file detected, password required"),
-        Ok(false) => {
-            if let Err(e) = account_store.load() {
-                eprintln!("Warning: Failed to load accounts: {}", e);
-            }
-        }
+        Ok(false) => {}
         Err(e) => eprintln!("Warning: Failed to check encryption: {}", e),
     }
 

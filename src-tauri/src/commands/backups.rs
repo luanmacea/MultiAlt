@@ -655,6 +655,17 @@ const RELOADLESS_FILES: &[(&str, &str)] = &[
     ("RAMVersions.json", "o catálogo de versões"),
 ];
 
+/// A chave do vault (`AccountData.key`) voltou do backup?
+///
+/// Ela **exige** reinício, mesmo que o `AccountData.json` não tenha sido
+/// restaurado: a chave desta sessão foi derivada da chave mestra que estava em
+/// disco antes: se o arquivo agora guarda outra, a próxima gravação cifra o vault
+/// com a chave antiga e no boot seguinte nada abre. Reiniciar é a única resposta
+/// que não custa as contas do usuário.
+pub fn restored_vault_key_requires_restart(restored: &[String]) -> bool {
+    restored.iter().any(|name| name == "AccountData.key")
+}
+
 /// Motivos legíveis para reiniciar, a partir do que foi restaurado. As contas
 /// ficam de fora: dependem da criptografia e são decididas em `restore_backup`.
 pub fn restart_reasons_for(restored: &[String]) -> Vec<String> {
@@ -770,7 +781,7 @@ fn restore_backup(
             // A chave desta sessão foi derivada da senha antiga e vive em
             // memória; reler aqui poderia travar o store com `load_failed`.
             Ok(true) => restart_reasons.push(
-                "O AccountData.json restaurado está criptografado: reinicie o app e destranque com a senha daquele backup (a chave desta sessão é a da senha antiga)."
+                "O AccountData.json restaurado está criptografado: reinicie o app para ele ser aberto com a chave daquele backup (senha daquele backup, ou o AccountData.key que vem no zip). O segredo desta sessão é o de antes da restauração."
                     .to_string(),
             ),
             Ok(false) => {
@@ -795,6 +806,15 @@ fn restore_backup(
                 "Não foi possível inspecionar o AccountData.json restaurado ({e}); reinicie o app."
             )),
         }
+    }
+
+    if restored_vault_key_requires_restart(&outcome.restored) {
+        restart_reasons.push(
+            "A chave do vault (AccountData.key) foi restaurada: reinicie o app antes de mexer nas contas. O segredo desta sessão é o de antes, e gravar com ele deixaria o arquivo sem abrir no próximo boot."
+                .to_string(),
+        );
+        // Vale mais que o "recarreguei na hora" do caminho de texto puro.
+        accounts_reloaded = false;
     }
 
     let report = RestoreReport {
@@ -1284,6 +1304,29 @@ mod backups_tests {
     }
 
     // ---- relatório de restauração --------------------------------------------------------
+
+    /// Restaurar a chave do vault **sempre** exige reinício, com ou sem o
+    /// `AccountData.json` no mesmo zip: a chave desta sessão é a de antes, e
+    /// gravar com ela por cima de um `.key` diferente deixaria o vault sem abrir
+    /// no próximo boot.
+    #[test]
+    fn restoring_the_vault_key_always_requires_a_restart() {
+        assert!(restored_vault_key_requires_restart(&[
+            "AccountData.key".to_string()
+        ]));
+        assert!(restored_vault_key_requires_restart(&[
+            "AccountData.json".to_string(),
+            "AccountData.key".to_string(),
+        ]));
+        // Sem a chave no zip, esta regra não se aplica.
+        assert!(!restored_vault_key_requires_restart(&[
+            "AccountData.json".to_string()
+        ]));
+        assert!(!restored_vault_key_requires_restart(&[]));
+        // E a chave tem que estar no conjunto que o backup leva, senão um vault
+        // cifrado restaurado noutra máquina não abre mais.
+        assert!(data::settings::DATA_FILES.contains(&"AccountData.key"));
+    }
 
     #[test]
     fn the_restart_report_is_honest_about_what_could_not_be_reloaded() {
