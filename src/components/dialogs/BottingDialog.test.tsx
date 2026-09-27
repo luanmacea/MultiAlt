@@ -400,6 +400,62 @@ describe("BottingDialog — long alias chips", () => {
   });
 });
 
+describe("BottingDialog — New View em janela estreita", () => {
+  /**
+   * Abaixo de `lg` (1024 px) o grid de duas colunas vira duas linhas, e elas
+   * dividiam a altura fixa do diálogo: a 900x560 a "Live Auto Rejoin List"
+   * ficava com 0 px e o conteúdo (`overflow-hidden`) não rolava — nenhuma ação
+   * por conta alcançável, e a 750x450 nem as ações em lote. Medido no harness
+   * (relatório da Frente C do checkup).
+   *
+   * O jsdom não calcula layout, então isto trava a estrutura de que o conserto
+   * depende: quem rola é o **conteúdo** do diálogo, e do conteúdo até a lista
+   * (e até os controles da coluna esquerda) nada limita a altura fora de `lg:`.
+   * A prova de que cabe é a medida no harness, não este teste.
+   */
+  const LIMITA_ALTURA = ["overflow-hidden", "overflow-y-auto", "min-h-0", "h-full", "flex-1"];
+
+  function conteudoDoDialogo(): HTMLElement {
+    const secao = screen.getByText("How each cycle works").closest("section");
+    if (!secao?.parentElement) throw new Error("conteúdo do diálogo não encontrado");
+    return secao.parentElement;
+  }
+
+  /** Classes que limitam a altura sem `lg:`, do elemento até o conteúdo. */
+  function limitesForaDoLg(de: HTMLElement): string[] {
+    const conteudo = conteudoDoDialogo();
+    const achados: string[] = [];
+    for (let el: HTMLElement | null = de; el && el !== conteudo; el = el.parentElement) {
+      for (const classe of el.className.split(/\s+/)) {
+        if (LIMITA_ALTURA.includes(classe)) {
+          achados.push(`${classe} em <${el.tagName.toLowerCase()} class="${el.className.slice(0, 48)}">`);
+        }
+      }
+    }
+    return achados;
+  }
+
+  it("o conteúdo da New View rola em qualquer largura", () => {
+    renderDialog();
+    const classes = conteudoDoDialogo().className.split(/\s+/);
+    expect(classes).toContain("overflow-y-auto");
+    expect(classes).not.toContain("overflow-hidden");
+  });
+
+  it("do conteúdo até a lista ao vivo, só `lg:` limita a altura", () => {
+    renderDialog();
+    const secao = screen.getByText("Live Auto Rejoin List").closest("section");
+    const lista = secao?.lastElementChild as HTMLElement | null;
+    if (!lista) throw new Error("lista ao vivo não encontrada");
+    expect(limitesForaDoLg(lista)).toEqual([]);
+  });
+
+  it("do conteúdo até os controles da coluna esquerda, só `lg:` limita a altura", () => {
+    renderDialog();
+    expect(limitesForaDoLg(startButton())).toEqual([]);
+  });
+});
+
 describe("BottingDialog — draft persistence", () => {
   it("restores the saved draft place/job when it opens", async () => {
     setInvokeHandler((cmd) =>

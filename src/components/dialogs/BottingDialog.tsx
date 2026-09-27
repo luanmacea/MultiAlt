@@ -716,10 +716,16 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
           </div>
         </div>
 
+        {/* O conteúdo rola nas duas visões. A New View já foi `overflow-hidden`:
+            abaixo de `lg` o grid vira duas linhas que dividiam a altura fixa do
+            diálogo, e a 900x560 a lista ao vivo ficava com 0 px sem nada que
+            rolasse. Agora, fora de `lg`, as duas colunas empilham com a altura do
+            próprio conteúdo e quem rola é este container (como na Classic); de
+            `lg` para cima cada coluna rola por dentro, como antes. */}
         <div
           ref={contentRef}
-          className={`p-4 md:p-5 flex-1 min-h-0 ${
-            useSplitLayout ? "overflow-hidden flex flex-col gap-3" : "overflow-y-auto space-y-3"
+          className={`p-4 md:p-5 flex-1 min-h-0 overflow-y-auto ${
+            useSplitLayout ? "flex flex-col gap-3" : "space-y-3"
           }`}
         >
           {showCloseRobloxAction && closeRobloxAlertMessage && (
@@ -777,9 +783,12 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
             </ul>
           </section>
           {useSplitLayout ? (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
-              <div className="lg:col-span-4 min-h-0 animate-slide-left">
-                <div className="theme-surface rounded-2xl border theme-border h-full p-3 shadow-[0_22px_50px_rgba(0,0,0,0.23)] overflow-y-auto space-y-3">
+            // `lg:min-h-[440px]`: numa janela larga e baixa (1100x450) o grid
+            // esmagava a lista do mesmo jeito; com o piso, quem sobra rola no
+            // conteúdo. 440 cabe inteiro a 1100x700, onde o grid tem 453 px.
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:flex-1 lg:min-h-[440px]">
+              <div className="lg:col-span-4 lg:min-h-0 animate-slide-left">
+                <div className="theme-surface rounded-2xl border theme-border lg:h-full p-3 shadow-[0_22px_50px_rgba(0,0,0,0.23)] lg:overflow-y-auto space-y-3">
                   <section
                     className={`theme-surface rounded-xl border theme-border p-3 relative ${
                       playerMenuOpen ? "z-30" : "z-10"
@@ -1102,8 +1111,8 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                 </div>
               </div>
 
-              <div className="lg:col-span-8 min-h-0 animate-slide-right">
-                <section className="theme-surface rounded-2xl border theme-border h-full p-3 shadow-[0_22px_50px_rgba(0,0,0,0.23)] flex flex-col min-h-0">
+              <div className="lg:col-span-8 lg:min-h-0 animate-slide-right">
+                <section className="theme-surface rounded-2xl border theme-border lg:h-full p-3 shadow-[0_22px_50px_rgba(0,0,0,0.23)] flex flex-col lg:min-h-0">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("Live Auto Rejoin List")}</div>
@@ -1253,12 +1262,12 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                   </div>
 
                   <div
-                    className={`flex-1 min-h-0 overflow-y-auto space-y-2 pr-1 transition-[margin-top] duration-220 ease-out ${
+                    className={`lg:flex-1 lg:min-h-0 lg:overflow-y-auto space-y-2 pr-1 transition-[margin-top] duration-220 ease-out ${
                       bulkSelectedUserIds.length > 0 ? "mt-2" : "mt-3"
                     }`}
                   >
                     {liveRows.length === 0 ? (
-                      <div className="h-full rounded-xl border theme-border theme-soft flex items-center justify-center text-[12px] theme-muted">
+                      <div className="lg:h-full min-h-[96px] rounded-xl border theme-border theme-soft flex items-center justify-center text-[12px] theme-muted">
                         {t("No selected accounts")}
                       </div>
                     ) : (
