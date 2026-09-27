@@ -281,6 +281,14 @@ export function parsePrivateServerCode(rawJobId: string): string {
  * caller sets place/job via setState and immediately triggers a launch (the
  * launch closure would otherwise still read the PREVIOUS place/job).
  */
+/**
+ * O que aconteceu com um launch de uma conta: `started` = o backend aceitou e o
+ * cliente está subindo; `refused` = já havia uma sequência de launch em
+ * andamento; `failed` = erro de launch (já reportado na tela). Quem chama usa
+ * isto para não anunciar sucesso quando nada começou.
+ */
+export type LaunchAttempt = "started" | "refused" | "failed";
+
 export interface LaunchTarget {
   placeId?: string;
   jobId?: string;
@@ -373,7 +381,7 @@ export interface StoreValue {
   presenceByUserId: Map<number, number>;
   launchedByProgram: Set<number>;
 
-  joinServer: (userId: number, target?: LaunchTarget) => Promise<void>;
+  joinServer: (userId: number, target?: LaunchTarget) => Promise<LaunchAttempt>;
   launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
   restartRobloxClients: (userIds: number[]) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
@@ -1236,12 +1244,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * Launch de uma conta. Erro comum de launch é reportado aqui e **não** sobe
-   * (é o contrato de sempre); a única exceção é a recusa por já haver uma
-   * sequência em andamento, que é relançada porque a tela precisa saber que nada
-   * começou.
+   * Launch de uma conta. Nenhum erro sobe daqui — quem chama não precisa de
+   * `try/catch` —, mas o resultado **diz se começou**: a tela que anuncia
+   * "seguindo com 1 conta..." em cima de um aviso de recusa ou de uma faixa
+   * vermelha de erro está mentindo para o usuário.
    */
-  async function joinServer(userId: number, target?: LaunchTarget) {
+  async function joinServer(userId: number, target?: LaunchTarget): Promise<LaunchAttempt> {
     clearLaunchTimeout();
     setJoiningAccounts(new Set([userId]));
     setLaunchProgress({
@@ -1301,16 +1309,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Recusa, não falha: o backend não deixa duas sequências de launch
         // rodarem juntas. A faixa vermelha de erro (com "abrir o log") diria a
         // coisa errada, então isto sai como aviso.
-        //
-        // E **relança**, ao contrário dos outros erros daqui: quem chamou tem de
-        // saber que não começou. Engolir fazia a Choose Game anunciar "seguindo
-        // com 1 conta..." em cima do aviso de recusa.
         reportLaunchAlreadyActive();
-        throw e;
+        return "refused";
       }
       setError(String(e));
       setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
-      return;
+      return "failed";
     }
 
     launchClearTimeoutRef.current = window.setTimeout(() => {
@@ -1322,6 +1326,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLaunchProgress((prev) => (prev?.mode === "single" && prev.userId === userId ? null : prev));
       launchClearTimeoutRef.current = null;
     }, 7000);
+    return "started";
   }
 
   async function launchMultiple(userIds: number[], target?: LaunchTarget) {
@@ -1482,13 +1487,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     if (launchedIds.length === 1) {
-      // `joinServer` relança a recusa por launch em andamento (já avisada na
-      // tela): aqui não há o que fazer além de não derrubar a promessa.
-      try {
-        await joinServer(launchedIds[0]);
-      } catch {
-        // já reportado
-      }
+      // O que deu errado (recusa ou falha) já foi reportado pelo próprio
+      // `joinServer`, e aqui não há nada a fazer com o resultado.
+      await joinServer(launchedIds[0]);
       return;
     }
 
