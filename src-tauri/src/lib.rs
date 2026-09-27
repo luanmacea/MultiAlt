@@ -95,6 +95,53 @@ fn frontend_painted() {
     webview_recovery::mark_painted();
 }
 
+/// Espelho de `WebviewSafeModeState` em `src/types.ts`. Existe fora do
+/// `#[cfg]` porque o frontend é um só: fora do Windows a resposta é
+/// simplesmente "não está em safe mode".
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SafeModeReport {
+    active: bool,
+    sticky: bool,
+}
+
+/// O app está com a aceleração de vídeo desligada? A faixa da UI depende disto
+/// para o usuário não rodar em modo degradado sem saber.
+#[tauri::command]
+fn get_webview_safe_mode() -> SafeModeReport {
+    #[cfg(target_os = "windows")]
+    {
+        let state = webview_recovery::current_state();
+        SafeModeReport {
+            active: state.active,
+            sticky: state.sticky,
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    SafeModeReport {
+        active: false,
+        sticky: false,
+    }
+}
+
+/// Apaga o marcador e reabre o app no modo normal.
+///
+/// O safe mode **deste** boot não dá para desligar: as flags foram entregues ao
+/// WebView2 quando a janela foi criada. Por isso a saída é reiniciar.
+#[tauri::command]
+fn leave_webview_safe_mode(app: AppHandle<Wry>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        webview_recovery::leave_safe_mode()?;
+        app.restart();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
 pub fn run() {
     // Antes de tudo: é a última hora de mexer nos argumentos que o WebView2 vai
     // receber (ver webview_recovery.rs).
@@ -238,6 +285,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             frontend_painted,
+            get_webview_safe_mode,
+            leave_webview_safe_mode,
             data::accounts::get_accounts,
             data::accounts::save_accounts,
             data::accounts::add_account,
