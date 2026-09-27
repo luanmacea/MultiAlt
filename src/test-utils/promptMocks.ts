@@ -23,7 +23,10 @@ export const promptAnswers = {
   confirmWithOptOut: { confirmed: false, dontShowAgain: false },
 };
 
-export const promptMock = vi.fn(async (_message: string, _defaultValue?: string) => promptAnswers.prompt);
+export const promptMock = vi.fn(
+  async (_message: string, _defaultValue?: string, _options?: { maxLength?: number }) =>
+    promptAnswers.prompt
+);
 export const confirmMock = vi.fn(async (_message: string, _destructive?: boolean) => promptAnswers.confirm);
 export const confirmWithOptOutMock = vi.fn(
   async (_message: string, _options?: unknown) => promptAnswers.confirmWithOptOut

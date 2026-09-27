@@ -101,6 +101,37 @@ describe("ContextMenu — account actions", () => {
     );
   });
 
+  /**
+   * Colar 300 caracteres no "Set Alias" do menu gravava 240 e avisava só
+   * "Alias updated": o corte era calado (medido no harness — o campo do prompt
+   * não tinha `maxlength`). O campo agora trava no mesmo limite da sidebar.
+   */
+  it("limita o campo do prompt a 240 caracteres, como a sidebar", async () => {
+    promptAnswers.prompt = null;
+    renderMenu();
+    await userEvent.click(item("Set Alias"));
+    await waitFor(() => expect(promptMock).toHaveBeenCalled());
+    expect(promptMock.mock.calls[0][2]).toEqual({ maxLength: 240 });
+  });
+
+  it("se o alias chegar maior que o limite, o aviso diz que ele foi cortado", async () => {
+    // O campo já trava em 240; isto é a rede para quem chegar por fora dele.
+    promptAnswers.prompt = "x".repeat(260);
+    const store = renderMenu();
+    await userEvent.click(item("Set Alias"));
+    await waitFor(() => expect(store.addToast).toHaveBeenCalled());
+    const aviso = (store.addToast as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(aviso).toContain("240");
+    expect(aviso).not.toBe("Alias updated");
+  });
+
+  it("um alias dentro do limite segue com o aviso de sempre", async () => {
+    promptAnswers.prompt = "Main";
+    const store = renderMenu();
+    await userEvent.click(item("Set Alias"));
+    await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Alias updated"));
+  });
+
   it("leaves the alias alone when the prompt is cancelled", async () => {
     promptAnswers.prompt = null;
     const store = renderMenu();
