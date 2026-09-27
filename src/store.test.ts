@@ -1179,6 +1179,28 @@ describe("account mutations", () => {
     expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Added Cookie");
   });
 
+  /**
+   * O Quick Add passou a aceitar a linha do import (`username:password:cookie`):
+   * a senha vai para o `add_account` separada, como no import — nunca dentro
+   * do cookie. Sem senha, a chamada fica exatamente como era.
+   */
+  it("guarda a senha junto quando o cookie veio de uma linha user:pass:cookie", async () => {
+    results.set("validate_cookie", { user_id: 7, name: "Cookie" });
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.addAccountByCookie("_|WARNING:-token", "hunter2");
+    });
+
+    expect(lastArgs("validate_cookie")).toEqual({ cookie: "_|WARNING:-token" });
+    expect(lastArgs("add_account")).toEqual({
+      securityToken: "_|WARNING:-token",
+      username: "Cookie",
+      userId: 7,
+      password: "hunter2",
+    });
+  });
+
   it("says 'Updated' when the account already exists", async () => {
     accountsData = [account({ UserID: 7 })];
     results.set("validate_cookie", { user_id: 7, name: "Cookie" });

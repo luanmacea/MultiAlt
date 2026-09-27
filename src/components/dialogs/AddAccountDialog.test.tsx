@@ -86,6 +86,34 @@ describe("AddAccountDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  /**
+   * O mesmo defeito do Quick Add da toolbar: `includes(COOKIE_MARKER)` mandava
+   * a linha `username:password:cookie` inteira como cookie (senha no cabeçalho
+   * de cookie, "Invalid cookie" de volta), e `usuario:senha` ia para a busca de
+   * usuário. As duas portas agora leem a linha com `parseImportLine`.
+   */
+  it("manda só o cookie de uma linha username:password:cookie e guarda a senha", async () => {
+    promptAnswers.prompt = `alt_one:hunter2:${COOKIE}`;
+    const { store } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Quick Add" }));
+
+    await waitFor(() => expect(store.addAccountByCookie).toHaveBeenCalledWith(COOKIE, "hunter2"));
+    expect(invokeMock).not.toHaveBeenCalledWith("lookup_user", expect.anything());
+  });
+
+  it("não procura usuario:senha como nome de usuário", async () => {
+    promptAnswers.prompt = "alt_one:hunter2";
+    const { store } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Quick Add" }));
+
+    await waitFor(() => expect(store.addToast).toHaveBeenCalled());
+    expect(invokeMock).not.toHaveBeenCalledWith("lookup_user", expect.anything());
+    expect(store.addAccountByCookie).not.toHaveBeenCalled();
+    const message = (store.addToast as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(message).toContain("User:Pass Login");
+    expect(message).not.toContain("hunter2");
+  });
+
   it("adds a pasted cookie without touching the user lookup", async () => {
     promptAnswers.prompt = COOKIE;
     const { store, onClose } = renderDialog();

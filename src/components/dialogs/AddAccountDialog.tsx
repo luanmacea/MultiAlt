@@ -1,9 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
 import { File, FileText, Globe, KeyRound, Package, Plus, Sparkles, UserPlus, X } from "lucide-react";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
 import { tr, useTr } from "../../i18n/text";
-import { COOKIE_MARKER } from "../../utils/cookies";
+import { quickAddAccount } from "../../utils/quickAdd";
 
 interface AddAccountDialogProps {
   open: boolean;
@@ -28,32 +27,9 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
       )
     );
     if (!input?.trim()) return;
-    const value = input.trim();
-
-    try {
-      if (value.includes(COOKIE_MARKER)) {
-        await store.addAccountByCookie(value);
-        return;
-      }
-
-      const user = await invoke<{ id: number; name: string }>("lookup_user", { username: value });
-      await invoke("add_account", {
-        securityToken: "",
-        username: user.name,
-        userId: user.id,
-      });
-      await store.loadAccounts();
-      // Busca por nome de usuário não traz cookie: a conta entra só como
-      // registro, sem sessão, e não lança. O mesmo aviso do Quick Add da
-      // toolbar — dizer só "Added" fazia parecer que tinha dado certo.
-      store.addToast(
-        tr("Added {{name}} with no session — paste its cookie or use Browser Login to sign in", {
-          name: user.name,
-        })
-      );
-    } catch (e) {
-      store.addToast(tr("Add failed: {{error}}", { error: String(e) }));
-    }
+    // O mesmo Quick Add da toolbar, numa função só (`quickAddAccount`): as duas
+    // cópias já divergiram uma vez.
+    await quickAddAccount(input, store);
   }
 
   async function handleBrowserLogin() {
