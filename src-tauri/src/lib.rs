@@ -6,6 +6,8 @@ mod data;
 #[cfg(feature = "nexus")]
 mod nexus;
 mod platform;
+#[cfg(target_os = "windows")]
+mod webview_recovery;
 
 use api::batch::ImageCache;
 use data::accounts::{get_account_data_path, AccountStore};
@@ -82,7 +84,23 @@ fn cleanup_multi_roblox_on_exit(app: &AppHandle<Wry>) {
     let _ = platform::macos::disable_multi_roblox();
 }
 
+/// O frontend pintou o primeiro quadro.
+///
+/// Mora aqui, e não em `commands/`, porque não é funcionalidade: é o sinal de
+/// vida da casca do app, e ele precisa existir em todo SO mesmo com
+/// `webview_recovery` sendo Windows-only.
+#[tauri::command]
+fn frontend_painted() {
+    #[cfg(target_os = "windows")]
+    webview_recovery::mark_painted();
+}
+
 pub fn run() {
+    // Antes de tudo: é a última hora de mexer nos argumentos que o WebView2 vai
+    // receber (ver webview_recovery.rs).
+    #[cfg(target_os = "windows")]
+    webview_recovery::prepare_environment();
+
     crypto::init();
 
     let account_store = AccountStore::new(get_account_data_path());
@@ -129,6 +147,11 @@ pub fn run() {
         .manage(UpdaterRuntimeState::default())
         .manage(chromium::ChromiumManager::new())
         .setup(|app| {
+            // A janela já existe: daqui em diante o prazo do primeiro quadro
+            // está correndo (ver webview_recovery.rs).
+            #[cfg(target_os = "windows")]
+            webview_recovery::start_watchdog(app.handle().clone());
+
             // Lets the launcher report progress while it installs a new Roblox
             // production build by itself (see platform/windows/launch.rs).
             #[cfg(target_os = "windows")]
@@ -214,6 +237,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            frontend_painted,
             data::accounts::get_accounts,
             data::accounts::save_accounts,
             data::accounts::add_account,
