@@ -1233,6 +1233,74 @@ async fn get_presence(user_ids: Vec<i64>) -> Result<Vec<api::roblox::UserPresenc
     api::roblox::get_presence(&user_ids).await
 }
 
+/// Onde uma conta esta jogando agora.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountGameLocation {
+    user_id: i64,
+    in_game: bool,
+    /// Place do jogo (`rootPlaceId` quando existe: e o que a tela usa).
+    place_id: Option<i64>,
+    /// Job id do servidor. **So vem com o cookie da propria conta** — sem ele a
+    /// API do Roblox omite o campo.
+    job_id: Option<String>,
+}
+
+/// Descobre o place e o servidor de uma conta que ja esta em jogo.
+///
+/// Serve para ligar o Botting Mode numa conta que o usuario lancou por fora:
+/// sem saber onde ela esta, o primeiro ciclo a relancaria no place da sessao e
+/// a tiraria do servidor em que estava.
+///
+/// **Sem `run_with_session_retry`** de proposito: e leitura, e o refresh chama
+/// `signoutfromallsessionsandreauthenticate`, que derruba justamente o cliente
+/// aberto que se quer preservar.
+#[tauri::command]
+async fn get_account_game_location(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+) -> Result<AccountGameLocation, String> {
+    get_account_game_location_inner(state.inner(), user_id).await
+}
+
+/// O miolo, sem o `State` do Tauri, para o teste poder chamar.
+async fn get_account_game_location_inner(
+    state: &AccountStore,
+    user_id: i64,
+) -> Result<AccountGameLocation, String> {
+    let presences = read_without_refresh(state, user_id, |cookie| async move {
+        api::roblox::get_presence_as(Some(&cookie), &[user_id]).await
+    })
+    .await?;
+
+    let found = presences.into_iter().find(|p| p.user_id == user_id);
+    let Some(presence) = found else {
+        return Ok(AccountGameLocation {
+            user_id,
+            in_game: false,
+            place_id: None,
+            job_id: None,
+        });
+    };
+
+    // 2 = InGame na API de presenca do Roblox.
+    let in_game = presence.user_presence_type == 2;
+    Ok(AccountGameLocation {
+        user_id,
+        in_game,
+        place_id: if in_game {
+            presence.root_place_id.or(presence.place_id)
+        } else {
+            None
+        },
+        job_id: if in_game {
+            presence.game_id.filter(|j| !j.is_empty())
+        } else {
+            None
+        },
+    })
+}
+
 // ── Amigos online ─────────────────────────────────────────────────────────────
 
 /// Uma conta e os amigos online dela. `error` preenchido substitui a lista

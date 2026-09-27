@@ -17,6 +17,7 @@ import type { LaunchLogLevel, LaunchTarget } from "../store";
 import { TONE_STYLES, type ToneStyle } from "../utils/toastTone";
 import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
+import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
 
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
 
@@ -115,6 +116,12 @@ function useLauncher() {
       // Recent games are recorded by the store on a successful launch.
       return { ok: true };
     } catch (e) {
+      if (isLaunchAlreadyActiveError(e)) {
+        // Recusa por sequência já em andamento: o store já avisou com um toast
+        // traduzido. Repetir aqui mostraria a mesma frase duas vezes, e o
+        // "Launch failed: {{error}}" despejaria o código do backend na tela.
+        return { ok: false, error: tr("A launch is already in progress") };
+      }
       store.addToast(tr("Launch failed: {{error}}", { error: String(e) }));
       return { ok: false, error: String(e) };
     }

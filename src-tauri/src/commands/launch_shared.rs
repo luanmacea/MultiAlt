@@ -72,9 +72,119 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
 struct WindowsClientOverrides {
     max_fps: Option<u32>,
     master_volume: Option<f32>,
-    graphics_level: Option<u32>,
+    graphics: Option<GraphicsQuality>,
+    /// `Some(true)` abre em tela cheia, `Some(false)` em janela, `None` deixa
+    /// como o Roblox tiver gravado.
+    fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
     fast_flags: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// Nível de qualidade gráfica pedido ao cliente. Existe como enum porque
+/// "automático" **não é** um nível: é o Roblox decidindo sozinho, gravado num
+/// campo diferente do XML. Passar `0` como se fosse um nível fazia o valor
+/// cair no `clamp(1, 10)` e virar 1 — a pior qualidade, não a automática.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GraphicsQuality {
+    Automatic,
+    /// Nível fixo de 1 a 10 (o `clamp` é feito na escrita do XML).
+    Level(u32),
+}
+
+/// Exceções de cliente de **uma conta só**, por cima do perfil global.
+///
+/// Ficam em `Account.fields` (portanto no `AccountData.json`, junto de
+/// `RobloxVersion`), e são aplicadas no instante em que aquela conta vai abrir.
+///
+/// Ressalva que precisa ficar escrita: `ClientAppSettings.json` é por pasta de
+/// versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows —
+/// os dois são **globais**. "Por conta" funciona porque a fila de launch é
+/// sequencial e o patch roda imediatamente antes de cada spawn; não é
+/// isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o
+/// Roblox reescreve o XML e o valor vaza para a próxima conta que abrir sem
+/// exceção própria.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct AccountClientOverrides {
+    pub max_fps: Option<u32>,
+    pub master_volume: Option<f32>,
+    pub graphics: Option<GraphicsQuality>,
+    pub fullscreen: Option<bool>,
+    pub window_size: Option<(u32, u32)>,
+    pub start_minimized: Option<bool>,
+}
+
+/// Chave de `Account.fields` que liga as exceções. Sem ela em `"true"`, os
+/// outros campos são ignorados — dá para guardar uma configuração desligada.
+pub(crate) const ACCOUNT_OVERRIDES_ENABLED_FIELD: &str = "ClientOverridesEnabled";
+
+fn field_str<'a>(fields: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
+    fields
+        .get(key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+}
+
+fn field_bool(fields: &HashMap<String, String>, key: &str) -> Option<bool> {
+    match field_str(fields, key)?.to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn field_u32(fields: &HashMap<String, String>, key: &str) -> Option<u32> {
+    field_str(fields, key)?.parse::<u32>().ok().filter(|v| *v > 0)
+}
+
+/// Lê as exceções de uma conta. `None` quando o interruptor está desligado ou
+/// quando nenhum campo tem valor útil — assim o resto do launch continua
+/// falando "esta conta não tem exceção" em vez de aplicar um struct vazio.
+pub(crate) fn account_client_overrides(
+    fields: &HashMap<String, String>,
+) -> Option<AccountClientOverrides> {
+    if field_bool(fields, ACCOUNT_OVERRIDES_ENABLED_FIELD) != Some(true) {
+        return None;
+    }
+
+    let graphics = field_str(fields, "ClientOverrideGraphics").and_then(|raw| {
+        if raw.eq_ignore_ascii_case("auto") || raw.eq_ignore_ascii_case("automatic") {
+            Some(GraphicsQuality::Automatic)
+        } else {
+            raw.parse::<u32>()
+                .ok()
+                .filter(|lvl| (1..=10).contains(lvl))
+                .map(GraphicsQuality::Level)
+        }
+    });
+
+    let master_volume = field_str(fields, "ClientOverrideVolume")
+        .and_then(|raw| raw.parse::<f32>().ok())
+        .filter(|v| v.is_finite())
+        .map(|v| v.clamp(0.0, 1.0));
+
+    let width = field_u32(fields, "ClientOverrideWindowWidth");
+    let height = field_u32(fields, "ClientOverrideWindowHeight");
+    // Meia janela não é janela: largura sem altura é configuração incompleta,
+    // e aplicar só uma das duas deixaria o cliente num tamanho que ninguém
+    // pediu.
+    let window_size = match (width, height) {
+        (Some(w), Some(h)) => Some((w, h)),
+        _ => None,
+    };
+
+    let overrides = AccountClientOverrides {
+        max_fps: field_u32(fields, "ClientOverrideMaxFPS"),
+        master_volume,
+        graphics,
+        fullscreen: field_bool(fields, "ClientOverrideFullscreen"),
+        window_size,
+        start_minimized: field_bool(fields, "ClientOverrideStartMinimized"),
+    };
+
+    if overrides == AccountClientOverrides::default() {
+        return None;
+    }
+    Some(overrides)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -146,6 +256,7 @@ fn windows_client_overrides(
     settings: &SettingsStore,
     allow_fps_override: bool,
     profile: LaunchClientProfile,
+    account: Option<&AccountClientOverrides>,
 ) -> WindowsClientOverrides {
     let unlock_fps_key = profile_key(
         profile,
@@ -208,12 +319,12 @@ fn windows_client_overrides(
         "BottingBotClientGraphicsLevel",
     );
 
-    let graphics_level = if settings.get_bool("General", override_graphics_key) {
+    let graphics = if settings.get_bool("General", override_graphics_key) {
         let lvl = settings
             .get_int("General", graphics_level_key)
             .unwrap_or(10);
         if lvl > 0 {
-            Some(lvl.clamp(1, 10) as u32)
+            Some(GraphicsQuality::Level(lvl.clamp(1, 10) as u32))
         } else {
             None
         }
@@ -271,19 +382,60 @@ fn windows_client_overrides(
         None
     };
 
-    WindowsClientOverrides {
+    // A conta entra **por cima**: cada campo que ela define substitui o global,
+    // e o que ela deixa vazio continua vindo do perfil. O FPS respeita o
+    // `allow_fps_override` igual ao global — quando o usuário aponta um
+    // ClientAppSettings.json próprio, ninguém mexe no FPS dele, nem a exceção.
+    let mut resolved = WindowsClientOverrides {
         max_fps,
         master_volume,
-        graphics_level,
+        graphics,
+        fullscreen: None,
         window_size,
         fast_flags,
+    };
+
+    if let Some(acc) = account {
+        if allow_fps_override {
+            if let Some(fps) = acc.max_fps {
+                resolved.max_fps = Some(fps);
+            }
+        }
+        if let Some(volume) = acc.master_volume {
+            resolved.master_volume = Some(volume);
+        }
+        if let Some(graphics) = acc.graphics {
+            resolved.graphics = Some(graphics);
+        }
+        if let Some(fullscreen) = acc.fullscreen {
+            resolved.fullscreen = Some(fullscreen);
+            // Tela cheia com um tamanho de janela ao lado é contraditório: o XML
+            // grava `Fullscreen=false` junto de `StartScreenSize`. Quem pediu
+            // tela cheia e não pediu tamanho fica só com a tela cheia.
+            if fullscreen && acc.window_size.is_none() {
+                resolved.window_size = None;
+            }
+        }
+        if let Some(size) = acc.window_size {
+            resolved.window_size = Some(size);
+        }
     }
+
+    resolved
 }
 
+/// `base_path`: pasta da versão do Roblox que vai realmente abrir (`None` =
+/// build padrão/produção, usada pelo servidor HTTP local, que não tem conta no
+/// contexto). Sem isso, `ClientAppSettings.json` era sempre escrito na pasta de
+/// produção mesmo quando a conta abre numa versão do catálogo — o cliente que
+/// de fato abre nunca lia o FPS/volume/qualidade/fullscreen/fast flags
+/// aplicados.
 #[cfg(target_os = "windows")]
 pub(crate) fn patch_client_settings_for_launch(
     settings: &SettingsStore,
     profile: LaunchClientProfile,
+    account: Option<&AccountClientOverrides>,
+    base_path: Option<&str>,
 ) {
     use platform::windows;
 
@@ -295,19 +447,22 @@ pub(crate) fn patch_client_settings_for_launch(
     // Legacy behavior: custom settings file overrides FPS unlock when valid.
     if !custom_settings.is_empty()
         && std::path::Path::new(custom_settings).exists()
-        && windows::copy_custom_client_settings(custom_settings).is_ok()
+        && windows::copy_custom_client_settings(base_path, custom_settings).is_ok()
     {
         custom_applied = true;
     }
 
-    let mut overrides = windows_client_overrides(settings, !custom_applied, effective_profile);
+    let mut overrides =
+        windows_client_overrides(settings, !custom_applied, effective_profile, account);
     if custom_applied {
         overrides.fast_flags = None;
     }
     let _ = windows::apply_runtime_client_settings(
+        base_path,
         overrides.max_fps,
         overrides.master_volume,
-        overrides.graphics_level,
+        overrides.graphics,
+        overrides.fullscreen,
         overrides.window_size,
         overrides.fast_flags.as_ref(),
     );
@@ -338,8 +493,17 @@ fn fps_unlock_target(settings: &SettingsStore, profile: LaunchClientProfile) -> 
 }
 
 #[cfg(target_os = "macos")]
-fn patch_client_settings_for_launch(settings: &SettingsStore, profile: LaunchClientProfile) {
+fn patch_client_settings_for_launch(
+    settings: &SettingsStore,
+    profile: LaunchClientProfile,
+    account: Option<&AccountClientOverrides>,
+    base_path: Option<&str>,
+) {
     use platform::macos;
+
+    // macOS não tem catálogo de versões instaladas (ver docs/features/launch.md);
+    // o parâmetro existe só para manter a mesma assinatura do lado Windows.
+    let _ = base_path;
 
     let custom_settings = custom_client_settings_path(settings, profile);
     let custom_settings = custom_settings.trim();
@@ -352,7 +516,12 @@ fn patch_client_settings_for_launch(settings: &SettingsStore, profile: LaunchCli
         return;
     }
 
-    if let Some(fps) = fps_unlock_target(settings, profile) {
+    // No macOS só o FPS é aplicável hoje; as outras exceções por conta dependem
+    // do `GlobalBasicSettings_13.xml`, que é do lado Windows.
+    let fps = account
+        .and_then(|a| a.max_fps)
+        .or_else(|| fps_unlock_target(settings, profile));
+    if let Some(fps) = fps {
         let _ = macos::apply_fps_unlock(fps);
     }
 }
@@ -593,6 +762,9 @@ struct BottingConfig {
     retry_max: u32,
     retry_base_seconds: u64,
     player_grace_minutes: u64,
+    /// A sessao foi aberta sobre contas que **ja estavam em jogo**: na primeira
+    /// passagem elas nao sao fechadas nem relancadas, so entram no ciclo.
+    adopt_running: bool,
 }
 
 #[cfg(target_os = "windows")]

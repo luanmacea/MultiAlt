@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
+import { AccountLaunchOverrides } from "./AccountLaunchOverrides";
 import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
 import { User, Package } from "lucide-react";
@@ -195,6 +196,8 @@ export function SingleSelectSidebar() {
             </button>
           </SidebarSection>
         )}
+
+        <AccountLaunchOverrides account={account} />
 
         <SidebarSection title={t("Tools")}>
           <p className="text-[11px] theme-muted mb-1.5">{t("Account utilities and quick actions")}</p>
