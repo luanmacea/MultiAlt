@@ -47,7 +47,7 @@ fn botting_retry_config(settings: &SettingsStore) -> (u32, u64, i64) {
 /// Rejoin interval, in minutes. Too short and Roblox rate-limits the account.
 #[cfg(target_os = "windows")]
 fn clamp_botting_interval_minutes(interval_minutes: i64) -> u64 {
-    interval_minutes.clamp(10, 120) as u64
+    interval_minutes.clamp(10, 480) as u64
 }
 
 /// Spacing between two launches of the session, in seconds.
@@ -1525,14 +1525,17 @@ mod botting_command_tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn clamp_botting_interval_minutes_keeps_10_to_120() {
+    fn clamp_botting_interval_minutes_keeps_10_to_480() {
         assert_eq!(clamp_botting_interval_minutes(19), 19);
         assert_eq!(clamp_botting_interval_minutes(10), 10);
         assert_eq!(clamp_botting_interval_minutes(120), 120);
+        assert_eq!(clamp_botting_interval_minutes(480), 480);
+        assert_eq!(clamp_botting_interval_minutes(481), 480);
+        assert_eq!(clamp_botting_interval_minutes(9), 10);
         assert_eq!(clamp_botting_interval_minutes(0), 10);
         assert_eq!(clamp_botting_interval_minutes(-100), 10);
-        assert_eq!(clamp_botting_interval_minutes(100_000), 120);
-        assert_eq!(clamp_botting_interval_minutes(i64::MAX), 120);
+        assert_eq!(clamp_botting_interval_minutes(100_000), 480);
+        assert_eq!(clamp_botting_interval_minutes(i64::MAX), 480);
         assert_eq!(clamp_botting_interval_minutes(i64::MIN), 10);
     }
 

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   collectGroupNames,
   getFreshnessColor,
+  MAX_ALIAS_LENGTH,
   maskAccountName,
   orderGroupKeys,
   parseGroupName,
@@ -178,6 +179,20 @@ describe("maskAccountName", () => {
   it("hides the whole name when the preview would show all of it", () => {
     expect(maskAccountName("ann", true, 3)).toBe("************");
     expect(maskAccountName("ann", true, 9)).toBe("************");
+  });
+
+  it("masks a 240-character alias the same way as a short one", () => {
+    // O alias agora aceita ate MAX_ALIAS_LENGTH caracteres — a mascara nao
+    // pode vazar o tamanho real do nome escondendo mais ou menos estrelas.
+    const longName = "a".repeat(MAX_ALIAS_LENGTH);
+    expect(maskAccountName(longName, true, 3)).toBe("aaa********");
+    expect(maskAccountName(longName, true, 0)).toBe("************");
+  });
+});
+
+describe("MAX_ALIAS_LENGTH", () => {
+  it("is 240 characters", () => {
+    expect(MAX_ALIAS_LENGTH).toBe(240);
   });
 });
 

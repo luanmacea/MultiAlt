@@ -90,13 +90,13 @@ describe("ContextMenu — account actions", () => {
     expect(store.updateAccount).toHaveBeenCalledWith(expect.objectContaining({ UserID: 2, Alias: "Main" }));
   });
 
-  it("caps the alias at 30 characters", async () => {
-    promptAnswers.prompt = "x".repeat(50);
+  it("caps the alias at 240 characters", async () => {
+    promptAnswers.prompt = "x".repeat(260);
     const store = renderMenu();
     await userEvent.click(item("Set Alias"));
     await waitFor(() =>
       expect(store.updateAccount).toHaveBeenCalledWith(
-        expect.objectContaining({ Alias: "x".repeat(30) })
+        expect.objectContaining({ Alias: "x".repeat(240) })
       )
     );
   });

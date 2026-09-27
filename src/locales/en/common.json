@@ -1669,5 +1669,8 @@
   "Running for {{elapsed}}": "Running for {{elapsed}}",
   "Send the key now": "Send the key now",
   "Sending...": "Sending...",
-  "Sent {{key}} to {{count}} accounts": "Sent {{key}} to {{count}} accounts"
+  "Sent {{key}} to {{count}} accounts": "Sent {{key}} to {{count}} accounts",
+  "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480).": "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480).",
+  "Show long aliases and usernames in full instead of cutting them off": "Show long aliases and usernames in full instead of cutting them off",
+  "Wrap Long Names": "Wrap Long Names"
 }

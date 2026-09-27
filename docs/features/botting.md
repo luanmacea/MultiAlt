@@ -73,7 +73,7 @@ sequenceDiagram
   - Continua valendo o mínimo de **duas contas** para abrir uma sessão; com uma só, a mensagem diz isso em vez de deixar o backend recusar.
 - **Abertura com jogo escolhido:** o diálogo aceita `initialPlaceId` (`store.openBottingDialog(placeId)`), usado pelo clique direito num jogo nas listas da Choose Game. Esse place **vence** o rascunho `General.BottingDraftPlaceId`, que por sua vez vence a store — sem essa precedência, escolher o jogo no menu e ver outro place no diálogo. Abrir sem jogo (barra de ações, toolbar, sidebar) limpa o jogo da abertura anterior.
 - **Pré-requisitos:** pelo menos 2 contas únicas; `placeId > 0`; `EnableMultiRbx` ligado; players precisam estar entre as contas selecionadas.
-- **Limites (clamp):** `interval_minutes` 10–120; `launch_delay_seconds` 5–120; `player_grace_minutes` 1–90 (≤ 0 usa `BottingPlayerGraceMinutes`, default 15); `BottingRetryMax` 1–20 (default 6); `BottingRetryBaseSeconds` 5–120 (default 8).
+- **Limites (clamp):** `interval_minutes` 10–480; `launch_delay_seconds` 5–120; `player_grace_minutes` 1–90 (≤ 0 usa `BottingPlayerGraceMinutes`, default 15); `BottingRetryMax` 1–20 (default 6); `BottingRetryBaseSeconds` 5–120 (default 8).
 - **Backoff:** `base × 2^(min(retry_count-1, retry_max, 12))`, limitado a 5–300 s.
 - **429:** delay = `max(backoff, 45 s, 2 × launch_delay)` e a conta entra em cooldown (pulada até vencer, fase `retry-backoff`).
 - **Falha ao fechar o cliente anterior:** `retry-backoff` com `max(backoff, 2 × launch_delay)` limitado a 6–300 s e erro "Previous Roblox instance did not close before relaunch (pid N)".

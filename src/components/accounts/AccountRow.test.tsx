@@ -255,4 +255,51 @@ describe("AccountRow", () => {
     renderRow({ selectedIds: new Set([501]) });
     expect(row().className).toContain("theme-row-selected");
   });
+
+  /**
+   * O alias agora aceita ate 240 caracteres, o que estoura a linha da conta.
+   * Sem `WrapLongNames` o nome continua sendo cortado (comportamento de
+   * sempre); ligado, o nome quebra em vez de truncar. As duas classes sao
+   * mutuamente exclusivas para nao truncar E quebrar ao mesmo tempo.
+   */
+  describe("long names", () => {
+    const longAlias = "a".repeat(240);
+    const longAccount = makeAccount({ UserID: 501, Username: "roboduck", Alias: longAlias });
+
+    it("truncates a long alias by default (WrapLongNames off)", () => {
+      renderRow({}, longAccount);
+      const nameEl = screen.getByText(longAlias);
+      expect(nameEl.className).toContain("truncate");
+      expect(nameEl.className).not.toContain("break-words");
+    });
+
+    it("wraps a long alias instead of truncating when WrapLongNames is on", () => {
+      const settings = defaultSettings();
+      settings.General.WrapLongNames = "true";
+      renderRow({ settings }, longAccount);
+      const nameEl = screen.getByText(longAlias);
+      expect(nameEl.className).toContain("break-words");
+      expect(nameEl.className).not.toContain("truncate");
+    });
+
+    it("wraps the @username line too when WrapLongNames is on", () => {
+      const settings = defaultSettings();
+      settings.General.WrapLongNames = "true";
+      const longUsername = makeAccount({
+        UserID: 501,
+        Username: longAlias,
+        Alias: "Main",
+      });
+      renderRow({ settings }, longUsername);
+      const usernameEl = screen.getByText(`@${longAlias}`);
+      expect(usernameEl.className).toContain("break-words");
+      expect(usernameEl.className).not.toContain("truncate");
+    });
+
+    it("still masks a long alias correctly when names are hidden", () => {
+      renderRow({ hideUsernames: true, hiddenNameLetters: 3 }, longAccount);
+      expect(screen.getByText("aaa********")).toBeInTheDocument();
+      expect(screen.queryByText(longAlias)).not.toBeInTheDocument();
+    });
+  });
 });

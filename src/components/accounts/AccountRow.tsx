@@ -50,6 +50,10 @@ export function AccountRow({ account }: { account: Account }) {
   const description = account.Description?.trim() || "";
   const hideAvatar = store.hideUsernames && !store.showAvatarsWhenHidden;
   const showPresence = store.settings?.General?.ShowPresence === "true";
+  // Alias vai ate 240 caracteres (Task 10) e isso estoura a linha; sem esta
+  // opcao o nome continua sendo cortado, que e o comportamento de sempre.
+  const wrapLongNames = store.settings?.General?.WrapLongNames === "true";
+  const nameOverflowClass = wrapLongNames ? "break-words" : "truncate";
   const presenceType = store.presenceByUserId.get(account.UserID) ?? 0;
   const launchedLocally = store.launchedByProgram.has(account.UserID);
   const isJoining = store.joiningAccounts.has(account.UserID);
@@ -230,7 +234,7 @@ export function AccountRow({ account }: { account: Account }) {
             </Tooltip>
           )}
           <div
-            className={`text-[13px] truncate leading-tight transition-colors duration-100 ${
+            className={`text-[13px] ${nameOverflowClass} leading-tight transition-colors duration-100 ${
               selected ? "theme-accent" : "text-[var(--panel-fg)]"
             }`}
           >
@@ -238,7 +242,7 @@ export function AccountRow({ account }: { account: Account }) {
           </div>
         </div>
         {showUsername && (
-          <div className="text-[12px] theme-muted truncate leading-tight">
+          <div className={`text-[12px] theme-muted ${nameOverflowClass} leading-tight`}>
             @{account.Username}
           </div>
         )}

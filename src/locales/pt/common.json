@@ -1669,5 +1669,8 @@
   "Running for {{elapsed}}": "Rodando há {{elapsed}}",
   "Send the key now": "Enviar a tecla agora",
   "Sending...": "Enviando...",
-  "Sent {{key}} to {{count}} accounts": "{{key}} enviada para {{count}} contas"
+  "Sent {{key}} to {{count}} accounts": "{{key}} enviada para {{count}} contas",
+  "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480).": "Intervalo de rejoin: minutos que uma conta bot fica no servidor antes de o cliente dela ser fechado e aberto de novo (10-480).",
+  "Show long aliases and usernames in full instead of cutting them off": "Mostra apelidos e nomes de usuário longos por inteiro em vez de cortá-los",
+  "Wrap Long Names": "Quebrar Nomes Longos"
 }

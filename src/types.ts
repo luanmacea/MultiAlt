@@ -1,3 +1,6 @@
+/** Teto do apelido: acima disso a UI corta ou quebra a linha, conforme `WrapLongNames`. */
+export const MAX_ALIAS_LENGTH = 240;
+
 export interface Account {
   Valid: boolean;
   SecurityToken: string;
