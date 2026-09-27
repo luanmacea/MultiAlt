@@ -253,28 +253,49 @@ pub fn get_roblox_path() -> Result<String, String> {
     }
 
     let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    let versions_dir = format!("{}\\Roblox\\Versions", local_app_data);
-
-    if let Ok(entries) = std::fs::read_dir(&versions_dir) {
-        let mut best: Option<(SystemTime, String)> = None;
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with("version-") && entry.path().join("RobloxPlayerBeta.exe").exists() {
-                if let Ok(meta) = entry.metadata() {
-                    if let Ok(modified) = meta.modified() {
-                        if best.as_ref().map_or(true, |(t, _)| modified > *t) {
-                            best = Some((modified, entry.path().to_string_lossy().into_owned()));
-                        }
-                    }
-                }
-            }
-        }
-        if let Some((_, path)) = best {
+    for dir in candidate_versions_dirs(&local_app_data) {
+        if let Some((_, path)) = scan_versions_dir(&dir) {
             return Ok(path);
         }
     }
 
     Err("Roblox installation not found".into())
+}
+
+/// Varre uma pasta `Versions` (do Roblox oficial ou de um bootstrapper de
+/// terceiros) e devolve a instalação válida mais recente nela, se houver.
+/// Toca disco — sem teste direto; o que é testado é a lista de pastas que
+/// alimenta esta função (`candidate_versions_dirs`).
+fn scan_versions_dir(dir: &std::path::Path) -> Option<(SystemTime, String)> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut best: Option<(SystemTime, String)> = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("version-") && entry.path().join("RobloxPlayerBeta.exe").exists() {
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if best.as_ref().map_or(true, |(t, _)| modified > *t) {
+                        best = Some((modified, entry.path().to_string_lossy().into_owned()));
+                    }
+                }
+            }
+        }
+    }
+    best
+}
+
+/// Pastas `Versions` candidatas para achar uma instalação do Roblox, na ordem
+/// em que `get_roblox_path` deve procurar. `Roblox` vem sempre primeiro — a
+/// instalação oficial ganha de qualquer bootstrapper de terceiros presente na
+/// mesma máquina — e só depois os bootstrappers mais usados (Bloxstrap,
+/// Fishstrap, Voidstrap), que instalam o `RobloxPlayerBeta.exe` na própria
+/// pasta em vez de `%LOCALAPPDATA%\Roblox`.
+fn candidate_versions_dirs(local_app_data: &str) -> Vec<PathBuf> {
+    let local = PathBuf::from(local_app_data);
+    ["Roblox", "Bloxstrap", "Fishstrap", "Voidstrap"]
+        .iter()
+        .map(|root| local.join(root).join("Versions"))
+        .collect()
 }
 
 fn get_client_settings_file() -> Result<PathBuf, String> {
@@ -354,6 +375,59 @@ mod client_settings_file_path_tests {
         let path_b = get_client_settings_file_in(&base_b).expect("path b");
 
         assert_ne!(path_a, path_b);
+    }
+}
+
+/// Pastas onde o launcher oficial e os bootstrappers de terceiros mais usados
+/// guardam suas builds instaladas do Roblox. Bloxstrap, Fishstrap e Voidstrap
+/// instalam o `RobloxPlayerBeta.exe` na própria pasta em vez de
+/// `%LOCALAPPDATA%\Roblox`, então sem isso o app não os enxerga e o usuário
+/// que só joga por um deles "não tem Roblox instalado".
+///
+/// A ordem importa: a instalação oficial (`Roblox`) vem sempre primeiro —
+/// `get_roblox_path` para no primeiro diretório que tiver uma versão válida,
+/// então a oficial ganha de qualquer bootstrapper de terceiros presente na
+/// mesma máquina.
+#[cfg(test)]
+mod roblox_install_candidates_tests {
+    use super::*;
+
+    #[test]
+    fn candidate_versions_dirs_puts_the_official_install_first() {
+        let dirs = candidate_versions_dirs(r"C:\Users\alguem\AppData\Local");
+        let names: Vec<String> = dirs
+            .iter()
+            .map(|d| d.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                r"C:\Users\alguem\AppData\Local\Roblox\Versions",
+                r"C:\Users\alguem\AppData\Local\Bloxstrap\Versions",
+                r"C:\Users\alguem\AppData\Local\Fishstrap\Versions",
+                r"C:\Users\alguem\AppData\Local\Voidstrap\Versions",
+            ]
+        );
+    }
+
+    #[test]
+    fn candidate_versions_dirs_joins_versions_under_each_launcher_root() {
+        let dirs = candidate_versions_dirs(r"D:\Local");
+        assert_eq!(dirs.len(), 4);
+        for dir in &dirs {
+            assert!(dir.ends_with("Versions"));
+            assert!(dir.starts_with(r"D:\Local"));
+        }
+    }
+
+    #[test]
+    fn candidate_versions_dirs_is_stable_for_an_empty_base() {
+        // Nunca deveria acontecer (LOCALAPPDATA vazio), mas a função é pura e
+        // não deve entrar em pânico nem mudar a ordem.
+        let dirs = candidate_versions_dirs("");
+        assert_eq!(dirs.len(), 4);
+        assert_eq!(dirs[0], PathBuf::from("Roblox").join("Versions"));
+        assert_eq!(dirs[3], PathBuf::from("Voidstrap").join("Versions"));
     }
 }
 
