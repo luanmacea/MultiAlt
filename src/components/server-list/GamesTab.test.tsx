@@ -192,7 +192,7 @@ describe("GamesTab — ações do jogo pelo menu de contexto", () => {
     expect(props.onJoinGame).not.toHaveBeenCalled();
   });
 
-  /** No diálogo antigo não há para onde abrir o Auto Rejoin: o item não pode aparecer morto. */
+  /** Tela que não passa a ação não ganha item morto: sem callback, o item some. */
   it("esconde a ação que a tela não oferece", async () => {
     const { menu } = await abrirMenu({ onBotting: undefined, onScripts: undefined });
 

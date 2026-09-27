@@ -319,7 +319,11 @@ export interface StoreValue {
   groups: ParsedGroup[];
   loadAccounts: () => Promise<void>;
   saveAccounts: () => Promise<void>;
-  addAccountByCookie: (cookie: string) => Promise<void>;
+  /**
+   * `password` só quando a linha colada trazia `usuario:senha` antes do cookie
+   * (o formato do import): vai separado para o `add_account`, nunca no cookie.
+   */
+  addAccountByCookie: (cookie: string, password?: string) => Promise<void>;
   removeAccounts: (userIds: number[]) => Promise<void>;
   updateAccount: (account: Account) => Promise<void>;
 
@@ -971,6 +975,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   /**
+   * Tira do rodapé a linha `message` — **só se ela ainda for a que está lá**.
+   * Quem anunciou "Launching X…" e foi recusado não pode deixar a frase no ar
+   * até o timeout dela (5 s dizendo que lança o que acabou de ser recusado);
+   * mas se outra ação já escreveu por cima nesse meio-tempo, a linha dela fica.
+   */
+  const withdrawActionStatus = useCallback((message: string) => {
+    const localized = i18n.exists(message) ? tr(message) : message;
+    setActionStatus((prev) => (prev?.message === localized ? null : prev));
+  }, []);
+
+  /**
    * A fila de toasts: "isto **acabou de acontecer**". O tom sai do texto uma
    * única vez, aqui, e vai junto no item — os ~200 call sites continuam
    * chamando `addToast(frase)` e nada mais.
@@ -1115,16 +1130,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function addAccountByCookie(cookie: string) {
+  async function addAccountByCookie(cookie: string, password?: string) {
     try {
       const info = await invoke<{ user_id: number; name: string }>("validate_cookie", {
         cookie,
       });
       const alreadyExists = accounts.some((a) => a.UserID === info.user_id);
+      // Sem senha a chamada fica exatamente como sempre foi (o `add_account`
+      // recebe `Option<String>` e só troca a senha guardada quando vem uma).
       await invoke("add_account", {
         securityToken: cookie,
         username: info.name,
         userId: info.user_id,
+        ...(password ? { password } : {}),
       });
       await loadAccounts();
       addToast(tr(alreadyExists ? "Updated {{name}}" : "Added {{name}}", { name: info.name }));
@@ -1335,7 +1353,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
     const launchAccount = accounts.find((a) => a.UserID === userId);
     const accountName = launchAccount?.Alias || launchAccount?.Username || String(userId);
-    setActionStatusMessage(tr("Launching {{name}}...", { name: accountName }), "info", 5000);
+    const launchingLine = tr("Launching {{name}}...", { name: accountName });
+    setActionStatusMessage(launchingLine, "info", 5000);
 
     try {
       const pid = parseInt(target?.placeId ?? placeId) || 5315046213;
@@ -1397,7 +1416,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (isLaunchAlreadyActiveError(e)) {
         // Recusa, não falha: o backend não deixa duas sequências de launch
         // rodarem juntas. A faixa vermelha de erro (com "abrir o log") diria a
-        // coisa errada, então isto sai como aviso.
+        // coisa errada, então isto sai como aviso — e o "Launching X…" que
+        // este launch pôs no rodapé sai junto: nada está sendo lançado.
+        withdrawActionStatus(launchingLine);
         reportLaunchAlreadyActive();
         return "refused";
       }
@@ -1438,7 +1459,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       total: userIds.length,
       userId: userIds[0],
     });
-    setActionStatusMessage(tr("Launching {{count}} accounts...", { count: userIds.length }), "info", 5000);
+    const launchingLine = tr("Launching {{count}} accounts...", { count: userIds.length });
+    setActionStatusMessage(launchingLine, "info", 5000);
 
     try {
       const pid = parseInt(target?.placeId ?? placeId) || 5315046213;
@@ -1478,9 +1500,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setJoiningAccounts(new Set());
       setLaunchProgress(null);
       if (isLaunchAlreadyActiveError(e)) {
-        // Ver `joinServer`: recusa por sequência já em andamento é aviso. O erro
-        // original é relançado com o código intacto para quem chamou reconhecer
-        // (a tela de Choose Game não repete o toast).
+        // Ver `joinServer`: recusa por sequência já em andamento é aviso, e o
+        // "Launching N accounts…" deste lote sai do rodapé. O erro original é
+        // relançado com o código intacto para quem chamou reconhecer (a tela de
+        // Choose Game não repete o toast).
+        withdrawActionStatus(launchingLine);
         reportLaunchAlreadyActive();
         throw e;
       }

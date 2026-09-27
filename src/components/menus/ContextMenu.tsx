@@ -206,12 +206,23 @@ export function ContextMenu() {
     {
       label: t("Set Alias"),
       action: async () => {
-        const alias = await prompt(t("Alias:"), single?.Alias || "");
+        // O campo trava no mesmo limite da sidebar: antes aceitava colar 300
+        // caracteres, gravava 240 e avisava só "Alias updated".
+        const alias = await prompt(t("Alias:"), single?.Alias || "", {
+          maxLength: MAX_ALIAS_LENGTH,
+        });
         if (alias === null) return;
+        const cortado = alias.length > MAX_ALIAS_LENGTH;
         for (const a of accounts) {
           store.updateAccount({ ...a, Alias: alias.slice(0, MAX_ALIAS_LENGTH) });
         }
-        store.addToast(t("Alias updated"));
+        // Rede para o que chegar por fora do campo (um alias antigo maior que o
+        // limite vindo como valor inicial): o corte não fica calado.
+        if (cortado) {
+          store.addToast(t("Alias updated — cut to {{max}} characters", { max: MAX_ALIAS_LENGTH }), "warn");
+        } else {
+          store.addToast(t("Alias updated"));
+        }
       },
     },
     {

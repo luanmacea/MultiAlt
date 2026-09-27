@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -397,6 +397,128 @@ describe("BottingDialog — long alias chips", () => {
   it("keeps the full name reachable via title when the chip is truncated", () => {
     renderDialog({}, [longAccount]);
     expect(targetsChip()).toHaveAttribute("title", longAlias);
+  });
+});
+
+/**
+ * O chip de Targets já mostrava o nome inteiro no `title`; os outros lugares do
+ * diálogo que cortam o nome não. Medido no harness a 1100x700: na lista ao vivo
+ * da New View o nome tinha 556 de 1765 px, no menu Main Accounts 192 px, no
+ * botão Main Accounts 240 px, e no Live Cycle da Classic uma caixa de **90 px**
+ * — que corta até nome comum (`MyFarmAccount01` mede 109 px), e as alts
+ * numeradas viravam todas "MyFarmAccou…" sem jeito de ler o resto.
+ */
+describe("BottingDialog — nome cortado tem o nome inteiro no title", () => {
+  const longAlias = "a".repeat(MAX_ALIAS_LENGTH);
+  const longAccount = makeAccount({ UserID: 1, Username: "ann", Alias: longAlias });
+
+  /** O `title` que o navegador mostra ao passar o mouse: o do ancestral mais próximo. */
+  function tituloDe(el: Element): string | null {
+    return el.closest("[title]")?.getAttribute("title") ?? null;
+  }
+
+  function comMainAccount() {
+    // O rascunho salvo traz a conta 1 como Main Account.
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlayerAccountIds: "1" } } : undefined
+    );
+  }
+
+  it("na lista ao vivo da New View", () => {
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const secao = screen.getByText("Live Auto Rejoin List").closest("section") as HTMLElement;
+    expect(tituloDe(within(secao).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("nos itens do menu Main Accounts", () => {
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const gatilho = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    const menu = gatilho.nextElementSibling as HTMLElement;
+    expect(tituloDe(within(menu).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("no botão Main Accounts com uma conta escolhida", async () => {
+    comMainAccount();
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const botao = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent(longAlias));
+    expect(tituloDe(within(botao).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("no botão Main Accounts com várias contas, o title diz quais são", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlayerAccountIds: "1,2" } } : undefined
+    );
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const botao = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent("2 selected"));
+    expect(tituloDe(within(botao).getByText("2 selected"))).toBe(`${longAlias}, bob`);
+  });
+
+  it("no Live Cycle da visão Classic", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDualPanelDialog: "false" } } : undefined
+    );
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const titulo = await screen.findByText("Live Cycle");
+    const secao = titulo.closest("section") as HTMLElement;
+    expect(tituloDe(within(secao).getByText(longAlias))).toBe(longAlias);
+  });
+});
+
+describe("BottingDialog — New View em janela estreita", () => {
+  /**
+   * Abaixo de `lg` (1024 px) o grid de duas colunas vira duas linhas, e elas
+   * dividiam a altura fixa do diálogo: a 900x560 a "Live Auto Rejoin List"
+   * ficava com 0 px e o conteúdo (`overflow-hidden`) não rolava — nenhuma ação
+   * por conta alcançável, e a 750x450 nem as ações em lote. Medido no harness
+   * (relatório da Frente C do checkup).
+   *
+   * O jsdom não calcula layout, então isto trava a estrutura de que o conserto
+   * depende: quem rola é o **conteúdo** do diálogo, e do conteúdo até a lista
+   * (e até os controles da coluna esquerda) nada limita a altura fora de `lg:`.
+   * A prova de que cabe é a medida no harness, não este teste.
+   */
+  const LIMITA_ALTURA = ["overflow-hidden", "overflow-y-auto", "min-h-0", "h-full", "flex-1"];
+
+  function conteudoDoDialogo(): HTMLElement {
+    const secao = screen.getByText("How each cycle works").closest("section");
+    if (!secao?.parentElement) throw new Error("conteúdo do diálogo não encontrado");
+    return secao.parentElement;
+  }
+
+  /** Classes que limitam a altura sem `lg:`, do elemento até o conteúdo. */
+  function limitesForaDoLg(de: HTMLElement): string[] {
+    const conteudo = conteudoDoDialogo();
+    const achados: string[] = [];
+    for (let el: HTMLElement | null = de; el && el !== conteudo; el = el.parentElement) {
+      for (const classe of el.className.split(/\s+/)) {
+        if (LIMITA_ALTURA.includes(classe)) {
+          achados.push(`${classe} em <${el.tagName.toLowerCase()} class="${el.className.slice(0, 48)}">`);
+        }
+      }
+    }
+    return achados;
+  }
+
+  it("o conteúdo da New View rola em qualquer largura", () => {
+    renderDialog();
+    const classes = conteudoDoDialogo().className.split(/\s+/);
+    expect(classes).toContain("overflow-y-auto");
+    expect(classes).not.toContain("overflow-hidden");
+  });
+
+  it("do conteúdo até a lista ao vivo, só `lg:` limita a altura", () => {
+    renderDialog();
+    const secao = screen.getByText("Live Auto Rejoin List").closest("section");
+    const lista = secao?.lastElementChild as HTMLElement | null;
+    if (!lista) throw new Error("lista ao vivo não encontrada");
+    expect(limitesForaDoLg(lista)).toEqual([]);
+  });
+
+  it("do conteúdo até os controles da coluna esquerda, só `lg:` limita a altura", () => {
+    renderDialog();
+    expect(limitesForaDoLg(startButton())).toEqual([]);
   });
 });
 

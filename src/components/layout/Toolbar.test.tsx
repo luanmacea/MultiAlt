@@ -227,6 +227,43 @@ describe("Toolbar — Add menu", () => {
 });
 
 describe("Toolbar — Quick Add", () => {
+  /**
+   * O import anuncia o formato `username:password:cookie`, e o Quick Add
+   * decidia com `includes(COOKIE_MARKER)` e mandava a linha **inteira** como
+   * cookie: a senha viajava no cabeçalho de cookie e o recurso falhava com
+   * "Invalid cookie". Agora a linha passa pelo mesmo leitor do import
+   * (`parseImportLine`): só o cookie vai como cookie, e a senha fica guardada,
+   * como no import.
+   */
+  it("manda só o cookie de uma linha username:password:cookie e guarda a senha", async () => {
+    promptAnswers.prompt = `alt_one:hunter2:${COOKIE}`;
+    const store = renderToolbar();
+    await openAddMenu();
+    await userEvent.click(screen.getByRole("button", { name: "Quick Add" }));
+
+    await waitFor(() => expect(store.addAccountByCookie).toHaveBeenCalledWith(COOKIE, "hunter2"));
+    expect(invokeMock).not.toHaveBeenCalledWith("lookup_user", expect.anything());
+  });
+
+  /**
+   * Sem cookie, `usuario:senha` ia para o `lookup_user` como se fosse um nome
+   * de usuário — a senha saía na busca de usuário. Quick Add não entra com
+   * senha; a tela diz qual entrada faz isso.
+   */
+  it("não procura usuario:senha como nome de usuário", async () => {
+    promptAnswers.prompt = "alt_one:hunter2";
+    const store = renderToolbar();
+    await openAddMenu();
+    await userEvent.click(screen.getByRole("button", { name: "Quick Add" }));
+
+    await waitFor(() => expect(store.addToast).toHaveBeenCalled());
+    expect(invokeMock).not.toHaveBeenCalledWith("lookup_user", expect.anything());
+    expect(store.addAccountByCookie).not.toHaveBeenCalled();
+    const message = (store.addToast as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(message).toContain("User:Pass Login");
+    expect(message).not.toContain("hunter2");
+  });
+
   it("treats a pasted cookie as a cookie add", async () => {
     promptAnswers.prompt = COOKIE;
     const store = renderToolbar();

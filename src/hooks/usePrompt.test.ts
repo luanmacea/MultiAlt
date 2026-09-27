@@ -73,6 +73,39 @@ describe("prompt", () => {
     expect(document.querySelector(".fixed.inset-0")).toBeNull();
   });
 
+  /**
+   * O prompt genérico não tinha limite: o "Set Alias" do menu de contexto
+   * aceitava colar 300 caracteres, gravava 240 e avisava só "Alias updated" —
+   * o corte era calado. Com `maxLength` o campo para no limite na hora de
+   * colar (como o campo de alias da sidebar) e diz quanto cabe.
+   */
+  it("respeita um limite de caracteres e mostra quanto já foi usado", async () => {
+    const user = userEvent.setup();
+    const { result } = renderDialogs();
+
+    act(() => {
+      void result.current.prompt("Alias:", "ab", { maxLength: 5 });
+    });
+
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    expect(input.maxLength).toBe(5);
+    expect(screen.getByText("2/5")).toBeTruthy();
+
+    await user.type(input, "cdefgh");
+    expect(input.value).toBe("abcde");
+    expect(screen.getByText("5/5")).toBeTruthy();
+  });
+
+  it("sem limite, não mostra contador nem trava o campo", () => {
+    const { result } = renderDialogs();
+    act(() => {
+      void result.current.prompt("Enter a name", "abc");
+    });
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    expect(input.maxLength).toBe(-1);
+    expect(screen.queryByText("3/", { exact: false })).toBeNull();
+  });
+
   it("resolves null when cancelled", async () => {
     const user = userEvent.setup();
     const { result } = renderDialogs();

@@ -52,8 +52,15 @@ export function AccountRow({ account }: { account: Account }) {
   const showPresence = store.settings?.General?.ShowPresence === "true";
   // Alias vai ate 240 caracteres (Task 10) e isso estoura a linha; sem esta
   // opcao o nome continua sendo cortado, que e o comportamento de sempre.
+  //
+  // Ligada, nao basta `break-words`: o nome e item flex, e com `min-width: auto`
+  // ele nunca encolhe abaixo do trecho sem espaco (as quebras de `break-word`
+  // nao contam no tamanho minimo). Um alias como `xXx_Dragon..._2024_xXx`
+  // ficava numa linha so, passando por baixo do carimbo e das setas. `min-w-0`
+  // deixa encolher e `wrap-anywhere` (`overflow-wrap: anywhere`) quebra o
+  // trecho tambem no tamanho minimo.
   const wrapLongNames = store.settings?.General?.WrapLongNames === "true";
-  const nameOverflowClass = wrapLongNames ? "break-words" : "truncate";
+  const nameOverflowClass = wrapLongNames ? "min-w-0 wrap-anywhere" : "truncate";
   const presenceType = store.presenceByUserId.get(account.UserID) ?? 0;
   const launchedLocally = store.launchedByProgram.has(account.UserID);
   const isJoining = store.joiningAccounts.has(account.UserID);

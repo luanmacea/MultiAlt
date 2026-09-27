@@ -67,6 +67,38 @@ describe("AccountLaunchOverrides", () => {
     expect(calls[calls.length - 1][0].Fields.ClientOverrideMaxFPS).toBe("240");
   });
 
+  /**
+   * O Volume gravava certo (15 vira 10: o clamp de `writeAccountLaunchOverrides`)
+   * mas o campo continuava **mostrando** 15 depois de sair dele, sem aviso do
+   * ajuste, até a conta ser reselecionada — validado no harness. O campo tem
+   * que mostrar o que foi gravado.
+   */
+  it("depois de sair do campo, o Volume mostra o valor gravado, não o de fora da faixa", async () => {
+    const account = makeAccount({ UserID: 7, Fields: { ClientOverridesEnabled: "true" } });
+    const store = renderSection(account);
+    const volume = screen.getByLabelText("Volume");
+
+    await userEvent.type(volume, "15");
+    await userEvent.tab();
+
+    const calls = (store.updateAccount as unknown as { mock: { calls: [Account][] } }).mock.calls;
+    expect(calls[calls.length - 1][0].Fields.ClientOverrideVolume).toBe("1.000");
+    expect(volume).toHaveValue("10");
+  });
+
+  it("um número malformado aparece como foi entendido, não como foi digitado", async () => {
+    // `1.2.3` passa pelo filtro de caracteres e é gravado como 1.2 (0.120).
+    const account = makeAccount({ UserID: 7, Fields: { ClientOverridesEnabled: "true" } });
+    const store = renderSection(account);
+    const volume = screen.getByLabelText("Volume");
+
+    await userEvent.type(volume, "1.2.3{Enter}");
+
+    const calls = (store.updateAccount as unknown as { mock: { calls: [Account][] } }).mock.calls;
+    expect(calls[calls.length - 1][0].Fields.ClientOverrideVolume).toBe("0.120");
+    expect(volume).toHaveValue("1.2");
+  });
+
   it("only asks for a window size when the account is set to windowed", async () => {
     const account = makeAccount({
       UserID: 7,

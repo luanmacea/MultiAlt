@@ -81,13 +81,13 @@ Toda lista de jogos (Games, Favoritos, Recentes) abre um menu com **o que se pod
 | Join Game | Lança o jogo (comportamento antigo) | sempre |
 | Browse servers | Vai para a aba Servers com o place preenchido | quando a tela dona passa `onBrowseServers` |
 | Favorite / Rename / Remove | Gerência do favorito | Games (favoritar) e Favoritos |
-| Auto Rejoin | Abre o Auto Rejoin **com aquele jogo** | Choose Game |
-| Scripts | Abre os Scripts com aquele place como place atual (é o que `ram.window` expõe) | Choose Game |
+| Auto Rejoin | Abre o Auto Rejoin **com aquele jogo** | Choose Game e Server List |
+| Scripts | Abre os Scripts com aquele place como place atual (é o que `ram.window` expõe) | Choose Game e Server List |
 | Copy Place ID | Copia o número | sempre |
 
 Regras:
 
-- **Ação sem callback não aparece.** O diálogo antigo (Server List) não tem para onde abrir Auto Rejoin/Scripts; item morto é pior que item ausente.
+- **Ação sem callback não aparece** — item morto é pior que item ausente. As duas telas donas passam o menu **inteiro**: o Server List já foi a metade sem Browse servers/Auto Rejoin/Scripts (e com o Favorite dos Recentes morto), enquanto a Choose Game tinha o menu e não a coluna de servidores recentes. No Server List, Auto Rejoin e Scripts abrem por cima do diálogo (z-[70]) e fechar volta a ele; Browse servers faz o mesmo que o clique no card (aba Servers com o place, Job ID limpo), sem gravar o jogo nos recentes, como na Choose Game.
 - A lista de **Recentes** não tinha clique direito nenhum — ganhou o mesmo `GameContextMenu` das outras.
 - Abrir uma tela sobre o jogo **não entra no jogo**: nenhuma dessas ações lança cliente (travado por teste nas três listas).
 - Para o Auto Rejoin o place vai **explícito na abertura** (`openBottingDialog(placeId)`), e não só por `store.placeId`: o rascunho salvo (`General.BottingDraftPlaceId`) vence a store, então sem isso o usuário escolhia um jogo e via outro. Abrir o Auto Rejoin **sem** jogo (barra de ações, toolbar) limpa o jogo da abertura anterior.
@@ -130,7 +130,7 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 - Migração: favorito antigo com `privateServer` (string única) é convertido em `vipServers: [{ name: "VIP", link }]` ao carregar; ao adicionar VIP o campo antigo é removido.
 - Recentes: no máximo `General.MaxRecentGames` (default 8), mais recente primeiro, sem duplicatas.
 - **Servidor privado recente não aparece para outra conta.** `visibleRecentJobs(entries, userId)` mostra Job ID **público** para qualquer conta (é o mesmo servidor que a aba Servers lista para todo mundo), mas alvo `vip`/`link` só para as contas que já entraram por ele. Um link VIP vale para quem o tem: mostrá-lo na lista de outra conta entregaria o servidor privado de uma conta a outra sem o dono pedir. Sem conta selecionada, só os públicos aparecem.
-- A coluna de servidores recentes **só aparece onde há campo de Job ID** para preencher (hoje o Server List). A aba Recent da Choose Game não passa `onSelectJob` e continua mostrando só os jogos — ação sem destino é pior que ação ausente.
+- A coluna de servidores recentes **só aparece onde há campo de Job ID** para preencher (hoje o Server List). A aba Recent da Choose Game não passa `onSelectJob` e continua mostrando só os jogos — ação sem destino é pior que ação ausente. Conferido de novo no checkup: a Choose Game não tem onde o valor cair — a aba Servers dela só tem Place ID (o clique num servidor já **entra**), o campo de link da aba Follow passa por `resolve_join_link`, que recusa Job ID solto e `vip:<código>` sem place, e o campo de Job ID da sidebar não está na tela enquanto a Choose Game está aberta.
 - Tela nova que aceite Place ID usa `useGameIdentity` + `GameBadge` em vez de resolver nome/ícone por conta: era assim antes (cada tela com seu jeito, sem cache) e a maioria simplesmente não mostrava jogo nenhum.
 - Na Choose Game, o alvo (`placeId`/`jobId`) é passado **explicitamente** para `joinServer`/`launchMultiple` — o comentário no código explica que ler da store causava entrar no VIP do jogo anterior.
 

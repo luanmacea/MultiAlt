@@ -836,6 +836,52 @@ describe("joinServer", () => {
     expect(result.current.launchProgress).toBeNull();
   });
 
+  /**
+   * O launch escreve "Launching X…" no rodapé, com 5 s de duração, antes do
+   * `invoke`. A recusa volta na hora e só vira toast (o rodapé ficou de fora de
+   * propósito, ver `reportLaunchAlreadyActive`) — e a linha seguia 5 s dizendo
+   * que lançava a conta que acabou de ser recusada. A recusa retira a linha.
+   */
+  it("depois da recusa o rodapé não segue dizendo que está lançando", async () => {
+    const { result } = await setup();
+    failures.set("launch_roblox", "launch-already-active");
+
+    await act(async () => {
+      await result.current.joinServer(1);
+    });
+
+    expect(result.current.actionStatus).toBeNull();
+  });
+
+  it("a recusa só retira a própria linha, não a que outra ação escreveu no meio", async () => {
+    const { result } = await setup();
+    let recusar = () => {};
+    results.set(
+      "launch_roblox",
+      new Promise((_resolve, reject) => {
+        recusar = () => reject("launch-already-active");
+      })
+    );
+
+    let pending: Promise<unknown> | null = null;
+    await act(async () => {
+      pending = result.current.joinServer(1);
+      await Promise.resolve();
+    });
+    // Enquanto o launch espera o backend, outra tela escreve no rodapé.
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("ram-action-status", { detail: { message: "Settings saved" } })
+      );
+    });
+    await act(async () => {
+      recusar();
+      await pending;
+    });
+
+    expect(result.current.actionStatus?.message).toBe("Settings saved");
+  });
+
   it("uma falha comum de launch não vira exceção, mas também não vira sucesso", async () => {
     // O irmão do bug da recusa: a tela anunciava "seguindo com 1 conta..." em
     // cima da faixa vermelha de erro porque o launch de uma conta engolia a
@@ -1120,6 +1166,19 @@ describe("launchMultiple", () => {
     expect(result.current.joiningAccounts.size).toBe(0);
     expect(result.current.launchProgress).toBeNull();
   });
+
+  it("depois da recusa o rodapé não segue dizendo que está lançando", async () => {
+    // O mesmo do launch de uma conta: "Launching 2 accounts..." ficava 5 s no
+    // rodapé em cima de um lote que o backend recusou.
+    const { result } = await setup();
+    failures.set("launch_multiple", "launch-already-active");
+
+    await act(async () => {
+      await expect(result.current.launchMultiple([1, 2])).rejects.toBeTruthy();
+    });
+
+    expect(result.current.actionStatus).toBeNull();
+  });
 });
 
 describe("restartRobloxClients", () => {
@@ -1180,6 +1239,28 @@ describe("account mutations", () => {
       userId: 7,
     });
     expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Added Cookie");
+  });
+
+  /**
+   * O Quick Add passou a aceitar a linha do import (`username:password:cookie`):
+   * a senha vai para o `add_account` separada, como no import — nunca dentro
+   * do cookie. Sem senha, a chamada fica exatamente como era.
+   */
+  it("guarda a senha junto quando o cookie veio de uma linha user:pass:cookie", async () => {
+    results.set("validate_cookie", { user_id: 7, name: "Cookie" });
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.addAccountByCookie("_|WARNING:-token", "hunter2");
+    });
+
+    expect(lastArgs("validate_cookie")).toEqual({ cookie: "_|WARNING:-token" });
+    expect(lastArgs("add_account")).toEqual({
+      securityToken: "_|WARNING:-token",
+      username: "Cookie",
+      userId: 7,
+      password: "hunter2",
+    });
   });
 
   it("says 'Updated' when the account already exists", async () => {
