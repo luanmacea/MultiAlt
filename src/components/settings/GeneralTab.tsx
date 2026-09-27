@@ -448,6 +448,16 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         min={1}
         max={30}
       />
+      {/* Corta a lista de servidores recentes (`addRecentJob`,
+          server-list/types.ts), que fica ao lado dos jogos na aba Recent. */}
+      <NumberField
+        value={s.getNumber("General", "MaxRecentJobs", 12)}
+        onChange={(v) => s.setNumber("General", "MaxRecentJobs", v)}
+        label="Max Recent Servers"
+        description="How many servers (Job IDs) the Recent list keeps before the oldest one drops off."
+        min={1}
+        max={50}
+      />
       <TextField
         value={s.get("General", "ServerRegionFormat", "<city>, <countryCode>")}
         onChange={(v) => s.set("General", "ServerRegionFormat", v)}

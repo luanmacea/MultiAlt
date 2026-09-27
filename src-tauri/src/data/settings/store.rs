@@ -54,6 +54,7 @@ impl SettingsStore {
                 Some("Tokens: <city>, <region>, <country>, <countryCode>, <ip>; other text is kept as typed"),
             ),
             ("MaxRecentGames", "8", None),
+            ("MaxRecentJobs", "12", None),
             (
                 "GroupOrder",
                 "[]",
@@ -533,6 +534,7 @@ mod settings_store_tests {
                 ("WrapLongNames", "false"),
                 ("ServerRegionFormat", "<city>, <countryCode>"),
                 ("MaxRecentGames", "8"),
+                ("MaxRecentJobs", "12"),
                 ("GroupOrder", "[]"),
                 ("Language", "en"),
                 ("AutoCookieRefresh", "true"),

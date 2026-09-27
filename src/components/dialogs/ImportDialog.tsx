@@ -6,6 +6,7 @@ import { useModalClose } from "../../hooks/useModalClose";
 import { usePrompt } from "../../hooks/usePrompt";
 import { SlidingTabBar } from "../ui/SlidingTabBar";
 import { useTr } from "../../i18n/text";
+import { parseImportLine } from "../../utils/cookies";
 
 type TabId = "cookie" | "userpass" | "legacy";
 
@@ -60,6 +61,37 @@ export function ImportDialog({
 
   if (!visible) return null;
 
+  /**
+   * Importa uma linha que traz cookie — sozinho ou em `user:pass:cookie`.
+   *
+   * A senha só é enviada quando a linha a traz: `add_account` a recebe como
+   * `Option<String>`, e omitir a chave mantém o import por cookie puro
+   * exatamente como era.
+   */
+  async function importByCookie(
+    parsed: { password: string; cookie: string },
+    existingIds: Set<number>
+  ): Promise<ImportResult> {
+    try {
+      const info = await invoke<{ user_id: number; name: string }>("validate_cookie", {
+        cookie: parsed.cookie,
+      });
+      if (existingIds.has(info.user_id)) {
+        return { text: t("{{name}} - already exists", { name: info.name }), ok: false };
+      }
+      await invoke("add_account", {
+        securityToken: parsed.cookie,
+        username: info.name,
+        userId: info.user_id,
+        ...(parsed.password ? { password: parsed.password } : {}),
+      });
+      existingIds.add(info.user_id);
+      return { text: t("Added {{name}}", { name: info.name }), ok: true };
+    } catch (e) {
+      return { text: t("Failed: {{error}}", { error: String(e) }), ok: false };
+    }
+  }
+
   async function handleImportCookie() {
     const lines = input.split("\n").map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) return;
@@ -71,22 +103,16 @@ export function ImportDialog({
 
     for (let i = 0; i < lines.length; i++) {
       setProgress(t("Importing {{current}}/{{total}}...", { current: i + 1, total: lines.length }));
-      const cookie = lines[i];
-      try {
-        const info = await invoke<{ user_id: number; name: string }>("validate_cookie", { cookie });
-        if (existingIds.has(info.user_id)) {
-          out.push({ text: t("{{name}} - already exists", { name: info.name }), ok: false });
-        } else {
-          await invoke("add_account", {
-            securityToken: cookie,
-            username: info.name,
-            userId: info.user_id,
-          });
-          existingIds.add(info.user_id);
-          out.push({ text: t("Added {{name}}", { name: info.name }), ok: true });
-        }
-      } catch (e) {
-        out.push({ text: t("Failed: {{error}}", { error: String(e) }), ok: false });
+      const parsed = parseImportLine(lines[i]);
+      // Credencial incompleta não entra pela metade: sem cookie não há sessão
+      // para usar, e uma conta gravada só com senha nunca abre nada.
+      if (parsed.kind === "userpass") {
+        out.push({
+          text: t("Skipped {{name}}: no cookie in this line", { name: parsed.username }),
+          ok: false,
+        });
+      } else {
+        out.push(await importByCookie(parsed, existingIds));
       }
       setResults([...out]);
     }
@@ -102,20 +128,29 @@ export function ImportDialog({
     setImporting(true);
     setResults([]);
 
+    const existingIds = new Set(store.accounts.map((a) => a.UserID));
     const out: ImportResult[] = [];
     for (let i = 0; i < lines.length; i++) {
       setProgress(t("Importing {{current}}/{{total}}...", { current: i + 1, total: lines.length }));
-      const line = lines[i];
-      const sep = line.indexOf(":");
-      const username = sep >= 0 ? line.slice(0, sep).trim() : "";
-      const password = sep >= 0 ? line.slice(sep + 1) : "";
-      if (!username || !password) {
+      const parsed = parseImportLine(lines[i]);
+      // Linha que já traz o cookie não precisa de navegador nenhum: a sessão
+      // está ali, e abrir o login seria pedir CAPTCHA por nada.
+      if (parsed.kind === "cookie") {
+        out.push(await importByCookie(parsed, existingIds));
+        setResults([...out]);
+        continue;
+      }
+      if (parsed.kind !== "userpass") {
         out.push({ text: t("Skipped invalid line (use username:password)"), ok: false });
         setResults([...out]);
         continue;
       }
       try {
-        const info = await invoke<{ user_id: number; name: string }>("import_userpass", { username, password });
+        const info = await invoke<{ user_id: number; name: string }>("import_userpass", {
+          username: parsed.username,
+          password: parsed.password,
+        });
+        existingIds.add(info.user_id);
         out.push({ text: t("Added {{name}}", { name: info.name }), ok: true });
       } catch (e) {
         out.push({ text: t("Failed: {{error}}", { error: String(e) }), ok: false });
@@ -271,10 +306,25 @@ export function ImportDialog({
                 senha e sem verificação em duas etapas. Isso tem que estar na
                 tela, não só no aviso que o próprio cookie carrega no texto.
               */}
-              <p className="text-[12px] text-zinc-500 mb-1.5">{t("Paste one .ROBLOSECURITY cookie per line")}</p>
+              <p className="text-[12px] text-zinc-500 mb-1.5">
+                {t("Paste one .ROBLOSECURITY cookie per line, or one username:password:cookie per line.")}
+              </p>
               <p className="text-[12px] text-amber-300/80 leading-snug mb-1.5">
                 {t(
                   "This cookie is the account's whole session: anyone holding it is signed in as that account, with no password and no 2-step verification. Treat it like the account itself."
+                )}
+              </p>
+              {/*
+                Aceitar a senha na mesma caixa aumenta o que está em jogo: o
+                cookie entrega a sessão (e pode ser revogado saindo de todas as
+                sessões), a senha entrega a conta — troca de e-mail, troca de
+                senha, recuperação. E ela fica no `AccountData.json`, que só é
+                encriptado quando o app tem senha (`data/crypto.rs`). O aviso
+                de cima falava só do cookie.
+              */}
+              <p className="text-[12px] text-amber-300/80 leading-snug mb-1.5">
+                {t(
+                  "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, encrypted only if you set an app password."
                 )}
               </p>
               <p className="text-[12px] text-zinc-500 leading-snug mb-2">
@@ -297,6 +347,7 @@ export function ImportDialog({
           ) : tab === "userpass" ? (
             <>
               <p className="text-[12px] text-zinc-500 mb-2">{t("Paste one username:password per line. A secure browser opens for each to finish sign-in.")}</p>
+              <p className="text-[12px] text-zinc-500 mb-2">{t("A line that already carries the cookie (username:password:cookie) is imported straight away, with no browser.")}</p>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}

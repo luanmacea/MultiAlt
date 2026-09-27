@@ -12,7 +12,7 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 | Lista de servidores / busca de jogador / região | [ServersTab.tsx](../../src/components/server-list/ServersTab.tsx), [ServerContextMenu.tsx](../../src/components/server-list/ServerContextMenu.tsx) |
 | Busca de jogos | [GamesTab.tsx](../../src/components/server-list/GamesTab.tsx), [GameContextMenu.tsx](../../src/components/server-list/GameContextMenu.tsx) |
 | Favoritos + VIPs | [FavoritesTab.tsx](../../src/components/server-list/FavoritesTab.tsx), [FavoriteContextMenu.tsx](../../src/components/server-list/FavoriteContextMenu.tsx) |
-| Recentes | [RecentTab.tsx](../../src/components/server-list/RecentTab.tsx), [RecentGamesList.tsx](../../src/components/server-list/RecentGamesList.tsx), [RecentGamesPopover.tsx](../../src/components/server-list/RecentGamesPopover.tsx) |
+| Recentes | [RecentTab.tsx](../../src/components/server-list/RecentTab.tsx), [RecentGamesList.tsx](../../src/components/server-list/RecentGamesList.tsx), [RecentGamesPopover.tsx](../../src/components/server-list/RecentGamesPopover.tsx), [RecentJobsList.tsx](../../src/components/server-list/RecentJobsList.tsx) |
 | Tipos + persistência local (favoritos/recentes) | [server-list/types.ts](../../src/components/server-list/types.ts) |
 | Reuso na tela de launch em lote | [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx) |
 | API de jogos/servidores | [api/roblox/avatar_games.rs](../../src-tauri/src/api/roblox/avatar_games.rs) (`get_servers`, `get_place_details`, `search_games`, `join_game_instance`, `get_universe_places`) |
@@ -59,6 +59,18 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 2. Insere otimisticamente no topo (nome = placeId se desconhecido), remove duplicata do mesmo placeId e corta em `MaxRecentGames`.
 3. Em seguida resolve nome e ícone (`batched_get_game_info`, uma chamada) e atualiza a entrada. `RecentGamesList` também completa entradas antigas sem nome/ícone ao exibir.
 4. Persistência em `localStorage["ram_recent_games"]`.
+
+#### Servidores recentes (Job IDs)
+
+Ao lado dos jogos recentes, a aba Recent do Server List mostra os **servidores** em que as contas entraram — voltar ao mesmo servidor exigia ter copiado o Job ID antes.
+
+1. `addRecentJob(raw, placeId, maxCount, userIds)` ([types.ts](../../src/components/server-list/types.ts)) é chamado pela store depois de um `joinServer`/`launchMultiple` **bem-sucedido**, junto com `recordRecentGame`. Launch que falha não entra.
+2. Guarda o alvo **como o launch o usou** (`raw`): Job ID público cru, ou `vip:<código>` quando o alvo é privado — num alvo VIP o Job ID vai vazio e o código viaja em `linkCode`, então a store reconstrói o `vip:<código>`, que é o que o campo de Job ID e o `resolve_launch_job` sabem reabrir. Nada é reescrito nem normalizado.
+3. `classifyJobInput` marca cada entrada como `job` (público), `vip` ou `link` — só para o rótulo da linha e para a regra de visibilidade abaixo.
+4. Sem duplicata (a chave é o `raw`), mais recente no topo, cortada em `General.MaxRecentJobs`. `userIds` **soma** as contas que já usaram aquele alvo (um launch em lote registra todas).
+5. Clicar preenche o Place e o Job ID e volta para a aba Servers — **não entra**. Entrar é o gesto seguinte, com o aviso de conta online.
+6. Persistência em `localStorage["ram_recent_jobs"]`.
+7. "Clear all" apaga **só o que aquela conta vê** (ver a regra de visibilidade): apagar entrada que não está na tela é surpresa, não limpeza.
 
 ### Ações do jogo pelo clique direito
 
@@ -117,6 +129,8 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 - Favoritos: um favorito por `placeId` ("Already in favorites"); nome customizado é obrigatório.
 - Migração: favorito antigo com `privateServer` (string única) é convertido em `vipServers: [{ name: "VIP", link }]` ao carregar; ao adicionar VIP o campo antigo é removido.
 - Recentes: no máximo `General.MaxRecentGames` (default 8), mais recente primeiro, sem duplicatas.
+- **Servidor privado recente não aparece para outra conta.** `visibleRecentJobs(entries, userId)` mostra Job ID **público** para qualquer conta (é o mesmo servidor que a aba Servers lista para todo mundo), mas alvo `vip`/`link` só para as contas que já entraram por ele. Um link VIP vale para quem o tem: mostrá-lo na lista de outra conta entregaria o servidor privado de uma conta a outra sem o dono pedir. Sem conta selecionada, só os públicos aparecem.
+- A coluna de servidores recentes **só aparece onde há campo de Job ID** para preencher (hoje o Server List). A aba Recent da Choose Game não passa `onSelectJob` e continua mostrando só os jogos — ação sem destino é pior que ação ausente.
 - Tela nova que aceite Place ID usa `useGameIdentity` + `GameBadge` em vez de resolver nome/ícone por conta: era assim antes (cada tela com seu jeito, sem cache) e a maioria simplesmente não mostrava jogo nenhum.
 - Na Choose Game, o alvo (`placeId`/`jobId`) é passado **explicitamente** para `joinServer`/`launchMultiple` — o comentário no código explica que ler da store causava entrar no VIP do jogo anterior.
 
@@ -124,7 +138,8 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 
 | Seção.Chave | Default | Efeito |
 |---|---|---|
-| `General.MaxRecentGames` | `8` | Tamanho da lista de recentes. |
+| `General.MaxRecentGames` | `8` | Tamanho da lista de jogos recentes. |
+| `General.MaxRecentJobs` | `12` | Tamanho da lista de servidores recentes (Job IDs). |
 | `General.WarnOnOnlineJoin` | `true` | Confirmação antes de entrar com conta já online. |
 | `General.SavedPlaceId`, `SavedJobId`, `SavedLaunchData` | — | Últimos valores digitados, restaurados no startup. |
 | `General.ServerRegionFormat` | `<city>, <countryCode>` | Exibido/editável em Settings → General (ver armadilhas). |
@@ -132,6 +147,7 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 
 ## Armadilhas / cuidados
 
+- **A lista de servidores recentes guarda código de link privado em texto puro** no `localStorage` do WebView, como os favoritos VIP já fazem. Não é exportada, não é vista pelo backend, e não é lugar para tratar o link como segredo forte — a regra de visibilidade por conta evita mostrá-lo para quem não o usou, não o esconde de quem abrir o perfil do WebView.
 - **Favoritos e recentes não são arquivos do app**: vivem no `localStorage` do WebView. Não são exportados com `AccountData.json`, não são vistos pelo backend/webserver e podem sumir se o perfil do WebView for limpo.
 - `General.ServerRegionFormat` **é usado**: [account_api.rs](../../src-tauri/src/commands/account_api.rs) lê o template em `server_region_template` e [server_regions.rs](../../src-tauri/src/api/roblox/server_regions.rs) o aplica em `format_region`. Os tokens substituídos são `<city>`, `<region>`, `<country>`, `<countryCode>` e `<ip>` — o resto do texto passa intacto, e template que resolve vazio cai no IP cru. O comentário do default gravado no INI lista exatamente esses tokens (antes apontava `ip-api.com`, que não tem relação com eles).
 - "Load Region" chama `join-game-instance` com o cookie da conta — é uma requisição real de entrada (não abre o cliente, mas consome a API do Roblox).

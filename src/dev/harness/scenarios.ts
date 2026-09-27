@@ -59,6 +59,7 @@ const settings: Record<string, Record<string, string>> = {
     ServerRegionFilter: "",
     ServerScanPages: "30",
     MaxRecentGames: "8",
+    MaxRecentJobs: "12",
   },
 };
 

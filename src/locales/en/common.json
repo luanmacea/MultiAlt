@@ -502,7 +502,6 @@
   "password": "password",
   "Password changed": "Password changed",
   "Password is incorrect. Enter the AccountData.json password:": "Password is incorrect. Enter the AccountData.json password:",
-  "Paste one .ROBLOSECURITY cookie per line": "Paste one .ROBLOSECURITY cookie per line",
   "PIN unlocked": "PIN unlocked",
   "Ping": "Ping",
   "Place": "Place",
@@ -1679,5 +1678,14 @@
   "{{name}}: Windows refused the key.": "{{name}}: Windows refused the key.",
   "And when Windows keeps the window in the background — which is what it usually does while this app is not the one you are using — nothing is sent at all, and the account below says so.": "And when Windows keeps the window in the background — which is what it usually does while this app is not the one you are using — nothing is sent at all, and the account below says so.",
   "not sent": "not sent",
-  "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while.": "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while."
+  "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while.": "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while.",
+  "A line that already carries the cookie (username:password:cookie) is imported straight away, with no browser.": "A line that already carries the cookie (username:password:cookie) is imported straight away, with no browser.",
+  "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, encrypted only if you set an app password.": "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, encrypted only if you set an app password.",
+  "Paste one .ROBLOSECURITY cookie per line, or one username:password:cookie per line.": "Paste one .ROBLOSECURITY cookie per line, or one username:password:cookie per line.",
+  "Skipped {{name}}: no cookie in this line": "Skipped {{name}}: no cookie in this line",
+  "Clear the recent servers list? Its {{count}} servers are deleted from this computer and cannot be recovered.": "Clear the recent servers list? Its {{count}} servers are deleted from this computer and cannot be recovered.",
+  "Clear the recent servers list? Its 1 server is deleted from this computer and cannot be recovered.": "Clear the recent servers list? Its 1 server is deleted from this computer and cannot be recovered.",
+  "How many servers (Job IDs) the Recent list keeps before the oldest one drops off.": "How many servers (Job IDs) the Recent list keeps before the oldest one drops off.",
+  "Max Recent Servers": "Max Recent Servers",
+  "No recent servers": "No recent servers"
 }
