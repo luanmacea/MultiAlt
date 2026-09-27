@@ -1303,6 +1303,101 @@ describe("toasts and action status", () => {
   });
 });
 
+/**
+ * Ligar o Botting numa conta que ja esta jogando: o caminho antigo (abrir o
+ * dialogo e dar Start) fecha e relanca todo mundo, tirando as contas do
+ * servidor em que estavam.
+ */
+describe("adotar contas em jogo no Botting", () => {
+  it("com sessao ativa, so entra nela — sem place nem relancamento", async () => {
+    results.set("get_botting_mode_status", {
+      active: true,
+      startedAtMs: 1,
+      placeId: 606849621,
+      jobId: "",
+      intervalMinutes: 19,
+      launchDelaySeconds: 20,
+      playerGraceMinutes: 15,
+      userIds: [1],
+      accounts: [],
+    });
+    results.set("add_botting_accounts", {
+      active: true,
+      startedAtMs: 1,
+      placeId: 606849621,
+      jobId: "",
+      intervalMinutes: 19,
+      launchDelaySeconds: 20,
+      playerGraceMinutes: 15,
+      userIds: [1, 2],
+      accounts: [],
+    });
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.bottingStatus?.active).toBe(true));
+
+    await act(async () => {
+      await result.current.adoptRunningIntoBotting([2]);
+    });
+
+    expect(invokeCalls("add_botting_accounts")).toHaveLength(1);
+    expect(invokeCalls("start_botting_mode")).toHaveLength(0);
+    // Nao precisa perguntar a presenca: a sessao ja tem o place dela.
+    expect(invokeCalls("get_account_game_location")).toHaveLength(0);
+  });
+
+  it("sem sessao, o place vem da presenca da conta e nada e relancado", async () => {
+    results.set("get_account_game_location", {
+      userId: 1,
+      inGame: true,
+      placeId: 606849621,
+      jobId: "job-abc",
+    });
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.adoptRunningIntoBotting([1, 2]);
+    });
+
+    const [, args] = invokeCalls("start_botting_mode")[0];
+    expect(args).toMatchObject({
+      userIds: [1, 2],
+      placeId: 606849621,
+      adoptRunning: true,
+      // O job fica de fora: o ciclo relanca no place, e fixar o servidor atual
+      // mandaria todo reinicio para um servidor que pode nem existir mais.
+      jobId: "",
+    });
+  });
+
+  it("sem saber onde a conta esta, avisa em vez de chutar um place", async () => {
+    results.set("get_account_game_location", {
+      userId: 1,
+      inGame: false,
+      placeId: null,
+      jobId: null,
+    });
+    const { result } = await renderStore();
+
+    await expect(
+      act(async () => {
+        await result.current.adoptRunningIntoBotting([1, 2]);
+      })
+    ).rejects.toThrow(/which game/i);
+    expect(invokeCalls("start_botting_mode")).toHaveLength(0);
+  });
+
+  it("uma conta so, sem sessao, explica o minimo em vez de falhar no backend", async () => {
+    const { result } = await renderStore();
+
+    await expect(
+      act(async () => {
+        await result.current.adoptRunningIntoBotting([1]);
+      })
+    ).rejects.toThrow(/two accounts/i);
+    expect(invokeCalls("get_account_game_location")).toHaveLength(0);
+  });
+});
+
 describe("backend events", () => {
   /**
    * Make Friends acompanhado como a fila de launch: retrato inicial pelo
@@ -1582,6 +1677,9 @@ describe("botting and generator commands", () => {
       intervalMinutes: 10,
       launchDelaySeconds: 20,
       playerGraceMinutes: 30,
+      // O Start normal fecha e relança tudo; só a adoção de contas que já
+      // estão em jogo liga esta bandeira.
+      adoptRunning: false,
     });
     expect(result.current.bottingStatus).toMatchObject({ active: true });
   });

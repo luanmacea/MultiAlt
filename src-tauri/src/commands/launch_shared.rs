@@ -593,6 +593,9 @@ struct BottingConfig {
     retry_max: u32,
     retry_base_seconds: u64,
     player_grace_minutes: u64,
+    /// A sessao foi aberta sobre contas que **ja estavam em jogo**: na primeira
+    /// passagem elas nao sao fechadas nem relancadas, so entram no ciclo.
+    adopt_running: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -1926,6 +1929,7 @@ mod launch_shared_helper_tests {
             retry_max: 6,
             retry_base_seconds: 8,
             player_grace_minutes: 15,
+            adopt_running: false,
         };
         let mut runtime = HashMap::new();
         for uid in [30_i64, 10, 20] {

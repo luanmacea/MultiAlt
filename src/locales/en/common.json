@@ -1606,5 +1606,10 @@
   "Move group up": "Move group up",
   "Move up": "Move up",
   "Name prefix (optional)": "Name prefix (optional)",
-  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Only letters and digits. Each account becomes prefix_ plus 5 random characters."
+  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Only letters and digits. Each account becomes prefix_ plus 5 random characters.",
+  "Botting": "Botting",
+  "Botting ({{count}})": "Botting ({{count}})",
+  "Botting Mode needs at least two accounts. Select another one, or start the cycle from the Botting dialog.": "Botting Mode needs at least two accounts. Select another one, or start the cycle from the Botting dialog.",
+  "Could not tell which game these accounts are in. Open the Botting dialog and set the Place ID.": "Could not tell which game these accounts are in. Open the Botting dialog and set the Place ID.",
+  "Keeps these accounts in the cycle without closing the clients that are already open.": "Keeps these accounts in the cycle without closing the clients that are already open."
 }

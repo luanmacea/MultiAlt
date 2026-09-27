@@ -106,6 +106,40 @@ fn botting_add_schedule(
     }
 }
 
+/// O que a primeira passagem da sessao faz com uma conta.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BottingFirstPass {
+    /// Conta marcada como desconectada: fica de fora do ciclo.
+    Disconnected,
+    /// Ja esta em jogo e a sessao foi aberta em modo adocao: **nao** relanca.
+    /// O cliente que o usuario abriu continua de pe e so entra no ciclo no
+    /// primeiro vencimento do intervalo.
+    Adopt,
+    /// O caminho de sempre: fecha o que houver e lanca.
+    Launch,
+}
+
+/// Decide entre adotar o cliente que ja esta aberto e relancar do zero.
+///
+/// Sem a adocao, ligar o Botting em contas que ja estavam jogando derrubava
+/// todas elas: a primeira passagem fecha o cliente e abre outro no place da
+/// sessao. Quem ja esta no lugar certo nao precisa disso.
+#[cfg(target_os = "windows")]
+fn botting_first_pass(
+    adopt_running: bool,
+    has_running_client: bool,
+    disconnected: bool,
+) -> BottingFirstPass {
+    if disconnected {
+        return BottingFirstPass::Disconnected;
+    }
+    if adopt_running && has_running_client {
+        return BottingFirstPass::Adopt;
+    }
+    BottingFirstPass::Launch
+}
+
 /// `(disconnect, close, restart_client, restart_loop)` for a context-menu
 /// action on one botting account.
 #[cfg(target_os = "windows")]
@@ -386,21 +420,46 @@ async fn run_botting_session(
             break;
         }
 
+        let adopt_running = config.lock().map(|c| c.adopt_running).unwrap_or(false);
+        let interval_ms = config
+            .lock()
+            .map(|c| c.interval_minutes as i64 * 60_000)
+            .unwrap_or(0);
+        let has_client = platform::windows::tracker().get_pid(*uid).is_some();
+
         let mut skip_launch = false;
         if let Ok(mut map) = accounts.lock() {
             if let Some(entry) = map.get_mut(uid) {
-                if entry.disconnected {
-                    entry.phase = if platform::windows::tracker().get_pid(*uid).is_some() {
-                        "disconnected-running"
-                    } else {
-                        "disconnected"
-                    };
-                    entry.next_restart_at_ms = None;
-                    entry.player_grace_until_ms = None;
-                    skip_launch = true;
-                } else {
-                    entry.phase = "launching";
-                    entry.last_error = None;
+                match botting_first_pass(adopt_running, has_client, entry.disconnected) {
+                    BottingFirstPass::Disconnected => {
+                        entry.phase = if has_client {
+                            "disconnected-running"
+                        } else {
+                            "disconnected"
+                        };
+                        entry.next_restart_at_ms = None;
+                        entry.player_grace_until_ms = None;
+                        skip_launch = true;
+                    }
+                    BottingFirstPass::Adopt => {
+                        // O cliente que o usuario abriu continua de pe. A conta
+                        // entra no ciclo valendo um intervalo inteiro a partir
+                        // de agora, como quem acabou de ser lancada.
+                        entry.last_error = None;
+                        entry.retry_count = 0;
+                        if entry.is_player {
+                            entry.phase = "running-player";
+                            entry.next_restart_at_ms = None;
+                        } else {
+                            entry.phase = "running";
+                            entry.next_restart_at_ms = Some(now_ms().saturating_add(interval_ms));
+                        }
+                        skip_launch = true;
+                    }
+                    BottingFirstPass::Launch => {
+                        entry.phase = "launching";
+                        entry.last_error = None;
+                    }
                 }
             }
         }
@@ -743,6 +802,9 @@ async fn start_botting_mode(
     interval_minutes: i64,
     launch_delay_seconds: i64,
     player_grace_minutes: i64,
+    // `true` quando a sessao nasce de contas que ja estao em jogo: elas nao
+    // sao fechadas nem relancadas na primeira passagem.
+    adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
     if user_ids.len() < 2 {
         return Err("Select at least two accounts for Botting Mode".into());
@@ -796,6 +858,7 @@ async fn start_botting_mode(
         retry_max,
         retry_base_seconds,
         player_grace_minutes,
+        adopt_running: adopt_running.unwrap_or(false),
     };
 
     let mut runtime_map = HashMap::new();
@@ -860,6 +923,7 @@ async fn start_botting_mode(
     _interval_minutes: i64,
     _launch_delay_seconds: i64,
     _player_grace_minutes: i64,
+    _adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
     Err("Botting Mode is only supported on Windows".into())
 }
@@ -1475,6 +1539,43 @@ mod botting_command_tests {
         assert_eq!(due, Some(i64::MAX));
         let (_, due) = botting_add_schedule(false, i64::MAX, 60_000, i64::MAX);
         assert_eq!(due, Some(i64::MAX));
+    }
+
+    // ---- adocao de conta ja em jogo -----------------------------------------
+
+    /// Ligar o Botting em contas que ja estavam jogando derrubava todas elas:
+    /// a primeira passagem fecha o cliente e abre outro no place da sessao. Em
+    /// modo adocao, quem ja esta em jogo fica de pe e so entra no ciclo no
+    /// primeiro vencimento do intervalo.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn adopting_keeps_the_client_that_is_already_running() {
+        assert_eq!(botting_first_pass(true, true, false), BottingFirstPass::Adopt);
+        // Sem cliente aberto nao ha o que adotar: lanca como sempre.
+        assert_eq!(botting_first_pass(true, false, false), BottingFirstPass::Launch);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn without_adoption_the_old_behaviour_is_untouched() {
+        assert_eq!(botting_first_pass(false, true, false), BottingFirstPass::Launch);
+        assert_eq!(botting_first_pass(false, false, false), BottingFirstPass::Launch);
+    }
+
+    /// Conta desconectada fica fora do ciclo, adotando ou nao — senao o modo
+    /// adocao ressuscitaria quem o usuario tirou de proposito.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_disconnected_account_is_never_launched_nor_adopted() {
+        for adopt in [true, false] {
+            for running in [true, false] {
+                assert_eq!(
+                    botting_first_pass(adopt, running, true),
+                    BottingFirstPass::Disconnected,
+                    "adopt={adopt} running={running}"
+                );
+            }
+        }
     }
 
     // ---- botting_action_flags ----------------------------------------------
