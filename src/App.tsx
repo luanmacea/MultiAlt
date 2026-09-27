@@ -7,6 +7,7 @@ import { FirstRunWalkthrough } from "./components/layout/FirstRunWalkthrough";
 import { TitleBar } from "./components/layout/TitleBar";
 import { ModalWindowControls } from "./components/layout/ModalWindowControls";
 import { UpdateBanner } from "./components/layout/UpdateBanner";
+import { VaultKeyBanner } from "./components/layout/VaultKeyBanner";
 import { Toolbar } from "./components/layout/Toolbar";
 import { AccountList } from "./components/accounts/AccountList";
 import { ContextMenu } from "./components/menus/ContextMenu";
@@ -93,6 +94,7 @@ function AppContent() {
       <ModalWindowControls visible={anyModalOpen} />
       <TitleBar controlsHidden={anyModalOpen} />
       <UpdateBanner />
+      <VaultKeyBanner />
       <Toolbar />
 
       {store.error && (

@@ -19,6 +19,7 @@ import type {
   FriendLinkState,
   LaunchQueuePayload,
   ServerPreference,
+  VaultKeyWarning,
 } from "./types";
 import {
   orderGroupKeys,
@@ -423,6 +424,8 @@ export interface StoreValue {
   encryptionSetupOpen: boolean;
   encryptionSetupMode: "firstRun" | "settings";
   accountsEncrypted: boolean | null;
+  /** Problema com o AccountData.key; a faixa fixa desenha isto. */
+  vaultKeyWarning: VaultKeyWarning | null;
   applyingEncryption: boolean;
   encryptionSetupError: string | null;
   openEncryptionSetupFromSettings: () => void;
@@ -597,6 +600,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [encryptionSetupOpen, setEncryptionSetupOpen] = useState(false);
   const [encryptionSetupMode, setEncryptionSetupMode] = useState<"firstRun" | "settings">("firstRun");
   const [accountsEncrypted, setAccountsEncrypted] = useState<boolean | null>(null);
+  const [vaultKeyWarning, setVaultKeyWarning] = useState<VaultKeyWarning | null>(null);
   const [applyingEncryption, setApplyingEncryption] = useState(false);
   const [encryptionSetupError, setEncryptionSetupError] = useState<string | null>(null);
   const [firstRunWalkthroughOpen, setFirstRunWalkthroughOpen] = useState(false);
@@ -958,15 +962,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * Um problema com o `AccountData.key` não pode morrer num `eprintln!` do
    * backend: numa build GUI aquilo não vai a lugar nenhum, e é justamente o
    * defeito que passa o dia inteiro invisível (a chave está em memória, tudo
-   * funciona) para virar "não abre mais" no boot seguinte. Aqui ele vira uma
-   * linha de status **sem timeout** — fica até o problema sumir.
+   * funciona) para virar "não abre mais" no boot seguinte.
+   *
+   * Duas correções em relação à primeira tentativa, que usava a linha de status:
+   * ela é **substituível** (qualquer "Launching…" apagava o aviso) e nunca era
+   * limpa quando o problema sumia. Agora é estado, desenhado por `VaultKeyBanner`,
+   * e **`null` limpa**.
+   *
+   * Chamado no boot (o efeito de inicialização não passa por `loadAccounts`, e o
+   * boot é justamente quando o backend descobre o problema) e depois de cada
+   * recarga de contas.
    */
-  async function refreshVaultKeyWarning() {
+  const refreshVaultKeyWarning = useCallback(async () => {
     try {
-      const warning = await invoke<string | null>("vault_key_warning");
-      if (warning) setActionStatusMessage(warning, "error", 0);
+      const warning = await invoke<VaultKeyWarning | null>("vault_key_warning");
+      setVaultKeyWarning(warning ?? null);
     } catch {}
-  }
+  }, []);
 
   async function loadAccounts() {
     try {
@@ -1914,6 +1926,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setError(String(e));
       }
 
+      // **No boot, e fora do try acima.** O backend descobre o problema com o
+      // `AccountData.key` durante o `load()` do startup, e este efeito não passa
+      // por `loadAccounts` — chama `get_accounts` direto. Sem esta linha o aviso
+      // só apareceria depois de uma mutação, e quem usa a chave do aparelho (o
+      // único afetado) pode passar a sessão inteira sem fazer nenhuma.
+      await refreshVaultKeyWarning();
+
       let loadedSettings: Record<string, Record<string, string>> | null = null;
       try {
         const s = await invoke<Record<string, Record<string, string>>>("get_all_settings");
@@ -2669,6 +2688,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     encryptionSetupOpen,
     encryptionSetupMode,
     accountsEncrypted,
+    vaultKeyWarning,
     applyingEncryption,
     encryptionSetupError,
     openEncryptionSetupFromSettings,

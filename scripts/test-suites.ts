@@ -84,6 +84,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/dialogs/AddAccountDialog.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
       "src/components/dialogs/ImportDialog.test.tsx",
+      "src/components/layout/VaultKeyBanner.test.tsx",
     ],
   },
   botting: {

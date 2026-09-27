@@ -133,7 +133,17 @@ pub fn generate_master_key() -> Vec<u8> {
 /// criptografia.
 pub fn load_master_key(key_path: &Path) -> Option<RecoveredKey> {
     let data = fs::read(key_path).ok()?;
-    let file: KeyFile = serde_json::from_slice(&data).ok()?;
+    load_master_key_blob(&data)
+}
+
+/// Só a chave mestra, a partir dos bytes do arquivo. Usado por
+/// [`inspect_key_file`], que precisa separar erro de leitura de conteúdo ruim.
+fn load_master_key_from(data: &[u8]) -> Option<Vec<u8>> {
+    load_master_key_blob(data).map(|r| r.master)
+}
+
+fn load_master_key_blob(data: &[u8]) -> Option<RecoveredKey> {
+    let file: KeyFile = serde_json::from_slice(data).ok()?;
 
     if let Some(blob) = file.dpapi.as_deref().and_then(hex_decode) {
         if let Some(master) = crypto::dpapi_unprotect(&blob, dpapi_entropy()) {
@@ -172,6 +182,62 @@ pub fn load_master_key(key_path: &Path) -> Option<RecoveredKey> {
 pub struct StoredKeyHealth {
     pub dpapi_present: bool,
     pub device_present: bool,
+}
+
+/// Falha ao gravar o `.key`, com a informação que decide o tom do aviso.
+///
+/// `transient` separa "o antivírus segurou o arquivo por um instante" de "este
+/// arquivo não vai ser gravado". Sem essa distinção o app dispara o aviso mais
+/// assustador que tem para um arquivo que está perfeito — e aviso falso treina o
+/// usuário a ignorar avisos, o que desarma justamente a rede contra o lockout.
+#[derive(Debug)]
+pub struct KeyWriteError {
+    pub message: String,
+    pub transient: bool,
+}
+
+/// Erros de IO que costumam sumir sozinhos: quase sempre é scanner de antivírus,
+/// indexador ou backup segurando o handle por um instante.
+fn is_transient_io(kind: std::io::ErrorKind) -> bool {
+    use std::io::ErrorKind;
+    matches!(
+        kind,
+        ErrorKind::PermissionDenied
+            | ErrorKind::Interrupted
+            | ErrorKind::WouldBlock
+            | ErrorKind::TimedOut
+            | ErrorKind::AlreadyExists
+    )
+}
+
+/// O que se sabe sobre o arquivo de chave agora.
+///
+/// A diferença entre [`Self::Unreadable`] e [`Self::Unusable`] é a que evita
+/// falso alarme: no primeiro caso o arquivo pode estar íntegro e só
+/// momentaneamente inacessível.
+pub enum KeyFileState {
+    /// Abriu, e esta é a chave mestra que estava lá dentro.
+    Open(Vec<u8>),
+    /// O arquivo não existe.
+    Missing,
+    /// Existe e está ruim: não parseia, ou nenhum embrulho abre. Precisa reparo.
+    Unusable,
+    /// Não deu para **ler** agora. Pode ser transitório; não é motivo de alarme.
+    Unreadable,
+}
+
+/// Estado do `.key`, distinguindo "não consegui ler" de "está corrompido".
+pub fn inspect_key_file(key_path: &Path) -> KeyFileState {
+    match fs::read(key_path) {
+        Ok(data) => match load_master_key_from(&data) {
+            Some(master) => KeyFileState::Open(master),
+            None => KeyFileState::Unusable,
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => KeyFileState::Missing,
+        Err(e) if is_transient_io(e.kind()) => KeyFileState::Unreadable,
+        // Um diretório no lugar do arquivo, por exemplo: não é transitório.
+        Err(_) => KeyFileState::Unusable,
+    }
 }
 
 /// Qual embrulho DPAPI vai para o arquivo.
@@ -213,13 +279,22 @@ pub fn store_master_key(
     key_path: &Path,
     master: &[u8],
     device_hash: &[u8],
-) -> Result<StoredKeyHealth, String> {
+) -> Result<StoredKeyHealth, KeyWriteError> {
+    let fatal = |message: String| KeyWriteError {
+        message,
+        transient: false,
+    };
+
     if master.len() != MASTER_KEY_LEN {
-        return Err("Chave mestra com tamanho inválido".to_string());
+        return Err(fatal("Chave mestra com tamanho inválido".to_string()));
     }
 
-    let device_blob = crypto::encrypt(&hex_encode(master), device_hash)
-        .map_err(|e| format!("Falha ao embrulhar a chave com o hash do aparelho: {}", e))?;
+    let device_blob = crypto::encrypt(&hex_encode(master), device_hash).map_err(|e| {
+        fatal(format!(
+            "Falha ao embrulhar a chave com o hash do aparelho: {}",
+            e
+        ))
+    })?;
 
     let file = KeyFile {
         v: 1,
@@ -232,24 +307,34 @@ pub fn store_master_key(
     };
 
     if file.dpapi.is_none() && file.device.is_none() {
-        return Err("Nenhum embrulho disponível para a chave mestra".to_string());
+        return Err(fatal(
+            "Nenhum embrulho disponível para a chave mestra".to_string(),
+        ));
     }
     let health = StoredKeyHealth {
         dpapi_present: file.dpapi.is_some(),
         device_present: file.device.is_some(),
     };
 
-    let json =
-        serde_json::to_string(&file).map_err(|e| format!("Falha ao serializar o .key: {}", e))?;
+    let json = serde_json::to_string(&file)
+        .map_err(|e| fatal(format!("Falha ao serializar o .key: {}", e)))?;
 
     if let Some(parent) = key_path.parent() {
         let _ = fs::create_dir_all(parent);
     }
     let tmp_path = key_path.with_extension("key.tmp");
-    crate::data::versions::write_all_synced(&tmp_path, json.as_bytes())
-        .map_err(|e| format!("Falha ao gravar o .key: {}", e))?;
-    crate::data::versions::atomic_replace(&tmp_path, key_path)
-        .map_err(|e| format!("Falha ao substituir o .key: {}", e))?;
+    crate::data::versions::write_all_synced(&tmp_path, json.as_bytes()).map_err(|e| {
+        KeyWriteError {
+            message: format!("Falha ao gravar o .key: {}", e),
+            transient: is_transient_io(e.kind()),
+        }
+    })?;
+    // O rename é o passo que o antivírus costuma barrar; um erro aqui é o caso
+    // mais provável de "tenta de novo no save seguinte e funciona".
+    crate::data::versions::atomic_replace_io(&tmp_path, key_path).map_err(|e| KeyWriteError {
+        message: format!("Falha ao substituir o .key: {}", e),
+        transient: is_transient_io(e.kind()),
+    })?;
     Ok(health)
 }
 
@@ -521,6 +606,65 @@ mod vault_key_tests {
         );
         #[cfg(not(target_os = "windows"))]
         assert!(!health.dpapi_present, "fora do Windows não existe DPAPI");
+    }
+
+    /// **Quebra 4.** O que decide o tom do aviso. Confundir "o antivírus segurou o
+    /// arquivo por um instante" com "este arquivo não vai ser gravado" faz o app
+    /// disparar o alarme mais assustador que tem sobre um arquivo perfeito — e
+    /// alarme falso treina o dono a ignorar alarme, desarmando a única rede contra
+    /// o lockout.
+    #[test]
+    fn transient_io_errors_are_told_apart_from_permanent_ones() {
+        use std::io::ErrorKind;
+
+        // Somem sozinhos: scanner, indexador, backup segurando o handle.
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::Interrupted,
+            ErrorKind::WouldBlock,
+            ErrorKind::TimedOut,
+            ErrorKind::AlreadyExists,
+        ] {
+            assert!(is_transient_io(kind), "{kind:?} devia ser transitório");
+        }
+
+        // Não somem: disco cheio, caminho inválido, arquivo que não existe.
+        for kind in [
+            ErrorKind::NotFound,
+            ErrorKind::InvalidInput,
+            ErrorKind::InvalidData,
+            ErrorKind::Unsupported,
+            ErrorKind::OutOfMemory,
+        ] {
+            assert!(!is_transient_io(kind), "{kind:?} não é transitório");
+        }
+    }
+
+    /// Ler falhar e o conteúdo estar ruim são coisas diferentes, e é essa
+    /// diferença que evita alarme falso. `Missing` é reparável sem drama.
+    #[test]
+    fn inspecting_the_key_file_separates_missing_unusable_and_open() {
+        let path = temp_key_path("inspect");
+        let _guard = TempKey(path.clone());
+
+        assert!(matches!(inspect_key_file(&path), KeyFileState::Missing));
+
+        fs::write(&path, b"nao e json").unwrap();
+        assert!(matches!(inspect_key_file(&path), KeyFileState::Unusable));
+
+        fs::write(&path, b"").unwrap();
+        assert!(matches!(inspect_key_file(&path), KeyFileState::Unusable));
+
+        // JSON válido mas sem nenhum embrulho que abra: também inutilizável.
+        fs::write(&path, br#"{"v":1,"device":"00ff"}"#).unwrap();
+        assert!(matches!(inspect_key_file(&path), KeyFileState::Unusable));
+
+        let master = generate_master_key();
+        store_master_key(&path, &master, &crypto::primary_device_hash()).unwrap();
+        match inspect_key_file(&path) {
+            KeyFileState::Open(found) => assert_eq!(found, master),
+            _ => panic!("um .key saudável tem que abrir"),
+        }
     }
 
     #[test]

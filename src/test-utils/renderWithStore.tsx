@@ -268,6 +268,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     encryptionSetupOpen: false,
     encryptionSetupMode: "firstRun",
     accountsEncrypted: false,
+    vaultKeyWarning: null,
     applyingEncryption: false,
     encryptionSetupError: null,
     openEncryptionSetupFromSettings: vi.fn(),
