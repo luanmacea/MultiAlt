@@ -9,7 +9,7 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 
 import { AfkDialog, formatAfkElapsed } from "./AfkDialog";
 import type { AfkStatus, StoreValue } from "../../store";
-import { makeAccount, setStore } from "../../test-utils/renderWithStore";
+import { defaultSettings, makeAccount, setStore, storeRef } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
 
 const ACCOUNTS = [
@@ -214,6 +214,82 @@ describe("AfkDialog — sessão em andamento", () => {
     renderDialog({ afkStatus: RUNNING });
     expect(screen.getByLabelText("Key")).toBeDisabled();
     expect(screen.getByLabelText("Send every")).toBeDisabled();
+  });
+});
+
+/**
+ * Intervalo e tecla só mudam com o modo parado, então "parar → mudar → ligar"
+ * é o caminho normal. Parar não pode esquecer quem estava no modo: a seleção
+ * voltava à de antes do start, e uma conta acrescentada com a sessão ligada
+ * ficava de fora do próximo start sem aviso — e podia cair por inatividade.
+ */
+describe("AfkDialog — parar não esquece quem estava no modo", () => {
+  const INI_WITH_KEY = { ...defaultSettings(), Afk: { IntervalMinutes: "10", Key: "Space" } };
+
+  function runningWith(userIds: number[]): AfkStatus {
+    return makeAfkStatus({
+      active: true,
+      startedAtMs: 1_000,
+      key: "Space",
+      accounts: userIds.map((userId) => makeAfkAccount({ userId })),
+    });
+  }
+
+  /** O backend: `set_afk_accounts` devolve a sessão nova; `stop_afk_mode` a encerra. */
+  function backendAnswers(store: StoreValue) {
+    vi.mocked(store.setAfkAccounts).mockImplementation(async (userIds: number[]) => {
+      storeRef.current = {
+        ...storeRef.current,
+        afkStatus: userIds.length > 0 ? runningWith(userIds) : makeAfkStatus(),
+      };
+    });
+    vi.mocked(store.stopAfkMode).mockImplementation(async () => {
+      storeRef.current = { ...storeRef.current, afkStatus: makeAfkStatus() };
+    });
+  }
+
+  const row = (name: string) => screen.getByRole("button", { name });
+
+  it("a conta que entrou com a sessão ligada continua marcada depois de parar, e religar a leva junto", async () => {
+    const { store } = renderDialog({ afkStatus: runningWith([11]), settings: INI_WITH_KEY });
+    backendAnswers(store);
+
+    await userEvent.click(row(ACCOUNTS[1].Username));
+    expect(store.setAfkAccounts).toHaveBeenCalledWith([11, 22]);
+    await userEvent.click(screen.getByRole("button", { name: /Stop AFK Mode/i }));
+
+    const start = await screen.findByRole("button", { name: /Start AFK Mode/i });
+    expect(row(ACCOUNTS[0].Username)).toHaveAttribute("aria-pressed", "true");
+    expect(row(ACCOUNTS[1].Username)).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(start);
+    expect(store.startAfkMode).toHaveBeenCalledWith({
+      userIds: [11, 22],
+      intervalMinutes: 10,
+      key: "Space",
+    });
+  });
+
+  it("com a tela aberta numa sessão que já rodava, parar deixa marcadas as contas dela", async () => {
+    const { store } = renderDialog({ afkStatus: runningWith([11, 22]), settings: INI_WITH_KEY });
+    backendAnswers(store);
+
+    await userEvent.click(screen.getByRole("button", { name: /Stop AFK Mode/i }));
+
+    expect(await screen.findByRole("button", { name: /Start AFK Mode/i })).toBeEnabled();
+    expect(row(ACCOUNTS[0].Username)).toHaveAttribute("aria-pressed", "true");
+    expect(row(ACCOUNTS[1].Username)).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("desmarcar a última conta desliga o modo, e ela fica desmarcada — foi o que o usuário pediu", async () => {
+    const { store } = renderDialog({ afkStatus: runningWith([11]), settings: INI_WITH_KEY });
+    backendAnswers(store);
+
+    await userEvent.click(row(ACCOUNTS[0].Username));
+    expect(store.setAfkAccounts).toHaveBeenCalledWith([]);
+
+    expect(await screen.findByRole("button", { name: /Start AFK Mode/i })).toBeDisabled();
+    expect(row(ACCOUNTS[0].Username)).toHaveAttribute("aria-pressed", "false");
   });
 });
 
