@@ -309,7 +309,18 @@ pub async fn ensure_chromium(app: &AppHandle) -> Result<PathBuf, String> {
 
     if !binary.exists() {
         let archive = dir.join("download.zip");
-        download_archive(app, &url, &archive).await?;
+        let client = archive_client(ARCHIVE_IDLE_TIMEOUT)?;
+        download_archive(&client, &url, &archive, |downloaded, total| {
+            let _ = app.emit(
+                "chromium-download-progress",
+                DownloadProgress {
+                    stage: "downloading".into(),
+                    downloaded,
+                    total,
+                },
+            );
+        })
+        .await?;
 
         let _ = app.emit(
             "chromium-download-progress",
@@ -472,8 +483,35 @@ fn parse_stable_download(json: &Value, platform: &str) -> Result<(String, String
     Ok((version, url))
 }
 
-async fn download_archive(app: &AppHandle, url: &str, target: &Path) -> Result<(), String> {
-    let mut response = reqwest::get(url)
+/// Sem receber nenhum byte por este tempo, o download do navegador desiste.
+///
+/// Teto de **inatividade**, não do download inteiro: o zip tem ~150 MB e numa
+/// conexão lenta leva minutos de verdade. O que não pode é ficar parado para
+/// sempre num servidor que aceitou e parou de mandar — era o `reqwest::get`,
+/// sem teto nenhum.
+const ARCHIVE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Cliente do download do zip do navegador: handshake com o teto de sempre,
+/// e `idle` sem receber nada.
+fn archive_client(idle: std::time::Duration) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(crate::api::http_client::CONNECT_TIMEOUT)
+        .read_timeout(idle)
+        .build()
+        .map_err(|e| format!("Browser download failed: {}", e))
+}
+
+/// Baixa o zip para `target`, avisando `on_progress(baixado, total)` a cada
+/// ~2 MB.
+async fn download_archive(
+    client: &reqwest::Client,
+    url: &str,
+    target: &Path,
+    mut on_progress: impl FnMut(u64, u64),
+) -> Result<(), String> {
+    let mut response = client
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Browser download failed: {}", e))?;
 
@@ -501,14 +539,7 @@ async fn download_archive(app: &AppHandle, url: &str, target: &Path) -> Result<(
         downloaded += chunk.len() as u64;
         if downloaded - last_emit >= 2_000_000 {
             last_emit = downloaded;
-            let _ = app.emit(
-                "chromium-download-progress",
-                DownloadProgress {
-                    stage: "downloading".into(),
-                    downloaded,
-                    total,
-                },
-            );
+            on_progress(downloaded, total);
         }
     }
 
@@ -576,9 +607,9 @@ mod chromium_download_tests {
     use std::io::Write as _;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    // Catalog parsing, platform/path resolution and archive extraction. The
-    // network fetch and `ensure_chromium` (which needs an AppHandle) are not
-    // covered here.
+    // Catalog parsing, platform/path resolution, the archive download (against
+    // a local wiremock) and archive extraction. `ensure_chromium` (which needs
+    // an AppHandle) is not covered here.
 
     struct TempDir(PathBuf);
 
@@ -1222,5 +1253,87 @@ mod chromium_download_tests {
 
         let requests = server.received_requests().await.expect("requests");
         assert_eq!(requests.len(), 1, "a successful response must not be retried");
+    }
+
+    // O download do zip do navegador era `reqwest::get`, sem teto nenhum: um
+    // servidor que aceita e para de mandar prendia a tela de download para
+    // sempre. Ele desiste depois de um tempo sem receber nada — sem teto para o
+    // download inteiro, que numa conexão lenta leva minutos de verdade.
+
+    #[tokio::test]
+    async fn an_archive_download_that_stops_sending_gives_up() {
+        use std::time::{Duration, Instant};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/chrome-win64.zip"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_bytes(vec![7u8; 64])
+                    .set_delay(Duration::from_secs(5)),
+            )
+            .mount(&server)
+            .await;
+        let dir = TempDir::new("stalled");
+        let target = dir.path().join("download.zip");
+
+        let client = archive_client(Duration::from_millis(300)).expect("client");
+        let started = Instant::now();
+        let result = download_archive(
+            &client,
+            &format!("{}/chrome-win64.zip", server.uri()),
+            &target,
+            |_, _| {},
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "um download parado terminou como se tivesse dado certo"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "o download parado só desistiu depois de {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_archive_download_that_keeps_sending_is_written_whole() {
+        use std::time::Duration;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        // 3 MB: passa do limiar de 2 MB do aviso de progresso.
+        let body: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/chrome-win64.zip"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.clone()))
+            .mount(&server)
+            .await;
+        let dir = TempDir::new("whole");
+        let target = dir.path().join("download.zip");
+
+        let client = archive_client(Duration::from_secs(5)).expect("client");
+        let mut progress = Vec::new();
+        download_archive(
+            &client,
+            &format!("{}/chrome-win64.zip", server.uri()),
+            &target,
+            |downloaded, total| progress.push((downloaded, total)),
+        )
+        .await
+        .expect("o download completo falhou");
+
+        assert_eq!(std::fs::read(&target).expect("arquivo baixado"), body);
+        assert!(
+            progress
+                .iter()
+                .any(|&(d, t)| d >= 2_000_000 && t == 3_000_000),
+            "o progresso não foi avisado: {progress:?}"
+        );
     }
 }
