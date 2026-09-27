@@ -19,6 +19,9 @@ export function ToggleRow({
           checked ? "bg-[var(--toggle-on-bg)] border-[var(--toggle-on-bg)]" : "bg-[var(--toggle-off-bg)] border-[var(--toggle-off-bg)]"
         }`}
         aria-pressed={checked}
+        // Sem isto o botao do toggle nao tem nome nenhum: o rotulo mora no
+        // `span` ao lado, fora do botao.
+        aria-label={t(label)}
       >
         <div
           className={`w-3.5 h-3.5 rounded-full bg-[var(--toggle-knob-bg)] absolute top-[2px] transition-all ${

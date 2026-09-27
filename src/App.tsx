@@ -24,6 +24,7 @@ import { ThemeEditorDialog } from "./components/dialogs/ThemeEditorDialog";
 import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { NexusDialog } from "./components/dialogs/NexusDialog";
 import { BottingDialog } from "./components/dialogs/BottingDialog";
+import { AfkDialog } from "./components/dialogs/AfkDialog";
 import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
 import { BackupsDialog } from "./components/dialogs/BackupsDialog";
@@ -56,6 +57,7 @@ function AppContent() {
     !!store.missingAssets ||
     store.themeEditorOpen ||
     store.bottingDialogOpen ||
+    store.afkDialogOpen ||
     store.generatorDialogOpen ||
     (ENABLE_NEXUS && store.nexusOpen) ||
     store.scriptsOpen ||
@@ -224,6 +226,8 @@ function AppContent() {
         onClose={() => store.setBottingDialogOpen(false)}
         initialPlaceId={store.bottingDialogPlaceId}
       />
+
+      <AfkDialog open={store.afkDialogOpen} onClose={() => store.setAfkDialogOpen(false)} />
 
       <GeneratorDialog
         open={store.generatorDialogOpen}

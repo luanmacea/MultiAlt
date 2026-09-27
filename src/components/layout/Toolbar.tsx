@@ -6,7 +6,7 @@ import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { ENABLE_NEXUS } from "../../featureFlags";
 import { SessionToolbarButton } from "../dialogs/SessionDialog";
-import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp } from "lucide-react";
+import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp, Keyboard } from "lucide-react";
 
 export function Toolbar() {
   const t = useTr();
@@ -332,6 +332,23 @@ export function Toolbar() {
             </button>
           </Tooltip>
         )}
+
+        {/*
+          O AFK mode é por conta e só alcança cliente aberto, então a porta dele
+          fica aqui, sempre visível — e não na barra de ações, que só aparece com
+          conta selecionada.
+        */}
+        <Tooltip content={t("AFK Mode")} side="bottom">
+          <button
+            onClick={() => store.setAfkDialogOpen(true)}
+            aria-label={t("AFK Mode")}
+            className={`theme-btn-ghost p-1.5 rounded-lg transition-colors ${
+              store.afkStatus?.active ? activeToggleStyle : ""
+            }`}
+          >
+            <Keyboard size={16} strokeWidth={1.5} />
+          </button>
+        </Tooltip>
 
         <Tooltip content={t("Scripts")} side="bottom">
           <button

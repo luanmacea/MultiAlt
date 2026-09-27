@@ -94,6 +94,11 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: ["src/components/dialogs/BottingDialog.test.tsx"],
   },
+  afk: {
+    description: "AFK mode: teclas permitidas, agendamento por conta e parada do ciclo",
+    rust: ["afk_command_tests", "afk_input_safety_tests", "win_input_tests"],
+    front: ["src/components/dialogs/AfkDialog.test.tsx", "src/utils/afkBeep.test.ts"],
+  },
   isolation: {
     description: "Isolamento pré-launch (cache, registro, MachineGuid/MAC)",
     rust: ["win_isolation_tests", "isolation_command_tests"],

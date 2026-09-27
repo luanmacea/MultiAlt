@@ -5,7 +5,7 @@ Roblox Account Manager 4 (RAM4) é um gerenciador desktop de múltiplas contas R
 - guardar várias contas (cookie `.ROBLOSECURITY`, senha opcional, alias, grupo, campos livres) em um arquivo local, opcionalmente criptografado com senha;
 - lançar um ou vários clientes Roblox ao mesmo tempo (multi-Roblox), em jogos públicos, Job IDs específicos ou servidores VIP/privados;
 - navegar por jogos/servidores, manter favoritos (com vários links VIP por jogo) e jogos recentes;
-- automatizar re-join de contas (Botting Mode), vigiar processos (Watcher), isolar sessões antes do launch e fixar versões específicas do cliente Roblox;
+- automatizar re-join de contas (Botting Mode), mandar tecla de tempo em tempo para não perder o estado (AFK mode), vigiar processos (Watcher), isolar sessões antes do launch e fixar versões específicas do cliente Roblox;
 - expor uma API HTTP local (feature `webserver`) e um servidor WebSocket para scripts Lua (feature `nexus`);
 - rodar scripts JavaScript do usuário em um sandbox (Web Worker) dentro do app.
 
@@ -42,6 +42,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/launch.md](features/launch.md) — lançamento de uma conta.
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
 - [features/botting.md](features/botting.md) — Botting Mode (auto-rejoin cíclico).
+- [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).
 - [features/roblox-versions.md](features/roblox-versions.md) — instalação e seleção de versões do cliente Roblox.
 - [features/watcher.md](features/watcher.md) — monitoramento de processos Roblox.

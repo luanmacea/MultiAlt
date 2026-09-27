@@ -377,6 +377,19 @@ impl SettingsStore {
             }
         }
 
+        // AFK mode. `Key` nasce **vazia** de proposito: sem tecla escolhida pelo
+        // usuario o modo nao liga, e chave vazia nao chega a ser gravada no INI
+        // (`IniSection::set` trata valor em branco como remocao).
+        let afk_defaults: &[(&str, &str)] =
+            &[("IntervalMinutes", "10"), ("Key", ""), ("BeepOnCycle", "false")];
+
+        let afk = ini.section("Afk");
+        for (key, value) in afk_defaults {
+            if !afk.exists(key) {
+                afk.set(key, value, None);
+            }
+        }
+
         ini.section("Prompts");
 
         drop(ini);
@@ -690,6 +703,15 @@ mod settings_store_tests {
             &[("PersistentProfile", "true"), ("StealthMode", "true")],
         );
 
+        // AFK mode. `Afk.Key` nasce vazia de proposito (sem tecla escolhida o
+        // modo nao liga), entao ela mora em `EMPTY_STRING_DEFAULTS`, nao aqui —
+        // ver docs/features/afk-mode.md.
+        push(
+            &mut out,
+            "Afk",
+            &[("IntervalMinutes", "10"), ("BeepOnCycle", "false")],
+        );
+
         push(
             &mut out,
             "Generator",
@@ -749,6 +771,7 @@ mod settings_store_tests {
         ("Isolation", "BackupMachineGuid"),
         ("Isolation", "BackupNetworkAddress"),
         ("Isolation", "BackupAdapterId"),
+        ("Afk", "Key"),
         ("BloxGen", "ApiKey"),
         ("Linux", "CustomLaunchCommand"),
         ("Linux", "CustomLogDir"),
@@ -1106,6 +1129,7 @@ mod settings_store_tests {
             "Versions",
             "Isolation",
             "Login",
+            "Afk",
         ] {
             assert!(all.contains_key(section), "missing section {section}");
             assert!(!all[section].is_empty(), "empty section {section}");
