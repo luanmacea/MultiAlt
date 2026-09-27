@@ -229,6 +229,7 @@ pub fn run() {
             data::accounts::forget_remembered_unlock,
             data::accounts::is_accounts_encrypted,
             data::accounts::needs_password,
+            data::accounts::vault_key_warning,
             data::accounts::set_encryption_password,
             data::accounts::reorder_accounts,
             data::accounts::import_old_account_data,
