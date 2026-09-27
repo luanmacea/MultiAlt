@@ -200,6 +200,35 @@ fn resolve_botting_base_path(has_account_version: bool, use_old_join: bool) -> B
     }
 }
 
+/// Versão a reportar ao `ProcessTracker` para o cliente que este ciclo do
+/// Botting acabou de abrir (Task de sync com o upstream: sem isto,
+/// `has_version_conflict` — a guarda que a fila de launch usa para recusar
+/// abrir numa versão diferente da que já está rodando — não enxergava os
+/// clientes do Botting, porque o ciclo só chamava `tracker.track` (sem
+/// versão). Duas contas em versões diferentes (uma pelo Botting, outra pela
+/// fila) abriam lado a lado sem aviso nenhum, que é exatamente o que essa
+/// guarda existe para impedir.
+///
+/// Só vale no old join: pelo protocolo (`launch_url`) o cliente sempre abre a
+/// build de **produção** — o `channel:` vazio da URL vence o registro
+/// (`CLAUDE.md`, `docs/features/launch.md`) — então reportar
+/// `resolved_version_id` nesse ramo mentiria para a guarda. Na prática
+/// `resolve_use_old_join` já garante `resolved_version_id.is_none()` sempre
+/// que `use_old_join` for falso (a mesma invariante de que depende
+/// `resolve_botting_base_path`), mas a função fica segura por conta própria
+/// em vez de confiar nisso silenciosamente.
+#[cfg(target_os = "windows")]
+fn botting_tracked_version(
+    use_old_join: bool,
+    resolved_version_id: Option<String>,
+) -> Option<String> {
+    if use_old_join {
+        resolved_version_id
+    } else {
+        None
+    }
+}
+
 async fn launch_account_for_cycle(
     app: &tauri::AppHandle,
     user_id: i64,
@@ -409,7 +438,15 @@ async fn launch_account_for_cycle(
         return Err("Timed out waiting for Roblox process after launch".into());
     };
 
-    tracker.track(user_id, pid, browser_tracker_id);
+    // Registra a versão do jeito que `commands/launch.rs` já faz (Task de sync
+    // com o upstream): sem isso `has_version_conflict` da fila de launch não
+    // enxergava os clientes que o Botting abre.
+    tracker.track_with_version(
+        user_id,
+        pid,
+        browser_tracker_id,
+        botting_tracked_version(use_old_join, resolved_version_id.clone()),
+    );
     {
         let settings_state = app.state::<SettingsStore>();
         apply_windows_post_launch_profile(Some(app), settings_state.inner(), launch_profile, pid)
