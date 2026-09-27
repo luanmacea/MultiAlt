@@ -309,7 +309,18 @@ pub async fn ensure_chromium(app: &AppHandle) -> Result<PathBuf, String> {
 
     if !binary.exists() {
         let archive = dir.join("download.zip");
-        download_archive(app, &url, &archive).await?;
+        let client = archive_client(ARCHIVE_IDLE_TIMEOUT)?;
+        download_archive(&client, &url, &archive, |downloaded, total| {
+            let _ = app.emit(
+                "chromium-download-progress",
+                DownloadProgress {
+                    stage: "downloading".into(),
+                    downloaded,
+                    total,
+                },
+            );
+        })
+        .await?;
 
         let _ = app.emit(
             "chromium-download-progress",
@@ -472,8 +483,35 @@ fn parse_stable_download(json: &Value, platform: &str) -> Result<(String, String
     Ok((version, url))
 }
 
-async fn download_archive(app: &AppHandle, url: &str, target: &Path) -> Result<(), String> {
-    let mut response = reqwest::get(url)
+/// Sem receber nenhum byte por este tempo, o download do navegador desiste.
+///
+/// Teto de **inatividade**, não do download inteiro: o zip tem ~150 MB e numa
+/// conexão lenta leva minutos de verdade. O que não pode é ficar parado para
+/// sempre num servidor que aceitou e parou de mandar — era o `reqwest::get`,
+/// sem teto nenhum.
+const ARCHIVE_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Cliente do download do zip do navegador: handshake com o teto de sempre,
+/// e `idle` sem receber nada.
+fn archive_client(idle: std::time::Duration) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(crate::api::http_client::CONNECT_TIMEOUT)
+        .read_timeout(idle)
+        .build()
+        .map_err(|e| format!("Browser download failed: {}", e))
+}
+
+/// Baixa o zip para `target`, avisando `on_progress(baixado, total)` a cada
+/// ~2 MB.
+async fn download_archive(
+    client: &reqwest::Client,
+    url: &str,
+    target: &Path,
+    mut on_progress: impl FnMut(u64, u64),
+) -> Result<(), String> {
+    let mut response = client
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Browser download failed: {}", e))?;
 
@@ -501,14 +539,7 @@ async fn download_archive(app: &AppHandle, url: &str, target: &Path) -> Result<(
         downloaded += chunk.len() as u64;
         if downloaded - last_emit >= 2_000_000 {
             last_emit = downloaded;
-            let _ = app.emit(
-                "chromium-download-progress",
-                DownloadProgress {
-                    stage: "downloading".into(),
-                    downloaded,
-                    total,
-                },
-            );
+            on_progress(downloaded, total);
         }
     }
 
