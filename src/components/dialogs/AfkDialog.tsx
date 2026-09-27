@@ -93,6 +93,15 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
   /** Quem está no modo: a sessão manda quando há sessão; senão, o rascunho. */
   const inAfk = running ? sessionUserIds : draftUserIds;
 
+  // Com sessão, o rascunho acompanha quem está nela. Quando a sessão acaba —
+  // Parar, ou por qualquer outro caminho —, a tela continua marcando quem
+  // estava no modo, inclusive a conta que entrou com a sessão ligada, e religar
+  // leva as mesmas contas. Sem isto a seleção voltava à de antes do start, e a
+  // conta acrescentada ficava de fora do próximo start sem aviso.
+  useEffect(() => {
+    if (running) setDraftUserIds(sessionUserIds);
+  }, [running, sessionUserIds]);
+
   /**
    * Só conta com cliente aberto **por este app** pode receber tecla: é o tracker
    * que sabe qual PID é de qual conta. Quem está no modo continua na lista mesmo
@@ -143,6 +152,10 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
     setBusy(true);
     try {
       await store.setAfkAccounts(next);
+      // Desmarcar a última conta encerra a sessão, e aí o espelho acima não
+      // roda mais: o rascunho fica com o que o usuário pediu, e não com a
+      // conta que ele acabou de tirar.
+      setDraftUserIds(next);
     } catch {
       // O erro já virou toast no store.
     } finally {
