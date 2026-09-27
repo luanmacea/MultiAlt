@@ -381,6 +381,25 @@ describe("classifyJobInput", () => {
     ).toBe("link");
     expect(classifyJobInput("https://www.roblox.com/share?code=abc123&type=Server")).toBe("link");
   });
+
+  /**
+   * Link curto do AppsFlyer: a query de verdade vem **codificada** dentro do
+   * `af_dp`, então `code=` não aparece no texto cru. Classificado como `job`,
+   * ele entraria na lista como alvo público — o código privado do dono à
+   * mostra para qualquer conta. É formato real (mesmo caso de
+   * `extract_query_param_value_recursive`, `launch_shared.rs`).
+   */
+  it("sees through a double-encoded share link", () => {
+    expect(
+      classifyJobInput(
+        "https://ro.blox.com/Ebh5?af_dp=roblox%3A%2F%2Fnavigation%2Fshare_links%3Fcode%3DDEADBEEF%26type%3DServer"
+      )
+    ).toBe("link");
+  });
+
+  it("survives a broken percent-escape instead of throwing", () => {
+    expect(classifyJobInput("job-%zz-%-id")).toBe("job");
+  });
 });
 
 describe("recent jobs storage", () => {

@@ -1614,5 +1614,6 @@
   "Clear the recent servers list? Its 1 server is deleted from this computer and cannot be recovered.": "Clear the recent servers list? Its 1 server is deleted from this computer and cannot be recovered.",
   "How many servers (Job IDs) the Recent list keeps before the oldest one drops off.": "How many servers (Job IDs) the Recent list keeps before the oldest one drops off.",
   "Max Recent Servers": "Max Recent Servers",
-  "No recent servers": "No recent servers"
+  "No recent servers": "No recent servers",
+  "{{name}} - already exists; the password in this line was not stored": "{{name}} - already exists; the password in this line was not stored"
 }

@@ -217,3 +217,108 @@ semeados (um job público, um `vip:`, um link privado):
 Suítes: nenhum arquivo novo precisou entrar em `scripts/test-suites.ts` — `src/utils` já está
 mapeado na suíte `ui` e `src/components/server-list` nas suítes `servers` e `ui`. A auditoria
 confirma (nenhum teste órfão).
+
+---
+
+# Rodada de correção 1 — achados da revisão
+
+Em cima de `a05bef9` (já integrado na `develop` pelo merge `ebb98c1`). Edições cirúrgicas, para
+o merge seguinte ser trivial.
+
+## Important 1 — `addRecentJob` derrubava launch que deu certo
+
+`src/store.tsx` (`joinServer` e `launchMultiple`). A chamada estava **nua** entre o
+`invoke("launch_roblox"/"launch_multiple")` bem-sucedido e o `catch` do launch: uma escrita
+recusada pelo `localStorage` (cota cheia, perfil sem storage) virava `setError` +
+`"Launch failed: …"` com o cliente do Roblox **já aberto**, e no lote o `catch` ainda **relança**,
+interrompendo o que a Choose Game faria depois. O `recordRecentGame` da linha de cima já estava
+blindado; eu tinha blindado um e deixado o outro.
+
+Como `addRecentJob` é **síncrono**, `.catch()` não serve: os dois call sites agora são
+`try { addRecentJob(...) } catch {}`, com o comentário explicando por quê.
+
+**Testes que falharam primeiro** (`src/store.test.ts`, com `addRecentJobMock` lançando):
+
+```
+× keeps the launch successful when recording the recent server throws
+× does not fail or rethrow when recording the recent server throws
+Tests  2 failed | 140 passed (142)
+```
+
+O primeiro cobra `error === null`, tom ≠ `error` e a conta ainda em `joiningAccounts`; o segundo
+cobra que `launchMultiple` **resolve** em vez de relançar. O `beforeEach` passou a usar
+`addRecentJobMock.mockReset()` (e não `mockClear`), senão a implementação que explode vazaria para
+o teste seguinte.
+
+**Sabotagem:** removi os dois `try/catch` → exatamente esses 2 testes reprovaram. Desfeita.
+
+## Minor 4 — share link duplo-codificado escapava da filtragem por dono
+
+`classifyJobInput` (`src/components/server-list/types.ts`) olhava só o texto cru, então
+`https://ro.blox.com/Ebh5?af_dp=…%3Fcode%3DDEADBEEF%26type%3DServer` — formato real, o mesmo do
+teste `extract_query_param_value_recursive_handles_double_encoded_urls` em `launch_shared.rs` —
+caía em `job` e **aparecia para todas as contas**, com o código privado do dono na linha e no
+`title`. Agora o padrão é procurado também no texto decodificado (`decodeLayers`, até 3 passadas,
+parando quando não muda), e escape quebrado não lança: o `decodeURIComponent` vai num `try` e vale
+o que já se decodificou.
+
+**Testes que falharam primeiro** (`types.test.ts`):
+
+```
+× sees through a double-encoded share link
+```
+(mais `survives a broken percent-escape instead of throwing`, que já passava e trava a guarda).
+
+**Sabotagem:** voltei a testar só o texto cru → esse teste reprovou. Desfeita.
+
+## Minor 2 — o comentário dizia o contrário do código
+
+O comportamento fica como está (a revisão julgou a normalização **melhor**); corrigi o **texto**.
+`RecentJobEntry.raw` agora diz que o valor é o alvo "no vocabulário que o campo de Job ID aceita de
+volta", que a store **normaliza** link privado para `vip:<código>` antes de gravar, por quê
+(no VIP o Job ID vai vazio e o código viaja em `linkCode`), e que o `resolve_launch_job` chega ao
+mesmo `link_code` pelos dois caminhos — sendo a forma normalizada a que ainda classifica como
+privada, o lado seguro do erro. O que não se faz é reescrever o valor **dentro do módulo**.
+O comentário de `RecentJobKind` passou a dizer que, por causa disso, `kind: "link"` quase não é
+alcançado pela store (cobre o já gravado e quem grave o link cru) — e que é justamente por isso que
+`classifyJobInput` continua tendo de reconhecer link, inclusive o duplo-codificado.
+`docs/features/server-list.md` foi corrigida nos mesmos termos (a frase "Nada é reescrito nem
+normalizado" era falsa).
+
+## Minors opcionais que fiz
+
+- **`COOKIE_MARKER` exportado** (`utils/cookies.ts`): `AddAccountDialog.tsx` e `Toolbar.tsx` deixaram
+  de repetir o literal `"_|WARNING:-DO-NOT-SHARE"`. Efeito colateral consciente: os dois passam a
+  aceitar como cookie um valor que comece por `_|WARNING` com o aviso torto — é a mesma regra que o
+  parser de import já documenta ("cookie com o aviso torto ainda é cookie"), e nome de usuário do
+  Roblox não contém `_|`. Coberto pelos testes de cookie que já existiam nas duas telas.
+- **Mensagem de conta repetida com senha na linha**: conta que já existe não passa pelo
+  `add_account`, então a senha **não** é gravada. O resultado agora diz
+  `"{{name}} - already exists; the password in this line was not stored"` (antes só
+  "already exists", que deixava pensar que a senha tinha sido guardada). Teste
+  `says the password was not stored when the account already exists`; sabotado (voltando à
+  mensagem curta) e confirmado que reprova.
+  ⚠️ A primeira redação usava "not saved" e **reprovou** `locales.test.ts`: `"saved"` é marcador de
+  **sucesso** em `toneFromMessage`, então o inglês virava toast verde e o pt-BR, neutro — o teste de
+  tom pegou. Trocado por "not stored", que não aciona marcador nenhum. Ficou registrado na doc.
+
+## Minors que **não** mexi (conforme combinado)
+
+Dono presumido no lote sem retorno por conta do backend; cap global compartilhado entre contas;
+senha contendo literalmente `_|WARNING` caindo no fallback.
+
+## `bun run check` desta rodada
+
+```
+$ tsc --noEmit                      (sem saída)
+$ bun scripts/test-suite.ts --audit
+Auditoria ok: toda suíte de teste está mapeada em scripts/test-suites.ts
+$ vitest run
+ Test Files  70 passed (70)
+      Tests  1424 passed (1424)
+$ cargo test --all-features
+test result: ok. 1354 passed; 0 failed
+test result: ok. 24 passed; 0 failed   (security_regression_scripts_store)
+```
+
+Verde inteiro — as 4 `singleton_event_tests` instáveis também passaram.

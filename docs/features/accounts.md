@@ -104,7 +104,8 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
   - `user:cookie` (sem senha) vale como cookie sozinho. O `Username` gravado é sempre o que o `validate_cookie` devolve, não o da linha;
   - **linha incompleta é pulada, não importada pela metade**: `user:pass` sem cookie na aba de cookie vira "Skipped …: no cookie in this line" e a importação segue para a linha seguinte (uma conta gravada só com senha não abre nada);
   - a mesma linha `user:pass:cookie` colada na aba **User:Pass** é importada direto pelo cookie, sem abrir navegador nem pedir CAPTCHA;
-  - a senha só é enviada ao `add_account` quando a linha a traz (o parâmetro é `Option<String>` no backend).
+  - a senha só é enviada ao `add_account` quando a linha a traz (o parâmetro é `Option<String>` no backend). Conta que **já existe** não passa pelo `add_account`, então a senha daquela linha não é guardada — e a mensagem do resultado diz isso ("…the password in this line was not stored"), em vez de só "already exists". O texto evita a palavra "saved" de propósito: ela é marcador de sucesso em `toneFromMessage` ([utils/toastTone.ts](../../src/utils/toastTone.ts)) e pintaria de verde uma mensagem que não é;
+  - o `COOKIE_MARKER` (`_|WARNING`) exportado por `utils/cookies.ts` é o mesmo que o Quick Add da Toolbar e o Add Account usam para decidir se o texto colado é cookie ou nome de usuário — era um pedaço do aviso repetido em cada tela.
 - **Aviso do diálogo de import:** o cookie entrega a sessão, e a senha entrega a **conta** (troca de e-mail e de senha, e sair de todas as sessões não a revoga) — e ela fica no `AccountData.json`, encriptado só quando o app tem senha. Os dois riscos estão na tela, em dois parágrafos, cobertos por teste ([ImportDialog.test.tsx](../../src/components/dialogs/ImportDialog.test.tsx)).
 - **Import de arquivo antigo** (`import_old_account_data`):
   - contas com `UserID <= 0` são ignoradas (`skipped`);

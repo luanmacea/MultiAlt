@@ -3,6 +3,7 @@ import { File, FileText, Globe, KeyRound, Package, Plus, Sparkles, UserPlus, X }
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
 import { tr, useTr } from "../../i18n/text";
+import { COOKIE_MARKER } from "../../utils/cookies";
 
 interface AddAccountDialogProps {
   open: boolean;
@@ -30,7 +31,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
     const value = input.trim();
 
     try {
-      if (value.includes("_|WARNING:-DO-NOT-SHARE")) {
+      if (value.includes(COOKIE_MARKER)) {
         await store.addAccountByCookie(value);
         return;
       }

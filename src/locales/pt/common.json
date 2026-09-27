@@ -1614,5 +1614,6 @@
   "Clear the recent servers list? Its 1 server is deleted from this computer and cannot be recovered.": "Limpar a lista de servidores recentes? O único servidor dela é apagado deste computador e não volta.",
   "How many servers (Job IDs) the Recent list keeps before the oldest one drops off.": "Quantos servidores (Job IDs) a lista Recent guarda antes de o mais antigo cair.",
   "Max Recent Servers": "Máximo de servidores recentes",
-  "No recent servers": "Nenhum servidor recente"
+  "No recent servers": "Nenhum servidor recente",
+  "{{name}} - already exists; the password in this line was not stored": "{{name}} - já existe; a senha desta linha não foi guardada"
 }
