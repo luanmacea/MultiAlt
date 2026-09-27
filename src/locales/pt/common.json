@@ -1628,5 +1628,6 @@
   "width": "largura",
   "Window height": "Altura da janela",
   "Window width": "Largura da janela",
-  "Windowed": "Em janela"
+  "Windowed": "Em janela",
+  "A launch is already in progress": "Já existe um launch em andamento"
 }

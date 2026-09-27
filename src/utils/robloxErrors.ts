@@ -16,3 +16,21 @@ export function isMultiRobloxCloseProcessError(message: string | null | undefine
     (lower.includes("multi roblox") && lower.includes("close all roblox process"))
   );
 }
+
+/**
+ * O código que o backend devolve quando o usuário dispara um launch com outro
+ * em andamento (`LAUNCH_ALREADY_ACTIVE` em `commands/launch.rs`).
+ *
+ * Vem como código e não como frase porque a tradução é aqui: o Rust não tem o
+ * catálogo do i18n.
+ */
+export const LAUNCH_ALREADY_ACTIVE_CODE = "launch-already-active";
+
+/**
+ * Duas sequências de launch não podem rodar juntas — elas disputariam o mutex
+ * do Multi Roblox, o registro e o `ClientAppSettings.json`. Quando o backend
+ * recusa, a tela tem de dizer isso com palavras, não despejar o código.
+ */
+export function isLaunchAlreadyActiveError(error: unknown): boolean {
+  return String(error ?? "").includes(LAUNCH_ALREADY_ACTIVE_CODE);
+}

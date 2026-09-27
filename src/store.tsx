@@ -68,6 +68,7 @@ export function normalizeServerPreference(value: string | undefined): ServerPref
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
 import i18n, { normalizeLanguage } from "./i18n";
 import { REPO_URL } from "./repo";
+import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import {
@@ -1146,6 +1147,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * O backend recusa um launch quando já existe uma sequência em andamento
+   * (duas filas ao mesmo tempo brigariam pelo mutex do Multi Roblox, pelo
+   * registro e pelo `ClientAppSettings.json`, que é global). A mensagem é a
+   * mesma no launch de uma conta e no de várias — e é aqui que o código do
+   * backend vira frase traduzida.
+   */
+  function reportLaunchAlreadyActive() {
+    const message = tr("A launch is already in progress");
+    addToast(message, "warn");
+    setActionStatusMessage(message, "warn", 4000);
+  }
+
   async function joinServer(userId: number, target?: LaunchTarget) {
     clearLaunchTimeout();
     setJoiningAccounts(new Set([userId]));
@@ -1202,6 +1216,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return next;
       });
       setLaunchProgress((prev) => (prev?.mode === "single" && prev.userId === userId ? null : prev));
+      if (isLaunchAlreadyActiveError(e)) {
+        // Recusa, não falha: o backend não deixa duas sequências de launch
+        // rodarem juntas. A faixa vermelha de erro (com "abrir o log") diria a
+        // coisa errada, então isto sai como aviso.
+        reportLaunchAlreadyActive();
+        return;
+      }
       setError(String(e));
       setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
       return;
@@ -1264,6 +1285,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setJoiningAccounts(new Set());
       setLaunchProgress(null);
+      if (isLaunchAlreadyActiveError(e)) {
+        // Ver `joinServer`: recusa por sequência já em andamento é aviso. O erro
+        // original é relançado com o código intacto para quem chamou reconhecer
+        // (a tela de Choose Game não repete o toast).
+        reportLaunchAlreadyActive();
+        throw e;
+      }
       setError(String(e));
       setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
       throw e;
