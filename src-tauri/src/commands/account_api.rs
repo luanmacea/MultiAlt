@@ -1256,9 +1256,58 @@ async fn join_group(
     .await
 }
 
+/// Escolhe o cookie de "quem está olhando" para uma chamada de presença sem
+/// `viewer_user_id` explícito: prefere uma conta válida com cookie não vazio e
+/// cai para qualquer conta com cookie não vazio se nenhuma válida sobrar.
+///
+/// Ressalva: o `gameId` (job id) que a Roblox devolve para as outras contas
+/// passa a depender da privacidade/configuração de amigos de quem foi
+/// escolhida como "viewer" — é assim que a API funciona, não uma falha daqui.
+fn pick_viewer_cookie(accounts: &[data::accounts::Account]) -> Option<String> {
+    accounts
+        .iter()
+        .find(|account| account.valid && !account.security_token.trim().is_empty())
+        .or_else(|| accounts.iter().find(|account| !account.security_token.trim().is_empty()))
+        .map(|account| account.security_token.clone())
+}
+
+/// Presença dos usuários pedidos, com o cookie de uma conta quando possível —
+/// sem cookie a Roblox devolve a versão degradada, sem `gameId`, e a lista
+/// perde as bolinhas In Game/Online precisas (`src/store.tsx`).
+///
+/// **Nunca** usa `run_with_session_retry` aqui: é leitura, e o refresh chama
+/// `signoutfromallsessionsandreauthenticate`, que derrubaria as sessões
+/// abertas da conta escolhida só para colorir bolinhas de presença.
+///
+/// **Fallback obrigatório:** se a chamada autenticada falhar (cookie morto,
+/// rede, o que for), repete sem cookie em vez de propagar o erro — uma única
+/// conta com sessão inválida não pode apagar a presença de todo mundo.
+async fn presence_with_viewer_cookie(
+    state: &AccountStore,
+    user_ids: &[i64],
+    viewer_user_id: Option<i64>,
+) -> Result<Vec<api::roblox::UserPresence>, String> {
+    let cookie = viewer_user_id
+        .and_then(|id| get_cookie(state, id).ok())
+        .filter(|token| !token.trim().is_empty())
+        .or_else(|| state.get_all().ok().and_then(|accounts| pick_viewer_cookie(&accounts)));
+
+    if let Some(token) = cookie {
+        if let Ok(presences) = api::roblox::get_presence_as(Some(&token), user_ids).await {
+            return Ok(presences);
+        }
+    }
+
+    api::roblox::get_presence(user_ids).await
+}
+
 #[tauri::command]
-async fn get_presence(user_ids: Vec<i64>) -> Result<Vec<api::roblox::UserPresence>, String> {
-    api::roblox::get_presence(&user_ids).await
+async fn get_presence(
+    state: tauri::State<'_, AccountStore>,
+    user_ids: Vec<i64>,
+    viewer_user_id: Option<i64>,
+) -> Result<Vec<api::roblox::UserPresence>, String> {
+    presence_with_viewer_cookie(state.inner(), &user_ids, viewer_user_id).await
 }
 
 /// Onde uma conta esta jogando agora.
@@ -1766,6 +1815,47 @@ mod account_api_tests {
         assert!(persist_cookie_update(&store, 7, "NEW").is_err());
     }
 
+    // ---- pick_viewer_cookie ----------------------------------------------------
+
+    #[test]
+    fn pick_viewer_cookie_prefers_a_valid_account_over_an_invalid_one() {
+        let mut invalid = account(1, "INVALID-TOKEN");
+        invalid.valid = false;
+        let mut valid = account(2, "VALID-TOKEN");
+        valid.valid = true;
+
+        assert_eq!(
+            pick_viewer_cookie(&[invalid, valid]),
+            Some("VALID-TOKEN".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_viewer_cookie_falls_back_to_an_invalid_account_when_none_is_valid() {
+        let mut only = account(3, "ONLY-TOKEN");
+        only.valid = false;
+
+        assert_eq!(pick_viewer_cookie(&[only]), Some("ONLY-TOKEN".to_string()));
+    }
+
+    #[test]
+    fn pick_viewer_cookie_skips_accounts_with_an_empty_token() {
+        let mut valid_no_token = account(4, "");
+        valid_no_token.valid = true;
+        let mut invalid_with_token = account(5, "HAS-TOKEN");
+        invalid_with_token.valid = false;
+
+        assert_eq!(
+            pick_viewer_cookie(&[valid_no_token, invalid_with_token]),
+            Some("HAS-TOKEN".to_string())
+        );
+    }
+
+    #[test]
+    fn pick_viewer_cookie_on_an_empty_store_is_none() {
+        assert_eq!(pick_viewer_cookie(&[]), None);
+    }
+
     // ---- dedupe_friend_ids ---------------------------------------------------
 
     #[test]
@@ -2080,8 +2170,8 @@ mod account_api_tests {
 mod account_api_http_tests {
     use super::*;
     use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
-    use wiremock::matchers::{header, method, path};
-    use wiremock::{Mock, ResponseTemplate};
+    use wiremock::matchers::{body_partial_json, header, method, path};
+    use wiremock::{Mock, Request, ResponseTemplate};
 
     fn temp_store(tag: &str) -> AccountStore {
         crypto::init();
@@ -2593,6 +2683,117 @@ mod account_api_http_tests {
         assert!(!erro.to_lowercase().contains("signout"), "{erro}");
     }
 
+
+    // ---- presence_with_viewer_cookie ------------------------------------------
+
+    #[tokio::test]
+    async fn presence_with_viewer_cookie_uses_a_valid_accounts_cookie_when_none_is_named() {
+        let store = store_with(9070, "presence-auto", "presence-auto");
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7070] })))
+            .and(header("cookie", cookie_of("presence-auto")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{
+                    "userPresenceType": 2,
+                    "userId": 7070,
+                    "placeId": 1,
+                    "rootPlaceId": 1,
+                    "gameId": "job-auto"
+                }]
+            })))
+            .mount(mock_server().await)
+            .await;
+
+        let presences = presence_with_viewer_cookie(&store, &[7070], None)
+            .await
+            .expect("presence");
+        assert_eq!(presences[0].game_id.as_deref(), Some("job-auto"));
+    }
+
+    #[tokio::test]
+    async fn presence_with_viewer_cookie_prefers_the_explicit_viewer_over_the_stores_pick() {
+        let store = store_with(9071, "presence-other", "presence-explicit-a");
+        store
+            .add(crate::data::accounts::Account::new(
+                "presence-explicit".to_string(),
+                "user9072".to_string(),
+                9072,
+            ))
+            .unwrap();
+
+        // Só a rota autenticada com o cookie da conta 9072 responde; se o
+        // helper mandasse o cookie da 9071 (a primeira do store) a chamada
+        // cairia sem mock e o teste falharia.
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7071] })))
+            .and(header("cookie", cookie_of("presence-explicit")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{ "userPresenceType": 2, "userId": 7071, "gameId": "job-explicit" }]
+            })))
+            .mount(mock_server().await)
+            .await;
+
+        let presences = presence_with_viewer_cookie(&store, &[7071], Some(9072))
+            .await
+            .expect("presence");
+        assert_eq!(presences[0].game_id.as_deref(), Some("job-explicit"));
+    }
+
+    /// Cookie morto na conta escolhida como viewer: a chamada autenticada
+    /// falha e o helper tem que cair para a versão anônima em vez de propagar
+    /// o erro e apagar a presença de todo mundo (regra do plano, Task 5).
+    #[tokio::test]
+    async fn presence_with_viewer_cookie_falls_back_to_anonymous_when_the_authenticated_call_fails(
+    ) {
+        let store = store_with(9073, "presence-dead", "presence-dead");
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7073] })))
+            .and(header("cookie", cookie_of("presence-dead")))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(mock_server().await)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7073] })))
+            .and(|req: &Request| !req.headers.contains_key("cookie"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{ "userPresenceType": 1, "userId": 7073, "gameId": null }]
+            })))
+            .mount(mock_server().await)
+            .await;
+
+        let presences = presence_with_viewer_cookie(&store, &[7073], None)
+            .await
+            .expect("presence");
+        assert_eq!(presences[0].user_id, 7073);
+        assert!(presences[0].game_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn presence_with_viewer_cookie_is_anonymous_when_the_store_is_empty() {
+        let store = temp_store("presence-empty");
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7074] })))
+            .and(|req: &Request| !req.headers.contains_key("cookie"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{ "userPresenceType": 0, "userId": 7074 }]
+            })))
+            .mount(mock_server().await)
+            .await;
+
+        let presences = presence_with_viewer_cookie(&store, &[7074], None)
+            .await
+            .expect("presence");
+        assert_eq!(presences[0].user_id, 7074);
+    }
 }
 
 /// O lote de amigos online: sequencial, com progresso, e com o erro de uma
