@@ -59,6 +59,23 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Cache das dependencias compiladas do Rust. O runner nasce limpo, entao
+      # sem isto cada release recompila a arvore inteira DUAS vezes (a variante
+      # padrao e a completa) — e ai vao 90% do tempo do workflow.
+      #
+      # A acao guarda so as dependencias, nunca o crate do projeto, senao um
+      # build velho poderia ser reaproveitado indevidamente. `workspaces` aponta
+      # para `src-tauri`, que e onde mora o Cargo.toml.
+      #
+      # A primeira execucao depois deste commit continua lenta: nao ha o que
+      # reaproveitar ainda. E o cache do GitHub tem teto de 10 GB por
+      # repositorio, com despejo do mais antigo — se ficar muito tempo sem
+      # publicar, o proximo release volta a ser lento.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
       - name: Validate required v4 files
         shell: pwsh
         run: |
