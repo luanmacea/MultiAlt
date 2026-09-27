@@ -681,6 +681,20 @@ pub fn restore_touches_accounts(restored: &[String]) -> bool {
         .any(|name| name == "AccountData.json" || name == "AccountData.key")
 }
 
+/// Depois da extração, a trava de gravação **continua**?
+///
+/// A trava é ligada **antes** de extrair, porque só dá para saber o que o zip
+/// mexeu depois de ele ter mexido: entre a substituição do arquivo e as linhas
+/// seguintes existia uma janela TOCTOU em que um ciclo de Auto Rejoin gravaria com
+/// o segredo antigo. Milissegundos contra um ciclo de dezenas de segundos, mas
+/// trancar cedo não custa nada — a trava só é solta por um `load()` bem-sucedido.
+///
+/// `extraction_failed` mantém trancado **por não saber**: com a extração pela
+/// metade, não há lista confiável de arquivos para consultar.
+pub fn restore_keeps_writes_locked(extraction_failed: bool, restored: &[String]) -> bool {
+    extraction_failed || restore_touches_accounts(restored)
+}
+
 /// Motivos legíveis para reiniciar, a partir do que foi restaurado. As contas
 /// ficam de fora: dependem da criptografia e são decididas em `restore_backup`.
 pub fn restart_reasons_for(restored: &[String]) -> Vec<String> {
@@ -786,23 +800,37 @@ fn restore_backup(
     })?;
     prune_automatic_backups(&dir, MAX_AUTOMATIC_BACKUPS);
 
+    // **Trancado antes de extrair.** Qualquer arquivo de conta que volte do backup
+    // torna a memória velha, e um único launch (`mark_used` → `save`) bastaria para
+    // regravar a lista de antes por cima do que acabou de ser restaurado. Só dá
+    // para saber **o que** o zip mexeu depois de ele ter mexido, então a ordem
+    // segura é trancar primeiro: entre a substituição do arquivo e as linhas
+    // seguintes havia uma janela em que um ciclo de Auto Rejoin gravaria com o
+    // segredo antigo. Trancar cedo não custa nada — só um `load()` bem-sucedido
+    // solta a trava.
+    accounts.lock_writes_until_restart("a backup is being restored");
+
+    // `?` aqui mantém a trava, e é o que se quer: com a extração pela metade não
+    // existe lista confiável de arquivos para decidir qualquer coisa.
     let outcome = restore_backup_archive(&layout, &path)?;
 
     let mut restart_reasons = restart_reasons_for(&outcome.restored);
     let mut accounts_reloaded = false;
 
-    // **Trancado por padrão.** Qualquer arquivo de conta que voltou do backup
-    // torna a memória velha, e um único launch (`mark_used` → `save`) bastaria
-    // para regravar a lista de antes por cima do que acabou de ser restaurado.
-    // Destranca só quem releu o arquivo com sucesso, mais abaixo — assim um ramo
-    // novo (ou um `Err` que ninguém previu) nasce seguro.
     let vault_key_restored = restored_vault_key_requires_restart(&outcome.restored);
-    if restore_touches_accounts(&outcome.restored) {
+    if restore_keeps_writes_locked(false, &outcome.restored) {
+        // Já está trancado; aqui só se troca o motivo pelo específico, que é o que
+        // a mensagem de reinício vai explicar.
         accounts.lock_writes_until_restart(if vault_key_restored {
             "the vault key file was restored from a backup"
         } else {
             "the account file was restored from a backup"
         });
+    } else {
+        // O zip não mexeu em arquivo de conta: a premissa da trava não vale, e
+        // manter as contas somente-leitura (com pedido de reinício) seria punir
+        // quem restaurou só o tema ou as settings.
+        accounts.allow_writes_after_reload();
     }
 
     // A chave restaurada é tratada **antes** de qualquer tentativa de recarregar:
@@ -1394,6 +1422,38 @@ mod backups_tests {
             );
             assert!(restore_touches_accounts(&[name.to_string()]));
         }
+    }
+
+    /// **N4.** A trava é ligada **antes** da extração, porque só depois de extrair
+    /// se sabe o que o zip mexeu — e nesse intervalo um ciclo de Auto Rejoin
+    /// gravaria com o segredo antigo. Isto trava a regra de quando ela **continua**
+    /// ligada depois, e o caso que importa é o primeiro: extração pela metade
+    /// mantém trancado **por não saber**.
+    #[test]
+    fn a_failed_extraction_keeps_writes_locked_even_with_nothing_listed() {
+        assert!(restore_keeps_writes_locked(true, &[]));
+        assert!(restore_keeps_writes_locked(
+            true,
+            &["RAMSettings.ini".to_string()]
+        ));
+
+        // Extração ok e arquivo de conta mexido: continua trancado.
+        assert!(restore_keeps_writes_locked(
+            false,
+            &["AccountData.json".to_string()]
+        ));
+        assert!(restore_keeps_writes_locked(
+            false,
+            &["AccountData.key".to_string()]
+        ));
+
+        // Extração ok e nenhum arquivo de conta: solta, senão quem restaurou só o
+        // tema ficaria com as contas somente-leitura pedindo reinício.
+        assert!(!restore_keeps_writes_locked(
+            false,
+            &["RAMSettings.ini".to_string(), "RAMTheme.ini".to_string()]
+        ));
+        assert!(!restore_keeps_writes_locked(false, &[]));
     }
 
     /// **O guardião de verdade do `.key` no backup.** O teste acima trava a

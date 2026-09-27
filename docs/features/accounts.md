@@ -209,7 +209,15 @@ Os cinco códigos que a faixa desenha:
 
 A criação do arquivo no **primeiro boot** e em `set_password(None)` passa pelo mesmo caminho: antes ela descartava o health e, quando falhava, morria num `eprintln!` do `lib.rs`. E `set_password(Some(...))` **limpa** o aviso: dali em diante o `.key` foi apagado e falar dele é falso alarme.
 
+**O slot é único, então tem escopo e gravidade.** Dois avisos falam do `.key` e outros do `AccountData.json`, e sem isso a rede se desligava sozinha: o braço "o `.key` está saudável" limpava o slot inteiro — inclusive o `migrationFailed`, que diz que o vault continua em texto puro — e limpava **antes** de a gravação acontecer. E essa "gravação seguinte" pode ser um ciclo de Auto Rejoin, sem o dono clicar em nada. Agora:
+
+- `clear_key_warning_for(path)` limpa **só** o aviso daquele arquivo;
+- o aviso do vault só é considerado resolvido **depois** de uma gravação que deu certo **e** foi cifrada (no caminho degradado o arquivo continua legível, e limpar seria mentir);
+- `set_key_warning` **nunca rebaixa** gravidade (`writeFailed`/`migrationFailed` valem mais que os âmbares) e não repete um aviso idêntico — senão o `syncUnconfirmed`, que é do mesmo tipo de volume, encobria o "faça backup agora" no mesmo `save_locked`.
+
 **A faixa acompanha as telas de senha e de criptografia** ([App.tsx](../../src/App.tsx)), não só a tela principal. São exatamente as telas do momento de pânico — e o backend manda o usuário olhar para lá ("See the warning on screen") quando a chave não pôde ser criada. Os `return` antecipados deixavam o aviso atrás delas.
+
+E as duas viraram `flex h-screen flex-col` com a tela em `min-h-0 flex-1 overflow-auto`: como irmãs soltas num fragmento, a faixa somava altura em cima de uma tela de viewport inteiro num `body` com `overflow: hidden`, e o rodapé saía da janela **sem rolagem** — na tela de criptografia o rodapé são os botões Continue/Cancel. Medido no harness a 900x460: antes o Continue ficava 159 px abaixo da janela e inalcançável; depois a página não estoura e o conteúdo rola. A faixa também reserva o canto direito (`pr-28`), onde mora a pílula fixa de minimizar/fechar — sem TitleBar, ela cobria o fim do texto.
 
 Quando o embrulho novo do DPAPI não pode ser produzido, o **anterior é preservado** (`resolve_dpapi_blob`), mas só se ele abrir para a **mesma** chave mestra: preservar o de outra chave faria `load_master_key` devolver a chave errada, o que é pior que ficar sem DPAPI. Sem essa preservação, a regravação incondicional poderia trocar um DPAPI saudável por nada num instante de falha.
 

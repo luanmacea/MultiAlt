@@ -23,7 +23,7 @@
 /// `t()` e pelo `i18n:extract` (Global Constraint 8), então o backend manda o
 /// *código* e o *caminho*, e o catálogo tem a frase de cada código. Uma string em
 /// inglês montada aqui nunca seria traduzida.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultKeyWarning {
     /// `writeFailed` | `writeFailedTransient` | `weakWrapper`.
@@ -75,6 +75,21 @@ impl VaultKeyWarning {
             code: "syncUnconfirmed".to_string(),
             path: path.display().to_string(),
             detail: None,
+        }
+    }
+
+    /// Peso do aviso. O slot é único, então sem isto um aviso brando **rebaixava**
+    /// um grave por chegar depois — `writeFailed` ("faça backup agora") virava
+    /// `syncUnconfirmed` ("pode perder a última alteração") no mesmo `save_locked`,
+    /// e os dois co-ocorrem justamente no mesmo tipo de volume. Sub-avisar é o que
+    /// custa contas.
+    ///
+    /// Cada aviso grave tem um caminho de limpeza pelo **escopo** dele
+    /// (`clear_key_warning_for`), então nunca-rebaixar não deixa nada preso.
+    fn severity(&self) -> u8 {
+        match self.code.as_str() {
+            "writeFailed" | "migrationFailed" => 2,
+            _ => 1,
         }
     }
 }
@@ -345,12 +360,41 @@ impl AccountStore {
     }
 
     fn set_key_warning(&self, warning: VaultKeyWarning) {
+        let mut slot = self.key_warning_slot();
+        if let Some(current) = slot.as_ref() {
+            // Idêntico: não repete nem torna a logar. Sem isto, um volume que
+            // nunca confirma o `fsync` escrevia a mesma linha a cada gravação.
+            if *current == warning {
+                return;
+            }
+            // Nunca rebaixa a gravidade (ver `VaultKeyWarning::severity`).
+            if current.severity() > warning.severity() {
+                return;
+            }
+        }
         eprintln!("Aviso ({}): {}", warning.code, warning.path);
-        *self.key_warning_slot() = Some(warning);
+        *slot = Some(warning);
     }
 
     fn clear_key_warning(&self) {
         *self.key_warning_slot() = None;
+    }
+
+    /// Limpa o aviso **só se ele for sobre este arquivo**.
+    ///
+    /// O slot é único mas os avisos falam de arquivos diferentes: `writeFailed` e
+    /// `weakWrapper` são do `.key`, `migrationFailed` é do `AccountData.json`.
+    /// Limpar sem escopo fazia o braço "o `.key` está saudável" apagar a faixa
+    /// vermelha que dizia que o vault continua em texto puro — e apagar **antes**
+    /// de a gravação acontecer, então nem o sucesso justificava.
+    fn clear_key_warning_for(&self, path: &std::path::Path) {
+        let mut slot = self.key_warning_slot();
+        let belongs = slot
+            .as_ref()
+            .is_some_and(|w| w.path == path.display().to_string());
+        if belongs {
+            *slot = None;
+        }
     }
 
     /// O que a UI mostra sobre o arquivo de chave. `None` = tudo em ordem.
@@ -858,14 +902,18 @@ impl AccountStore {
         if let Some(session) = session.as_ref() {
             if let Some(master) = session.master.as_ref() {
                 if crate::data::vault_key::key_file_holds_master(&self.key_file_path(), master) {
-                    // Um aviso que tenha sobrado de uma falha anterior sai da tela.
-                    self.clear_key_warning();
+                    // Um aviso **sobre o `.key`** que tenha sobrado de uma falha
+                    // anterior sai da tela. Com escopo: sem ele, isto apagava
+                    // também o aviso de que o `AccountData.json` continua em texto
+                    // puro, e apagava antes de a gravação abaixo dar certo.
+                    self.clear_key_warning_for(&self.key_file_path());
                 } else {
                     self.refresh_key_file(master);
                 }
             }
         }
 
+        let wrote_encrypted = session.is_some();
         let data = if let Some(session) = session.as_ref() {
             session.encrypt(&json)?
         } else {
@@ -883,14 +931,23 @@ impl AccountStore {
         let tmp_path = self.file_path.with_extension("json.tmp");
         let synced = crate::data::versions::write_all_synced(&tmp_path, &data)
             .map_err(|e| format!("Failed to write account file: {}", e))?;
+        crate::data::versions::atomic_replace(&tmp_path, &self.file_path)
+            .map_err(|e| format!("Failed to replace account file: {}", e))?;
+
+        // **Só depois de o arquivo estar no lugar.** Um aviso sobre o vault (o
+        // "continua em texto puro" da migração) só pode ser considerado resolvido
+        // por uma gravação que (a) deu certo e (b) foi **cifrada** — no caminho
+        // degradado o arquivo continua legível, e limpar ali seria mentir.
+        if wrote_encrypted {
+            self.clear_key_warning_for(&self.file_path);
+        }
         if !synced {
             // A gravação vale (os bytes foram entregues ao SO); o que se perde é a
             // garantia contra queda de energia. Descartar este `bool` tornava a
-            // degradação 100% invisível.
+            // degradação 100% invisível. `set_key_warning` não deixa isto rebaixar
+            // um aviso grave nem repetir a mesma linha a cada gravação.
             self.set_key_warning(VaultKeyWarning::sync_unconfirmed(&self.file_path));
         }
-        crate::data::versions::atomic_replace(&tmp_path, &self.file_path)
-            .map_err(|e| format!("Failed to replace account file: {}", e))?;
 
         Ok(())
     }
@@ -2784,6 +2841,102 @@ mod vault_migration_tests {
     /// segurando o handle por um instante não pode disparar o aviso mais
     /// assustador que existe sobre um arquivo perfeito — alarme falso treina o
     /// dono a ignorar alarme, e aí a rede da Quebra 1 não vale nada.
+    /// **N1: a rede não pode se desligar sozinha.** O braço "o `.key` está
+    /// saudável" limpava o slot **inteiro**, inclusive avisos que falam do
+    /// `AccountData.json` — e limpava **antes** de a gravação acontecer.
+    ///
+    /// Sequência que apagava a única rede: a migração falha → faixa vermelha
+    /// "continua em texto puro" → qualquer gravação seguinte entra em
+    /// `save_locked`, o `.key` está perfeito → aviso apagado → a gravação falha de
+    /// novo. E essa "gravação seguinte" pode ser um ciclo de Auto Rejoin, sem o
+    /// dono clicar em nada.
+    #[test]
+    fn a_healthy_key_file_does_not_erase_a_warning_about_the_account_file() {
+        let store = vault("scoped-clear");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Antes".to_string(), 1))
+            .unwrap();
+
+        // Aviso sobre o **vault**, não sobre a chave.
+        store.set_key_warning(VaultKeyWarning::migration_failed(
+            &store.file_path,
+            "tmp bloqueado",
+        ));
+
+        // O `.key` está perfeito, então o braço saudável roda — e não pode levar
+        // embora um aviso que não é dele.
+        store.clear_key_warning_for(&key_path(&store));
+
+        let warning = store
+            .vault_key_warning()
+            .expect("o aviso do vault foi apagado pelo braço do .key");
+        assert_eq!(warning.code, "migrationFailed");
+
+        // Só o escopo do próprio arquivo limpa.
+        store.clear_key_warning_for(&store.file_path);
+        assert!(store.vault_key_warning().is_none());
+    }
+
+    /// **N2: nunca rebaixar gravidade.** O slot é único e last-write-wins, e os
+    /// dois avisos co-ocorrem no mesmo tipo de volume (share de rede, FS de
+    /// nuvem): `writeFailed` (vermelho, "faça backup agora") virava
+    /// `syncUnconfirmed` (âmbar) 26 linhas depois, no mesmo save.
+    #[test]
+    fn a_mild_warning_never_replaces_a_severe_one() {
+        let store = vault("severity");
+        let key = key_path(&store);
+
+        store.set_key_warning(VaultKeyWarning::write_failed(&key, "disco cheio", false));
+        store.set_key_warning(VaultKeyWarning::sync_unconfirmed(&store.file_path));
+        assert_eq!(
+            store.vault_key_warning().unwrap().code,
+            "writeFailed",
+            "aviso grave foi rebaixado para âmbar"
+        );
+
+        // `migrationFailed` também é grave, e um âmbar não o encobre.
+        store.clear_key_warning();
+        store.set_key_warning(VaultKeyWarning::migration_failed(&store.file_path, "x"));
+        store.set_key_warning(VaultKeyWarning::weak_wrapper(&key));
+        assert_eq!(store.vault_key_warning().unwrap().code, "migrationFailed");
+
+        // Grave **sobre** grave troca (a informação mais recente vale).
+        store.set_key_warning(VaultKeyWarning::write_failed(&key, "outro", false));
+        assert_eq!(store.vault_key_warning().unwrap().code, "writeFailed");
+
+        // E âmbar sobre âmbar também troca: nada fica preso.
+        store.clear_key_warning();
+        store.set_key_warning(VaultKeyWarning::weak_wrapper(&key));
+        store.set_key_warning(VaultKeyWarning::sync_unconfirmed(&store.file_path));
+        assert_eq!(store.vault_key_warning().unwrap().code, "syncUnconfirmed");
+    }
+
+    /// Uma gravação bem-sucedida e cifrada resolve o `migrationFailed`: o arquivo
+    /// deixou de estar em texto puro. Mas só **depois** de dar certo.
+    #[test]
+    fn a_successful_encrypted_save_resolves_the_plain_text_warning() {
+        let store = vault("resolve-migration");
+        store.load().expect("abrir vault novo");
+        store.set_key_warning(VaultKeyWarning::migration_failed(
+            &store.file_path,
+            "falhou antes",
+        ));
+
+        store
+            .add(Account::new("cookie".to_string(), "Depois".to_string(), 2))
+            .expect("gravar");
+
+        assert!(
+            crypto::is_encrypted(&fs::read(&store.file_path).unwrap()),
+            "o teste precisa de uma gravação cifrada de verdade"
+        );
+        assert!(
+            store.vault_key_warning().is_none(),
+            "o arquivo está cifrado agora; o aviso de texto puro tinha que sair"
+        );
+    }
+
     #[test]
     fn a_healthy_save_clears_a_warning_that_was_left_over() {
         let store = vault("key-transient");

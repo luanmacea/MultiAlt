@@ -423,6 +423,61 @@ const SCENARIOS: Record<string, () => void> = {
    * numérico (ordena e some do rótulo), um com vírgula (o motivo de a ordem ser
    * guardada em JSON) e um sem nada.
    */
+  /**
+   * Faixa de aviso do `AccountData.key` **na tela de senha**.
+   *
+   * A faixa é a única rede contra o lockout de quem não tem senha, e ela passou a
+   * ser desenhada nestas telas de `return` antecipado — que têm altura de viewport
+   * inteiro, num `body` com `overflow: hidden`. jsdom prova que o texto existe;
+   * só o navegador mostra se o rodapé continua na janela e se a pílula de
+   * minimizar/fechar está por cima do texto. O cenário só entrega os dados que o
+   * backend entregaria.
+   */
+  "vault-key-warning-locked"() {
+    setInvokeHandler((cmd, args) => {
+      switch (cmd) {
+        case "needs_password":
+          return true;
+        case "try_remembered_unlock":
+          return false;
+        case "vault_key_warning":
+          return {
+            code: "writeFailed",
+            path: String.raw`C:\Users\luanm\AppData\Local\Roblox Account Manager\AccountData.key`,
+            detail: "O processo nao pode acessar o arquivo porque ele esta sendo usado por outro processo. (os error 32)",
+          };
+        default:
+          return baseHandler(cmd, args);
+      }
+    });
+  },
+
+  /**
+   * A mesma faixa na **tela de criptografia** (primeira execução): é para ela que
+   * o backend manda o usuário olhar quando a chave não pôde ser criada, e o rodapé
+   * dela são os botões Continue/Cancel — justamente o que sai da janela se a
+   * geometria estiver errada.
+   */
+  "vault-key-warning-setup"() {
+    accounts.length = 0;
+    setInvokeHandler((cmd, args) => {
+      switch (cmd) {
+        case "get_accounts":
+          return [];
+        case "get_all_settings":
+          return { ...settings, General: { ...settings.General, EncryptionOnboardingState: "pending" } };
+        case "vault_key_warning":
+          return {
+            code: "migrationFailed",
+            path: String.raw`C:\Users\luanm\AppData\Local\Roblox Account Manager\AccountData.json`,
+            detail: "Acesso negado. (os error 5)",
+          };
+        default:
+          return baseHandler(cmd, args);
+      }
+    });
+  },
+
   groups() {
     const nomes = ["5 Mains", "20 Bots", "Alts, velhas", "Zeta"];
     accounts.forEach((account, index) => {

@@ -58,7 +58,7 @@ export function EncryptionSetupScreen() {
   }
 
   return (
-    <div className="theme-app min-h-screen w-full flex items-center justify-center px-6 py-8 bg-[radial-gradient(1200px_420px_at_15%_0%,var(--accent-soft),transparent_62%),radial-gradient(900px_360px_at_85%_100%,var(--panel-soft),transparent_68%)]">
+    <div className="theme-app min-h-full w-full flex items-center justify-center px-6 py-8 bg-[radial-gradient(1200px_420px_at_15%_0%,var(--accent-soft),transparent_62%),radial-gradient(900px_360px_at_85%_100%,var(--panel-soft),transparent_68%)]">
       <div className="w-full max-w-xl rounded-2xl border theme-border theme-panel shadow-2xl overflow-hidden animate-scale-in">
         <div className="px-6 py-5 border-b theme-border bg-[linear-gradient(140deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))]">
           <div className="animate-fade-in-up" style={{ animationDelay: "0.03s" }}>
