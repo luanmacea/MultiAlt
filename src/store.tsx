@@ -1241,11 +1241,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * registro e pelo `ClientAppSettings.json`, que é global). A mensagem é a
    * mesma no launch de uma conta e no de várias — e é aqui que o código do
    * backend vira frase traduzida.
+   *
+   * **Só o toast.** A linha de status do rodapé mostrava a mesma frase ao mesmo
+   * tempo, e a tela de Choose Game ainda devolve uma linha inline no lugar do
+   * clique: eram três cópias simultâneas de uma frase de uma linha. Toast e
+   * rodapé são os dois globais, então saiu o rodapé — ficam o toast (vale para
+   * qualquer origem do launch, inclusive as que não têm linha inline) e a linha
+   * inline (fica onde o usuário clicou).
    */
   function reportLaunchAlreadyActive() {
-    const message = tr("A launch is already in progress");
-    addToast(message, "warn");
-    setActionStatusMessage(message, "warn", 4000);
+    addToast(tr("A launch is already in progress"), "warn");
   }
 
   /**
