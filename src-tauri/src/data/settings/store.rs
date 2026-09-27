@@ -368,6 +368,10 @@ impl SettingsStore {
         let login_defaults: &[(&str, &str)] = &[
             ("PersistentProfile", "true"),
             ("StealthMode", "true"),
+            // Vazio = nada configurado; `IniSection::set` não grava valor em
+            // branco, então esta chave só aparece no INI depois que o usuário
+            // digita um caminho (ver EMPTY_STRING_DEFAULTS no teste abaixo).
+            ("ManualBinaryPath", ""),
         ];
 
         let login = ini.section("Login");
