@@ -124,7 +124,6 @@ fn next_account_wait(
         + std::time::Duration::from_millis(jitter_ms)
 }
 
-/// Picks a pseudo-random public server from the list (no RNG dependency).
 /// Tamanho da fatia da espera entre contas. A espera inteira num `sleep` só não
 /// dá chance de olhar a fila: enquanto ela dorme, o painel mostra "0 na fila" e
 /// o app recusa qualquer launch novo. Curta o suficiente para o usuário não
@@ -172,6 +171,7 @@ async fn wait_before_next_account(
     }
 }
 
+/// Picks a pseudo-random public server from the list (no RNG dependency).
 fn shuffle_server_index(nanos: u128, server_count: usize) -> usize {
     (nanos as usize) % server_count
 }
