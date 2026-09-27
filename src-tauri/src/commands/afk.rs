@@ -199,7 +199,8 @@ fn afk_window_is_ready(focus_requested: bool, foreground: isize, target: isize) 
 }
 
 /// A janela volta a ser minimizada? Trazer para frente desminimiza (o
-/// `focus_window` faz `SW_RESTORE`); quem trabalha com os clientes minimizados
+/// `focus_window` faz `SW_RESTORE` em janela minimizada — e só nela: maximizada
+/// continua maximizada); quem trabalha com os clientes minimizados
 /// não pediu para vê-los na tela. Só vale para janela que o ciclo mexeu, e só se
 /// o usuário a tinha minimizado.
 fn afk_should_reminimize(was_minimized: bool, focus_attempted: bool) -> bool {
@@ -543,7 +544,9 @@ fn run_afk_cycle_blocking(
     if afk_should_restore_focus(stop_flag.load(Ordering::Relaxed), focus_taken)
         && windows::window_exists(previous_foreground)
     {
-        windows::focus_window(previous_foreground);
+        // Só o primeiro plano volta: a janela do usuário não é restaurada nem
+        // desmaximizada (o `focus_window` restauraria uma janela minimizada).
+        windows::give_focus_back(previous_foreground);
     }
 
     Ok(outcome)
