@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Lock, Unlock } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
+import { ModalWindowControls } from "./ModalWindowControls";
 
 type EncryptionMethod = "default" | "password";
 
@@ -15,6 +17,11 @@ export function EncryptionSetupScreen() {
 
   const isFirstRun = store.encryptionSetupMode === "firstRun";
   const canClose = !isFirstRun;
+
+  // Escape = Cancel, e só onde Cancel existe. Na primeira execução não há para
+  // onde voltar (a escolha é obrigatória, e `closeEncryptionSetup` ignora o
+  // pedido nesse modo): quem quer sair usa a pílula de janela abaixo.
+  useEscapeStack(canClose, store.closeEncryptionSetup);
 
   useEffect(() => {
     const preferred = isFirstRun
@@ -59,6 +66,13 @@ export function EncryptionSetupScreen() {
 
   return (
     <div className="theme-app min-h-full w-full flex items-center justify-center px-6 py-8 bg-[radial-gradient(1200px_420px_at_15%_0%,var(--accent-soft),transparent_62%),radial-gradient(900px_360px_at_85%_100%,var(--panel-soft),transparent_68%)]">
+      {/* A janela não tem borda do Windows (`decorations: false`) e esta tela
+          troca a árvore inteira do app, sem TitleBar. Sem a pílula, a primeira
+          execução não tinha minimizar nem fechar: só se saía concluindo, ou com
+          Alt+F4 — e se o Continue falhasse, o usuário ficava preso aqui. A tela
+          de senha já tinha a mesma pílula; a faixa do vault reserva o canto
+          (`pr-32`) para ela. */}
+      <ModalWindowControls visible />
       <div className="w-full max-w-xl rounded-2xl border theme-border theme-panel shadow-2xl overflow-hidden animate-scale-in">
         <div className="px-6 py-5 border-b theme-border bg-[linear-gradient(140deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))]">
           <div className="animate-fade-in-up" style={{ animationDelay: "0.03s" }}>
