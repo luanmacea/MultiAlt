@@ -211,8 +211,9 @@ A criação do arquivo no **primeiro boot** e em `set_password(None)` passa pelo
 
 **O slot é único, então tem escopo e gravidade.** Dois avisos falam do `.key` e outros do `AccountData.json`, e sem isso a rede se desligava sozinha: o braço "o `.key` está saudável" limpava o slot inteiro — inclusive o `migrationFailed`, que diz que o vault continua em texto puro — e limpava **antes** de a gravação acontecer. E essa "gravação seguinte" pode ser um ciclo de Auto Rejoin, sem o dono clicar em nada. Agora:
 
-- `clear_key_warning_for(path)` limpa **só** o aviso daquele arquivo;
+- `clear_key_warning_for(path)` limpa **só** o aviso daquele arquivo, e **nenhum caminho limpa aviso de escopo alheio** — vale para o braço do `save_locked` e para o `refresh_key_file`, que também limpava sem escopo e antes da gravação. A exceção legítima é `set_password(Some(..))`, que limpa o slot inteiro **depois** do `save_locked` cifrado com a senha: ali o `.key` e o vault são resolvidos de uma vez;
 - o aviso do vault só é considerado resolvido **depois** de uma gravação que deu certo **e** foi cifrada (no caminho degradado o arquivo continua legível, e limpar seria mentir);
+- a exceção legítima é `set_password(Some(..))`, que limpa o slot inteiro **depois** do `save_locked` cifrado com a senha: ali `.key` e vault são resolvidos de uma vez;
 - `set_key_warning` **nunca rebaixa** gravidade (`writeFailed`/`migrationFailed` valem mais que os âmbares) e não repete um aviso idêntico — senão o `syncUnconfirmed`, que é do mesmo tipo de volume, encobria o "faça backup agora" no mesmo `save_locked`.
 
 **A faixa acompanha as telas de senha e de criptografia** ([App.tsx](../../src/App.tsx)), não só a tela principal. São exatamente as telas do momento de pânico — e o backend manda o usuário olhar para lá ("See the warning on screen") quando a chave não pôde ser criada. Os `return` antecipados deixavam o aviso atrás delas.

@@ -328,7 +328,12 @@ impl AccountStore {
                 } else if !health.synced {
                     self.set_key_warning(VaultKeyWarning::sync_unconfirmed(&key_path));
                 } else {
-                    self.clear_key_warning();
+                    // **Com escopo.** Este reparo resolve o `.key` e mais nada:
+                    // limpar o slot inteiro aqui apagava um `migrationFailed` (que
+                    // fala do `AccountData.json`) antes de a gravação do vault
+                    // sequer acontecer. A invariante é que nenhum caminho limpa
+                    // aviso de escopo alheio.
+                    self.clear_key_warning_for(&key_path);
                 }
                 true
             }
@@ -419,6 +424,18 @@ impl AccountStore {
             )),
             None => Ok(()),
         }
+    }
+
+    /// A gravação está trancada agora?
+    ///
+    /// Existe para quem **tranca** poder saber se a trava já era de outro: soltar
+    /// uma trava alheia é o mesmo que nunca tê-la ligado.
+    pub fn writes_locked(&self) -> bool {
+        self.write_block
+            .lock()
+            .map(|slot| slot.is_some())
+            // Mutex envenenado: assumir trancado é o lado seguro.
+            .unwrap_or(true)
     }
 
     /// Libera a gravação depois de o arquivo ter sido **relido de verdade**.
@@ -2340,9 +2357,18 @@ mod account_store_tests {
 
     #[test]
     fn saving_many_times_costs_far_less_than_one_key_derivation() {
-        // Guarda de regressão para a UI travada: um argon2i MODERATE custa
-        // centenas de milissegundos; várias gravações juntas têm que custar uma
-        // fração disso. A margem é folgada de propósito.
+        // Guarda de regressão para a UI travada: a invariante é que **uma
+        // gravação não paga argon2**. Dez gravações que pagassem custariam ~10
+        // derivações; o teto abaixo é 3, então a regressão continua sendo pega com
+        // folga de mais de 3x.
+        //
+        // O teto era "menos que **uma** derivação" e passou a piscar sob carga —
+        // não por causa do argon2, mas do `sync_all()` que cada gravação passou a
+        // fazer (ver `write_all_synced`): dez `fsync` no Windows, disputando disco
+        // com a suíte inteira em paralelo, contra um argon2i que é puro CPU. Medir
+        // disco contra CPU num limite apertado era o defeito do teste, não do
+        // código — o fsync é justamente a correção que se quis.
+        const MAX_DERIVATIONS: u32 = 3;
         let s = store("save-cost");
         s.load_with_password(SAMPLE_PASSWORD).unwrap();
         s.add(account(1, "One")).unwrap();
@@ -2359,8 +2385,11 @@ mod account_store_tests {
 
         assert_eq!(ids(&s).len(), 11);
         assert!(
-            ten_saves < one_derivation,
-            "10 gravações ({ten_saves:?}) não podem custar mais que uma derivação ({one_derivation:?})"
+            ten_saves < one_derivation * MAX_DERIVATIONS,
+            "10 gravações ({ten_saves:?}) não podem custar mais que {MAX_DERIVATIONS} derivações \
+             ({:?}); se cada gravação estivesse pagando argon2 isto seria ~10 derivações \
+             ({one_derivation:?} cada)",
+            one_derivation * MAX_DERIVATIONS
         );
     }
 }
@@ -2876,6 +2905,35 @@ mod vault_migration_tests {
         // Só o escopo do próprio arquivo limpa.
         store.clear_key_warning_for(&store.file_path);
         assert!(store.vault_key_warning().is_none());
+    }
+
+    /// **O mesmo defeito do N1, num segundo sítio.** `refresh_key_file` também
+    /// limpava sem escopo, e também **antes** de a gravação do vault acontecer:
+    /// com `migrationFailed` no slot, bastava um save cujo `.key` não guardasse o
+    /// master atual para a faixa vermelha sumir — e se a gravação falhasse em
+    /// seguida, o dono ficava com o arquivo legível e **sem faixa**.
+    ///
+    /// A invariante é: **nenhum caminho limpa aviso de escopo alheio.**
+    #[test]
+    fn repairing_the_key_file_does_not_erase_a_warning_about_the_account_file() {
+        let store = vault("refresh-scoped-clear");
+        store.load().expect("abrir vault novo");
+
+        store.set_key_warning(VaultKeyWarning::migration_failed(
+            &store.file_path,
+            "a migração falhou antes",
+        ));
+
+        // O reparo do `.key` dá certo — e não pode levar junto o aviso do vault.
+        let master = crate::data::vault_key::load_master_key(&key_path(&store))
+            .expect("recuperar a chave")
+            .master;
+        assert!(store.refresh_key_file(&master), "o reparo tinha que dar certo");
+
+        let warning = store
+            .vault_key_warning()
+            .expect("o reparo do .key apagou o aviso do AccountData.json");
+        assert_eq!(warning.code, "migrationFailed");
     }
 
     /// **N2: nunca rebaixar gravidade.** O slot é único e last-write-wins, e os

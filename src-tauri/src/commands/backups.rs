@@ -695,6 +695,19 @@ pub fn restore_keeps_writes_locked(extraction_failed: bool, restored: &[String])
     extraction_failed || restore_touches_accounts(restored)
 }
 
+/// Esta restauração pode **soltar** a trava de gravação?
+///
+/// `was_locked_before` é o que faltava: trancar antes de extrair obrigou a
+/// destrancar quando o zip não mexeu em arquivo de conta, mas a trava **não sabe
+/// de quem é**. Restaurar um backup com `AccountData.key`, não reiniciar, e depois
+/// restaurar um que só tem `RAMSettings.ini` soltava a trava da primeira — com a
+/// memória velha e o segredo da sessão anterior. O launch seguinte regravaria o
+/// vault com o master antigo e o `.key` por cima do restaurado, matando justamente
+/// o estado que a primeira restauração trouxe.
+pub fn restore_may_release_lock(was_locked_before: bool, restored: &[String]) -> bool {
+    !was_locked_before && !restore_touches_accounts(restored)
+}
+
 /// Motivos legíveis para reiniciar, a partir do que foi restaurado. As contas
 /// ficam de fora: dependem da criptografia e são decididas em `restore_backup`.
 pub fn restart_reasons_for(restored: &[String]) -> Vec<String> {
@@ -808,6 +821,9 @@ fn restore_backup(
     // seguintes havia uma janela em que um ciclo de Auto Rejoin gravaria com o
     // segredo antigo. Trancar cedo não custa nada — só um `load()` bem-sucedido
     // solta a trava.
+    // Lido **antes** de trancar: se já havia trava, ela é de outra restauração que
+    // ainda espera o reinício, e soltá-la aqui é o mesmo que nunca tê-la ligado.
+    let was_locked_before = accounts.writes_locked();
     accounts.lock_writes_until_restart("a backup is being restored");
 
     // `?` aqui mantém a trava, e é o que se quer: com a extração pela metade não
@@ -826,10 +842,10 @@ fn restore_backup(
         } else {
             "the account file was restored from a backup"
         });
-    } else {
-        // O zip não mexeu em arquivo de conta: a premissa da trava não vale, e
-        // manter as contas somente-leitura (com pedido de reinício) seria punir
-        // quem restaurou só o tema ou as settings.
+    } else if restore_may_release_lock(was_locked_before, &outcome.restored) {
+        // O zip não mexeu em arquivo de conta **e** não havia trava antes: a
+        // premissa da trava não vale, e manter as contas somente-leitura (com
+        // pedido de reinício) seria punir quem restaurou só o tema ou as settings.
         accounts.allow_writes_after_reload();
     }
 
@@ -1429,6 +1445,48 @@ mod backups_tests {
     /// gravaria com o segredo antigo. Isto trava a regra de quando ela **continua**
     /// ligada depois, e o caso que importa é o primeiro: extração pela metade
     /// mantém trancado **por não saber**.
+    /// **Fail-open que a inversão "trancar antes de extrair" criou.** O `else` que
+    /// destranca quando o zip não mexeu em arquivo de conta não sabia **de quem
+    /// era** a trava.
+    ///
+    /// Sequência real: restaura um backup com `AccountData.key` → trancado,
+    /// "reinicie"; o dono **não** reinicia; restaura outro backup que só tem
+    /// `RAMSettings.ini` → destrancava, com a memória velha e o segredo da sessão
+    /// anterior. Um launch depois regrava o vault com o master antigo e o
+    /// `refresh_key_file` regrava o `.key` por cima do restaurado: o estado
+    /// restaurado morre. É exatamente o que o latch existe para impedir.
+    #[test]
+    fn a_restore_never_releases_a_lock_that_was_already_there() {
+        // Nada trancado antes e nenhum arquivo de conta no zip: pode destrancar —
+        // senão quem restaurou só o tema ficaria somente-leitura à toa.
+        assert!(restore_may_release_lock(
+            false,
+            &["RAMSettings.ini".to_string()]
+        ));
+        assert!(restore_may_release_lock(false, &[]));
+
+        // **Já estava trancado**: a trava é de outra restauração, e destrancá-la
+        // aqui mata o estado restaurado por ela.
+        assert!(!restore_may_release_lock(
+            true,
+            &["RAMSettings.ini".to_string()]
+        ));
+        assert!(!restore_may_release_lock(true, &[]));
+
+        // E o zip que mexe em arquivo de conta nunca destranca, tenha ou não
+        // trava anterior.
+        for was_locked in [false, true] {
+            assert!(!restore_may_release_lock(
+                was_locked,
+                &["AccountData.json".to_string()]
+            ));
+            assert!(!restore_may_release_lock(
+                was_locked,
+                &["AccountData.key".to_string()]
+            ));
+        }
+    }
+
     #[test]
     fn a_failed_extraction_keeps_writes_locked_even_with_nothing_listed() {
         assert!(restore_keeps_writes_locked(true, &[]));
