@@ -74,6 +74,22 @@ só o primeiro commit de uma série é trazer o bug e deixar a correção.
 Arquivo novo é onde mora a surpresa — olhar a lista de `--diff-filter=A` antes
 de qualquer outra coisa.
 
+**A `v4` não é tudo.** O upstream deixa trabalho em branch sem mesclar, e ali há
+coisa que a janela `<fork>..v4` não mostra. Na passada de 2026-09-26 o dono achou
+`origin/fix/afk-timer-session-stats` **depois** do relatório, e ela continha um
+defeito da primeira versão do AFK mode deles que a nossa teria copiado. Liste as
+branches e olhe o que está fora da `v4`:
+
+```bash
+git -C "$UPSTREAM" branch -r
+git -C "$UPSTREAM" log --oneline v4..origin/<branch>
+git -C "$UPSTREAM" diff --stat v4...origin/<branch>
+```
+
+Branch não mesclada muitas vezes **não** é para portar: ela conta qual defeito a
+versão publicada tem. Quando o tema dela é algo que este fork ainda está
+construindo, o valor é virar requisito da tarefa em curso, não patch para depois.
+
 ## Etapa 3 — triagem de segurança do delta (antes de avaliar utilidade)
 
 Passar o delta inteiro por esta lista. Qualquer acerto vira item explícito no
@@ -159,6 +175,26 @@ Item por item, na ordem: segurança, depois bug fix, depois feature.
   CLAUDE.md).
 - **Crédito:** o código é de outro autor sob a licença do upstream. Citar a
   origem no corpo do commit (`origem: niccsprojects@<hash>`).
+
+## Integração: quem faz o merge é quem coordena
+
+Quando a implementação é dividida entre agentes isolados, **eles não mesclam**.
+Um agente em worktree é barrado ao tocar branch compartilhada, e está certo:
+misturar branch é decisão de integração. Na passada de 2026-09-26 eu mandei os
+agentes trazerem a `develop` para dentro da branch deles e isso travou um deles
+sem ganho nenhum. O certo:
+
+- o agente trabalha na base que recebeu e commita só na própria branch;
+- para **ler** a branch principal, `git show <branch>:<arquivo>` — é leitura e
+  funciona porque as worktrees compartilham o banco de objetos;
+- quem coordena mescla a branch do agente na principal no fim, resolve conflito,
+  e roda o `bun run check` do conjunto (o check de cada agente só cobre a base
+  dele).
+
+Cuidado com a base da worktree: neste projeto o app cria worktree a partir da
+branch base declarada (`main`, que é a de release), não da `develop`. Conferir com
+`git worktree list` **antes** de dispachar, e passar o requisito por caminho fora
+do repositório quando o arquivo do plano ainda não existir naquela base.
 
 ## Executar de novo mais tarde
 
