@@ -8,6 +8,7 @@ import { AppErrorBoundary } from "./components/layout/AppErrorBoundary";
 import { TitleBar } from "./components/layout/TitleBar";
 import { ModalWindowControls } from "./components/layout/ModalWindowControls";
 import { UpdateBanner } from "./components/layout/UpdateBanner";
+import { SafeModeBanner } from "./components/layout/SafeModeBanner";
 import { Toolbar } from "./components/layout/Toolbar";
 import { AccountList } from "./components/accounts/AccountList";
 import { ContextMenu } from "./components/menus/ContextMenu";
@@ -94,6 +95,7 @@ function AppContent() {
       <ModalWindowControls visible={anyModalOpen} />
       <TitleBar controlsHidden={anyModalOpen} />
       <UpdateBanner />
+      <SafeModeBanner />
       <Toolbar />
 
       {store.error && (

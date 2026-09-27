@@ -1632,5 +1632,8 @@
   "A launch is already in progress": "Já existe um launch em andamento",
   "Reload interface": "Recarregar a interface",
   "Something broke in the interface": "Algo quebrou na interface",
-  "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client.": "Suas contas e configurações não foram tocadas. Recarregar remonta a interface sem fechar nenhum cliente do Roblox."
+  "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client.": "Suas contas e configurações não foram tocadas. Recarregar remonta a interface sem fechar nenhum cliente do Roblox.",
+  "Back to normal mode": "Voltar ao modo normal",
+  "Graphics safe mode is on": "O modo de vídeo seguro está ligado",
+  "The next time RAM opens it will use graphics safe mode": "A próxima abertura do RAM vai usar o modo de vídeo seguro"
 }

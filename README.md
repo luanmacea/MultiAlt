@@ -97,6 +97,9 @@ Use [RAMDecrypt](https://github.com/ic3w0lf22/RAMDecrypt) para descriptografar o
 **O app abriu com a janela em branco (ou preta). E agora?**
 A interface é desenhada pelo Microsoft Edge WebView2 Runtime, então reinstalar o app não resolve. O app tenta se recuperar sozinho: se a interface não aparecer em 25 s, ele avisa e reabre com a aceleração de vídeo desligada. Para forçar esse modo, **segure Shift** enquanto o app abre (ou acrescente `--safe-mode` ao campo *Destino* do atalho). Se continuar em branco, repare o **Microsoft Edge WebView2 Runtime** em Configurações do Windows → Aplicativos → Aplicativos instalados → Modificar → Reparar, reinicie o Windows e atualize o driver de vídeo. Detalhes em [docs/features/webview-recovery.md](docs/features/webview-recovery.md).
 
+**O app está no "modo de vídeo seguro". Como volto ao normal?**
+Quando o modo está ligado aparece uma faixa amarela no topo do app com o botão **Voltar ao modo normal** — ele apaga o marcador e reabre o app com a aceleração de vídeo de volta. Se a faixa não aparecer, ou o botão falhar, apague na mão o arquivo `webview.safemode` que fica junto do `RAMSettings.ini` (por padrão em `%LOCALAPPDATA%\Roblox Account Manager`) e abra o app de novo. Se você estiver segurando Shift, solte antes de abrir: Shift força o modo por essa sessão.
+
 **Funciona no Mac?**
 Ainda não — suporte parcial, chegando com a reescrita v4.
 
