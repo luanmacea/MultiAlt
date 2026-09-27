@@ -194,6 +194,11 @@ export interface AfkAccountStatus {
   nextSendAtMs: number;
   sends: number;
   lastError: string | null;
+  /**
+   * `noWindow`, `focusDenied`, `keyRefused` ou `internal`. A tela escolhe a
+   * frase traduzida por aqui, em vez de casar o texto em inglês do backend.
+   */
+  lastErrorCode: string | null;
 }
 
 export interface AfkStatus {
