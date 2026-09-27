@@ -5,6 +5,7 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { ENABLE_NEXUS } from "../../featureFlags";
+import { COOKIE_MARKER } from "../../utils/cookies";
 import { SessionToolbarButton } from "../dialogs/SessionDialog";
 import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp } from "lucide-react";
 
@@ -105,7 +106,7 @@ export function Toolbar() {
     const value = input.trim();
 
     try {
-      if (value.includes("_|WARNING:-DO-NOT-SHARE")) {
+      if (value.includes(COOKIE_MARKER)) {
         await store.addAccountByCookie(value);
         return;
       }
