@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isMultiRobloxCloseProcessError } from "./robloxErrors";
+import {
+  isLaunchAlreadyActiveError,
+  isMultiRobloxCloseProcessError,
+  LAUNCH_ALREADY_ACTIVE_CODE,
+} from "./robloxErrors";
 
 /**
  * Esta deteção decide se a tela oferece o botão "Fechar todos os Roblox" — é o
@@ -27,5 +31,19 @@ describe("isMultiRobloxCloseProcessError", () => {
     expect(isMultiRobloxCloseProcessError("")).toBe(false);
     expect(isMultiRobloxCloseProcessError(null)).toBe(false);
     expect(isMultiRobloxCloseProcessError(undefined)).toBe(false);
+  });
+});
+
+describe("isLaunchAlreadyActiveError", () => {
+  it("reconhece a recusa do backend, com ou sem embrulho de Error", () => {
+    expect(isLaunchAlreadyActiveError(LAUNCH_ALREADY_ACTIVE_CODE)).toBe(true);
+    expect(isLaunchAlreadyActiveError(new Error(LAUNCH_ALREADY_ACTIVE_CODE))).toBe(true);
+  });
+
+  it("não reage a outro erro de launch nem a valor vazio", () => {
+    expect(isLaunchAlreadyActiveError("Falha no auth ticket: 401")).toBe(false);
+    expect(isLaunchAlreadyActiveError("")).toBe(false);
+    expect(isLaunchAlreadyActiveError(null)).toBe(false);
+    expect(isLaunchAlreadyActiveError(undefined)).toBe(false);
   });
 });

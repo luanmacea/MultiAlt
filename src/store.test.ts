@@ -740,6 +740,27 @@ describe("joinServer", () => {
     expect(recordRecentGameMock).not.toHaveBeenCalled();
   });
 
+  it("traduz a recusa do backend quando já há um launch em andamento", async () => {
+    // O backend recusa com um código; despejá-lo na tela ("Launch failed:
+    // launch-already-active") não diz nada a quem clicou duas vezes.
+    const { result } = await setup();
+    failures.set("launch_roblox", "launch-already-active");
+
+    await act(async () => {
+      await result.current.joinServer(1);
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "A launch is already in progress"
+    );
+    expect(result.current.actionStatus?.message).toBe("A launch is already in progress");
+    expect(result.current.actionStatus?.tone).toBe("warn");
+    // Recusa não é falha do app: a faixa vermelha de erro não aparece.
+    expect(result.current.error).toBeNull();
+    expect(result.current.joiningAccounts.size).toBe(0);
+    expect(result.current.launchProgress).toBeNull();
+  });
+
   it("announces the account alias in the action status while launching", async () => {
     const { result } = await setup();
     let releaseLaunch = () => {};
@@ -948,6 +969,23 @@ describe("launchMultiple", () => {
     });
 
     expect(result.current.error).toBe("multi failed");
+    expect(result.current.joiningAccounts.size).toBe(0);
+    expect(result.current.launchProgress).toBeNull();
+  });
+
+  it("traduz a recusa do backend quando já há um launch em andamento", async () => {
+    const { result } = await setup();
+    failures.set("launch_multiple", "launch-already-active");
+
+    await act(async () => {
+      await expect(result.current.launchMultiple([1, 2])).rejects.toBeTruthy();
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "A launch is already in progress"
+    );
+    expect(result.current.actionStatus?.tone).toBe("warn");
+    expect(result.current.error).toBeNull();
     expect(result.current.joiningAccounts.size).toBe(0);
     expect(result.current.launchProgress).toBeNull();
   });

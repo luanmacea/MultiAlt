@@ -1628,5 +1628,6 @@
   "width": "width",
   "Window height": "Window height",
   "Window width": "Window width",
-  "Windowed": "Windowed"
+  "Windowed": "Windowed",
+  "A launch is already in progress": "A launch is already in progress"
 }
