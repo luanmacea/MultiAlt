@@ -1,0 +1,19 @@
+{
+  "version": "4.0.1-beta",
+  "notes": "> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: e843cdc\nApp version: 4.0.1\n\n**Full Changelog**: https://github.com/luanmacea/roblox-account-manager/commits/v4.0.1-beta",
+  "pub_date": "2026-09-27T00:58:11.7105562Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmZFbXhRNE5Wb3dUN1FqcDdpYytYK3VEYnVmMUZjaXFiYVRjdDhlK0x1VDgyOXVxTzV2RUtscEE5WGc2VlpxWFVYVFRzSXN1ZTBxQlFkcmRjbm9iR0FnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNDcwNjkwCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl80LjAuMV94NjRfZW4tVVMubXNpCkg4ckpkT0Y5SmZEOFhxMUFKaDVpbis2RVBIRHNHSnBWcUtJTTkxWGVrL25ZZVFQNjYvdGh0bkV6U1ppdGRDL3VJekpBZXM3VkZlU1c2TTNibEg1ckNnPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v4.0.1-beta/Roblox.Account.Manager_4.0.1_x64_en-US_full-nexus-ws.msi"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmZFbXhRNE5Wb3dUN1FqcDdpYytYK3VEYnVmMUZjaXFiYVRjdDhlK0x1VDgyOXVxTzV2RUtscEE5WGc2VlpxWFVYVFRzSXN1ZTBxQlFkcmRjbm9iR0FnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNDcwNjkwCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl80LjAuMV94NjRfZW4tVVMubXNpCkg4ckpkT0Y5SmZEOFhxMUFKaDVpbis2RVBIRHNHSnBWcUtJTTkxWGVrL25ZZVFQNjYvdGh0bkV6U1ppdGRDL3VJekpBZXM3VkZlU1c2TTNibEg1ckNnPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v4.0.1-beta/Roblox.Account.Manager_4.0.1_x64_en-US_full-nexus-ws.msi"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclJ5UmxtSGlNMjAvdUN5SmNBQVErQzB0eVFOZkxZVUFiTGhyRm83Q1hhdkxock5CaEtjM0xaY2Q5QmRlb01lZ05jdHpGYTNlekt2SVpqNDZkOTN5N2dRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNDcwNjkwCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl80LjAuMV94NjQtc2V0dXAuZXhlCjZ4UWRWbUdSWENJenhWVUVMUXpQQk5BQ09DZ1k1dnUzQnFFWlMxZ0JEbjdjcWZMVkk2MFRYWDRnTVNqc09takdHbTVicDFLcWE5cjdHRnZnaW8zUURRPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v4.0.1-beta/Roblox.Account.Manager_4.0.1_x64-setup_full-nexus-ws.exe"
+    }
+  }
+}
