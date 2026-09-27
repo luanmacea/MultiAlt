@@ -1,5 +1,12 @@
 name: Release v4
 
+# Todo push em `main` publica: calcula a versao, compila as duas variantes,
+# cria a release e escreve o `latest.json` que o app le para se atualizar.
+# Para pular, ponha `[skip release]` na mensagem do commit.
+#
+# Mudanca so de `.md` nao dispara nada (o `paths-ignore` abaixo) — teste de
+# pipeline precisa tocar em arquivo de codigo, senao parece que o gatilho
+# quebrou quando na verdade ele foi ignorado de proposito.
 on:
   push:
     branches:
