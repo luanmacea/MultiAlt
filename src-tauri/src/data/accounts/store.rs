@@ -456,7 +456,23 @@ impl AccountStore {
     /// restauração de backup — o segredo da sessão não é mais o do arquivo, e
     /// qualquer gravação (um launch já chama `mark_used`) cifraria o vault
     /// restaurado com o segredo antigo, deixando-o sem abrir no próximo boot.
+    ///
+    /// **Só volta depois de a gravação em andamento terminar.** Ligar a trava não
+    /// basta: `save_locked` confere a trava no começo e só publica o arquivo no
+    /// fim (fsync + troca atômica), e quem já passou pela checagem com ela aberta
+    /// terminava **depois** — um ciclo do Auto Rejoin no meio do `mark_used`
+    /// punha o vault de antes por cima do que a extração acabara de restaurar.
+    /// Toda gravação segura `accounts` da checagem até a troca do arquivo, então
+    /// tomar esse mutex antes de ligar a trava espera exatamente quem já estava
+    /// gravando, e quem chegar depois encontra a trava ligada. A ordem
+    /// `accounts` → `write_block` é a mesma de `save_locked`.
     pub fn lock_writes_until_restart(&self, reason: &str) {
+        // Envenenado quer dizer que quem segurava morreu: não há gravação em
+        // andamento a esperar, e a trava tem que ligar do mesmo jeito.
+        let _writers = self
+            .accounts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Ok(mut slot) = self.write_block.lock() {
             *slot = Some(reason.to_string());
         }
@@ -3368,6 +3384,60 @@ mod vault_migration_tests {
             .add(Account::new("cookie".to_string(), "Depois".to_string(), 4))
             .expect("depois de reler de verdade, pode gravar");
         assert_eq!(store.get_all().unwrap().len(), 2);
+    }
+
+    /// **A1 do checkup.** A trava da restauração só pegava o mutex `write_block`.
+    /// Uma gravação que já tinha passado pela checagem — um ciclo do Auto Rejoin
+    /// no meio do fsync de `mark_used` — terminava **depois** de a trava ligar, e
+    /// o `MoveFileExW` dela caía por cima do vault que a extração acabara de pôr
+    /// no disco: a restauração era desfeita em silêncio, ou o `.key` do zip
+    /// ficava com um vault de outro master.
+    ///
+    /// Toda gravação segura `accounts` da checagem da trava até a troca do arquivo
+    /// (é o contrato de `save_locked`). "Esperar quem já está gravando" é esperar
+    /// esse mutex.
+    #[test]
+    fn the_restore_latch_waits_for_a_write_already_in_flight() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let store = vault("latch-waits-writer");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Main".to_string(), 1))
+            .expect("adicionar");
+
+        std::thread::scope(|scope| {
+            // A gravação em andamento: já passou pela trava (aberta) e ainda não
+            // publicou o arquivo.
+            let in_flight = store.accounts.lock().unwrap();
+
+            let (latched_tx, latched_rx) = mpsc::channel();
+            let restoring: &AccountStore = &store;
+            scope.spawn(move || {
+                restoring.lock_writes_until_restart("a backup is being restored");
+                latched_tx.send(()).unwrap();
+            });
+
+            assert!(
+                latched_rx.recv_timeout(Duration::from_millis(300)).is_err(),
+                "a trava voltou com uma gravação em andamento: a extração começaria \
+                 e a gravação cairia por cima do vault restaurado"
+            );
+
+            // A gravação que já estava passando termina — antes da extração.
+            store
+                .save_locked(&in_flight)
+                .expect("a gravação que já tinha passado pela trava termina");
+            drop(in_flight);
+
+            latched_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("a trava tem que ligar assim que a gravação em andamento termina");
+        });
+
+        // Daqui em diante nada grava: o que a extração puser no disco fica.
+        assert!(store.mark_used(1).is_err());
     }
 
     /// **M5.** A mensagem de pânico não pode mandar restaurar um arquivo que
