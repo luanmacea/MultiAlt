@@ -954,12 +954,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Um problema com o `AccountData.key` não pode morrer num `eprintln!` do
+   * backend: numa build GUI aquilo não vai a lugar nenhum, e é justamente o
+   * defeito que passa o dia inteiro invisível (a chave está em memória, tudo
+   * funciona) para virar "não abre mais" no boot seguinte. Aqui ele vira uma
+   * linha de status **sem timeout** — fica até o problema sumir.
+   */
+  async function refreshVaultKeyWarning() {
+    try {
+      const warning = await invoke<string | null>("vault_key_warning");
+      if (warning) setActionStatusMessage(warning, "error", 0);
+    } catch {}
+  }
+
   async function loadAccounts() {
     try {
       const result = await invoke<Account[]>("get_accounts");
       setAccounts(result);
       setError(null);
       loadAvatars(result);
+      void refreshVaultKeyWarning();
     } catch (e) {
       setError(String(e));
     }

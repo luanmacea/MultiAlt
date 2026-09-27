@@ -62,11 +62,16 @@ pub fn derive_key(password_hash: &[u8], salt: &[u8]) -> Result<secretbox::Key, C
 /// errar um ponteiro. A entropia vem do chamador, então o blob de um recurso
 /// nunca abre no outro.
 ///
-/// **Limite real da proteção, e não é pequeno:** o DPAPI é do *usuário do
-/// Windows*. Isso protege arquivo copiado para outra máquina, backup vazado e
-/// outro usuário no mesmo PC. **Não** protege contra programa rodando como o
-/// próprio usuário — esse programa chama `CryptUnprotectData` exatamente como o
-/// app chama. Não prometa mais do que isso na UI nem na doc.
+/// **Limite real da proteção:** o DPAPI é do *usuário do Windows*. Isso protege
+/// um arquivo copiado para outra máquina e outro usuário no mesmo PC. **Não**
+/// protege contra programa rodando como o próprio usuário — esse programa chama
+/// `CryptUnprotectData` exatamente como o app chama.
+///
+/// E **não** decide sozinho se um backup está protegido: isso depende de o blob
+/// viajar ou não no backup. Para o vault de contas ele viaja (ver
+/// [`crate::data::vault_key`]), então lá o backup **não** está protegido por
+/// isto. Uma versão anterior deste comentário afirmava o contrário. Não prometa
+/// na UI nem na doc mais do que o caso concreto entrega.
 ///
 /// `CRYPTPROTECT_UI_FORBIDDEN`: o app chama isso no boot e em gravações; se
 /// alguma configuração de política exigisse interface, é melhor falhar e cair

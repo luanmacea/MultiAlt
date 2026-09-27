@@ -3,6 +3,23 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+/// Grava o arquivo e **espera o conteúdo chegar ao disco** antes de devolver.
+///
+/// Existe porque `fs::write` + rename não é durável: o rename pode publicar um
+/// arquivo cujo conteúdo ainda está em cache, e uma queda de energia entre os
+/// dois deixa um arquivo que existe, tem o nome certo e está **vazio**. Para o
+/// `AccountData.json` isso é a lista de contas; para o `AccountData.key` é a
+/// chave que abre a lista. Os dois passam por aqui.
+pub(crate) fn write_all_synced(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(data)?;
+    file.flush()?;
+    file.sync_all()?;
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 pub(crate) fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;

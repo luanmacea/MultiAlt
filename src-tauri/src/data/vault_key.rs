@@ -10,8 +10,8 @@
 //! A chave fica **num arquivo ao lado do vault** e o embrulho principal dela é o
 //! DPAPI **do usuário do Windows**. Então isto protege:
 //!
-//! - `AccountData.json` copiado para outra máquina (pen drive, upload, anexo);
-//! - backup vazado (zip em nuvem sincronizada, cópia esquecida);
+//! - `AccountData.json` copiado para outra máquina (pen drive, upload, anexo)
+//!   **sem** o `.key` do lado;
 //! - outro usuário do Windows no mesmo PC.
 //!
 //! E **não** protege contra:
@@ -19,6 +19,14 @@
 //! - **malware rodando como o próprio usuário** — esse programa lê o `.key` e
 //!   chama `CryptUnprotectData` exatamente como o app chama. Nada guardado no
 //!   perfil do usuário resiste a isso;
+//! - **backup vazado.** O zip de backup do app **tem** que levar o `.key` junto
+//!   (`DATA_FILES`), senão um vault cifrado nunca poderia ser restaurado. Então
+//!   quem tem o zip tem a chave, e o que sobra protegendo é o embrulho do
+//!   aparelho — `sha512("COMPUTERNAME|USERNAME|ram-device-v1")`, duas strings que
+//!   quem tem o zip normalmente já sabe (o `USERNAME` aparece em caminhos dentro
+//!   do próprio `RAMSettings.ini`). Uma versão anterior deste comentário listava
+//!   backup vazado como **protegido**: era falso, e a tela de criptografia
+//!   repetia a mentira;
 //! - quem já tem o `.key` *e* o vault juntos e roda no mesmo perfil.
 //!
 //! Quem quer proteção contra alguém com acesso ao perfil precisa de **senha**
@@ -157,12 +165,55 @@ pub fn load_master_key(key_path: &Path) -> Option<RecoveredKey> {
     None
 }
 
+/// Quais embrulhos o `.key` gravado realmente ficou tendo.
+///
+/// Existe para o chamador poder **avisar** quando o arquivo degradou, em vez de
+/// degradar em silêncio (ver [`resolve_dpapi_blob`]).
+pub struct StoredKeyHealth {
+    pub dpapi_present: bool,
+    pub device_present: bool,
+}
+
+/// Qual embrulho DPAPI vai para o arquivo.
+///
+/// `new_blob` é o que o `CryptProtectData` produziu agora — `None` quando ele
+/// falhou (ou fora do Windows). Neste caso o embrulho **anterior é preservado**,
+/// porque a regravação incondicional a cada open significaria, sem isto,
+/// substituir um DPAPI saudável por nada num instante de falha: o `.key` que
+/// acabou de abrir pelo DPAPI passaria a ter só a proteção fraca, sem aviso.
+///
+/// Só preserva um blob que abre para **esta mesma** chave mestra. Preservar o de
+/// outra chave faria `load_master_key` devolver a chave errada — pior que ficar
+/// sem DPAPI.
+fn resolve_dpapi_blob(
+    new_blob: Option<String>,
+    key_path: &Path,
+    master: &[u8],
+) -> Option<String> {
+    if new_blob.is_some() {
+        return new_blob;
+    }
+    let previous = fs::read(key_path).ok()?;
+    let previous: KeyFile = serde_json::from_slice(&previous).ok()?;
+    let hex = previous.dpapi?;
+    let blob = hex_decode(&hex)?;
+    // Barato: desembrulhar pelo DPAPI não paga argon2.
+    let recovered = crypto::dpapi_unprotect(&blob, dpapi_entropy())?;
+    (recovered == master).then_some(hex)
+}
+
 /// Grava o `.key` com os dois embrulhos.
 ///
-/// A gravação é write-then-rename pelo mesmo motivo do vault: um `.key`
-/// truncado por queda de energia é um vault que não abre mais pelo caminho do
-/// aparelho.
-pub fn store_master_key(key_path: &Path, master: &[u8], device_hash: &[u8]) -> Result<(), String> {
+/// A gravação é write-then-**fsync**-then-rename: sem o fsync, o rename pode
+/// publicar um arquivo cujo conteúdo ainda não chegou ao disco, e um `.key`
+/// vazio/truncado é um vault que não abre mais pelo caminho do aparelho. Isso
+/// passou a importar mais desde que a regravação acontece a cada open — a janela
+/// deixou de ser uma vez na vida do arquivo.
+pub fn store_master_key(
+    key_path: &Path,
+    master: &[u8],
+    device_hash: &[u8],
+) -> Result<StoredKeyHealth, String> {
     if master.len() != MASTER_KEY_LEN {
         return Err("Chave mestra com tamanho inválido".to_string());
     }
@@ -172,13 +223,21 @@ pub fn store_master_key(key_path: &Path, master: &[u8], device_hash: &[u8]) -> R
 
     let file = KeyFile {
         v: 1,
-        dpapi: dpapi_wrap(master).map(|blob| hex_encode(&blob)),
+        dpapi: resolve_dpapi_blob(
+            dpapi_wrap(master).map(|blob| hex_encode(&blob)),
+            key_path,
+            master,
+        ),
         device: Some(hex_encode(&device_blob)),
     };
 
     if file.dpapi.is_none() && file.device.is_none() {
         return Err("Nenhum embrulho disponível para a chave mestra".to_string());
     }
+    let health = StoredKeyHealth {
+        dpapi_present: file.dpapi.is_some(),
+        device_present: file.device.is_some(),
+    };
 
     let json =
         serde_json::to_string(&file).map_err(|e| format!("Falha ao serializar o .key: {}", e))?;
@@ -187,10 +246,11 @@ pub fn store_master_key(key_path: &Path, master: &[u8], device_hash: &[u8]) -> R
         let _ = fs::create_dir_all(parent);
     }
     let tmp_path = key_path.with_extension("key.tmp");
-    fs::write(&tmp_path, json).map_err(|e| format!("Falha ao gravar o .key: {}", e))?;
+    crate::data::versions::write_all_synced(&tmp_path, json.as_bytes())
+        .map_err(|e| format!("Falha ao gravar o .key: {}", e))?;
     crate::data::versions::atomic_replace(&tmp_path, key_path)
         .map_err(|e| format!("Falha ao substituir o .key: {}", e))?;
-    Ok(())
+    Ok(health)
 }
 
 /// Chamado quando o usuário passa a usar senha: a senha manda, e um `.key`
@@ -392,6 +452,75 @@ mod vault_key_tests {
                 String::from_utf8_lossy(&content)
             );
         }
+    }
+
+    /// **Quebra 6.** A regravação incondicional (correção do Critical 1) trouxe um
+    /// risco novo: se o `CryptProtectData` falhar **naquele instante**, o `.key`
+    /// que acabou de abrir pelo DPAPI seria substituído por um sem DPAPI, sem
+    /// aviso — uma janela com só a proteção fraca. Quando o embrulho novo não pode
+    /// ser produzido, o anterior é **preservado**.
+    ///
+    /// Mas só se ele for da **mesma** chave mestra: preservar o blob de outra
+    /// chave faria `load_master_key` devolver a chave errada, o que é pior que não
+    /// ter DPAPI nenhum.
+    #[test]
+    fn a_healthy_dpapi_wrapper_is_preserved_when_a_new_one_cannot_be_made() {
+        let path = temp_key_path("preserve-dpapi");
+        let _guard = TempKey(path.clone());
+        let master = generate_master_key();
+        store_master_key(&path, &master, &crypto::primary_device_hash()).expect("gravar");
+
+        let existing = fs::read(&path).expect("ler");
+        let existing_dpapi = serde_json::from_slice::<KeyFile>(&existing)
+            .expect("parse")
+            .dpapi;
+
+        #[cfg(target_os = "windows")]
+        {
+            let existing_dpapi = existing_dpapi.clone().expect("no Windows tem DPAPI");
+            // Embrulho novo indisponível + blob anterior da **mesma** chave: preserva.
+            assert_eq!(
+                resolve_dpapi_blob(None, &path, &master),
+                Some(existing_dpapi),
+                "deixou cair um embrulho DPAPI saudável"
+            );
+            // Blob anterior de **outra** chave: não serve, e preservá-lo faria
+            // `load_master_key` devolver a chave errada.
+            let other = generate_master_key();
+            assert_eq!(
+                resolve_dpapi_blob(None, &path, &other),
+                None,
+                "preservou um embrulho de outra chave mestra"
+            );
+        }
+
+        // O embrulho novo, quando existe, é o que vale.
+        assert_eq!(
+            resolve_dpapi_blob(Some("aa".to_string()), &path, &master),
+            Some("aa".to_string())
+        );
+        // Arquivo inexistente não inventa embrulho.
+        let missing = temp_key_path("preserve-dpapi-missing");
+        assert_eq!(resolve_dpapi_blob(None, &missing, &master), None);
+        let _ = existing_dpapi;
+    }
+
+    /// Quem grava precisa saber se o `.key` ficou com os dois embrulhos ou só com
+    /// um — é o que permite avisar em vez de degradar em silêncio (Quebra 6).
+    #[test]
+    fn storing_the_key_reports_whether_the_dpapi_wrapper_made_it() {
+        let path = temp_key_path("health");
+        let _guard = TempKey(path.clone());
+        let health = store_master_key(&path, &generate_master_key(), &crypto::primary_device_hash())
+            .expect("gravar");
+        assert!(health.device_present, "o embrulho do aparelho é obrigatório");
+        #[cfg(target_os = "windows")]
+        assert!(
+            health.dpapi_present,
+            "no Windows o DPAPI tem que estar presente num caminho saudável"
+        );
+        #[cfg(not(target_os = "windows"))]
+        assert!(!health.dpapi_present, "fora do Windows não existe DPAPI");
     }
 
     #[test]

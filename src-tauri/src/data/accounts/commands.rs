@@ -135,6 +135,17 @@ pub fn needs_password(state: tauri::State<'_, AccountStore>) -> Result<bool, Str
     state.needs_password()
 }
 
+/// Problema com o `AccountData.key` que o usuário precisa ver **hoje**.
+///
+/// `eprintln!` numa build GUI não vai a lugar nenhum, e um `.key` ilegível é
+/// justamente o defeito que passa o dia inteiro invisível — a chave mestra está
+/// em memória, tudo funciona — para virar lockout no boot seguinte. Este comando
+/// é o que leva isso à tela.
+#[tauri::command]
+pub fn vault_key_warning(state: tauri::State<'_, AccountStore>) -> Option<String> {
+    state.vault_key_warning()
+}
+
 #[tauri::command]
 pub fn set_encryption_password(
     state: tauri::State<'_, AccountStore>,
