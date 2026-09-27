@@ -539,6 +539,16 @@ export interface VaultKeyWarning {
 }
 
 /**
+ * Evento com cada mudança do aviso acima: o aviso novo, ou `null` quando sumiu.
+ *
+ * Existe porque o aviso também nasce em gravação **de fundo** (Auto Rejoin,
+ * Watcher, servidor HTTP), que não passa por nenhuma leitura da UI. O backend
+ * publica pelo mesmo nome (`VAULT_KEY_WARNING_EVENT` em
+ * `src-tauri/src/data/accounts/commands.rs`), e um teste confere os dois lados.
+ */
+export const VAULT_KEY_WARNING_EVENT = "vault-key-warning-changed";
+
+/**
  * Uma página da varredura de servidores (evento `server-scan`).
  *
  * A lista vem **já ordenada pelo backend** e cresce a cada página: num jogo

@@ -202,6 +202,11 @@ pub struct AccountStore {
     /// memória) para virar lockout no boot seguinte. Isto existe para o usuário
     /// saber **no dia em que o arquivo fica ruim**.
     key_warning: Mutex<Option<VaultKeyWarning>>,
+    /// Quem quer saber **na hora** que o aviso mudou (a janela, via `lib.rs`).
+    ///
+    /// Ler o slot quando a UI pede não basta: gravador de fundo — Auto Rejoin a
+    /// cada ciclo, Watcher, servidor HTTP — muda o aviso sem a UI pedir nada.
+    key_warning_watchers: Mutex<Vec<std::sync::mpsc::Sender<Option<VaultKeyWarning>>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -224,6 +229,7 @@ impl AccountStore {
             load_failed: std::sync::atomic::AtomicBool::new(false),
             write_block: Mutex::new(None),
             key_warning: Mutex::new(None),
+            key_warning_watchers: Mutex::new(Vec::new()),
         }
     }
 
@@ -379,10 +385,14 @@ impl AccountStore {
         }
         eprintln!("Aviso ({}): {}", warning.code, warning.path);
         *slot = Some(warning);
+        self.publish_key_warning(slot.as_ref());
     }
 
     fn clear_key_warning(&self) {
-        *self.key_warning_slot() = None;
+        let mut slot = self.key_warning_slot();
+        if slot.take().is_some() {
+            self.publish_key_warning(None);
+        }
     }
 
     /// Limpa o aviso **só se ele for sobre este arquivo**.
@@ -399,7 +409,39 @@ impl AccountStore {
             .is_some_and(|w| w.path == path.display().to_string());
         if belongs {
             *slot = None;
+            self.publish_key_warning(None);
         }
+    }
+
+    /// Canal com cada mudança do aviso, **na ordem em que aconteceram**
+    /// (`Some` = aviso novo, `None` = sumiu).
+    ///
+    /// O store só **manda** no canal — não bloqueia, então dá para fazer segurando
+    /// o lock de contas, que é de onde o aviso muda (`save_locked`). Quem fala com
+    /// a janela é outra thread, fora de qualquer lock do store
+    /// (`forward_vault_key_warning`): um comando síncrono na thread principal pode
+    /// estar esperando justamente o lock de contas.
+    pub fn watch_key_warning(&self) -> std::sync::mpsc::Receiver<Option<VaultKeyWarning>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.key_warning_watchers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(tx);
+        rx
+    }
+
+    /// Conta a mudança para quem estiver ouvindo.
+    ///
+    /// Chamado **com o slot travado**, e é isso que mantém a ordem: duas threads
+    /// mudando o aviso ao mesmo tempo publicam na mesma ordem em que mudaram o
+    /// slot, então a UI termina no estado que o slot tem.
+    fn publish_key_warning(&self, warning: Option<&VaultKeyWarning>) {
+        let mut watchers = self
+            .key_warning_watchers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Quem parou de ouvir sai da lista.
+        watchers.retain(|tx| tx.send(warning.cloned()).is_ok());
     }
 
     /// O que a UI mostra sobre o arquivo de chave. `None` = tudo em ordem.
@@ -3026,6 +3068,55 @@ mod vault_migration_tests {
         assert!(
             store.vault_key_warning().is_none(),
             "gravação saudável não limpou o aviso antigo"
+        );
+    }
+
+    /// **A2 do checkup.** A faixa só era lida no boot, em `loadAccounts` e no erro
+    /// de trocar a criptografia. Gravador de fundo — Auto Rejoin a cada ciclo,
+    /// Watcher, servidor HTTP — não dispara nenhuma dessas leituras: com o Auto
+    /// Rejoin rodando a noite inteira, o `.key` que ficava ruim às 3h gerava o
+    /// aviso só no backend, o dono fechava o app de manhã sem ver nada, e o boot
+    /// seguinte caía em lockout. Toda mudança do aviso tem que sair do store na
+    /// hora, pelo canal que a janela escuta.
+    #[test]
+    fn a_warning_raised_by_a_background_write_reaches_the_ui_right_away() {
+        let store = vault("warning-reaches-ui");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Main".to_string(), 1))
+            .expect("adicionar");
+        let changes = store.watch_key_warning();
+
+        // Às 3h o `.key` vira algo que não abre nem aceita ser regravado.
+        fs::remove_file(key_path(&store)).unwrap();
+        fs::create_dir(key_path(&store)).unwrap();
+
+        // Um ciclo do Auto Rejoin grava, sem ninguém na frente da tela.
+        store
+            .mark_used(1)
+            .expect("a gravação não para por causa do .key");
+
+        let raised = changes
+            .try_recv()
+            .expect("o aviso ficou só no backend: a faixa nunca apareceria")
+            .expect("chegou 'sem aviso' no lugar do aviso");
+        assert!(raised.code.starts_with("writeFailed"), "{}", raised.code);
+        assert_eq!(raised.path, key_path(&store).display().to_string());
+
+        // O ciclo seguinte bate no mesmo problema: a mesma faixa não se repete.
+        store.mark_used(1).expect("gravar de novo");
+        assert!(
+            changes.try_recv().is_err(),
+            "o mesmo aviso foi publicado de novo"
+        );
+
+        // Resolvido por outra gravação de fundo: a faixa tem que sair sozinha.
+        fs::remove_dir(key_path(&store)).unwrap();
+        store.mark_used(1).expect("gravar com o .key de volta");
+        assert_eq!(
+            changes.try_recv().expect("a resolução não chegou à UI"),
+            None,
+            "a faixa ficaria na tela depois de o problema sumir"
         );
     }
 

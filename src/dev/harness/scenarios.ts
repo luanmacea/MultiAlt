@@ -837,6 +837,35 @@ const SCENARIOS: Record<string, () => void> = {
     });
   },
 
+  /**
+   * O aviso nascendo **com a tela aberta**, sem ninguém clicar em nada: é o
+   * ciclo do Auto Rejoin da madrugada gravando num `.key` que ficou ruim. Depois
+   * de 3 s o backend publica `vault-key-warning-changed` e a leitura
+   * (`vault_key_warning`) passa a devolver o mesmo aviso — a faixa tem que
+   * aparecer sozinha. `&clearAfter=<s>` publica a resolução (`null`) depois.
+   */
+  "vault-key-warning-background"() {
+    let current: unknown = null;
+    setInvokeHandler((cmd, args) =>
+      cmd === "vault_key_warning" ? current : baseHandler(cmd, args)
+    );
+    window.setTimeout(() => {
+      current = {
+        code: "writeFailed",
+        path: String.raw`C:\Users\luanm\AppData\Local\Roblox Account Manager\AccountData.key`,
+        detail: "Acesso negado. (os error 5)",
+      };
+      harnessEmit("vault-key-warning-changed", current);
+    }, 3000);
+    const clearAfter = Number(params.get("clearAfter") ?? 0);
+    if (Number.isFinite(clearAfter) && clearAfter > 0) {
+      window.setTimeout(() => {
+        current = null;
+        harnessEmit("vault-key-warning-changed", null);
+      }, 3000 + clearAfter * 1000);
+    }
+  },
+
   groups() {
     const nomes = ["5 Mains", "20 Bots", "Alts, velhas", "Zeta"];
     accounts.forEach((account, index) => {

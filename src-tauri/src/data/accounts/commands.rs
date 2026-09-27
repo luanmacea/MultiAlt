@@ -146,6 +146,41 @@ pub fn vault_key_warning(state: tauri::State<'_, AccountStore>) -> Option<VaultK
     state.vault_key_warning()
 }
 
+/// Evento com cada mudança do aviso do `.key`. Payload: o aviso, ou `null`
+/// quando ele sumiu. O frontend ouve pelo mesmo nome (`src/types.ts`).
+pub const VAULT_KEY_WARNING_EVENT: &str = "vault-key-warning-changed";
+
+/// Leva à janela, **na hora**, cada mudança do aviso do `.key`.
+///
+/// O comando `vault_key_warning` só responde quando a UI pergunta, e ela só
+/// pergunta no boot, ao recarregar contas e quando trocar a criptografia falha.
+/// Gravador de fundo não passa por nada disso: com o Auto Rejoin a noite inteira,
+/// o `.key` que ficava ruim de madrugada virava aviso só no backend, e o dono
+/// descobria no boot seguinte — o lockout que a faixa existe para evitar.
+///
+/// A thread é dela, e fala com o Tauri **fora** de qualquer lock do store: o
+/// aviso muda dentro de `save_locked`, que roda segurando o lock de contas, e um
+/// comando síncrono na thread principal (restaurar backup) pode estar esperando
+/// justamente esse lock. O store só enfileira no canal, o que nunca bloqueia.
+pub fn forward_vault_key_warning(app: &tauri::AppHandle, store: &AccountStore) {
+    use tauri::Emitter;
+
+    let changes = store.watch_key_warning();
+    let app = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("vault-key-warning".to_string())
+        .spawn(move || {
+            for warning in changes {
+                let _ = app.emit(VAULT_KEY_WARNING_EVENT, warning);
+            }
+        });
+    if let Err(e) = spawned {
+        // Sem a thread a faixa volta a ser lida só quando a UI pergunta; o app
+        // segue funcionando.
+        eprintln!("Não foi possível acompanhar o aviso da chave do vault: {}", e);
+    }
+}
+
 #[tauri::command]
 pub fn set_encryption_password(
     state: tauri::State<'_, AccountStore>,
@@ -173,6 +208,26 @@ pub fn import_old_account_data(
     password: Option<String>,
 ) -> Result<OldAccountImportSummary, String> {
     state.import_old_account_data(&file_data, password.as_deref())
+}
+
+#[cfg(test)]
+mod vault_key_warning_event_tests {
+    /// **A2 do checkup.** O canal do store (`watch_key_warning`) não vale nada se
+    /// ninguém o ligar à janela. O `setup` do Tauri é o lugar que tem um
+    /// `AppHandle` antes de qualquer gravação de fundo começar (Auto Rejoin,
+    /// Watcher e servidor HTTP só existem depois dele).
+    #[test]
+    fn the_app_setup_forwards_every_warning_change_to_the_window() {
+        let lib = include_str!("../../lib.rs");
+        let setup = lib
+            .split(".setup(|app|")
+            .nth(1)
+            .expect("lib.rs sem o .setup(|app| ...) do Tauri");
+        assert!(
+            setup.contains("forward_vault_key_warning("),
+            "o aviso de uma gravação de fundo não chega à janela: o setup não liga o canal"
+        );
+    }
 }
 
 #[cfg(test)]

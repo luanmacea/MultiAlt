@@ -1,7 +1,10 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account, PlatformCapabilities } from "./types";
+import { VAULT_KEY_WARNING_EVENT } from "./types";
 
 const invokeMock = vi.fn();
 const recordRecentGameMock = vi.fn(async () => {});
@@ -2523,6 +2526,72 @@ describe("browser helpers", () => {
 
       expect(invokeCalls("vault_key_warning").length).toBeGreaterThan(before);
       expect(result.current.vaultKeyWarning?.code).toBe("writeFailed");
+    });
+
+    // A2 do checkup: o aviso tambem nasce em gravacao de fundo (Auto Rejoin a
+    // cada ciclo, Watcher, servidor HTTP), que nao passa por nenhuma das leituras
+    // acima. Com o Auto Rejoin a noite inteira a faixa nunca aparecia, e o boot
+    // seguinte caia em lockout. O backend publica cada mudanca num evento.
+    it("mostra na hora o aviso que uma gravacao de fundo levantou, e o tira quando some", async () => {
+      const { result } = await renderStore();
+      expect(result.current.vaultKeyWarning).toBeNull();
+
+      act(() => {
+        emit(VAULT_KEY_WARNING_EVENT, { code: "writeFailed", path: "C:\dados\AccountData.key" });
+      });
+      expect(result.current.vaultKeyWarning).toEqual({
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+      });
+
+      act(() => {
+        emit(VAULT_KEY_WARNING_EVENT, null);
+      });
+      expect(result.current.vaultKeyWarning).toBeNull();
+    });
+
+    // A leitura que ja estava a caminho quando o evento chegou e mais velha que
+    // ele: aplica-la por cima apagaria a faixa que acabou de aparecer — ate a
+    // proxima mudanca, que pode nunca vir.
+    it("uma leitura que ja estava a caminho nao apaga o aviso que chegou por evento", async () => {
+      const { result } = await renderStore();
+
+      let answer: (warning: unknown) => void = () => {};
+      const slowRead = new Promise((done) => {
+        answer = done;
+      });
+      const fallback = invokeMock.getMockImplementation();
+      invokeMock.mockImplementation(async (cmd: string, args?: unknown) =>
+        cmd === "vault_key_warning" ? slowRead : fallback?.(cmd, args)
+      );
+
+      // Uma recarga de contas pede o aviso antes de a gravacao de fundo mudar.
+      await act(async () => {
+        await result.current.loadAccounts();
+      });
+      // A gravacao de fundo levanta o aviso enquanto a resposta ainda vinha.
+      act(() => {
+        emit(VAULT_KEY_WARNING_EVENT, { code: "writeFailed", path: "C:\dados\AccountData.key" });
+      });
+      // A resposta velha chega depois.
+      await act(async () => {
+        answer(null);
+        await slowRead;
+        await new Promise((done) => setTimeout(done, 0));
+      });
+
+      expect(result.current.vaultKeyWarning?.code).toBe("writeFailed");
+    });
+
+    // O evento e contrato entre dois arquivos em linguagens diferentes: um typo
+    // de um lado nao quebra compilacao nenhuma — a faixa so para de aparecer.
+    it("ouve o evento pelo mesmo nome que o backend publica", () => {
+      const rust = readFileSync(
+        resolve(process.cwd(), "src-tauri/src/data/accounts/commands.rs"),
+        "utf8"
+      );
+      const published = rust.match(/VAULT_KEY_WARNING_EVENT: &str = "([^"]+)"/)?.[1];
+      expect(published).toBe(VAULT_KEY_WARNING_EVENT);
     });
   });
 });

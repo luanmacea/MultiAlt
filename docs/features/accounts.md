@@ -197,11 +197,13 @@ A condição é **"o `.key` guarda a chave desta sessão"** (`key_file_holds_mas
 |---|---|
 | Estado no backend | `AccountStore::vault_key_warning` → `VaultKeyWarning { code, path, detail }` |
 | Comando | `vault_key_warning` ([accounts/commands.rs](../../src-tauri/src/data/accounts/commands.rs)) |
-| Estado no frontend | `store.vaultKeyWarning`, atualizado **no boot** e a cada `loadAccounts` |
+| Evento | `vault-key-warning-changed` (payload: o aviso, ou `null`), publicado a **cada mudança** do slot por `forward_vault_key_warning`, ligado no `setup` do [lib.rs](../../src-tauri/src/lib.rs) |
+| Estado no frontend | `store.vaultKeyWarning`, lido **no boot** e a cada `loadAccounts`, e atualizado **na hora** pelo evento |
 | Tela | [VaultKeyBanner.tsx](../../src/components/layout/VaultKeyBanner.tsx), faixa fixa ao lado da do update |
 
-Três detalhes que são correção de bug, não estilo:
+Quatro detalhes que são correção de bug, não estilo:
 
+- **Gravação de fundo avisa na hora, por evento.** O aviso nasce dentro do `save_locked`, e quem grava sem a UI pedir — Auto Rejoin a cada ciclo, Watcher, servidor HTTP — não passa por nenhuma leitura da tela. Com o Auto Rejoin a noite inteira, o `.key` que ficava ruim de madrugada virava aviso só no backend, e o dono descobria no boot seguinte: o lockout que a faixa existe para evitar. Agora `set_key_warning` e os dois `clear_*` — os únicos pontos que mudam o slot — publicam num canal (`watch_key_warning`), **com o slot travado**, para a ordem dos eventos ser a ordem das mudanças. O store só enfileira (não bloqueia, e o aviso muda segurando o lock de contas); quem chama o `emit` do Tauri é uma thread própria, fora de qualquer lock do store, porque um comando síncrono na thread principal (restaurar backup) pode estar esperando esse lock. Na UI, uma leitura que já estava a caminho quando um evento chegou é descartada: ela é mais velha que ele. Escolhido no lugar de consulta periódica porque cobre todo gravador presente e futuro sem cada um lembrar de nada, mostra **e tira** a faixa no mesmo instante, e não deixa um timer rodando para sempre por um evento raro (que o WebView2 ainda estrangularia com a janela minimizada).
 - **A consulta acontece no boot.** O efeito de inicialização do `store.tsx` não passa por `loadAccounts` (chama `get_accounts` direto), e o backend descobre o problema no `load()` do startup. Sem a chamada explícita ali, o aviso só apareceria depois de uma mutação — e quem usa a chave do aparelho, o único afetado, pode passar a sessão inteira sem fazer nenhuma e sem nunca destrancar por senha.
 - **`null` limpa.** A primeira versão usava `setActionStatusMessage`, que é substituível (qualquer "Launching…" apagava o aviso) e nunca era limpa quando o problema sumia — errava nos dois sentidos.
 - **O texto vem do `code`, não do backend.** A frase mora no catálogo de i18n e passa por `t()` (Global Constraint 8); o backend manda código + caminho. `writeFailedTransient` tem tom **brando** de propósito: é quase sempre antivírus segurando o arquivo por um instante, e alarme falso treina o usuário a ignorar alarme — o que desarmaria justamente esta rede.

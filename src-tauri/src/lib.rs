@@ -209,6 +209,14 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             platform::windows::set_build_install_app_handle(app.handle().clone());
 
+            // O aviso do `.key` também nasce em gravação de fundo (Auto Rejoin,
+            // Watcher, servidor HTTP), que a UI não acompanha: sem isto a faixa
+            // só aparecia no boot seguinte — que é justamente o lockout.
+            data::accounts::forward_vault_key_warning(
+                app.handle(),
+                app.state::<AccountStore>().inner(),
+            );
+
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&show, &quit]).build()?;
