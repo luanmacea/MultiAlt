@@ -1,4 +1,6 @@
 import { RecentGamesList } from "./RecentGamesList";
+import { RecentJobsList } from "./RecentJobsList";
+import { useTr } from "../../i18n/text";
 import type { GameEntry } from "./types";
 
 export interface RecentTabProps {
@@ -12,6 +14,13 @@ export interface RecentTabProps {
   /** Abre o Botting Mode / os Scripts **com este jogo**. */
   onBotting?: (placeId: number) => void;
   onScripts?: (placeId: number) => void;
+  /**
+   * Preenche o Job ID do launch com um servidor recente. Sem este callback a
+   * coluna de servidores **não aparece**: a tela dona não tem onde pôr o Job ID,
+   * e item que não faz nada é pior que item ausente.
+   */
+  onSelectJob?: (placeId: number | null, raw: string) => void;
+  maxRecentJobs?: number;
 }
 
 export function RecentTab({
@@ -22,8 +31,11 @@ export function RecentTab({
   onAddFavorite,
   onBotting,
   onScripts,
+  onSelectJob,
+  maxRecentJobs = 12,
 }: RecentTabProps) {
-  return (
+  const t = useTr();
+  const games = (
     <RecentGamesList
       userId={userId}
       maxRecent={maxRecent}
@@ -33,5 +45,27 @@ export function RecentTab({
       onBotting={onBotting}
       onScripts={onScripts}
     />
+  );
+
+  if (!onSelectJob) return games;
+
+  return (
+    <div className="flex h-full min-h-0 gap-3">
+      <div className="flex flex-col min-w-0 flex-1 min-h-0">
+        <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+          {t("Games")}
+        </div>
+        <div className="flex-1 min-h-0">{games}</div>
+      </div>
+      <div className="w-px bg-zinc-800/60" />
+      <div className="flex flex-col w-[252px] shrink-0 min-h-0">
+        <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+          {t("Servers")}
+        </div>
+        <div className="flex-1 min-h-0">
+          <RecentJobsList userId={userId} maxRecent={maxRecentJobs} onSelect={onSelectJob} />
+        </div>
+      </div>
+    </div>
   );
 }

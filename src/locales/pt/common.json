@@ -502,7 +502,6 @@
   "password": "senha",
   "Password changed": "Senha alterada",
   "Password is incorrect. Enter the AccountData.json password:": "A senha está incorreta. Digite a senha do AccountData.json:",
-  "Paste one .ROBLOSECURITY cookie per line": "Cole um cookie .ROBLOSECURITY por linha",
   "PIN unlocked": "PIN desbloqueado",
   "Ping": "Ping",
   "Place": "Place",
@@ -1679,5 +1678,14 @@
   "{{name}}: Windows refused the key.": "{{name}}: o Windows recusou a tecla.",
   "And when Windows keeps the window in the background — which is what it usually does while this app is not the one you are using — nothing is sent at all, and the account below says so.": "E quando o Windows mantém a janela em segundo plano — o que ele costuma fazer justamente enquanto este app não é o que você está usando — nada é enviado, e a conta ali embaixo avisa.",
   "not sent": "não enviada",
-  "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while.": "O Windows só deixa um app trocar a janela que está na frente em algumas situações, então o envio automático pode ficar um tempo sendo pulado."
+  "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while.": "O Windows só deixa um app trocar a janela que está na frente em algumas situações, então o envio automático pode ficar um tempo sendo pulado.",
+  "A line that already carries the cookie (username:password:cookie) is imported straight away, with no browser.": "Linha que já traz o cookie (username:password:cookie) é importada na hora, sem navegador.",
+  "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, encrypted only if you set an app password.": "Uma linha username:password:cookie também guarda a senha, que é mais que a sessão: ela troca o e-mail e a senha da conta, e sair de todas as sessões não a revoga. Fica gravada no AccountData.json, encriptada só se você puser uma senha no app.",
+  "Paste one .ROBLOSECURITY cookie per line, or one username:password:cookie per line.": "Cole um cookie .ROBLOSECURITY por linha, ou um username:password:cookie por linha.",
+  "Skipped {{name}}: no cookie in this line": "{{name}} pulada: esta linha não tem cookie",
+  "Clear the recent servers list? Its {{count}} servers are deleted from this computer and cannot be recovered.": "Limpar a lista de servidores recentes? Os {{count}} servidores dela são apagados deste computador e não voltam.",
+  "Clear the recent servers list? Its 1 server is deleted from this computer and cannot be recovered.": "Limpar a lista de servidores recentes? O único servidor dela é apagado deste computador e não volta.",
+  "How many servers (Job IDs) the Recent list keeps before the oldest one drops off.": "Quantos servidores (Job IDs) a lista Recent guarda antes de o mais antigo cair.",
+  "Max Recent Servers": "Máximo de servidores recentes",
+  "No recent servers": "Nenhum servidor recente"
 }
