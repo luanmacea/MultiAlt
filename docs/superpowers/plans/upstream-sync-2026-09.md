@@ -294,3 +294,186 @@ para a chave do aparelho; round-trip da chave mestra pelos dois embrulhos.
 
 **Antes de commitar esta tarefa:** copiar o `AccountData.json` real do dono para
 fora do projeto, como rede de segurança manual, e dizer no relatório onde ficou.
+
+---
+
+# Segunda leva — aprovada pelo dono em 2026-09-27
+
+Ele confirmou que a grade de janelas já existe aqui e pediu os outros cinco itens
+"não urgentes", mais o AFK mode (que ele quer **como envio periódico de teclas**,
+não como detecção de interação — ver Task 14).
+
+As Global Constraints do começo deste arquivo continuam valendo inteiras.
+
+---
+
+## Task 9 — intervalo de rejoin até 480 minutos
+
+**Origem:** `niccsprojects@6e6c9dc`.
+
+Hoje `clamp_botting_interval_minutes` (`src-tauri/src/commands/botting.rs:49`)
+trava em `10..=120`, e o diálogo mostra esse limite. Subir o teto para **480**
+(8 horas) no backend e no que a tela mostra e valida. O piso continua 10.
+
+**Testes:** o `clamp` já tem teste (`clamp_botting_interval_minutes_keeps_10_to_120`)
+— ele vai reprovar, é o sinal. Atualizar nome e casos: 480 passa, 481 vira 480,
+9 vira 10. Conferir se há teste de UI afirmando o limite antigo.
+
+---
+
+## Task 10 — alias até 240 caracteres, com opção de quebrar nomes longos
+
+**Origem:** `niccsprojects@c276b30`.
+
+Hoje o alias é cortado em 30 (`src/components/accounts/SingleSelectSidebar.tsx:53`
+e `:144`, `src/components/menus/ContextMenu.tsx:211`). Subir para **240** nos
+três lugares e em qualquer outro que corte alias.
+
+Um alias de 240 caracteres estoura a linha da conta, então vem junto uma opção
+de settings **"quebrar nomes longos"** (chave nova em `General`, default
+`false`): ligada, a linha da conta deixa o nome quebrar em mais de uma linha em
+vez de truncar.
+
+**Cuidado:** `chipMaskName` (mesmo arquivo) mascara o nome quando "esconder
+usernames" está ligado — conferir que ele continua correto com nome longo.
+O default da chave nova entra no espelho de defaults de
+`src-tauri/src/data/settings/store.rs` (há teste que cobra isso:
+`every_documented_default_is_applied_on_a_fresh_install`); atenção que default
+vazio **não** é gravado no INI, então siga a regra dos outros booleanos.
+
+**Testes:** alias de 240 é aceito e um de 241 é cortado; com a opção ligada a
+linha não truncou e desligada truncou; o mascaramento de nome longo continua
+certo.
+
+---
+
+## Task 11 — importar `username:password:cookie`
+
+**Origem:** `niccsprojects@416a4de`, `32975e0`, `c7304a4`, `843f498`, `ff5e0ca`.
+
+Hoje o `ImportDialog` aceita **um `.ROBLOSECURITY` por linha**
+(`src/components/dialogs/ImportDialog.tsx:274`). Passar a aceitar também
+`username:password:cookie` na mesma caixa, detectando o formato por linha.
+
+O upstream extraiu um **padrão de cookie compartilhado** (criou
+`src/utils/cookies.ts`) para não ter três regex diferentes de `.ROBLOSECURITY`
+espalhadas — faça o mesmo aqui e use o mesmo padrão no arrastar-e-soltar de
+arquivo, se este fork tiver isso.
+
+Regras que o upstream corrigiu depois e que valem:
+- linha com credencial **incompleta** é pulada, não importada pela metade
+  (`ff5e0ca`);
+- ao separar, tirar **só** o delimitador do cookie — o cookie tem `:` dentro
+  dele, então um `split(':')` ingênuo corta o cookie no meio (`843f498`). Esse é
+  o detalhe que quebra tudo se for feito errado.
+
+**Cuidado com o aviso existente:** o diálogo hoje avisa que o cookie é a sessão
+inteira da conta. Aceitar senha junto **aumenta** o que está em jogo — o texto
+precisa refletir isso.
+
+**Testes:** parser puro, com casos: só cookie; `user:pass:cookie` com `:` dentro
+do cookie; linha só com `user:pass` (incompleta, pulada); linha vazia; espaço nas
+pontas; cookie com o prefixo `_|WARNING:-DO-NOT-SHARE...`. O teste do `:` dentro
+do cookie é obrigatório.
+
+---
+
+## Task 12 — servidores recentes (job ids), não só jogos recentes
+
+**Origem:** `niccsprojects@b3e3eb4`, arquivos `RecentJobsList.tsx` e
+`RecentJobsPopover.tsx` no upstream.
+
+Este fork já guarda **jogos** recentes (`RecentGamesList.tsx`,
+`RecentGamesPopover.tsx`, `RecentTab.tsx`, persistido em
+`src-tauri/src/data/settings/`). Falta guardar o **servidor** (job id) em que as
+contas entraram, para poder voltar exatamente para aquele servidor.
+
+**O que fazer:** guardar, por jogo, os últimos job ids usados, respeitando um
+limite configurável (o de jogos já tem um — seguir o mesmo desenho e reaproveitar
+o que der). Mostrar numa lista ao lado da de jogos recentes; clicar preenche o
+Job ID do launch.
+
+**Cuidado:** job id de servidor **VIP/privado** neste fork usa o prefixo `vip:`
+ou URL a decodificar (ver `CLAUDE.md` e `docs/features/join-links.md`). Guardar e
+reexibir sem quebrar o significado — e **não** deixar link privado aparecer para
+outra conta sem o dono querer. Se ficar ambíguo, guardar só job id público e
+dizer no relatório por quê.
+
+**Testes:** a parte pura é a lista — adicionar um job já presente sobe ele para o
+topo sem duplicar; passar do limite derruba o mais antigo; job vazio não entra;
+round-trip pela persistência.
+
+---
+
+## Task 13 — Chromium: instalação manual e uso do navegador do sistema
+
+**Origem:** `niccsprojects@395fd4d`, `70c30c5`, `f2a0aca`, `687fcac`, `785cedc`,
+`2a111df`.
+
+Este fork já tem progresso de download (`chromium-download-progress` em
+`src-tauri/src/chromium/download.rs`). Falta:
+- **fallback para o navegador do sistema** quando o download falha ou o usuário
+  não quer baixar nada: usar um Chrome/Edge já instalado. O upstream exige que o
+  candidato seja **arquivo regular** (`785cedc`) — não seguir link nem pasta;
+- **apontar um binário à mão**, para quem tem o navegador em lugar não padrão;
+- robustez do download que ele corrigiu depois: repetir a consulta de versão em
+  resposta não-2xx (`f2a0aca`, `687fcac`), limitar a requisição de versão, e
+  **finalizar a extração de forma atômica** (`2a111df`) — extrair para pasta
+  temporária e só então renomear, senão uma extração interrompida deixa uma
+  instalação meio pronta que o app acha que está boa;
+- reinstalar **substitui** a instalação em vez de empilhar (`70c30c5`).
+
+**Cuidado:** o Chromium é usado para login e criação de contas, ou seja passa
+perto de credencial. Não logar caminho junto de cookie ou senha, e não aceitar
+caminho de binário que não venha do usuário escolhendo.
+
+**Testes:** escolha do candidato do sistema (arquivo regular sim, pasta não, link
+não, inexistente não, ordem de preferência); a decisão de repetir por status
+HTTP; e a extração atômica (a pasta temporária vira final só no sucesso, e uma
+extração interrompida não deixa instalação "válida" pela metade).
+
+---
+
+## Task 14 — AFK mode: mandar teclas de tempo em tempo para as janelas do Roblox
+
+**Origem:** `niccsprojects@b3e3eb4` e os follow-ups `40c3c18`, `f683b7a`,
+`1add22f`, `07ce381`. O `7bba2e8` (expor ao script API) fica **fora**.
+
+**O que o dono quer, nas palavras dele:** "ao invés de detectar interação eu
+tenha a opção de mandar teclas de forma automática de tempo em tempo nas telas,
+assim consigo usar meu pc normalmente que às vezes o próprio app interage com a
+janela do Roblox e nem precisa dar rejoin". O objetivo é **não perder o estado**:
+não sair do lugar do mapa, não precisar de rejoin.
+
+**O que é, tecnicamente:** envio de entrada sintética (`SendInput`) para a janela
+de um cliente Roblox, num intervalo configurável. **Não** é detecção de
+interação — isso não é viável (`GetLastInputInfo` é da sessão inteira do Windows,
+não sabe de qual janela veio a entrada) e não faz parte desta tarefa.
+
+**Limites que precisam estar no código e na tela:**
+- `SendInput` vai para a janela **em primeiro plano**, então o app precisa trazer
+  a janela do Roblox para frente por um instante e **devolver o foco** para onde
+  estava. Isso rouba o foco por um piscar a cada ciclo — a tela tem que dizer
+  isso com essas palavras, sem enfeitar.
+- **Só envia, nunca lê teclado:** proibido `SetWindowsHookEx`, `GetAsyncKeyState`
+  para ler tecla do usuário, ou qualquer leitura de entrada. Lista fechada de
+  teclas permitidas, no espírito do `AFK_KEYS` do upstream (espaço, WASD, E, F,
+  R, Q, 1–5); o usuário escolhe de dentro dessa lista, não digita tecla
+  arbitrária.
+- Nada aqui pode fechar, minimizar ou mexer em cliente de conta que não está no
+  AFK mode (Global Constraint 1).
+- Parar o AFK mode interrompe o ciclo **na hora**, inclusive um ciclo já em
+  andamento (`1add22f`), e não restaura foco quando está parando (`07ce381`).
+  Sessão parada à força limpa o estado (`f683b7a`).
+- Sem tecla escolhida, o AFK mode não liga — não inventar tecla padrão que mexa
+  no personagem sem o usuário ter pedido.
+
+**Escopo:** módulo novo no backend (envio e agendamento por conta), a UI para
+ligar e desligar por conta com intervalo e tecla, e as chaves de settings. Fica
+**fora**: expor ao script API, e qualquer detecção de interação.
+
+**Testes:** o testável é puro — o mapa tecla para (virtual key, scan code) recusa
+tecla fora da lista; o agendador decide "está na hora desta conta?" a partir de
+(último envio, intervalo, agora); parar marca a sessão como parando e o ciclo
+seguinte não envia nem restaura foco; conta fora do AFK mode nunca entra na
+lista de alvos. `SendInput`, foco e janela ficam fora do teste.
