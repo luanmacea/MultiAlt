@@ -6,6 +6,7 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
 import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
+import { MAX_ALIAS_LENGTH } from "../../types";
 import { User, Package } from "lucide-react";
 
 function chipMaskName(name: string, previewLetters: number): string {
@@ -49,7 +50,7 @@ export function SingleSelectSidebar() {
   }, []);
 
   function handleSetAlias() {
-    store.updateAccount({ ...account, Alias: alias.slice(0, 30) });
+    store.updateAccount({ ...account, Alias: alias.slice(0, MAX_ALIAS_LENGTH) });
     store.addToast(tr("Alias updated"));
   }
 
@@ -140,7 +141,7 @@ export function SingleSelectSidebar() {
             <input
               value={alias}
               onChange={(e) => setAlias(e.target.value)}
-              maxLength={30}
+              maxLength={MAX_ALIAS_LENGTH}
               placeholder={account.Username}
               className="sidebar-input flex-1"
               onKeyDown={(e) => e.key === "Enter" && handleSetAlias()}

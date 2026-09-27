@@ -45,6 +45,7 @@ impl SettingsStore {
             ("AsyncJoin", "false", None),
             ("DisableAgingAlert", "false", None),
             ("HideUsernames", "false", None),
+            ("WrapLongNames", "false", None),
             (
                 "ServerRegionFormat",
                 "<city>, <countryCode>",
