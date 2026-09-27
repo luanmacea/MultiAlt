@@ -205,10 +205,14 @@ impl ThemePresetStore {
         self.save_all(&snapshot)
     }
 
-    pub fn import_preset_file(&self, path: &str) -> Result<ThemePresetData, String> {
+    /// `fonts_dir` só é usado quando `path` é um bundle `.zip` (fontes locais
+    /// embutidas); recebido em vez de resolvido aqui dentro via
+    /// `get_theme_fonts_dir()` para que os testes gravem num `TempDir` e nunca
+    /// na pasta real de fontes do usuário.
+    pub fn import_preset_file(&self, path: &str, fonts_dir: &Path) -> Result<ThemePresetData, String> {
         let lower = path.to_ascii_lowercase();
         if lower.ends_with(".zip") || lower.ends_with(".ram-theme.zip") {
-            return self.import_bundle_file(path);
+            return self.import_bundle_file(path, fonts_dir);
         }
 
         let raw =
@@ -245,7 +249,7 @@ impl ThemePresetStore {
         self.save_preset(&chosen_name, theme)
     }
 
-    fn import_bundle_file(&self, path: &str) -> Result<ThemePresetData, String> {
+    fn import_bundle_file(&self, path: &str, fonts_dir: &Path) -> Result<ThemePresetData, String> {
         let file =
             fs::File::open(path).map_err(|e| format!("Failed to open theme bundle: {}", e))?;
         let mut archive =
@@ -267,8 +271,7 @@ impl ThemePresetStore {
             return Err("Unsupported theme bundle format".to_string());
         }
 
-        let fonts_dir = get_theme_fonts_dir();
-        fs::create_dir_all(&fonts_dir).map_err(|e| format!("Failed to create font dir: {}", e))?;
+        fs::create_dir_all(fonts_dir).map_err(|e| format!("Failed to create font dir: {}", e))?;
 
         for i in 0..archive.len() {
             let mut f = archive.by_index(i).map_err(|e| e.to_string())?;
@@ -322,10 +325,19 @@ impl ThemePresetStore {
         self.save_preset(&preset_name, parsed.theme)
     }
 
-    pub fn export_preset_file(name: &str, theme: ThemeData) -> Result<String, String> {
+    /// `base_dir` (onde o arquivo exportado é gravado) e `fonts_dir` (de onde
+    /// as fontes locais referenciadas são lidas, para o bundle `.zip`) são
+    /// recebidos em vez de resolvidos aqui via `get_runtime_data_dir()` /
+    /// `get_theme_fonts_dir()`, para que os testes gravem num `TempDir` e
+    /// nunca na pasta real de dados do usuário.
+    pub fn export_preset_file(
+        name: &str,
+        theme: ThemeData,
+        base_dir: &Path,
+        fonts_dir: &Path,
+    ) -> Result<String, String> {
         let normalized_name = Self::sanitize_preset_name(name);
         let stem = Self::sanitize_file_stem(&normalized_name);
-        let base_dir = get_runtime_data_dir();
 
         let local_fonts = Self::local_font_files(&theme);
         let should_export_json = local_fonts.is_empty();
@@ -380,7 +392,6 @@ impl ThemePresetStore {
                         .map_err(|e| format!("Failed to write theme.json: {}", e))?;
 
                     if !local_fonts.is_empty() {
-                        let fonts_dir = get_theme_fonts_dir();
                         for font_file in local_fonts {
                             let safe = Path::new(&font_file)
                                 .file_name()
@@ -439,6 +450,11 @@ mod theme_preset_tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    // Nenhum teste deste módulo pode chamar `get_runtime_data_dir()` ou
+    // `get_theme_fonts_dir()`, que resolvem a pasta real de dados do usuário
+    // (`%LOCALAPPDATA%\Roblox Account Manager`): todo `base_dir`/`fonts_dir`
+    // usado aqui vem de um `TempDir` próprio, único por chamada.
+
     fn nanos() -> u128 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -448,6 +464,30 @@ mod theme_preset_tests {
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("ram-presets-{name}-{}.json", nanos()))
+    }
+
+    /// Pasta temporária própria (sem dependência de `tempfile`), usada como
+    /// `base_dir` e/ou `fonts_dir` de teste — nunca a pasta real do usuário.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("ram-presets-dir-{tag}-{}-{n}", nanos()));
+            std::fs::create_dir_all(&dir).expect("temp dir");
+            Self(dir)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
     }
 
     struct TestStore {
@@ -770,7 +810,8 @@ mod theme_preset_tests {
         let file = temp_path("import-wrapped-src");
         fs::write(&file, serde_json::to_vec_pretty(&payload).unwrap()).unwrap();
 
-        let imported = s.import_preset_file(file.to_str().unwrap()).unwrap();
+        let fonts = TempDir::new("import-wrapped");
+        let imported = s.import_preset_file(file.to_str().unwrap(), fonts.path()).unwrap();
         assert_eq!(imported.name, "Exported Neon");
         assert_eq!(imported.theme.accounts_background, "#ABCDEF");
         assert_eq!(s.get_all().unwrap().len(), 1);
@@ -784,7 +825,8 @@ mod theme_preset_tests {
         let file = temp_path("MyBareTheme");
         fs::write(&file, serde_json::to_vec(&themed("#010203")).unwrap()).unwrap();
 
-        let imported = s.import_preset_file(file.to_str().unwrap()).unwrap();
+        let fonts = TempDir::new("import-bare");
+        let imported = s.import_preset_file(file.to_str().unwrap(), fonts.path()).unwrap();
         let expected_name = file.file_stem().unwrap().to_str().unwrap();
         assert_eq!(imported.name, expected_name);
         assert_eq!(imported.theme.accounts_background, "#010203");
@@ -802,7 +844,8 @@ mod theme_preset_tests {
         let file = temp_path("FallbackName");
         fs::write(&file, serde_json::to_vec(&payload).unwrap()).unwrap();
 
-        let imported = s.import_preset_file(file.to_str().unwrap()).unwrap();
+        let fonts = TempDir::new("import-blank-name");
+        let imported = s.import_preset_file(file.to_str().unwrap(), fonts.path()).unwrap();
         assert_eq!(imported.name, file.file_stem().unwrap().to_str().unwrap());
 
         let _ = fs::remove_file(&file);
@@ -811,22 +854,23 @@ mod theme_preset_tests {
     #[test]
     fn import_preset_file_reports_missing_files_and_bad_payloads() {
         let s = store("import-errors");
+        let fonts = TempDir::new("import-errors");
 
         let missing = temp_path("does-not-exist");
-        let err = s.import_preset_file(missing.to_str().unwrap()).unwrap_err();
+        let err = s.import_preset_file(missing.to_str().unwrap(), fonts.path()).unwrap_err();
         assert!(err.starts_with("Failed to read preset file:"), "{err}");
 
         let file = temp_path("import-bad");
         fs::write(&file, b"{not json").unwrap();
-        let err = s.import_preset_file(file.to_str().unwrap()).unwrap_err();
+        let err = s.import_preset_file(file.to_str().unwrap(), fonts.path()).unwrap_err();
         assert!(err.starts_with("Invalid preset JSON:"), "{err}");
 
         fs::write(&file, br#"{"theme": {"nope": 1}}"#).unwrap();
-        let err = s.import_preset_file(file.to_str().unwrap()).unwrap_err();
+        let err = s.import_preset_file(file.to_str().unwrap(), fonts.path()).unwrap_err();
         assert!(err.starts_with("Invalid preset theme payload:"), "{err}");
 
         fs::write(&file, br#"{"unrelated": 1}"#).unwrap();
-        let err = s.import_preset_file(file.to_str().unwrap()).unwrap_err();
+        let err = s.import_preset_file(file.to_str().unwrap(), fonts.path()).unwrap_err();
         assert!(err.starts_with("Invalid theme data:"), "{err}");
 
         assert!(s.get_all().unwrap().is_empty());
@@ -836,11 +880,12 @@ mod theme_preset_tests {
     #[test]
     fn importing_a_bundle_validates_the_zip_and_its_manifest() {
         let s = store("import-bundle");
+        let fonts = TempDir::new("import-bundle");
 
         // Not a zip at all.
         let not_zip = std::env::temp_dir().join(format!("ram-presets-fake-{}.zip", nanos()));
         fs::write(&not_zip, b"definitely not a zip").unwrap();
-        let err = s.import_preset_file(not_zip.to_str().unwrap()).unwrap_err();
+        let err = s.import_preset_file(not_zip.to_str().unwrap(), fonts.path()).unwrap_err();
         assert!(err.starts_with("Invalid theme bundle zip:"), "{err}");
         let _ = fs::remove_file(&not_zip);
 
@@ -854,7 +899,7 @@ mod theme_preset_tests {
             writer.write_all(b"hello").unwrap();
             writer.finish().unwrap();
         }
-        let err = s.import_preset_file(no_manifest.to_str().unwrap()).unwrap_err();
+        let err = s.import_preset_file(no_manifest.to_str().unwrap(), fonts.path()).unwrap_err();
         assert_eq!(err, "Missing theme.json in bundle");
         let _ = fs::remove_file(&no_manifest);
 
@@ -875,7 +920,7 @@ mod theme_preset_tests {
                 .unwrap();
             writer.finish().unwrap();
         }
-        let err = s.import_preset_file(wrong_format.to_str().unwrap()).unwrap_err();
+        let err = s.import_preset_file(wrong_format.to_str().unwrap(), fonts.path()).unwrap_err();
         assert_eq!(err, "Unsupported theme bundle format");
         let _ = fs::remove_file(&wrong_format);
 
@@ -889,7 +934,7 @@ mod theme_preset_tests {
             writer.write_all(b"{not json").unwrap();
             writer.finish().unwrap();
         }
-        let err = s.import_preset_file(bad_manifest.to_str().unwrap()).unwrap_err();
+        let err = s.import_preset_file(bad_manifest.to_str().unwrap(), fonts.path()).unwrap_err();
         assert!(err.starts_with("Invalid theme bundle manifest:"), "{err}");
         let _ = fs::remove_file(&bad_manifest);
 
@@ -901,8 +946,10 @@ mod theme_preset_tests {
     #[test]
     fn export_writes_json_for_a_font_free_theme_and_never_overwrites() {
         let name = format!("RamExportProbe{}", nanos());
+        let base = TempDir::new("export-json-base");
+        let fonts = TempDir::new("export-json-fonts");
 
-        let first = ThemePresetStore::export_preset_file(&name, themed("#0A0B0C"))
+        let first = ThemePresetStore::export_preset_file(&name, themed("#0A0B0C"), base.path(), fonts.path())
             .expect("first export");
         assert!(first.ends_with(".ram-theme.json"), "{first}");
 
@@ -914,7 +961,7 @@ mod theme_preset_tests {
 
         // A second export of the same name gets a timestamped file instead of
         // clobbering the first one.
-        let second = ThemePresetStore::export_preset_file(&name, ThemeData::default())
+        let second = ThemePresetStore::export_preset_file(&name, ThemeData::default(), base.path(), fonts.path())
             .expect("second export");
         assert_ne!(second, first);
         assert!(fs::metadata(&first).is_ok(), "the first export must survive");
@@ -926,8 +973,15 @@ mod theme_preset_tests {
     #[test]
     fn export_writes_a_zip_bundle_when_the_theme_references_local_fonts() {
         let name = format!("RamExportBundle{}", nanos());
-        let path = ThemePresetStore::export_preset_file(&name, local_font_theme("missing.ttf"))
-            .expect("export");
+        let base = TempDir::new("export-zip-base");
+        let fonts = TempDir::new("export-zip-fonts");
+        let path = ThemePresetStore::export_preset_file(
+            &name,
+            local_font_theme("missing.ttf"),
+            base.path(),
+            fonts.path(),
+        )
+        .expect("export");
         assert!(path.ends_with(".ram-theme.zip"), "{path}");
 
         let mut archive = ZipArchive::new(fs::File::open(&path).unwrap()).unwrap();
@@ -953,7 +1007,9 @@ mod theme_preset_tests {
     fn exported_names_are_sanitized_into_the_file_name() {
         let unique = nanos();
         let name = format!("Ram/Export:Probe {unique}");
-        let path = ThemePresetStore::export_preset_file(&name, ThemeData::default())
+        let base = TempDir::new("export-sanitize-base");
+        let fonts = TempDir::new("export-sanitize-fonts");
+        let path = ThemePresetStore::export_preset_file(&name, ThemeData::default(), base.path(), fonts.path())
             .expect("export");
         let file_name = Path::new(&path)
             .file_name()
