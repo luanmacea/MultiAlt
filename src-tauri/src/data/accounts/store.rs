@@ -274,26 +274,49 @@ impl AccountStore {
             return "Password required for encrypted file".to_string();
         }
 
+        // O dono lê isto na **tela de senha**, que só tem senha e Continue:
+        // Settings não abre com as contas trancadas, e mandar "restaurar pelo
+        // Settings" era mandar abrir uma tela que não abre. O caminho real é à
+        // mão, e a ordem importa: com o app aberto nada é relido, e pôr os
+        // arquivos do backup por cima sem tirar os de agora do lugar perde o
+        // vault que talvez ainda abra no aparelho que o criou.
+        let data_dir = self
+            .file_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        let backups_dir = data_dir.join(crate::BACKUPS_DIR_NAME);
+
         // Só citar o `.json.bak` quando ele **existe**: numa instalação que nasceu
         // cifrada esse arquivo nunca existiu, e mandar restaurá-lo é mandar a
         // pessoa caçar um arquivo inexistente exatamente no momento de pânico.
         let plain_backup = self.file_path.with_extension("json.bak");
-        let where_to_look = if plain_backup.exists() {
+        let put_back = if plain_backup.exists() {
             format!(
-                "Restore the copy at {}, or a backup from Settings > Misc > Data",
-                plain_backup.display()
+                "Put back either the copy at {} renamed to AccountData.json (plain text from before \
+                 encryption: accounts added since then are not in it), or AccountData.json and \
+                 AccountData.key from a backup zip in {}",
+                plain_backup.display(),
+                backups_dir.display()
             )
         } else {
-            "Restore a backup from Settings > Misc > Data (it contains both the account file and its key)"
-                .to_string()
+            format!(
+                "Put back AccountData.json and AccountData.key from a backup zip in {}",
+                backups_dir.display()
+            )
         };
 
         format!(
             "The account vault is encrypted with this device's key and that key could not be recovered ({}). \
-             Nothing was deleted or overwritten. {}, on the machine that created it — or start over by moving \
-             both files aside.",
+             Nothing was deleted or overwritten. Settings does not open while the accounts are locked, so \
+             restore by hand, in this order: 1. Close the app. 2. Move AccountData.json and AccountData.key \
+             out of {} and keep them. 3. {}. 4. Open the app again. A backup only opens on the PC and Windows \
+             user that made it. Instead of step 3, you can also open the app with both files moved out, \
+             restore a backup in Settings > Misc > Backups and restart the app. To start over with no \
+             accounts, just open the app after step 2.",
             key_path.display(),
-            where_to_look
+            data_dir.display(),
+            put_back
         )
     }
 
