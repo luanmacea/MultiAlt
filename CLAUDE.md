@@ -8,7 +8,7 @@ Roblox Account Manager 4 é um gerenciador desktop de múltiplas contas Roblox �
 
 **Decisões de arquitetura relevantes:**
 - Divisão clara IPC: frontend (React) só fala com o backend via comandos Tauri (`src-tauri/src/commands/*`), nunca acessa arquivos ou rede diretamente.
-- Estado de contas/settings no backend usa stores com `Mutex<_>` gerenciados pelo Tauri (`tauri::State`), persistidos em arquivo (contas encriptadas com sodiumoxide quando há senha — sem senha o `AccountData.json` é JSON puro, settings em INI, scripts/versões em JSON).
+- Estado de contas/settings no backend usa stores com `Mutex<_>` gerenciados pelo Tauri (`tauri::State`), persistidos em arquivo (o `AccountData.json` é **sempre** encriptado com sodiumoxide: com a senha do usuário, ou com a chave do aparelho do `AccountData.key` ao lado — ver `docs/features/accounts.md`; settings em INI, scripts/versões em JSON).
 - Existe um servidor HTTP local opcional (feature `webserver`, baseado em axum) e um servidor WebSocket (feature `nexus`) para integração com scripts Lua externos (Nexus.lua) — ambos atrás de feature flags no Cargo, não sempre compilados.
 - Lógica específica de OS isolada em `platform/windows/` e `platform/macos/` para manter o resto do backend portável.
 - "Isolamento pré-launch" (cache wipe, limpeza de registro, MAC rotation) existe deliberadamente para permitir múltiplas contas rodando sem colisão de sessão/cache do Roblox — é tratado como feature central, não hack pontual.

@@ -11,7 +11,8 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | Modelo `Account` (serde, compatível com RAM v3) | [data/accounts/model.rs](../../src-tauri/src/data/accounts/model.rs) |
 | `AccountStore` (load/save/criptografia/import) | [data/accounts/store.rs](../../src-tauri/src/data/accounts/store.rs) |
 | Comandos de CRUD e senha | [data/accounts/commands.rs](../../src-tauri/src/data/accounts/commands.rs) |
-| Criptografia (sodiumoxide + DPAPI legado) | [data/crypto.rs](../../src-tauri/src/data/crypto.rs) |
+| Criptografia (sodiumoxide, DPAPI, hash do aparelho) | [data/crypto.rs](../../src-tauri/src/data/crypto.rs) |
+| Chave mestra do vault (`AccountData.key`) | [data/vault_key.rs](../../src-tauri/src/data/vault_key.rs) |
 | Comandos de API por conta | [commands/account_api.rs](../../src-tauri/src/commands/account_api.rs), [commands/account_helpers.rs](../../src-tauri/src/commands/account_helpers.rs) |
 | Grupo `moderadas` | [commands/launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) (`MODERATED_GROUP`, `is_moderated_error`, `mark_account_moderated`) |
 | Login por navegador / user:pass | [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) |
@@ -56,10 +57,25 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 
 ### Carregamento / desbloqueio
 
-1. No startup ([lib.rs](../../src-tauri/src/lib.rs)) o backend verifica `needs_password()`: `true` se o arquivo começa com um header RAM (criptografado) e ainda não há hash de senha em memória. Nesse caso as contas não são carregadas.
-2. O frontend chama `needs_password`; se `true`, [App.tsx](../../src/App.tsx) mostra `PasswordScreen`.
+1. No startup ([lib.rs](../../src-tauri/src/lib.rs)) o backend chama **`load()`**, que é a única porta de entrada. Ele decide sozinho, na ordem:
+   - arquivo **ausente ou de 0 byte** → cria a chave do aparelho (`.key`) e para aí. Isso existe para o **primeiro `add` já gravar cifrado**; antes, um vault novo nascia em texto puro e a migração nunca acontecia;
+   - arquivo **cifrado** → `load_encrypted`: usa o segredo que já estiver em memória; se não houver, só tenta a chave do aparelho **quando o `.key` existe**. Sem `.key`, é vault de senha e ele para com erro (não vale gastar um Argon2 por candidato de aparelho a cada boot para descobrir isso);
+   - arquivo em **texto puro** (ou DPAPI legado do RAM v3) → lê e **migra** (ver abaixo).
+2. Depois disso, `needs_password()` é só "está cifrado e nada em memória abre". O frontend chama o comando `needs_password`; se `true`, [App.tsx](../../src/App.tsx) mostra `PasswordScreen`.
 3. O usuário digita a senha → `unlock_accounts(password)` → `load_with_password`: calcula `sha512(senha.trim())`, descriptografa, parseia e **guarda em memória o hash e a chave já derivada** (`SessionKey`), reutilizados por todos os saves da sessão.
-4. Se o arquivo não for criptografado, `load()` tenta JSON puro e, se falhar, DPAPI legado (Windows).
+4. Falha de criptografia **nunca** impede o app de abrir: `lib.rs` só registra o aviso. É na tela do programa que o usuário lê o que aconteceu.
+
+### Migração de `AccountData.json` em texto puro
+
+Acontece na primeira abertura depois da mudança, em `migrate_plain_vault`, **nesta ordem** — ela é o único momento em que o usuário pode perder contas:
+
+1. **`AccountData.json.bak`**, cópia byte a byte do arquivo de antes. Falha aqui **aborta a migração**: sem rede de segurança não se troca o formato do arquivo de contas.
+2. **`AccountData.key`**, a chave, gravada antes do arquivo que ela cifra (na ordem contrária uma falha deixaria um vault que ninguém abre).
+3. Regravação cifrada, atômica (`.json.tmp` + `atomic_replace`).
+
+Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro e inteiro**; a abertura seguinte recomeça daqui e reencontra a mesma chave (`ensure_device_session` é idempotente). Dentro de 3 não existe estado intermediário: o arquivo é o de antes ou o de depois.
+
+⚠️ O `.json.bak` é o arquivo **em texto puro**, com os cookies legíveis. É de propósito — perder o arquivo é pior que ficar sem criptografia — mas quem já confirmou que as contas abrem deve apagá-lo.
 
 ### Onboarding / troca de método de criptografia
 
@@ -67,8 +83,11 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 2. Também acessível por Settings → Misc → "Change Encryption Method".
 3. Opções:
    - **Pass Lock**: senha com pelo menos 8 caracteres (validado na UI e no backend) → `set_encryption_password(password)`.
-   - **No Password (Not Encrypted)**: `set_encryption_password(null)` — a UI chama assim desde que o rótulo antigo ("Default Encryption") escondia que o arquivo fica em texto puro.
-4. `set_password` troca o hash em memória e re-grava o arquivo imediatamente no novo formato. Se o store está **bloqueado** (nenhum hash em memória) e o arquivo é criptografado → erro "Accounts are locked; unlock them before changing the password." (re-cifrar um arquivo nunca decifrado gravaria uma lista vazia por cima). `set_password(None)` a partir de um store **desbloqueado** é permitido e grava o arquivo em texto puro (remove a criptografia de propósito).
+   - **No Password (Device Key)**: `set_encryption_password(null)` — o arquivo **continua cifrado**, pela chave do aparelho. O rótulo já foi "Default Encryption" (escondia que era texto puro) e depois "No Password (Not Encrypted)" (verdade na época, mentira agora).
+4. `set_password` **não faz cópia**, e isso é decisão. A cópia que existia (`.json.rekey.bak`) era cifrada pela chave do aparelho e o `.key` era apagado em seguida: um arquivo que nunca mais abria, que ninguém limpava e que nada avisava. O que protege esta operação não é uma cópia, é (a) a gravação atômica, que deixa o arquivo antigo intacto em qualquer falha, e (b) a ordem "chave antes do arquivo que ela cifra". Sobra de versão anterior do app é **removida**, para ninguém confiar nela. A cópia em texto puro da migração (`.json.bak`) continua sendo a rede de verdade e não é tocada aqui. Depois troca o segredo em memória e re-grava o arquivo no novo formato.
+   - O latch de gravação é checado na **entrada** de `set_password`: com a gravação trancada (restauração de backup) ele não pode nem começar, senão "somente leitura" não seria literal — ele mexeria em arquivo antes de descobrir que não podia gravar. Se o store está **bloqueado** (nada em memória) e o arquivo é criptografado → erro "Accounts are locked; unlock them before changing the password." (re-cifrar um arquivo nunca decifrado gravaria uma lista vazia por cima). As duas ordens importam:
+   - **definindo senha**: grava o vault com a senha e **só depois** apaga o `.key`. Na ordem contrária, uma falha na gravação deixaria um vault cifrado pela chave do aparelho sem a chave para abri-lo;
+   - **tirando a senha**: monta a chave do aparelho (gravando o `.key`) **antes** de trocar a sessão. Erro aí deixa arquivo e sessão exatamente como estavam, ainda cifrados pela senha que o usuário tem.
 5. O frontend grava `General.EncryptionOnboardingState = completed` e `General.EncryptionMethod = password|default`.
 
 ### Adicionar contas
@@ -80,7 +99,7 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 | Username (Quick Add sem cookie) | `lookup_user(username)` → `add_account` com `securityToken: ""` (conta sem sessão) |
 | Login no navegador | `open_login_browser` abre Chromium via CDP; ao detectar o cookie emite `browser-login-detected`; a store chama `extract_browser_cookie` (até 8 tentativas, 350 ms) → `addAccountByCookie` → `close_login_browser`. |
 | user:pass em lote | uma linha `usuario:senha` por vez → `import_userpass`: abre o login, preenche `#login-username`, espera até ~240 s (480 × 500 ms) pelo cookie, valida e salva com `Password` preenchida. |
-| Arquivo antigo (`AccountData.json` de RAM v3/v4) | `import_old_account_data(fileData, password?)`; se o arquivo for criptografado e sem senha → erro `IMPORT_PASSWORD_REQUIRED` e a UI pede a senha. |
+| Arquivo antigo (`AccountData.json` de RAM v3/v4) | `import_old_account_data(fileData, password?)`. Sem senha informada, tenta os **segredos que este app tem** (a sessão atual e a chave mestra do `.key`) — é o caso "exportei e reimportei nesta máquina", que não tem senha nenhuma para pedir. Só depois disso devolve `IMPORT_PASSWORD_REQUIRED` e a UI pede a senha. Vault de **outra** instalação não abre, e o erro é o mesmo (nunca um import silencioso de zero contas). |
 
 ### Remover, editar, reordenar, agrupar
 
@@ -98,7 +117,8 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 - **Ordem de lock:** `accounts` → `session`, sempre. `set_password` solta o guard de `session` antes de pegar o de `accounts` justamente para não inverter essa ordem.
 - **Argon2 só no unlock:** a chave de gravação (`SessionKey`) é derivada uma única vez por unlock/`set_password` e reutilizada. O salt de 16 bytes passa a ser sorteado por sessão em vez de por gravação; o **nonce** continua sorteado a cada gravação, e o layout do arquivo é o mesmo de antes. Antes, cada `save()` rodava um Argon2i MODERATE (256 MiB) segurando o lock na thread principal — mover N contas de grupo congelava a UI N vezes.
 - **Save recusado após load com falha:** se o arquivo existe mas não pôde ser decodificado, o store marca `load_failed` e todo `save()` retorna erro ("Account file could not be loaded; refusing to overwrite it…") até um load bem-sucedido — uma lista vazia em memória nunca sobrescreve as contas do usuário.
-- **Sem texto puro por cima de arquivo criptografado:** com o store bloqueado (sem hash) e o arquivo criptografado, `save()` recusa ("Accounts are locked; unlock them before making changes."). A única exceção é `set_password(None)` a partir de um store desbloqueado.
+- **Sem texto puro por cima de arquivo criptografado:** com o store bloqueado (sem segredo em memória) e o arquivo criptografado, `save()` recusa ("Accounts are locked; unlock them before making changes."). Não há exceção — `set_password(None)` também passa a cifrar, com a chave do aparelho.
+- **Gravação em texto puro só existe num caminho degradado:** store sem segredo **e** arquivo que não está cifrado. É onde cai quem não conseguiu criar o `.key` (disco cheio, antivírus). É uma proteção a menos, de propósito: travar a gravação deixaria o usuário sem poder cadastrar conta, e isso é pior que gravar como antes desta mudança.
 - **Linha de import (`parseImportLine`, [utils/cookies.ts](../../src/utils/cookies.ts))** — um só parser para as duas abas de import e para o drag & drop de texto:
   - o `.ROBLOSECURITY` **tem `:` dentro dele** (`_|WARNING:-DO-NOT-SHARE...`), então o corte **nunca** é `split(":")`: acha-se onde o cookie começa (`COOKIE_PATTERN`, ou o marcador `_|WARNING` quando o aviso vem torto), o que está antes é o prefixo, e dele tira-se **só** o delimitador (`\s*:\s*$`). Um `[\s:;,]+$` comeria a pontuação final de uma senha legítima;
   - a senha pode conter `:` — só o **primeiro** `:` do prefixo separa usuário de senha;
@@ -150,6 +170,82 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 | Quando o salt e a chave são sorteados/derivados | Uma vez por unlock ou `set_password` (`SessionKey` em [accounts/store.rs](../../src-tauri/src/data/accounts/store.rs)); o **nonce** continua novo a cada gravação |
 | Headers aceitos | `RAM_HEADER` (ic3w0lf22) e `TRANSITION_RAM_HEADER` (niccdevs); gravação sempre com `RAM_HEADER` |
 | Legado | Windows: `CryptUnprotectData` (DPAPI) com entropia fixa, só para **leitura** |
+| DPAPI | Um ponto só (`crypto::dpapi_protect` / `dpapi_unprotect`, escopo do usuário, `CRYPTPROTECT_UI_FORBIDDEN`), com a entropia vinda do chamador. Usado pela chave do vault e pelo "lembrar de mim" — dois blocos `unsafe` iguais eram duas chances de errar um ponteiro |
+
+### A chave do aparelho (`AccountData.key`)
+
+O vault é **sempre cifrado**, mesmo sem senha. Sem senha, quem cifra é uma **chave mestra aleatória de 32 bytes** guardada em `AccountData.key`, ao lado do vault ([data/vault_key.rs](../../src-tauri/src/data/vault_key.rs)). Ela fica embrulhada **duas vezes no mesmo arquivo**, e **qualquer um dos dois abre**:
+
+| Embrulho | O que é | Onde vale |
+|---|---|---|
+| `dpapi` | `CryptProtectData`, escopo do usuário do Windows, entropia `RAM4 vault master key v1` | Windows. É a proteção de verdade |
+| `device` | `crypto::encrypt` com um hash derivado do aparelho (`<identificador>\|<usuário>\|ram-device-v1`) | Todos os sistemas. É o seguro contra "o DPAPI parou de abrir" |
+
+Ter só um seria o app trancar o usuário fora das contas na primeira vez que aquele um falhasse.
+
+**Todo open bem-sucedido regrava o `.key`** (`recover_and_refresh_master_key`), incondicionalmente. Não é otimização, é a correção de um jeito de perder as contas em silêncio: se o usuário renomeia o PC, o blob `device` fica preso ao nome antigo e **morre sem ninguém notar**, porque o DPAPI continua abrindo. Meses depois o perfil é recriado — exatamente o caso para o qual o segundo embrulho existe — e não sobra caminho nenhum. Conferir sem regravar custaria o mesmo Argon2 que regravar, então não há motivo para só conferir. Falha na regravação não é fatal: a chave em memória continua boa e o `.key` de antes continua no disco.
+
+Pela mesma razão a `SessionKey` **guarda a chave mestra**, não só o hash derivado: se o `.key` desaparecer **ou ficar ilegível** com o app rodando (antivírus, limpeza de disco, queda de energia no meio da regravação), `save_locked` o recria. Sem isso o app seguiria gravando o dia todo um vault que ninguém mais abre, e cada backup automático criado depois levaria o vault **sem** a chave dele — até a poda apagar os backups bons.
+
+A condição é **"o `.key` guarda a chave desta sessão"** (`key_file_holds_master`). Foram três níveis, e cada um existiu por um defeito real: "não existe" deixava passar o arquivo truncado; "não abre" deixava passar o `.key` que abre para **outra** chave — pasta de dados em OneDrive/Dropbox, em que o `.key` volta a uma versão anterior e o vault fica novo, e o boot seguinte pede uma senha que nunca existiu; só "abre e é a minha" fecha os dois. É a mesma comparação que `resolve_dpapi_blob` faz.
+
+**O tom do aviso foi medido, não deduzido.** A primeira versão classificava transitório-vs-permanente por `ErrorKind` e saía **invertida nos dois casos que importavam** (Windows, `rustc 1.96`): antivírus com handle exclusivo chega como `raw_os_error 32` / `Uncategorized` e levava o alarme vermelho, enquanto diretório no lugar do arquivo e ACL negada chegam como `5` / `PermissionDenied` e levavam "tento de novo na próxima alteração" **para sempre**. Os códigos 32 (`ERROR_SHARING_VIOLATION`) e 33 (`ERROR_LOCK_VIOLATION`) não têm `ErrorKind` estável, então só o `raw_os_error` os identifica; e `PermissionDenied` aparece nos dois lados, ou seja, é ambíguo. **Ambíguo conta como permanente**: sub-avisar é o que custa contas, e um vermelho falso se limpa na gravação seguinte. Um `.key` truncado existe e passava batido — e essa janela deixou de ser "uma vez na vida do arquivo" para ser "a cada boot" justamente por causa da regravação acima. No caminho saudável a checagem custa uma chamada de DPAPI (sem Argon2); só o caminho quebrado paga caro, e paga uma vez. As gravações do vault e do `.key` são **write → fsync → rename**: sem o fsync o rename pode publicar um arquivo cujo conteúdo ainda está em cache, e uma queda de energia entre os dois deixaria um arquivo que existe e está vazio.
+
+**Falha com o `.key` vira faixa na tela, não `eprintln!`.** Numa build GUI o stderr não vai a lugar nenhum, e este é o defeito que passa o dia inteiro invisível (a chave está em memória, tudo funciona) para virar lockout no boot seguinte — quando não há senha para digitar, porque nunca houve senha.
+
+| Parte | Onde |
+|---|---|
+| Estado no backend | `AccountStore::vault_key_warning` → `VaultKeyWarning { code, path, detail }` |
+| Comando | `vault_key_warning` ([accounts/commands.rs](../../src-tauri/src/data/accounts/commands.rs)) |
+| Estado no frontend | `store.vaultKeyWarning`, atualizado **no boot** e a cada `loadAccounts` |
+| Tela | [VaultKeyBanner.tsx](../../src/components/layout/VaultKeyBanner.tsx), faixa fixa ao lado da do update |
+
+Três detalhes que são correção de bug, não estilo:
+
+- **A consulta acontece no boot.** O efeito de inicialização do `store.tsx` não passa por `loadAccounts` (chama `get_accounts` direto), e o backend descobre o problema no `load()` do startup. Sem a chamada explícita ali, o aviso só apareceria depois de uma mutação — e quem usa a chave do aparelho, o único afetado, pode passar a sessão inteira sem fazer nenhuma e sem nunca destrancar por senha.
+- **`null` limpa.** A primeira versão usava `setActionStatusMessage`, que é substituível (qualquer "Launching…" apagava o aviso) e nunca era limpa quando o problema sumia — errava nos dois sentidos.
+- **O texto vem do `code`, não do backend.** A frase mora no catálogo de i18n e passa por `t()` (Global Constraint 8); o backend manda código + caminho. `writeFailedTransient` tem tom **brando** de propósito: é quase sempre antivírus segurando o arquivo por um instante, e alarme falso treina o usuário a ignorar alarme — o que desarmaria justamente esta rede.
+
+Os cinco códigos que a faixa desenha:
+
+| `code` | Tom | Quando |
+|---|---|---|
+| `writeFailed` | vermelho | o `.key` não pôde ser gravado, e a falha **não** parece transitória |
+| `writeFailedTransient` | âmbar | mesma falha, mas com cara de antivírus segurando o handle: o app tenta de novo na gravação seguinte |
+| `weakWrapper` | âmbar | gravou, mas sem o embrulho do DPAPI |
+| `syncUnconfirmed` | âmbar | gravou, mas o disco não confirmou o `fsync` |
+| `migrationFailed` | vermelho | **o `AccountData.json` continua em texto puro** (ver abaixo) |
+
+**`migrationFailed` é o mais consequente**, porque o usuário acha que está criptografado e não está. Se a cópia de segurança ou a regravação da migração falha, o arquivo fica **inteiro e legível**, com o cookie de todas as contas. Antes disto nada aparecia: o `load()` devolvia `Err`, o `lib.rs` fazia `eprintln!` (invisível em build GUI), o `mark_memory_fresh` já tinha limpado o `load_failed` e `needs_password()` era `false` porque o arquivo é texto puro — então o app subia normal e a tela de criptografia dizia "Device Key".
+
+A criação do arquivo no **primeiro boot** e em `set_password(None)` passa pelo mesmo caminho: antes ela descartava o health e, quando falhava, morria num `eprintln!` do `lib.rs`. E `set_password(Some(...))` **limpa** o aviso: dali em diante o `.key` foi apagado e falar dele é falso alarme.
+
+**O slot é único, então tem escopo e gravidade.** Dois avisos falam do `.key` e outros do `AccountData.json`, e sem isso a rede se desligava sozinha: o braço "o `.key` está saudável" limpava o slot inteiro — inclusive o `migrationFailed`, que diz que o vault continua em texto puro — e limpava **antes** de a gravação acontecer. E essa "gravação seguinte" pode ser um ciclo de Auto Rejoin, sem o dono clicar em nada. Agora:
+
+- `clear_key_warning_for(path)` limpa **só** o aviso daquele arquivo, e **nenhum caminho limpa aviso de escopo alheio** — vale para o braço do `save_locked` e para o `refresh_key_file`, que também limpava sem escopo e antes da gravação. A exceção legítima é `set_password(Some(..))`, que limpa o slot inteiro **depois** do `save_locked` cifrado com a senha: ali o `.key` e o vault são resolvidos de uma vez;
+- o aviso do vault só é considerado resolvido **depois** de uma gravação que deu certo **e** foi cifrada (no caminho degradado o arquivo continua legível, e limpar seria mentir);
+- a exceção legítima é `set_password(Some(..))`, que limpa o slot inteiro **depois** do `save_locked` cifrado com a senha: ali `.key` e vault são resolvidos de uma vez;
+- `set_key_warning` **nunca rebaixa** gravidade (`writeFailed`/`migrationFailed` valem mais que os âmbares) e não repete um aviso idêntico — senão o `syncUnconfirmed`, que é do mesmo tipo de volume, encobria o "faça backup agora" no mesmo `save_locked`.
+
+**A faixa acompanha as telas de senha e de criptografia** ([App.tsx](../../src/App.tsx)), não só a tela principal. São exatamente as telas do momento de pânico — e o backend manda o usuário olhar para lá ("See the warning on screen") quando a chave não pôde ser criada. Os `return` antecipados deixavam o aviso atrás delas.
+
+E as duas viraram `flex h-screen flex-col` com a tela em `min-h-0 flex-1 overflow-auto`: como irmãs soltas num fragmento, a faixa somava altura em cima de uma tela de viewport inteiro num `body` com `overflow: hidden`, e o rodapé saía da janela **sem rolagem** — na tela de criptografia o rodapé são os botões Continue/Cancel. Medido no harness a 900x460: antes o Continue ficava 159 px abaixo da janela e inalcançável; depois a página não estoura e o conteúdo rola. A faixa também reserva o canto direito (`pr-28`), onde mora a pílula fixa de minimizar/fechar — sem TitleBar, ela cobria o fim do texto.
+
+Quando o embrulho novo do DPAPI não pode ser produzido, o **anterior é preservado** (`resolve_dpapi_blob`), mas só se ele abrir para a **mesma** chave mestra: preservar o de outra chave faria `load_master_key` devolver a chave errada, o que é pior que ficar sem DPAPI. Sem essa preservação, a regravação incondicional poderia trocar um DPAPI saudável por nada num instante de falha.
+
+**O identificador do aparelho é o nome da máquina, e o `MachineGuid` é só fallback de leitura.** Isso é uma diferença deliberada em relação ao upstream, e o motivo é este projeto: o isolamento pré-launch (`Isolation.SpoofMachineGuid`) **reescreve** `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`. Amarrar a chave a esse valor seria o app trancar o usuário fora das próprias contas na primeira vez que ele usasse um recurso central — foi exatamente o defeito que o upstream precisou consertar duas vezes. A ordem dos candidatos é `COMPUTERNAME` → `MachineGuid` → a constante `ram-device`; **grava-se sempre com o primeiro**, e os outros só são tentados na leitura.
+
+O `.key` acompanha o **vault**, não um caminho fixo (`key_file_path_for` = `with_extension("key")`), então o modo portátil leva os dois juntos. Ele entra em `DATA_FILES`, ou seja, viaja na migração de pasta e **no zip de backup** — um vault cifrado sem a chave dele é um vault perdido. Restaurar o `.key` **exige reiniciar o app** (`restored_vault_key_requires_restart` em [commands/backups.rs](../../src-tauri/src/commands/backups.rs)): o segredo da sessão é o de antes da restauração, e gravar com ele por cima de um `.key` diferente deixaria o vault sem abrir no boot seguinte.
+
+⚠️ **Modo portátil em outra máquina: levar o pen drive não basta.** Os dois embrulhos são presos ao aparelho de origem — o DPAPI ao usuário do Windows, o outro ao nome da máquina + nome do usuário. Então o vault **não abre** na máquina B, mesmo com o `.key` do lado; o app abre normalmente, mostra a tela de senha e não toca em arquivo nenhum. Quem realmente usa o app em mais de um PC deve escolher **Pass Lock**: uma senha viaja na cabeça e abre em qualquer máquina. Isso é o preço direto de "proteger contra arquivo copiado" — a mesma propriedade que barra o ladrão barra a cópia legítima.
+
+#### O que essa proteção vale, e o que não vale
+
+Protege contra: `AccountData.json` **copiado** para outra máquina, e **outro usuário do Windows** no mesmo PC.
+
+**Não** protege **backup vazado**, e isso tem que estar dito com essas palavras: o zip de backup **tem** que levar o `.key` (senão o backup não restaura — ver [backups.md](backups.md)), então quem tem o zip tem a chave, e o que sobra protegendo é o embrulho `device` — `sha512("COMPUTERNAME|USERNAME|ram-device-v1")`, duas strings que quem tem o zip normalmente já sabe (o `USERNAME` aparece em caminhos dentro do próprio `RAMSettings.ini`). Quem guarda backup em nuvem precisa de **senha**. A tela de criptografia diz isso no lugar onde o usuário decide, não só aqui.
+
+**Não** protege contra **malware rodando como o próprio usuário** — esse programa lê o `.key` e chama `CryptUnprotectData` igual ao app. Nada guardado no perfil do usuário resiste a isso. Quem quer proteção contra alguém com acesso ao perfil precisa de **senha**: aí a chave vem da cabeça do usuário e não existe em disco. Isso está escrito no módulo, na tela de criptografia (com essas palavras) e aqui — não vender proteção que não existe.
 
 ### Comandos de API por conta ([account_api.rs](../../src-tauri/src/commands/account_api.rs))
 
@@ -187,8 +283,14 @@ Os que usam o cookie da conta passam por `run_with_session_retry` (ver [authenti
 
 ## Armadilhas / cuidados
 
-- **Sem senha = texto puro, e a UI diz isso.** Sem senha em memória (`session = None`), `save()` escreve o JSON sem criptografia; a única proteção "default" existente é a leitura de arquivos DPAPI legados. A opção se chama **"No Password (Not Encrypted)"** e avisa que cookies e senhas ficam legíveis no PC.
-- Esquecer a senha = perda do arquivo; não há recuperação no código.
+- **"Sem senha" não é mais "sem criptografia".** O `AccountData.json` é sempre cifrado; sem senha, pela chave do aparelho. A opção se chama **"No Password (Device Key)"** e a tela diz o limite real dela: barra um `AccountData.json` copiado e outro usuário no PC — **não** barra programa rodando como você, e **não** barra backup vazado (o zip leva a chave junto, por obrigação). Essa última parte é fácil de errar na doc: se você encontrar "backup vazado" listado como protegido em qualquer lugar, é bug de texto — ver a seção da chave do aparelho acima.
+- **`is_accounts_encrypted` responde "tem senha", não "os bytes estão cifrados".** O comando devolve `has_user_password()`, porque é isso que a tela de criptografia sempre quis dizer e agora os bytes estão cifrados nos dois casos. O sinal é a presença do `.key` (existe com chave do aparelho, é removido quando há senha). `AccountStore::is_encrypted()` continua sendo o fato bruto do arquivo e é usado só pelas guardas de gravação.
+- **Fail-safe nas guardas, não fail-open.** `vault_may_hold_data()` trata "não consegui saber se existe vault cifrado" como **"existe"**. Essa guarda decide se uma chave mestra nova pode ser sorteada por cima da antiga, e `is_encrypted().unwrap_or(false)` fazia o contrário. As duas leituras falham juntas mais do que parece — varredura de antivírus e rehidratação do OneDrive pegam a **pasta inteira** —, então `.key` ilegível e `AccountData.json` ilegível são eventos correlacionados.
+- **Chave irrecuperável não apaga nada.** Se o vault está cifrado e o `.key` não abre (Windows reinstalado, perfil novo, arquivo trocado por antivírus), `load()` devolve erro e **não toca no arquivo**; o latch de `load_failed` recusa toda gravação depois disso. Perder o arquivo é pior que ficar sem criptografia. A mensagem do unlock também muda quando o `.key` existe — pedir a senha de novo não resolveria esse caso. A mensagem só cita o `.json.bak` **quando ele existe**: numa instalação que nasceu cifrada esse arquivo nunca existiu, e mandar restaurá-lo no momento de pânico é mandar caçar um arquivo inexistente.
+- **`.key` que abre mas não é a chave deste vault.** Dois caminhos chegam aí e a mensagem serve aos dois: o `.key` órfão de um `set_password` interrompido (o vault é de senha, basta digitá-la — e o órfão é **removido** quando a senha abre o arquivo), e o vault cifrado por **outra** chave de aparelho (o usuário copiou um `AccountData.json` antigo por cima, ou restaurou um vault sem a chave dele). A mensagem começa com "Password required" mas continua dizendo que, se nunca houve senha, o caminho é restaurar o `AccountData.key` correspondente — pedir senha e parar seria um beco sem saída para quem nunca teve uma.
+- **Duas travas de gravação, por motivos diferentes.** `load_failed` = o **arquivo** em disco não pôde ser lido. `write_block` (`lock_writes_until_restart`) = o arquivo está bom e é a **memória** que está velha; é o caso da restauração de backup. Sem a segunda, restaurar um backup e lançar uma conta (`mark_used` → `save`) sobrescrevia o vault restaurado com o segredo da sessão anterior — lockout no boot seguinte. Só reiniciar o app limpa as duas, e `allow_writes_after_reload` é o **único** ponto que solta a segunda (ver [backups.md](backups.md)).
+- Esquecer a senha = perda do arquivo; não há recuperação no código. Perder o `.key` **junto com** o vault cifrado por ele, idem.
+- Nenhum log, mensagem de erro ou payload carrega cookie, senha ou chave: o `.key` guarda só os dois embrulhos, e `own_secret_hashes` circula hashes derivados, nunca a chave mestra.
 - A senha é `trim()`-ada em todos os caminhos que a consomem: `load_with_password`, `set_password` e `decode_accounts_for_import`.
 - Não altere `RAM_HEADER`, parâmetros do Argon2 ou o layout sem migração: quebra a leitura de todos os arquivos existentes.
 - `update_account` substitui o objeto inteiro (menos `SecurityToken`/`Password`, que vêm do store) — sempre envie a conta completa (o frontend faz `{ ...account, Campo: valor }`). Para trocar o cookie use `add_account` (mesmo `UserID`) ou os fluxos de refresh; `update_account` ignora cookie/senha enviados.

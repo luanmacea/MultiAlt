@@ -17,21 +17,138 @@
 /// cada gravação. Reaproveitar a chave sem duplicar a montagem aqui exigiria um
 /// `encrypt_with_key` em `data/crypto.rs`; enquanto aquele arquivo não puder ser
 /// tocado, a montagem fica neste módulo.
+/// Problema com o `AccountData.key` que a UI precisa mostrar.
+///
+/// **Estruturado de propósito.** A frase que o usuário lê tem que passar por
+/// `t()` e pelo `i18n:extract` (Global Constraint 8), então o backend manda o
+/// *código* e o *caminho*, e o catálogo tem a frase de cada código. Uma string em
+/// inglês montada aqui nunca seria traduzida.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultKeyWarning {
+    /// `writeFailed` | `writeFailedTransient` | `weakWrapper`.
+    pub code: String,
+    pub path: String,
+    /// Detalhe técnico do SO, para o usuário poder reportar. Nunca tem segredo.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+impl VaultKeyWarning {
+    fn write_failed(path: &std::path::Path, detail: &str, transient: bool) -> Self {
+        Self {
+            code: if transient {
+                "writeFailedTransient".to_string()
+            } else {
+                "writeFailed".to_string()
+            },
+            path: path.display().to_string(),
+            detail: Some(detail.to_string()),
+        }
+    }
+
+    fn weak_wrapper(path: &std::path::Path) -> Self {
+        Self {
+            code: "weakWrapper".to_string(),
+            path: path.display().to_string(),
+            detail: None,
+        }
+    }
+
+    /// A migração para o formato cifrado falhou **fora** do arquivo de chave (a
+    /// cópia de segurança ou a regravação do vault). O arquivo continua em texto
+    /// puro, com o cookie de todas as contas legível, e antes disto **nada**
+    /// aparecia: o `load()` devolvia `Err`, o `lib.rs` fazia `eprintln!`, o
+    /// `needs_password()` era `false` e a tela dizia "Device Key". O app subia
+    /// normal mentindo sobre o estado do arquivo.
+    fn migration_failed(path: &std::path::Path, detail: &str) -> Self {
+        Self {
+            code: "migrationFailed".to_string(),
+            path: path.display().to_string(),
+            detail: Some(detail.to_string()),
+        }
+    }
+
+    /// Gravou, mas sem confirmação do `fsync`.
+    fn sync_unconfirmed(path: &std::path::Path) -> Self {
+        Self {
+            code: "syncUnconfirmed".to_string(),
+            path: path.display().to_string(),
+            detail: None,
+        }
+    }
+
+    /// Peso do aviso. O slot é único, então sem isto um aviso brando **rebaixava**
+    /// um grave por chegar depois — `writeFailed` ("faça backup agora") virava
+    /// `syncUnconfirmed` ("pode perder a última alteração") no mesmo `save_locked`,
+    /// e os dois co-ocorrem justamente no mesmo tipo de volume. Sub-avisar é o que
+    /// custa contas.
+    ///
+    /// Cada aviso grave tem um caminho de limpeza pelo **escopo** dele
+    /// (`clear_key_warning_for`), então nunca-rebaixar não deixa nada preso.
+    fn severity(&self) -> u8 {
+        match self.code.as_str() {
+            "writeFailed" | "migrationFailed" => 2,
+            _ => 1,
+        }
+    }
+}
+
+/// De onde veio o segredo que cifra o vault nesta sessão.
+///
+/// Importa porque as duas fontes têm regras diferentes: a senha do usuário é
+/// pedida na tela de senha e o `.key` não existe; a chave do aparelho abre o
+/// vault sozinha e vive naquele arquivo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VaultSecret {
+    /// Senha digitada pelo usuário (Pass Lock).
+    UserPassword,
+    /// Chave mestra do arquivo `.key` ao lado do vault.
+    DeviceKey,
+}
+
 struct SessionKey {
     /// SHA-512 da senha. Barato, e ainda necessário para decriptar arquivos
     /// gravados com outros salts (o próprio arquivo lido no unlock, por ex.).
     password_hash: Vec<u8>,
     salt: sodiumoxide::crypto::pwhash::argon2i13::Salt,
     key: sodiumoxide::crypto::secretbox::Key,
+    secret: VaultSecret,
+    /// A chave mestra de 32 bytes, só quando o segredo é a chave do aparelho.
+    ///
+    /// Guardar isto é o que permite **recriar o `.key`** se ele desaparecer com o
+    /// app rodando; com só o hash derivado, nada no processo poderia reconstruir o
+    /// arquivo. Nunca sai daqui: não há `Debug`, não é serializado e nenhuma
+    /// mensagem de erro a inclui.
+    master: Option<Vec<u8>>,
 }
 
 impl SessionKey {
     /// Espera a senha já normalizada (com trim) pelo chamador, do mesmo jeito
     /// que `crypto::hash_password`.
     fn derive(password: &str) -> Result<Self, String> {
+        Self::from_hash(
+            crypto::hash_password(password),
+            VaultSecret::UserPassword,
+            None,
+        )
+    }
+
+    /// A sessão da chave do aparelho, que carrega a chave mestra junto.
+    fn from_master_key(master: Vec<u8>) -> Result<Self, String> {
+        let hash = crate::data::vault_key::master_password_hash(&master);
+        Self::from_hash(hash, VaultSecret::DeviceKey, Some(master))
+    }
+
+    /// Mesma montagem, mas a partir de um hash já pronto — é assim que a chave
+    /// mestra do aparelho entra, já que ela não é uma senha digitada.
+    fn from_hash(
+        password_hash: Vec<u8>,
+        secret: VaultSecret,
+        master: Option<Vec<u8>>,
+    ) -> Result<Self, String> {
         use sodiumoxide::crypto::pwhash::argon2i13;
 
-        let password_hash = crypto::hash_password(password);
         let salt = argon2i13::gen_salt();
         let key = crypto::derive_key(&password_hash, salt.as_ref())
             .map_err(|e| format!("Failed to derive key: {}", e))?;
@@ -39,6 +156,8 @@ impl SessionKey {
             password_hash,
             salt,
             key,
+            secret,
+            master,
         })
     }
 
@@ -64,7 +183,8 @@ impl SessionKey {
 
 pub struct AccountStore {
     accounts: Mutex<Vec<Account>>,
-    /// `None` = sem senha (arquivo em texto puro) ou ainda trancado.
+    /// `None` = o vault ainda não foi aberto (trancado, ou nem tentado).
+    /// `Some` = há segredo em memória, de senha ou da chave do aparelho.
     /// Ordem de lock em todo o arquivo: `accounts` → `session`.
     session: Mutex<Option<SessionKey>>,
     file_path: PathBuf,
@@ -72,6 +192,16 @@ pub struct AccountStore {
     /// `save()` refuses to write so an empty in-memory list never overwrites
     /// the user's accounts.
     load_failed: std::sync::atomic::AtomicBool,
+    /// Motivo para recusar gravação até o app reiniciar, quando o **arquivo**
+    /// está bom e é a memória que está velha (ver `lock_writes_until_restart`).
+    write_block: Mutex<Option<String>>,
+    /// Problema com o **arquivo de chave** que a UI precisa mostrar.
+    ///
+    /// `eprintln!` numa build GUI não vai a lugar nenhum, e o `.key` ruim é
+    /// justamente o defeito que passa o dia inteiro invisível (o master está em
+    /// memória) para virar lockout no boot seguinte. Isto existe para o usuário
+    /// saber **no dia em que o arquivo fica ruim**.
+    key_warning: Mutex<Option<VaultKeyWarning>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,9 +222,325 @@ impl AccountStore {
             session: Mutex::new(None),
             file_path,
             load_failed: std::sync::atomic::AtomicBool::new(false),
+            write_block: Mutex::new(None),
+            key_warning: Mutex::new(None),
         }
     }
 
+    /// Onde fica a chave mestra deste vault. Segue o **arquivo**, não um caminho
+    /// fixo, então o modo portátil leva os dois juntos.
+    fn key_file_path(&self) -> PathBuf {
+        crate::data::vault_key::key_file_path_for(&self.file_path)
+    }
+
+    /// Cópia do vault em `AccountData.json.bak`, **antes** da migração.
+    ///
+    /// Erro aqui **aborta** a migração: sem rede de segurança não se troca o
+    /// formato do arquivo que guarda as contas do usuário. Esta é a única cópia em
+    /// **texto puro** que o app faz, ou seja, a única que abre sem chave nenhuma —
+    /// e por isso a única que vale como rede. `set_password` não faz cópia (ver lá
+    /// o porquê), então não existe mais um sufixo para escolher.
+    fn backup_vault_file(&self) -> Result<(), String> {
+        if !self.file_path.exists() {
+            return Ok(());
+        }
+        let backup = self.file_path.with_extension("json.bak");
+        fs::copy(&self.file_path, &backup).map_err(|e| {
+            format!(
+                "Failed to back up the account file to {}: {}",
+                backup.display(),
+                e
+            )
+        })?;
+        Ok(())
+    }
+
+    /// Mensagem para o caso em que o vault existe, está cifrado e **nada** abre.
+    ///
+    /// A presença do `.key` separa os dois motivos, e eles pedem respostas
+    /// diferentes do usuário: sem `.key` é vault de senha (digite a senha); com
+    /// `.key` que não abre, a chave deste aparelho se perdeu (Windows
+    /// reinstalado, perfil novo, arquivo trocado por antivírus) e o caminho é a
+    /// cópia em `.json.bak` ou um backup do app.
+    fn locked_vault_message(&self) -> String {
+        let key_path = self.key_file_path();
+        if !key_path.exists() {
+            return "Password required for encrypted file".to_string();
+        }
+
+        // Só citar o `.json.bak` quando ele **existe**: numa instalação que nasceu
+        // cifrada esse arquivo nunca existiu, e mandar restaurá-lo é mandar a
+        // pessoa caçar um arquivo inexistente exatamente no momento de pânico.
+        let plain_backup = self.file_path.with_extension("json.bak");
+        let where_to_look = if plain_backup.exists() {
+            format!(
+                "Restore the copy at {}, or a backup from Settings > Misc > Data",
+                plain_backup.display()
+            )
+        } else {
+            "Restore a backup from Settings > Misc > Data (it contains both the account file and its key)"
+                .to_string()
+        };
+
+        format!(
+            "The account vault is encrypted with this device's key and that key could not be recovered ({}). \
+             Nothing was deleted or overwritten. {}, on the machine that created it — or start over by moving \
+             both files aside.",
+            key_path.display(),
+            where_to_look
+        )
+    }
+
+    /// Abre o `.key` e **regrava os dois embrulhos** com os identificadores de
+    /// agora. É o único ponto que recupera a chave mestra.
+    ///
+    /// A regravação é **incondicional**, e isso é o ponto: o embrulho que não foi
+    /// usado para abrir pode estar morto sem ninguém notar. O caso que custa as
+    /// contas é o silencioso — o usuário renomeia o PC, o blob do aparelho fica
+    /// preso ao nome antigo, **o DPAPI continua abrindo e nada parece errado**; um
+    /// perfil recriado meses depois (justamente o caso para o qual o segundo
+    /// embrulho existe) não encontra caminho nenhum. Conferir sem regravar
+    /// custaria o mesmo argon2 que regravar, então não há motivo para só conferir.
+    ///
+    /// Falha na regravação **não** é fatal: a chave em memória continua boa e o
+    /// `.key` de antes continua no disco.
+    fn recover_and_refresh_master_key(&self) -> Option<Vec<u8>> {
+        let key_path = self.key_file_path();
+        let recovered = crate::data::vault_key::load_master_key(&key_path)?;
+        self.refresh_key_file(&recovered.master);
+        Some(recovered.master)
+    }
+
+    /// Regrava o `.key` com os embrulhos de agora e **registra o que deu errado**
+    /// onde a UI consiga ler. Devolve `true` quando o arquivo ficou bom.
+    fn refresh_key_file(&self, master: &[u8]) -> bool {
+        let key_path = self.key_file_path();
+        match crate::data::vault_key::store_master_key(
+            &key_path,
+            master,
+            &crypto::primary_device_hash(),
+        ) {
+            Ok(health) => {
+                if cfg!(target_os = "windows") && !health.dpapi_present {
+                    // O `.key` ficou só com o embrulho fraco. Não é perda, mas é
+                    // degradação — e degradar calado foi exatamente o problema.
+                    self.set_key_warning(VaultKeyWarning::weak_wrapper(&key_path));
+                } else if !health.synced {
+                    self.set_key_warning(VaultKeyWarning::sync_unconfirmed(&key_path));
+                } else {
+                    // **Com escopo.** Este reparo resolve o `.key` e mais nada:
+                    // limpar o slot inteiro aqui apagava um `migrationFailed` (que
+                    // fala do `AccountData.json`) antes de a gravação do vault
+                    // sequer acontecer. A invariante é que nenhum caminho limpa
+                    // aviso de escopo alheio.
+                    self.clear_key_warning_for(&key_path);
+                }
+                true
+            }
+            Err(e) => {
+                // Transitório (antivírio/indexador segurando o handle) recebe o
+                // tom brando: a gravação seguinte tenta de novo e limpa o aviso.
+                // Alarmar alto num arquivo que está perfeito treina o usuário a
+                // ignorar avisos, e aí a rede contra o lockout não vale nada.
+                self.set_key_warning(VaultKeyWarning::write_failed(
+                    &key_path,
+                    &e.message,
+                    e.transient,
+                ));
+                false
+            }
+        }
+    }
+
+    /// O mutex do aviso é **destravado do envenenamento** de propósito.
+    ///
+    /// `if let Ok(..)` descartava a escrita e `.lock().ok()` respondia "tudo em
+    /// ordem" com o mutex envenenado: falha não observável **no canal que existe
+    /// para observar falhas**. O dado aqui é um aviso, não invariante de
+    /// segurança — recuperá-lo com `into_inner()` é sempre melhor que engolir.
+    fn key_warning_slot(&self) -> std::sync::MutexGuard<'_, Option<VaultKeyWarning>> {
+        self.key_warning
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn set_key_warning(&self, warning: VaultKeyWarning) {
+        let mut slot = self.key_warning_slot();
+        if let Some(current) = slot.as_ref() {
+            // Idêntico: não repete nem torna a logar. Sem isto, um volume que
+            // nunca confirma o `fsync` escrevia a mesma linha a cada gravação.
+            if *current == warning {
+                return;
+            }
+            // Nunca rebaixa a gravidade (ver `VaultKeyWarning::severity`).
+            if current.severity() > warning.severity() {
+                return;
+            }
+        }
+        eprintln!("Aviso ({}): {}", warning.code, warning.path);
+        *slot = Some(warning);
+    }
+
+    fn clear_key_warning(&self) {
+        *self.key_warning_slot() = None;
+    }
+
+    /// Limpa o aviso **só se ele for sobre este arquivo**.
+    ///
+    /// O slot é único mas os avisos falam de arquivos diferentes: `writeFailed` e
+    /// `weakWrapper` são do `.key`, `migrationFailed` é do `AccountData.json`.
+    /// Limpar sem escopo fazia o braço "o `.key` está saudável" apagar a faixa
+    /// vermelha que dizia que o vault continua em texto puro — e apagar **antes**
+    /// de a gravação acontecer, então nem o sucesso justificava.
+    fn clear_key_warning_for(&self, path: &std::path::Path) {
+        let mut slot = self.key_warning_slot();
+        let belongs = slot
+            .as_ref()
+            .is_some_and(|w| w.path == path.display().to_string());
+        if belongs {
+            *slot = None;
+        }
+    }
+
+    /// O que a UI mostra sobre o arquivo de chave. `None` = tudo em ordem.
+    ///
+    /// Estruturado (código + caminho), não frase pronta: a frase mora no catálogo
+    /// de i18n e passa por `t()`, como todo texto que o usuário lê.
+    pub fn vault_key_warning(&self) -> Option<VaultKeyWarning> {
+        self.key_warning_slot().clone()
+    }
+
+    /// Recusa a operação quando a gravação está trancada.
+    ///
+    /// Checado na **entrada** de `set_password`: só olhar dentro de `save_locked`
+    /// deixava "somente leitura" não ser literal — ele já mexia em arquivo (cópia,
+    /// e a regravação do `.key`) antes de descobrir que não podia gravar.
+    fn ensure_writable(&self) -> Result<(), String> {
+        let block = self.write_block.lock().map_err(|e| e.to_string())?;
+        match block.as_deref() {
+            Some(reason) => Err(format!(
+                "Refusing to write the account file: {}. Restart the app before changing accounts.",
+                reason
+            )),
+            None => Ok(()),
+        }
+    }
+
+    /// A gravação está trancada agora?
+    ///
+    /// Existe para quem **tranca** poder saber se a trava já era de outro: soltar
+    /// uma trava alheia é o mesmo que nunca tê-la ligado.
+    pub fn writes_locked(&self) -> bool {
+        self.write_block
+            .lock()
+            .map(|slot| slot.is_some())
+            // Mutex envenenado: assumir trancado é o lado seguro.
+            .unwrap_or(true)
+    }
+
+    /// Libera a gravação depois de o arquivo ter sido **relido de verdade**.
+    ///
+    /// Contraparte de [`Self::lock_writes_until_restart`]. Existe porque a
+    /// restauração de backup passou a trancar **por padrão**: é este o único ponto
+    /// que destranca, e só quem releu o arquivo pode chamá-lo.
+    pub fn allow_writes_after_reload(&self) {
+        if let Ok(mut slot) = self.write_block.lock() {
+            *slot = None;
+        }
+    }
+
+    /// Recusa **toda** gravação até o app reiniciar.
+    ///
+    /// Diferente de `load_failed`: ali o arquivo em disco é que está ruim; aqui o
+    /// arquivo está ótimo e é a **memória** que está velha. É o caso da
+    /// restauração de backup — o segredo da sessão não é mais o do arquivo, e
+    /// qualquer gravação (um launch já chama `mark_used`) cifraria o vault
+    /// restaurado com o segredo antigo, deixando-o sem abrir no próximo boot.
+    pub fn lock_writes_until_restart(&self, reason: &str) {
+        if let Ok(mut slot) = self.write_block.lock() {
+            *slot = Some(reason.to_string());
+        }
+    }
+
+    /// Estabelece a sessão da **chave do aparelho**, reaproveitando o `.key` que
+    /// já existir e criando um novo só quando não houver nenhum.
+    ///
+    /// Idempotente de propósito: se o processo morrer entre gravar o `.key` e
+    /// regravar o vault, a abertura seguinte cai aqui de novo, reencontra a mesma
+    /// chave e termina a migração.
+    fn ensure_device_session(&self) -> Result<(), String> {
+        {
+            let session = self.session.lock().map_err(|e| e.to_string())?;
+            if session.is_some() {
+                return Ok(());
+            }
+        }
+
+        let session = self.build_device_session()?;
+        let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+        *slot = Some(session);
+        Ok(())
+    }
+
+    /// Pode existir vault cifrado a perder? **Erro conta como "sim".**
+    ///
+    /// Isto guarda a decisão de sortear uma chave mestra nova, que destrói a única
+    /// cópia da antiga. `is_encrypted().unwrap_or(false)` era **fail-open** nessa
+    /// guarda: "não consegui saber" virava "não existe". As duas leituras falham
+    /// juntas com mais frequência do que parece — varredura de antivírus e
+    /// rehidratação do OneDrive pegam a **pasta inteira**, então `.key` ilegível e
+    /// `AccountData.json` ilegível são eventos correlacionados, não independentes.
+    /// Se depois disso a regravação do vault falhasse com o `.key` novo já
+    /// publicado, o resultado era lockout permanente de todas as contas.
+    fn vault_may_hold_data(&self) -> bool {
+        match self.is_encrypted() {
+            Ok(encrypted) => encrypted,
+            Err(_) => true,
+        }
+    }
+
+    /// Monta a sessão da chave do aparelho sem tocar no que já está em memória.
+    ///
+    /// Separado de [`Self::ensure_device_session`] para `set_password(None)`
+    /// poder falhar **sem** derrubar a sessão da senha que o usuário já tinha.
+    fn build_device_session(&self) -> Result<SessionKey, String> {
+        let key_path = self.key_file_path();
+        let master = match self.recover_and_refresh_master_key() {
+            Some(master) => master,
+            // Só é proibido sortear chave nova quando **há vault cifrado a
+            // perder**: aí um `.key` que não abre pode ser a única cópia da chave
+            // daquele arquivo, e substituí-lo o tornaria ilegível para sempre.
+            // Antes a condição era só `key_path.exists()`, o que travava também a
+            // **instalação nova** quando havia qualquer coisa no lugar do `.key`
+            // (um diretório, por exemplo) — sem vault nenhum para proteger.
+            None if key_path.exists() && self.vault_may_hold_data() => {
+                return Err(self.locked_vault_message());
+            }
+            None => {
+                let master = crate::data::vault_key::generate_master_key();
+                // O `.key` é gravado **antes** de o vault ser cifrado com ele: na
+                // ordem contrária, uma falha aqui deixaria um vault que ninguém
+                // abre. E passa por `refresh_key_file` justamente para o health e o
+                // erro chegarem ao aviso da UI: este é o **primeiro boot** e o
+                // `set_password(None)`, e antes os dois degradavam calados (o
+                // health era descartado) ou morriam num `eprintln!` do `lib.rs`.
+                if !self.refresh_key_file(&master) {
+                    return Err(format!(
+                        "The account key file ({}) could not be created, so the account file was \
+                         left unencrypted. See the warning on screen.",
+                        key_path.display()
+                    ));
+                }
+                master
+            }
+        };
+
+        SessionKey::from_master_key(master)
+    }
+
+    /// Os bytes no disco começam com um header RAM? Fato bruto do arquivo, usado
+    /// pelas guardas de gravação — **não** é "tem senha" (ver
+    /// [`Self::has_user_password`]).
     pub fn is_encrypted(&self) -> Result<bool, String> {
         if !self.file_path.exists() {
             return Ok(false);
@@ -106,6 +552,31 @@ impl AccountStore {
         Ok(crypto::is_encrypted(&data))
     }
 
+    /// O vault é protegido por **senha do usuário**?
+    ///
+    /// É isso que a tela de criptografia mostra. Desde que o vault sem senha
+    /// também é cifrado, `is_encrypted()` deixou de responder essa pergunta: ela
+    /// é "true" nos dois casos. O sinal é o arquivo `.key` — ele existe quando a
+    /// chave é do aparelho e é removido quando o usuário define uma senha.
+    pub fn has_user_password(&self) -> Result<bool, String> {
+        {
+            let session = self.session.lock().map_err(|e| e.to_string())?;
+            if let Some(session) = session.as_ref() {
+                return Ok(session.secret == VaultSecret::UserPassword);
+            }
+        }
+        if !self.is_encrypted()? {
+            return Ok(false);
+        }
+        Ok(!self.key_file_path().exists())
+    }
+
+    /// O usuário precisa digitar a senha para o app abrir as contas?
+    ///
+    /// Depois de `load()`, "sim" significa: o arquivo está cifrado e nada em
+    /// memória abre. Isso cobre tanto o vault de senha (caso normal) quanto o
+    /// vault cuja chave de aparelho se perdeu — nos dois a tela de senha é a
+    /// tela certa, e a mensagem de erro do unlock explica a diferença.
     pub fn needs_password(&self) -> Result<bool, String> {
         let session = self.session.lock().map_err(|e| e.to_string())?;
         if session.is_some() {
@@ -115,19 +586,32 @@ impl AccountStore {
         self.is_encrypted()
     }
 
+    /// Abre o vault sem senha do usuário: chave do aparelho, ou JSON puro (que é
+    /// migrado na hora).
     pub fn load(&self) -> Result<(), String> {
-        if !self.file_path.exists() {
-            return Ok(());
-        }
-
-        let data =
-            fs::read(&self.file_path).map_err(|e| format!("Failed to read account file: {}", e))?;
+        let data = if self.file_path.exists() {
+            fs::read(&self.file_path).map_err(|e| format!("Failed to read account file: {}", e))?
+        } else {
+            Vec::new()
+        };
 
         if data.is_empty() {
-            return Ok(());
+            // Instalação nova (ou arquivo de 0 byte, que é um vazio legítimo): o
+            // vault já nasce com a chave do aparelho, senão o primeiro `add`
+            // gravaria JSON puro e a migração nunca aconteceria.
+            //
+            // Falhar aqui **não** trava o app: sem chave, o store segue sem
+            // segredo e grava em texto puro, como antes desta mudança. É uma
+            // proteção a menos, não um usuário sem acesso às contas.
+            return self.ensure_device_session();
         }
 
-        let accounts = match self.decode_accounts_for_load(&data) {
+        if crypto::is_encrypted(&data) {
+            return self.load_encrypted(&data);
+        }
+
+        // JSON puro (ou DPAPI legado do RAM v3): ler e migrar.
+        let accounts = match Self::decode_plain_or_legacy_accounts(&data) {
             Ok(accounts) => accounts,
             Err(e) => {
                 self.load_failed
@@ -138,9 +622,156 @@ impl AccountStore {
 
         let mut store = self.accounts.lock().map_err(|e| e.to_string())?;
         *store = accounts;
+        drop(store);
+        self.mark_memory_fresh();
+
+        self.migrate_plain_vault()
+    }
+
+    /// A memória acabou de ser lida do disco, então ela **não está velha**.
+    ///
+    /// É o que solta o `write_block`, e é por isso que a migração de um vault em
+    /// texto puro restaurado de backup consegue rodar: o latch existe para impedir
+    /// que memória velha sobrescreva o arquivo, e aqui a memória é o arquivo. Sem
+    /// isto, a trava que a restauração liga bloqueava o `save_locked` da própria
+    /// migração — `load()` devolvia "não foi possível reler" **depois** de ler com
+    /// sucesso, e o caminho "texto puro recarrega na hora" ficava inalcançável.
+    fn mark_memory_fresh(&self) {
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.allow_writes_after_reload();
+    }
 
+    /// Regrava um vault em texto puro como vault cifrado.
+    ///
+    /// A ordem existe para nenhuma queda no meio custar contas:
+    /// 1. `.json.bak` — sem backup, não migra;
+    /// 2. `.key` — a chave antes do arquivo que ela cifra;
+    /// 3. regravação do vault, atômica (`save_locked`).
+    ///
+    /// Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro** e a
+    /// próxima abertura recomeça daqui com a mesma chave. Morrer dentro de 3 não
+    /// existe: a troca é atômica, o arquivo é o de antes ou o de depois.
+    fn migrate_plain_vault(&self) -> Result<(), String> {
+        // **Toda** falha daqui tem que virar aviso na tela, não só `Err`.
+        //
+        // Este era o pior fail-open que sobrou: `load()` devolvia `Err`, o boot
+        // fazia `eprintln!` (invisível em build GUI), o `mark_memory_fresh` já
+        // tinha limpado o `load_failed`, `needs_password()` era `false` porque o
+        // arquivo está em texto puro, e nenhum `key_warning` era setado. Resultado:
+        // o app subia normal, a tela de criptografia dizia "Device Key", e o
+        // `AccountData.json` continuava em texto puro com o `.ROBLOSECURITY` de
+        // todas as contas — sem um sinal em lugar nenhum. É o mesmo padrão que a
+        // Quebra 1 mandou matar, sobrevivendo no caminho principal desta tarefa.
+        self.backup_vault_file().map_err(|e| {
+            self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
+            e
+        })?;
+
+        if let Err(e) = self.ensure_device_session() {
+            // Sem chave o arquivo fica como está — em texto puro, legível, mas
+            // **inteiro**. Perder o arquivo é pior que ficar sem a criptografia.
+            // `ensure_device_session` já avisou pelo `refresh_key_file`; aqui só
+            // garantimos que o aviso exista mesmo se a falha vier de outro ponto.
+            if self.vault_key_warning().is_none() {
+                self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
+            }
+            return Err(format!(
+                "Accounts are loaded, but the file could not be encrypted and was left as-is: {}",
+                e
+            ));
+        }
+
+        let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        self.save_locked(&accounts).map_err(|e| {
+            self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
+            e
+        })
+    }
+
+    /// Abre um vault já cifrado sem senha do usuário.
+    fn load_encrypted(&self, data: &[u8]) -> Result<(), String> {
+        // Sessão já estabelecida (unlock anterior): usa o segredo que está lá.
+        let session_hash = {
+            let session = self.session.lock().map_err(|e| e.to_string())?;
+            session.as_ref().map(|s| s.password_hash.clone())
+        };
+        if let Some(hash) = session_hash {
+            let Ok(decrypted) = crypto::decrypt(data, &hash) else {
+                // O segredo em memória não abre o arquivo que está no disco: a
+                // memória está velha (arquivo restaurado por fora, por exemplo).
+                // Latchar é obrigatório — sem isso a gravação seguinte cifraria o
+                // arquivo novo com o segredo antigo e o próximo boot não abriria.
+                self.load_failed
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                return Err(
+                    "The account file on disk was not written by this session's key; \
+                     refusing to touch it. Restart the app."
+                        .to_string(),
+                );
+            };
+            return self.commit_loaded(decrypted);
+        }
+
+        let key_path = self.key_file_path();
+        if !key_path.exists() {
+            // Sem arquivo de chave o vault é de senha. Não vale gastar um argon2
+            // por candidato de aparelho a cada boot para descobrir isso.
+            self.load_failed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            return Err(self.locked_vault_message());
+        }
+
+        let Some(master) = self.recover_and_refresh_master_key() else {
+            // Chave irrecuperável: **não** apagar, **não** regravar, **não**
+            // travar o app. Só dizer o que houve e onde está a cópia.
+            self.load_failed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            return Err(self.locked_vault_message());
+        };
+
+        let hash = crate::data::vault_key::master_password_hash(&master);
+        let Ok(decrypted) = crypto::decrypt(data, &hash) else {
+            // O `.key` abriu **mas não é a chave deste vault**. Dois caminhos
+            // chegam aqui, e a mensagem tem que servir aos dois:
+            //  - `.key` órfão de um `set_password` interrompido → o vault é de
+            //    senha e basta digitá-la;
+            //  - vault cifrado por **outra** chave de aparelho (o usuário copiou um
+            //    `AccountData.json` antigo por cima, ou restaurou um vault de um zip
+            //    sem a chave dele) → nunca houve senha, e pedir senha e parar é um
+            //    beco sem saída.
+            // Nada é gravado nos dois casos (o latch abaixo garante).
+            self.load_failed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            return Err(format!(
+                "Password required for encrypted file. If you never set a password, this file was \
+                 encrypted with a different device key — restore the matching {} next to it (both \
+                 come in the same backup zip). Nothing was deleted or overwritten.",
+                self.key_file_path().display()
+            ));
+        };
+
+        let session = SessionKey::from_master_key(master)?;
+        let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+        *slot = Some(session);
+        drop(slot);
+
+        self.commit_loaded(decrypted)
+    }
+
+    fn commit_loaded(&self, decrypted: Vec<u8>) -> Result<(), String> {
+        let accounts = match Self::parse_accounts_json(&decrypted) {
+            Ok(accounts) => accounts,
+            Err(e) => {
+                self.load_failed
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                return Err(e);
+            }
+        };
+        let mut store = self.accounts.lock().map_err(|e| e.to_string())?;
+        *store = accounts;
+        drop(store);
+        self.mark_memory_fresh();
         Ok(())
     }
 
@@ -170,9 +801,28 @@ impl AccountStore {
             return Ok(());
         }
 
-        let accounts = if crypto::is_encrypted(&data) {
-            let decrypted =
-                crypto::decrypt(&data, &hash).map_err(|e| format!("Failed to decrypt: {}", e))?;
+        let was_encrypted = crypto::is_encrypted(&data);
+        let accounts = if was_encrypted {
+            let decrypted = crypto::decrypt(&data, &hash).map_err(|_| {
+                // Senha errada é o caso comum; vault cifrado pela chave de um
+                // aparelho que não existe mais é o caso raro e grave, e pedir a
+                // senha de novo não resolve. A mensagem tem que separar os dois.
+                if self.key_file_path().exists() {
+                    self.locked_vault_message()
+                } else {
+                    // Sem `.key` os dois motivos são indistinguíveis pelos
+                    // arquivos: senha errada, ou vault **sem** senha cujo `.key`
+                    // foi apagado (usuário, antivírus, limpeza de disco). O
+                    // segundo não se resolve digitando de novo, e quem não souber
+                    // disso vai ficar tentando senhas até desistir.
+                    format!(
+                        "Failed to decrypt: wrong password. If this vault never had a password, \
+                         its device key file is missing — restore {} (together with the account \
+                         file) from a backup instead of retyping.",
+                        self.key_file_path().display()
+                    )
+                }
+            })?;
             Self::parse_accounts_json(&decrypted)?
         } else {
             Self::decode_plain_or_legacy_accounts(&data)?
@@ -190,12 +840,23 @@ impl AccountStore {
 
         let mut slot = self.session.lock().map_err(|e| e.to_string())?;
         *slot = Some(session);
+        drop(slot);
+
+        if was_encrypted {
+            // A senha abriu o arquivo, então este vault é de senha — e qualquer
+            // `.key` ao lado dele é órfão (sobra de um `set_password` que morreu
+            // entre gravar o vault e apagar a chave). Sem isto ele fica para
+            // sempre, e todo boot acusa "a chave deste aparelho não pôde ser
+            // recuperada" para quem só precisa digitar a senha. A senha é a
+            // autoridade, igual em `set_password(Some)`.
+            crate::data::vault_key::remove_key_file(&self.key_file_path());
+        }
         Ok(())
     }
 
     pub fn save(&self) -> Result<(), String> {
         let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-        self.save_locked(&accounts, false)
+        self.save_locked(&accounts)
     }
 
     /// Serializa e grava o snapshot **que o chamador ainda está segurando**.
@@ -206,17 +867,24 @@ impl AccountStore {
     /// `atomic_replace`, o que vai para o disco é sempre o estado que acabou de
     /// ser produzido.
     ///
-    /// `replace_encrypted_with_plain`: only for deliberately removing encryption
-    /// from an already-unlocked store (see `set_password`).
-    fn save_locked(
-        &self,
-        accounts: &[Account],
-        replace_encrypted_with_plain: bool,
-    ) -> Result<(), String> {
+    /// Sem segredo em memória a gravação só é permitida quando o arquivo **não**
+    /// está cifrado: é o caminho degradado de quem não conseguiu criar a chave do
+    /// aparelho (ver `load`). Com o arquivo cifrado e nada em memória, gravar
+    /// seria trocar as contas do usuário por uma lista vazia.
+    fn save_locked(&self, accounts: &[Account]) -> Result<(), String> {
         if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(
                 "Account file could not be loaded; refusing to overwrite it. Fix or restore AccountData.json and restart.".to_string(),
             );
+        }
+        {
+            let block = self.write_block.lock().map_err(|e| e.to_string())?;
+            if let Some(reason) = block.as_deref() {
+                return Err(format!(
+                    "Refusing to write the account file: {}. Restart the app before changing accounts.",
+                    reason
+                ));
+            }
         }
 
         let json = serde_json::to_string_pretty(accounts)
@@ -224,28 +892,88 @@ impl AccountStore {
 
         let session = self.session.lock().map_err(|e| e.to_string())?;
 
+        // O `.key` pode ter desaparecido **ou ficado ilegível** com o app rodando
+        // (antivírus, limpeza de disco, queda de energia no meio da regravação).
+        // Sem isto, o app seguiria gravando o dia todo um vault que ninguém mais
+        // abre — e cada backup automático criado depois levaria o vault **sem** a
+        // chave dele, até a poda apagar os backups bons. É por isso que a
+        // `SessionKey` guarda a chave mestra, não só o hash dela.
+        //
+        // A condição é "o `.key` guarda **a chave desta sessão**". Dois defeitos
+        // reais moldaram isso:
+        //  - "não existe" era o primeiro, e deixava passar o arquivo truncado;
+        //  - "abre" deixava passar o `.key` que abre para **outra** chave — o caso
+        //    da pasta de dados em OneDrive/Dropbox, em que o `.key` volta a uma
+        //    versão anterior enquanto o vault fica novo. O vault seguia sendo
+        //    gravado com o master da sessão e o boot seguinte pedia uma senha que
+        //    nunca existiu.
+        //
+        // Qualquer outro estado **tenta** o reparo, inclusive "não consegui ler
+        // agora": ler falhar não quer dizer que escrever vai falhar, e pular
+        // deixaria um arquivo ruim sem reparo enquanto o processo vivesse. Quem
+        // separa o transitório do grave é o **tom do aviso** (`is_transient_io`,
+        // medido), não o pular.
+        //
+        // No caminho saudável isto custa uma leitura e uma chamada de DPAPI (sem
+        // argon2); só o caminho quebrado paga caro, e paga uma vez.
+        if let Some(session) = session.as_ref() {
+            if let Some(master) = session.master.as_ref() {
+                if crate::data::vault_key::key_file_holds_master(&self.key_file_path(), master) {
+                    // Um aviso **sobre o `.key`** que tenha sobrado de uma falha
+                    // anterior sai da tela. Com escopo: sem ele, isto apagava
+                    // também o aviso de que o `AccountData.json` continua em texto
+                    // puro, e apagava antes de a gravação abaixo dar certo.
+                    self.clear_key_warning_for(&self.key_file_path());
+                } else {
+                    self.refresh_key_file(master);
+                }
+            }
+        }
+
+        let wrote_encrypted = session.is_some();
         let data = if let Some(session) = session.as_ref() {
             session.encrypt(&json)?
         } else {
             // Still locked: never replace an encrypted file with plaintext (it
             // would drop every account the user has not unlocked yet).
-            if !replace_encrypted_with_plain && self.is_encrypted()? {
+            if self.is_encrypted()? {
                 return Err("Accounts are locked; unlock them before making changes.".to_string());
             }
             json.into_bytes()
         };
 
-        // Write-then-rename so a crash or full disk never leaves a truncated file.
+        // Write-then-fsync-then-rename: sem o fsync, o rename pode publicar um
+        // arquivo cujo conteúdo ainda está em cache, e a queda de energia entre os
+        // dois deixaria um `AccountData.json` que existe e está vazio.
         let tmp_path = self.file_path.with_extension("json.tmp");
-        fs::write(&tmp_path, data)
+        let synced = crate::data::versions::write_all_synced(&tmp_path, &data)
             .map_err(|e| format!("Failed to write account file: {}", e))?;
         crate::data::versions::atomic_replace(&tmp_path, &self.file_path)
             .map_err(|e| format!("Failed to replace account file: {}", e))?;
+
+        // **Só depois de o arquivo estar no lugar.** Um aviso sobre o vault (o
+        // "continua em texto puro" da migração) só pode ser considerado resolvido
+        // por uma gravação que (a) deu certo e (b) foi **cifrada** — no caminho
+        // degradado o arquivo continua legível, e limpar ali seria mentir.
+        if wrote_encrypted {
+            self.clear_key_warning_for(&self.file_path);
+        }
+        if !synced {
+            // A gravação vale (os bytes foram entregues ao SO); o que se perde é a
+            // garantia contra queda de energia. Descartar este `bool` tornava a
+            // degradação 100% invisível. `set_key_warning` não deixa isto rebaixar
+            // um aviso grave nem repetir a mesma linha a cada gravação.
+            self.set_key_warning(VaultKeyWarning::sync_unconfirmed(&self.file_path));
+        }
 
         Ok(())
     }
 
     pub fn set_password(&self, password: Option<&str>) -> Result<(), String> {
+        // Antes de qualquer validação que mexa em arquivo: com a gravação trancada
+        // (restauração de backup) isto não pode nem começar.
+        self.ensure_writable()?;
+
         if let Some(value) = password {
             let trimmed = value.trim();
             if trimmed.is_empty() {
@@ -255,23 +983,75 @@ impl AccountStore {
                 return Err("Password must be at least 8 characters".to_string());
             }
         }
-        let mut slot = self.session.lock().map_err(|e| e.to_string())?;
-        let was_unlocked = slot.is_some();
-        if !was_unlocked && self.is_encrypted()? {
-            // Re-keying a file we never decrypted would encrypt an empty list
-            // over the user's accounts.
-            return Err("Accounts are locked; unlock them before changing the password.".to_string());
-        }
-        *slot = match password {
-            Some(p) => Some(SessionKey::derive(p.trim())?),
-            None => None,
-        };
-        // Solta `session` antes de pegar `accounts`: a ordem de lock do resto do
-        // arquivo é accounts → session, e inverter aqui criaria deadlock.
-        drop(slot);
+        let key_path = self.key_file_path();
 
-        let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-        self.save_locked(&accounts, was_unlocked)
+        {
+            let slot = self.session.lock().map_err(|e| e.to_string())?;
+            if slot.is_none() && self.is_encrypted()? {
+                // Re-keying a file we never decrypted would encrypt an empty list
+                // over the user's accounts.
+                return Err(
+                    "Accounts are locked; unlock them before changing the password.".to_string(),
+                );
+            }
+        }
+
+        // **Aqui não se faz cópia**, e isso é decisão, não esquecimento.
+        //
+        // A cópia que existia (`.json.rekey.bak`) era cifrada pela chave do
+        // aparelho e o `.key` era apagado três linhas depois: um arquivo que nunca
+        // mais abria, que ninguém limpava e que nada avisava — exatamente o
+        // "arquivo com cara de backup que não abre com nada" que o comentário da
+        // rodada anterior usou como argumento para renomeá-la. Renomear não
+        // resolveu; eliminar resolve.
+        //
+        // O que protege esta operação não é uma cópia: é (a) a gravação atômica,
+        // que deixa o arquivo antigo intacto em qualquer falha, e (b) a ordem
+        // "chave antes do arquivo que ela cifra". A cópia em texto puro da
+        // migração (`.json.bak`) continua sendo a rede de verdade, e continua
+        // intocada aqui.
+        //
+        // Sobra de versão anterior do app sai de cena, para ninguém confiar nela.
+        let _ = fs::remove_file(self.file_path.with_extension("json.rekey.bak"));
+
+        match password {
+            Some(value) => {
+                {
+                    let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+                    *slot = Some(SessionKey::derive(value.trim())?);
+                }
+                // Solta `session` antes de pegar `accounts`: a ordem de lock do
+                // resto do arquivo é accounts → session, e inverter aqui criaria
+                // deadlock.
+                let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+                self.save_locked(&accounts)?;
+                drop(accounts);
+                // O `.key` só sai **depois** de o vault estar gravado com a
+                // senha. Na ordem contrária, uma falha na gravação deixaria um
+                // vault cifrado pela chave do aparelho sem a chave para abri-lo.
+                crate::data::vault_key::remove_key_file(&key_path);
+                // A partir daqui o `.key` não importa mais, então um aviso sobre
+                // ele é falso alarme. Sem isto, quem estava com a faixa vermelha e
+                // definia uma senha ficava com ela na tela o resto da sessão,
+                // apontando para um arquivo que acabou de ser apagado — e nenhum
+                // caminho de sessão-com-senha alcança o `clear_key_warning`.
+                self.clear_key_warning();
+                Ok(())
+            }
+            None => {
+                // Tirar a senha volta para a chave do aparelho, **não** para
+                // texto puro. A chave é montada (e o `.key` gravado) antes de a
+                // sessão da senha ser trocada: erro aqui deixa o arquivo e a
+                // sessão exatamente como estavam.
+                let device_session = self.build_device_session()?;
+                {
+                    let mut slot = self.session.lock().map_err(|e| e.to_string())?;
+                    *slot = Some(device_session);
+                }
+                let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+                self.save_locked(&accounts)
+            }
+        }
     }
 
     pub fn get_all(&self) -> Result<Vec<Account>, String> {
@@ -295,7 +1075,7 @@ impl AccountStore {
         }
 
         // O guard continua vivo: o arquivo recebe exatamente este snapshot.
-        self.save_locked(&accounts, false)
+        self.save_locked(&accounts)
     }
 
     pub fn remove(&self, user_id: i64) -> Result<bool, String> {
@@ -305,7 +1085,7 @@ impl AccountStore {
         let removed = accounts.len() < initial_len;
 
         if removed {
-            self.save_locked(&accounts, false)?;
+            self.save_locked(&accounts)?;
         }
 
         Ok(removed)
@@ -316,7 +1096,7 @@ impl AccountStore {
 
         if let Some(existing) = accounts.iter_mut().find(|a| a.user_id == account.user_id) {
             *existing = account;
-            self.save_locked(&accounts, false)?;
+            self.save_locked(&accounts)?;
             Ok(true)
         } else {
             Ok(false)
@@ -336,7 +1116,7 @@ impl AccountStore {
         };
         account.last_use = Utc::now();
 
-        self.save_locked(&accounts, false)?;
+        self.save_locked(&accounts)?;
         Ok(true)
     }
 
@@ -358,7 +1138,7 @@ impl AccountStore {
         ordered.append(&mut accounts);
         *accounts = ordered;
 
-        self.save_locked(&accounts, false)
+        self.save_locked(&accounts)
     }
 
     fn decode_plain_or_legacy_accounts(data: &[u8]) -> Result<Vec<Account>, String> {
@@ -373,25 +1153,6 @@ impl AccountStore {
         Err("Invalid account data format (failed plaintext and legacy DPAPI decode)".to_string())
     }
 
-    fn decode_accounts_for_load(&self, data: &[u8]) -> Result<Vec<Account>, String> {
-        if data.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        if crypto::is_encrypted(data) {
-            let session = self.session.lock().map_err(|e| e.to_string())?;
-            let hash = session
-                .as_ref()
-                .map(|s| s.password_hash.as_slice())
-                .ok_or_else(|| "Password required for encrypted file".to_string())?;
-            let decrypted =
-                crypto::decrypt(data, hash).map_err(|e| format!("Failed to decrypt: {}", e))?;
-            return Self::parse_accounts_json(&decrypted);
-        }
-
-        Self::decode_plain_or_legacy_accounts(data)
-    }
-
     fn decode_accounts_for_import(
         &self,
         data: &[u8],
@@ -402,18 +1163,49 @@ impl AccountStore {
         }
 
         if crypto::is_encrypted(data) {
-            let Some(password) = import_password else {
-                return Err(IMPORT_PASSWORD_REQUIRED.to_string());
-            };
-            // Mesmo trim de `load_with_password`: a senha colada com espaço no
-            // fim desbloqueava o app mas era recusada no import.
-            let hash = crypto::hash_password(password.trim());
-            let decrypted = crypto::decrypt(data, &hash)
-                .map_err(|_| "Import password is incorrect".to_string())?;
-            return Self::parse_accounts_json(&decrypted);
+            if let Some(password) = import_password {
+                // Mesmo trim de `load_with_password`: a senha colada com espaço no
+                // fim desbloqueava o app mas era recusada no import.
+                let hash = crypto::hash_password(password.trim());
+                let decrypted = crypto::decrypt(data, &hash)
+                    .map_err(|_| "Import password is incorrect".to_string())?;
+                return Self::parse_accounts_json(&decrypted);
+            }
+
+            // Sem senha: o arquivo pode ser um backup **deste** vault, cifrado
+            // pela chave do aparelho. Tentar os segredos que já temos resolve o
+            // caso normal de "exportei e reimportei nesta máquina" sem pedir uma
+            // senha que nunca existiu.
+            for hash in self.own_secret_hashes()? {
+                if let Ok(decrypted) = crypto::decrypt(data, &hash) {
+                    return Self::parse_accounts_json(&decrypted);
+                }
+            }
+
+            return Err(IMPORT_PASSWORD_REQUIRED.to_string());
         }
 
         Self::decode_plain_or_legacy_accounts(data)
+    }
+
+    /// Hashes que este app pode ter usado para cifrar um vault: o da sessão atual
+    /// e o da chave mestra em disco. Nunca vaza a chave — só o hash derivado, que
+    /// é o que `crypto::decrypt` consome.
+    fn own_secret_hashes(&self) -> Result<Vec<Vec<u8>>, String> {
+        let mut hashes: Vec<Vec<u8>> = Vec::new();
+        {
+            let session = self.session.lock().map_err(|e| e.to_string())?;
+            if let Some(session) = session.as_ref() {
+                hashes.push(session.password_hash.clone());
+            }
+        }
+        if let Some(recovered) = crate::data::vault_key::load_master_key(&self.key_file_path()) {
+            let hash = crate::data::vault_key::master_password_hash(&recovered.master);
+            if !hashes.contains(&hash) {
+                hashes.push(hash);
+            }
+        }
+        Ok(hashes)
     }
 
     fn parse_accounts_json(data: &[u8]) -> Result<Vec<Account>, String> {
@@ -477,7 +1269,7 @@ impl AccountStore {
         accounts.retain(|account| seen_user_ids.insert(account.user_id));
 
         if added > 0 || replaced > 0 {
-            self.save_locked(&accounts, false)?;
+            self.save_locked(&accounts)?;
         }
         drop(accounts);
 
@@ -588,8 +1380,11 @@ mod tests {
         let _ = fs::remove_file(&store.file_path);
     }
 
+    /// Tirar a senha **não** decifra mais o arquivo: ele passa a ser cifrado pela
+    /// chave do aparelho. Antes desta mudança o mesmo clique deixava os cookies
+    /// de todas as contas legíveis em disco.
     #[test]
-    fn set_password_none_should_decrypt_an_unlocked_store() {
+    fn set_password_none_rekeys_an_unlocked_store_to_the_device_key() {
         let store = new_test_store("remove-encryption");
         let existing = vec![Account::new("cookie".to_string(), "Kept".to_string(), 111)];
         let json = serde_json::to_string(&existing).unwrap();
@@ -599,9 +1394,18 @@ mod tests {
 
         store.set_password(None).unwrap();
 
-        assert!(!store.is_encrypted().unwrap());
+        assert!(
+            store.is_encrypted().unwrap(),
+            "o arquivo tem que continuar cifrado"
+        );
+        assert!(
+            !store.has_user_password().unwrap(),
+            "não há mais senha de usuário"
+        );
         assert_eq!(store.get_all().unwrap()[0].user_id, 111);
         let _ = fs::remove_file(&store.file_path);
+        let _ = fs::remove_file(store.file_path.with_extension("key"));
+        let _ = fs::remove_file(store.file_path.with_extension("json.bak"));
     }
 
     #[test]
@@ -668,15 +1472,27 @@ mod account_store_tests {
         std::env::temp_dir().join(format!("ram-acct-{name}-{nanos}.json"))
     }
 
-    /// Store + RAII cleanup of its file and any leftover `.json.tmp`.
+    /// Store + limpeza RAII do arquivo e de **tudo** que o vault pode deixar ao
+    /// lado dele. Desde a criptografia por padrão isso inclui o `.key` e o
+    /// `.json.bak`; sem eles na lista, cada execução deixava lixo no `%TEMP%`.
     struct TestStore {
         store: AccountStore,
     }
 
     impl Drop for TestStore {
         fn drop(&mut self) {
-            let _ = fs::remove_file(&self.store.file_path);
-            let _ = fs::remove_file(self.store.file_path.with_extension("json.tmp"));
+            let path = self.store.file_path.clone();
+            for extra in [
+                "json.tmp",
+                "json.bak",
+                "json.rekey.bak",
+                "key",
+                "key.tmp",
+                "key.probe",
+            ] {
+                let _ = fs::remove_file(path.with_extension(extra));
+            }
+            let _ = fs::remove_file(&path);
         }
     }
 
@@ -939,8 +1755,14 @@ mod account_store_tests {
         assert_eq!(loaded[0].get_field("Note").map(String::as_str), Some("keep me"));
     }
 
+    /// A pré-condição real é **"nenhuma sessão foi estabelecida"** — o helper
+    /// `store()` não chama `load()`, então não há segredo em memória e o arquivo
+    /// não está cifrado. No app entregue, "sem senha" é justamente o caso
+    /// **cifrado** (chave do aparelho), então o nome antigo
+    /// (`save_writes_plain_json_when_no_password_is_set`) afirmava o contrário do
+    /// comportamento que a Task 8 criou. Este é o caminho degradado, e só ele.
     #[test]
-    fn save_writes_plain_json_when_no_password_is_set() {
+    fn save_writes_plain_json_only_in_the_degraded_no_key_path() {
         let s = store("save-plain");
         s.add(account(31, "Plain")).unwrap();
 
@@ -1001,12 +1823,16 @@ mod account_store_tests {
         assert_eq!(&fs::read(&s.file_path).unwrap(), encrypted_sample());
     }
 
+    /// "Sem senha" virou "com a chave do aparelho": pedir para tirar a senha de
+    /// um store que não tem senha ainda tem que deixar o arquivo **cifrado**.
     #[test]
-    fn set_password_none_on_a_plain_store_is_a_no_op_that_keeps_the_file_plain() {
+    fn set_password_none_on_a_store_without_a_password_encrypts_with_the_device_key() {
         let s = store("pw-none-plain");
+        s.load().unwrap();
         s.add(account(51, "A")).unwrap();
         s.set_password(None).unwrap();
-        assert!(!s.is_encrypted().unwrap());
+        assert!(s.is_encrypted().unwrap());
+        assert!(!s.has_user_password().unwrap());
         assert_eq!(ids(&s), vec![51]);
     }
 
@@ -1376,20 +2202,39 @@ mod account_store_tests {
         assert!(AccountStore::parse_accounts_json(b"[]").unwrap().is_empty());
     }
 
+    /// Substitui o antigo teste de `decode_accounts_for_load`: a decodificação
+    /// virou parte de `load_encrypted`, que também decide se o caso é "precisa de
+    /// senha" ou "a chave deste aparelho se perdeu".
     #[test]
-    fn decode_accounts_for_load_handles_empty_plain_and_encrypted_input() {
+    fn load_encrypted_asks_for_the_password_without_a_key_file_and_reports_a_bad_secret() {
         let s = store("decode-load");
-        assert!(s.decode_accounts_for_load(b"").unwrap().is_empty());
 
-        let plain = serde_json::to_vec(&vec![account(1, "A")]).unwrap();
-        assert_eq!(s.decode_accounts_for_load(&plain).unwrap().len(), 1);
-
-        let err = s.decode_accounts_for_load(encrypted_sample()).unwrap_err();
+        // Sem `.key` e sem sessão: é vault de senha.
+        let err = s.load_encrypted(encrypted_sample()).unwrap_err();
         assert!(err.contains("Password required"), "{err}");
+        assert!(!err.contains(".json.bak"), "não é caso de chave perdida: {err}");
 
+        // Com um segredo em memória que não é o do arquivo, o arquivo em disco não
+        // foi escrito por esta sessão (restauração de backup, troca por fora).
+        // Além de falhar, isso **tranca** a gravação: sem o latch, o save seguinte
+        // cifraria o arquivo novo com o segredo velho e o próximo boot não abriria.
         *s.session.lock().unwrap() = Some(SessionKey::derive("nope-not-it").unwrap());
-        let err = s.decode_accounts_for_load(encrypted_sample()).unwrap_err();
-        assert!(err.contains("Failed to decrypt"), "{err}");
+        let err = s.load_encrypted(encrypted_sample()).unwrap_err();
+        assert!(err.to_lowercase().contains("restart"), "{err}");
+        assert!(
+            s.load_failed.load(std::sync::atomic::Ordering::SeqCst),
+            "o latch não foi ligado: uma gravação depois disso perderia o arquivo"
+        );
+        assert!(s.save().is_err());
+
+        // Texto puro continua sendo lido pelo caminho de sempre.
+        let plain = serde_json::to_vec(&vec![account(1, "A")]).unwrap();
+        assert_eq!(
+            AccountStore::decode_plain_or_legacy_accounts(&plain)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     // ---- concurrency ----------------------------------------------------------
@@ -1512,9 +2357,18 @@ mod account_store_tests {
 
     #[test]
     fn saving_many_times_costs_far_less_than_one_key_derivation() {
-        // Guarda de regressão para a UI travada: um argon2i MODERATE custa
-        // centenas de milissegundos; várias gravações juntas têm que custar uma
-        // fração disso. A margem é folgada de propósito.
+        // Guarda de regressão para a UI travada: a invariante é que **uma
+        // gravação não paga argon2**. Dez gravações que pagassem custariam ~10
+        // derivações; o teto abaixo é 3, então a regressão continua sendo pega com
+        // folga de mais de 3x.
+        //
+        // O teto era "menos que **uma** derivação" e passou a piscar sob carga —
+        // não por causa do argon2, mas do `sync_all()` que cada gravação passou a
+        // fazer (ver `write_all_synced`): dez `fsync` no Windows, disputando disco
+        // com a suíte inteira em paralelo, contra um argon2i que é puro CPU. Medir
+        // disco contra CPU num limite apertado era o defeito do teste, não do
+        // código — o fsync é justamente a correção que se quis.
+        const MAX_DERIVATIONS: u32 = 3;
         let s = store("save-cost");
         s.load_with_password(SAMPLE_PASSWORD).unwrap();
         s.add(account(1, "One")).unwrap();
@@ -1531,8 +2385,1166 @@ mod account_store_tests {
 
         assert_eq!(ids(&s).len(), 11);
         assert!(
-            ten_saves < one_derivation,
-            "10 gravações ({ten_saves:?}) não podem custar mais que uma derivação ({one_derivation:?})"
+            ten_saves < one_derivation * MAX_DERIVATIONS,
+            "10 gravações ({ten_saves:?}) não podem custar mais que {MAX_DERIVATIONS} derivações \
+             ({:?}); se cada gravação estivesse pagando argon2 isto seria ~10 derivações \
+             ({one_derivation:?} cada)",
+            one_derivation * MAX_DERIVATIONS
         );
+    }
+}
+
+#[cfg(test)]
+mod vault_migration_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// Store num arquivo temporário, com limpeza de **todos** os arquivos que o
+    /// vault pode deixar: o `.key`, o `.json.bak` e os `.tmp`.
+    struct TempVault {
+        store: AccountStore,
+    }
+
+    impl Drop for TempVault {
+        fn drop(&mut self) {
+            let path = self.store.file_path.clone();
+            for extra in [
+                "json.tmp",
+                "json.bak",
+                "json.rekey.bak",
+                "key",
+                "key.tmp",
+                "key.probe",
+            ] {
+                let _ = fs::remove_file(path.with_extension(extra));
+            }
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    impl std::ops::Deref for TempVault {
+        type Target = AccountStore;
+        fn deref(&self) -> &AccountStore {
+            &self.store
+        }
+    }
+
+    fn vault(name: &str) -> TempVault {
+        crypto::init();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        TempVault {
+            store: AccountStore::new(
+                std::env::temp_dir().join(format!("ram-vault-{name}-{nanos}.json")),
+            ),
+        }
+    }
+
+    fn sample_accounts() -> Vec<Account> {
+        vec![
+            Account::new(
+                "_|WARNING:-DO-NOT-SHARE-COOKIE-1".to_string(),
+                "Main".to_string(),
+                111,
+            ),
+            Account::new(
+                "_|WARNING:-DO-NOT-SHARE-COOKIE-2".to_string(),
+                "Alt".to_string(),
+                222,
+            ),
+        ]
+    }
+
+    fn bak_path(store: &AccountStore) -> PathBuf {
+        store.file_path.with_extension("json.bak")
+    }
+
+    fn key_path(store: &AccountStore) -> PathBuf {
+        store.file_path.with_extension("key")
+    }
+
+    /// Hex só para montar arquivos `.key` no teste.
+    fn hex_for_test(bytes: &[u8]) -> String {
+        use std::fmt::Write;
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            let _ = write!(out, "{:02x}", byte);
+        }
+        out
+    }
+
+    /// A chave mestra que o `.key` entrega **sem** contar com o DPAPI.
+    ///
+    /// É assim que se pergunta "o embrulho do aparelho ainda está vivo?": copia o
+    /// arquivo sem o campo `dpapi` e tenta abrir a cópia. Não mexe no original.
+    fn master_key_without_dpapi_blob(key_path: &std::path::Path) -> Option<Vec<u8>> {
+        let raw = fs::read(key_path).ok()?;
+        let mut file: serde_json::Value = serde_json::from_slice(&raw).ok()?;
+        file.as_object_mut()?.remove("dpapi");
+        let probe = key_path.with_extension("key.probe");
+        fs::write(&probe, serde_json::to_vec(&file).ok()?).ok()?;
+        let recovered = crate::data::vault_key::load_master_key(&probe).map(|r| r.master);
+        let _ = fs::remove_file(&probe);
+        recovered
+    }
+
+    /// Um `AccountData.json` em JSON puro (o formato que deixava o cookie de
+    /// todas as contas legível para qualquer programa) tem que virar vault
+    /// cifrado na primeira abertura, sem perder uma conta.
+    #[test]
+    fn a_plain_json_vault_is_migrated_to_encrypted_and_keeps_every_account() {
+        let store = vault("migrate-plain");
+        let plain = serde_json::to_vec(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, &plain).unwrap();
+
+        store.load().expect("abrir um vault em texto puro");
+
+        // 1. O arquivo no disco não é mais texto puro.
+        let on_disk = fs::read(&store.file_path).unwrap();
+        assert!(
+            crypto::is_encrypted(&on_disk),
+            "o vault continuou em texto puro"
+        );
+        assert!(
+            !on_disk
+                .windows(30)
+                .any(|w| w == b"_|WARNING:-DO-NOT-SHARE-COOKIE"),
+            "o cookie vazou em texto no vault cifrado"
+        );
+
+        // 2. Nenhuma conta se perdeu.
+        let loaded = store.get_all().unwrap();
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].user_id, 111);
+        assert_eq!(loaded[1].user_id, 222);
+        assert_eq!(loaded[0].security_token, "_|WARNING:-DO-NOT-SHARE-COOKIE-1");
+
+        // 3. Um store novo abre o arquivo migrado **sem senha**.
+        let reopened = AccountStore::new(store.file_path.clone());
+        reopened.load().expect("reabrir o vault migrado");
+        assert!(!reopened.needs_password().unwrap());
+        assert_eq!(reopened.get_all().unwrap()[1].username, "Alt");
+    }
+
+    /// A migração troca o formato do arquivo: é o único momento em que o usuário
+    /// pode perder as contas. O `.json.bak` tem que existir **antes** disso.
+    #[test]
+    fn the_migration_leaves_a_json_bak_copy_of_the_plain_vault() {
+        let store = vault("migrate-backup");
+        let plain = serde_json::to_vec(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, &plain).unwrap();
+
+        store.load().expect("abrir");
+
+        let backup = bak_path(&store);
+        assert!(backup.exists(), "a migração não deixou .json.bak");
+        assert_eq!(
+            fs::read(&backup).unwrap(),
+            plain,
+            "o .json.bak tem que ser o arquivo de antes, byte a byte"
+        );
+    }
+
+    /// Quando a chave do aparelho **não** pode ser recuperada, o vault fica como
+    /// está e o app reporta onde está o backup. Apagar ou regravar aqui é perder
+    /// as contas do usuário — pior que ficar sem criptografia.
+    #[test]
+    fn an_unrecoverable_device_key_never_touches_the_vault_and_reports_the_backup() {
+        let store = vault("unrecoverable");
+        let foreign = crypto::device_hash_for_identifier("aparelho-que-nao-existe-mais");
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        let encrypted = crypto::encrypt(&json, &foreign).unwrap();
+        fs::write(&store.file_path, &encrypted).unwrap();
+        // Um `.key` que só abre com o hash daquele outro aparelho: é o caso
+        // "reinstalei o Windows" / "o antivírus trocou o arquivo".
+        let device_blob = crypto::encrypt(&"00".repeat(32), &foreign).unwrap();
+        fs::write(
+            key_path(&store),
+            serde_json::json!({ "v": 1, "device": hex_for_test(&device_blob) }).to_string(),
+        )
+        .unwrap();
+
+        let err = store
+            .load()
+            .expect_err("não pode abrir com chave irrecuperável");
+
+        // 1. A mensagem diz o que aconteceu e onde procurar a cópia. Qual cópia
+        //    ela cita depende de o `.json.bak` existir — isso é o M5, coberto por
+        //    `the_locked_vault_message_only_points_at_a_backup_that_exists`.
+        assert!(
+            err.contains("backup"),
+            "a mensagem não diz onde está o backup: {err}"
+        );
+        assert!(
+            err.contains("Nothing was deleted or overwritten"),
+            "a mensagem não deixa claro que o arquivo está intacto: {err}"
+        );
+        // 2. Nada de segredo na mensagem de erro.
+        assert!(
+            !err.contains("_|WARNING"),
+            "cookie na mensagem de erro: {err}"
+        );
+        // 3. O arquivo está exatamente como estava.
+        assert_eq!(fs::read(&store.file_path).unwrap(), encrypted);
+        // 4. E nenhuma gravação passa por cima dele.
+        assert!(store
+            .add(Account::new("c".to_string(), "Nova".to_string(), 999))
+            .is_err());
+        assert_eq!(fs::read(&store.file_path).unwrap(), encrypted);
+    }
+
+    /// Quem já tem senha continua como está: a senha manda, e o arquivo de chave
+    /// do aparelho sai de cena (senão o vault abriria sem a senha).
+    #[test]
+    fn setting_a_password_removes_the_key_file_and_makes_the_vault_need_it() {
+        let store = vault("set-password");
+        fs::write(
+            &store.file_path,
+            serde_json::to_vec(&sample_accounts()).unwrap(),
+        )
+        .unwrap();
+        store.load().expect("migrar");
+        assert!(
+            key_path(&store).exists(),
+            "a migração tinha que criar o .key"
+        );
+
+        store
+            .set_password(Some("senha-bem-comprida"))
+            .expect("definir senha");
+
+        assert!(!key_path(&store).exists(), "o .key sobrou depois da senha");
+        assert!(crypto::is_encrypted(&fs::read(&store.file_path).unwrap()));
+
+        let reopened = AccountStore::new(store.file_path.clone());
+        assert!(
+            reopened.load().is_err(),
+            "abriu um vault de senha sem a senha"
+        );
+        assert!(reopened.needs_password().unwrap());
+        reopened
+            .load_with_password("senha-bem-comprida")
+            .expect("destrancar");
+        assert_eq!(reopened.get_all().unwrap().len(), 2);
+    }
+
+    /// Tirar a senha volta para a chave do aparelho — **não** para texto puro.
+    #[test]
+    fn clearing_the_password_goes_back_to_the_device_key_not_to_plain_text() {
+        let store = vault("clear-password");
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        let encrypted =
+            crypto::encrypt(&json, &crypto::hash_password("senha-bem-comprida")).unwrap();
+        fs::write(&store.file_path, &encrypted).unwrap();
+        store
+            .load_with_password("senha-bem-comprida")
+            .expect("destrancar");
+
+        store.set_password(None).expect("tirar a senha");
+
+        let on_disk = fs::read(&store.file_path).unwrap();
+        assert!(
+            crypto::is_encrypted(&on_disk),
+            "tirar a senha gravou o vault em texto puro"
+        );
+        assert!(key_path(&store).exists(), "não criou o .key");
+
+        let reopened = AccountStore::new(store.file_path.clone());
+        reopened.load().expect("abrir com a chave do aparelho");
+        assert!(!reopened.needs_password().unwrap());
+        assert_eq!(reopened.get_all().unwrap().len(), 2);
+    }
+
+    /// Instalação nova: a primeira conta já entra num vault cifrado. Sem isto, o
+    /// arquivo nasceria em texto puro e a migração nunca aconteceria.
+    #[test]
+    fn a_brand_new_vault_is_encrypted_from_the_first_account() {
+        let store = vault("brand-new");
+        store.load().expect("abrir um vault que não existe");
+
+        store
+            .add(Account::new(
+                "_|WARNING:-DO-NOT-SHARE-NEW".to_string(),
+                "Nova".to_string(),
+                7,
+            ))
+            .expect("adicionar");
+
+        let on_disk = fs::read(&store.file_path).unwrap();
+        assert!(
+            crypto::is_encrypted(&on_disk),
+            "vault novo nasceu em texto puro"
+        );
+        assert!(key_path(&store).exists());
+    }
+
+    /// Vault cifrado **sem** `.key` é vault de senha: a ausência do arquivo é o
+    /// sinal que evita gastar um argon2 por candidato de aparelho a cada boot.
+    #[test]
+    fn an_encrypted_vault_without_a_key_file_asks_for_the_password() {
+        let store = vault("password-only");
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        let encrypted =
+            crypto::encrypt(&json, &crypto::hash_password("senha-bem-comprida")).unwrap();
+        fs::write(&store.file_path, &encrypted).unwrap();
+
+        assert!(store.load().is_err());
+        assert!(store.needs_password().unwrap());
+        assert!(
+            !bak_path(&store).exists(),
+            "não migrou nada, não podia ter backup"
+        );
+        assert_eq!(fs::read(&store.file_path).unwrap(), encrypted);
+    }
+
+    /// **Critical 1.** O segundo embrulho não pode morrer em silêncio.
+    ///
+    /// Se o nome do PC muda, o blob `device` fica preso ao nome antigo, mas o
+    /// DPAPI continua abrindo — e ninguém percebe. Meses depois o perfil é
+    /// recriado (**o caso exato para o qual os dois embrulhos existem**) e não
+    /// sobra nenhum caminho. Todo open bem-sucedido tem que deixar os **dois**
+    /// embrulhos válidos para os identificadores de agora.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn opening_the_vault_rewraps_a_device_blob_left_behind_by_an_identifier_change() {
+        let store = vault("stale-device-wrapper");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Presa".to_string(), 77))
+            .expect("adicionar");
+
+        // Estado de "o PC foi renomeado depois de o .key ser criado": o DPAPI
+        // abre, o blob do aparelho está preso a um identificador que não existe.
+        let master = crate::data::vault_key::load_master_key(&key_path(&store))
+            .expect("recuperar a chave")
+            .master;
+        let foreign = crypto::device_hash_for_identifier("NOME-ANTIGO-DO-PC");
+        crate::data::vault_key::store_master_key(&key_path(&store), &master, &foreign)
+            .expect("gravar .key com identificador velho");
+
+        // Pré-condição: sem o DPAPI, esse .key já não abre.
+        assert!(
+            master_key_without_dpapi_blob(&key_path(&store)).is_none(),
+            "o teste não montou o estado que queria"
+        );
+
+        // Um boot normal: o DPAPI abre e nada parece errado.
+        let reopened = AccountStore::new(store.file_path.clone());
+        reopened.load().expect("abrir pelo DPAPI");
+        assert_eq!(reopened.get_all().unwrap()[0].user_id, 77);
+
+        // O que este teste protege: o blob do aparelho tem que ter sido
+        // regravado com o identificador de agora.
+        assert_eq!(
+            master_key_without_dpapi_blob(&key_path(&store)).as_deref(),
+            Some(master.as_slice()),
+            "o embrulho do aparelho continuou preso ao identificador velho"
+        );
+    }
+
+    /// **Quebra 1, a filha da correção do Critical 1.** O `.key` que **existe mas
+    /// não abre** é pior que o que falta: só `!exists` era conferido, então um
+    /// `.key` vazio/truncado (queda de energia, `ENOSPC`, antivírus prendendo
+    /// handle entre o write e o rename) passava o dia inteiro sem ninguém notar —
+    /// o master está na memória — e só aparecia no boot seguinte, como lockout.
+    ///
+    /// E a janela para isso ficou **por boot** em vez de uma vez na vida do
+    /// arquivo, justamente porque a correção do Critical 1 regrava sempre. Esta é
+    /// a rede que faltava embaixo dela.
+    #[test]
+    fn a_save_repairs_a_key_file_that_exists_but_no_longer_opens() {
+        let store = vault("key-corrupt");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Antes".to_string(), 1))
+            .expect("primeira conta");
+
+        // Queda de energia no meio da regravação: o arquivo ficou, o conteúdo não.
+        fs::write(key_path(&store), b"").unwrap();
+        assert!(key_path(&store).exists(), "o arquivo continua existindo");
+        assert!(
+            crate::data::vault_key::load_master_key(&key_path(&store)).is_none(),
+            "o teste não montou um .key ilegível"
+        );
+
+        store
+            .add(Account::new("cookie".to_string(), "Depois".to_string(), 2))
+            .expect("gravar com o .key ilegível");
+
+        assert!(
+            crate::data::vault_key::load_master_key(&key_path(&store)).is_some(),
+            "a gravação não reparou o .key ilegível"
+        );
+        let reopened = AccountStore::new(store.file_path.clone());
+        reopened.load().expect("reabrir depois do reparo");
+        assert_eq!(reopened.get_all().unwrap().len(), 2);
+    }
+
+    /// **Quebra 1, segunda metade.** `eprintln!` numa build GUI não vai a lugar
+    /// nenhum. Quando o reparo do `.key` não é possível, o usuário tem que ficar
+    /// sabendo **no dia em que o arquivo fica ruim**, não no boot seguinte.
+    #[test]
+    fn a_key_file_that_cannot_be_repaired_raises_a_warning_for_the_ui() {
+        let store = vault("key-warning");
+        store.load().expect("abrir vault novo");
+        assert!(store.vault_key_warning().is_none(), "nasceu avisando");
+
+        // Um diretório no lugar do `.key`: ilegível **e** impossível de regravar.
+        fs::remove_file(key_path(&store)).unwrap();
+        fs::create_dir(key_path(&store)).unwrap();
+
+        // A gravação continua funcionando — travá-la deixaria o usuário sem poder
+        // cadastrar conta, e isso não devolve a chave.
+        store
+            .add(Account::new("cookie".to_string(), "Mesmo assim".to_string(), 9))
+            .expect("a gravação não pode parar por causa do .key");
+
+        let warning = store
+            .vault_key_warning()
+            .expect("a falha não chegou a lugar que a UI possa ler");
+        // Estruturado, não frase pronta: é o que permite a UI traduzir.
+        // Qual das duas variantes de "writeFailed" depende de como o SO reporta
+        // um diretório no lugar do arquivo (no Windows vem como acesso negado, que
+        // e indistinguivel de antivirus segurando o handle). O que este teste
+        // garante e que a falha **chega** a UI.
+        assert!(
+            warning.code.starts_with("writeFailed"),
+            "codigo inesperado: {}", warning.code
+        );
+        assert_eq!(warning.path, key_path(&store).display().to_string());
+        let dump = format!("{:?}", warning);
+        assert!(!dump.contains("cookie"), "segredo no aviso: {dump}");
+
+        let _ = fs::remove_dir(key_path(&store));
+    }
+
+    /// **Quebra 2 da 3a rodada.** O reparo perguntava "abre?", não "abre para a
+    /// chave **desta sessão**?". Pasta de dados em OneDrive/Dropbox (ou portátil
+    /// sincronizado): o `.key` volta a uma versão anterior e o vault fica novo →
+    /// `load_master_key` devolve `Some(master antigo)`, nenhum reparo acontece, o
+    /// vault segue sendo gravado com o master da sessão, e o boot seguinte pede
+    /// uma senha que nunca existiu.
+    #[test]
+    fn a_save_repairs_a_key_file_that_holds_a_different_master_key() {
+        let store = vault("key-wrong-master");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Antes".to_string(), 1))
+            .expect("primeira conta");
+
+        // A sincronização de nuvem trouxe de volta um `.key` mais antigo: ele
+        // **abre**, mas entrega outra chave mestra.
+        let stale_master = crate::data::vault_key::generate_master_key();
+        crate::data::vault_key::store_master_key(
+            &key_path(&store),
+            &stale_master,
+            &crypto::primary_device_hash(),
+        )
+        .expect("plantar .key de outra chave");
+        assert!(
+            crate::data::vault_key::load_master_key(&key_path(&store)).is_some(),
+            "o teste precisa de um .key que ABRE, só com a chave errada"
+        );
+
+        store
+            .add(Account::new("cookie".to_string(), "Depois".to_string(), 2))
+            .expect("gravar");
+
+        // O `.key` tem que ter voltado a ser o desta sessão.
+        let now = crate::data::vault_key::load_master_key(&key_path(&store))
+            .expect("o .key tem que abrir")
+            .master;
+        assert_ne!(
+            now, stale_master,
+            "o .key continuou com a chave errada: o próximo boot pediria uma senha inexistente"
+        );
+
+        let reopened = AccountStore::new(store.file_path.clone());
+        reopened.load().expect("reabrir");
+        assert_eq!(reopened.get_all().unwrap().len(), 2);
+    }
+
+    /// **Quebra 4 da 3a rodada.** "Ilegível agora" não é "corrompido". Antivírus
+    /// segurando o handle por um instante não pode disparar o aviso mais
+    /// assustador que existe sobre um arquivo perfeito — alarme falso treina o
+    /// dono a ignorar alarme, e aí a rede da Quebra 1 não vale nada.
+    /// **N1: a rede não pode se desligar sozinha.** O braço "o `.key` está
+    /// saudável" limpava o slot **inteiro**, inclusive avisos que falam do
+    /// `AccountData.json` — e limpava **antes** de a gravação acontecer.
+    ///
+    /// Sequência que apagava a única rede: a migração falha → faixa vermelha
+    /// "continua em texto puro" → qualquer gravação seguinte entra em
+    /// `save_locked`, o `.key` está perfeito → aviso apagado → a gravação falha de
+    /// novo. E essa "gravação seguinte" pode ser um ciclo de Auto Rejoin, sem o
+    /// dono clicar em nada.
+    #[test]
+    fn a_healthy_key_file_does_not_erase_a_warning_about_the_account_file() {
+        let store = vault("scoped-clear");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Antes".to_string(), 1))
+            .unwrap();
+
+        // Aviso sobre o **vault**, não sobre a chave.
+        store.set_key_warning(VaultKeyWarning::migration_failed(
+            &store.file_path,
+            "tmp bloqueado",
+        ));
+
+        // O `.key` está perfeito, então o braço saudável roda — e não pode levar
+        // embora um aviso que não é dele.
+        store.clear_key_warning_for(&key_path(&store));
+
+        let warning = store
+            .vault_key_warning()
+            .expect("o aviso do vault foi apagado pelo braço do .key");
+        assert_eq!(warning.code, "migrationFailed");
+
+        // Só o escopo do próprio arquivo limpa.
+        store.clear_key_warning_for(&store.file_path);
+        assert!(store.vault_key_warning().is_none());
+    }
+
+    /// **O mesmo defeito do N1, num segundo sítio.** `refresh_key_file` também
+    /// limpava sem escopo, e também **antes** de a gravação do vault acontecer:
+    /// com `migrationFailed` no slot, bastava um save cujo `.key` não guardasse o
+    /// master atual para a faixa vermelha sumir — e se a gravação falhasse em
+    /// seguida, o dono ficava com o arquivo legível e **sem faixa**.
+    ///
+    /// A invariante é: **nenhum caminho limpa aviso de escopo alheio.**
+    #[test]
+    fn repairing_the_key_file_does_not_erase_a_warning_about_the_account_file() {
+        let store = vault("refresh-scoped-clear");
+        store.load().expect("abrir vault novo");
+
+        store.set_key_warning(VaultKeyWarning::migration_failed(
+            &store.file_path,
+            "a migração falhou antes",
+        ));
+
+        // O reparo do `.key` dá certo — e não pode levar junto o aviso do vault.
+        let master = crate::data::vault_key::load_master_key(&key_path(&store))
+            .expect("recuperar a chave")
+            .master;
+        assert!(store.refresh_key_file(&master), "o reparo tinha que dar certo");
+
+        let warning = store
+            .vault_key_warning()
+            .expect("o reparo do .key apagou o aviso do AccountData.json");
+        assert_eq!(warning.code, "migrationFailed");
+    }
+
+    /// **N2: nunca rebaixar gravidade.** O slot é único e last-write-wins, e os
+    /// dois avisos co-ocorrem no mesmo tipo de volume (share de rede, FS de
+    /// nuvem): `writeFailed` (vermelho, "faça backup agora") virava
+    /// `syncUnconfirmed` (âmbar) 26 linhas depois, no mesmo save.
+    #[test]
+    fn a_mild_warning_never_replaces_a_severe_one() {
+        let store = vault("severity");
+        let key = key_path(&store);
+
+        store.set_key_warning(VaultKeyWarning::write_failed(&key, "disco cheio", false));
+        store.set_key_warning(VaultKeyWarning::sync_unconfirmed(&store.file_path));
+        assert_eq!(
+            store.vault_key_warning().unwrap().code,
+            "writeFailed",
+            "aviso grave foi rebaixado para âmbar"
+        );
+
+        // `migrationFailed` também é grave, e um âmbar não o encobre.
+        store.clear_key_warning();
+        store.set_key_warning(VaultKeyWarning::migration_failed(&store.file_path, "x"));
+        store.set_key_warning(VaultKeyWarning::weak_wrapper(&key));
+        assert_eq!(store.vault_key_warning().unwrap().code, "migrationFailed");
+
+        // Grave **sobre** grave troca (a informação mais recente vale).
+        store.set_key_warning(VaultKeyWarning::write_failed(&key, "outro", false));
+        assert_eq!(store.vault_key_warning().unwrap().code, "writeFailed");
+
+        // E âmbar sobre âmbar também troca: nada fica preso.
+        store.clear_key_warning();
+        store.set_key_warning(VaultKeyWarning::weak_wrapper(&key));
+        store.set_key_warning(VaultKeyWarning::sync_unconfirmed(&store.file_path));
+        assert_eq!(store.vault_key_warning().unwrap().code, "syncUnconfirmed");
+    }
+
+    /// Uma gravação bem-sucedida e cifrada resolve o `migrationFailed`: o arquivo
+    /// deixou de estar em texto puro. Mas só **depois** de dar certo.
+    #[test]
+    fn a_successful_encrypted_save_resolves_the_plain_text_warning() {
+        let store = vault("resolve-migration");
+        store.load().expect("abrir vault novo");
+        store.set_key_warning(VaultKeyWarning::migration_failed(
+            &store.file_path,
+            "falhou antes",
+        ));
+
+        store
+            .add(Account::new("cookie".to_string(), "Depois".to_string(), 2))
+            .expect("gravar");
+
+        assert!(
+            crypto::is_encrypted(&fs::read(&store.file_path).unwrap()),
+            "o teste precisa de uma gravação cifrada de verdade"
+        );
+        assert!(
+            store.vault_key_warning().is_none(),
+            "o arquivo está cifrado agora; o aviso de texto puro tinha que sair"
+        );
+    }
+
+    #[test]
+    fn a_healthy_save_clears_a_warning_that_was_left_over() {
+        let store = vault("key-transient");
+        store.load().expect("abrir vault novo");
+
+        store.set_key_warning(VaultKeyWarning::weak_wrapper(&key_path(&store)));
+        assert!(store.vault_key_warning().is_some());
+
+        store
+            .add(Account::new("cookie".to_string(), "Limpa".to_string(), 8))
+            .expect("gravar");
+
+        assert!(
+            store.vault_key_warning().is_none(),
+            "gravação saudável não limpou o aviso antigo"
+        );
+    }
+
+    /// **O fail-open mais grave que sobrou.** Quando a migração falha fora do
+    /// `.key` — a cópia de segurança ou a regravação —, o app subia normal, a tela
+    /// dizia "Device Key", e o `AccountData.json` continuava em **texto puro** com
+    /// o cookie de todas as contas, sem um sinal em lugar nenhum: o `Err` do
+    /// `load()` morria num `eprintln!`, o `load_failed` já tinha sido limpo e
+    /// `needs_password()` era `false`.
+    #[test]
+    fn a_failed_migration_warns_that_the_account_file_is_still_plain_text() {
+        let store = vault("migration-fails");
+        let plain = serde_json::to_vec(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, &plain).unwrap();
+        // Diretório no lugar do `.json.bak`: a cópia de segurança vai falhar, e sem
+        // cópia a migração **aborta** (regra da tarefa).
+        fs::create_dir(bak_path(&store)).unwrap();
+
+        let err = store.load().expect_err("a migração tem que falhar");
+
+        // 1. O arquivo ficou **inteiro**, em texto puro.
+        assert_eq!(fs::read(&store.file_path).unwrap(), plain);
+        // 2. E as contas foram carregadas (o usuário continua usando o app).
+        assert_eq!(store.get_all().unwrap().len(), 2);
+        // 3. O que este teste protege: existe aviso para a UI mostrar.
+        let warning = store
+            .vault_key_warning()
+            .expect("a migração falhou calada: o arquivo ficou em texto puro sem sinal nenhum");
+        assert_eq!(warning.code, "migrationFailed");
+        assert_eq!(warning.path, store.file_path.display().to_string());
+        assert!(!err.is_empty());
+        assert!(
+            !format!("{:?}", warning).contains("_|WARNING"),
+            "segredo no aviso"
+        );
+
+        let _ = fs::remove_dir(bak_path(&store));
+    }
+
+    /// **Fail-open na guarda que protege a única cópia da chave.**
+    /// `is_encrypted().unwrap_or(false)` fazia "não consegui saber" virar "não
+    /// existe vault", e é essa guarda que decide se uma chave mestra nova pode ser
+    /// sorteada por cima da antiga.
+    #[test]
+    fn not_knowing_whether_a_vault_exists_counts_as_it_existing() {
+        let store = vault("fail-safe-guard");
+        // Um diretório no lugar do vault: `is_encrypted()` devolve `Err`.
+        fs::create_dir(&store.file_path).unwrap();
+
+        assert!(
+            store.is_encrypted().is_err(),
+            "o teste precisa de um vault ilegível"
+        );
+        assert!(
+            store.vault_may_hold_data(),
+            "não saber se existe vault cifrado tem que contar como 'existe'"
+        );
+
+        let _ = fs::remove_dir(&store.file_path);
+        // E o caminho normal continua respondendo a verdade.
+        assert!(!store.vault_may_hold_data(), "sem arquivo, não há o que perder");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "X".to_string(), 1))
+            .unwrap();
+        assert!(store.vault_may_hold_data(), "agora há vault cifrado");
+    }
+
+    /// **Aviso grudado.** Depois de definir senha o `.key` é apagado, então um
+    /// aviso sobre ele é falso alarme — e nenhum caminho de sessão-com-senha
+    /// alcançava o `clear_key_warning`, então a faixa vermelha ficava na tela o
+    /// resto da sessão apontando para um arquivo que não existe mais.
+    #[test]
+    fn setting_a_password_clears_a_warning_about_a_key_that_no_longer_matters() {
+        let store = vault("warning-sticks");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Antes".to_string(), 1))
+            .unwrap();
+        store.set_key_warning(VaultKeyWarning::write_failed(
+            &key_path(&store),
+            "acesso negado",
+            false,
+        ));
+        assert!(store.vault_key_warning().is_some());
+
+        store
+            .set_password(Some("senha-bem-comprida"))
+            .expect("definir senha");
+
+        assert!(!key_path(&store).exists(), "o .key tinha que ter saído");
+        assert!(
+            store.vault_key_warning().is_none(),
+            "faixa vermelha ficou apontando para um .key que acabou de ser apagado"
+        );
+    }
+
+    /// O canal que existe para observar falhas não pode falhar sem ser observado:
+    /// com o mutex envenenado, `if let Ok(..)` descartava a escrita e
+    /// `.lock().ok()` respondia "tudo em ordem".
+    #[test]
+    fn a_poisoned_warning_mutex_still_reports_the_warning() {
+        let store = vault("poisoned-warning");
+        let path = key_path(&store);
+
+        let _ = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _guard = store.key_warning.lock().unwrap();
+                    panic!("envenena o mutex de propósito");
+                })
+                .join()
+        });
+        assert!(
+            store.key_warning.lock().is_err(),
+            "o teste precisa do mutex envenenado"
+        );
+
+        store.set_key_warning(VaultKeyWarning::weak_wrapper(&path));
+        let warning = store
+            .vault_key_warning()
+            .expect("mutex envenenado não pode virar 'tudo em ordem'");
+        assert_eq!(warning.code, "weakWrapper");
+
+        store.clear_key_warning();
+        assert!(store.vault_key_warning().is_none());
+    }
+
+    /// **Quebra 3 da 3a rodada.** A inversão do latch trancou o único caminho que
+    /// devia recarregar: um `AccountData.json` em texto puro restaurado de backup
+    /// passa por `migrate_plain_vault` → `save_locked`, e o próprio latch recusava.
+    /// O dono recebia "não foi possível reler" **depois** de a leitura funcionar.
+    ///
+    /// A regra: o latch existe para impedir que memória **velha** sobrescreva o
+    /// arquivo; depois de um `load()` bem-sucedido a memória **é** o arquivo.
+    #[test]
+    fn a_locked_store_can_still_reload_and_migrate_a_restored_plain_vault() {
+        let store = vault("restore-plain-migrates");
+        let plain = serde_json::to_vec(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, &plain).unwrap();
+
+        // Foi o que a restauração fez: trancou antes de qualquer releitura.
+        store.lock_writes_until_restart("o arquivo de contas foi restaurado");
+
+        store
+            .load()
+            .expect("reler um vault restaurado em texto puro tem que funcionar");
+
+        // Migrou de verdade, não só leu.
+        assert!(
+            crypto::is_encrypted(&fs::read(&store.file_path).unwrap()),
+            "leu mas não migrou"
+        );
+        assert_eq!(store.get_all().unwrap().len(), 2);
+        // E a gravação está liberada, porque a memória é o arquivo.
+        store
+            .add(Account::new("cookie".to_string(), "Nova".to_string(), 3))
+            .expect("depois de reler, pode gravar");
+    }
+
+    /// **Quebra 5 da 3a rodada.** A criação do `.key` no **primeiro boot** (e em
+    /// `set_password(None)`) descartava o `StoredKeyHealth` e, quando falhava,
+    /// morria num `eprintln!` do `lib.rs` — o padrão que a Quebra 1 mandou matar.
+    #[test]
+    fn a_first_boot_that_cannot_create_the_key_file_warns_instead_of_going_silent() {
+        let store = vault("first-boot-no-key");
+        // Diretório no lugar do `.key`: a criação vai falhar.
+        fs::create_dir(key_path(&store)).unwrap();
+
+        let err = store.load().expect_err("não deve dizer que deu tudo certo");
+
+        assert!(
+            err.to_lowercase().contains("key file"),
+            "o erro não explica o que falhou: {err}"
+        );
+        assert!(
+            store.vault_key_warning().is_some(),
+            "o primeiro boot falhou calado: nada para a UI mostrar"
+        );
+        let warning = store.vault_key_warning().unwrap();
+        assert!(warning.code.starts_with("writeFailed"), "{}", warning.code);
+        assert!(!warning.path.is_empty());
+
+        let _ = fs::remove_dir(key_path(&store));
+    }
+
+    /// **Quebra 5.** `.key` que abre mas não é o deste vault não é só órfão de
+    /// `set_password`: quem copia um `AccountData.json` antigo por cima, ou
+    /// restaura um vault de um zip com a chave de outro, cai aqui **sem nunca ter
+    /// tido senha**. Pedir senha e parar é um beco sem saída.
+    #[test]
+    fn a_vault_locked_by_another_device_key_says_how_to_get_out() {
+        let store = vault("foreign-master");
+        // Vault cifrado por **outra** chave mestra, com um `.key` local válido.
+        let other_master = crate::data::vault_key::generate_master_key();
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        fs::write(
+            &store.file_path,
+            crypto::encrypt(
+                &json,
+                &crate::data::vault_key::master_password_hash(&other_master),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        crate::data::vault_key::store_master_key(
+            &key_path(&store),
+            &crate::data::vault_key::generate_master_key(),
+            &crypto::primary_device_hash(),
+        )
+        .unwrap();
+
+        let err = store.load().expect_err("não abre");
+
+        assert!(err.contains("Password required"), "{err}");
+        assert!(
+            err.contains(&key_path(&store).display().to_string()),
+            "não diz qual arquivo de chave restaurar: {err}"
+        );
+        assert!(
+            err.to_lowercase().contains("never set a password"),
+            "não cobre quem nunca definiu senha: {err}"
+        );
+        assert!(
+            err.contains("Nothing was deleted or overwritten"),
+            "não tranquiliza sobre o arquivo: {err}"
+        );
+    }
+
+    /// **Quebra 4.** O `.json.rekey.bak` era cópia cifrada pela chave do aparelho
+    /// com o `.key` apagado em seguida: nunca mais abria, ninguém limpava, nada
+    /// avisava — o "arquivo com cara de backup que não abre com nada" que o
+    /// próprio M7 usou como argumento. Não se cria mais, e sobra antiga é limpa.
+    #[test]
+    fn setting_a_password_leaves_no_dead_rekey_backup_behind() {
+        let store = vault("no-dead-backup");
+        let plain = serde_json::to_vec(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, &plain).unwrap();
+        store.load().expect("migrar");
+
+        // Sobra de uma versão anterior do app: tem que sair de cena.
+        let stale = store.file_path.with_extension("json.rekey.bak");
+        fs::write(&stale, b"copia-cifrada-que-nao-abre-mais").unwrap();
+
+        store
+            .set_password(Some("senha-bem-comprida"))
+            .expect("definir senha");
+
+        assert!(
+            !stale.exists(),
+            "deixou um backup que não abre com nada: {}",
+            stale.display()
+        );
+        // E a cópia que **abre** (texto puro, da migração) continua lá.
+        assert_eq!(fs::read(bak_path(&store)).unwrap(), plain);
+    }
+
+    /// **Important 2.** O `.key` apagado com o app rodando (antivírus, limpeza de
+    /// disco) não pode virar um dia inteiro de gravações que ninguém mais abre —
+    /// contaminando também todo backup automático criado depois.
+    #[test]
+    fn a_save_puts_back_a_key_file_that_vanished_while_the_app_was_running() {
+        let store = vault("key-vanished");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Antes".to_string(), 1))
+            .expect("primeira conta");
+
+        // O antivírus passa.
+        fs::remove_file(key_path(&store)).unwrap();
+        assert!(!key_path(&store).exists());
+
+        store
+            .add(Account::new("cookie".to_string(), "Depois".to_string(), 2))
+            .expect("gravar depois de perder o .key");
+
+        assert!(
+            key_path(&store).exists(),
+            "a gravação não recolocou o arquivo de chave"
+        );
+
+        // E o que ficou no disco abre de verdade num processo novo.
+        let reopened = AccountStore::new(store.file_path.clone());
+        reopened.load().expect("reabrir depois do sumiço");
+        assert_eq!(reopened.get_all().unwrap().len(), 2);
+    }
+
+    /// **Important 1 / M6.** Restaurar backup deixa a memória velha: o segredo da
+    /// sessão não é mais o do arquivo em disco. Gravar aí (um launch já chama
+    /// `mark_used`) cifra o vault restaurado com o segredo antigo e o próximo
+    /// boot não abre. Toda gravação tem que ser recusada até reiniciar.
+    #[test]
+    fn a_restore_latch_refuses_every_write_until_the_app_restarts() {
+        let store = vault("restore-latch");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Original".to_string(), 5))
+            .expect("adicionar");
+        let on_disk = fs::read(&store.file_path).unwrap();
+
+        store.lock_writes_until_restart("AccountData.json foi restaurado de um backup");
+
+        let err = store
+            .add(Account::new("cookie".to_string(), "Nova".to_string(), 6))
+            .expect_err("gravação depois de restaurar tem que ser recusada");
+        assert!(err.to_lowercase().contains("restart"), "{err}");
+        assert_eq!(
+            fs::read(&store.file_path).unwrap(),
+            on_disk,
+            "o arquivo restaurado foi sobrescrito"
+        );
+        // mark_used é o caminho do launch, e é por ele que o bug apareceria.
+        assert!(store.mark_used(5).is_err());
+        assert!(store.save().is_err());
+
+        // **Quebra 3.** "Somente leitura" tem que ser literal: o latch é lido na
+        // **entrada** de `set_password`, não só lá no fundo do `save_locked`.
+        // Antes, ele já mexia em arquivo (cópia, e a regravação do `.key` no caso
+        // `None`) antes de descobrir que não podia gravar.
+        let key_before = fs::read(key_path(&store)).unwrap();
+        assert!(store.set_password(Some("senha-bem-comprida")).is_err());
+        assert!(store.set_password(None).is_err());
+        assert_eq!(fs::read(&store.file_path).unwrap(), on_disk);
+        assert_eq!(
+            fs::read(key_path(&store)).unwrap(),
+            key_before,
+            "set_password regravou o .key mesmo com a gravação trancada"
+        );
+        assert!(
+            !store.file_path.with_extension("json.rekey.bak").exists(),
+            "set_password deixou cópia mesmo com a gravação trancada"
+        );
+    }
+
+    /// **Quebra 2.** Restaurar um backup e **não** trancar a gravação desfaz a
+    /// restauração em silêncio: um launch grava a lista de antes com o segredo da
+    /// sessão, e o arquivo continua abrindo, então o usuário só descobre pelas
+    /// contas velhas. O default passou a ser **trancado**, e só o caminho que
+    /// realmente releu o arquivo destranca — assim um ramo novo nasce seguro.
+    #[test]
+    fn a_restore_that_touches_the_accounts_files_locks_writes_by_default() {
+        // A decisão de **quais** arquivos trancam mora em `commands/backups.rs`
+        // (`restore_touches_accounts`), com teste lá. Aqui se garante o par
+        // lock/unlock do store, que é o que dá dente à decisão.
+        let store = vault("restore-default-locked");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Antes".to_string(), 3))
+            .expect("adicionar");
+
+        store.lock_writes_until_restart("restaurado de um backup");
+        assert!(store.save().is_err(), "o default tem que ser trancado");
+
+        store.allow_writes_after_reload();
+        store
+            .add(Account::new("cookie".to_string(), "Depois".to_string(), 4))
+            .expect("depois de reler de verdade, pode gravar");
+        assert_eq!(store.get_all().unwrap().len(), 2);
+    }
+
+    /// **M5.** A mensagem de pânico não pode mandar restaurar um arquivo que
+    /// nunca existiu: numa instalação que nasceu cifrada não há `.json.bak`.
+    #[test]
+    fn the_locked_vault_message_only_points_at_a_backup_that_exists() {
+        let store = vault("message-no-bak");
+        let foreign = crypto::device_hash_for_identifier("aparelho-que-nao-existe-mais");
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        fs::write(
+            &store.file_path,
+            crypto::encrypt(&json, &foreign).unwrap(),
+        )
+        .unwrap();
+        let device_blob = crypto::encrypt(&"00".repeat(32), &foreign).unwrap();
+        fs::write(
+            key_path(&store),
+            serde_json::json!({ "v": 1, "device": hex_for_test(&device_blob) }).to_string(),
+        )
+        .unwrap();
+
+        // Sem `.json.bak` no disco, a mensagem não pode citá-lo.
+        assert!(!bak_path(&store).exists());
+        let err = store.load().expect_err("não abre");
+        assert!(
+            !err.contains(".json.bak"),
+            "mandou restaurar um arquivo que não existe: {err}"
+        );
+        assert!(err.contains("backup"), "ainda tem que falar de backup: {err}");
+
+        // Com o `.json.bak` presente, o caminho dele é a informação mais útil.
+        fs::write(bak_path(&store), b"[]").unwrap();
+        let err = store.load().expect_err("não abre");
+        assert!(err.contains(".json.bak"), "{err}");
+    }
+
+    /// **M7.** O `.json.bak` da migração é a única cópia realmente recuperável
+    /// (texto puro). Definir senha não pode trocá-la por uma cópia cifrada cuja
+    /// chave é apagada em seguida.
+    #[test]
+    fn setting_a_password_keeps_the_plain_text_migration_backup_intact() {
+        let store = vault("bak-not-clobbered");
+        let plain = serde_json::to_vec(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, &plain).unwrap();
+        store.load().expect("migrar");
+        assert_eq!(fs::read(bak_path(&store)).unwrap(), plain);
+
+        store
+            .set_password(Some("senha-bem-comprida"))
+            .expect("definir senha");
+
+        assert_eq!(
+            fs::read(bak_path(&store)).unwrap(),
+            plain,
+            "o .json.bak em texto puro foi trocado por uma cópia cifrada sem chave"
+        );
+    }
+
+    /// **M9.** Morrer entre gravar o vault com a senha e apagar o `.key` deixa um
+    /// `.key` órfão. Quem só precisa digitar a senha não pode ver "a chave deste
+    /// aparelho não pôde ser recuperada" — e o órfão tem que sair de cena quando
+    /// a senha provar que o vault é de senha.
+    #[test]
+    fn an_orphan_key_file_does_not_disguise_a_password_vault() {
+        let store = vault("orphan-key");
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        let encrypted =
+            crypto::encrypt(&json, &crypto::hash_password("senha-bem-comprida")).unwrap();
+        fs::write(&store.file_path, &encrypted).unwrap();
+        // `.key` válido para este aparelho, mas que não abre este vault.
+        crate::data::vault_key::store_master_key(
+            &key_path(&store),
+            &crate::data::vault_key::generate_master_key(),
+            &crypto::primary_device_hash(),
+        )
+        .unwrap();
+
+        let err = store.load().expect_err("não abre sem a senha");
+        assert!(
+            err.contains("Password required"),
+            "com um .key órfão a mensagem culpou a chave em vez de pedir a senha: {err}"
+        );
+
+        store
+            .load_with_password("senha-bem-comprida")
+            .expect("a senha tem que abrir");
+        assert!(
+            !key_path(&store).exists(),
+            "o .key órfão continuou em disco depois de a senha provar que é vault de senha"
+        );
+    }
+
+    /// Senha errada e "`.key` apagado pelo antivírus" são o mesmo estado em
+    /// disco. A mensagem do unlock tem que citar o arquivo de chave, senão quem
+    /// nunca teve senha fica tentando senhas para sempre.
+    #[test]
+    fn a_failed_unlock_without_a_key_file_points_at_the_missing_key() {
+        let store = vault("missing-key-hint");
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        let encrypted =
+            crypto::encrypt(&json, &crypto::hash_password("senha-bem-comprida")).unwrap();
+        fs::write(&store.file_path, &encrypted).unwrap();
+
+        let err = store
+            .load_with_password("senha-errada-mesmo")
+            .expect_err("senha errada tem que falhar");
+
+        assert!(err.contains("Failed to decrypt"), "{err}");
+        assert!(
+            err.contains(&key_path(&store).display().to_string()),
+            "a mensagem não cita o caminho do arquivo de chave: {err}"
+        );
+        assert!(
+            err.contains("device key file is missing"),
+            "a mensagem não explica o segundo motivo: {err}"
+        );
+        assert!(
+            !err.contains("_|WARNING") && !err.contains("senha-errada-mesmo"),
+            "segredo na mensagem de erro: {err}"
+        );
+        assert_eq!(fs::read(&store.file_path).unwrap(), encrypted);
+    }
+
+    /// "Importar backup encriptado por padrão (sem senha) tem que funcionar."
+    ///
+    /// O backup do app leva o `AccountData.key` junto com o `AccountData.json`
+    /// (`DATA_FILES`), e é justamente por isso que isto funciona: o vault é
+    /// cifrado por uma chave mestra aleatória, então sem a chave do backup
+    /// nenhuma senha do mundo abre o arquivo. O teste reproduz o par restaurado.
+    #[test]
+    fn a_default_encrypted_export_imports_back_without_a_password() {
+        let source = vault("import-device-encrypted");
+        source.load().expect("abrir vault novo");
+        source
+            .add(Account::new(
+                "cookie".to_string(),
+                "Exportada".to_string(),
+                42,
+            ))
+            .expect("adicionar");
+        let exported = fs::read(&source.file_path).unwrap();
+        let exported_key = fs::read(key_path(&source)).unwrap();
+        assert!(crypto::is_encrypted(&exported));
+
+        let target = vault("import-device-target");
+        // Restaurar é colocar os **dois** arquivos de volta.
+        fs::write(key_path(&target), &exported_key).unwrap();
+        target.load().expect("abrir vault novo");
+
+        let summary = target
+            .import_old_account_data(&exported, None)
+            .expect("importar sem senha");
+
+        assert_eq!(summary.added, 1);
+        assert_eq!(target.get_all().unwrap()[0].user_id, 42);
+    }
+
+    /// E o contrário: um vault cifrado por outra chave mestra **não** abre. A
+    /// mensagem é `IMPORT_PASSWORD_REQUIRED` (a UI pede a senha), não um import
+    /// silencioso de zero contas.
+    #[test]
+    fn an_export_from_another_install_is_not_imported_silently() {
+        let foreign_master = crate::data::vault_key::generate_master_key();
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        let foreign_vault = crypto::encrypt(
+            &json,
+            &crate::data::vault_key::master_password_hash(&foreign_master),
+        )
+        .unwrap();
+
+        let target = vault("import-foreign");
+        target.load().expect("abrir vault novo");
+
+        let err = target
+            .import_old_account_data(&foreign_vault, None)
+            .expect_err("não pode importar vault de outra instalação");
+        assert_eq!(err, IMPORT_PASSWORD_REQUIRED);
+        assert!(target.get_all().unwrap().is_empty());
     }
 }

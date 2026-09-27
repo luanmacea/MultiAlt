@@ -200,7 +200,15 @@ export function ImportDialog({
         } catch (e) {
           const errorMessage = String(e);
           if (errorMessage.includes("IMPORT_PASSWORD_REQUIRED")) {
-            const entered = await prompt(t("This AccountData.json is encrypted. Enter its password:"));
+            // Não é só "esqueci a senha": um vault cifrado pela chave do
+            // aparelho de **outra** instalação (ou da mesma antes de uma troca de
+            // método) chega aqui, e nunca teve senha nenhuma. Pedir a senha sem
+            // dizer isso manda o usuário adivinhar uma senha inexistente.
+            const entered = await prompt(
+              t(
+                "This AccountData.json is encrypted. Enter its password — or cancel, if it was never password-protected: a file locked with another installation's device key can only be imported together with that installation's AccountData.key.",
+              ),
+            );
             if (entered === null) {
               setResults([{ text: t("Import cancelled"), ok: false }]);
               return;

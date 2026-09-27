@@ -119,14 +119,31 @@ pub fn forget_remembered_unlock() -> Result<(), String> {
     Ok(())
 }
 
+/// Para a UI, "encrypted" sempre quis dizer **"protegido por senha"** — é isso
+/// que a tela de criptografia mostra e o que o usuário decide ali. Desde que o
+/// vault sem senha também é cifrado (pela chave do aparelho), `is_encrypted()`
+/// deixou de responder essa pergunta: ela é verdadeira nos dois casos. Então o
+/// comando passou a devolver `has_user_password()`; trocar para os bytes do
+/// arquivo faria a tela dizer "Pass Lock" para quem não tem senha nenhuma.
 #[tauri::command]
 pub fn is_accounts_encrypted(state: tauri::State<'_, AccountStore>) -> Result<bool, String> {
-    state.is_encrypted()
+    state.has_user_password()
 }
 
 #[tauri::command]
 pub fn needs_password(state: tauri::State<'_, AccountStore>) -> Result<bool, String> {
     state.needs_password()
+}
+
+/// Problema com o `AccountData.key` que o usuário precisa ver **hoje**.
+///
+/// `eprintln!` numa build GUI não vai a lugar nenhum, e um `.key` ilegível é
+/// justamente o defeito que passa o dia inteiro invisível — a chave mestra está
+/// em memória, tudo funciona — para virar lockout no boot seguinte. Este comando
+/// é o que leva isso à tela.
+#[tauri::command]
+pub fn vault_key_warning(state: tauri::State<'_, AccountStore>) -> Option<VaultKeyWarning> {
+    state.vault_key_warning()
 }
 
 #[tauri::command]

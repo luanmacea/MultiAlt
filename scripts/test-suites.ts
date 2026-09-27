@@ -75,6 +75,8 @@ export const SUITES: Record<string, TestSuite> = {
       "account_api_http_tests",
       "remember_unlock_tests",
       "crypto_tests",
+      "vault_key_tests",
+      "vault_migration_tests",
       "model_tests",
       "data::accounts::tests",
     ],
@@ -83,6 +85,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/dialogs/AddAccountDialog.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
       "src/components/dialogs/ImportDialog.test.tsx",
+      "src/components/layout/VaultKeyBanner.test.tsx",
     ],
   },
   botting: {

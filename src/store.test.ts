@@ -2449,4 +2449,80 @@ describe("browser helpers", () => {
     expect(ok).toBe(true);
     expect(lastArgs("refresh_cookie")).toEqual({ userId: 3 });
   });
+  // Quebra 1 da re-revisao: o aviso do AccountData.key e a UNICA rede contra o
+  // lockout de quem usa a chave do aparelho, e o boot e o unico momento em que o
+  // backend o descobre. O efeito de inicializacao NAO passa por `loadAccounts`
+  // (chama `get_accounts` direto), entao sem uma chamada explicita o aviso nunca
+  // aparecia: quem esta no modo device key pode passar a sessao inteira sem fazer
+  // nenhuma mutacao e sem nunca destrancar por senha.
+  describe("aviso do arquivo de chave", () => {
+    it("consulta o backend no boot, sem depender de nenhuma mutacao", async () => {
+      results.set("vault_key_warning", {
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+        detail: "acesso negado",
+      });
+
+      const { result } = await renderStore();
+
+      expect(invokeCalls("vault_key_warning").length).toBeGreaterThan(0);
+      expect(result.current.vaultKeyWarning).toEqual({
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+        detail: "acesso negado",
+      });
+    });
+
+    it("fica limpo quando o backend nao tem nada a dizer", async () => {
+      const { result } = await renderStore();
+      expect(invokeCalls("vault_key_warning").length).toBeGreaterThan(0);
+      expect(result.current.vaultKeyWarning).toBeNull();
+    });
+
+    // A primeira versao nunca limpava: aviso resolvido ficava na tela para sempre.
+    it("limpa o aviso quando o problema e resolvido", async () => {
+      results.set("vault_key_warning", {
+        code: "weakWrapper",
+        path: "C:\dados\AccountData.key",
+      });
+      const { result } = await renderStore();
+      expect(result.current.vaultKeyWarning?.code).toBe("weakWrapper");
+
+      results.set("vault_key_warning", null);
+      await act(async () => {
+        await result.current.loadAccounts();
+      });
+
+      expect(result.current.vaultKeyWarning).toBeNull();
+    });
+
+    it("nao derruba o boot quando o comando falha", async () => {
+      failures.set("vault_key_warning", "comando ausente");
+      const { result } = await renderStore();
+      expect(result.current.initialized).toBe(true);
+      expect(result.current.vaultKeyWarning).toBeNull();
+    });
+
+    // O caminho que falha e justamente o que pode ter deixado um aviso novo (a
+    // chave que nao pode ser criada). Lendo so no sucesso, o aviso aparecia
+    // somente no proximo boot — depois de o dono ja ter fechado o app achando que
+    // era "deu erro, tento outra vez".
+    it("le o aviso mesmo quando trocar o metodo de criptografia falha", async () => {
+      const { result } = await renderStore();
+      const before = invokeCalls("vault_key_warning").length;
+
+      failures.set("set_encryption_password", "nao deu");
+      results.set("vault_key_warning", {
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+      });
+
+      await act(async () => {
+        await expect(result.current.applyEncryptionMethod("default")).rejects.toBeTruthy();
+      });
+
+      expect(invokeCalls("vault_key_warning").length).toBeGreaterThan(before);
+      expect(result.current.vaultKeyWarning?.code).toBe("writeFailed");
+    });
+  });
 });
