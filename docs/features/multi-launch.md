@@ -101,7 +101,7 @@ Comandos: `get_launch_queue()` (snapshot para montar a UI), `cancel_account_laun
 - Isso é **diferente** do "Close All Roblox" (`cancel_launch` + matar clientes). São ações distintas na UI de propósito. O `cancel_launch` também esvazia a fila na hora, para o painel não ficar mostrando contas que não vão mais entrar.
 - Um lote novo substitui a fila anterior **quando a anterior acabou** (ver abaixo); `launch_roblox` (conta única) alimenta a mesma fila com uma entrada, para a UI ser uniforme.
 
-A interface disso é o **Painel de Sessão** — ver [ui-layout.md](ui-layout.md#painel-de-sessão).
+A interface disso é o **Painel de Sessão** — ver [ui-layout.md](ui-layout.md#painel-de-sessão-sessionpanel).
 
 ## Uma sequência de launch por vez
 

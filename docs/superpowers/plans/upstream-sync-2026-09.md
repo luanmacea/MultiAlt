@@ -268,6 +268,14 @@ fica num arquivo ao lado e o DPAPI é do usuário do Windows. Protege contra
 arquivo copiado, backup vazado e outro usuário no mesmo PC. **Não** protege
 contra malware rodando como o próprio usuário.
 
+> **Correção (27/09/2026) — esta frase do brief estava errada, não a siga.**
+> Backup vazado **não** é protegido: o zip tem que levar o `AccountData.key`
+> (senão não restaura), então quem tem o zip tem a chave e só sobra o embrulho
+> do aparelho, que é fraco. E "arquivo copiado" só vale **sem** o `.key` do
+> lado. O que vale é o que está em
+> [accounts.md](../../features/accounts.md#o-que-essa-proteção-vale-e-o-que-não-vale)
+> e no comentário de `data/vault_key.rs`.
+
 **O que fazer:**
 - `data/vault_key.rs`: chave mestra aleatória de 32 bytes, guardada num arquivo
   `.key` ao lado do vault, embrulhada **de duas formas** — DPAPI

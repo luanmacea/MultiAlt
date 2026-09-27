@@ -101,6 +101,12 @@ O diretório base é a **pasta de dados do usuário**, resolvida uma vez por pro
 | `RobloxVersions/` | `%LOCALAPPDATA%\Roblox Account Manager\` | versões do cliente instaladas | [data/versions.rs](../src-tauri/src/data/versions.rs) `ram_managed_versions_root` |
 | `AccountControlData.json` | pasta de dados | JSON (lista de contas do Nexus) | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) `data_path` |
 | `backups/*.zip` | pasta de dados | zip com os arquivos acima + manifesto | [commands/backups.rs](../src-tauri/src/commands/backups.rs) |
+| `AccountData.json.bak` | pasta de dados | **texto puro, com os cookies legíveis**: a cópia que a migração para o formato cifrado deixa antes de regravar. Não entra no zip de backup; fica até alguém apagar | [data/accounts/store.rs](../src-tauri/src/data/accounts/store.rs) `migrate_plain_vault` — ver [accounts.md](features/accounts.md#migração-de-accountdatajson-em-texto-puro) |
+| `RAMUnlock.bin` | pasta de dados | senha do "lembrar de mim", cifrada pelo DPAPI do usuário, com o prazo dentro do blob; só existe se o usuário marcar a caixa | [data/accounts/remember.rs](../src-tauri/src/data/accounts/remember.rs) |
+| `webview.safemode` | pasta de dados, ao lado do `RAMSettings.ini` | marcador do safe mode de vídeo do WebView2 | [webview_recovery.rs](../src-tauri/src/webview_recovery.rs) — ver [webview-recovery.md](features/webview-recovery.md) |
+| `ServerRegionCache.json` | pasta de dados | cache IP → região dos servidores | [api/roblox/server_regions.rs](../src-tauri/src/api/roblox/server_regions.rs) |
+| `IsolationBackup/` | `%LOCALAPPDATA%/Roblox Account Manager/` (não segue `RAM_DATA_DIR`) | backups de fast flags e `GlobalBasicSettings_13.xml` do isolamento Full | [platform/windows/isolation.rs](../src-tauri/src/platform/windows/isolation.rs) |
+| `chromium/`, `chromium-profiles/` | pasta de dados local do Tauri (`app_local_data_dir`) | Chromium baixado e perfis de login por conta | [chromium/download.rs](../src-tauri/src/chromium/download.rs), [chromium/manager.rs](../src-tauri/src/chromium/manager.rs) |
 
 Regras:
 - Na primeira execução com `%LOCALAPPDATA%` disponível, se existir um `RAMVersions.json` legado ao lado do exe, ele é **copiado** para o novo local.
@@ -163,9 +169,9 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 | `generator-stopped` | [generators.rs](../src-tauri/src/commands/generators.rs) | `{}` | [store.tsx](../src/store.tsx) |
 | `roblox-process-died` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId }` | [store.tsx](../src/store.tsx) |
 | `roblox-low-memory` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, memoryMb }` | [store.tsx](../src/store.tsx) |
-| `roblox-title-mismatch` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, expected }` | [store.tsx](../src/store.tsx) |
-| `roblox-beta-detected` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, title }` | [store.tsx](../src/store.tsx) |
-| `roblox-no-connection` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, timeout }` | [store.tsx](../src/store.tsx) |
+| `roblox-title-mismatch` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, title, expected }` | [store.tsx](../src/store.tsx) |
+| `roblox-beta-detected` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, title }` (macOS: `{ userId, logPath }`) | [store.tsx](../src/store.tsx) |
+| `roblox-no-connection` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, title, timeout }` (o `title` vai em minúsculas; macOS: `{ userId, timeout, logPath }`) | [store.tsx](../src/store.tsx) |
 | `version-install-progress` | [platform/windows/versions.rs](../src-tauri/src/platform/windows/versions.rs) | `{ stage, ... }` | [VersionsDialog.tsx](../src/components/dialogs/VersionsDialog.tsx), [VersionsTab.tsx](../src/components/settings/VersionsTab.tsx), [SingleSelectSidebar.tsx](../src/components/accounts/SingleSelectSidebar.tsx) |
 | `friend-link-state` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `update_friend_link` | `FriendLinkSnapshot` completo: `{ active, phase, processed, total, accounts[{userId,state,error}], mode, mainUserId }` | [store.tsx](../src/store.tsx) → [SessionPanel.tsx](../src/components/session/SessionPanel.tsx), [BottomActionBar.tsx](../src/components/layout/BottomActionBar.tsx). Substituiu o `friend-link-progress`, que era `{phase, done, total}` e contava **pares** na fase de envio |
 | `browser-login-detected` | [chromium/commands.rs](../src-tauri/src/chromium/commands.rs) | `()` | [store.tsx](../src/store.tsx) (extrai cookie e adiciona conta) |
@@ -173,6 +179,15 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 | `nexus-log` | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) | `{ message }` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
 | `nexus-element-created` / `nexus-element-newline` | [server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) | elemento / `{}` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
 | `nexus-account-connected` / `nexus-account-disconnected` | [nexus/websocket/connection.rs](../src-tauri/src/nexus/websocket/connection.rs) | `{ username }` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
+| `launch-queue` | [launch.rs](../src-tauri/src/commands/launch.rs) `emit_launch_queue` | `LaunchQueuePayload`: `{ entries, active, placeId, jobId }` — retrato completo da fila | [store.tsx](../src/store.tsx) → Painel de Sessão ([multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento)) |
+| `roblox-build-install` | [platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs) `emit_build_install` | `{ version, stage, current, total, message }` — download silencioso da build do Roblox | [store.tsx](../src/store.tsx) (linha de `actionStatus`) |
+| `afk-status` / `afk-cycle` / `afk-stopped` | [afk.rs](../src-tauri/src/commands/afk.rs) | `AfkStatusPayload` (`{ active, startedAtMs, intervalMinutes, key, accounts }`) / `{ sent }` / `()` | [store.tsx](../src/store.tsx) ([afk-mode.md](features/afk-mode.md)) |
+| `backup-restored` | [backups.rs](../src-tauri/src/commands/backups.rs) | `RestoreReport` (`backupId`, `safetyBackupId`, `restored`, `skipped`, `accountsReloaded`, `requiresRestart`, `restartReasons`) | [BackupsDialog.tsx](../src/components/dialogs/BackupsDialog.tsx) |
+| `chromium-fallback` | [chromium/download.rs](../src-tauri/src/chromium/download.rs) | `{ browser, error }` — o download falhou e o login vai pelo navegador do sistema | [store.tsx](../src/store.tsx) |
+| `signup-progress` | [chromium/signup_session.rs](../src-tauri/src/chromium/signup_session.rs) | `SignupStatus` (retrato da sessão de criação de contas) | [SignupPanel.tsx](../src/components/signup/SignupPanel.tsx) |
+| `server-scan` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `start_server_scan` | página a página da varredura de servidores | [servers/ServersTab.tsx](../src/components/servers/ServersTab.tsx) |
+| `server-region-progress` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `get_server_regions` | `{ done, total }` | [servers/ServersTab.tsx](../src/components/servers/ServersTab.tsx) |
+| `friends-online-progress` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `get_online_friends_for_accounts` | `{ done, total }` | [FriendsTab.tsx](../src/components/friends/FriendsTab.tsx) |
 
 A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depois que o app está inicializado e desbloqueado (`!needsPassword && initialized`).
 

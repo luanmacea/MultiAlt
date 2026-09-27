@@ -62,6 +62,41 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/ui-layout.md](features/ui-layout.md) — shell da UI, temas/fontes, diálogos, lista de contas, barra de ações, tela "Choose Game".
 - [features/webview-recovery.md](features/webview-recovery.md) — janela abrindo em branco/preta: safe mode de vídeo do WebView2, marcador preso à versão do runtime e tela de erro do React.
 
+## Registro de mudanças (2026-09-27)
+
+**Contas e dados**
+
+1. **`AccountData.json` cifrado sempre**, também sem senha: a chave do aparelho fica em `AccountData.key`, ao lado, embrulhada pelo DPAPI do usuário e por um hash do aparelho. A migração deixa `AccountData.json.bak` **em texto puro** (apague depois de conferir que as contas abrem), o `.key` viaja no zip de backup e restaurar a chave exige reiniciar. Problema com o `.key` vira faixa na tela (`VaultKeyBanner`) — [accounts.md](features/accounts.md#a-chave-do-aparelho-accountdatakey), [backups.md](features/backups.md).
+2. **Import aceita `username:password:cookie`** nas abas Import Cookie e User:Pass, sem navegador — [accounts.md](features/accounts.md#adicionar-contas).
+3. **Alias até 240 caracteres**, com a opção `WrapLongNames` de quebrar em vez de cortar — [accounts.md](features/accounts.md#regras-de-negócio).
+
+**Launch e automação**
+
+4. **Um launch por vez**: a sequência é reservada antes de abrir qualquer cliente e tem dono (geração); parar a fila não prende mais o app na espera entre contas — [multi-launch.md](features/multi-launch.md#uma-sequência-de-launch-por-vez).
+5. **Teto de tempo** em toda chamada HTTP do launch — [launch.md](features/launch.md#teto-de-tempo-das-chamadas-http-do-launch).
+6. **`ClientAppSettings.json` na pasta da versão que a conta vai abrir** (com a limitação sem versão do catálogo descrita lá) — [launch.md](features/launch.md#onde-o-clientappsettingsjson-é-gravado).
+7. **Roblox instalado por Bloxstrap, Fishstrap ou Voidstrap** é encontrado quando não há instalação oficial — [roblox-versions.md](features/roblox-versions.md).
+8. **Auto Rejoin**: é o novo nome do Botting na interface (por dentro continua `botting`); abre a conta na versão configurada dela (old join) e reporta essa versão à guarda de conflito; intervalo até 480 min — [botting.md](features/botting.md).
+9. **AFK mode**: manda uma tecla de tempo em tempo para a janela de cada conta, e só depois de confirmar que a janela do Roblox está na frente — [afk-mode.md](features/afk-mode.md).
+10. **Conflito de versão** diz quais versões estão abertas — [launch.md](features/launch.md#fluxo).
+
+**Interface e base**
+
+11. **Presença com cookie de "viewer"**, para a lista e o Follow terem o `gameId` — [friends.md](features/friends.md#armadilhas--cuidados).
+12. **Servidores recentes** guardam os Job IDs, não só os jogos, e link privado duplo-codificado não aparece mais para todas as contas — [server-list.md](features/server-list.md#servidores-recentes-job-ids).
+13. **Chromium**: caminho manual e, se o download falhar, o navegador do sistema (só nos fluxos de login) — [chromium.md](features/chromium.md#qual-binário-abre-manual-baixado-ou-navegador-do-sistema).
+14. **Janela em branco do WebView2 se conserta sozinha** (safe mode de vídeo), com saída do modo pela própria faixa — [webview-recovery.md](features/webview-recovery.md).
+
+## Registro de mudanças (2026-09-26)
+
+1. **O updater aponta para este repositório**, com chave de assinatura própria (com senha); a release publica só o instalador `.exe`, com MSI e portátil atrás de interruptor — [development.md](development.md#atualizacoes-este-repositorio-com-chave-propria).
+2. **O trabalho vive na `develop`**; a `main` só recebe release (cada push nela publica uma versão) — [CLAUDE.md](../CLAUDE.md).
+3. **Exceções de launch por conta**: a conta principal pode abrir com FPS, volume, qualidade, tela e janela próprios — [launch.md](features/launch.md#exceções-de-launch-por-conta).
+4. **Auto Rejoin adota conta que já está em jogo**, sem relançar — [botting.md](features/botting.md#regras-de-negócio).
+5. **Criação de contas com prefixo** no nome (`arvore` → `arvore_k3p9z`) — [account-creation.md](features/account-creation.md).
+6. **Painel de multi-seleção apagado** (ninguém conseguia abri-lo); ação em lote fica na barra inferior e na Choose Game — [ui-layout.md](features/ui-layout.md#armadilhas--cuidados).
+7. **Letra mínima de 11px** (prosa em 12px), e arrastar grupo pelo punho voltou a funcionar — [development.md](development.md#piso-de-legibilidade-do-texto), [accounts.md](features/accounts.md#regras-de-negócio).
+
 ## Registro de mudanças (2026-09-25)
 
 **Escolher onde o lote entra**
@@ -79,7 +114,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 **Sessão e interface**
 
-8. **Painel de Sessão**: fila de contas entrando (cancelar uma, parar a fila — sem fechar cliente nenhum) e lista de contas em jogo (focar/fechar) — [ui-layout.md](features/ui-layout.md#painel-de-sessão), [multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento).
+8. **Painel de Sessão**: fila de contas entrando (cancelar uma, parar a fila — sem fechar cliente nenhum) e lista de contas em jogo (focar/fechar) — [ui-layout.md](features/ui-layout.md#painel-de-sessão-sessionpanel), [multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento).
 9. **"Lembrar de mim" na tela de senha** (padrão 24 h), com a senha protegida pelo DPAPI do usuário do Windows e prazo dentro do blob cifrado — [authentication.md](features/authentication.md#lembrar-de-mim-na-tela-de-senha).
 10. **Atalhos pedidos**: "x" nos chips de conta da Choose Game, botão de servidores em cada jogo da aba Games, e entrada **Create Accounts** no menu Add.
 

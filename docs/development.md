@@ -26,19 +26,22 @@ Scripts definidos em [package.json](../package.json) e hooks de build em [tauri.
 | `bun run test:coverage` | Idem, com cobertura (v8). |
 | `bun run typecheck` | `tsc --noEmit`. |
 | `bun run test:rust` | `cd src-tauri && cargo test --all-features`. |
-| `bun run check` | Portão único antes de commit/PR: typecheck + testes do frontend + testes do Rust. |
+| `bun run check` | Portão único antes de commit/PR: typecheck + auditoria das suítes (`test:audit`) + testes do frontend + testes do Rust (`cargo test --all-features`). |
 
 ### O que a CI verifica
 
-[.github/workflows/ci.yml](../.github/workflows/ci.yml) (push/PR na branch `v4`, runner Windows):
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) (push e PR nas branches `main` e `develop`, só quando mudam `src/`, `src-tauri/`, `package.json`, `vite.config.ts` ou o próprio workflow; runner Windows, com cache do Rust):
 
 1. `bun install --frozen-lockfile`
-2. `bun run build` com `VITE_ENABLE_NEXUS=true` e `VITE_ENABLE_WEBSERVER=true`
-3. `bun run build` com ambos `false`
-4. `cargo check --locked` (features default)
-5. `cargo check --locked --no-default-features`
+2. `bun run typecheck`
+3. `bun run test` (vitest)
+4. `cargo test --locked --all-features`
+5. `bun run build` com `VITE_ENABLE_NEXUS=true` e `VITE_ENABLE_WEBSERVER=true`
+6. `bun run build` com ambos `false`
+7. `cargo check --locked` (features default)
+8. `cargo check --locked --no-default-features`
 
-Antes de abrir PR, rode ao menos `bun run build` e `cargo check` nas duas configurações.
+A CI **não** roda a auditoria das suítes (`test:audit`) — só o `bun run check` local roda. Antes de commitar, `bun run check`; mudança em feature do Cargo pede também o `cargo check --no-default-features`.
 
 ## Testes
 
@@ -94,7 +97,7 @@ Contorno pontual: gerar um `<exe>.manifest` ao lado do binário em `src-tauri/ta
 
 ### Não coberto por testes
 
-Tudo que depende de Win32/estado global: thread do mutex do Multi Roblox, isolamento pré-launch, cancelamento de launch, guarda de reuso de PID e fechamento de contas bot. Esses continuam exigindo teste manual com o app aberto.
+Tudo que depende de Win32/estado global: thread do mutex do Multi Roblox, isolamento pré-launch, cancelamento de launch, guarda de reuso de PID e fechamento das alts ao parar o Auto Rejoin. Esses continuam exigindo teste manual com o app aberto.
 
 ## Validando a UI no navegador
 
@@ -122,6 +125,10 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 | `console-history` | Linhas de launch, Auto Rejoin e Watcher chegando aos poucos no Console |
 | `groups` | Contas em grupos nomeados (um com prefixo numérico, um com vírgula no nome) para ver cabeçalhos e arrastar a ordem |
 | `launch-queue` | Fila de launch e contas em jogo |
+| `vault-key-warning-locked` | Tela de senha com a faixa vermelha do `.key` (`writeFailed`) — para ver se o rodapé cabe e se a pílula de minimizar/fechar não cobre o texto |
+| `vault-key-warning-setup` | A mesma faixa (`migrationFailed`) na tela de criptografia da primeira execução, onde o rodapé são os botões Continue/Cancel |
+| `afk-mode` | AFK mode desligado, como num INI novo (sem tecla escolhida, intervalo 10, bipe desligado), quatro contas com cliente aberto; no ciclo automático a 2ª volta com `focusDenied` |
+| `afk-mode-running` | AFK mode já rodando ao abrir (há 65 min, ou `&afkSince=<min>`), com uma conta em `focusDenied` e outra sem janela (`noWindow`) |
 
 Um cenário entrega os mesmos dados que o backend entregaria, **inclusive na ordem ruim** — quem tem que se virar é a UI. Ele nunca implementa o comportamento que está sendo testado.
 
@@ -204,7 +211,7 @@ O `RAM_DATA_DIR` não isola tudo: o catálogo de versões (`RAMVersions.json`, `
 ## i18n
 
 - Configuração em [src/i18n/index.ts](../src/i18n/index.ts): idiomas suportados `en`, `de` e `pt` (português do Brasil), fallback `en`, `keySeparator: false` e `nsSeparator: false` — **a chave é a própria frase em inglês**.
-- Arquivos: [en](../src/locales/en/common.json) (1584 chaves, fonte), [pt](../src/locales/pt/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
+- Arquivos: [en](../src/locales/en/common.json) (a fonte; 1695 chaves em 27/09/2026 — o número sobe a cada `i18n:extract`), [pt](../src/locales/pt/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
 - Helpers em [src/i18n/text.ts](../src/i18n/text.ts): `useTr()` (hook), `tr()` (fora de componentes) e `trNode()` (traduz texto dentro de fragments JSX). Ambos usam `defaultValue: text`, então uma chave ausente aparece em inglês.
 - Idioma vem de `General.Language` (normalizado: começa com `de` → `de`; `pt`/`portug` → `pt`; senão `en`). O padrão continua `en` — não há detecção de locale do sistema, de propósito: o app é usado fora do Brasil.
 - [src/i18n/locales.test.ts](../src/i18n/locales.test.ts) trava o contrato do catálogo: `pt` cobre o `en` inteiro na mesma ordem, sem chave inventada nem valor vazio, `{{placeholders}}` idênticos em `pt` e `de`, e nada igual ao inglês fora da lista de jargão (`IDENTICAL_BY_DESIGN`).
@@ -212,8 +219,8 @@ O `RAM_DATA_DIR` não isola tudo: o catálogo de versões (`RAMVersions.json`, `
 ### Glossário pt-BR
 
 - **Botão = infinitivo** ("Adicionar", "Salvar"); **resultado = particípio** ("Conta adicionada", "Job ID copiado"); só a primeira maiúscula em rótulo; tratamento "você".
-- **Não se traduz**: `Roblox`, `Job ID`, `Place ID`, `Universe ID`, `Cookie`, `Fast Flags`, `Web Server`, `Auto Rejoin`, `Nexus`, `Watcher`, `alt`, `place`, `job`, `loop`, `rejoin`, nome de arquivo/caminho/URL/código, nome de tema e de fonte.
-- Termos fixos: account → conta · launch → iniciar · settings → configurações · aged/idle → sem uso · Player Accounts → Contas de jogador · asset → item · General/Developer/Optimization/Misc/Isolation → Geral/Desenvolvedor/Otimização/Diversos/Isolamento.
+- **Não se traduz**: `Roblox`, `Job ID`, `Place ID`, `Universe ID`, `Cookie`, `Fast Flags`, `Web Server`, `Auto Rejoin`, `Nexus`, `Watcher`, `main`, `alt`, `place`, `job`, `loop`, `rejoin`, nome de arquivo/caminho/URL/código, nome de tema e de fonte.
+- Termos fixos: account → conta · launch → iniciar · settings → configurações · aged/idle → sem uso · Main Accounts → Contas main · asset → item · General/Developer/Optimization/Misc/Isolation → Geral/Desenvolvedor/Otimização/Diversos/Isolamento.
 - Rótulo curto (<20 caracteres no inglês) não passa de +30% em português: trunca na tela.
 
 ### Tradução não pode mudar comportamento
@@ -267,7 +274,7 @@ Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das p
 - **Settings no frontend**: leia com `store.settings?.Section?.Key` (sempre string) ou, em telas de configuração, com o hook [useSettings.ts](../src/hooks/useSettings.ts) (`get/getBool/getNumber/set`), que agrupa gravações com debounce de 160 ms.
 - **Erros** do backend são `String`; no frontend vão para `store.setError` (faixa vermelha em [App.tsx](../src/App.tsx)) ou `store.addToast`.
 - **Commits** majoritariamente em português, curtos (ex.: `juste de tempo no join`, `multiplos servidores vips`); também há commits em inglês. Mensagens do log de launch em Rust também estão em português (ex.: `"Alvo resolvido: servidor privado/VIP"` em [launch.rs](../src-tauri/src/commands/launch.rs)).
-- **PRs**: [scripts/pr-flow.ps1](../scripts/pr-flow.ps1) automatiza o fluxo com `gh`; base default `v4`.
+- **PRs**: [scripts/pr-flow.ps1](../scripts/pr-flow.ps1) automatiza o fluxo com `gh`, mas o script ainda tem base default `v4` — branch que **não existe mais** (hoje são `develop` e `main`); passe `-Base develop`. E PR só com pedido do dono (regra de Git do [CLAUDE.md](../CLAUDE.md)).
 
 ## Como adicionar um novo comando Tauri (ponta a ponta)
 

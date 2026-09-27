@@ -49,8 +49,8 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 |---|---|
 | `Quick Add` | Pede cookie **ou** nome de usuário. Com nome de usuário a conta entra **sem sessão** (a tela avisa e a linha fica marcada) — serve só de marcador até você colar o cookie. |
 | `Browser Login` | Abre um navegador embutido para você logar normalmente. É o caminho mais seguro. |
-| `User:Pass Login` | Cola `usuario:senha`, uma por linha; abre o navegador para concluir cada login. |
-| `Import Cookie` | Cola um `.ROBLOSECURITY` por linha. O cookie sai do navegador em que você já está logado: DevTools › Application › Cookies › roblox.com. |
+| `User:Pass Login` | Cola `usuario:senha`, uma por linha; abre o navegador para concluir cada login. Linha `usuario:senha:cookie` entra direto pelo cookie, sem navegador nem CAPTCHA. |
+| `Import Cookie` | Cola um `.ROBLOSECURITY` por linha — ou `usuario:senha:cookie`, que guarda a senha junto. O cookie sai do navegador em que você já está logado: DevTools › Application › Cookies › roblox.com. |
 | `Import Old Account Data` | Traz o `AccountData.json` da versão antiga do RAM. |
 | `Create Accounts` | Cria contas **de graça** no navegador embutido: o app preenche nome, senha, data e gênero; **você resolve o CAPTCHA**. O campo `Name prefix` padroniza os nomes do lote: `arvore` gera `arvore_k3p9z` (prefixo + 5 caracteres sorteados). |
 | `Account Generator` | Compra contas prontas de um serviço **pago de terceiro** (BloxGen), com chave de API. |
@@ -130,10 +130,10 @@ Nove abas. As mais úteis no dia a dia:
 | `Developer` | `Enable Developer Mode` (destrava itens do menu de contexto), web server, diagnóstico de mutex. |
 | `WebServer` | API HTTP local para ferramentas externas. A aba é sempre visível; os ajustes destravam com Developer Mode ou com o servidor ligado. A senha precisa de 6+ caracteres ou o servidor responde 401 a tudo. |
 | `Watcher` | Vigia o cliente do Roblox: fecha se cair a conexão, se a memória baixar, se o título mudar. |
-| `Generator` | Provedor pago de contas: endpoint, chave de API, tipo de conta, grupo de destino. |
+| `Account Generator` | Provedor pago de contas: endpoint, chave de API, tipo de conta, grupo de destino. |
 | `Isolation` | Limpeza de rastros antes de cada launch (cache, registro, MachineGuid, MAC). Windows. |
 | `Versions` | Versão padrão do Roblox e o baixador de versões. |
-| `Optimization` | FPS, gráficos, tamanho de janela e política de processo do Windows — um perfil por papel (normal / player / bot). |
+| `Optimization` | FPS, gráficos, tamanho de janela e política de processo do Windows — um perfil por papel: `Normal`, `Auto Rejoin Main` e `Auto Rejoin Alt` (os dois últimos só aparecem com o Auto Rejoin ligado e perfis separados). |
 | `Misc` | Sincronia dos campos de launch, shuffle de Job ID, **Backups**, criptografia e "lembrar senha". |
 
 **Dois interruptores em General mudam o app inteiro:** `Multi Roblox` (várias instâncias ao mesmo tempo) e `Auto Rejoin` (destrava todo o ciclo de rejoin automático). Sem eles ligados, várias funcionalidades simplesmente não aparecem.
@@ -146,7 +146,7 @@ Nove abas. As mais úteis no dia a dia:
 |---|---|---|
 | `Scripts` | toolbar | **JavaScript rodando dentro do RAM**, num Web Worker isolado, com a API `ram.*` para automatizar o gerenciador (lançar contas, ler settings, HTTP, UI própria). **Não** é executor de Roblox e **não** precisa de injector: nada disso entra no cliente do jogo. As 8 permissões por script controlam o que ele pode tocar. |
 | `Nexus` (título na tela: `Account Control`) | toolbar | Servidor WebSocket que conversa com o `Nexus.lua` **executado dentro do Roblox por um executor de terceiros**. Só então dá para mandar comandos e scripts Lua para os clientes. |
-| `Auto Rejoin` | Actions ▾ ou Choose Game › Follow | Mantém um grupo de contas alt dentro de um servidor: a cada N minutos **fecha e relança** cada cliente, com carência para as contas marcadas como main. Exige Multi Roblox. |
+| `Auto Rejoin` | Actions ▾ ou Choose Game › Follow | Mantém um grupo de contas alt dentro de um servidor: a cada N minutos **fecha e relança** cada alt. As contas marcadas como **main** abrem uma vez e **nunca** são reiniciadas pelo timer; a carência (`player_grace_minutes`) é da main **rebaixada** a alt com o cliente aberto. Exige Multi Roblox. |
 | `Account Utilities` | painel da conta › Tools | Operações na conta Roblox: display name, privacidade, **trocar senha**, **trocar e-mail**, PIN, encerrar outras sessões, bloqueios, outfits, avatar por JSON. |
 | `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
 | `Backups` | Settings › Misc › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
@@ -165,7 +165,7 @@ Os contadores de presença são **mutuamente exclusivos**: quem está em jogo n�
 
 ## 7. O que só existe no Windows
 
-Isolation inteiro (registro, MachineGuid, MAC), política de processo em Optimization (prioridade, EcoQoS, limites de CPU/memória, fast flags), grade de janelas, `Focus client`, autostart, diagnóstico de mutex, Multi Roblox e o "lembrar senha" (DPAPI).
+Isolation inteiro (registro, MachineGuid, MAC), **Auto Rejoin**, **AFK Mode**, política de processo em Optimization (prioridade, EcoQoS, limites de CPU/memória, fast flags), grade de janelas, `Focus client`, autostart, diagnóstico de mutex, Multi Roblox e o "lembrar senha" (DPAPI).
 
 ## 8. O que depende de flag de build
 

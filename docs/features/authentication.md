@@ -62,7 +62,7 @@ Como o arquivo vale o mínimo possível para quem não for o dono da máquina:
 
 - é cifrado pelo **DPAPI do Windows no escopo do usuário atual**, com entropia própria do app — copiar `RAMUnlock.bin` para outra máquina, ou abri-lo com outra conta do Windows, não devolve nada;
 - o **prazo mora dentro do blob cifrado**: editar o arquivo não estende a validade;
-- é apagado quando expira, quando não abre mais, quando a senha muda ou sai (`set_encryption_password`), e pelo botão **Forget** em Settings → Security;
+- é apagado quando expira, quando não abre mais, quando a senha muda ou sai (`set_encryption_password`), e pelo botão **Forget** em Settings → Misc → seção Security (não existe aba Security);
 - é **opt-in**: só existe se o usuário marcar a caixa.
 
 Fora do Windows não há DPAPI e a caixa nem aparece (`remembered_unlock_state.supported == false`) — guardar a senha em texto puro seria pior que digitá-la.
@@ -136,4 +136,4 @@ O "Refresh Cookies" manual da barra inferior faz o mesmo para as contas selecion
 - `test_auth(cookie)` é um comando de diagnóstico que devolve texto com validação, CSRF e ticket truncados — não use para lógica.
 - O `Referer` de CSRF/ticket é uma URL fixa de jogo (`REFERER_URL` em [auth.rs](../../src-tauri/src/api/auth.rs)); mudanças no Roblox podem exigir ajustá-la.
 - Contas adicionadas só por username têm `SecurityToken` vazio: todas as operações autenticadas falham e o refresh não consegue recuperar.
-- Como o refresh derruba outras sessões, evitar chamá-lo durante botting/multi-launch ativos. Note que o próprio launch usa `run_with_session_retry` para o auth ticket: uma conta com sessão inválida é renovada ali (e seus clientes antigos caem).
+- Como o refresh derruba outras sessões, evitar chamá-lo durante Auto Rejoin/multi-launch ativos. Note que o próprio launch usa `run_with_session_retry` para o auth ticket: uma conta com sessão inválida é renovada ali (e seus clientes antigos caem).

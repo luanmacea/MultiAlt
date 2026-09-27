@@ -47,7 +47,7 @@ Igual aos passos 1–5, mas depois espera o seletor `#login-username` e manda um
 
 ## Qual binário abre: manual, baixado ou navegador do sistema
 
-`resolve_browser_binary` (chromium/download.rs) é chamado pelos três fluxos acima (`open_login_browser`, `import_userpass`, `open_account_browser`) em vez de `ensure_chromium` direto. Ordem de preferência:
+`resolve_browser_binary` (chromium/download.rs) é chamado pelos três fluxos acima (`open_login_browser`, `import_userpass`, `open_account_browser`) em vez de `ensure_chromium` direto. **A criação de contas não passa por aqui:** `start_signup_session` ([signup_session.rs](../../src-tauri/src/chromium/signup_session.rs)) chama `ensure_chromium` direto, então para ela o caminho manual e o navegador do sistema **não valem** — quem configurou o caminho porque o download falha continua preso no download ao criar contas. Ordem de preferência (nos três fluxos de login):
 
 1. **`Login.ManualBinaryPath`**, se configurado (Settings > General > Login Browser > "Custom browser executable"). É a escolha explícita do usuário — ele digitou aquele caminho para *não* depender do download nem da detecção automática, então vence os outros dois. O caminho **tem** que apontar para um arquivo comum de verdade (`is_regular_file`, via `symlink_metadata` — recusa pasta e link simbólico, ao contrário de `Path::exists`/`is_file`, que seguem o link). Inválido = erro na hora, sem cair silenciosamente para o download ou para o navegador do sistema: cair para outra coisa seria exatamente o que o usuário configurou o campo para evitar. `is_regular_file` só garante o *tipo* do caminho, não que o arquivo é de fato um navegador — se não for, o erro aparece mais adiante (timeout lendo `DevToolsActivePort`, ou falha ao conectar o CDP), como já acontecia com qualquer processo que não sobe corretamente.
 2. **Chromium baixado** (`ensure_chromium`): o caminho de sempre, cacheado em `chromium_dir`.
@@ -120,7 +120,7 @@ Ou seja: a mudança não torna o app resistente a um atacante já rodando como o
 |---|---|---|
 | `Login.PersistentProfile` | `true` | Mantém o perfil `_login` entre logins. Desligado, o perfil é apagado antes de subir e logo depois da captura do cookie |
 | `Login.StealthMode` | `true` | `--lang=en-US` e injeção de `navigator.webdriver = undefined` antes do primeiro documento |
-| `Login.ManualBinaryPath` | `""` | Caminho de um Chrome/Edge/Chromium/Brave próprio, digitado pelo usuário. Vazio (default) segue para o download; preenchido, vence o download e o navegador do sistema (ver "Qual binário abre" acima). Vazio nunca é gravado no INI (`EMPTY_STRING_DEFAULTS` em `data/settings/store.rs`) |
+| `Login.ManualBinaryPath` | `""` | Caminho de um Chrome/Edge/Chromium/Brave próprio, digitado pelo usuário. Vazio (default) segue para o download; preenchido, vence o download e o navegador do sistema nos fluxos de **login** (ver "Qual binário abre" acima) — a criação de contas o ignora. Vazio nunca é gravado no INI (`EMPTY_STRING_DEFAULTS` em `data/settings/store.rs`) |
 
 Todas ficam na aba General das configurações ([GeneralTab.tsx](../../src/components/settings/GeneralTab.tsx)), na seção "Login Browser".
 
