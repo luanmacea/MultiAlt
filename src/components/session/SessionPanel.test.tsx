@@ -124,13 +124,17 @@ describe("SessionPanel — rendering", () => {
   });
 
   it("surfaces a failed entry's backend error", () => {
+    // Fixture com frase, não com código: esta linha desenha `entry.error` cru, e
+    // o backend manda frase justamente por isso (`version_conflict_message`).
+    const erro =
+      "A Roblox client is already running on a different Roblox version. Open now: system install.";
     renderPanel({
-      launchQueue: queue([entry(1, "failed", "version-conflict")]),
+      launchQueue: queue([entry(1, "failed", erro)]),
       launchedByProgram: new Set<number>(),
     });
     const row = screen.getByTestId("session-queue-1");
     expect(within(row).getByText("Failed")).toBeInTheDocument();
-    expect(within(row).getByText("version-conflict")).toBeInTheDocument();
+    expect(within(row).getByText(erro)).toBeInTheDocument();
   });
 
   it("explains both empty states and disables Stop queue", () => {
