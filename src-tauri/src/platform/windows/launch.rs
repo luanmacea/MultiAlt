@@ -612,13 +612,15 @@ mod launch_url_tests {
         )
     }
 
-    // ---- channel pinning guards ---------------------------------------------
+    // ---- canal de produção: o app lê o canal, nunca o fixa --------------------
 
     #[test]
     fn production_channel_constants_are_intact() {
-        // These pin the Roblox deployment channel to production before launch.
-        // Changing them brings back the foreground installer that closes every
-        // other open client (docs/features/launch.md).
+        // `launch_url` abre a build de produção (`production`, `LIVE` no CDN) e
+        // o old join lê o canal desta chave — o app não fixa canal nenhum no
+        // registro. Mudar estes valores faz a build aberta divergir do canal
+        // que o cliente consulta e traz de volta o instalador que fecha todos
+        // os outros clientes (docs/features/launch.md).
         assert_eq!(PRODUCTION_CHANNEL, "production");
         assert_eq!(PRODUCTION_CHANNEL_CDN, "LIVE");
         assert_eq!(
@@ -629,8 +631,9 @@ mod launch_url_tests {
 
     #[test]
     fn the_launch_url_still_ends_with_an_empty_channel() {
-        // `+channel:` with no value tells the client to use the registry
-        // channel we just pinned to production.
+        // `+channel:` vazio = produção: o campo da URL vence o canal do
+        // registro (provado nos logs do cliente), por isso `launch_url` abre a
+        // build de produção sem ler nem escrever o registro.
         let url = build("", "", false, false, "", "", false);
         assert!(
             url.ends_with("+channel:+LaunchExp:InApp"),
