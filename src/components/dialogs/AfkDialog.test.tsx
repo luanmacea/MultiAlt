@@ -63,21 +63,28 @@ beforeEach(() => {
 afterEach(cleanup);
 
 /**
- * `SendInput` entrega na janela em **primeiro plano**, então cada envio traz a
- * janela do Roblox para frente por um instante. Isso rouba o foco de quem está
- * usando o PC, e é a primeira coisa que a tela tem de dizer — sem enfeitar.
+ * `SendInput` entrega na janela em **primeiro plano**, então o ciclo traz a
+ * janela de cada conta para frente, uma depois da outra, e só devolve o foco
+ * depois da última (`run_afk_cycle_blocking`: 150 ms de folga + 40 ms de tecla +
+ * 250 ms entre contas, ~0,44 s por conta). Isso tira o foco de quem está usando
+ * o PC, e é a primeira coisa que a tela tem de dizer — com os números de
+ * verdade: "meio segundo e depois devolve" só valia com uma conta no modo.
  */
 describe("AfkDialog — o preço do envio está na tela", () => {
-  it("diz que cada envio traz a janela do Roblox para frente e devolve o foco", () => {
+  it("diz que o foco só volta depois da última conta do ciclo, e quanto tempo isso leva", () => {
     renderDialog();
-    expect(screen.getByText(/brings that account's Roblox window to the front/i)).toBeInTheDocument();
-    expect(screen.getByText(/gives the focus back/i)).toBeInTheDocument();
+    const aviso = screen.getByText(/takes the focus away from the window you are using/i);
+    expect(aviso.textContent).toMatch(/about half a second each/i);
+    expect(aviso.textContent).toMatch(/gives the focus back only after the last one/i);
+    expect(aviso.textContent).toMatch(/about 4 seconds with 10 accounts/i);
   });
 
-  it("avisa que a tecla pode cair na janela errada se você estiver digitando", () => {
+  it("avisa que, nesse meio-tempo, o que você digitar vai para a janela do Roblox", () => {
     renderDialog();
-    expect(screen.getByText(/typing in another program/i)).toBeInTheDocument();
-    expect(screen.getByText(/wrong window/i)).toBeInTheDocument();
+    expect(screen.getByText(/what you type goes to the Roblox window/i)).toBeInTheDocument();
+    // A tecla do AFK só sai com a janela certa na frente (`afk_window_is_ready`):
+    // "a tecla pode cair na janela errada" apontava o risco que o ciclo já elimina.
+    expect(screen.queryByText(/the key can land in the wrong window/i)).not.toBeInTheDocument();
   });
 });
 

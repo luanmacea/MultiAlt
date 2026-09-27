@@ -10,9 +10,10 @@
 // Duas regras mandam no desenho:
 //
 // 1. `SendInput` entrega na janela em **primeiro plano**. Para acertar o cliente
-//    de uma conta, o ciclo traz aquela janela para frente, manda a tecla e
-//    devolve o foco para onde estava. Isso rouba o foco por um piscar a cada
-//    envio, e a tela diz isso com essas palavras.
+//    de uma conta, o ciclo traz aquela janela para frente, manda a tecla, passa
+//    para a conta seguinte e só no fim devolve o foco para onde estava. O foco
+//    fica fora da janela do usuário o ciclo inteiro — ~0,44 s por conta —, e a
+//    tela diz isso com esses números.
 // 2. O módulo só **envia** entrada. Ler teclado do usuário é proibido — a trava
 //    é o `afk_input_safety_tests`, no fim deste arquivo.
 
@@ -260,6 +261,11 @@ const AFK_FOCUS_SETTLE_MS: u64 = 150;
 #[cfg(target_os = "windows")]
 const AFK_KEY_HOLD_MS: u64 = 40;
 /// Respiro entre duas contas do mesmo ciclo.
+///
+/// Folga + tecla + respiro dão ~0,44 s por conta, e o foco só volta para a
+/// janela do usuário no fim do ciclo: é o "cerca de meio segundo cada" e o "uns
+/// 4 segundos com 10 contas" do `AfkDialog`
+/// (`a_cycle_keeps_the_focus_about_half_a_second_per_account`).
 #[cfg(target_os = "windows")]
 const AFK_BETWEEN_WINDOWS_MS: u64 = 250;
 /// De quanto em quanto tempo o laço olha o relógio das contas.
@@ -1109,6 +1115,27 @@ mod afk_command_tests {
         // Ciclo que não chegou a mexer na janela não minimiza nada.
         assert!(!afk_should_reminimize(true, false));
         assert!(!afk_should_reminimize(false, false));
+    }
+
+    // ── quanto tempo o foco fica fora ───────────────────────────────────────
+
+    /// O `AfkDialog` diz "cerca de meio segundo cada" e "uns 4 segundos com 10
+    /// contas", porque o foco só volta no fim do ciclo. Mexeu nas constantes,
+    /// mexe no texto da tela junto — foi o texto ficar para trás do backend que
+    /// o checkup achou.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_cycle_keeps_the_focus_about_half_a_second_per_account() {
+        let per_account_ms = AFK_FOCUS_SETTLE_MS + AFK_KEY_HOLD_MS + AFK_BETWEEN_WINDOWS_MS;
+        assert!(
+            (400..=500).contains(&per_account_ms),
+            "{per_account_ms} ms por conta: atualize o texto do foco no AfkDialog"
+        );
+        let ten_accounts_ms = per_account_ms * 10;
+        assert!(
+            (4_000..5_000).contains(&ten_accounts_ms),
+            "{ten_accounts_ms} ms com 10 contas: atualize o texto do foco no AfkDialog"
+        );
     }
 
     // ── devolver o foco não mexe na janela do usuário ───────────────────────
