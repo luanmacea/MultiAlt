@@ -202,6 +202,11 @@ pub struct AccountStore {
     /// memória) para virar lockout no boot seguinte. Isto existe para o usuário
     /// saber **no dia em que o arquivo fica ruim**.
     key_warning: Mutex<Option<VaultKeyWarning>>,
+    /// Quem quer saber **na hora** que o aviso mudou (a janela, via `lib.rs`).
+    ///
+    /// Ler o slot quando a UI pede não basta: gravador de fundo — Auto Rejoin a
+    /// cada ciclo, Watcher, servidor HTTP — muda o aviso sem a UI pedir nada.
+    key_warning_watchers: Mutex<Vec<std::sync::mpsc::Sender<Option<VaultKeyWarning>>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -224,6 +229,7 @@ impl AccountStore {
             load_failed: std::sync::atomic::AtomicBool::new(false),
             write_block: Mutex::new(None),
             key_warning: Mutex::new(None),
+            key_warning_watchers: Mutex::new(Vec::new()),
         }
     }
 
@@ -268,26 +274,49 @@ impl AccountStore {
             return "Password required for encrypted file".to_string();
         }
 
+        // O dono lê isto na **tela de senha**, que só tem senha e Continue:
+        // Settings não abre com as contas trancadas, e mandar "restaurar pelo
+        // Settings" era mandar abrir uma tela que não abre. O caminho real é à
+        // mão, e a ordem importa: com o app aberto nada é relido, e pôr os
+        // arquivos do backup por cima sem tirar os de agora do lugar perde o
+        // vault que talvez ainda abra no aparelho que o criou.
+        let data_dir = self
+            .file_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        let backups_dir = data_dir.join(crate::BACKUPS_DIR_NAME);
+
         // Só citar o `.json.bak` quando ele **existe**: numa instalação que nasceu
         // cifrada esse arquivo nunca existiu, e mandar restaurá-lo é mandar a
         // pessoa caçar um arquivo inexistente exatamente no momento de pânico.
         let plain_backup = self.file_path.with_extension("json.bak");
-        let where_to_look = if plain_backup.exists() {
+        let put_back = if plain_backup.exists() {
             format!(
-                "Restore the copy at {}, or a backup from Settings > Misc > Data",
-                plain_backup.display()
+                "Put back either the copy at {} renamed to AccountData.json (plain text from before \
+                 encryption: accounts added since then are not in it), or AccountData.json and \
+                 AccountData.key from a backup zip in {}",
+                plain_backup.display(),
+                backups_dir.display()
             )
         } else {
-            "Restore a backup from Settings > Misc > Data (it contains both the account file and its key)"
-                .to_string()
+            format!(
+                "Put back AccountData.json and AccountData.key from a backup zip in {}",
+                backups_dir.display()
+            )
         };
 
         format!(
             "The account vault is encrypted with this device's key and that key could not be recovered ({}). \
-             Nothing was deleted or overwritten. {}, on the machine that created it — or start over by moving \
-             both files aside.",
+             Nothing was deleted or overwritten. Settings does not open while the accounts are locked, so \
+             restore by hand, in this order: 1. Close the app. 2. Move AccountData.json and AccountData.key \
+             out of {} and keep them. 3. {}. 4. Open the app again. A backup only opens on the PC and Windows \
+             user that made it. Instead of step 3, you can also open the app with both files moved out, \
+             restore a backup in Settings > Misc > Backups and restart the app. To start over with no \
+             accounts, just open the app after step 2.",
             key_path.display(),
-            where_to_look
+            data_dir.display(),
+            put_back
         )
     }
 
@@ -379,10 +408,14 @@ impl AccountStore {
         }
         eprintln!("Aviso ({}): {}", warning.code, warning.path);
         *slot = Some(warning);
+        self.publish_key_warning(slot.as_ref());
     }
 
     fn clear_key_warning(&self) {
-        *self.key_warning_slot() = None;
+        let mut slot = self.key_warning_slot();
+        if slot.take().is_some() {
+            self.publish_key_warning(None);
+        }
     }
 
     /// Limpa o aviso **só se ele for sobre este arquivo**.
@@ -399,6 +432,62 @@ impl AccountStore {
             .is_some_and(|w| w.path == path.display().to_string());
         if belongs {
             *slot = None;
+            self.publish_key_warning(None);
+        }
+    }
+
+    /// Canal com cada mudança do aviso, **na ordem em que aconteceram**
+    /// (`Some` = aviso novo, `None` = sumiu).
+    ///
+    /// O store só **manda** no canal — não bloqueia, então dá para fazer segurando
+    /// o lock de contas, que é de onde o aviso muda (`save_locked`). Quem fala com
+    /// a janela é outra thread, fora de qualquer lock do store
+    /// (`forward_vault_key_warning`): um comando síncrono na thread principal pode
+    /// estar esperando justamente o lock de contas.
+    pub fn watch_key_warning(&self) -> std::sync::mpsc::Receiver<Option<VaultKeyWarning>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.key_warning_watchers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(tx);
+        rx
+    }
+
+    /// Conta a mudança para quem estiver ouvindo.
+    ///
+    /// Chamado **com o slot travado**, e é isso que mantém a ordem: duas threads
+    /// mudando o aviso ao mesmo tempo publicam na mesma ordem em que mudaram o
+    /// slot, então a UI termina no estado que o slot tem.
+    fn publish_key_warning(&self, warning: Option<&VaultKeyWarning>) {
+        let mut watchers = self
+            .key_warning_watchers
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Quem parou de ouvir sai da lista.
+        watchers.retain(|tx| tx.send(warning.cloned()).is_ok());
+    }
+
+    /// A chave do aparelho não pôde ser montada e **não há sessão**: o
+    /// `AccountData.json` continua em texto puro — ou vai nascer assim, no
+    /// primeiro boot. É isso que a faixa tem que dizer, e por isso o
+    /// `migrationFailed` **vence** aqui.
+    ///
+    /// `refresh_key_file` já deixou no slot um aviso sobre o `.key`, e os dois
+    /// textos possíveis mentem neste caso: o transitório promete "tento de novo na
+    /// próxima alteração", mas sem sessão o `save_locked` nem toca no `.key`; o
+    /// `writeFailed` diz "pode não abrir depois de fechar", mas o arquivo está
+    /// legível e abre. O que importa é o cookie de todas as contas legível no
+    /// disco. Com sessão (senha, ou chave do aparelho já em uso) o arquivo não
+    /// está em texto puro, e isto não mexe em nada.
+    fn warn_left_in_plain_text(&self, detail: &str) {
+        let no_session = self
+            .session
+            .lock()
+            .map(|session| session.is_none())
+            // Envenenado: sem saber, o aviso grave é o lado seguro.
+            .unwrap_or(true);
+        if no_session {
+            self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, detail));
         }
     }
 
@@ -456,7 +545,23 @@ impl AccountStore {
     /// restauração de backup — o segredo da sessão não é mais o do arquivo, e
     /// qualquer gravação (um launch já chama `mark_used`) cifraria o vault
     /// restaurado com o segredo antigo, deixando-o sem abrir no próximo boot.
+    ///
+    /// **Só volta depois de a gravação em andamento terminar.** Ligar a trava não
+    /// basta: `save_locked` confere a trava no começo e só publica o arquivo no
+    /// fim (fsync + troca atômica), e quem já passou pela checagem com ela aberta
+    /// terminava **depois** — um ciclo do Auto Rejoin no meio do `mark_used`
+    /// punha o vault de antes por cima do que a extração acabara de restaurar.
+    /// Toda gravação segura `accounts` da checagem até a troca do arquivo, então
+    /// tomar esse mutex antes de ligar a trava espera exatamente quem já estava
+    /// gravando, e quem chegar depois encontra a trava ligada. A ordem
+    /// `accounts` → `write_block` é a mesma de `save_locked`.
     pub fn lock_writes_until_restart(&self, reason: &str) {
+        // Envenenado quer dizer que quem segurava morreu: não há gravação em
+        // andamento a esperar, e a trava tem que ligar do mesmo jeito.
+        let _writers = self
+            .accounts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Ok(mut slot) = self.write_block.lock() {
             *slot = Some(reason.to_string());
         }
@@ -602,8 +707,12 @@ impl AccountStore {
             //
             // Falhar aqui **não** trava o app: sem chave, o store segue sem
             // segredo e grava em texto puro, como antes desta mudança. É uma
-            // proteção a menos, não um usuário sem acesso às contas.
-            return self.ensure_device_session();
+            // proteção a menos, não um usuário sem acesso às contas — e a faixa
+            // diz exatamente isso (`warn_left_in_plain_text`).
+            return self.ensure_device_session().map_err(|e| {
+                self.warn_left_in_plain_text(&e);
+                e
+            });
         }
 
         if crypto::is_encrypted(&data) {
@@ -671,11 +780,10 @@ impl AccountStore {
         if let Err(e) = self.ensure_device_session() {
             // Sem chave o arquivo fica como está — em texto puro, legível, mas
             // **inteiro**. Perder o arquivo é pior que ficar sem a criptografia.
-            // `ensure_device_session` já avisou pelo `refresh_key_file`; aqui só
-            // garantimos que o aviso exista mesmo se a falha vier de outro ponto.
-            if self.vault_key_warning().is_none() {
-                self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
-            }
+            // E a faixa diz isso **por cima** do aviso sobre o `.key` que o
+            // `refresh_key_file` deixou: antes o `migrationFailed` só entrava com
+            // o slot vazio, e a faixa ficava falando do `.key`.
+            self.warn_left_in_plain_text(&e);
             return Err(format!(
                 "Accounts are loaded, but the file could not be encrypted and was left as-is: {}",
                 e
@@ -1016,20 +1124,36 @@ impl AccountStore {
 
         match password {
             Some(value) => {
-                {
-                    let mut slot = self.session.lock().map_err(|e| e.to_string())?;
-                    *slot = Some(SessionKey::derive(value.trim())?);
-                }
-                // Solta `session` antes de pegar `accounts`: a ordem de lock do
-                // resto do arquivo é accounts → session, e inverter aqui criaria
-                // deadlock.
+                // A sessão da senha só passa a valer **depois** de o vault estar
+                // gravado com ela. Trocar antes (como era) fazia a senha valer
+                // mesmo quando a gravação falhava: a UI dizia que não aplicou, e a
+                // próxima gravação de fundo que desse certo cifrava com a senha —
+                // com o `.key` ainda no disco, o boot seguinte mandava restaurar
+                // uma chave em vez de pedir a senha.
+                //
+                // O argon2 roda antes do lock (custa caro). A troca, a gravação e
+                // a volta no erro acontecem com `accounts` seguro, então nenhuma
+                // gravação de fundo usa a sessão da senha antes de ela valer.
+                // Ordem de lock do arquivo: accounts → session.
+                let password_session = SessionKey::derive(value.trim())?;
                 let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-                self.save_locked(&accounts)?;
-                drop(accounts);
+                let previous = self
+                    .session
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .replace(password_session);
+                if let Err(e) = self.save_locked(&accounts) {
+                    *self
+                        .session
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = previous;
+                    return Err(e);
+                }
                 // O `.key` só sai **depois** de o vault estar gravado com a
                 // senha. Na ordem contrária, uma falha na gravação deixaria um
                 // vault cifrado pela chave do aparelho sem a chave para abri-lo.
                 crate::data::vault_key::remove_key_file(&key_path);
+                drop(accounts);
                 // A partir daqui o `.key` não importa mais, então um aviso sobre
                 // ele é falso alarme. Sem isto, quem estava com a faixa vermelha e
                 // definia uma senha ficava com ela na tela o resto da sessão,
@@ -1043,7 +1167,14 @@ impl AccountStore {
                 // texto puro. A chave é montada (e o `.key` gravado) antes de a
                 // sessão da senha ser trocada: erro aqui deixa o arquivo e a
                 // sessão exatamente como estavam.
-                let device_session = self.build_device_session()?;
+                let device_session = self.build_device_session().map_err(|e| {
+                    // Nova tentativa depois de uma migração ou primeiro boot que
+                    // falharam (é o que a faixa manda fazer): sem sessão, o
+                    // arquivo segue em texto puro, e a faixa não pode trocar isso
+                    // pelo aviso do `.key` desta tentativa.
+                    self.warn_left_in_plain_text(&e);
+                    e
+                })?;
                 {
                     let mut slot = self.session.lock().map_err(|e| e.to_string())?;
                     *slot = Some(device_session);
