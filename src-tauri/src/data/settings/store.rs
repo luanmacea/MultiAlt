@@ -377,6 +377,19 @@ impl SettingsStore {
             }
         }
 
+        // AFK mode. `Key` nasce **vazia** de proposito: sem tecla escolhida pelo
+        // usuario o modo nao liga, e chave vazia nao chega a ser gravada no INI
+        // (`IniSection::set` trata valor em branco como remocao).
+        let afk_defaults: &[(&str, &str)] =
+            &[("IntervalMinutes", "10"), ("Key", ""), ("BeepOnCycle", "false")];
+
+        let afk = ini.section("Afk");
+        for (key, value) in afk_defaults {
+            if !afk.exists(key) {
+                afk.set(key, value, None);
+            }
+        }
+
         ini.section("Prompts");
 
         drop(ini);
