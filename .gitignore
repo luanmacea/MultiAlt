@@ -347,3 +347,4 @@ src-tauri/gen/
 *.key
 *.key.pub
 .superpowers/
+.claude/worktrees/
