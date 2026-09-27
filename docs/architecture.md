@@ -188,8 +188,9 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 | `server-scan` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `start_server_scan` | página a página da varredura de servidores | [servers/ServersTab.tsx](../src/components/servers/ServersTab.tsx) |
 | `server-region-progress` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `get_server_regions` | `{ done, total }` | [servers/ServersTab.tsx](../src/components/servers/ServersTab.tsx) |
 | `friends-online-progress` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `get_online_friends_for_accounts` | `{ done, total }` | [FriendsTab.tsx](../src/components/friends/FriendsTab.tsx) |
+| `vault-key-warning-changed` | [accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `forward_vault_key_warning` (thread própria, alimentada pelo canal `watch_key_warning` do store) | `VaultKeyWarning` ou `null` (sumiu) | [store.tsx](../src/store.tsx) → [VaultKeyBanner.tsx](../src/components/layout/VaultKeyBanner.tsx). Existe porque o aviso também nasce em gravação de fundo (Auto Rejoin, Watcher, servidor HTTP) — ver [accounts.md](features/accounts.md#a-chave-do-aparelho-accountdatakey) |
 
-A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depois que o app está inicializado e desbloqueado (`!needsPassword && initialized`).
+A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depois que o app está inicializado e desbloqueado (`!needsPassword && initialized`). A exceção é `vault-key-warning-changed`, ligado sempre: a faixa também aparece nas telas de senha e de criptografia.
 
 ## Fluxo de inicialização
 
@@ -201,7 +202,7 @@ A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depoi
 3. Cria `SettingsStore` (aplica defaults e já regrava o INI), `ThemeStore`, `ThemePresetStore`, `ScriptStore`, `VersionsCatalogStore`, `ImageCache`.
 4. Registra plugins: `single-instance` (segunda instância só mostra/foca a janela `main`), `window-state`, `autostart` (LaunchAgent no macOS), `process`, `updater`.
 5. `.manage(...)` de todas as stores + `UpdaterRuntimeState` + `ChromiumManager`.
-6. `setup`: **Windows:** `webview_recovery::start_watchdog` (25 s para o frontend avisar que pintou, senão o app reabre em safe mode de vídeo — só em build de release); cria o ícone de bandeja (menu Show/Quit; clique esquerdo mostra a janela).
+6. `setup`: **Windows:** `webview_recovery::start_watchdog` (25 s para o frontend avisar que pintou, senão o app reabre em safe mode de vídeo — só em build de release); liga o aviso do `.key` à janela (`forward_vault_key_warning`, antes de qualquer gravação de fundo existir); cria o ícone de bandeja (menu Show/Quit; clique esquerdo mostra a janela).
 7. Se compilado com `nexus` e `AccountControl.StartOnLaunch = true`: inicia o servidor Nexus na porta `AccountControl.NexusPort` (default 5242).
 8. Se compilado com `webserver` e `Developer.EnableWebServer = true`: inicia o servidor HTTP (`api::server::start`).
 9. Ao sair (`ExitRequested`/`Exit`): se `General.EnableMultiRbx` estiver ativo, mata todos os Roblox quando houver mais de um processo, limpa o tracker e desativa o multi-Roblox; em `Exit` também fecha a sessão de login do Chromium.

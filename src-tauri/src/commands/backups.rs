@@ -684,10 +684,13 @@ pub fn restore_touches_accounts(restored: &[String]) -> bool {
 /// Depois da extração, a trava de gravação **continua**?
 ///
 /// A trava é ligada **antes** de extrair, porque só dá para saber o que o zip
-/// mexeu depois de ele ter mexido: entre a substituição do arquivo e as linhas
-/// seguintes existia uma janela TOCTOU em que um ciclo de Auto Rejoin gravaria com
-/// o segredo antigo. Milissegundos contra um ciclo de dezenas de segundos, mas
-/// trancar cedo não custa nada — a trava só é solta por um `load()` bem-sucedido.
+/// mexeu depois de ele ter mexido. Isso fecha a janela de quem **começa** a gravar
+/// depois da substituição do arquivo. A de quem **já estava** gravando — um ciclo
+/// de Auto Rejoin que passou pela checagem com a trava aberta e ainda estava no
+/// fsync — só fecha porque `lock_writes_until_restart` espera essa gravação
+/// terminar antes de voltar (ver lá). Sem essa espera, o `MoveFileExW` daquela
+/// gravação caía por cima do vault recém-extraído. A trava só é solta por um
+/// `load()` bem-sucedido.
 ///
 /// `extraction_failed` mantém trancado **por não saber**: com a extração pela
 /// metade, não há lista confiável de arquivos para consultar.
@@ -817,10 +820,10 @@ fn restore_backup(
     // torna a memória velha, e um único launch (`mark_used` → `save`) bastaria para
     // regravar a lista de antes por cima do que acabou de ser restaurado. Só dá
     // para saber **o que** o zip mexeu depois de ele ter mexido, então a ordem
-    // segura é trancar primeiro: entre a substituição do arquivo e as linhas
-    // seguintes havia uma janela em que um ciclo de Auto Rejoin gravaria com o
-    // segredo antigo. Trancar cedo não custa nada — só um `load()` bem-sucedido
-    // solta a trava.
+    // segura é trancar primeiro. E `lock_writes_until_restart` só volta depois de a
+    // gravação que já estiver em andamento terminar (um ciclo de Auto Rejoin no
+    // meio do fsync): sem essa espera, ela publicava o vault de antes **depois** da
+    // extração. Só um `load()` bem-sucedido solta a trava.
     // Lido **antes** de trancar: se já havia trava, ela é de outra restauração que
     // ainda espera o reinício, e soltá-la aqui é o mesmo que nunca tê-la ligado.
     let was_locked_before = accounts.writes_locked();

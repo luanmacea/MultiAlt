@@ -60,6 +60,21 @@ describe("ImportDialog — the cookie tab explains the cookie", () => {
     expect(warning).toHaveTextContent(/AccountData\.json/);
   });
 
+  /**
+   * A7 do checkup: desde a criptografia do vault, o `AccountData.json` e cifrado
+   * **sempre** — com a chave do aparelho, ou com a senha do app. O aviso dizia
+   * "encrypted only if you set an app password" e contradizia a tela de
+   * criptografia justamente no momento em que o dono decide colar senhas.
+   */
+  it("does not claim the account file is only encrypted with an app password", () => {
+    renderDialog();
+    const warning = screen.getByText(/also saves the password/i);
+    expect(warning).not.toHaveTextContent(/only if you set an app password/i);
+    expect(warning).toHaveTextContent(/always encrypted/i);
+    expect(warning).toHaveTextContent(/this device's key/i);
+    expect(warning).toHaveTextContent(/app password if you set one/i);
+  });
+
   it("offers the username:password:cookie format in the hint", () => {
     renderDialog();
     expect(

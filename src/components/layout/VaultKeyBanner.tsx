@@ -43,8 +43,12 @@ export function VaultKeyBanner() {
       // porque o usuário acha que está criptografado e não está.
       case "migrationFailed":
         return t("{{path}} could not be encrypted and is still plain text: the login cookie of every account is readable on this PC. Nothing was lost — open Settings > Misc > Change Encryption Method to try again, or set a password.", { path: warning.path });
+      // O `.key` em disco não guarda a chave desta sessão (é o que dispara este
+      // aviso), então o conselho não pode ser backup: o backup copia do disco e
+      // sairia com o vault e sem chave que o abra. O que salva, com o app ainda
+      // aberto, é pôr senha — `set_password(Some)` recifra a partir da memória.
       default:
-        return t("The account key file could not be written ({{path}}). Your accounts open while the app is running, but they may not open after you close it — make a backup now in Settings > Misc > Data.", { path: warning.path });
+        return t("The account key file could not be written ({{path}}). Your accounts open while the app runs, but they may not open after you close it. Before closing, set a password in Settings > Misc > Change Encryption Method > Pass Lock — it re-encrypts them from memory. A backup alone does not fix this: it copies the key file as it is on disk.", { path: warning.path });
     }
   })();
 

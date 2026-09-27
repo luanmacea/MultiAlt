@@ -336,13 +336,14 @@ export function ImportDialog({
                 Aceitar a senha na mesma caixa aumenta o que está em jogo: o
                 cookie entrega a sessão (e pode ser revogado saindo de todas as
                 sessões), a senha entrega a conta — troca de e-mail, troca de
-                senha, recuperação. E ela fica no `AccountData.json`, que só é
-                encriptado quando o app tem senha (`data/crypto.rs`). O aviso
-                de cima falava só do cookie.
+                senha, recuperação. E ela fica no `AccountData.json`, cifrado
+                sempre: pela chave do aparelho (`AccountData.key`, ver
+                `data/vault_key.rs`) ou pela senha do app. O aviso de cima
+                falava só do cookie.
               */}
               <p className="text-[12px] text-amber-300/80 leading-snug mb-1.5">
                 {t(
-                  "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, encrypted only if you set an app password."
+                  "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, which is always encrypted: with this device's key, or with your app password if you set one."
                 )}
               </p>
               <p className="text-[12px] text-zinc-500 leading-snug mb-2">
