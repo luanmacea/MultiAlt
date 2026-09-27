@@ -823,8 +823,10 @@ describe("joinServer", () => {
     expect(result.current.toasts.map((toast) => toast.message)).toContain(
       "A launch is already in progress"
     );
-    expect(result.current.actionStatus?.message).toBe("A launch is already in progress");
-    expect(result.current.actionStatus?.tone).toBe("warn");
+    // Uma frase de uma linha não precisa de três lugares: o toast basta aqui, e a
+    // tela que disparou o launch ainda mostra a sua linha inline. A linha de
+    // status do rodapé seria uma terceira cópia simultânea.
+    expect(result.current.actionStatus?.message).not.toBe("A launch is already in progress");
     // Recusa não é falha do app: a faixa vermelha de erro não aparece.
     expect(result.current.error).toBeNull();
     expect(result.current.joiningAccounts.size).toBe(0);
@@ -1109,7 +1111,8 @@ describe("launchMultiple", () => {
     expect(result.current.toasts.map((toast) => toast.message)).toContain(
       "A launch is already in progress"
     );
-    expect(result.current.actionStatus?.tone).toBe("warn");
+    // Ver o launch de uma conta: a recusa sai no toast, sem repetir no rodapé.
+    expect(result.current.actionStatus?.message).not.toBe("A launch is already in progress");
     expect(result.current.error).toBeNull();
     expect(result.current.joiningAccounts.size).toBe(0);
     expect(result.current.launchProgress).toBeNull();
