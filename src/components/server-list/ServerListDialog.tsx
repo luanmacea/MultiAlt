@@ -76,6 +76,34 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
     setActiveTab("servers");
   }
 
+  /**
+   * "Browse servers" (menu do jogo ou botão da linha): o mesmo destino do
+   * clique no card — a aba Servers com o place, Job ID limpo —, sem gravar o
+   * jogo nos recentes, como a Choose Game faz.
+   */
+  function handleBrowseServers(placeId: number) {
+    setLocalPlaceId(String(placeId));
+    store.setPlaceId(String(placeId));
+    setJobIdPrefill("");
+    setJobIdPrefillNonce((v) => v + 1);
+    setActiveTab("servers");
+  }
+
+  /**
+   * Auto Rejoin e Scripts **com este jogo**, as mesmas ações do menu na Choose
+   * Game. Os dois abrem por cima deste diálogo (z-[70]); fechar volta aqui. O
+   * place vai explícito ao Auto Rejoin porque o rascunho salvo vence a store.
+   */
+  function handleBottingForGame(placeId: number) {
+    store.setPlaceId(String(placeId));
+    store.openBottingDialog(String(placeId));
+  }
+
+  function handleScriptsForGame(placeId: number) {
+    store.setPlaceId(String(placeId));
+    store.setScriptsOpen(true);
+  }
+
   async function handleJoinGame(placeId: number) {
     if (!userId) {
       store.addToast(t("No account selected"));
@@ -167,18 +195,28 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
               prefillNonce={jobIdPrefillNonce}
             />
           )}
+          {/* O menu do jogo é o mesmo da Choose Game (Browse servers, Auto
+              Rejoin, Scripts): as duas telas ficaram espelhadas pela metade —
+              aqui havia a coluna de servidores recentes e não o menu
+              completo; lá, o contrário. */}
           {activeTab === "games" && (
             <GamesTab
               onSelectGame={handleSelectGame}
               onJoinGame={handleJoinGame}
               addToast={store.addToast}
               onAddFavorite={handleAddFavorite}
+              onBrowseServers={(placeId) => handleBrowseServers(placeId)}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           )}
           {activeTab === "favorites" && (
             <FavoritesTab
               onSelectGame={(placeId, privateServer) => handleSelectGame(placeId, undefined, undefined, privateServer)}
               addToast={store.addToast}
+              onBrowseServers={handleBrowseServers}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           )}
           {activeTab === "recent" && (
@@ -188,6 +226,10 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
               maxRecentJobs={maxRecentJobs}
               userId={userId}
               onSelectJob={handleSelectJob}
+              onBrowseServers={handleBrowseServers}
+              onAddFavorite={handleAddFavorite}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           )}
         </div>
