@@ -52,7 +52,11 @@ export function VaultKeyBanner() {
     <div
       role="alert"
       className={[
-        "flex items-start gap-2 px-4 py-1.5 border-b shrink-0",
+        // `pr-28` reserva o canto: `ModalWindowControls` é `fixed top-2.5 right-3`, e
+        // nas telas de senha/criptografia não há TitleBar segurando o topo — a
+        // pílula de minimizar/fechar ficava **sobre** a primeira linha do aviso,
+        // cortando justamente o fim do texto.
+        "flex items-start gap-2 pl-4 pr-28 py-1.5 border-b shrink-0",
         mild
           ? "bg-amber-600/15 border-amber-500/20"
           : "bg-red-600/15 border-red-500/25",

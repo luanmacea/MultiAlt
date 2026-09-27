@@ -87,21 +87,30 @@ function AppContent() {
   // usuário ("See the warning on screen") quando a chave não pôde ser criada. Sem
   // isto, o aviso existia mas ficava atrás de um `return` antecipado — ponteiro
   // quebrado no instante em que ele mais importa.
+  // `flex h-screen flex-col` + `min-h-0 flex-1 overflow-auto` porque `body` tem
+  // `overflow: hidden`: como irmãs soltas num fragmento, a faixa somava altura em
+  // cima de uma tela de 100vh e o rodapé saía da janela sem rolagem — e na tela de
+  // criptografia o rodapé são os botões Continue/Cancel. As duas telas passaram a
+  // `h-full`/`min-h-full` para o container ser o dono do viewport.
   if (store.needsPassword) {
     return (
-      <>
+      <div className="theme-app flex h-screen flex-col">
         <VaultKeyBanner />
-        <PasswordScreen />
-      </>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <PasswordScreen />
+        </div>
+      </div>
     );
   }
 
   if (store.encryptionSetupOpen) {
     return (
-      <>
+      <div className="theme-app flex h-screen flex-col">
         <VaultKeyBanner />
-        <EncryptionSetupScreen />
-      </>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <EncryptionSetupScreen />
+        </div>
+      </div>
     );
   }
 
