@@ -32,7 +32,7 @@ export function EncryptionSetupScreen() {
     if (store.accountsEncrypted === null) return "";
     return store.accountsEncrypted
       ? t("Current method: Password Lock")
-      : t("Current method: No password (AccountData.json is plain text)");
+      : t("Current method: Device Key (no password)");
   }, [store.accountsEncrypted, t]);
 
   async function handleApply() {
@@ -125,12 +125,12 @@ export function EncryptionSetupScreen() {
               <div className="flex items-start gap-3">
                 <div className={["mt-0.5", method === "default" ? "theme-accent" : "theme-muted"].join(" ")}><Unlock size={16} strokeWidth={1.8} /></div>
                 <div className="flex-1">
-                  <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("No Password (Not Encrypted)")}</div>
+                  <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("No Password (Device Key)")}</div>
                   <div className={[
                     "text-[12px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
                     method === "default" ? "max-h-24 opacity-100" : "max-h-10 opacity-90",
                   ].join(" ")}>
-                    {t("AccountData.json is saved as plain JSON: cookies and passwords stay readable on this PC.")}
+                    {t("AccountData.json is encrypted with a key stored on this device. No password to type, but a copy of the file alone does not open your accounts.")}
                   </div>
                 </div>
                 <div className={[
@@ -178,7 +178,7 @@ export function EncryptionSetupScreen() {
                 </div>
               ) : (
                 <div className="text-[12px] text-amber-300/90 pt-0.5">
-                  {t("Without a password there is no encryption: anyone who opens the file — or any program running as you — can read your cookies and passwords. You can change this later in Settings.")}
+                  {t("Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops a copied file, a leaked backup and another user on this PC — but not a program running as you. Choose a password if you need protection from that. You can change this later in Settings.")}
                 </div>
               )}
             </div>
@@ -196,10 +196,10 @@ export function EncryptionSetupScreen() {
             {isFirstRun
               ? method === "password"
                 ? t("Required on first setup to secure your account vault.")
-                : t("You can continue without a password, but your accounts will not be encrypted.")
+                : t("You can continue without a password: the vault is locked with this device key instead.")
               : method === "password"
                 ? t("Re-encrypts your current AccountData.json with the selected method.")
-                : t("Removes the password and rewrites AccountData.json as plain text.")}
+                : t("Removes the password and re-encrypts AccountData.json with this device key.")}
           </div>
           <div className={["grid gap-2 shrink-0", canClose ? "grid-cols-2" : "grid-cols-1"].join(" ")}>
             {canClose ? (

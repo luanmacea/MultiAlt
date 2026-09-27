@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use sodiumoxide::crypto::hash::sha512;
 use sodiumoxide::crypto::pwhash::argon2i13;
 use sodiumoxide::crypto::secretbox;
@@ -46,6 +48,273 @@ pub fn derive_key(password_hash: &[u8], salt: &[u8]) -> Result<secretbox::Key, C
     .map_err(|_| CryptoError::InvalidPassword)?;
 
     secretbox::Key::from_slice(&key_bytes).ok_or(CryptoError::InvalidData)
+}
+
+// ---------------------------------------------------------------------------
+// DPAPI (escopo do usuário atual do Windows)
+// ---------------------------------------------------------------------------
+
+/// Embrulha bytes com o DPAPI **do usuário atual do Windows**, com a entropia
+/// que o chamador escolher.
+///
+/// Existe um ponto só para os dois usos do app ("lembrar de mim" e a chave do
+/// vault de contas) porque duplicar o bloco `unsafe` era duplicar a chance de
+/// errar um ponteiro. A entropia vem do chamador, então o blob de um recurso
+/// nunca abre no outro.
+///
+/// **Limite real da proteção, e não é pequeno:** o DPAPI é do *usuário do
+/// Windows*. Isso protege arquivo copiado para outra máquina, backup vazado e
+/// outro usuário no mesmo PC. **Não** protege contra programa rodando como o
+/// próprio usuário — esse programa chama `CryptUnprotectData` exatamente como o
+/// app chama. Não prometa mais do que isso na UI nem na doc.
+///
+/// `CRYPTPROTECT_UI_FORBIDDEN`: o app chama isso no boot e em gravações; se
+/// alguma configuração de política exigisse interface, é melhor falhar e cair
+/// no outro embrulho do que travar o processo num diálogo.
+#[cfg(target_os = "windows")]
+pub fn dpapi_protect(data: &[u8], entropy: &[u8]) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    unsafe {
+        let in_blob = CRYPT_INTEGER_BLOB {
+            cbData: data.len() as u32,
+            pbData: data.as_ptr() as *mut u8,
+        };
+        let entropy_blob = CRYPT_INTEGER_BLOB {
+            cbData: entropy.len() as u32,
+            pbData: entropy.as_ptr() as *mut u8,
+        };
+        let mut out_blob = CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        };
+
+        let ok = CryptProtectData(
+            &in_blob,
+            std::ptr::null(),
+            &entropy_blob,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut out_blob,
+        );
+        if ok == 0 || out_blob.pbData.is_null() {
+            return None;
+        }
+
+        let protected =
+            std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec();
+        LocalFree(out_blob.pbData as *mut core::ffi::c_void);
+        Some(protected)
+    }
+}
+
+/// Desembrulha o que `dpapi_protect` guardou. `None` para qualquer problema
+/// (arquivo de outro usuário, de outra máquina, entropia errada, lixo).
+#[cfg(target_os = "windows")]
+pub fn dpapi_unprotect(data: &[u8], entropy: &[u8]) -> Option<Vec<u8>> {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+    };
+
+    unsafe {
+        let in_blob = CRYPT_INTEGER_BLOB {
+            cbData: data.len() as u32,
+            pbData: data.as_ptr() as *mut u8,
+        };
+        let entropy_blob = CRYPT_INTEGER_BLOB {
+            cbData: entropy.len() as u32,
+            pbData: entropy.as_ptr() as *mut u8,
+        };
+        let mut out_blob = CRYPT_INTEGER_BLOB {
+            cbData: 0,
+            pbData: std::ptr::null_mut(),
+        };
+
+        let ok = CryptUnprotectData(
+            &in_blob,
+            std::ptr::null_mut(),
+            &entropy_blob,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            CRYPTPROTECT_UI_FORBIDDEN,
+            &mut out_blob,
+        );
+        if ok == 0 || out_blob.pbData.is_null() {
+            return None;
+        }
+
+        let plain = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec();
+        LocalFree(out_blob.pbData as *mut core::ffi::c_void);
+        Some(plain)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn dpapi_protect(_data: &[u8], _entropy: &[u8]) -> Option<Vec<u8>> {
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn dpapi_unprotect(_data: &[u8], _entropy: &[u8]) -> Option<Vec<u8>> {
+    None
+}
+
+// ---------------------------------------------------------------------------
+// Hash derivado do aparelho
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "windows")]
+fn encode_wide(s: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
+    s.as_ref().encode_wide().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(target_os = "windows")]
+fn read_machine_guid() -> Option<String> {
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ,
+        KEY_WOW64_64KEY, REG_SZ,
+    };
+
+    let sub_key = encode_wide("SOFTWARE\\Microsoft\\Cryptography");
+    let value_name = encode_wide("MachineGuid");
+
+    // O app é 64-bit, mas pedir a view de 64 bits explicitamente no retry evita
+    // depender de como o processo foi carregado.
+    for access in [KEY_READ, KEY_READ | KEY_WOW64_64KEY] {
+        unsafe {
+            let mut hkey = std::ptr::null_mut();
+            if RegOpenKeyExW(
+                HKEY_LOCAL_MACHINE,
+                sub_key.as_ptr(),
+                0,
+                access,
+                &mut hkey,
+            ) != 0
+            {
+                continue;
+            }
+
+            let mut buf = [0u16; 256];
+            let mut buf_size = (buf.len() * 2) as u32;
+            let mut value_type = 0u32;
+            let result = RegQueryValueExW(
+                hkey,
+                value_name.as_ptr(),
+                std::ptr::null_mut(),
+                &mut value_type,
+                buf.as_mut_ptr() as *mut u8,
+                &mut buf_size,
+            );
+            RegCloseKey(hkey);
+
+            if result != 0 || value_type != REG_SZ {
+                continue;
+            }
+
+            let len = (buf_size as usize / 2).saturating_sub(1);
+            let value = String::from_utf16_lossy(&buf[..len]).trim().to_string();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// Identificadores do aparelho, **do mais estável para o menos**.
+///
+/// O primeiro da lista é o que embrulha a chave do vault; os outros só são
+/// tentados na leitura, para um arquivo escrito quando o primeiro não existia
+/// continuar abrindo (é para isso que os fallbacks servem).
+///
+/// **Por que o `MachineGuid` não é o primeiro neste fork:** o isolamento
+/// pré-launch (`Isolation.SpoofMachineGuid`) **reescreve**
+/// `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`. Amarrar a chave do vault
+/// a esse valor significaria o app trancar o usuário fora das próprias contas na
+/// primeira vez que ele usasse um recurso central do programa. Foi exatamente
+/// esse o defeito que o upstream teve que consertar duas vezes; aqui o
+/// identificador que manda é o nome da máquina, que o app nunca escreve.
+///
+/// O último candidato é uma constante: sem ela, uma máquina sem nome de
+/// computador legível não teria como guardar a chave, e ficar sem criptografia é
+/// pior que ter uma amarração fraca. No Windows o DPAPI continua sendo a
+/// proteção de verdade.
+fn device_identifier_candidates() -> Vec<String> {
+    let mut candidates: Vec<String> = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(name) = std::env::var("COMPUTERNAME") {
+            if !name.trim().is_empty() {
+                candidates.push(name.trim().to_string());
+            }
+        }
+        if let Some(guid) = read_machine_guid() {
+            candidates.push(guid);
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(name) = std::env::var("HOSTNAME") {
+            if !name.trim().is_empty() {
+                candidates.push(name.trim().to_string());
+            }
+        }
+    }
+
+    candidates.push("ram-device".to_string());
+    candidates
+}
+
+fn device_user() -> String {
+    #[cfg(target_os = "windows")]
+    let user = std::env::var("USERNAME");
+    #[cfg(not(target_os = "windows"))]
+    let user = std::env::var("USER");
+    user.ok()
+        .map(|v| v.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "user".to_string())
+}
+
+/// Hash no formato que `derive_key` espera, a partir de um identificador de
+/// aparelho. Público para os testes poderem montar um vault "de outro aparelho"
+/// sem mexer no ambiente.
+pub fn device_hash_for_identifier(identifier: &str) -> Vec<u8> {
+    hash_password(&format!("{}|{}|ram-device-v1", identifier, device_user()))
+}
+
+fn compute_device_hashes() -> Vec<Vec<u8>> {
+    let mut hashes: Vec<Vec<u8>> = Vec::new();
+    for identifier in device_identifier_candidates() {
+        let hash = device_hash_for_identifier(&identifier);
+        if !hashes.contains(&hash) {
+            hashes.push(hash);
+        }
+    }
+    hashes
+}
+
+/// Ler o registro a cada tentativa de destrancar seria caro e inútil: os
+/// identificadores não mudam no meio de uma execução.
+static DEVICE_HASHES: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+
+/// Todos os hashes do aparelho, em ordem. O `[0]` é o que se usa para gravar.
+pub fn device_hash_candidates() -> &'static [Vec<u8>] {
+    DEVICE_HASHES.get_or_init(compute_device_hashes)
+}
+
+/// O hash com que a chave mestra é embrulhada ao gravar.
+pub fn primary_device_hash() -> Vec<u8> {
+    device_hash_candidates()[0].clone()
 }
 
 pub fn is_encrypted(data: &[u8]) -> bool {

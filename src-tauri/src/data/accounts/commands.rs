@@ -119,9 +119,15 @@ pub fn forget_remembered_unlock() -> Result<(), String> {
     Ok(())
 }
 
+/// Para a UI, "encrypted" sempre quis dizer **"protegido por senha"** — é isso
+/// que a tela de criptografia mostra e o que o usuário decide ali. Desde que o
+/// vault sem senha também é cifrado (pela chave do aparelho), `is_encrypted()`
+/// deixou de responder essa pergunta: ela é verdadeira nos dois casos. Então o
+/// comando passou a devolver `has_user_password()`; trocar para os bytes do
+/// arquivo faria a tela dizer "Pass Lock" para quem não tem senha nenhuma.
 #[tauri::command]
 pub fn is_accounts_encrypted(state: tauri::State<'_, AccountStore>) -> Result<bool, String> {
-    state.is_encrypted()
+    state.has_user_password()
 }
 
 #[tauri::command]
