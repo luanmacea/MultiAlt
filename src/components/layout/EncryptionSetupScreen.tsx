@@ -130,7 +130,7 @@ export function EncryptionSetupScreen() {
                     "text-[12px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
                     method === "default" ? "max-h-24 opacity-100" : "max-h-10 opacity-90",
                   ].join(" ")}>
-                    {t("AccountData.json is encrypted with a key stored on this device. No password to type, but a copy of the file alone does not open your accounts.")}
+                    {t("AccountData.json is encrypted with a key stored on this device. No password to type, but a copy of the account file alone does not open your accounts.")}
                   </div>
                 </div>
                 <div className={[
@@ -177,8 +177,13 @@ export function EncryptionSetupScreen() {
                   <div className="text-[12px] theme-muted">{t("At least 8 characters.")}</div>
                 </div>
               ) : (
-                <div className="text-[12px] text-amber-300/90 pt-0.5">
-                  {t("Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops a copied file, a leaked backup and another user on this PC — but not a program running as you. Choose a password if you need protection from that. You can change this later in Settings.")}
+                <div className="text-[12px] text-amber-300/90 pt-0.5 space-y-1.5">
+                  <div>
+                    {t("Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops a copied AccountData.json and another user on this PC — but not a program running as you.")}
+                  </div>
+                  <div>
+                    {t("It also does not protect a leaked backup: the app's backup zip has to carry the key, or the backup could never be restored. Choose a password if you keep backups in cloud storage like OneDrive or Google Drive. You can change this later in Settings.")}
+                  </div>
                 </div>
               )}
             </div>

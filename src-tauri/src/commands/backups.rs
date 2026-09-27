@@ -776,29 +776,55 @@ fn restore_backup(
     let mut restart_reasons = restart_reasons_for(&outcome.restored);
     let mut accounts_reloaded = false;
 
-    if outcome.restored.iter().any(|n| n == "AccountData.json") {
+    // A chave restaurada tem que ser tratada **antes** de qualquer tentativa de
+    // recarregar: com um `.key` novo em disco, o segredo desta sessão é o velho, e
+    // até a migração de um vault em texto puro gravaria com o segredo errado.
+    let vault_key_restored = restored_vault_key_requires_restart(&outcome.restored);
+    if vault_key_restored {
+        accounts.lock_writes_until_restart("the vault key file was restored from a backup");
+    }
+
+    if !vault_key_restored && outcome.restored.iter().any(|n| n == "AccountData.json") {
         match accounts.is_encrypted() {
             // A chave desta sessão foi derivada da senha antiga e vive em
             // memória; reler aqui poderia travar o store com `load_failed`.
-            Ok(true) => restart_reasons.push(
-                "O AccountData.json restaurado está criptografado: reinicie o app para ele ser aberto com a chave daquele backup (senha daquele backup, ou o AccountData.key que vem no zip). O segredo desta sessão é o de antes da restauração."
-                    .to_string(),
-            ),
+            Ok(true) => {
+                // Avisar não basta: o app continuava utilizável, e um único
+                // launch (`mark_used` → `save`) sobrescreveria o vault restaurado
+                // cifrado pelo segredo antigo — lockout no boot seguinte.
+                accounts.lock_writes_until_restart(
+                    "an encrypted AccountData.json was restored from a backup",
+                );
+                restart_reasons.push(
+                    "O AccountData.json restaurado está criptografado: reinicie o app para ele ser aberto com a chave daquele backup (senha daquele backup, ou o AccountData.key que vem no zip). Até reiniciar, as contas estão somente para leitura — o segredo desta sessão é o de antes da restauração."
+                        .to_string(),
+                )
+            }
             Ok(false) => {
                 let session_uses_password = settings
                     .get_string("General", "EncryptionMethod")
                     .eq_ignore_ascii_case("password");
                 if session_uses_password {
+                    accounts.lock_writes_until_restart(
+                        "a plain AccountData.json was restored while this session holds a password",
+                    );
                     restart_reasons.push(
-                        "O AccountData.json restaurado está sem criptografia, mas esta sessão está com senha ativa: reinicie o app antes de mexer nas contas, senão a próxima gravação re-criptografa o arquivo."
+                        "O AccountData.json restaurado está sem criptografia, mas esta sessão está com senha ativa: reinicie o app antes de mexer nas contas. Até lá as contas estão somente para leitura, senão a próxima gravação re-criptografa o arquivo."
                             .to_string(),
                     );
                 } else {
                     match accounts.load() {
                         Ok(()) => accounts_reloaded = true,
-                        Err(e) => restart_reasons.push(format!(
-                            "Não foi possível reler o AccountData.json restaurado ({e}); reinicie o app."
-                        )),
+                        Err(e) => {
+                            // `load()` que falha já marca o latch interno, mas ser
+                            // explícito aqui evita depender desse detalhe.
+                            accounts.lock_writes_until_restart(
+                                "the restored AccountData.json could not be read back",
+                            );
+                            restart_reasons.push(format!(
+                                "Não foi possível reler o AccountData.json restaurado ({e}); reinicie o app."
+                            ))
+                        }
                     }
                 }
             }
@@ -1323,9 +1349,77 @@ mod backups_tests {
             "AccountData.json".to_string()
         ]));
         assert!(!restored_vault_key_requires_restart(&[]));
-        // E a chave tem que estar no conjunto que o backup leva, senão um vault
-        // cifrado restaurado noutra máquina não abre mais.
-        assert!(data::settings::DATA_FILES.contains(&"AccountData.key"));
+    }
+
+    /// **O guardião de verdade do `.key` no backup.** O teste acima trava a
+    /// função; este trava o comportamento: um vault cifrado de verdade, com a
+    /// chave dele, tem que **sair no zip** e **voltar abrindo** depois de um
+    /// "reinício" (store novo). Sem a chave no zip isso é perda total, e uma
+    /// asserção sobre a constante `DATA_FILES` não pegaria — ela travaria a
+    /// constante e mais nada.
+    #[test]
+    fn a_backup_carries_the_vault_key_and_the_restored_pair_opens_again() {
+        let layout = temp_layout("vault-roundtrip");
+        seed_data(&layout);
+
+        // Um vault cifrado real, criado pelo próprio AccountStore.
+        let vault_path = layout.data_dir.join("AccountData.json");
+        let key_path = layout.data_dir.join("AccountData.key");
+        {
+            let store = crate::data::accounts::AccountStore::new(vault_path.clone());
+            store.load().expect("abrir vault novo");
+            store
+                .add(crate::data::accounts::Account::new(
+                    "cookie".to_string(),
+                    "NoBackup".to_string(),
+                    4242,
+                ))
+                .expect("adicionar conta");
+        }
+        assert!(key_path.exists(), "o vault tinha que ter criado o .key");
+        assert!(crate::data::crypto::is_encrypted(
+            &std::fs::read(&vault_path).unwrap()
+        ));
+
+        let entry =
+            create_backup_in(&layout, Some("com-chave"), false, at("2026-02-01T00:00:00Z"))
+                .expect("criar backup");
+
+        // 1. O zip leva os dois arquivos.
+        assert!(
+            entry.files.iter().any(|f| f == "AccountData.json"),
+            "o zip não levou o vault"
+        );
+        assert!(
+            entry.files.iter().any(|f| f == "AccountData.key"),
+            "o zip não levou a chave — vault cifrado sem a chave dele não restaura"
+        );
+
+        // 2. Desastre: os dois arquivos somem.
+        std::fs::remove_file(&vault_path).unwrap();
+        std::fs::remove_file(&key_path).unwrap();
+
+        let archive = resolve_backup_path(&layout.backups_dir(), &entry.id).unwrap();
+        let outcome = restore_backup_archive(&layout, &archive).expect("restaurar");
+        assert!(outcome.restored.iter().any(|n| n == "AccountData.json"));
+        assert!(outcome.restored.iter().any(|n| n == "AccountData.key"));
+
+        // 3. Depois do "reinício", o par restaurado abre e a conta está lá.
+        let reopened = crate::data::accounts::AccountStore::new(vault_path.clone());
+        reopened
+            .load()
+            .expect("o par vault+chave restaurado tem que abrir");
+        assert!(!reopened.needs_password().unwrap());
+        // `seed_data` deixa um `AccountData.json` em texto puro, então o store
+        // migrou aquela conta antes de receber a nossa: as duas têm que voltar.
+        let ids: Vec<i64> = reopened
+            .get_all()
+            .unwrap()
+            .iter()
+            .map(|a| a.user_id)
+            .collect();
+        assert!(ids.contains(&4242), "a conta gravada sumiu: {ids:?}");
+        assert!(ids.contains(&1), "a conta migrada sumiu: {ids:?}");
     }
 
     #[test]

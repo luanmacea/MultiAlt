@@ -228,18 +228,30 @@ describe("EncryptionSetupScreen", () => {
     expect(plainOption).toHaveTextContent(/encrypted with a key stored on this device/i);
   });
 
-  // O limite da proteção tem que estar na tela: ela para arquivo copiado,
-  // backup vazado e outro usuário do PC, e **não** para malware rodando como o
-  // próprio usuário. Vender mais que isso é vender proteção que não existe.
+  // O limite da proteção tem que estar na tela onde o usuário decide, não só na
+  // doc. E ele tem que ser o limite **real**: a chave viaja no zip de backup (é
+  // obrigatório, senão o backup não restaura), então backup vazado **não** está
+  // protegido. A versão anterior desta frase afirmava que estava — vender
+  // proteção que não existe é pior que não falar nada.
   it("states the real limit of the device key once the no-password option is picked", async () => {
     renderSetup();
     await userEvent.click(screen.getByRole("button", { name: /No Password/ }));
-    const warning = screen.getByText(/the key sits in a file next to AccountData\.json/i);
-    expect(warning).toBeInTheDocument();
-    expect(warning).toHaveTextContent(/copied file/i);
-    expect(warning).toHaveTextContent(/leaked backup/i);
-    expect(warning).toHaveTextContent(/another user on this PC/i);
-    expect(warning).toHaveTextContent(/but not a program running as you/i);
+
+    const limit = screen.getByText(/the key sits in a file next to AccountData\.json/i);
+    expect(limit).toHaveTextContent(/copied AccountData\.json/i);
+    expect(limit).toHaveTextContent(/another user on this PC/i);
+    expect(limit).toHaveTextContent(/but not a program running as you/i);
+
+    // O que o backup vazado realmente ganha: nada. E a saída oferecida é senha.
+    const backups = screen.getByText(/does not protect a leaked backup/i);
+    expect(backups).toHaveTextContent(/backup zip has to carry the key/i);
+    expect(backups).toHaveTextContent(/Choose a password if you keep backups in cloud storage/i);
+
+    // A frase antiga afirmava o contrário; ela não pode voltar.
+    expect(
+      screen.queryByText(/stops a copied file, a leaked backup/i),
+    ).not.toBeInTheDocument();
+
     expect(
       screen.getByText(
         "You can continue without a password: the vault is locked with this device key instead.",
