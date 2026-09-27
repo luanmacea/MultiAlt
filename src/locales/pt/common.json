@@ -1606,5 +1606,8 @@
   "Move group up": "Subir o grupo",
   "Move up": "Subir",
   "Name prefix (optional)": "Prefixo do nome (opcional)",
-  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados."
+  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados.",
+  "Reload interface": "Recarregar a interface",
+  "Something broke in the interface": "Algo quebrou na interface",
+  "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client.": "Suas contas e configurações não foram tocadas. Recarregar remonta a interface sem fechar nenhum cliente do Roblox."
 }

@@ -1606,5 +1606,8 @@
   "Move group up": "Move group up",
   "Move up": "Move up",
   "Name prefix (optional)": "Name prefix (optional)",
-  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Only letters and digits. Each account becomes prefix_ plus 5 random characters."
+  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Only letters and digits. Each account becomes prefix_ plus 5 random characters.",
+  "Reload interface": "Reload interface",
+  "Something broke in the interface": "Something broke in the interface",
+  "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client.": "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client."
 }

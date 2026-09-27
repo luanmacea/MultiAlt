@@ -94,6 +94,9 @@ Não viola o ToS do Roblox, mas alguns jogos podem proibir alts — pesquise ant
 **Como faço backup das minhas contas?**
 Use [RAMDecrypt](https://github.com/ic3w0lf22/RAMDecrypt) para descriptografar o arquivo local e salvar onde quiser.
 
+**O app abriu com a janela em branco (ou preta). E agora?**
+A interface é desenhada pelo Microsoft Edge WebView2 Runtime, então reinstalar o app não resolve. O app tenta se recuperar sozinho: se a interface não aparecer em 25 s, ele avisa e reabre com a aceleração de vídeo desligada. Para forçar esse modo, **segure Shift** enquanto o app abre (ou acrescente `--safe-mode` ao campo *Destino* do atalho). Se continuar em branco, repare o **Microsoft Edge WebView2 Runtime** em Configurações do Windows → Aplicativos → Aplicativos instalados → Modificar → Reparar, reinicie o Windows e atualize o driver de vídeo. Detalhes em [docs/features/webview-recovery.md](docs/features/webview-recovery.md).
+
 **Funciona no Mac?**
 Ainda não — suporte parcial, chegando com a reescrita v4.
 
