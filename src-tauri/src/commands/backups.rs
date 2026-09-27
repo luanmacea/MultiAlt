@@ -776,29 +776,55 @@ fn restore_backup(
     let mut restart_reasons = restart_reasons_for(&outcome.restored);
     let mut accounts_reloaded = false;
 
-    if outcome.restored.iter().any(|n| n == "AccountData.json") {
+    // A chave restaurada tem que ser tratada **antes** de qualquer tentativa de
+    // recarregar: com um `.key` novo em disco, o segredo desta sessão é o velho, e
+    // até a migração de um vault em texto puro gravaria com o segredo errado.
+    let vault_key_restored = restored_vault_key_requires_restart(&outcome.restored);
+    if vault_key_restored {
+        accounts.lock_writes_until_restart("the vault key file was restored from a backup");
+    }
+
+    if !vault_key_restored && outcome.restored.iter().any(|n| n == "AccountData.json") {
         match accounts.is_encrypted() {
             // A chave desta sessão foi derivada da senha antiga e vive em
             // memória; reler aqui poderia travar o store com `load_failed`.
-            Ok(true) => restart_reasons.push(
-                "O AccountData.json restaurado está criptografado: reinicie o app para ele ser aberto com a chave daquele backup (senha daquele backup, ou o AccountData.key que vem no zip). O segredo desta sessão é o de antes da restauração."
-                    .to_string(),
-            ),
+            Ok(true) => {
+                // Avisar não basta: o app continuava utilizável, e um único
+                // launch (`mark_used` → `save`) sobrescreveria o vault restaurado
+                // cifrado pelo segredo antigo — lockout no boot seguinte.
+                accounts.lock_writes_until_restart(
+                    "an encrypted AccountData.json was restored from a backup",
+                );
+                restart_reasons.push(
+                    "O AccountData.json restaurado está criptografado: reinicie o app para ele ser aberto com a chave daquele backup (senha daquele backup, ou o AccountData.key que vem no zip). Até reiniciar, as contas estão somente para leitura — o segredo desta sessão é o de antes da restauração."
+                        .to_string(),
+                )
+            }
             Ok(false) => {
                 let session_uses_password = settings
                     .get_string("General", "EncryptionMethod")
                     .eq_ignore_ascii_case("password");
                 if session_uses_password {
+                    accounts.lock_writes_until_restart(
+                        "a plain AccountData.json was restored while this session holds a password",
+                    );
                     restart_reasons.push(
-                        "O AccountData.json restaurado está sem criptografia, mas esta sessão está com senha ativa: reinicie o app antes de mexer nas contas, senão a próxima gravação re-criptografa o arquivo."
+                        "O AccountData.json restaurado está sem criptografia, mas esta sessão está com senha ativa: reinicie o app antes de mexer nas contas. Até lá as contas estão somente para leitura, senão a próxima gravação re-criptografa o arquivo."
                             .to_string(),
                     );
                 } else {
                     match accounts.load() {
                         Ok(()) => accounts_reloaded = true,
-                        Err(e) => restart_reasons.push(format!(
-                            "Não foi possível reler o AccountData.json restaurado ({e}); reinicie o app."
-                        )),
+                        Err(e) => {
+                            // `load()` que falha já marca o latch interno, mas ser
+                            // explícito aqui evita depender desse detalhe.
+                            accounts.lock_writes_until_restart(
+                                "the restored AccountData.json could not be read back",
+                            );
+                            restart_reasons.push(format!(
+                                "Não foi possível reler o AccountData.json restaurado ({e}); reinicie o app."
+                            ))
+                        }
                     }
                 }
             }

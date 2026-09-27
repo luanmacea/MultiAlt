@@ -581,7 +581,6 @@
   "Theme": "Theme",
   "Theme saved": "Theme saved",
   "theme-preset": "theme-preset",
-  "This AccountData.json is encrypted. Enter its password:": "This AccountData.json is encrypted. Enter its password:",
   "Timing": "Timing",
   "Toggle audio": "Toggle audio",
   "Toggle Group Visibility": "Toggle Group Visibility",
@@ -1624,10 +1623,12 @@
   "Window width": "Window width",
   "Windowed": "Windowed",
   "A launch is already in progress": "A launch is already in progress",
-  "AccountData.json is encrypted with a key stored on this device. No password to type, but a copy of the file alone does not open your accounts.": "AccountData.json is encrypted with a key stored on this device. No password to type, but a copy of the file alone does not open your accounts.",
   "Current method: Device Key (no password)": "Current method: Device Key (no password)",
   "No Password (Device Key)": "No Password (Device Key)",
   "Removes the password and re-encrypts AccountData.json with this device key.": "Removes the password and re-encrypts AccountData.json with this device key.",
   "You can continue without a password: the vault is locked with this device key instead.": "You can continue without a password: the vault is locked with this device key instead.",
-  "Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops a copied file, a leaked backup and another user on this PC — but not a program running as you. Choose a password if you need protection from that. You can change this later in Settings.": "Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops a copied file, a leaked backup and another user on this PC — but not a program running as you. Choose a password if you need protection from that. You can change this later in Settings."
+  "AccountData.json is encrypted with a key stored on this device. No password to type, but a copy of the account file alone does not open your accounts.": "AccountData.json is encrypted with a key stored on this device. No password to type, but a copy of the account file alone does not open your accounts.",
+  "It also does not protect a leaked backup: the app's backup zip has to carry the key, or the backup could never be restored. Choose a password if you keep backups in cloud storage like OneDrive or Google Drive. You can change this later in Settings.": "It also does not protect a leaked backup: the app's backup zip has to carry the key, or the backup could never be restored. Choose a password if you keep backups in cloud storage like OneDrive or Google Drive. You can change this later in Settings.",
+  "Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops a copied AccountData.json and another user on this PC — but not a program running as you.": "Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops a copied AccountData.json and another user on this PC — but not a program running as you.",
+  "This AccountData.json is encrypted. Enter its password — or cancel, if it was never password-protected: a file locked with another installation's device key can only be imported together with that installation's AccountData.key.": "This AccountData.json is encrypted. Enter its password — or cancel, if it was never password-protected: a file locked with another installation's device key can only be imported together with that installation's AccountData.key."
 }

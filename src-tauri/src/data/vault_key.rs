@@ -64,11 +64,16 @@ struct KeyFile {
     device: Option<String>,
 }
 
-/// Chave mestra recuperada, e por qual caminho.
+/// Chave mestra recuperada, e por qual embrulho.
+///
+/// Quem chama **não** deve usar isto para decidir se regrava o `.key`: o
+/// embrulho que não foi usado pode estar morto sem ninguém notar, e "abriu por
+/// um deles" não diz nada sobre o outro. O reparo é incondicional em
+/// `AccountStore::recover_and_refresh_master_key`. Este campo serve para teste e
+/// diagnóstico.
 pub struct RecoveredKey {
     pub master: Vec<u8>,
-    /// `false` quando só o embrulho do aparelho abriu. O chamador usa isso para
-    /// regravar o `.key` e voltar a ter os dois caminhos.
+    /// `true` quando o embrulho do DPAPI foi o que abriu.
     pub via_dpapi: bool,
 }
 
