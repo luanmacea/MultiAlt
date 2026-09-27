@@ -217,7 +217,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     presenceByUserId: new Map<number, number>(),
     launchedByProgram: new Set<number>(),
 
-    joinServer: vi.fn(async () => {}),
+    joinServer: vi.fn(async () => "started" as const),
     launchMultiple: vi.fn(async () => {}),
     restartRobloxClients: vi.fn(async () => {}),
     focusRobloxClient: vi.fn(async () => true),

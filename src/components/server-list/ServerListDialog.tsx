@@ -46,9 +46,8 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
     store.setPlaceId(localPlaceId);
     if (userId) {
       if (!(await confirmJoinOnline([userId]))) return;
-      // `joinServer` relança a recusa por launch já em andamento — a tela já
-      // avisou, então aqui só não se pode deixar a promessa rejeitar sozinha.
-      void store.joinServer(userId).catch(() => {});
+      // O resultado (recusa/falha) já é reportado pelo próprio `joinServer`.
+      void store.joinServer(userId);
     }
   }
 

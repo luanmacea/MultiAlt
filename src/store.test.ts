@@ -746,10 +746,10 @@ describe("joinServer", () => {
     const { result } = await setup();
     failures.set("launch_roblox", "launch-already-active");
 
-    // E relança: quem chamou precisa saber que **não** começou, senão a tela
-    // mostra "seguindo com 1 conta..." em cima do aviso de recusa.
+    // E diz que não começou: quem chamou precisa saber, senão a tela mostra
+    // "seguindo com 1 conta..." em cima do aviso de recusa.
     await act(async () => {
-      await expect(result.current.joinServer(1)).rejects.toBeTruthy();
+      await expect(result.current.joinServer(1)).resolves.toBe("refused");
     });
 
     expect(result.current.toasts.map((toast) => toast.message)).toContain(
@@ -763,15 +763,27 @@ describe("joinServer", () => {
     expect(result.current.launchProgress).toBeNull();
   });
 
-  it("não relança uma falha comum de launch (só a recusa é relançada)", async () => {
+  it("uma falha comum de launch não vira exceção, mas também não vira sucesso", async () => {
+    // O irmão do bug da recusa: a tela anunciava "seguindo com 1 conta..." em
+    // cima da faixa vermelha de erro porque o launch de uma conta engolia a
+    // falha e quem chamou não tinha como saber.
     const { result } = await setup();
-    failures.set("launch_roblox", "backend exploded");
+    failures.set("launch_roblox", "version-conflict");
 
     await act(async () => {
-      await expect(result.current.joinServer(1)).resolves.toBeUndefined();
+      await expect(result.current.joinServer(1)).resolves.toBe("failed");
     });
 
-    expect(result.current.error).toBe("backend exploded");
+    expect(result.current.error).toBe("version-conflict");
+    expect(result.current.actionStatus?.tone).toBe("error");
+  });
+
+  it("diz que começou quando o backend aceitou o launch", async () => {
+    const { result } = await setup();
+
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBe("started");
+    });
   });
 
   it("announces the account alias in the action status while launching", async () => {
@@ -784,7 +796,7 @@ describe("joinServer", () => {
       })
     );
 
-    let pending: Promise<void> | null = null;
+    let pending: Promise<unknown> | null = null;
     await act(async () => {
       pending = result.current.joinServer(1);
       await Promise.resolve();

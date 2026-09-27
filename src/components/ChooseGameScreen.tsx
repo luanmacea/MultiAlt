@@ -109,7 +109,16 @@ function useLauncher() {
     store.setJobId(extras?.joinVip && extras.linkCode ? `vip:${extras.linkCode}` : jobId);
     try {
       if (userIds.length === 1) {
-        await store.joinServer(userIds[0], target);
+        const attempt = await store.joinServer(userIds[0], target);
+        if (attempt !== "started") {
+          // O store já avisou (recusa) ou já pôs a faixa de erro (falha): aqui só
+          // não se pode devolver `ok`, senão a tela anuncia um launch que não
+          // aconteceu. A frase da recusa vai para a linha inline de quem a mostra.
+          if (attempt === "refused") {
+            return { ok: false, error: tr("A launch is already in progress") };
+          }
+          return { ok: false };
+        }
       } else {
         await store.launchMultiple(userIds, target);
       }

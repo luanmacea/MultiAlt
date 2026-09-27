@@ -96,6 +96,53 @@ fn next_account_wait(
 }
 
 /// Picks a pseudo-random public server from the list (no RNG dependency).
+/// Tamanho da fatia da espera entre contas. A espera inteira num `sleep` só não
+/// dá chance de olhar a fila: enquanto ela dorme, o painel mostra "0 na fila" e
+/// o app recusa qualquer launch novo. Curta o suficiente para o usuário não
+/// sentir, longa o suficiente para não virar espera ocupada.
+const WAIT_SLICE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// A próxima fatia a dormir: nunca passa do que falta, senão o gap
+/// anti-captcha cresceria além do calculado.
+fn next_wait_slice(remaining: std::time::Duration) -> std::time::Duration {
+    remaining.min(WAIT_SLICE)
+}
+
+/// Continua esperando a próxima conta? Só enquanto sobra tempo do intervalo
+/// anti-captcha, ninguém cancelou e ainda há conta esperando a vez. As três
+/// condições existem por um motivo cada: sem a terceira o app fica preso depois
+/// de o usuário parar a fila; sem a segunda, o "Close All Roblox" não encurta a
+/// espera; sem a primeira, não é espera, é laço infinito.
+fn keep_waiting_for_next_account(
+    remaining: std::time::Duration,
+    cancelled: bool,
+    queued: usize,
+) -> bool {
+    !remaining.is_zero() && !cancelled && queued > 0
+}
+
+/// Dorme `wait` em fatias e volta assim que não houver mais conta esperando a vez
+/// nesta sequência (fila parada pelo usuário, ou outro lote assumiu) ou o
+/// cancelamento global chegar.
+///
+/// A reserva continua sendo solta só pelo `Drop` do dono — isto não libera nada,
+/// só encurta a janela em que a tela diz "acabou" e o app diz "ainda estou
+/// lançando".
+async fn wait_before_next_account(
+    sequence: &LaunchSequenceGuard,
+    wait: std::time::Duration,
+    cancelled: impl Fn() -> bool,
+) {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if !keep_waiting_for_next_account(remaining, cancelled(), sequence.queued_count()) {
+            return;
+        }
+        tokio::time::sleep(next_wait_slice(remaining)).await;
+    }
+}
+
 fn shuffle_server_index(nanos: u128, server_count: usize) -> usize {
     (nanos as usize) % server_count
 }
@@ -380,6 +427,24 @@ impl LaunchQueue {
         self.cancel_queued(now_ms)
     }
 
+    /// Quantas contas **desta** sequência ainda estão esperando a vez. Zero
+    /// significa que não há mais nada para lançar — porque o lote acabou, porque
+    /// o usuário parou a fila, ou porque outro lote assumiu.
+    ///
+    /// É o que o laço olha antes e durante a espera entre contas: dormir o
+    /// intervalo anti-captcha sem mais ninguém na fila deixava o Painel de Sessão
+    /// dizendo "0 na fila", com o Stop desabilitado, enquanto todo launch novo
+    /// era recusado por até `AccountJoinDelay` segundos.
+    fn queued_count_for(&self, generation: u64) -> usize {
+        if !self.is_owner(generation) {
+            return 0;
+        }
+        self.entries
+            .iter()
+            .filter(|entry| entry.state == LaunchQueueState::Queued)
+            .count()
+    }
+
     /// O laço pergunta isto antes de trabalhar numa conta. Devolve `true` para
     /// quem foi cancelado **e** para o caso de a fila não ser mais deste lote:
     /// se outra sequência assumiu, este laço não pode abrir mais cliente nenhum.
@@ -509,6 +574,11 @@ impl LaunchSequenceGuard {
             emit_launch_queue(&self.app, &payload);
         }
         cancelled
+    }
+
+    /// Quantas contas desta sequência ainda esperam a vez.
+    fn queued_count(&self) -> usize {
+        with_launch_queue(|queue| queue.queued_count_for(self.generation)).0
     }
 
     /// Fim do lote: a fila deixa de aparecer como ativa. A reserva continua
@@ -1475,11 +1545,16 @@ async fn launch_multiple(
             }
         }
 
-        if i < user_ids.len() - 1 {
+        // Só espera se ainda houver conta para lançar: com a fila parada pelo
+        // usuário, esperar aqui é prender o app sem ter o que fazer depois.
+        if i < user_ids.len() - 1 && sequence.queued_count() > 0 {
             if async_join {
                 tracker.reset_next_account();
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
-                while !tracker.is_next_account() && !tracker.is_launch_cancelled() {
+                while !tracker.is_next_account()
+                    && !tracker.is_launch_cancelled()
+                    && sequence.queued_count() > 0
+                {
                     if std::time::Instant::now() > deadline {
                         break;
                     }
@@ -1512,7 +1587,7 @@ async fn launch_multiple(
                     "wait",
                     format!("Aguardando {}s antes da próxima conta (anti-captcha)", wait.as_secs()),
                 );
-                tokio::time::sleep(wait).await;
+                wait_before_next_account(&sequence, wait, || tracker.is_launch_cancelled()).await;
             }
         }
     }
@@ -1723,18 +1798,28 @@ async fn launch_multiple(
                 sequence.mark(uid, LaunchQueueState::Failed, Some("PID não detectado no tempo esperado".to_string()));
             }
 
-            if i < user_ids.len() - 1 {
+            // Ver o caminho Windows: sem conta esperando a vez, não há por que
+            // esperar — e a espera é fatiada para o cancelamento cortá-la.
+            if i < user_ids.len() - 1 && sequence.queued_count() > 0 {
                 if async_join {
                     tracker.reset_next_account();
                     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
-                    while !tracker.is_next_account() && !tracker.is_launch_cancelled() {
+                    while !tracker.is_next_account()
+                        && !tracker.is_launch_cancelled()
+                        && sequence.queued_count() > 0
+                    {
                         if std::time::Instant::now() > deadline {
                             break;
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     }
                 } else {
-                    tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                    wait_before_next_account(
+                        &sequence,
+                        std::time::Duration::from_secs(delay),
+                        || tracker.is_launch_cancelled(),
+                    )
+                    .await;
                 }
             }
         }
@@ -2331,6 +2416,83 @@ mod launch_queue_tests {
         assert_eq!(queue.try_start(&[], 123, "job-abc", 1_000), None);
         assert!(!queue.is_owner(FIRST));
         assert_eq!(queue.try_start(&[1], 123, "job-abc", 1_100), Some(FIRST));
+    }
+
+    // ---- espera entre contas --------------------------------------------------
+
+    #[test]
+    fn the_queued_count_says_whether_the_batch_still_has_work() {
+        let mut queue = queue_with(&[1, 2, 3]);
+        assert_eq!(queue.queued_count_for(FIRST), 3);
+
+        // A conta em voo não está mais `queued`, mas as duas seguintes estão.
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        assert_eq!(queue.queued_count_for(FIRST), 2);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        assert_eq!(queue.queued_count_for(FIRST), 2);
+    }
+
+    #[test]
+    fn stopping_the_queue_leaves_nothing_queued_to_wait_for() {
+        // É o que o laço olha para não dormir o intervalo anti-captcha depois de
+        // o usuário parar a fila: sem isto ele dorme `AccountJoinDelay` inteiro
+        // (configurável, até 3600 s) com o painel mostrando "0 na fila" e o app
+        // recusando qualquer launch novo.
+        let mut queue = queue_with(&[1, 2, 3]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+
+        assert_eq!(queue.cancel_queued(1_300), 2);
+        assert_eq!(queue.queued_count_for(FIRST), 0);
+    }
+
+    #[test]
+    fn a_stale_batch_has_nothing_queued_to_wait_for() {
+        // Um lote que já foi substituído não espera por nada: quem espera pelas
+        // contas da fila atual é o dono dela.
+        let mut queue = queue_with(&[1, 2]);
+        queue.set_state(1, LaunchQueueState::Launching, None, 1_100);
+        queue.set_state(1, LaunchQueueState::Done, None, 1_200);
+        assert!(queue.release(FIRST, 1_300));
+        let second = queue
+            .try_start(&[7, 8, 9], 777, "outro-job", 1_400)
+            .expect("a fila está livre");
+
+        assert_eq!(queue.queued_count_for(FIRST), 0);
+        assert_eq!(queue.queued_count_for(second), 3);
+    }
+
+    #[test]
+    fn the_wait_between_accounts_ends_when_there_is_nothing_left_to_launch() {
+        use std::time::Duration;
+        let minute = Duration::from_secs(60);
+        // Caso normal: sobra tempo, ninguém cancelou, há conta na fila.
+        assert!(keep_waiting_for_next_account(minute, false, 2));
+        // Fila parada pelo usuário: nada a esperar, mesmo com tempo sobrando —
+        // era aqui que o app ficava preso com o painel dizendo "0 na fila".
+        assert!(!keep_waiting_for_next_account(minute, false, 0));
+        // "Close All Roblox" encurta a espera.
+        assert!(!keep_waiting_for_next_account(minute, true, 2));
+        // Tempo esgotado: segue para a próxima conta.
+        assert!(!keep_waiting_for_next_account(Duration::ZERO, false, 2));
+    }
+
+    #[test]
+    fn the_wait_between_accounts_is_sliced_so_a_cancel_cuts_it_short() {
+        use std::time::Duration;
+        // O intervalo anti-captcha inteiro num `sleep` só não dá chance de olhar
+        // a fila. Cada fatia é curta o suficiente para o usuário não sentir, e a
+        // última fatia nunca passa do que falta (senão o gap cresceria).
+        assert_eq!(next_wait_slice(Duration::from_secs(60)), WAIT_SLICE);
+        assert_eq!(
+            next_wait_slice(Duration::from_millis(80)),
+            Duration::from_millis(80)
+        );
+        assert_eq!(next_wait_slice(Duration::ZERO), Duration::ZERO);
+        assert!(
+            WAIT_SLICE <= Duration::from_millis(500),
+            "fatia grande demais: o painel e o botão de launch ficam mentindo por ela"
+        );
     }
 
     // ---- cancelar UMA conta --------------------------------------------------

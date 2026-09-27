@@ -295,9 +295,25 @@ describe("ChooseGameScreen — FollowTab", () => {
       return undefined;
     });
     const store = await renderFollowTab([ACCOUNT_A]);
-    (store.joinServer as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("launch-already-active")
-    );
+    (store.joinServer as ReturnType<typeof vi.fn>).mockResolvedValue("refused");
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() => expect(store.joinServer).toHaveBeenCalledTimes(1));
+    expect(store.addToast).not.toHaveBeenCalled();
+  });
+
+  it("não anuncia que está seguindo quando o launch de UMA conta falha", async () => {
+    // Mesma forma, um degrau ao lado: erro comum (ex.: `version-conflict`) põe a
+    // faixa vermelha, e anunciar "Following ..." em cima dela é a tela mentindo.
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence();
+      return undefined;
+    });
+    const store = await renderFollowTab([ACCOUNT_A]);
+    (store.joinServer as ReturnType<typeof vi.fn>).mockResolvedValue("failed");
 
     await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
     await userEvent.click(followButton());
