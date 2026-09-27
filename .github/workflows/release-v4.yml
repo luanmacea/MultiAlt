@@ -2,7 +2,13 @@ name: Release v4
 
 # Todo push em `main` publica: calcula a versao, compila as duas variantes,
 # cria a release e escreve o `latest.json` que o app le para se atualizar.
-# Para pular, ponha `[skip release]` na mensagem do commit.
+# Para pular, use a marca de pular que a condicao `if` do job mais abaixo
+# procura.
+#
+# Cuidado com essa marca: o `contains` olha a mensagem **inteira**, corpo
+# incluso. Citar a marca dentro de um texto explicativo pula a publicacao do
+# mesmo jeito — aconteceu no primeiro teste deste pipeline, e o job apareceu
+# como "skipped" sem motivo aparente.
 #
 # Mudanca so de `.md` nao dispara nada (o `paths-ignore` abaixo) — teste de
 # pipeline precisa tocar em arquivo de codigo, senao parece que o gatilho
