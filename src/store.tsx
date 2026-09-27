@@ -20,6 +20,7 @@ import type {
   LaunchQueuePayload,
   ServerPreference,
 } from "./types";
+import { playAfkBeep } from "./utils/afkBeep";
 import {
   orderGroupKeys,
   parseGroupName,
@@ -183,6 +184,31 @@ export interface BottingStartConfig {
    * fechadas nem relançadas na primeira passagem, só entram no ciclo.
    */
   adoptRunning?: boolean;
+}
+
+/** Uma conta que está no AFK mode, com o relógio dela. */
+export interface AfkAccountStatus {
+  userId: number;
+  /** Último envio, ou a entrada no modo enquanto não houve envio. */
+  lastSendAtMs: number;
+  nextSendAtMs: number;
+  sends: number;
+  lastError: string | null;
+}
+
+export interface AfkStatus {
+  active: boolean;
+  startedAtMs: number | null;
+  intervalMinutes: number;
+  key: string;
+  accounts: AfkAccountStatus[];
+}
+
+export interface AfkStartConfig {
+  userIds: number[];
+  intervalMinutes: number;
+  /** Uma das teclas de `afkKeys`; o backend recusa qualquer outra. */
+  key: string;
 }
 
 /** Onde uma conta está jogando agora, segundo a presença do Roblox. */
@@ -387,6 +413,26 @@ export interface StoreValue {
     action: "disconnect" | "close" | "closeDisconnect" | "restartClient" | "restartLoop"
   ) => Promise<void>;
   refreshBottingStatus: () => Promise<void>;
+  /**
+   * Liga o AFK mode nas contas escolhidas. A cada intervalo o app traz a janela
+   * de cada uma para frente por um instante, manda a tecla e devolve o foco —
+   * é a única forma de o cliente do Roblox receber a tecla. Sem tecla escolhida
+   * o backend recusa ligar.
+   */
+  startAfkMode: (config: AfkStartConfig) => Promise<void>;
+  /** Para na hora, inclusive um ciclo em andamento. Não fecha cliente nenhum. */
+  stopAfkMode: () => Promise<void>;
+  /** Troca quem está no modo numa sessão em andamento. Lista vazia desliga. */
+  setAfkAccounts: (userIds: number[]) => Promise<void>;
+  refreshAfkStatus: () => Promise<void>;
+  /**
+   * Um ciclo agora, nas contas passadas: é assim que o usuário confere que o
+   * envio funciona sem esperar o intervalo. Devolve quantas receberam a tecla.
+   */
+  afkTriggerNow: (userIds: number[], key: string) => Promise<number>;
+  afkStatus: AfkStatus | null;
+  /** A lista fechada de teclas que o backend aceita. */
+  afkKeys: string[];
   startGenerator: (config: GeneratorStartConfig) => Promise<GeneratorStatus>;
   stopGenerator: () => Promise<void>;
   refreshGeneratorStatus: () => Promise<void>;
@@ -484,6 +530,8 @@ export interface StoreValue {
   generatorStatus: GeneratorStatus | null;
   versionsDialogOpen: boolean;
   setVersionsDialogOpen: (open: boolean) => void;
+  afkDialogOpen: boolean;
+  setAfkDialogOpen: (open: boolean) => void;
   sessionDialogOpen: boolean;
   setSessionDialogOpen: (open: boolean) => void;
   setDefaultVersion: (versionId: string | null) => void;
@@ -636,6 +684,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setBottingDialogOpen(true);
   }, []);
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
+  const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
+  const [afkKeys, setAfkKeys] = useState<string[]>([]);
+  const [afkDialogOpen, setAfkDialogOpen] = useState(false);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
 
@@ -1615,6 +1666,62 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function refreshAfkStatus() {
+    try {
+      const status = await invoke<AfkStatus>("get_afk_mode_status");
+      setAfkStatus(status);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function startAfkMode(config: AfkStartConfig) {
+    try {
+      const status = await invoke<AfkStatus>("start_afk_mode", {
+        userIds: config.userIds,
+        intervalMinutes: config.intervalMinutes,
+        key: config.key,
+      });
+      setAfkStatus(status);
+      addToast(
+        tr("AFK mode started for {{count}} accounts", { count: config.userIds.length })
+      );
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
+  }
+
+  async function stopAfkMode() {
+    try {
+      await invoke("stop_afk_mode");
+      await refreshAfkStatus();
+      addToast(tr("AFK mode off"));
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
+  }
+
+  async function afkTriggerNow(userIds: number[], key: string): Promise<number> {
+    try {
+      return await invoke<number>("afk_trigger_now", { userIds, key });
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
+  }
+
+  async function setAfkAccounts(userIds: number[]) {
+    try {
+      const status = await invoke<AfkStatus>("set_afk_accounts", { userIds });
+      setAfkStatus(status);
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
+  }
+
   async function refreshGeneratorStatus() {
     try {
       const status = await invoke<GeneratorStatus>("get_generator_status");
@@ -2256,10 +2363,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     refreshBottingStatus();
     refreshGeneratorStatus();
+    refreshAfkStatus();
+    // A lista de teclas do AFK mode é do backend: a tela oferece exatamente o
+    // que ele aceita, em vez de manter uma segunda lista que sai do lugar.
+    invoke<string[]>("get_afk_keys")
+      .then((keys) => setAfkKeys(keys))
+      .catch(() => {});
     const unsubs: Array<() => void> = [];
     const listeners = [
       listen<BottingStatus>("botting-status", (e) => {
         setBottingStatus(e.payload);
+      }),
+      listen<AfkStatus>("afk-status", (e) => {
+        setAfkStatus(e.payload);
+      }),
+      // Ciclo concluído: o bipe é opcional e explica o piscar de foco que o
+      // usuário acabou de ver. A chave é lida na hora porque este ouvinte é
+      // montado uma vez e leria um `settings` velho do closure.
+      listen<{ sent?: number }>("afk-cycle", async (e) => {
+        if ((e.payload?.sent ?? 0) <= 0) return;
+        try {
+          const enabled = await invoke<string | null>("get_setting", {
+            section: "Afk",
+            key: "BeepOnCycle",
+          });
+          if (enabled === "true") playAfkBeep();
+        } catch {
+          // Sem som é perda aceitável; nada a mostrar na tela.
+        }
+      }),
+      listen("afk-stopped", () => {
+        setAfkStatus((prev) => (prev ? { ...prev, active: false, accounts: [] } : prev));
       }),
       listen<GeneratorStatus>("generator-status", (e) => {
         setGeneratorStatus(e.payload);
@@ -2710,6 +2844,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setBottingPlayerAccounts,
     bottingAccountAction,
     refreshBottingStatus,
+    startAfkMode,
+    stopAfkMode,
+    setAfkAccounts,
+    refreshAfkStatus,
+    afkTriggerNow,
+    afkStatus,
+    afkKeys,
+    afkDialogOpen,
+    setAfkDialogOpen,
     startGenerator,
     stopGenerator,
     refreshGeneratorStatus,
