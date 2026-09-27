@@ -124,8 +124,13 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
       onClick={handleClose}
     >
+      {/* O teto é o mesmo dos outros diálogos grandes. Sem ele, na janela
+          mínima do app (750x450) os 560 px fixos transbordavam 55 px para cada
+          lado: título e X ficavam fora da tela, e na base os campos Teleport e
+          Find player — `body` não rola. Com o teto, quem cede altura é a lista
+          de servidores, que já rola por dentro. */}
       <div
-        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[680px] h-[560px] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[680px] h-[560px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0">
