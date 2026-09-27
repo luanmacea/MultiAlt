@@ -2,6 +2,8 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { AppErrorBoundary } from "./AppErrorBoundary";
 
@@ -88,5 +90,29 @@ describe("AppErrorBoundary", () => {
     const calls = consoleError.mock.calls as unknown as unknown[][];
     const logged = calls.some((call) => call.some((arg) => String(arg).includes("para o log")));
     expect(logged).toBe(true);
+  });
+});
+
+/**
+ * O boundary só cobre a `StoreProvider` se estiver **por fora** dela. Trocar a
+ * ordem no `App.tsx` não quebra nenhum teste de comportamento — um throw dentro
+ * do provider passaria a escapar e a tela voltaria a ficar branca em silêncio.
+ * Daí a checagem estrutural, na fonte.
+ */
+describe("App.tsx", () => {
+  const source = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
+
+  it("abre o AppErrorBoundary antes da StoreProvider", () => {
+    const boundary = source.indexOf("<AppErrorBoundary>");
+    const store = source.indexOf("<StoreProvider>");
+    expect(boundary).toBeGreaterThanOrEqual(0);
+    expect(store).toBeGreaterThanOrEqual(0);
+    expect(boundary).toBeLessThan(store);
+  });
+
+  it("fecha o AppErrorBoundary depois da StoreProvider", () => {
+    expect(source.lastIndexOf("</StoreProvider>")).toBeLessThan(
+      source.lastIndexOf("</AppErrorBoundary>")
+    );
   });
 });

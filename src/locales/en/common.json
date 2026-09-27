@@ -1632,5 +1632,8 @@
   "A launch is already in progress": "A launch is already in progress",
   "Reload interface": "Reload interface",
   "Something broke in the interface": "Something broke in the interface",
-  "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client.": "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client."
+  "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client.": "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client.",
+  "Back to normal mode": "Back to normal mode",
+  "Graphics safe mode is on": "Graphics safe mode is on",
+  "The next time RAM opens it will use graphics safe mode": "The next time RAM opens it will use graphics safe mode"
 }

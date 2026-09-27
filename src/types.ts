@@ -89,6 +89,18 @@ export interface PlatformCapabilities {
   warnings: string[];
 }
 
+/**
+ * Espelho de `SafeModeReport` em `src-tauri/src/lib.rs` (`get_webview_safe_mode`).
+ *
+ * `active`: este boot está com a aceleração de vídeo desligada.
+ * `sticky`: existe o marcador `webview.safemode` em disco, então a próxima
+ * abertura também vem em safe mode — é o que decide se vale oferecer a saída.
+ */
+export interface WebviewSafeModeState {
+  active: boolean;
+  sticky: boolean;
+}
+
 /** Kind of target a pasted join link resolved to. */
 export type JoinTargetKind = "invite" | "private" | "job" | "place";
 
