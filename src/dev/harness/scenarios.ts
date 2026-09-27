@@ -206,6 +206,358 @@ function emitRealPlaceScan(
   });
 }
 
+// ─── AFK mode ────────────────────────────────────────────────────────────────
+
+/** A lista fechada de `AFK_KEYS` (`commands/afk.rs`), na ordem em que o backend a entrega. */
+const AFK_KEYS = ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5"];
+
+/** `AfkSendError::message()`, por código. A tela escolhe a frase pelo código. */
+const AFK_SEND_ERRORS = {
+  noWindow: "No Roblox window for this account",
+  focusDenied:
+    "Windows did not bring this account's Roblox window to the front, so nothing was sent",
+  keyRefused: "Windows refused the synthetic key",
+} as const;
+
+type AfkSendErrorCode = keyof typeof AFK_SEND_ERRORS;
+
+/** Uma conta no modo, como o `AfkAccountRuntime` do backend. */
+interface AfkRuntime {
+  userId: number;
+  /** Último envio — ou a entrada no modo, enquanto não houve envio. */
+  lastSendAtMs: number;
+  sends: number;
+  lastErrorCode: AfkSendErrorCode | null;
+}
+
+interface AfkSessionFields {
+  startedAtMs: number;
+  intervalMinutes: number;
+  key: string;
+  accounts: Map<number, AfkRuntime>;
+}
+
+/**
+ * O que o Windows faria, fixo por cenário — é o dado que o cenário entrega, como
+ * a lista de servidores é o dado dos cenários de Servers.
+ */
+interface AfkWorld {
+  /** Contas com cliente aberto **por este app** (o tracker sabe o PID delas). */
+  withClient: Set<number>;
+  /**
+   * Contas cuja janela o Windows mantém atrás no ciclo **automático**: é o caso
+   * normal enquanto o gerenciador não é a janela em uso (docs/features/afk-mode.md,
+   * "Consequência honesta"). No envio manual o usuário acabou de clicar no app, e
+   * aí o Windows deixa a janela vir para frente.
+   */
+  focusDeniedWhenScheduled: Set<number>;
+}
+
+/** As quatro primeiras contas com cliente aberto; a janela da 2ª fica presa atrás. */
+function afkWorld(): AfkWorld {
+  return {
+    withClient: new Set(accounts.slice(0, 4).map((a) => a.UserID)),
+    focusDeniedWhenScheduled: new Set(accounts.slice(1, 2).map((a) => a.UserID)),
+  };
+}
+
+function afkJoined(userId: number, atMs: number): AfkRuntime {
+  return { userId, lastSendAtMs: atMs, sends: 0, lastErrorCode: null };
+}
+
+/**
+ * Sessão que já estava rodando quando a tela carregou: o backend guarda a sessão
+ * enquanto o app está aberto, e a tela a lê em `get_afk_mode_status`. É o estado
+ * que o agendador deixa depois de `sinceMinutes` com intervalo de 10 min e a
+ * tecla Space.
+ *
+ * No modo: as três primeiras contas com cliente e, quando existir, uma cujo
+ * cliente fechou depois do primeiro ciclo (os seguintes a marcaram `noWindow`).
+ * A janela da 2ª conta o Windows nunca deixou vir para frente: zero envios e
+ * `focusDenied`.
+ */
+function afkRunningSession(world: AfkWorld, sinceMinutes: number): AfkSessionFields {
+  const intervalMinutes = 10;
+  const startedAtMs = Date.now() - sinceMinutes * 60_000;
+  const cycles = Math.floor(sinceMinutes / intervalMinutes);
+  // Todo ciclo remarca o relógio de quem ele visitou — com ou sem envio.
+  const lastVisitAtMs = startedAtMs + cycles * intervalMinutes * 60_000;
+  const inMode = [
+    ...accounts.filter((a) => world.withClient.has(a.UserID)).slice(0, 3),
+    ...accounts.filter((a) => !world.withClient.has(a.UserID)).slice(0, 1),
+  ];
+  const entries = inMode.map((a): AfkRuntime => {
+    const userId = a.UserID;
+    if (cycles === 0) return afkJoined(userId, startedAtMs);
+    if (!world.withClient.has(userId)) {
+      return {
+        userId,
+        lastSendAtMs: lastVisitAtMs,
+        sends: 1,
+        lastErrorCode: cycles > 1 ? "noWindow" : null,
+      };
+    }
+    const denied = world.focusDeniedWhenScheduled.has(userId);
+    return {
+      userId,
+      lastSendAtMs: lastVisitAtMs,
+      sends: denied ? 0 : cycles,
+      lastErrorCode: denied ? "focusDenied" : null,
+    };
+  });
+  return {
+    startedAtMs,
+    intervalMinutes,
+    key: "Space",
+    accounts: new Map(entries.map((entry) => [entry.userId, entry])),
+  };
+}
+
+/**
+ * O AFK mode do backend (`src-tauri/src/commands/afk.rs`), em memória.
+ *
+ * Sem isto todo comando do AFK caía no `[]` do `baseHandler`: a lista de teclas
+ * vinha vazia, o modo não ligava e nada da tela podia ser visto funcionando.
+ *
+ * Reproduz o **contrato**: as mesmas validações e mensagens de erro; o mesmo
+ * status (`afk_status_from_parts`: contas em ordem de user id, `nextSendAtMs` =
+ * último envio + intervalo); os mesmos eventos (`afk-status`, `afk-cycle
+ * { sent }`, `afk-stopped`); o agendador de 1 s; um ciclo por vez; e a duração
+ * de um ciclo (150 ms de folga + 40 ms de tecla + 250 ms por janela).
+ *
+ * O que ele não tem é Windows: quem decide se a janela vem para frente é o
+ * `AfkWorld`. E não faz nada que é da tela — não conta o relógio, não formata
+ * "rodando há", não escolhe frase: manda o código do erro, como o backend.
+ */
+function afkHandler(
+  fallback: InvokeHandler,
+  world: AfkWorld,
+  initial: AfkSessionFields | null
+): InvokeHandler {
+  type Session = AfkSessionFields & { id: number; stopping: boolean };
+  type Outcome = [number, AfkSendErrorCode | null][];
+
+  let nextSessionId = 1;
+  let session: Session | null = null;
+  let loopTimer: number | undefined;
+  let cycleQueue: Promise<unknown> = Promise.resolve();
+
+  const dedupe = (raw: unknown): number[] => [
+    ...new Set(((raw as unknown[] | undefined) ?? []).map(Number)),
+  ];
+
+  /** `validate_afk_start`. */
+  function startRefusal(key: string, userIds: number[]): string | null {
+    if (!AFK_KEYS.some((allowed) => allowed.toLowerCase() === key.toLowerCase())) {
+      return "Choose one of the AFK mode keys before starting";
+    }
+    if (userIds.length === 0) return "Put at least one account in AFK mode before starting";
+    return null;
+  }
+
+  /** `afk_status_from_parts`; sem sessão, o `AfkStatusPayload::default()`. */
+  function status() {
+    if (!session) {
+      return { active: false, startedAtMs: null, intervalMinutes: 0, key: "", accounts: [] };
+    }
+    const intervalMs = session.intervalMinutes * 60_000;
+    return {
+      active: true,
+      startedAtMs: session.startedAtMs,
+      intervalMinutes: session.intervalMinutes,
+      key: session.key,
+      accounts: [...session.accounts.values()]
+        .sort((a, b) => a.userId - b.userId)
+        .map((entry) => ({
+          userId: entry.userId,
+          lastSendAtMs: entry.lastSendAtMs,
+          nextSendAtMs: entry.lastSendAtMs + intervalMs,
+          sends: entry.sends,
+          lastError: entry.lastErrorCode ? AFK_SEND_ERRORS[entry.lastErrorCode] : null,
+          lastErrorCode: entry.lastErrorCode,
+        })),
+    };
+  }
+
+  const publish = () => harnessEmit("afk-status", status());
+
+  /**
+   * `run_afk_cycle_blocking` sem Windows: o resultado de cada conta sai do
+   * mundo e o tempo é o do ciclo de verdade. Um ciclo por vez, como o
+   * `AFK_CYCLE_LOCK` faz com o agendador e o envio manual.
+   */
+  function runCycle(targets: number[], scheduled: boolean): Promise<Outcome> {
+    const run = cycleQueue.then(() => {
+      const outcome: Outcome = targets.map((userId): [number, AfkSendErrorCode | null] => [
+        userId,
+        !world.withClient.has(userId)
+          ? "noWindow"
+          : scheduled && world.focusDeniedWhenScheduled.has(userId)
+            ? "focusDenied"
+            : null,
+      ]);
+      // Conta sem janela é pulada na hora; foco negado não chega a teclar.
+      const durationMs = outcome.reduce(
+        (sum, [, error]) =>
+          sum + (error === "noWindow" ? 0 : error === "focusDenied" ? 400 : 440),
+        0
+      );
+      return new Promise<Outcome>((resolve) =>
+        window.setTimeout(() => resolve(outcome), durationMs)
+      );
+    });
+    cycleQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Remarca o relógio de quem o ciclo visitou, com ou sem envio. */
+  function apply(target: Session, outcome: Outcome, attemptedAtMs: number) {
+    for (const [userId, error] of outcome) {
+      const entry = target.accounts.get(userId);
+      if (!entry) continue;
+      entry.lastSendAtMs = attemptedAtMs;
+      if (error === null) entry.sends += 1;
+      entry.lastErrorCode = error;
+    }
+  }
+
+  const sentIn = (outcome: Outcome) => outcome.filter(([, error]) => error === null).length;
+
+  /** `run_afk_session`: acorda a cada segundo e visita quem venceu o intervalo. */
+  function tick(current: Session) {
+    loopTimer = window.setTimeout(async () => {
+      if (session !== current || current.stopping) return;
+      const intervalMs = current.intervalMinutes * 60_000;
+      // Marcado antes do ciclo, como o `cycle_at` do laço.
+      const cycleAtMs = Date.now();
+      const due = [...current.accounts.values()]
+        .filter((entry) => cycleAtMs - entry.lastSendAtMs >= intervalMs)
+        .map((entry) => entry.userId)
+        .sort((a, b) => a - b);
+      if (due.length > 0) {
+        const outcome = await runCycle(due, true);
+        if (session !== current || current.stopping) return;
+        apply(current, outcome, cycleAtMs);
+        publish();
+        const sent = sentIn(outcome);
+        if (sent > 0) harnessEmit("afk-cycle", { sent });
+      }
+      tick(current);
+    }, 1_000);
+  }
+
+  function begin(fields: AfkSessionFields) {
+    session = { ...fields, id: nextSessionId++, stopping: false };
+    tick(session);
+  }
+
+  /**
+   * `stop_afk_session`: o laço confere a parada a cada 250 ms e sai emitindo
+   * `afk-stopped` e o status vazio. Ciclo que ainda estava em andamento é
+   * abandonado.
+   */
+  function stopSession(): Promise<void> {
+    const current = session;
+    if (!current) return Promise.resolve();
+    current.stopping = true;
+    window.clearTimeout(loopTimer);
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        if (session === current) session = null;
+        harnessEmit("afk-stopped", null);
+        publish();
+        resolve();
+      }, 250);
+    });
+  }
+
+  if (initial) begin(initial);
+
+  return (cmd, args) => {
+    switch (cmd) {
+      case "get_afk_keys":
+        return [...AFK_KEYS];
+      case "get_afk_mode_status":
+        return status();
+      case "start_afk_mode": {
+        const userIds = dedupe(args.userIds);
+        const key = String(args.key ?? "");
+        const refusal = startRefusal(key, userIds);
+        if (refusal) return Promise.reject(refusal);
+        return stopSession().then(() => {
+          const now = Date.now();
+          begin({
+            startedAtMs: now,
+            // `clamp_afk_interval_minutes`
+            intervalMinutes: Math.min(120, Math.max(1, Math.trunc(Number(args.intervalMinutes) || 0))),
+            key,
+            // Cada conta entra com o relógio marcando agora: o prazo do primeiro
+            // envio já vai no status do start.
+            accounts: new Map(userIds.map((userId) => [userId, afkJoined(userId, now)])),
+          });
+          publish();
+          return status();
+        });
+      }
+      case "stop_afk_mode":
+        return stopSession().then(() => {
+          publish();
+          return null;
+        });
+      case "set_afk_accounts": {
+        const userIds = dedupe(args.userIds);
+        const current = session;
+        if (!current) return Promise.reject("AFK mode is not running");
+        if (userIds.length === 0) {
+          return stopSession().then(() => {
+            publish();
+            return status();
+          });
+        }
+        const now = Date.now();
+        for (const userId of [...current.accounts.keys()]) {
+          if (!userIds.includes(userId)) current.accounts.delete(userId);
+        }
+        for (const userId of userIds) {
+          if (!current.accounts.has(userId)) current.accounts.set(userId, afkJoined(userId, now));
+        }
+        publish();
+        return status();
+      }
+      case "afk_trigger_now": {
+        const current = session;
+        if (!current) return Promise.reject("Start AFK mode before sending the key by hand");
+        // `afk_manual_targets`: só quem está no modo, na ordem pedida.
+        const targets = dedupe(args.userIds).filter((userId) => current.accounts.has(userId));
+        if (targets.length === 0) return Promise.reject("None of those accounts is in AFK mode");
+        const refusal = startRefusal(String(args.key ?? ""), targets);
+        if (refusal) return Promise.reject(refusal);
+        return runCycle(targets, false).then((outcome) => {
+          apply(current, outcome, Date.now());
+          publish();
+          const sent = sentIn(outcome);
+          if (sent > 0) harnessEmit("afk-cycle", { sent });
+          return sent;
+        });
+      }
+      // O ouvinte do `afk-cycle` relê `Afk.BeepOnCycle` na hora de bipar.
+      case "get_setting": {
+        const { section, key } = args as { section?: string; key?: string };
+        return (section && key ? settings[section]?.[key] : undefined) ?? null;
+      }
+      // A forma do backend (`RunningInstance`, sem rename): snake_case.
+      case "get_running_instances":
+        return [...world.withClient].map((userId, index) => ({
+          pid: 8120 + index * 4,
+          user_id: userId,
+          browser_tracker_id: `${userId}0001`,
+        }));
+      default:
+        return fallback(cmd, args);
+    }
+  };
+}
+
 const SCENARIOS: Record<string, () => void> = {
   default() {
     setInvokeHandler(baseHandler);
@@ -608,6 +960,37 @@ const SCENARIOS: Record<string, () => void> = {
       }
       return baseHandler(cmd, args);
     });
+  },
+
+  /**
+   * AFK mode desligado, como num INI novo: sem tecla escolhida (`Afk.Key` nasce
+   * vazia e nem chega ao INI), intervalo 10, bipe desligado. As quatro primeiras
+   * contas têm cliente aberto por este app. No ciclo automático o Windows mantém
+   * a janela da 2ª atrás e ela volta com `focusDenied`; o "Enviar a tecla agora",
+   * que vem de um clique no app, passa para todas. Para ver um ciclo automático
+   * sem esperar 10 min, ligue com 1 min.
+   */
+  "afk-mode"() {
+    settings.Afk = { IntervalMinutes: "10", BeepOnCycle: "false" };
+    setInvokeHandler(afkHandler(baseHandler, afkWorld(), null));
+  },
+
+  /**
+   * O mesmo mundo com uma sessão que já estava rodando quando a tela carregou:
+   * há 65 min (ou `&afkSince=<min>`), tecla Space, intervalo 10. A 2ª conta com
+   * `focusDenied` e zero envios; uma conta cujo cliente fechou, com `noWindow`.
+   */
+  "afk-mode-running"() {
+    settings.Afk = { IntervalMinutes: "10", Key: "Space", BeepOnCycle: "false" };
+    const since = Number(params.get("afkSince") ?? 65);
+    const world = afkWorld();
+    setInvokeHandler(
+      afkHandler(
+        baseHandler,
+        world,
+        afkRunningSession(world, Number.isFinite(since) ? Math.max(0, Math.min(since, 24 * 60)) : 65)
+      )
+    );
   },
 };
 
