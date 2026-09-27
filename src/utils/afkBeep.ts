@@ -1,13 +1,18 @@
 /**
  * Bipe curto do AFK mode: avisa que um ciclo de envio acabou de acontecer.
  *
- * O usuário está usando o PC normalmente, e o piscar de foco do envio fica sem
- * explicação se nada avisa que foi o app. O som é **opcional** (`Afk.BeepOnCycle`,
- * default desligado).
+ * O usuário está usando o PC, e o piscar de foco do envio fica sem explicação se
+ * nada avisa que foi o app. O som é **opcional** (`Afk.BeepOnCycle`, default
+ * desligado).
  *
- * Por que sintetizado e não um arquivo de áudio: um `.wav` no repositório é
- * asset novo com licença para rastrear, e um bipe de 120 ms não justifica isso.
- * Web Audio API dá o mesmo resultado sem arquivo nenhum.
+ * Por que sintetizado e não um arquivo de áudio: um `.wav` no repositório é asset
+ * novo com licença para rastrear, e um bipe de 120 ms não justifica isso.
+ *
+ * Por que **um** contexto para todo o módulo: um `AudioContext` por ciclo vaza
+ * quando o `onended` não dispara (contexto que nasce `suspended` porque a janela
+ * ainda não recebeu interação), e o navegador limita quantos contextos um
+ * documento pode abrir — passado o limite, `new AudioContext()` lança e o bipe
+ * morre em silêncio.
  */
 
 /** O construtor de `AudioContext` que existir neste navegador. */
@@ -21,17 +26,40 @@ function audioContextCtor(): AudioContextCtor | null {
   return w.AudioContext ?? w.webkitAudioContext ?? null;
 }
 
+/** O contexto compartilhado, criado na primeira vez que alguém bipa. */
+let shared: AudioContext | null = null;
+
+function sharedContext(): AudioContext | null {
+  if (shared && shared.state !== "closed") return shared;
+  const Ctor = audioContextCtor();
+  if (!Ctor) return null;
+  try {
+    shared = new Ctor();
+    return shared;
+  } catch {
+    shared = null;
+    return null;
+  }
+}
+
+/** Só para teste: esquece o contexto compartilhado. */
+export function resetAfkBeepContextForTests(): void {
+  shared = null;
+}
+
 /**
- * Toca o bipe. Nunca lança: som é conforto, não função — janela sem Web Audio
- * (ou com áudio bloqueado) segue sem som e sem erro na tela.
+ * Toca o bipe. Nunca lança: som é conforto, não função — janela sem Web Audio (ou
+ * com áudio bloqueado) segue sem som e sem erro na tela.
  *
  * Devolve `true` quando o bipe foi disparado, para o teste conseguir afirmar.
  */
 export function playAfkBeep(volume = 0.08, durationMs = 120, frequency = 880): boolean {
-  const Ctor = audioContextCtor();
-  if (!Ctor) return false;
+  const ctx = sharedContext();
+  if (!ctx) return false;
   try {
-    const ctx = new Ctor();
+    // Contexto criado antes de qualquer interação nasce suspenso; sem isto o
+    // oscilador toca no vazio e o `onended` nunca chega.
+    void ctx.resume?.();
     const oscillator = ctx.createOscillator();
     const gain = ctx.createGain();
     oscillator.type = "sine";
@@ -44,10 +72,14 @@ export function playAfkBeep(volume = 0.08, durationMs = 120, frequency = 880): b
     gain.connect(ctx.destination);
     oscillator.start();
     oscillator.stop(endsAt);
+    // O contexto fica de pé para o próximo ciclo; só os nós desta vez saem.
     oscillator.onended = () => {
-      // Cada bipe abre o seu contexto; sem fechar, dez ciclos deixam dez
-      // contextos de áudio abertos no processo.
-      void ctx.close?.();
+      try {
+        oscillator.disconnect();
+        gain.disconnect();
+      } catch {
+        // Nó já desconectado pelo navegador: nada a fazer.
+      }
     };
     return true;
   } catch {
