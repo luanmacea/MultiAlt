@@ -47,7 +47,7 @@ fn botting_retry_config(settings: &SettingsStore) -> (u32, u64, i64) {
 /// Rejoin interval, in minutes. Too short and Roblox rate-limits the account.
 #[cfg(target_os = "windows")]
 fn clamp_botting_interval_minutes(interval_minutes: i64) -> u64 {
-    interval_minutes.clamp(10, 120) as u64
+    interval_minutes.clamp(10, 480) as u64
 }
 
 /// Spacing between two launches of the session, in seconds.
