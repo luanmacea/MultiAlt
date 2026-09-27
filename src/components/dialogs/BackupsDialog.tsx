@@ -324,6 +324,25 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
             </button>
           </div>
 
+          {/*
+            O zip leva o `AccountData.key` — sem ele o backup não restaura —,
+            então sem senha quem tem o zip tem a chave. A decisão foi manter a
+            chave no zip **com este aviso**, e ele tem que estar onde o backup é
+            criado: a tela de criptografia, onde também está, só abre sozinha
+            para quem ainda não tem contas. Com senha o `.key` não existe e o
+            zip sai protegido por ela. `null` (não deu para saber) avisa.
+          */}
+          {store.accountsEncrypted !== true && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[12px] text-amber-300">
+              <AlertTriangle size={13} strokeWidth={1.75} className="mt-px shrink-0" />
+              <span>
+                {t(
+                  "Without a password, the backup zip carries the key that opens your accounts — it has to, or it could never be restored — so a leaked zip is not protected. If you keep backups in cloud storage like OneDrive or Google Drive, set a password in Settings > Misc > Change Encryption Method."
+                )}
+              </span>
+            </div>
+          )}
+
           {loading && entries.length === 0 && !error && (
             <div className="text-[12px] text-zinc-500 py-8 text-center">
               {t("Loading backups...")}

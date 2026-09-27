@@ -1231,6 +1231,7 @@
   "{{n}} backups": "{{n}} backups",
   "{{n}} files": "{{n}} arquivos",
   "A backup keeps a copy of your accounts, settings, scripts and themes.": "Um backup guarda uma cópia das suas contas, configurações, scripts e temas.",
+  "Without a password, the backup zip carries the key that opens your accounts — it has to, or it could never be restored — so a leaked zip is not protected. If you keep backups in cloud storage like OneDrive or Google Drive, set a password in Settings > Misc > Change Encryption Method.": "Sem senha, o zip do backup leva a chave que abre as suas contas — precisa levar, senão nunca poderia ser restaurado —, então um zip vazado não fica protegido. Se você guarda backup em nuvem, tipo OneDrive ou Google Drive, defina uma senha em Configurações > Diversos > Mudar o método de criptografia.",
   "Automatic": "Automático",
   "Backup restored": "Backup restaurado",
   "Backups": "Backups",
