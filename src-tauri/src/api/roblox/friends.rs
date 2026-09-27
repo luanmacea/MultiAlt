@@ -254,7 +254,7 @@ pub async fn get_online_friends(
     if user_id <= 0 {
         return Err("Conta sem UserID: refaça o login dela".to_string());
     }
-    let client = reqwest::Client::new();
+    let client = http_client::client();
     let url = format!(
         "{}/v1/users/{}/friends/online",
         endpoints::host("friends"),

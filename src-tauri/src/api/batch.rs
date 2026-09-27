@@ -1,4 +1,5 @@
 use crate::api::endpoints;
+use crate::api::http_client;
 use reqwest::header::COOKIE;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -301,7 +302,7 @@ impl ImageCache {
         place_id: i64,
         security_token: Option<&str>,
     ) -> Option<i64> {
-        let client = reqwest::Client::new();
+        let client = http_client::client();
         let url = format!(
             "{}/v1/games/multiget-place-details?placeIds={}",
             endpoints::host("games"),
@@ -433,7 +434,7 @@ impl ImageCache {
                     })
                     .collect();
 
-                let client = reqwest::Client::new();
+                let client = http_client::client();
 
                 for chunk in unique_requests.chunks(MAX_BATCH_SIZE) {
                     let batch_body: Vec<serde_json::Value> = chunk
@@ -591,7 +592,7 @@ async fn get_asset_image_fallback(
     asset_id: i64,
     security_token: Option<&str>,
 ) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let mut request = client.get(format!(
         "{}/v1/assets?assetIds={}&returnPolicy=PlaceHolder&size=150x150&format=Png&isCircular=false",
@@ -606,7 +607,7 @@ async fn get_asset_image_fallback(
     let response = request
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err("Asset thumbnail request failed".to_string());

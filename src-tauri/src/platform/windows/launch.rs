@@ -79,6 +79,11 @@ const PRODUCTION_CHANNEL_CDN: &str = "LIVE";
 const PRODUCTION_VERSION_URL: &str =
     "https://clientsettingscdn.roblox.com/v2/client-version/WindowsPlayer";
 const PRODUCTION_VERSION_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Teto da consulta "qual build este canal exige". Fica **abaixo** do teto das
+/// chamadas de API de propósito: esta consulta tem fallback (o cache vencido, ou
+/// o canal de produção), então esperar mais tempo só atrasaria o launch sem
+/// mudar o resultado. Era o valor que este ponto já praticava.
+const CHANNEL_LOOKUP_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Cache of "channel -> (fetched at, build)".
 static CHANNEL_VERSION_CACHE: LazyLock<Mutex<HashMap<String, (std::time::Instant, String)>>> =
@@ -369,10 +374,15 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
     }
 
     let fetched = async {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(6))
-            .build()
-            .ok()?;
+        // Teto próprio e curto: esta consulta tem fallback (o cache vencido),
+        // então esperar mais que isso só atrasa o launch. `connect_timeout` vem
+        // do builder compartilhado; o total continua sendo os 6 s de sempre.
+        let client = crate::api::http_client::builder_with(
+            CHANNEL_LOOKUP_TIMEOUT,
+            CHANNEL_LOOKUP_TIMEOUT,
+        )
+        .build()
+        .ok()?;
         let mut urls = vec![(channel_version_url(&channel), false)];
         if !channel_is_production(&channel) {
             // A channel Roblox retired answers 401/404. Falling back to the

@@ -1,4 +1,5 @@
 use crate::api::endpoints;
+use crate::api::http_client;
 use reqwest::header::{COOKIE, REFERER};
 use serde::{Deserialize, Serialize};
 
@@ -8,8 +9,12 @@ fn referer_url() -> String {
     format!("{}/games/2753915549/Blox-Fruits", endpoints::host("www"))
 }
 
+/// O cliente dos endpoints de autenticação. O teto de tempo vem de
+/// [`http_client::builder`]: sem ele um `auth.roblox.com` que aceita e não
+/// responde prendia o pedido de auth ticket — a primeira chamada de rede de todo
+/// launch — e com ele a reserva da sequência de launch.
 fn build_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    http_client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
         .build()
@@ -50,7 +55,7 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!(
@@ -83,7 +88,7 @@ pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
         .header("RBXAuthenticationNegotiation", "1")
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if let Some(token) = response
         .headers()
@@ -128,7 +133,7 @@ pub async fn send_with_csrf_retry(
         .header("X-CSRF-TOKEN", csrf)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if response.status() != reqwest::StatusCode::FORBIDDEN {
         return Ok(response);
@@ -146,7 +151,7 @@ pub async fn send_with_csrf_retry(
             .header("X-CSRF-TOKEN", fresh)
             .send()
             .await
-            .map_err(|e| format!("Request failed: {}", e)),
+            .map_err(|e| http_client::describe_error(&e)),
         // No token to retry with (or a streaming body): keep the original 403
         // so the caller reports Roblox's own message.
         _ => Ok(response),
@@ -168,7 +173,7 @@ pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
         .body("")
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if let Some(ticket) = response
         .headers()
@@ -208,7 +213,7 @@ pub async fn check_pin(security_token: &str) -> Result<bool, String> {
         .header(REFERER, format!("{}/", endpoints::host("www")))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!(
