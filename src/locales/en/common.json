@@ -1462,7 +1462,7 @@
   "Quick login code from your clipboard entered as {{account}}": "Quick login code from your clipboard entered as {{account}}",
   "Reads and writes only this script's own section of RAMSettings.ini.": "Reads and writes only this script's own section of RAMSettings.ini.",
   "Reads app state on demand: account list, aliases, groups, selection, presence and the current Place/Job ID. No cookies or passwords.": "Reads app state on demand: account list, aliases, groups, selection, presence and the current Place/Job ID. No cookies or passwords.",
-  "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120).": "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120).",
+  "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480).": "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480).",
   "Requirements": "Requirements",
   "Roblox account PIN (4 digits)": "Roblox account PIN (4 digits)",
   "Run that Nexus.lua in each Roblox client, through your own executor.": "Run that Nexus.lua in each Roblox client, through your own executor.",
