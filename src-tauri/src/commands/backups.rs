@@ -695,6 +695,19 @@ pub fn restore_keeps_writes_locked(extraction_failed: bool, restored: &[String])
     extraction_failed || restore_touches_accounts(restored)
 }
 
+/// Esta restauração pode **soltar** a trava de gravação?
+///
+/// `was_locked_before` é o que faltava: trancar antes de extrair obrigou a
+/// destrancar quando o zip não mexeu em arquivo de conta, mas a trava **não sabe
+/// de quem é**. Restaurar um backup com `AccountData.key`, não reiniciar, e depois
+/// restaurar um que só tem `RAMSettings.ini` soltava a trava da primeira — com a
+/// memória velha e o segredo da sessão anterior. O launch seguinte regravaria o
+/// vault com o master antigo e o `.key` por cima do restaurado, matando justamente
+/// o estado que a primeira restauração trouxe.
+pub fn restore_may_release_lock(was_locked_before: bool, restored: &[String]) -> bool {
+    !was_locked_before && !restore_touches_accounts(restored)
+}
+
 /// Motivos legíveis para reiniciar, a partir do que foi restaurado. As contas
 /// ficam de fora: dependem da criptografia e são decididas em `restore_backup`.
 pub fn restart_reasons_for(restored: &[String]) -> Vec<String> {
@@ -808,6 +821,9 @@ fn restore_backup(
     // seguintes havia uma janela em que um ciclo de Auto Rejoin gravaria com o
     // segredo antigo. Trancar cedo não custa nada — só um `load()` bem-sucedido
     // solta a trava.
+    // Lido **antes** de trancar: se já havia trava, ela é de outra restauração que
+    // ainda espera o reinício, e soltá-la aqui é o mesmo que nunca tê-la ligado.
+    let was_locked_before = accounts.writes_locked();
     accounts.lock_writes_until_restart("a backup is being restored");
 
     // `?` aqui mantém a trava, e é o que se quer: com a extração pela metade não
@@ -826,10 +842,10 @@ fn restore_backup(
         } else {
             "the account file was restored from a backup"
         });
-    } else {
-        // O zip não mexeu em arquivo de conta: a premissa da trava não vale, e
-        // manter as contas somente-leitura (com pedido de reinício) seria punir
-        // quem restaurou só o tema ou as settings.
+    } else if restore_may_release_lock(was_locked_before, &outcome.restored) {
+        // O zip não mexeu em arquivo de conta **e** não havia trava antes: a
+        // premissa da trava não vale, e manter as contas somente-leitura (com
+        // pedido de reinício) seria punir quem restaurou só o tema ou as settings.
         accounts.allow_writes_after_reload();
     }
 

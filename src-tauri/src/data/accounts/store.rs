@@ -328,7 +328,12 @@ impl AccountStore {
                 } else if !health.synced {
                     self.set_key_warning(VaultKeyWarning::sync_unconfirmed(&key_path));
                 } else {
-                    self.clear_key_warning();
+                    // **Com escopo.** Este reparo resolve o `.key` e mais nada:
+                    // limpar o slot inteiro aqui apagava um `migrationFailed` (que
+                    // fala do `AccountData.json`) antes de a gravação do vault
+                    // sequer acontecer. A invariante é que nenhum caminho limpa
+                    // aviso de escopo alheio.
+                    self.clear_key_warning_for(&key_path);
                 }
                 true
             }
@@ -419,6 +424,18 @@ impl AccountStore {
             )),
             None => Ok(()),
         }
+    }
+
+    /// A gravação está trancada agora?
+    ///
+    /// Existe para quem **tranca** poder saber se a trava já era de outro: soltar
+    /// uma trava alheia é o mesmo que nunca tê-la ligado.
+    pub fn writes_locked(&self) -> bool {
+        self.write_block
+            .lock()
+            .map(|slot| slot.is_some())
+            // Mutex envenenado: assumir trancado é o lado seguro.
+            .unwrap_or(true)
     }
 
     /// Libera a gravação depois de o arquivo ter sido **relido de verdade**.

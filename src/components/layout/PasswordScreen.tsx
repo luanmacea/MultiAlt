@@ -719,7 +719,7 @@ export function PasswordScreen() {
   const restrictedBackgroundStyle = normalizeRestrictedBackgroundStyle(store.settings?.General?.RestrictedBackgroundStyle);
 
   return (
-    <div className="theme-app relative flex h-full min-h-full flex-col items-center justify-center overflow-hidden px-6 py-8">
+    <div className="theme-app relative flex min-h-full flex-col items-center justify-center px-6 py-8">
       <div className="restricted-fluid-bg" aria-hidden>
         {restrictedBackgroundStyle === "bubbles"
           ? <RestrictedBubblesBackground />
