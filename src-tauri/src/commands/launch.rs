@@ -559,6 +559,7 @@ async fn launch_roblox_windows(
         &settings,
         LaunchClientProfile::Normal,
         account_overrides.as_ref(),
+        Some(&resolved_base_path),
     );
 
     let tracker = windows::tracker();
@@ -812,6 +813,7 @@ async fn launch_roblox_other(
             &settings,
             LaunchClientProfile::Normal,
             account_overrides.as_ref(),
+            None,
         );
 
         let tracker = macos::tracker();
@@ -1111,6 +1113,7 @@ async fn launch_multiple(
             &settings,
             LaunchClientProfile::Normal,
             acct_overrides.as_ref(),
+            Some(&acct_base_path),
         );
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
@@ -1414,6 +1417,7 @@ async fn launch_multiple(
                 &settings,
                 LaunchClientProfile::Normal,
                 acct_overrides.as_ref(),
+                None,
             );
 
             if auto_close_last_process && tracker.get_pid(uid).is_some() {

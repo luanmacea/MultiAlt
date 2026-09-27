@@ -278,8 +278,17 @@ pub fn get_roblox_path() -> Result<String, String> {
 }
 
 fn get_client_settings_file() -> Result<PathBuf, String> {
-    let version_folder = get_roblox_path()?;
-    let settings_dir = std::path::Path::new(&version_folder).join("ClientSettings");
+    get_client_settings_file_in(&get_roblox_path()?)
+}
+
+/// Parte pura de `get_client_settings_file`: monta o caminho do
+/// `ClientAppSettings.json` dentro de uma pasta base qualquer, em vez de sempre
+/// resolver a build de produção. É o que deixa `patch_client_settings_for_launch`
+/// (`commands/launch_shared.rs`) escrever no `ClientSettings` da versão que a
+/// conta vai de fato abrir — `None` continua significando "a build padrão"
+/// (é o caso do servidor HTTP local, que não tem conta no contexto).
+fn get_client_settings_file_in(base_path: &str) -> Result<PathBuf, String> {
+    let settings_dir = std::path::Path::new(base_path).join("ClientSettings");
 
     if !settings_dir.exists() {
         std::fs::create_dir_all(&settings_dir)

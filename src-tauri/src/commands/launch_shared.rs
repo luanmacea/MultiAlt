@@ -424,11 +424,18 @@ fn windows_client_overrides(
     resolved
 }
 
+/// `base_path`: pasta da versão do Roblox que vai realmente abrir (`None` =
+/// build padrão/produção, usada pelo servidor HTTP local, que não tem conta no
+/// contexto). Sem isso, `ClientAppSettings.json` era sempre escrito na pasta de
+/// produção mesmo quando a conta abre numa versão do catálogo — o cliente que
+/// de fato abre nunca lia o FPS/volume/qualidade/fullscreen/fast flags
+/// aplicados.
 #[cfg(target_os = "windows")]
 pub(crate) fn patch_client_settings_for_launch(
     settings: &SettingsStore,
     profile: LaunchClientProfile,
     account: Option<&AccountClientOverrides>,
+    base_path: Option<&str>,
 ) {
     use platform::windows;
 
@@ -440,7 +447,7 @@ pub(crate) fn patch_client_settings_for_launch(
     // Legacy behavior: custom settings file overrides FPS unlock when valid.
     if !custom_settings.is_empty()
         && std::path::Path::new(custom_settings).exists()
-        && windows::copy_custom_client_settings(custom_settings).is_ok()
+        && windows::copy_custom_client_settings(base_path, custom_settings).is_ok()
     {
         custom_applied = true;
     }
@@ -451,6 +458,7 @@ pub(crate) fn patch_client_settings_for_launch(
         overrides.fast_flags = None;
     }
     let _ = windows::apply_runtime_client_settings(
+        base_path,
         overrides.max_fps,
         overrides.master_volume,
         overrides.graphics,
@@ -489,8 +497,13 @@ fn patch_client_settings_for_launch(
     settings: &SettingsStore,
     profile: LaunchClientProfile,
     account: Option<&AccountClientOverrides>,
+    base_path: Option<&str>,
 ) {
     use platform::macos;
+
+    // macOS não tem catálogo de versões instaladas (ver docs/features/launch.md);
+    // o parâmetro existe só para manter a mesma assinatura do lado Windows.
+    let _ = base_path;
 
     let custom_settings = custom_client_settings_path(settings, profile);
     let custom_settings = custom_settings.trim();
