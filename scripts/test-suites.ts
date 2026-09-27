@@ -34,6 +34,7 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_shared_helper_tests",
       "channel_follow_tests",
       "channel_build_pairing_tests",
+      "channel_repair_tests",
       "browser_tracker_tests",
       "client_settings_file_path_tests",
       "roblox_install_candidates_tests",
