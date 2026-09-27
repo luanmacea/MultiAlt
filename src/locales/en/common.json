@@ -1231,6 +1231,7 @@
   "{{n}} backups": "{{n}} backups",
   "{{n}} files": "{{n}} files",
   "A backup keeps a copy of your accounts, settings, scripts and themes.": "A backup keeps a copy of your accounts, settings, scripts and themes.",
+  "Without a password, the backup zip carries the key that opens your accounts — it has to, or it could never be restored — so a leaked zip is not protected. If you keep backups in cloud storage like OneDrive or Google Drive, set a password in Settings > Misc > Change Encryption Method.": "Without a password, the backup zip carries the key that opens your accounts — it has to, or it could never be restored — so a leaked zip is not protected. If you keep backups in cloud storage like OneDrive or Google Drive, set a password in Settings > Misc > Change Encryption Method.",
   "Automatic": "Automatic",
   "Backup restored": "Backup restored",
   "Backups": "Backups",
