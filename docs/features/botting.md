@@ -37,8 +37,8 @@ Quando o objetivo é só **não perder o estado** da conta (não sair do lugar d
 1. Escolhe o perfil: `Normal` se `BottingUseSharedClientProfile` (default `true`), senão `BottingPlayer` ou `BottingBot`.
 2. Multi Roblox, `refresh_production_version().await` + patch de client settings do perfil (na pasta da build production), fecha instância anterior se `AutoCloseLastProcess`.
 3. Auth ticket com até 5 tentativas; só re-tenta em erro 429/"authentication failed", esperando 4 s, 8 s, 12 s, 16 s.
-4. Spawn (old join via `launch_old_join` → `default_player_dir`, isto é, build production com canal fixado; ou protocolo via `launch_url` com canal fixado), espera PID 12 s (timeout = erro).
-5. `track` + `apply_windows_post_launch_profile(profile)`.
+4. Resolve a versão da conta (`RobloxVersion`, mesma precedência do launch — ver [roblox-versions.md](roblox-versions.md)) via `resolve_roblox_install_path`; qualquer versão resolvida força old join (`resolve_use_old_join`). Spawn: old join na pasta resolvida (ou `default_player_dir` — build production com canal fixado — quando não há versão resolvida) via `launch_old_join_from`; ou protocolo via `launch_url`, que **sempre** abre a build de produção (`channel:` vazio vence o registro — `CLAUDE.md`). `resolve_botting_base_path` decide a pasta do patch de client settings com a mesma regra. Espera PID 12 s (timeout = erro).
+5. `track_with_version` (a versão só é reportada no ramo old join — `botting_tracked_version` — senão o tracker mentiria para a guarda de conflito da fila de launch, já que o protocolo sempre abre produção) + `apply_windows_post_launch_profile(profile)`.
 6. `detect_auth_failure_window`: por ~8 s (20 × 400 ms) olha o título da janela; se indicar "authentication failed"/"error code: 429" → mata o cliente e retorna erro 429.
 7. Minimiza se `…StartRobloxMinimized` do perfil.
 
@@ -120,7 +120,7 @@ Aplicados por `apply_windows_post_launch_profile` ao PID após o launch (só se 
 
 ## Armadilhas / cuidados
 
-- O botting **não** usa o catálogo de versões (`RobloxVersion`/`DefaultVersion`), **não** roda isolamento e **não** tem a guarda de versão concorrente: old join usa `launch_old_join` (build production via `default_player_dir`, fallback para a pasta do registro), protocolo usa `launch_url` (build production). Ambos fixam o canal em `production`.
+- O botting resolve a versão configurada da conta (`RobloxVersion`/`DefaultVersion`/catálogo, via `resolve_roblox_install_path`) e agora **reporta essa versão ao `ProcessTracker`** (`track_with_version`, via `botting_tracked_version`) — sem isso, `has_version_conflict` (a guarda que a fila de launch usa antes de abrir uma conta) não enxergava os clientes do Botting, e um launch avulso numa versão diferente da do Botting passava sem aviso. O botting em si **não roda isolamento** e **não checa conflito de versão antes de lançar** — ele só alimenta a guarda que a fila de launch já tem; não existe checagem simétrica no sentido Botting-vê-fila. Old join usa a pasta resolvida (ou `default_player_dir`/build production quando não há versão resolvida); o protocolo (`launch_url`) sempre abre a build de **produção**, canal fixo — nesse ramo a versão reportada ao tracker é sempre `None` (ver Global Constraint em `CLAUDE.md`).
 - `kill_for_user` só mata se o PID rastreado ainda for Roblox; se o cliente de um bot já tinha fechado e o PID foi reutilizado, o stop apenas remove do tracker.
 - Com `BottingUseSharedClientProfile = true` (default), as chaves `BottingPlayer*`/`BottingBot*` de General e de Optimization são ignoradas.
 - Limite de memória por Job Object mata o cliente ao estourar — combine com cuidado com o intervalo de rejoin.

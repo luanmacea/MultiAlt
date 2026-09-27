@@ -200,6 +200,35 @@ fn resolve_botting_base_path(has_account_version: bool, use_old_join: bool) -> B
     }
 }
 
+/// Versão a reportar ao `ProcessTracker` para o cliente que este ciclo do
+/// Botting acabou de abrir (Task de sync com o upstream: sem isto,
+/// `has_version_conflict` — a guarda que a fila de launch usa para recusar
+/// abrir numa versão diferente da que já está rodando — não enxergava os
+/// clientes do Botting, porque o ciclo só chamava `tracker.track` (sem
+/// versão). Duas contas em versões diferentes (uma pelo Botting, outra pela
+/// fila) abriam lado a lado sem aviso nenhum, que é exatamente o que essa
+/// guarda existe para impedir.
+///
+/// Só vale no old join: pelo protocolo (`launch_url`) o cliente sempre abre a
+/// build de **produção** — o `channel:` vazio da URL vence o registro
+/// (`CLAUDE.md`, `docs/features/launch.md`) — então reportar
+/// `resolved_version_id` nesse ramo mentiria para a guarda. Na prática
+/// `resolve_use_old_join` já garante `resolved_version_id.is_none()` sempre
+/// que `use_old_join` for falso (a mesma invariante de que depende
+/// `resolve_botting_base_path`), mas a função fica segura por conta própria
+/// em vez de confiar nisso silenciosamente.
+#[cfg(target_os = "windows")]
+fn botting_tracked_version(
+    use_old_join: bool,
+    resolved_version_id: Option<String>,
+) -> Option<String> {
+    if use_old_join {
+        resolved_version_id
+    } else {
+        None
+    }
+}
+
 async fn launch_account_for_cycle(
     app: &tauri::AppHandle,
     user_id: i64,
@@ -409,7 +438,15 @@ async fn launch_account_for_cycle(
         return Err("Timed out waiting for Roblox process after launch".into());
     };
 
-    tracker.track(user_id, pid, browser_tracker_id);
+    // Registra a versão do jeito que `commands/launch.rs` já faz (Task de sync
+    // com o upstream): sem isso `has_version_conflict` da fila de launch não
+    // enxergava os clientes que o Botting abre.
+    tracker.track_with_version(
+        user_id,
+        pid,
+        browser_tracker_id,
+        botting_tracked_version(use_old_join, resolved_version_id.clone()),
+    );
     {
         let settings_state = app.state::<SettingsStore>();
         apply_windows_post_launch_profile(Some(app), settings_state.inner(), launch_profile, pid)
@@ -1787,6 +1824,38 @@ mod botting_command_tests {
         );
     }
 
+    // ---- botting_tracked_version ---------------------------------------------
+
+    /// Caso normal: old join realmente abriu a versão resolvida, e é ela que
+    /// `has_version_conflict` (na fila de launch) precisa enxergar.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn botting_tracked_version_reports_the_resolved_version_on_old_join() {
+        assert_eq!(
+            botting_tracked_version(true, Some("LIVE:version-aaa".to_string())),
+            Some("LIVE:version-aaa".to_string())
+        );
+        // Old join sem versão resolvida (nem da conta, nem do catálogo): o
+        // registro decide o canal, e "instalação do sistema" já é a chave
+        // `None` que o tracker usa para isso.
+        assert_eq!(botting_tracked_version(true, None), None);
+    }
+
+    /// A Global Constraint do plano de sync com o upstream (`CLAUDE.md`): pelo
+    /// protocolo o cliente sempre abre a build de produção, então reportar uma
+    /// versão de conta aqui mentiria para a guarda de conflito. Na prática
+    /// `resolve_use_old_join` nunca deixa `resolved_version_id` ser `Some`
+    /// junto de `use_old_join = false`, mas a função não confia nisso.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn botting_tracked_version_never_reports_a_version_when_going_by_url() {
+        assert_eq!(
+            botting_tracked_version(false, Some("LIVE:version-aaa".to_string())),
+            None
+        );
+        assert_eq!(botting_tracked_version(false, None), None);
+    }
+
     // ---- status payload ------------------------------------------------------
 
     #[test]
@@ -1881,5 +1950,29 @@ mod botting_console_tests {
         let sessao = corpo("async fn run_botting_session(");
         assert!(sessao.contains("reinicio #"), "o numero foi pedido explicitamente");
         assert!(sessao.contains("restarts.entry(uid)"));
+    }
+
+    /// Regressão: o ciclo do Botting chamava `tracker.track` sem versão, então
+    /// `has_version_conflict` (a guarda que a fila de launch usa para recusar
+    /// abrir numa versão diferente da que já está rodando) não enxergava os
+    /// clientes abertos pelo Botting — Botting numa versão e um launch avulso
+    /// noutra abriam lado a lado sem aviso. O ciclo precisa registrar a versão
+    /// resolvida do jeito que `commands/launch.rs` já faz, através da função
+    /// pura `botting_tracked_version` (testada à parte).
+    #[test]
+    fn o_ciclo_registra_a_versao_resolvida_no_tracker() {
+        let corpo = corpo("async fn launch_account_for_cycle(");
+        assert!(
+            corpo.contains("tracker.track_with_version("),
+            "sem isso `has_version_conflict` na fila de launch nao ve os clientes do Botting"
+        );
+        assert!(
+            corpo.contains("botting_tracked_version(use_old_join, resolved_version_id"),
+            "a versao reportada precisa vir da funcao pura que respeita a regra de canal/build"
+        );
+        assert!(
+            !corpo.contains("tracker.track(user_id, pid, browser_tracker_id);"),
+            "o `track` sem versao e exatamente o bug: reporta o PID sem dizer em qual build ele abriu"
+        );
     }
 }
