@@ -34,8 +34,13 @@ pub fn update_theme(state: tauri::State<'_, ThemeStore>, theme: ThemeData) -> Re
     state.update(theme)
 }
 
-#[tauri::command]
-pub fn import_theme_font_asset(path: String) -> Result<ThemeFontAssetImportResult, String> {
+/// Miolo de [`import_theme_font_asset`]: recebe a pasta de fontes já
+/// resolvida em vez de chamar `get_theme_fonts_dir()` diretamente, para que
+/// os testes gravem num `TempDir` em vez da pasta real do usuário.
+fn import_theme_font_asset_in(
+    fonts_dir: &Path,
+    path: String,
+) -> Result<ThemeFontAssetImportResult, String> {
     let source = PathBuf::from(path.trim());
     if !source.exists() {
         return Err("Font file does not exist".to_string());
@@ -64,8 +69,7 @@ pub fn import_theme_font_asset(path: String) -> Result<ThemeFontAssetImportResul
     let hash_hex = to_hex(digest.as_ref());
     let file_name = format!("{}.{}", hash_hex, ext);
 
-    let fonts_dir = get_theme_fonts_dir();
-    fs::create_dir_all(&fonts_dir).map_err(|e| format!("Failed to create font dir: {}", e))?;
+    fs::create_dir_all(fonts_dir).map_err(|e| format!("Failed to create font dir: {}", e))?;
     let dest = fonts_dir.join(&file_name);
     if !dest.exists() {
         fs::write(&dest, &bytes).map_err(|e| format!("Failed to write font asset: {}", e))?;
@@ -78,7 +82,12 @@ pub fn import_theme_font_asset(path: String) -> Result<ThemeFontAssetImportResul
 }
 
 #[tauri::command]
-pub fn resolve_theme_font_asset(file: String) -> Result<String, String> {
+pub fn import_theme_font_asset(path: String) -> Result<ThemeFontAssetImportResult, String> {
+    import_theme_font_asset_in(&get_theme_fonts_dir(), path)
+}
+
+/// Miolo de [`resolve_theme_font_asset`], veja [`import_theme_font_asset_in`].
+fn resolve_theme_font_asset_in(fonts_dir: &Path, file: String) -> Result<String, String> {
     let name = Path::new(file.trim())
         .file_name()
         .and_then(|n| n.to_str())
@@ -87,11 +96,16 @@ pub fn resolve_theme_font_asset(file: String) -> Result<String, String> {
     if name.contains('/') || name.contains('\\') {
         return Err("Invalid font file name".to_string());
     }
-    let path = get_theme_fonts_dir().join(&name);
+    let path = fonts_dir.join(&name);
     if !path.exists() {
         return Err(format!("Font asset not found: {}", name));
     }
     Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn resolve_theme_font_asset(file: String) -> Result<String, String> {
+    resolve_theme_font_asset_in(&get_theme_fonts_dir(), file)
 }
 
 #[tauri::command]
@@ -123,12 +137,12 @@ pub fn import_theme_preset_file(
     state: tauri::State<'_, ThemePresetStore>,
     path: String,
 ) -> Result<ThemePresetData, String> {
-    state.import_preset_file(&path)
+    state.import_preset_file(&path, &get_theme_fonts_dir())
 }
 
 #[tauri::command]
 pub fn export_theme_preset_file(name: String, theme: ThemeData) -> Result<String, String> {
-    ThemePresetStore::export_preset_file(&name, theme)
+    ThemePresetStore::export_preset_file(&name, theme, &get_runtime_data_dir(), &get_theme_fonts_dir())
 }
 
 /// Cap for bytes accepted straight from the frontend (font upload or theme
@@ -138,12 +152,13 @@ pub fn export_theme_preset_file(name: String, theme: ThemeData) -> Result<String
 /// bytes-based commands below enforce this cap themselves.
 const MAX_THEME_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
 
+/// Miolo de [`import_theme_font_bytes`], veja [`import_theme_font_asset_in`].
 /// Same validation and storage as [`import_theme_font_asset`], starting from
 /// bytes handed over by the frontend (`<input type="file">`) instead of a
 /// path on disk: allowed extension, non-empty, size-capped, content-addressed
-/// storage under `get_theme_fonts_dir()`.
-#[tauri::command]
-pub fn import_theme_font_bytes(
+/// storage under the given `fonts_dir`.
+fn import_theme_font_bytes_in(
+    fonts_dir: &Path,
     file_name: String,
     file_data: Vec<u8>,
 ) -> Result<ThemeFontAssetImportResult, String> {
@@ -179,8 +194,7 @@ pub fn import_theme_font_bytes(
     let hash_hex = to_hex(digest.as_ref());
     let stored_name = format!("{}.{}", hash_hex, ext);
 
-    let fonts_dir = get_theme_fonts_dir();
-    fs::create_dir_all(&fonts_dir).map_err(|e| format!("Failed to create font dir: {}", e))?;
+    fs::create_dir_all(fonts_dir).map_err(|e| format!("Failed to create font dir: {}", e))?;
     let dest = fonts_dir.join(&stored_name);
     if !dest.exists() {
         fs::write(&dest, &file_data).map_err(|e| format!("Failed to write font asset: {}", e))?;
@@ -192,6 +206,14 @@ pub fn import_theme_font_bytes(
     })
 }
 
+#[tauri::command]
+pub fn import_theme_font_bytes(
+    file_name: String,
+    file_data: Vec<u8>,
+) -> Result<ThemeFontAssetImportResult, String> {
+    import_theme_font_bytes_in(&get_theme_fonts_dir(), file_name, file_data)
+}
+
 /// Shared by [`import_theme_preset_bytes`] and its tests. Kept free of
 /// `tauri::State` (which has no public constructor) so it can be exercised
 /// directly against a plain `ThemePresetStore`.
@@ -201,11 +223,15 @@ pub fn import_theme_font_bytes(
 /// file-stem fallback for an unnamed preset) keyed off the path's extension
 /// and file stem. Rather than reimplement any of that against raw bytes, the
 /// uploaded bytes are staged under their original file name in a scratch
-/// directory and handed to that exact function.
+/// directory and handed to that exact function. `fonts_dir` is threaded
+/// through (instead of `import_preset_file` resolving `get_theme_fonts_dir()`
+/// itself) so tests can point a `.ram-theme.zip` bundle's font extraction at a
+/// `TempDir` instead of the user's real font folder.
 fn import_theme_preset_bytes_impl(
     store: &ThemePresetStore,
     file_name: &str,
     file_data: Vec<u8>,
+    fonts_dir: &Path,
 ) -> Result<ThemePresetData, String> {
     let name = Path::new(file_name.trim())
         .file_name()
@@ -249,7 +275,7 @@ fn import_theme_preset_bytes_impl(
         return Err(format!("Failed to stage preset file: {}", e));
     }
 
-    let result = store.import_preset_file(&staged_path.to_string_lossy());
+    let result = store.import_preset_file(&staged_path.to_string_lossy(), fonts_dir);
 
     let _ = fs::remove_file(&staged_path);
     let _ = fs::remove_dir(&scratch_dir);
@@ -263,5 +289,5 @@ pub fn import_theme_preset_bytes(
     file_name: String,
     file_data: Vec<u8>,
 ) -> Result<ThemePresetData, String> {
-    import_theme_preset_bytes_impl(&state, &file_name, file_data)
+    import_theme_preset_bytes_impl(&state, &file_name, file_data, &get_theme_fonts_dir())
 }
