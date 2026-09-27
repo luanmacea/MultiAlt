@@ -278,8 +278,17 @@ pub fn get_roblox_path() -> Result<String, String> {
 }
 
 fn get_client_settings_file() -> Result<PathBuf, String> {
-    let version_folder = get_roblox_path()?;
-    let settings_dir = std::path::Path::new(&version_folder).join("ClientSettings");
+    get_client_settings_file_in(&get_roblox_path()?)
+}
+
+/// Parte pura de `get_client_settings_file`: monta o caminho do
+/// `ClientAppSettings.json` dentro de uma pasta base qualquer, em vez de sempre
+/// resolver a build de produção. É o que deixa `patch_client_settings_for_launch`
+/// (`commands/launch_shared.rs`) escrever no `ClientSettings` da versão que a
+/// conta vai de fato abrir — `None` continua significando "a build padrão"
+/// (é o caso do servidor HTTP local, que não tem conta no contexto).
+fn get_client_settings_file_in(base_path: &str) -> Result<PathBuf, String> {
+    let settings_dir = std::path::Path::new(base_path).join("ClientSettings");
 
     if !settings_dir.exists() {
         std::fs::create_dir_all(&settings_dir)
@@ -287,6 +296,65 @@ fn get_client_settings_file() -> Result<PathBuf, String> {
     }
 
     Ok(settings_dir.join("ClientAppSettings.json"))
+}
+
+#[cfg(test)]
+mod client_settings_file_path_tests {
+    use super::*;
+
+    // Pasta temporária própria (sem dependência de `tempfile`), no mesmo
+    // padrão usado pelos outros módulos de teste deste arquivo/crate. Nunca
+    // chama `get_client_settings_file()`: essa resolve a instalação real do
+    // Roblox e criaria pastas no disco do usuário.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("ram4-clientsetfile-{}-{}-{}", tag, nanos, n));
+            std::fs::create_dir_all(&dir).expect("temp dir");
+            Self(dir)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn get_client_settings_file_in_builds_the_path_inside_the_given_base() {
+        let temp = TempDir::new("base");
+        let base = temp.0.to_string_lossy().into_owned();
+
+        let path = get_client_settings_file_in(&base).expect("path");
+
+        assert_eq!(
+            path,
+            std::path::Path::new(&base)
+                .join("ClientSettings")
+                .join("ClientAppSettings.json")
+        );
+    }
+
+    #[test]
+    fn get_client_settings_file_in_gives_a_different_path_for_a_different_base() {
+        let temp_a = TempDir::new("base-a");
+        let temp_b = TempDir::new("base-b");
+        let base_a = temp_a.0.to_string_lossy().into_owned();
+        let base_b = temp_b.0.to_string_lossy().into_owned();
+
+        let path_a = get_client_settings_file_in(&base_a).expect("path a");
+        let path_b = get_client_settings_file_in(&base_b).expect("path b");
+
+        assert_ne!(path_a, path_b);
+    }
 }
 
 #[cfg(test)]

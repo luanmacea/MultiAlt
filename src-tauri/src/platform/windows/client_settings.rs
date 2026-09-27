@@ -50,10 +50,14 @@ fn merge_client_app_settings(
 }
 
 fn apply_client_app_settings_overrides(
+    base_path: Option<&str>,
     max_fps: Option<u32>,
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
 ) -> Result<(), String> {
-    let settings_file = get_client_settings_file()?;
+    let settings_file = match base_path {
+        Some(base) => get_client_settings_file_in(base)?,
+        None => get_client_settings_file()?,
+    };
     let mut settings = load_client_app_settings(&settings_file);
 
     merge_client_app_settings(&mut settings, max_fps, fast_flags);
@@ -62,7 +66,7 @@ fn apply_client_app_settings_overrides(
 }
 
 pub fn apply_fps_unlock(max_fps: u32) -> Result<(), String> {
-    apply_client_app_settings_overrides(Some(max_fps), None)
+    apply_client_app_settings_overrides(None, Some(max_fps), None)
 }
 
 fn get_global_basic_settings_file() -> Option<PathBuf> {
@@ -247,6 +251,7 @@ fn apply_global_basic_settings_overrides(
 }
 
 pub fn apply_runtime_client_settings(
+    base_path: Option<&str>,
     max_fps: Option<u32>,
     master_volume: Option<f32>,
     graphics: Option<GraphicsQuality>,
@@ -255,7 +260,7 @@ pub fn apply_runtime_client_settings(
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
 ) -> Result<(), String> {
     if max_fps.is_some() || fast_flags.is_some() {
-        apply_client_app_settings_overrides(max_fps, fast_flags)?;
+        apply_client_app_settings_overrides(base_path, max_fps, fast_flags)?;
     }
 
     if max_fps.is_some()
@@ -276,7 +281,10 @@ pub fn apply_runtime_client_settings(
     Ok(())
 }
 
-pub fn copy_custom_client_settings(custom_settings_path: &str) -> Result<(), String> {
+pub fn copy_custom_client_settings(
+    base_path: Option<&str>,
+    custom_settings_path: &str,
+) -> Result<(), String> {
     let custom_path = std::path::Path::new(custom_settings_path);
     if !custom_path.exists() {
         return Err("Custom ClientAppSettings.json path does not exist".into());
@@ -287,7 +295,10 @@ pub fn copy_custom_client_settings(custom_settings_path: &str) -> Result<(), Str
     serde_json::from_str::<serde_json::Value>(&content)
         .map_err(|e| format!("Custom settings file is not valid JSON: {}", e))?;
 
-    let settings_file = get_client_settings_file()?;
+    let settings_file = match base_path {
+        Some(base) => get_client_settings_file_in(base)?,
+        None => get_client_settings_file()?,
+    };
     std::fs::write(settings_file, content)
         .map_err(|e| format!("Failed to copy custom ClientAppSettings.json: {}", e))
 }
@@ -713,7 +724,7 @@ mod win_client_settings_tests {
     fn copy_custom_client_settings_rejects_a_missing_path() {
         let temp = TempDir::new("copymissing");
         let err =
-            copy_custom_client_settings(temp.file("nope.json").to_str().unwrap()).unwrap_err();
+            copy_custom_client_settings(None, temp.file("nope.json").to_str().unwrap()).unwrap_err();
         assert_eq!(err, "Custom ClientAppSettings.json path does not exist");
     }
 
@@ -725,7 +736,7 @@ mod win_client_settings_tests {
         let path = temp.file("custom.json");
         std::fs::write(&path, "{ not json at all").unwrap();
 
-        let err = copy_custom_client_settings(path.to_str().unwrap()).unwrap_err();
+        let err = copy_custom_client_settings(None, path.to_str().unwrap()).unwrap_err();
         assert!(
             err.starts_with("Custom settings file is not valid JSON"),
             "got {}",

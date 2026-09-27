@@ -231,7 +231,16 @@ async fn launch_account_for_cycle(
     {
         let settings = app.state::<SettingsStore>();
         windows::refresh_production_version().await;
-        patch_client_settings_for_launch(&settings, launch_profile, account_overrides.as_ref());
+        // `base_path`: `None` por enquanto. O Botting ainda não resolve a versão
+        // do catálogo da conta (a Task 3 do plano de sincronização com o
+        // upstream cuida disso); até lá o patch cai na build padrão, igual ao
+        // comportamento anterior a esta correção.
+        patch_client_settings_for_launch(
+            &settings,
+            launch_profile,
+            account_overrides.as_ref(),
+            None,
+        );
     }
 
     let tracker = windows::tracker();
