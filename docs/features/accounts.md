@@ -212,7 +212,7 @@ Os cinco códigos que a faixa desenha:
 
 | `code` | Tom | Quando |
 |---|---|---|
-| `writeFailed` | vermelho | o `.key` não pôde ser gravado, e a falha **não** parece transitória |
+| `writeFailed` | vermelho | o `.key` não pôde ser gravado, e a falha **não** parece transitória. O texto manda **pôr senha antes de fechar o app** (Change Encryption Method > Pass Lock): `set_password(Some)` recifra a partir da memória e o vault deixa de depender do `.key`. E diz que **backup sozinho não resolve**: o aviso existe justamente porque o `.key` em disco não guarda a chave desta sessão, e o backup copia do disco — o zip sairia com o vault e sem chave que o abra. O texto antigo ("faça um backup agora") mandava exatamente isso |
 | `writeFailedTransient` | âmbar | mesma falha, mas com cara de antivírus segurando o handle: o app tenta de novo na gravação seguinte |
 | `weakWrapper` | âmbar | gravou, mas sem o embrulho do DPAPI |
 | `syncUnconfirmed` | âmbar | gravou, mas o disco não confirmou o `fsync` |
@@ -227,7 +227,7 @@ A criação do arquivo no **primeiro boot** e em `set_password(None)` passa pelo
 - `clear_key_warning_for(path)` limpa **só** o aviso daquele arquivo, e **nenhum caminho limpa aviso de escopo alheio** — vale para o braço do `save_locked` e para o `refresh_key_file`, que também limpava sem escopo e antes da gravação. A exceção legítima é `set_password(Some(..))`, que limpa o slot inteiro **depois** do `save_locked` cifrado com a senha: ali o `.key` e o vault são resolvidos de uma vez;
 - o aviso do vault só é considerado resolvido **depois** de uma gravação que deu certo **e** foi cifrada (no caminho degradado o arquivo continua legível, e limpar seria mentir);
 - a exceção legítima é `set_password(Some(..))`, que limpa o slot inteiro **depois** do `save_locked` cifrado com a senha: ali `.key` e vault são resolvidos de uma vez;
-- `set_key_warning` **nunca rebaixa** gravidade (`writeFailed`/`migrationFailed` valem mais que os âmbares) e não repete um aviso idêntico — senão o `syncUnconfirmed`, que é do mesmo tipo de volume, encobria o "faça backup agora" no mesmo `save_locked`.
+- `set_key_warning` **nunca rebaixa** gravidade (`writeFailed`/`migrationFailed` valem mais que os âmbares) e não repete um aviso idêntico — senão o `syncUnconfirmed`, que é do mesmo tipo de volume, encobria o vermelho do `writeFailed` no mesmo `save_locked`.
 
 **A faixa acompanha as telas de senha e de criptografia** ([App.tsx](../../src/App.tsx)), não só a tela principal. São exatamente as telas do momento de pânico — e o backend manda o usuário olhar para lá ("See the warning on screen") quando a chave não pôde ser criada. Os `return` antecipados deixavam o aviso atrás delas.
 

@@ -36,9 +36,18 @@ describe("VaultKeyBanner", () => {
     const banner = screen.getByRole("alert");
     // O caminho tem que estar na tela: é o que o dono precisa para agir.
     expect(banner).toHaveTextContent("C:\\dados\\AccountData.key");
-    // E a ação útil, que é tirar backup **agora**, enquanto o processo vive.
-    expect(banner).toHaveTextContent(/make a backup now/i);
     expect(banner).toHaveTextContent(/may not open after you close it/i);
+    // A3 do checkup: a ação que salva, enquanto o processo vive, é pôr senha —
+    // `set_password(Some)` recifra a partir da memória e o vault deixa de
+    // depender do `.key`. O texto antigo mandava fazer backup, e o backup copia
+    // do **disco**, onde o `.key` não guarda a chave desta sessão (é por isso que
+    // o aviso existe): o zip saía com o vault e sem chave que o abrisse, e o
+    // dono restaurava direto para o mesmo lockout.
+    expect(banner).toHaveTextContent(/set a password/i);
+    expect(banner).toHaveTextContent(/Change Encryption Method/i);
+    expect(banner).toHaveTextContent(/before closing/i);
+    expect(banner).toHaveTextContent(/a backup alone does not fix this/i);
+    expect(banner).not.toHaveTextContent(/make a backup now/i);
     // O detalhe técnico do SO aparece, para poder ser reportado.
     expect(banner).toHaveTextContent("acesso negado pelo sistema");
   });
@@ -52,7 +61,7 @@ describe("VaultKeyBanner", () => {
 
     const banner = screen.getByRole("alert");
     expect(banner).toHaveTextContent(/try again on the next change/i);
-    expect(banner).not.toHaveTextContent(/make a backup now/i);
+    expect(banner).not.toHaveTextContent(/set a password/i);
   });
 
   // O aviso mais consequente dos cinco: o dono acha que está criptografado e não
@@ -81,7 +90,7 @@ describe("VaultKeyBanner", () => {
 
     const banner = screen.getByRole("alert");
     expect(banner).toHaveTextContent(/did not confirm the write/i);
-    expect(banner).not.toHaveTextContent(/make a backup now/i);
+    expect(banner).not.toHaveTextContent(/set a password/i);
   });
 
   it("explica a degradação quando a chave ficou sem a proteção do Windows", () => {
