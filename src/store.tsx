@@ -169,6 +169,20 @@ export interface BottingStartConfig {
   intervalMinutes: number;
   launchDelaySeconds: number;
   playerGraceMinutes: number;
+  /**
+   * A sessão nasce sobre contas que **já estão em jogo**: elas não são
+   * fechadas nem relançadas na primeira passagem, só entram no ciclo.
+   */
+  adoptRunning?: boolean;
+}
+
+/** Onde uma conta está jogando agora, segundo a presença do Roblox. */
+export interface AccountGameLocation {
+  userId: number;
+  inGame: boolean;
+  placeId: number | null;
+  /** Só vem com o cookie da própria conta. */
+  jobId: string | null;
 }
 
 export interface GeneratorStatus {
@@ -347,6 +361,15 @@ export interface StoreValue {
   /** Esvazia a fila; devolve quantas contas saíram. Não fecha clientes. */
   stopLaunchQueue: () => Promise<number>;
   startBottingMode: (config: BottingStartConfig) => Promise<void>;
+  /**
+   * Liga o Botting Mode nas contas que **já estão em jogo**, sem fechar nem
+   * relançar o cliente delas.
+   *
+   * Com sessão ativa é só entrar nela; sem sessão, o place vem da **presença**
+   * da conta — usar o place da tela mandaria a conta para outro jogo no
+   * primeiro reinício do ciclo.
+   */
+  adoptRunningIntoBotting: (userIds: number[]) => Promise<void>;
   stopBottingMode: (closeBotAccounts: boolean) => Promise<void>;
   addBottingAccounts: (userIds: number[]) => Promise<void>;
   setBottingPlayerAccounts: (userIds: number[]) => Promise<void>;
@@ -1384,6 +1407,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         intervalMinutes: config.intervalMinutes,
         launchDelaySeconds: config.launchDelaySeconds,
         playerGraceMinutes: config.playerGraceMinutes,
+        adoptRunning: config.adoptRunning ?? false,
       });
       setBottingStatus(status);
       addToast(tr("Botting Mode started ({{count}} accounts)", { count: config.userIds.length }));
@@ -1391,6 +1415,73 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setError(String(e));
       throw e;
     }
+  }
+
+  /**
+   * Adota no Botting Mode contas que já estão jogando.
+   *
+   * O caminho antigo era abrir o diálogo, colar o Place ID e dar Start — e o
+   * Start **fecha e relança** todo mundo, tirando as contas do servidor em que
+   * já estavam. Aqui nada é fechado.
+   */
+  async function adoptRunningIntoBotting(userIds: number[]) {
+    const ids = [...new Set(userIds)].filter((id) => id > 0);
+    if (ids.length === 0) return;
+
+    // Já existe sessão: `add_botting_accounts` adota sem relançar.
+    if (bottingStatus?.active) {
+      await addBottingAccounts(ids);
+      return;
+    }
+
+    if (ids.length < 2) {
+      const message = tr(
+        "Botting Mode needs at least two accounts. Select another one, or start the cycle from the Botting dialog."
+      );
+      addToast(message);
+      throw new Error(message);
+    }
+
+    // O place vem de onde a conta ESTÁ, não do campo da tela: com o place
+    // errado, o primeiro reinício do ciclo a jogaria em outro jogo.
+    let location: AccountGameLocation | null = null;
+    for (const id of ids) {
+      try {
+        const found = await invoke<AccountGameLocation>("get_account_game_location", {
+          userId: id,
+        });
+        if (found?.inGame && found.placeId) {
+          location = found;
+          break;
+        }
+      } catch {
+        // Presença indisponível para esta conta; tenta a próxima.
+      }
+    }
+
+    if (!location?.placeId) {
+      const message = tr(
+        "Could not tell which game these accounts are in. Open the Botting dialog and set the Place ID."
+      );
+      addToast(message);
+      throw new Error(message);
+    }
+
+    const general = settings?.General || {};
+    await startBottingMode({
+      userIds: ids,
+      placeId: location.placeId,
+      // O job fica de fora de propósito: o ciclo relança no place, e fixar o
+      // servidor atual mandaria todo reinício para um servidor que pode não
+      // existir mais.
+      jobId: "",
+      launchData: "",
+      playerUserIds: [],
+      intervalMinutes: parseInt(general.BottingDefaultIntervalMinutes || "19", 10) || 19,
+      launchDelaySeconds: parseInt(general.BottingLaunchDelaySeconds || "20", 10) || 20,
+      playerGraceMinutes: parseInt(general.BottingPlayerGraceMinutes || "15", 10) || 15,
+      adoptRunning: true,
+    });
   }
 
   async function stopBottingMode(closeBotAccounts: boolean) {
@@ -2499,6 +2590,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     cancelAccountLaunch,
     stopLaunchQueue,
     startBottingMode,
+    adoptRunningIntoBotting,
     stopBottingMode,
     addBottingAccounts,
     setBottingPlayerAccounts,

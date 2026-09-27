@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Crosshair, Gamepad2, ListX, PowerOff, SquareStop, UserPlus, X } from "lucide-react";
+import { Crosshair, Gamepad2, ListX, PowerOff, Repeat, SquareStop, UserPlus, X } from "lucide-react";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
@@ -180,6 +180,26 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     }
   }
 
+  /**
+   * Liga o Botting nas contas em jogo **sem fechar nada**.
+   *
+   * Sem marcação vale para todas as que estão rodando: é o gesto que o usuário
+   * espera depois de lançar um lote e ver que quer manter o ciclo.
+   */
+  async function handleAdoptBotting() {
+    const alvo = selected.length > 0 ? selected : runningIds;
+    if (alvo.length === 0) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await store.adoptRunningIntoBotting(alvo);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** Uma confirmação só para o lote inteiro; fechar uma conta é imediato. */
   async function handleClose(userIds: number[]) {
     if (userIds.length === 0) return;
@@ -350,16 +370,33 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
               {t("{{count}} running", { count: runningIds.length })}
             </span>
           </div>
-          {selected.length > 0 && (
-            <button
-              onClick={() => void handleClose(selected)}
-              disabled={busy}
-              className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <PowerOff size={13} strokeWidth={1.5} />
-              {t("Close selected ({{count}})", { count: selected.length })}
-            </button>
-          )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {runningIds.length > 0 && (
+              <button
+                onClick={() => void handleAdoptBotting()}
+                disabled={busy}
+                title={t(
+                  "Keeps these accounts in the cycle without closing the clients that are already open."
+                )}
+                className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Repeat size={13} strokeWidth={1.5} />
+                {selected.length > 0
+                  ? t("Botting ({{count}})", { count: selected.length })
+                  : t("Botting")}
+              </button>
+            )}
+            {selected.length > 0 && (
+              <button
+                onClick={() => void handleClose(selected)}
+                disabled={busy}
+                className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <PowerOff size={13} strokeWidth={1.5} />
+                {t("Close selected ({{count}})", { count: selected.length })}
+              </button>
+            )}
+          </div>
         </header>
 
         {runningIds.length === 0 ? (

@@ -1606,5 +1606,10 @@
   "Move group up": "Subir o grupo",
   "Move up": "Subir",
   "Name prefix (optional)": "Prefixo do nome (opcional)",
-  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados."
+  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados.",
+  "Botting": "Botting",
+  "Botting ({{count}})": "Botting ({{count}})",
+  "Botting Mode needs at least two accounts. Select another one, or start the cycle from the Botting dialog.": "O Botting Mode precisa de pelo menos duas contas. Marque mais uma, ou comece o ciclo pelo diálogo do Botting.",
+  "Could not tell which game these accounts are in. Open the Botting dialog and set the Place ID.": "Não deu para saber em que jogo estas contas estão. Abra o diálogo do Botting e informe o Place ID.",
+  "Keeps these accounts in the cycle without closing the clients that are already open.": "Mantém estas contas no ciclo sem fechar os clientes que já estão abertos."
 }
