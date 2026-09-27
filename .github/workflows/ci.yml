@@ -37,6 +37,13 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # Mesmo motivo do release: sem cache, cada push recompila tudo do zero
+      # para rodar `cargo test` e os dois `cargo check`.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
