@@ -86,7 +86,7 @@ O ciclo ler → editar → gravar continua funcionando: `update_account` no back
 
 | Onde | O quê |
 |---|---|
-| `RAMScripts.json` (pasta do exe) | Scripts salvos. |
+| `RAMScripts.json` (pasta de dados do usuário — `get_scripts_path` em [paths.rs](../../src-tauri/src/data/settings/paths.rs); só é a pasta do exe no modo portátil) | Scripts salvos. |
 | `RAMSettings.ini` → `[Script.<id>]` | Estado persistido por cada script via `ram.settings`. |
 
 ## Armadilhas / cuidados

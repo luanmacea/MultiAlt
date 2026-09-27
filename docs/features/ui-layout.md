@@ -54,7 +54,7 @@ Busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar
 
 ### Sidebar de conta única (`SingleSelectSidebar`)
 
-Alias, descrição, validade, presença, override de versão do Roblox (campo `RobloxVersion`, com "Latest installed" e "Manage versions..."), Join Group, Browser (abre navegador logado), Server List e Utilities (`AccountUtilsDialog`).
+Alias, descrição, validade, presença, **Roblox Version (all accounts)** — grava a `Versions.DefaultVersion` **global**, não o campo `RobloxVersion` da conta (com "Latest installed" e "Manage versions...", e só aparece com alguma versão no catálogo) —, Join Group, Browser (abre navegador logado), Server List e Utilities (`AccountUtilsDialog`). A versão **por conta** existe no backend (`RobloxVersion`, `versions_set_account_override`), mas nenhuma tela a define — ver [roblox-versions.md](roblox-versions.md).
 
 ### Barra de ações em lote (`BottomActionBar`)
 
@@ -83,7 +83,7 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 | Favorites | favoritos com VIPs; clicar lança todas as contas selecionadas (público ou VIP). |
 | Games | busca de jogos; clicar lança todas as selecionadas. |
 | Recent | jogos recentes. |
-| Follow | `lookup_user` + `get_presence`; se o alvo não estiver em jogo (`presence < 2`) pede confirmação; chama `launch_roblox` com `followUser: true` para cada conta, 3 s entre elas. Atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
+| Follow | Campo de join link ([join-links.md](join-links.md)) e o card "Follow a Player": `lookup_user` + `get_presence` resolvem o servidor do alvo **uma vez** e `launchAll` manda todas as contas selecionadas para lá (`launch_multiple` com várias contas, com o piso anti-captcha). Alvo fora de jogo (`presence < 2`) vira toast e nada é lançado; em jogo mas com o servidor escondido pela privacidade, pede confirmação para cair num servidor público do mesmo jogo. (Isto já foi um laço de `launch_roblox` com `followUser: true` e 3 s entre contas, que furava o piso de 8 s.) Atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
 | Console | **histórico geral das ações** (evento `launch-log`, auto-scroll, limpar): launch, Auto Rejoin e Watcher, cada linha com a origem (`step`) numa coluna de largura fixa — sem ela, `[watcher]` e `[rejoin-retry]` empurram o nome da conta para colunas diferentes. Linha de sessão (início/fim do Auto Rejoin) vem com `userId` nulo e aparece como `—`. Mais os controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)`. |
 
 `launchAll` (hook `useLauncher`): confirma contas online, muda para a aba Console, grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).

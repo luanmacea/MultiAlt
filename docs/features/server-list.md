@@ -35,7 +35,7 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 2. Pagina `get_servers(placeId, "Public", cursor, userId)` até `nextPageCursor` acabar (ou o usuário cancelar), mostrando progressivamente.
 3. Duplo clique / "Join Server": se o servidor tem `accessCode`, entra com `VIP:<accessCode>`; senão com `server.id` (Job ID). O handler grava `jobId`/`placeId` na store, confirma se a conta está online (`useJoinOnlineWarning`) e chama `store.joinServer(userId)`.
 4. Campo manual "Job ID or private server link (optional)" aceita Job ID, `vip:<código>`, link com `privateServerLinkCode`, share link etc.
-5. **Load Region**: `join_game_instance(userId, placeId|teleportPlaceId, gameId, isTeleport)` → pega `joinScript.MachineAddress` → `fetch https://ipapi.co/<ip>/json/` → mostra `cidade, CC`. Sem IP mostra a mensagem/status do Roblox.
+5. **Load Region**: `invoke("get_server_regions", { userId, placeId: teleportPlaceId || placeId, jobIds: [id] })` — o **backend** faz o `join-game-instance` para pegar o IP da máquina, geolocaliza esse IP e guarda em cache (memória + `ServerRegionCache.json`) — ver [server-choice.md](server-choice.md); a tela mostra o `label` devolvido, ou o `error`. Era um `fetch` do frontend direto ao `ipapi.co`, que quebrou (o frontend não fala com a rede, e o serviço passou a exigir desafio do Cloudflare).
 6. **Find player**: `lookup_user` → headshot 48x48 do alvo → percorre páginas de servidores públicos pedindo headshots dos `playerTokens` via `batch_thumbnails` → compara URLs; ao achar, filtra a tabela para aquele servidor.
 
 ### Aba Games

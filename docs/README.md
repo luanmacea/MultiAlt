@@ -2,7 +2,7 @@
 
 Roblox Account Manager 4 (RAM4) é um gerenciador desktop de múltiplas contas Roblox escrito em **Tauri 2** (backend Rust + frontend React/TypeScript). Ele permite:
 
-- guardar várias contas (cookie `.ROBLOSECURITY`, senha opcional, alias, grupo, campos livres) em um arquivo local, opcionalmente criptografado com senha;
+- guardar várias contas (cookie `.ROBLOSECURITY`, senha opcional, alias, grupo, campos livres) em um arquivo local sempre criptografado — com senha, se o usuário quiser; sem senha, pela chave do aparelho (`AccountData.key`);
 - lançar um ou vários clientes Roblox ao mesmo tempo (multi-Roblox), em jogos públicos, Job IDs específicos ou servidores VIP/privados;
 - navegar por jogos/servidores, manter favoritos (com vários links VIP por jogo) e jogos recentes;
 - automatizar re-join de contas (Auto Rejoin), mandar tecla de tempo em tempo para não perder o estado (AFK mode), vigiar processos (Watcher), isolar sessões antes do launch e fixar versões específicas do cliente Roblox;

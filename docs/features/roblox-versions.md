@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Permitir instalar builds específicas do Roblox Player (direto do CDN oficial) numa pasta gerenciada pelo app, escolher uma versão padrão e/ou uma versão por conta, e lançar a conta com essa build via old join. Exclusivo de Windows (instalação e launch versionado).
+Permitir instalar builds específicas do Roblox Player (direto do CDN oficial) numa pasta gerenciada pelo app, escolher uma versão padrão e/ou uma versão por conta, e lançar a conta com essa build via old join. Exclusivo de Windows (instalação e launch versionado). A versão **por conta** existe no backend, mas nenhuma tela a define (ver a regra "Override por conta" abaixo).
 
 ## Onde fica o código
 
@@ -32,10 +32,10 @@ Permitir instalar builds específicas do Roblox Player (direto do CDN oficial) n
 ### Resolver qual instalação usar (`resolve_roblox_install_path`)
 
 Precedência:
-1. **Override da conta** (`account.fields["RobloxVersion"]`, formato `<canal>:<hash>`): precisa existir no catálogo e ter `RobloxPlayerBeta.exe`, senão **erro** (não cai para o próximo nível).
+1. **Override da conta** (`account.fields["RobloxVersion"]`, formato `<canal>:<hash>`): precisa existir no catálogo e ter `RobloxPlayerBeta.exe`, senão **erro** (não cai para o próximo nível). As mensagens de erro mandam "clear the per-account override" — e isso só se faz editando o campo à mão (ver "Override por conta" abaixo).
 2. **`Versions.DefaultVersion`**: mesma validação e erro.
 3. **Versão do catálogo usada mais recentemente** (`last_launched_at`, ou `installed_at`) que tenha o exe.
-4. **Instalação do sistema** (`get_roblox_path`: pasta da build production em cache (`cached_production_player_dir`), senão `HKCR\roblox\DefaultIcon`, senão a pasta `version-*` mais recente em `%LOCALAPPDATA%\Roblox\Versions`) → `version_id = None`. No spawn essa pasta é só a reserva: pelo protocolo, `launch_url` abre a build de **produção**; no old join, `default_player_dir` troca pela pasta da build do canal **lido** do registro, instalando-a se faltar, e só devolve esta pasta se nem isso der (ver [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix)). O app não fixa canal: só o lê — a única escrita é o reparo de canal morto descrito lá.
+4. **Instalação do sistema** (`get_roblox_path`: a pasta da **última build resolvida** por qualquer consulta de canal — `cached_production_player_dir`, que apesar do nome também guarda a build do canal do registro —, senão a do `HKCR/roblox/DefaultIcon`, senão a pasta `version-*` mais recente da primeira pasta `Versions` que tiver alguma, nesta ordem: `%LOCALAPPDATA%/Roblox`, `Bloxstrap`, `Fishstrap`, `Voidstrap` — `candidate_versions_dirs` em [core.rs](../../src-tauri/src/platform/windows/core.rs); a instalação oficial ganha de qualquer bootstrapper) → `version_id = None`. No spawn essa pasta é só a reserva: pelo protocolo, `launch_url` abre a build de **produção**; no old join, `default_player_dir` troca pela pasta da build do canal **lido** do registro, instalando-a se faltar, e só devolve esta pasta se nem isso der (ver [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix)). O app não fixa canal: só o lê — a única escrita é o reparo de canal morto descrito lá.
 
 ```mermaid
 sequenceDiagram
@@ -50,7 +50,7 @@ sequenceDiagram
     else catálogo não vazio
         R->>C: mais recente com exe
     else
-        R->>R: get_roblox_path() (build production em cache ou registro, version_id=None)
+        R->>R: get_roblox_path() (última build resolvida, HKCR ou pasta Versions; version_id=None)
     end
     R-->>L: (base_path, version_id)
     alt version_id.is_some()
@@ -68,7 +68,7 @@ sequenceDiagram
 - **Versão do catálogo ⇒ old join**: qualquer `version_id` resolvido força `RobloxPlayerBeta.exe --app -t -j` na pasta da versão (exceto quando `Isolation.Mode = Full` sem versão do catálogo, ver [launch.md](launch.md)).
 - **Clientes concorrentes devem compartilhar a mesma versão**: o tracker guarda o `version_id` de cada PID e de cada launch pendente; se algum for diferente do da nova conta, o launch único falha e o multi pula a conta (`version-conflict` no evento). A mensagem que o usuário lê vem de `version_conflict_message` e **lista as versões abertas**. Instalação do sistema conta como a "versão" `None` e aparece na lista como `system install`.
 - **Uninstall:** recusado se a versão estiver rodando; apaga a pasta, remove do catálogo, limpa `DefaultVersion` se for ela e remove `RobloxVersion` de toda conta que a usava.
-- **Override por conta:** `versions_set_account_override(userId, versionId|null)`; vazio/null remove o campo.
+- **Override por conta:** `versions_set_account_override(userId, versionId|null)`; vazio/null remove o campo. O comando está registrado, mas **nenhuma tela o chama**: o seletor do painel da conta ("Roblox Version (all accounts)") grava a `Versions.DefaultVersion` global. Hoje o `RobloxVersion` só é definido ou limpo em View/Edit Fields (com Developer Mode), por script (`update_account`) ou pelo web server (`SetField`/`RemoveField`).
 - **`touch_launched`** atualiza `last_launched_at` quando o PID é detectado (influencia o passo 3 da precedência).
 - **Catálogo** persistido em `%LOCALAPPDATA%\Roblox Account Manager\RAMVersions.json` (escrita via `.json.tmp` + `MoveFileExW` atômico). Na primeira execução, copia `RAMVersions.json` legado de ao lado do exe se existir.
 - **Isolamento Full nunca apaga** `%LOCALAPPDATA%\Roblox Account Manager\RobloxVersions`.

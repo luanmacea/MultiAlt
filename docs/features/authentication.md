@@ -110,7 +110,7 @@ O "Refresh Cookies" manual da barra inferior faz o mesmo para as contas selecion
 
 ## Regras de negócio
 
-- Os comandos que operam "como" uma conta usam `run_with_session_retry` — no máximo **um** refresh e **uma** nova tentativa por chamada. Exceção: `make_selected_friends` (não renova sessão, ver abaixo).
+- As **ações** que operam "como" uma conta (bloquear, avatar, privacidade, trocar senha/e-mail, PIN, quick login, compra, grupo, pedido de amizade avulso) e o auth ticket/private join do launch e do Auto Rejoin usam `run_with_session_retry` — no máximo **um** refresh e **uma** nova tentativa por chamada. **Leituras não** (regra logo abaixo), nem `make_selected_friends` (ver mais abaixo).
 - **Regra: nunca use refresh de sessão (`run_with_session_retry` / `refresh_account_session`) em leituras ou ações não críticas.** Quem lê usa o helper `read_without_refresh` (pega o cookie e chama a API direto), e o teste estrutural `read_only_retry_tests` reprova se um comando da lista de leituras voltar a usar retry — `get_auth_ticket`, `get_csrf_token`, `check_pin`, `get_robux`, `get_blocked_users`, `get_private_server_invite_privacy` e `resolve_join_link` estão nessa lista. O refresh desloga a conta de **todas** as sessões e derruba clientes Roblox em execução. Para leituras tolerantes a falha, chame a API com `get_cookie` direto e trate o erro; para ações em lote, reporte a sessão inválida em vez de "consertá-la".
 - O refresh **desloga todas as outras sessões** da conta (é o endpoint `signoutfromallsessionsandreauthenticate`): clientes Roblox abertos com o cookie antigo podem cair.
 - `LastAttemptedRefresh` é atualizado mesmo se o refresh falhar.

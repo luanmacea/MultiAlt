@@ -46,7 +46,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 
 | Chave | Usado por | Efeito |
 |---|---|---|
-| `RobloxVersion` | [commands/versions.rs](../../src-tauri/src/commands/versions.rs), [launch.rs](../../src-tauri/src/commands/launch.rs) | Override de versão do Roblox por conta. |
+| `RobloxVersion` | [commands/versions.rs](../../src-tauri/src/commands/versions.rs), [launch.rs](../../src-tauri/src/commands/launch.rs) | Override de versão do Roblox por conta, honrado pelo launch e pelo Auto Rejoin. **Nenhuma tela o define** (o painel da conta grava a `DefaultVersion` global): só View/Edit Fields com Developer Mode, script (`update_account`) ou web server (`SetField`). Ver [roblox-versions.md](roblox-versions.md). |
 | `NoCookieRefresh` | [store.tsx](../../src/store.tsx) | `"true"` exclui a conta do auto-refresh de cookie. |
 | `Window_Position_X`, `Window_Position_Y`, `Window_Width`, ... | [watcher.rs](../../src-tauri/src/commands/watcher.rs) | Posição de janela salva pelo Watcher (`SaveWindowPositions`). |
 | `ClientOverridesEnabled`, `ClientOverrideMaxFPS`, `ClientOverrideVolume`, `ClientOverrideGraphics`, `ClientOverrideFullscreen`, `ClientOverrideStartMinimized`, `ClientOverrideWindowWidth`, `ClientOverrideWindowHeight` | [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) | Exceções de launch por conta — ver [launch.md](launch.md#exceções-de-launch-por-conta). |
@@ -127,7 +127,7 @@ Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro e inteiro**; a
   - a mesma linha `user:pass:cookie` colada na aba **User:Pass** é importada direto pelo cookie, sem abrir navegador nem pedir CAPTCHA;
   - a senha só é enviada ao `add_account` quando a linha a traz (o parâmetro é `Option<String>` no backend). Conta que **já existe** não passa pelo `add_account`, então a senha daquela linha não é guardada — e a mensagem do resultado diz isso ("…the password in this line was not stored"), em vez de só "already exists". O texto evita a palavra "saved" de propósito: ela é marcador de sucesso em `toneFromMessage` ([utils/toastTone.ts](../../src/utils/toastTone.ts)) e pintaria de verde uma mensagem que não é;
   - o `COOKIE_MARKER` (`_|WARNING`) exportado por `utils/cookies.ts` é o mesmo que o Quick Add da Toolbar e o Add Account usam para decidir se o texto colado é cookie ou nome de usuário — era um pedaço do aviso repetido em cada tela.
-- **Aviso do diálogo de import:** o cookie entrega a sessão, e a senha entrega a **conta** (troca de e-mail e de senha, e sair de todas as sessões não a revoga) — e ela fica no `AccountData.json`, encriptado só quando o app tem senha. Os dois riscos estão na tela, em dois parágrafos, cobertos por teste ([ImportDialog.test.tsx](../../src/components/dialogs/ImportDialog.test.tsx)).
+- **Aviso do diálogo de import:** o cookie entrega a sessão, e a senha entrega a **conta** (troca de e-mail e de senha, e sair de todas as sessões não a revoga) — e ela fica no `AccountData.json`, que é cifrado **sempre**: com a senha do app, ou, sem senha, com a chave do aparelho (`AccountData.key`, ao lado), que qualquer programa rodando como o usuário consegue abrir (ver [A chave do aparelho](#a-chave-do-aparelho-accountdatakey)). Não é "cifrado só com senha" — isso era verdade antes da criptografia por padrão. Os dois riscos estão na tela, em dois parágrafos, cobertos por teste ([ImportDialog.test.tsx](../../src/components/dialogs/ImportDialog.test.tsx)).
 - **Import de arquivo antigo** (`import_old_account_data`):
   - contas com `UserID <= 0` são ignoradas (`skipped`);
   - `UserID` duplicado dentro do arquivo importado conta como `skipped` e o **último** vence;
@@ -241,7 +241,9 @@ O `.key` acompanha o **vault**, não um caminho fixo (`key_file_path_for` = `wit
 
 #### O que essa proteção vale, e o que não vale
 
-Protege contra: `AccountData.json` **copiado** para outra máquina, e **outro usuário do Windows** no mesmo PC.
+Protege contra: `AccountData.json` **copiado sem o `.key` do lado** para outra máquina (é a condição que o comentário de [vault_key.rs](../../src-tauri/src/data/vault_key.rs) põe), e **outro usuário do Windows** no mesmo PC.
+
+Cópia **da pasta inteira** — vault e `.key` juntos, como no pen drive do modo portátil ou numa pasta de dados sincronizada em nuvem — é o mesmo caso do backup vazado abaixo: o DPAPI não abre fora do perfil de origem, e o que sobra protegendo é o embrulho `device`.
 
 **Não** protege **backup vazado**, e isso tem que estar dito com essas palavras: o zip de backup **tem** que levar o `.key` (senão o backup não restaura — ver [backups.md](backups.md)), então quem tem o zip tem a chave, e o que sobra protegendo é o embrulho `device` — `sha512("COMPUTERNAME|USERNAME|ram-device-v1")`, duas strings que quem tem o zip normalmente já sabe (o `USERNAME` aparece em caminhos dentro do próprio `RAMSettings.ini`). Quem guarda backup em nuvem precisa de **senha**. A tela de criptografia diz isso no lugar onde o usuário decide, não só aqui.
 
@@ -249,7 +251,11 @@ Protege contra: `AccountData.json` **copiado** para outra máquina, e **outro us
 
 ### Comandos de API por conta ([account_api.rs](../../src-tauri/src/commands/account_api.rs))
 
-Os que usam o cookie da conta passam por `run_with_session_retry` (ver [authentication.md](authentication.md)), **exceto** `make_selected_friends`, que nunca renova a sessão.
+Nem todo comando com cookie renova a sessão — e a diferença é de propósito (ver [authentication.md](authentication.md#regras-de-negócio)):
+
+- **Leituras** usam `read_without_refresh` (pegam o cookie e chamam a API direto; cookie vencido vira erro na tela): `get_robux`, `check_pin`, `get_blocked_users`, `get_private_server_invite_privacy`, `get_csrf_token`, `get_auth_ticket` e `resolve_join_link`, travadas por `read_only_retry_tests`. `get_account_game_location` e `get_presence` também não renovam.
+- **Ações** pedidas na conta (pedido de amizade avulso, bloqueios, privacidade, avatar, grupo, compra, troca de senha/e-mail/display name, PIN, quick login) passam por `run_with_session_retry`.
+- `make_selected_friends` nunca renova a sessão.
 
 | Comando | O que faz |
 |---|---|

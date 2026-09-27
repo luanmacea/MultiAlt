@@ -76,7 +76,7 @@ Com **Auto Rejoin** ativo aparece `Add N account(s) to Auto Rejoin`.
 
 ### Painel da conta (uma selecionada)
 
-Alias, descrição, `Roblox Version (all accounts)` — é a versão **global**, não existe versão por conta — e as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`.
+Alias, descrição, `Roblox Version (all accounts)` — é a versão **global**; a versão por conta existe no backend (campo `RobloxVersion`, honrado pelo launch e pelo Auto Rejoin), mas **não tem tela**: só dá para definir em `View/Edit Fields` (Developer Mode), por script ou pelo web server — e as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`.
 
 ### Barra inferior (qualquer seleção)
 

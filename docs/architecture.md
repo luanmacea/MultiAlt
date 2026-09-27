@@ -46,10 +46,12 @@ A regra do projeto é que o frontend fala só com o backend, mas o código tem e
 
 | Onde | O quê |
 |---|---|
-| [ServersTab.tsx](../src/components/server-list/ServersTab.tsx) | `fetch("https://ipapi.co/<ip>/json/")` para descobrir a região de um servidor. |
+| [UpdateDialog.tsx](../src/components/dialogs/UpdateDialog.tsx) | `fetch` direto em `api.github.com` (`REPO_API_URL` de [repo.ts](../src/repo.ts)) para ler as notas da release e o comparativo entre versões. |
 | [ScriptsDialog.tsx](../src/components/dialogs/ScriptsDialog.tsx) | `fetch`/`WebSocket` em nome de scripts do usuário (`ram.http`, `ram.ws`), com permissão explícita. |
 | [fontPresets.ts](../src/fontPresets.ts) | Carrega fontes de `fonts.googleapis.com`. |
-| [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos e recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`), não no backend. |
+| [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos, jogos recentes e servidores recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`), não no backend. A versão que o usuário mandou pular no updater também (`getUpdaterSkipVersionKey`). |
+
+A região de um servidor **não** é mais exceção: o frontend chama `get_server_regions` e o backend faz a geolocalização ([server-choice.md](features/server-choice.md)).
 
 ## Organização do backend
 
@@ -88,7 +90,7 @@ O diretório base é a **pasta de dados do usuário**, resolvida uma vez por pro
 
 | Arquivo | Onde | Formato | Código |
 |---|---|---|---|
-| `AccountData.json` | pasta de dados | **Sempre** binário criptografado com header RAM (senha do usuário ou chave do aparelho). JSON puro em PascalCase só é **lido**, para migrar arquivos de RAM v3/v4 | [data/accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `get_account_data_path` |
+| `AccountData.json` | pasta de dados | Binário criptografado com header RAM (senha do usuário ou chave do aparelho); JSON puro em PascalCase é **lido** para migrar arquivos de RAM v3/v4. **Exceção:** se a chave do aparelho não pôde ser criada (disco cheio, antivírus), o store segue sem segredo e **grava JSON puro** — a faixa `VaultKeyBanner` avisa (ver [accounts.md](features/accounts.md#regras-de-negócio)) | [data/accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `get_account_data_path` |
 | `AccountData.key` | pasta de dados, ao lado do vault | JSON com a chave mestra de 32 bytes embrulhada duas vezes (DPAPI do usuário + hash do aparelho). Existe só quando **não** há senha de usuário | [data/vault_key.rs](../src-tauri/src/data/vault_key.rs) `key_file_path_for` |
 | `RAMSettings.ini` | pasta de dados | INI | [paths.rs](../src-tauri/src/data/settings/paths.rs) `get_settings_path` |
 | `RAMTheme.ini` | pasta de dados | INI (seção `Roblox Account Manager`, fallback `RBX Alt Manager`) | [paths.rs](../src-tauri/src/data/settings/paths.rs), [theme.rs](../src-tauri/src/data/settings/theme.rs) |
@@ -203,7 +205,7 @@ A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depoi
 
 ## Armadilhas / cuidados
 
-- O frontend chama `get_platform_capabilities`, mas esse comando **não está registrado** em `generate_handler!` — a chamada falha silenciosamente (`catch {}`) e `platformCapabilities` fica `null`.
+- `get_platform_capabilities` ([platform_info.rs](../src-tauri/src/commands/platform_info.rs)) está incluído e registrado em `generate_handler!`; o frontend o chama no boot e quando uma chave de `[Linux]` muda. Se a chamada falhar, `platformCapabilities` fica `null` e `isWindowsPlatform` volta ao palpite pelo user agent — ver [launch.md](features/launch.md#capacidades-da-plataforma-get_platform_capabilities).
 - O webserver é iniciado com um cast `unsafe` de `&AccountStore`/`&SettingsStore` para `'static` em [lib.rs](../src-tauri/src/lib.rs); qualquer mudança no ciclo de vida das stores precisa considerar isso.
 - Como os comandos são `include!`-ados na raiz do crate, nomes de funções auxiliares precisam ser únicos entre todos os arquivos de `commands/` (ex.: `decode_url_component` existe tanto em `launch_shared.rs` quanto em `api/roblox/private_links.rs`, mas em escopos diferentes: raiz do crate vs. módulo `api::roblox`).
 - O evento `isolation-report` é emitido mas ninguém escuta; se precisar mostrar o relatório na UI, é preciso criar o listener.
