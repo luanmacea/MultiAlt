@@ -379,6 +379,29 @@ describe("ChooseGameScreen — FollowTab", () => {
     expect(invokeMock.mock.calls.filter((call) => call[0] === "launch_roblox")).toHaveLength(0);
   });
 
+  /**
+   * O card promete: servidor escondido pela privacidade → pergunta antes de cair
+   * num servidor público do mesmo jogo. Sem `PromptProvider`, `confirm()`
+   * resolve `false` — então aqui nada pode ser aberto.
+   */
+  it("com o servidor escondido, não cai num servidor público sem perguntar", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence({ gameId: "" });
+      return undefined;
+    });
+    const store = await renderFollowTab();
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    // O campo volta a ficar habilitado no `finally`: o fluxo inteiro terminou.
+    await waitFor(() => expect(screen.getByPlaceholderText("e.g. Builderman")).toBeEnabled());
+    expect(invokeMock).toHaveBeenCalledWith("get_presence", expect.anything());
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+    expect(store.joinServer).not.toHaveBeenCalled();
+  });
+
   it("uses rootPlaceId over placeId", async () => {
     setInvokeHandler((cmd) => {
       if (cmd === "lookup_user") return { id: 42 };

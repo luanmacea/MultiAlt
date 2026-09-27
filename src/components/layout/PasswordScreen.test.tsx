@@ -238,7 +238,9 @@ describe("EncryptionSetupScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: /No Password/ }));
 
     const limit = screen.getByText(/the key sits in a file next to AccountData\.json/i);
-    expect(limit).toHaveTextContent(/copied AccountData\.json/i);
+    // Só o arquivo copiado **sem** o `.key` fica fechado; a pasta inteira
+    // copiada é o caso do backup vazado, abaixo.
+    expect(limit).toHaveTextContent(/AccountData\.json copied without that file/i);
     expect(limit).toHaveTextContent(/another user on this PC/i);
     expect(limit).toHaveTextContent(/but not a program running as you/i);
 
