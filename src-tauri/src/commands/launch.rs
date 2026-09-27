@@ -50,15 +50,16 @@ fn has_version_conflict(
     running_keys.iter().any(|k| k != target_version_id)
 }
 
-/// Nomes das versões abertas, em ordem estável, para a mensagem da guarda.
-/// A instalação do sistema entra como texto em vez de sumir: `None` é uma
-/// "versão" como as do catálogo, e é justamente a que o usuário não reconhece
-/// como "versão aberta" ao olhar a lista.
+/// Como uma versão aparece na frase da guarda. A instalação do sistema entra
+/// como texto em vez de sumir: `None` é uma "versão" como as do catálogo, e é
+/// justamente a que o usuário não reconhece como "versão aberta".
+fn version_display_name(key: &Option<String>) -> String {
+    key.clone().unwrap_or_else(|| "system install".to_string())
+}
+
+/// Nomes das versões, em ordem estável, para a mensagem da guarda.
 fn running_version_names(running_keys: &HashSet<Option<String>>) -> Vec<String> {
-    let mut names: Vec<String> = running_keys
-        .iter()
-        .map(|key| key.clone().unwrap_or_else(|| "system install".to_string()))
-        .collect();
+    let mut names: Vec<String> = running_keys.iter().map(version_display_name).collect();
     names.sort();
     names
 }
@@ -66,16 +67,39 @@ fn running_version_names(running_keys: &HashSet<Option<String>>) -> Vec<String> 
 /// A frase da recusa por conflito de versão — a mesma no launch de uma conta e
 /// no da fila.
 ///
-/// Ela **tem** que dizer quais versões estão abertas. A guarda compara com uma
-/// versão alvo, então basta o tracker ter duas chaves distintas (o Auto Rejoin
-/// não checa conflito, por desenho — `docs/features/botting.md`) para nenhum
-/// alvo satisfazê-la: aí "feche o cliente" sem dizer *qual* deixa o usuário sem
-/// ação possível. E nada aqui sai como código interno: esta frase é desenhada
-/// crua na tela, tanto no toast do launch único quanto na linha da fila.
-fn version_conflict_message(running_keys: &HashSet<Option<String>>) -> String {
+/// Ela **tem** que dizer o que fechar. A guarda compara com uma versão alvo,
+/// então basta o tracker ter duas chaves distintas (o Auto Rejoin não checa
+/// conflito, por desenho — `docs/features/botting.md`) para nenhum alvo
+/// satisfazê-la: aí "feche o cliente" sem dizer *qual* deixa o usuário sem ação
+/// possível.
+///
+/// E ela lista **só as versões que impedem** — as diferentes do alvo. A frase
+/// antiga listava todas as abertas e dizia "Close these clients": com
+/// `{None, Some(X)}` rodando e alvo `Some(X)` (o caso que motivou a lista),
+/// bastava fechar os da instalação do sistema, mas o dono fechava também os de
+/// X — clientes de outras contas, inclusive a principal. Quando há cliente na
+/// versão certa, a frase diz que ele pode ficar.
+///
+/// Nada aqui sai como código interno: esta frase é desenhada crua na tela,
+/// tanto no toast do launch único quanto na linha da fila.
+fn version_conflict_message(
+    running_keys: &HashSet<Option<String>>,
+    target_version_id: &Option<String>,
+) -> String {
+    let blocking: HashSet<Option<String>> = running_keys
+        .iter()
+        .filter(|key| *key != target_version_id)
+        .cloned()
+        .collect();
+    let target = version_display_name(target_version_id);
+    let keep = if running_keys.contains(target_version_id) {
+        format!(" Clients already on {target} can stay open.")
+    } else {
+        String::new()
+    };
     format!(
-        "A Roblox client is already running on a different Roblox version. Open now: {}. Close these clients before launching this account. Concurrent multi-version support is planned for a future update.",
-        running_version_names(running_keys).join(", ")
+        "A Roblox client is already running on a different Roblox version. This account launches on {target}; close the clients on {} before launching it.{keep} Concurrent multi-version support is planned for a future update.",
+        running_version_names(&blocking).join(", ")
     )
 }
 
@@ -832,7 +856,7 @@ async fn launch_roblox_windows(
     let _ = tracker_check.cleanup_dead_processes();
     let running_keys = tracker_check.running_version_keys();
     if has_version_conflict(&running_keys, &resolved_version_id) {
-        return Err(version_conflict_message(&running_keys));
+        return Err(version_conflict_message(&running_keys, &resolved_version_id));
     }
 
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
@@ -1359,7 +1383,7 @@ async fn launch_multiple(
             sequence.mark(
                 uid,
                 LaunchQueueState::Failed,
-                Some(version_conflict_message(&running_keys)),
+                Some(version_conflict_message(&running_keys, &acct_version_id)),
             );
             let _ = app.emit(
                 "launch-progress",

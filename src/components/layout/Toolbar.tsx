@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { ENABLE_NEXUS } from "../../featureFlags";
-import { COOKIE_MARKER } from "../../utils/cookies";
+import { quickAddAccount } from "../../utils/quickAdd";
 import { SessionToolbarButton } from "../dialogs/SessionDialog";
 import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp, Keyboard } from "lucide-react";
 
@@ -103,32 +102,9 @@ export function Toolbar() {
       )
     );
     if (!input?.trim()) return;
-    const value = input.trim();
-
-    try {
-      if (value.includes(COOKIE_MARKER)) {
-        await store.addAccountByCookie(value);
-        return;
-      }
-
-      const user = await invoke<{ id: number; name: string }>("lookup_user", { username: value });
-      await invoke("add_account", {
-        securityToken: "",
-        username: user.name,
-        userId: user.id,
-      });
-      await store.loadAccounts();
-      // Busca por nome de usuário não entrega cookie nenhum: a conta entra só
-      // como registro, sem sessão, e não lança. Dizer só "Added" fazia parecer
-      // que tinha dado certo — o aviso tem que nomear o que falta.
-      store.addToast(
-        tr("Added {{name}} with no session — paste its cookie or use Browser Login to sign in", {
-          name: user.name,
-        })
-      );
-    } catch (e) {
-      store.addToast(tr("Add failed: {{error}}", { error: String(e) }));
-    }
+    // Cookie, `usuario:senha:cookie` ou nome de usuário: quem decide é o leitor
+    // do import, o mesmo nas duas portas (ver `quickAddAccount`).
+    await quickAddAccount(input, store);
   }
 
   return (

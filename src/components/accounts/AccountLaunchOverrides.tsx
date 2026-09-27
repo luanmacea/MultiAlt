@@ -37,11 +37,14 @@ export function AccountLaunchOverrides({ account }: { account: Account }) {
   }, [account.UserID]);
 
   function save(next: AccountLaunchOverrides) {
-    setDraft(next);
-    void store.updateAccount({
-      ...account,
-      Fields: writeAccountLaunchOverrides(account.Fields, next),
-    });
+    const fields = writeAccountLaunchOverrides(account.Fields, next);
+    // O campo mostra o que foi **gravado**, não o que foi digitado: o volume é
+    // limitado a 0–10 ao gravar, e um "15" continuava na tela depois de sair
+    // do campo (com 10 salvo), sem aviso do ajuste, até a conta ser
+    // reselecionada. Relido do que vai para o arquivo, 15 vira 10 e "1.2.3"
+    // vira 1.2 na hora.
+    setDraft(readAccountLaunchOverrides(fields));
+    void store.updateAccount({ ...account, Fields: fields });
   }
 
   const ligado = draft.enabled;
