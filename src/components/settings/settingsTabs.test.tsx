@@ -420,6 +420,57 @@ describe("GeneralTab", () => {
     await expectSaved("General", "StartOnPCStartup", "true");
     expect(autostart.enable).toHaveBeenCalledTimes(1);
   });
+
+  it("saves a custom browser executable path", async () => {
+    renderGeneral();
+    const field = await screen.findByLabelText("Custom browser executable");
+    await userEvent.type(field, "C:\\browsers\\chrome.exe");
+    await userEvent.tab();
+    await expectSaved("Login", "ManualBinaryPath", "C:\\browsers\\chrome.exe");
+  });
+
+  /**
+   * O botão do navegador embutido chama `store.ensureBrowserDownload`
+   * (`chromium/download.rs` → `ensure_browser`), não `update_setting`: é o
+   * único controle desta aba que dispara um download em vez de gravar settings.
+   */
+  it("downloads the bundled browser through the store", async () => {
+    const store = setStore({});
+    renderGeneral();
+    await userEvent.click(await screen.findByRole("button", { name: "Download" }));
+    expect(store.ensureBrowserDownload).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels the button Reinstall once the bundled browser is already installed and forces a fresh download", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "is_browser_ready") return true;
+      if (cmd === "get_all_settings") return stored;
+      return undefined;
+    });
+    const store = setStore({});
+    renderGeneral();
+    const button = await screen.findByRole("button", { name: "Reinstall" });
+    await userEvent.click(button);
+    expect(store.ensureBrowserDownload).toHaveBeenCalledWith(true);
+  });
+
+  it("shows the download progress and disables the button while it runs", async () => {
+    setStore({
+      browserDownload: { active: true, stage: "downloading", percent: 42, error: null },
+    });
+    renderGeneral();
+    expect(await screen.findByText("Downloading browser (42%)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Downloading..." })).toBeDisabled();
+  });
+
+  it("shows the backend error message when the bundled browser download fails", async () => {
+    setStore({
+      browserDownload: { active: false, stage: "error", percent: null, error: "network down" },
+    });
+    renderGeneral();
+    expect(await screen.findByText("network down")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry Download" })).toBeInTheDocument();
+  });
 });
 
 describe("WatcherTab", () => {
