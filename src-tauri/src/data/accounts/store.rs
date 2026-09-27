@@ -467,6 +467,30 @@ impl AccountStore {
         watchers.retain(|tx| tx.send(warning.cloned()).is_ok());
     }
 
+    /// A chave do aparelho não pôde ser montada e **não há sessão**: o
+    /// `AccountData.json` continua em texto puro — ou vai nascer assim, no
+    /// primeiro boot. É isso que a faixa tem que dizer, e por isso o
+    /// `migrationFailed` **vence** aqui.
+    ///
+    /// `refresh_key_file` já deixou no slot um aviso sobre o `.key`, e os dois
+    /// textos possíveis mentem neste caso: o transitório promete "tento de novo na
+    /// próxima alteração", mas sem sessão o `save_locked` nem toca no `.key`; o
+    /// `writeFailed` diz "pode não abrir depois de fechar", mas o arquivo está
+    /// legível e abre. O que importa é o cookie de todas as contas legível no
+    /// disco. Com sessão (senha, ou chave do aparelho já em uso) o arquivo não
+    /// está em texto puro, e isto não mexe em nada.
+    fn warn_left_in_plain_text(&self, detail: &str) {
+        let no_session = self
+            .session
+            .lock()
+            .map(|session| session.is_none())
+            // Envenenado: sem saber, o aviso grave é o lado seguro.
+            .unwrap_or(true);
+        if no_session {
+            self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, detail));
+        }
+    }
+
     /// O que a UI mostra sobre o arquivo de chave. `None` = tudo em ordem.
     ///
     /// Estruturado (código + caminho), não frase pronta: a frase mora no catálogo
@@ -683,8 +707,12 @@ impl AccountStore {
             //
             // Falhar aqui **não** trava o app: sem chave, o store segue sem
             // segredo e grava em texto puro, como antes desta mudança. É uma
-            // proteção a menos, não um usuário sem acesso às contas.
-            return self.ensure_device_session();
+            // proteção a menos, não um usuário sem acesso às contas — e a faixa
+            // diz exatamente isso (`warn_left_in_plain_text`).
+            return self.ensure_device_session().map_err(|e| {
+                self.warn_left_in_plain_text(&e);
+                e
+            });
         }
 
         if crypto::is_encrypted(&data) {
@@ -752,11 +780,10 @@ impl AccountStore {
         if let Err(e) = self.ensure_device_session() {
             // Sem chave o arquivo fica como está — em texto puro, legível, mas
             // **inteiro**. Perder o arquivo é pior que ficar sem a criptografia.
-            // `ensure_device_session` já avisou pelo `refresh_key_file`; aqui só
-            // garantimos que o aviso exista mesmo se a falha vier de outro ponto.
-            if self.vault_key_warning().is_none() {
-                self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
-            }
+            // E a faixa diz isso **por cima** do aviso sobre o `.key` que o
+            // `refresh_key_file` deixou: antes o `migrationFailed` só entrava com
+            // o slot vazio, e a faixa ficava falando do `.key`.
+            self.warn_left_in_plain_text(&e);
             return Err(format!(
                 "Accounts are loaded, but the file could not be encrypted and was left as-is: {}",
                 e
@@ -1140,7 +1167,14 @@ impl AccountStore {
                 // texto puro. A chave é montada (e o `.key` gravado) antes de a
                 // sessão da senha ser trocada: erro aqui deixa o arquivo e a
                 // sessão exatamente como estavam.
-                let device_session = self.build_device_session()?;
+                let device_session = self.build_device_session().map_err(|e| {
+                    // Nova tentativa depois de uma migração ou primeiro boot que
+                    // falharam (é o que a faixa manda fazer): sem sessão, o
+                    // arquivo segue em texto puro, e a faixa não pode trocar isso
+                    // pelo aviso do `.key` desta tentativa.
+                    self.warn_left_in_plain_text(&e);
+                    e
+                })?;
                 {
                     let mut slot = self.session.lock().map_err(|e| e.to_string())?;
                     *slot = Some(device_session);
@@ -3195,6 +3229,67 @@ mod vault_migration_tests {
         let _ = fs::remove_dir(bak_path(&store));
     }
 
+    /// **A6 do checkup.** A migração que não consegue criar o `.key` deixava na
+    /// faixa o aviso **do `.key`**: `migrationFailed` só entrava com o slot vazio,
+    /// e `refresh_key_file` já tinha gravado `writeFailed` (ou o transitório). A
+    /// faixa dizia "tento de novo na próxima alteração" — falso: sem sessão, o
+    /// `save_locked` nem toca no `.key` — ou "pode não abrir depois de fechar" —
+    /// falso: o arquivo está em texto puro e abre. O que importa é o cookie de
+    /// todas as contas legível, que é o `migrationFailed`. Ele tem que vencer.
+    #[test]
+    fn a_migration_that_cannot_create_the_key_file_says_the_file_is_still_plain_text() {
+        let store = vault("migration-no-key");
+        let plain = serde_json::to_vec(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, &plain).unwrap();
+        // Diretório no lugar do `.key`: a chave não pode ser criada.
+        fs::create_dir(key_path(&store)).unwrap();
+
+        store.load().expect_err("a migração tem que falhar");
+
+        assert_eq!(
+            fs::read(&store.file_path).unwrap(),
+            plain,
+            "o arquivo tinha que ficar inteiro, em texto puro"
+        );
+        let warning = store
+            .vault_key_warning()
+            .expect("a migração falhou calada");
+        assert_eq!(
+            warning.code, "migrationFailed",
+            "a faixa fala do .key quando o que importa é o arquivo em texto puro"
+        );
+        assert_eq!(warning.path, store.file_path.display().to_string());
+
+        let _ = fs::remove_dir(key_path(&store));
+    }
+
+    /// **A6, pelo caminho que a própria faixa manda seguir.** O `migrationFailed`
+    /// diz "abra Change Encryption Method para tentar de novo". Se a nova
+    /// tentativa (`set_password(None)`) bate no mesmo `.key` impossível, o
+    /// `writeFailed` dela trocava a faixa (mesma gravidade, o mais novo vence) e
+    /// voltava a falar do `.key` — com o arquivo ainda em texto puro.
+    #[test]
+    fn retrying_the_device_key_while_still_plain_text_keeps_saying_plain_text() {
+        let store = vault("retry-still-plain");
+        let plain = serde_json::to_vec(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, &plain).unwrap();
+        fs::create_dir(key_path(&store)).unwrap();
+        store.load().expect_err("a migração tem que falhar");
+
+        store
+            .set_password(None)
+            .expect_err("a chave continua sem poder ser criada");
+
+        assert_eq!(fs::read(&store.file_path).unwrap(), plain);
+        assert_eq!(
+            store.vault_key_warning().expect("sem aviso").code,
+            "migrationFailed",
+            "a nova tentativa trocou 'texto puro' por um aviso sobre o .key"
+        );
+
+        let _ = fs::remove_dir(key_path(&store));
+    }
+
     /// **Fail-open na guarda que protege a única cópia da chave.**
     /// `is_encrypted().unwrap_or(false)` fazia "não consegui saber" virar "não
     /// existe vault", e é essa guarda que decide se uma chave mestra nova pode ser
@@ -3335,9 +3430,14 @@ mod vault_migration_tests {
             store.vault_key_warning().is_some(),
             "o primeiro boot falhou calado: nada para a UI mostrar"
         );
+        // **A6.** Sem chave, o store segue sem segredo e grava as contas em texto
+        // puro — é isso que a faixa tem que dizer, como o próprio erro acima diz
+        // ("left unencrypted"). O `writeFailed` que ficava aqui falava de um
+        // `.key` do qual nada depende ("pode não abrir depois de fechar"), sobre
+        // um arquivo que vai abrir porque está legível.
         let warning = store.vault_key_warning().unwrap();
-        assert!(warning.code.starts_with("writeFailed"), "{}", warning.code);
-        assert!(!warning.path.is_empty());
+        assert_eq!(warning.code, "migrationFailed", "{}", warning.code);
+        assert_eq!(warning.path, store.file_path.display().to_string());
 
         let _ = fs::remove_dir(key_path(&store));
     }
