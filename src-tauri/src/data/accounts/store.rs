@@ -1167,7 +1167,23 @@ impl AccountStore {
                 // texto puro. A chave é montada (e o `.key` gravado) antes de a
                 // sessão da senha ser trocada: erro aqui deixa o arquivo e a
                 // sessão exatamente como estavam.
+                let password_in_effect = self.has_user_password().unwrap_or(false);
+                let key_existed = key_path.exists();
                 let device_session = self.build_device_session().map_err(|e| {
+                    if password_in_effect {
+                        // O vault continua cifrado com a senha, e nada depende
+                        // do `.key` que não saiu: o aviso sobre ele mandaria pôr
+                        // senha em quem já tem, e o erro de `build_device_session`
+                        // diria que o arquivo ficou sem cifra.
+                        self.clear_key_warning_for(&key_path);
+                        if !key_existed {
+                            return format!(
+                                "Removing the password failed: the account key file ({})                                  could not be created, so the password is still in use.",
+                                key_path.display()
+                            );
+                        }
+                        return e;
+                    }
                     // Nova tentativa depois de uma migração ou primeiro boot que
                     // falharam (é o que a faixa manda fazer): sem sessão, o
                     // arquivo segue em texto puro, e a faixa não pode trocar isso
@@ -1175,12 +1191,29 @@ impl AccountStore {
                     self.warn_left_in_plain_text(&e);
                     e
                 })?;
-                {
-                    let mut slot = self.session.lock().map_err(|e| e.to_string())?;
-                    *slot = Some(device_session);
-                }
+                // Como no ramo da senha: a chave do aparelho só passa a valer
+                // **depois** de o vault estar gravado com ela. Trocar antes fazia
+                // a remoção valer mesmo quando a gravação falhava — a UI dizia
+                // que a senha ficou, e a próxima gravação de fundo a tirava.
+                // Ordem de lock do arquivo: accounts → session.
                 let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-                self.save_locked(&accounts)
+                let previous = self
+                    .session
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .replace(device_session);
+                if let Err(e) = self.save_locked(&accounts) {
+                    *self
+                        .session
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = previous;
+                    // O `.key` que esta tentativa criou não cifra nada.
+                    if !key_existed {
+                        crate::data::vault_key::remove_key_file(&key_path);
+                    }
+                    return Err(e);
+                }
+                Ok(())
             }
         }
     }
@@ -3530,6 +3563,85 @@ mod vault_migration_tests {
             .load()
             .expect("o boot seguinte tem que abrir sem senha: a senha não foi aplicada");
         assert_eq!(reopened.get_all().unwrap().len(), 1);
+    }
+
+    /// O espelho do teste acima: **tirar** a senha que não foi gravada também
+    /// não passa a valer. A sessão já era a da chave do aparelho antes da
+    /// gravação; com ela falhando, a UI dizia que a senha ficou, e a próxima
+    /// gravação de fundo tirava a senha mesmo assim.
+    #[test]
+    fn removing_the_password_that_could_not_be_saved_does_not_take_effect() {
+        let store = vault("password-removal-not-saved");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Main".to_string(), 1))
+            .expect("adicionar");
+        store.set_password(Some("senha-bem-comprida")).expect("pôr a senha");
+
+        let tmp = store.file_path.with_extension("json.tmp");
+        fs::create_dir(&tmp).unwrap();
+        store
+            .set_password(None)
+            .expect_err("a gravação tinha que falhar");
+        fs::remove_dir(&tmp).unwrap();
+
+        assert!(
+            store.has_user_password().unwrap(),
+            "a UI disse que não aplicou, mas a sessão já era a da chave do aparelho"
+        );
+        assert!(
+            !key_path(&store).exists(),
+            "o .key da tentativa que falhou ficou ao lado de um vault de senha"
+        );
+
+        // A próxima gravação de fundo (um ciclo do Auto Rejoin)...
+        store.mark_used(1).expect("gravar depois");
+        // ...continua com a senha, como a UI disse.
+        let reopened = AccountStore::new(store.file_path.clone());
+        let _ = reopened.load();
+        assert!(
+            reopened.needs_password().unwrap(),
+            "o boot seguinte abriu sem senha: a remoção que falhou passou a valer"
+        );
+
+        let _ = fs::remove_file(key_path(&store));
+    }
+
+    /// Tirar a senha quando o `.key` não pode ser criado não muda nada: o vault
+    /// continua cifrado com a senha, e é ela que abre. Um aviso sobre o `.key`
+    /// ("pode não abrir depois de fechar — ponha uma senha") para quem já tem
+    /// senha é falso, e o erro não pode dizer que o arquivo ficou sem cifra.
+    #[test]
+    fn removing_the_password_without_a_key_file_keeps_the_password_and_warns_nothing() {
+        let store = vault("password-removal-no-key");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Main".to_string(), 1))
+            .expect("adicionar");
+        store.set_password(Some("senha-bem-comprida")).expect("pôr a senha");
+        let with_password = fs::read(&store.file_path).unwrap();
+        // Não há `.key` (a senha o apagou), e um diretório no lugar do
+        // `.key.tmp` faz a criação falhar — como disco cheio ou antivírus.
+        let key_tmp = key_path(&store).with_extension("key.tmp");
+        fs::create_dir(&key_tmp).unwrap();
+
+        let err = store
+            .set_password(None)
+            .expect_err("sem .key não há chave do aparelho para trocar pela senha");
+
+        assert!(
+            store.vault_key_warning().is_none(),
+            "aviso sobre o .key para quem continua com senha: {:?}",
+            store.vault_key_warning()
+        );
+        assert!(
+            !err.contains("unencrypted"),
+            "o erro diz que o arquivo ficou sem cifra: {err}"
+        );
+        assert_eq!(fs::read(&store.file_path).unwrap(), with_password);
+        assert!(store.has_user_password().unwrap());
+
+        let _ = fs::remove_dir(&key_tmp);
     }
 
     /// **Quebra 4.** O `.json.rekey.bak` era cópia cifrada pela chave do aparelho
