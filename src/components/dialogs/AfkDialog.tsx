@@ -8,11 +8,20 @@ import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { ToggleRow } from "../ui/ToggleRow";
 
-/** Tempo até o próximo envio, no formato `m:ss`. */
-function formatCountdown(targetMs: number | null, nowMs: number): string {
+/**
+ * Tempo até o próximo envio, no formato `m:ss` — nunca acima do intervalo.
+ *
+ * O prazo que chega do backend é "agora + intervalo" no relógio dele, e o
+ * `nowMs` da tela só anda no tique de 1 s: comparado com um relógio de até 1 s
+ * atrás, a contagem nascia em "10:01" (no start e depois de cada envio manual).
+ * Faltar mais que um intervalo não existe, então o teto é o intervalo — na
+ * hora do render, sem piscar um quadro com o valor errado.
+ */
+function formatCountdown(targetMs: number | null, nowMs: number, intervalMs: number): string {
   if (targetMs === null) return "--";
   if (targetMs <= nowMs) return "0:00";
-  const secs = Math.ceil((targetMs - nowMs) / 1000);
+  const remainingMs = intervalMs > 0 ? Math.min(targetMs - nowMs, intervalMs) : targetMs - nowMs;
+  const secs = Math.ceil(remainingMs / 1000);
   const m = Math.floor(secs / 60);
   const s = secs % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
@@ -156,6 +165,9 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
       // roda mais: o rascunho fica com o que o usuário pediu, e não com a
       // conta que ele acabou de tirar.
       setDraftUserIds(next);
+      // E diz que desligou: sem isto a pílula virava "Off" calada, enquanto o
+      // Parar avisa.
+      if (next.length === 0) store.addToast(t("AFK mode off: no account is left in it"));
     } catch {
       // O erro já virou toast no store.
     } finally {
@@ -187,9 +199,11 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
     try {
       const sent = await store.afkTriggerNow(inAfk, effectiveKey);
       store.addToast(
-        sent > 0
-          ? t("Sent {{key}} to {{count}} accounts", { key: effectiveKey, count: sent })
-          : t("No Roblox window received the key")
+        sent === 1
+          ? t("Sent {{key}} to 1 account", { key: effectiveKey })
+          : sent > 1
+            ? t("Sent {{key}} to {{count}} accounts", { key: effectiveKey, count: sent })
+            : t("No Roblox window received the key")
       );
     } catch {
       // O erro já virou toast no store.
@@ -236,7 +250,9 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
                   : "theme-border theme-soft theme-muted"
               }`}
             >
-              {running ? t("Sending") : t("Off")}
+              {/* Estado, não ação: entre um ciclo e outro — ou com o foco negado
+                  em todas as contas — nada está sendo enviado. */}
+              {running ? t("On") : t("Off")}
             </span>
             <button
               onClick={handleClose}
@@ -258,7 +274,7 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
                 max={120}
                 integer
                 disabled={configDisabled}
-                ariaLabel="Send every"
+                ariaLabel={t("Send every")}
                 onChange={setIntervalMinutes}
                 onCommit={(v) => persist("IntervalMinutes", String(v))}
                 containerClassName="relative flex-1"
@@ -267,12 +283,14 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
               <span className="text-[12px] theme-muted">{t("min")}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[12px] theme-muted w-32 shrink-0">{t("Key")}</span>
+              {/* "Key" sozinho é a chave de campo da conta ("Chave" em pt), da
+                  tela de campos; aqui é tecla, e precisa de texto próprio. */}
+              <span className="text-[12px] theme-muted w-32 shrink-0">{t("Key to send")}</span>
               <Select
                 value={effectiveKey}
                 options={store.afkKeys.map((k) => ({ value: k, label: k }))}
                 disabled={configDisabled}
-                ariaLabel="Key"
+                ariaLabel="Key to send"
                 onChange={(v) => {
                   setKey(v);
                   persist("Key", v);
@@ -345,7 +363,7 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
                       </span>
                       {running && picked ? (
                         <span className="text-[11px] font-mono theme-muted shrink-0">
-                          {formatCountdown(row?.nextSendAtMs ?? null, nowMs)}
+                          {formatCountdown(row?.nextSendAtMs ?? null, nowMs, effectiveInterval * 60_000)}
                         </span>
                       ) : null}
                       {row?.lastErrorCode === "focusDenied" ? (
