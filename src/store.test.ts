@@ -134,7 +134,9 @@ async function renderStore() {
 beforeEach(() => {
   invokeMock.mockReset();
   recordRecentGameMock.mockClear();
-  addRecentJobMock.mockClear();
+  // `mockReset` (e não `mockClear`): um teste que faz a gravação dos recentes
+  // explodir não pode deixar a implementação quebrada para o teste seguinte.
+  addRecentJobMock.mockReset();
   unlistenMock.mockClear();
   listenHandlers.clear();
   failures.clear();
@@ -745,6 +747,28 @@ describe("joinServer", () => {
     expect(addRecentJobMock).not.toHaveBeenCalled();
   });
 
+  /**
+   * `addRecentJob` grava no `localStorage`, que o WebView **recusa** com a cota
+   * cheia ou com o perfil sem storage. Isso acontece **depois** de o
+   * `launch_roblox` ter voltado com sucesso: o cliente do Roblox já subiu. Se a
+   * exceção cair no `catch` do launch, a tela diz "Launch failed" sobre um
+   * launch que deu certo. Guardar recentes é conveniência; não derruba launch.
+   */
+  it("keeps the launch successful when recording the recent server throws", async () => {
+    addRecentJobMock.mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    const { result } = await setup({ SavedPlaceId: "42" });
+
+    await act(async () => {
+      await result.current.joinServer(1, { jobId: "job-xyz" });
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.actionStatus?.tone).not.toBe("error");
+    expect([...result.current.joiningAccounts]).toEqual([1]);
+  });
+
   it("tracks joining state and progress, then clears it after 7s", async () => {
     const { result } = await setup({ SavedPlaceId: "42" });
     vi.useFakeTimers();
@@ -1012,6 +1036,26 @@ describe("launchMultiple", () => {
       await result.current.launchMultiple([3, 1], { jobId: "vip:abc123" });
     });
     expect(addRecentJobMock).toHaveBeenCalledWith("vip:abc123", 99, 6, [3, 1]);
+  });
+
+  /**
+   * Mesmo caso do launch único, e aqui é pior: o `catch` do `launchMultiple`
+   * **relança**, então uma gravação recusada pelo `localStorage` interromperia
+   * o que a Choose Game faz depois de um lote que já subiu os clientes.
+   */
+  it("does not fail or rethrow when recording the recent server throws", async () => {
+    addRecentJobMock.mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    const { result } = await setup({ SavedPlaceId: "99" });
+
+    await act(async () => {
+      await expect(
+        result.current.launchMultiple([3, 1], { jobId: "job-xyz" })
+      ).resolves.toBeUndefined();
+    });
+
+    expect(result.current.error).toBeNull();
   });
 
   it("refuses multi-launch on an unsupported Linux runner and reports the reason", async () => {

@@ -77,7 +77,17 @@ export function ImportDialog({
         cookie: parsed.cookie,
       });
       if (existingIds.has(info.user_id)) {
-        return { text: t("{{name}} - already exists", { name: info.name }), ok: false };
+        // A conta já existe, então `add_account` nem é chamado — e com ele fica
+        // de fora a senha que a linha trazia. Dizer só "already exists" deixa
+        // pensar que a senha foi guardada.
+        return {
+          text: parsed.password
+            ? t("{{name}} - already exists; the password in this line was not stored", {
+                name: info.name,
+              })
+            : t("{{name}} - already exists", { name: info.name }),
+          ok: false,
+        };
       }
       await invoke("add_account", {
         securityToken: parsed.cookie,

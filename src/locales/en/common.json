@@ -1686,5 +1686,6 @@
   "How many servers (Job IDs) the Recent list keeps before the oldest one drops off.": "How many servers (Job IDs) the Recent list keeps before the oldest one drops off.",
   "Max Recent Servers": "Max Recent Servers",
   "No recent servers": "No recent servers",
-  "Mains": "Mains"
+  "Mains": "Mains",
+  "{{name}} - already exists; the password in this line was not stored": "{{name}} - already exists; the password in this line was not stored"
 }

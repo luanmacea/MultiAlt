@@ -111,6 +111,26 @@ describe("ImportDialog — importing cookies", () => {
     expect(invokeMock).toHaveBeenCalledWith("validate_cookie", { cookie: COOKIE });
   });
 
+  /**
+   * Conta que já existe não passa pelo `add_account`, então a senha da linha
+   * **não** é gravada. "already exists" sozinho deixava pensar que foi.
+   */
+  it("says the password was not stored when the account already exists", async () => {
+    setInvokeMap({ validate_cookie: { user_id: 5, name: "alt_one" } });
+    setStore({ accounts: [{ UserID: 5, Username: "alt_one" } as never] });
+    render(<ImportDialog open onClose={vi.fn()} defaultTab="cookie" />);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: `alt_one:hunter2:${COOKIE}` },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/password in this line was not stored/i)).toBeInTheDocument()
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith("add_account", expect.anything());
+  });
+
   it("skips a line that has only username:password, instead of importing half a credential", async () => {
     // O nome gravado é o que `validate_cookie` devolve, não o da linha.
     setInvokeMap({ validate_cookie: { user_id: 9, name: "name_from_roblox" } });
