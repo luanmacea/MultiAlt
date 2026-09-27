@@ -27,6 +27,7 @@ import {
   parseGroupName,
   parseGroupOrder,
   serializeGroupOrder,
+  VAULT_KEY_WARNING_EVENT,
 } from "./types";
 
 /**
@@ -1048,12 +1049,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * Chamado no boot (o efeito de inicialização não passa por `loadAccounts`, e o
    * boot é justamente quando o backend descobre o problema) e depois de cada
    * recarga de contas.
+   *
+   * Uma resposta que chega depois de um evento do aviso (ver abaixo) é **mais
+   * velha** que ele — a pergunta saiu antes — e é descartada. Sem isso, a
+   * leitura de um `loadAccounts` que cruzasse com a gravação de fundo apagava a
+   * faixa que o evento acabara de pôr, e ela só voltaria na mudança seguinte.
    */
+  const vaultKeyWarningEvents = useRef(0);
   const refreshVaultKeyWarning = useCallback(async () => {
+    const eventsBefore = vaultKeyWarningEvents.current;
     try {
       const warning = await invoke<VaultKeyWarning | null>("vault_key_warning");
+      if (vaultKeyWarningEvents.current !== eventsBefore) return;
       setVaultKeyWarning(warning ?? null);
     } catch {}
+  }, []);
+
+  /**
+   * O aviso também nasce em gravação **de fundo** — Auto Rejoin a cada ciclo,
+   * Watcher, servidor HTTP —, e nenhuma delas passa pelas leituras acima. Com o
+   * Auto Rejoin a noite inteira, o `.key` que ficava ruim de madrugada virava
+   * aviso só no backend, o dono fechava o app sem ver faixa nenhuma e o boot
+   * seguinte caía em lockout. O backend publica cada mudança (inclusive a que
+   * resolve) neste evento; `null` limpa.
+   *
+   * Fica ligado sempre, inclusive nas telas de senha e de criptografia: são as
+   * telas do momento de pânico, e a faixa é desenhada nelas também.
+   */
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    listen<VaultKeyWarning | null>(VAULT_KEY_WARNING_EVENT, (e) => {
+      vaultKeyWarningEvents.current += 1;
+      setVaultKeyWarning(e.payload ?? null);
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   async function loadAccounts() {
