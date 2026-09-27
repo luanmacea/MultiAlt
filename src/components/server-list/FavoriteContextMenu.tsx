@@ -9,7 +9,8 @@ import { useTr } from "../../i18n/text";
  * agem **sobre aquele jogo** — sem isso, usar o Auto Rejoin no jogo favorito exigia
  * copiar o Place ID e abrir a tela do Auto Rejoin à mão.
  *
- * Ação sem callback não aparece (o Server List não tem para onde abri-las).
+ * Ação sem callback não aparece (item morto é pior que item ausente); a Choose
+ * Game e o Server List passam as três.
  */
 export function FavoriteContextMenu({
   x,

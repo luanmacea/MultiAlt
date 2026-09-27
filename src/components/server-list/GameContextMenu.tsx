@@ -50,8 +50,9 @@ function MenuItem({
  * podiam ser usadas abrindo a tela delas e colando o Place ID à mão. Aqui a
  * ação já sabe de que jogo se trata.
  *
- * Ação sem callback **não aparece**: o diálogo antigo (Server List) não tem
- * para onde abrir o Auto Rejoin, e item morto é pior que item ausente.
+ * Ação sem callback **não aparece** — item morto é pior que item ausente. As
+ * duas telas donas (Choose Game e Server List) passam todas: o Server List já
+ * foi a metade sem Auto Rejoin/Scripts/Browse servers, e isso confundia.
  */
 export function GameContextMenu({
   x,
