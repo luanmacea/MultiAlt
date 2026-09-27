@@ -140,6 +140,23 @@ Checklist:
 - [ ] A conta usa `RobloxVersion`/`DefaultVersion` do catálogo? Então é old join com o exe da pasta RAM: o canal **não** é fixado e a build é a do catálogo (se estiver velha, o próprio cliente pode pedir update).
 - [ ] O `ClientAppSettings.json` com os flags está na pasta da build production (`cmd_get_roblox_path`)? Se não, o cache de versão pode não ter sido preenchido (falha de rede no primeiro launch).
 
+## Teto de tempo das chamadas HTTP do launch
+
+Toda chamada HTTP do launch tem teto. Antes não tinha nenhum: `reqwest::Client::new()` espera indefinidamente, então o pior caso da espera do launch era o da pilha de rede, não do app. Isso importa por causa da **reserva de sequência** (um launch por vez, ver [multi-launch.md](multi-launch.md#uma-sequência-de-launch-por-vez)): uma conta em voo presa num endpoint mudo segura a fila e faz o app recusar todo launch novo por tempo indeterminado.
+
+Os valores ficam em [api/http_client.rs](../../src-tauri/src/api/http_client.rs):
+
+| Teto | Valor | Onde vale | Por quê |
+|---|---|---|---|
+| `CONNECT_TIMEOUT` | 10 s | todos os clientes | Fecha a **conexão pendurada** (handshake que nunca completa) com bound próprio. `timeout` sozinho também cobriria o handshake, mas só no fim do teto total — no cliente de download isso seria 3 minutos parado num socket que nunca falou TLS. Handshake frio fecha em bem menos de 1 s; 10 s é ~20x isso. |
+| `REQUEST_TIMEOUT` | 30 s | chamadas de API (auth ticket, private join/VIP, listagem de servidores, e o resto de `api/`) | Requisição inteira: conexão + resposta + corpo. As chamadas do launch são JSON pequeno que responde em centenas de ms; 30 s é ~30x isso, com folga para endpoint degradado que ainda responde. Curto demais transformaria launch que funcionava em launch que falha. |
+| `DOWNLOAD_REQUEST_TIMEOUT` | 180 s | download silencioso de build ([versions.rs](../../src-tauri/src/platform/windows/versions.rs)) | Teto **próprio e maior**: um zip de build passa de 100 MB e o teto de uma chamada de API cortaria um download que ia bem. É o valor que esse ponto já praticava; o que ele ganhou foi o `CONNECT_TIMEOUT`. |
+| `CHANNEL_LOOKUP_TIMEOUT` | 6 s | consulta "qual build este canal exige" ([launch.rs](../../src-tauri/src/platform/windows/launch.rs)) | **Abaixo** do teto de API de propósito: essa consulta tem fallback (cache vencido, ou o canal de produção), então esperar mais só atrasaria o launch sem mudar o resultado. Valor que o ponto já praticava. |
+
+Mensagem de erro: `http_client::describe_error` transforma timeout em frase ("Roblox took too long to answer…" / "Could not reach Roblox: the connection timed out…"). Sem isso o usuário lia o `Display` cru do `reqwest` — `error sending request for url (…)` —, que não diz o que aconteceu, porque o "operation timed out" fica escondido na cadeia de `source`. Os outros erros de transporte continuam com o `Request failed: …` de antes.
+
+**Pior caso da espera do launch** (todas as chamadas estourando o teto, VIP + shuffle ligados): consulta de canal 2 × 6 s, auth ticket com refresh de sessão 5 × 30 s, resolução de private join até 4 × 30 s, shuffle 1 × 30 s ≈ **5 min**, mais o download de build quando a build de produção falta (180 s por zip, em paralelo). Continua muito, mas é **finito** — antes era indeterminado. O multiplicador é o número de requisições em série (e os 3 attempts de `send_with_retry`), não o valor do teto; encurtar o teto não resolveria isso sozinho.
+
 ## Regras de negócio
 
 - **Escolha de `use_old_join`:** `false` se `Isolation.Mode = Full` **e** a versão resolvida não é do catálogo (o Full vai apagar a instalação do sistema); caso contrário `Developer.UseOldJoin || version_id.is_some()`. Ou seja: qualquer versão gerenciada pelo catálogo (override da conta, `DefaultVersion` ou a mais recente do catálogo) sempre usa old join.
@@ -206,6 +223,7 @@ Aplicado em: launch de uma conta, fila de várias contas (dentro do laço, por c
 ## Armadilhas / cuidados
 
 - O fix de canal vale para o protocolo e para o old join **sem** versão do catálogo. Old join **com** versão do catálogo usa a pasta da versão instalada pelo app e não fixa o canal — se essa build estiver desatualizada, o próprio cliente pode pedir update.
+- Cliente HTTP novo no caminho de launch sai de `api::http_client::builder()` — `reqwest::Client::new()` não tem teto nenhum e volta a deixar a reserva de sequência presa (ver a seção do teto acima).
 - `launch_url`, `default_player_dir`, `launch_old_join` e `refresh_production_version` são `async` (fazem HTTP). Não chame a partir de contexto síncrono; todos os call sites atuais (`launch_roblox`, `launch_multiple`, botting, web server) já usam `.await`.
 - `get_roblox_path()` é síncrono e só usa a build production se o cache já tiver sido preenchido (por `refresh_production_version`, `launch_url` ou `default_player_dir`). Por isso todos os caminhos de launch (incluindo o web server) chamam `refresh_production_version().await` antes de `patch_client_settings_for_launch`.
 - O web server (`/LaunchAccount`, `/FollowUser`) e o botting **não** passam por `resolve_roblox_install_path`, isolamento nem pela guarda de versão; quando `UseOldJoin` usam `launch_old_join` (build production via `default_player_dir`, fallback para a pasta do registro).

@@ -27,6 +27,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "launch_url_tests",
       "launch_command_tests",
+      "http_timeout_tests",
       "launch_queue_tests",
       "singleton_event_tests",
       "launch_resolve_tests",
@@ -133,6 +134,7 @@ export const SUITES: Record<string, TestSuite> = {
       "social_presence_extra_tests",
       "http_retry_tests",
       "http_client_tests",
+      "http_timeout_tests",
       "endpoint_host_tests",
       "image_cache_tests",
       "image_cache_command_tests",

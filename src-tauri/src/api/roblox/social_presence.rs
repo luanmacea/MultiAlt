@@ -1,6 +1,6 @@
 pub async fn join_group(security_token: &str, group_id: i64) -> Result<(), String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let request = client
         .post(format!("{}/v1/groups/{}/users", endpoints::host("groups"), group_id))
@@ -51,7 +51,7 @@ pub async fn get_presence_as(
     security_token: Option<&str>,
     user_ids: &[i64],
 ) -> Result<Vec<UserPresence>, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let mut request = client
         .post(format!("{}/v1/presence/users", endpoints::host("presence")))
@@ -64,7 +64,7 @@ pub async fn get_presence_as(
     let response = request
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get presence (status {})", response.status().as_u16()));

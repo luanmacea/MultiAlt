@@ -67,11 +67,11 @@ pub async fn check_signup_username(
         urlencoding::encode(birthday_iso)
     );
 
-    let response = reqwest::Client::new()
+    let response = http_client::client()
         .get(&url)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!(

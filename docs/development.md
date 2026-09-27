@@ -68,6 +68,10 @@ As URLs da API passam por [api/endpoints.rs](../src-tauri/src/api/endpoints.rs) 
 
 **Regra:** nunca escreva `https://<algo>.roblox.com` direto num arquivo de `api/`; use `endpoints::host`. Caso contrário aquele caminho deixa de ser testável.
 
+O **teto de tempo** dos clientes fica em [api/http_client.rs](../src-tauri/src/api/http_client.rs) (`builder()` para chamadas de API, `download_builder()` para o download de build). Em teste, `http_client::test_support::shorten` encurta o teto para provar que uma chamada **pendurada** é cortada sem o teste levar 30 s — é como `http_timeout_tests` cobre o pedido de auth ticket.
+
+**Regra:** cliente novo em `api/` (ou em qualquer caminho de launch) sai de `http_client::builder()`, nunca de `reqwest::Client::new()` — este último não tem teto nenhum. E erro de transporte vira texto com `http_client::describe_error`, senão o timeout chega na tela como `error sending request for url (…)`.
+
 ### O que os testes protegem (regressões já vividas)
 
 | Teste | Protege |

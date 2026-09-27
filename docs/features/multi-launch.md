@@ -134,6 +134,7 @@ Duas sequências ao mesmo tempo (dois cliques no botão, ou um launch de uma con
 
 ## Armadilhas / cuidados
 
+- O que a conta em voo pode demorar é **limitado** desde que as chamadas HTTP do launch ganharam teto (ver [launch.md](launch.md#teto-de-tempo-das-chamadas-http-do-launch)); antes um endpoint do Roblox pendurado segurava a reserva por tempo indeterminado e todo launch novo era recusado.
 - O cancelamento **interrompe** a espera de espaçamento (ela é fatiada em 250 ms e olha a fila e o flag do tracker), mas **não** interrompe a espera de PID de um cliente já spawnado nem o trabalho da conta em voo; a conta em andamento não abre cliente se o cancelamento chegar antes do spawn (checagem após auth ticket/private join). Ou seja: depois de parar a fila, o usuário espera no máximo o que falta da conta em voo — não mais o `AccountJoinDelay` inteiro.
 - `launch_multiple` não restaura posição de janela salva (só o launch único faz isso).
 - Diminuir o piso de 8 s / residual de 5 s volta a provocar captcha — o histórico de commits ("diminuindo delay", "ajuste de tempo no join") mostra que esse valor foi calibrado.
