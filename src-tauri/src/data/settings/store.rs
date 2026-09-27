@@ -53,6 +53,7 @@ impl SettingsStore {
                 Some("Tokens: <city>, <region>, <country>, <countryCode>, <ip>; other text is kept as typed"),
             ),
             ("MaxRecentGames", "8", None),
+            ("MaxRecentJobs", "12", None),
             (
                 "GroupOrder",
                 "[]",

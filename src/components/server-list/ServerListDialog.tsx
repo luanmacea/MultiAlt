@@ -32,6 +32,7 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
   const [jobIdPrefillNonce, setJobIdPrefillNonce] = useState(0);
 
   const maxRecent = parseInt(store.settings?.General?.MaxRecentGames || "8") || 8;
+  const maxRecentJobs = parseInt(store.settings?.General?.MaxRecentJobs || "12") || 12;
   const userId = store.selectedAccount?.UserID || null;
 
   useEffect(() => {
@@ -57,6 +58,21 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
     setJobIdPrefillNonce((v) => v + 1);
     setActiveTab("servers");
     recordRecentGame(placeId, userId, maxRecent, { name, iconUrl });
+  }
+
+  /**
+   * Clique num servidor recente: **preenche** o Job ID e vai para a aba
+   * Servers, não entra. Entrar é o gesto seguinte, com o aviso de conta online
+   * que `handleJoinServer` já faz.
+   */
+  function handleSelectJob(placeId: number | null, raw: string) {
+    if (placeId) {
+      setLocalPlaceId(String(placeId));
+      store.setPlaceId(String(placeId));
+    }
+    setJobIdPrefill(raw);
+    setJobIdPrefillNonce((v) => v + 1);
+    setActiveTab("servers");
   }
 
   async function handleJoinGame(placeId: number) {
@@ -163,7 +179,9 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
             <RecentTab
               onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
               maxRecent={maxRecent}
+              maxRecentJobs={maxRecentJobs}
               userId={userId}
+              onSelectJob={handleSelectJob}
             />
           )}
         </div>
