@@ -8,6 +8,7 @@ import {
 } from "../../hooks/useCopyCredentialWarning";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
+import { MAX_ALIAS_LENGTH } from "../../types";
 import { MenuItemView } from "./MenuItemView";
 import type { MenuItem } from "./MenuItemView";
 
@@ -208,7 +209,7 @@ export function ContextMenu() {
         const alias = await prompt(t("Alias:"), single?.Alias || "");
         if (alias === null) return;
         for (const a of accounts) {
-          store.updateAccount({ ...a, Alias: alias.slice(0, 30) });
+          store.updateAccount({ ...a, Alias: alias.slice(0, MAX_ALIAS_LENGTH) });
         }
         store.addToast(t("Alias updated"));
       },

@@ -1606,5 +1606,7 @@
   "Move group up": "Subir o grupo",
   "Move up": "Subir",
   "Name prefix (optional)": "Prefixo do nome (opcional)",
-  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados."
+  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados.",
+  "Show long aliases and usernames in full instead of cutting them off": "Mostra apelidos e nomes de usuário longos por inteiro em vez de cortá-los",
+  "Wrap Long Names": "Quebrar Nomes Longos"
 }

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -91,6 +91,26 @@ describe("DetailSidebar", () => {
     expect(store.updateAccount).toHaveBeenLastCalledWith(
       expect.objectContaining({ Alias: "Main!" })
     );
+  });
+
+  it("accepts an alias up to 240 characters and cuts anything past that", async () => {
+    const store = renderSidebar();
+    const aliasField = screen.getByPlaceholderText("ann");
+
+    // maxLength on the input already stops typing past 240; paste bypasses
+    // that, so handleSetAlias must enforce the same limit on its own.
+    fireEvent.change(aliasField, { target: { value: "x".repeat(260) } });
+    await userEvent.click(screen.getByRole("button", { name: "Set" }));
+    expect(store.updateAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ Alias: "x".repeat(240) })
+    );
+  });
+
+  it("masks a 240-character alias the same way as a short one", () => {
+    const longAlias = "a".repeat(240);
+    const long = makeAccount({ UserID: 4, Username: "dee", Alias: longAlias });
+    renderSidebar({ accounts: [long], hideUsernames: true, hiddenNameLetters: 3 }, [long]);
+    expect(screen.getByText("aaa********")).toBeInTheDocument();
   });
 
   it("saves the description", async () => {

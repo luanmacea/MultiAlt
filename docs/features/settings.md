@@ -56,6 +56,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
+| `WrapLongNames` | `false` | Ligado, o alias/username quebra em mais de uma linha na linha da conta em vez de truncar (o alias vai até 240 caracteres). |
 | `ShowAvatarsWhenHidden` / `HideRobuxWhenHidden` | — (false) | Comportamento com nomes ocultos. |
 | `DisableImages` | — (false) | Não carregar thumbnails de avatar. |
 | `ServerRegionFormat` | `<city>, <countryCode>` | Formato do rótulo de região: `<city>`, `<region>`, `<country>`, `<countryCode>`, `<ip>` — ver [server-choice.md](server-choice.md). |

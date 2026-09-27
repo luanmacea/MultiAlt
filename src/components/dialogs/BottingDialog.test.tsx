@@ -18,6 +18,7 @@ import {
 import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import type { BottingAccountStatus, StoreValue } from "../../store";
+import { MAX_ALIAS_LENGTH } from "../../types";
 
 const A = makeAccount({ UserID: 1, Username: "ann" });
 const B = makeAccount({ UserID: 2, Username: "bob" });
@@ -354,6 +355,48 @@ describe("BottingDialog — timing units", () => {
         "Player Grace: minutes a player account keeps its client after you remove it from Player Accounts, before it joins the cycle (1-90)."
       )
     ).toBeInTheDocument();
+  });
+});
+
+describe("BottingDialog — long alias chips", () => {
+  // Task 10 subiu o alias de 30 para MAX_ALIAS_LENGTH (240) caracteres. Os
+  // chips de "Targets" mostram `Alias || Username` sem limite de largura —
+  // sem truncar, um alias no teto estoura o layout do diálogo.
+  //
+  // O mesmo nome tambem aparece no dropdown fechado de "Player Accounts"
+  // (fica no DOM, só oculto por opacidade), entao a busca por texto precisa
+  // filtrar pelo chip de verdade (`theme-soft`) em vez do primeiro que achar.
+  const longAlias = "a".repeat(MAX_ALIAS_LENGTH);
+  const longAccount = makeAccount({ UserID: 1, Username: "ann", Alias: longAlias });
+
+  function targetsChip(): HTMLElement {
+    const matches = screen.getAllByText(longAlias);
+    const chip = matches.find((el) => el.className.includes("theme-soft"));
+    if (!chip) throw new Error("Targets chip not found among matches");
+    return chip;
+  }
+
+  it("truncates a long alias chip in the split view", () => {
+    renderDialog({}, [longAccount]);
+    const chip = targetsChip();
+    expect(chip.className).toContain("truncate");
+    expect(chip.className).toMatch(/max-w-\[\d+px\]/);
+  });
+
+  it("truncates a long alias chip in the classic view", async () => {
+    renderDialog(
+      { settings: settings(true, { BottingDualPanelDialog: "false" }) },
+      [longAccount]
+    );
+    await screen.findAllByText(longAlias);
+    const chip = targetsChip();
+    expect(chip.className).toContain("truncate");
+    expect(chip.className).toMatch(/max-w-\[\d+px\]/);
+  });
+
+  it("keeps the full name reachable via title when the chip is truncated", () => {
+    renderDialog({}, [longAccount]);
+    expect(targetsChip()).toHaveAttribute("title", longAlias);
   });
 });
 

@@ -45,6 +45,7 @@ impl SettingsStore {
             ("AsyncJoin", "false", None),
             ("DisableAgingAlert", "false", None),
             ("HideUsernames", "false", None),
+            ("WrapLongNames", "false", None),
             (
                 "ServerRegionFormat",
                 "<city>, <countryCode>",
@@ -512,6 +513,7 @@ mod settings_store_tests {
                 ("AsyncJoin", "false"),
                 ("DisableAgingAlert", "false"),
                 ("HideUsernames", "false"),
+                ("WrapLongNames", "false"),
                 ("ServerRegionFormat", "<city>, <countryCode>"),
                 ("MaxRecentGames", "8"),
                 ("GroupOrder", "[]"),

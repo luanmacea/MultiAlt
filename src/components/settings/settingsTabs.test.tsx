@@ -318,6 +318,7 @@ describe("GeneralTab", () => {
   it.each([
     ["Auto Check for Updates", "General", "CheckForUpdates"],
     ["Launch one account at a time", "General", "AsyncJoin"],
+    ["Wrap Long Names", "General", "WrapLongNames"],
     ["Disable Image Loading", "General", "DisableImages"],
     ["Multi Roblox", "General", "EnableMultiRbx"],
     ["Botting Mode", "General", "BottingEnabled"],
