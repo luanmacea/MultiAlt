@@ -43,6 +43,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/ChooseGameScreen.test.tsx",
       "src/components/session",
       "src/components/dialogs/SessionDialog.test.tsx",
+      "src/accountLaunchOverrides.test.ts",
+      "src/components/accounts/AccountLaunchOverrides.test.tsx",
     ],
   },
   "join-links": {

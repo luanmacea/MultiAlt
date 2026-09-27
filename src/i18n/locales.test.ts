@@ -41,6 +41,8 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "cookie",
   "Cookie",
   "FPS",
+  // Rotulo de campo na sidebar da conta: "Volume" e a mesma palavra em pt-BR.
+  "Volume",
   "ID: ********",
   "username:password",
   "Job",

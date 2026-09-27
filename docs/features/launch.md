@@ -177,7 +177,29 @@ Arquivo `RAMSettings.ini`.
 | Isolation | `Mode` | `Off` | Ver [isolation.md](isolation.md); `Full` altera a escolha de old join e a espera do PID |
 | Versions | `DefaultVersion` | vazio | Ver [roblox-versions.md](roblox-versions.md) |
 
-Campos por conta (`account.fields`): `RobloxVersion`, `Window_Position_X`, `Window_Position_Y`, `Window_Width`, `Window_Height`.
+Campos por conta (`account.fields`): `RobloxVersion`, `Window_Position_X`, `Window_Position_Y`, `Window_Width`, `Window_Height`, e as exceções de launch abaixo.
+
+## Exceções de launch por conta
+
+Uma conta pode abrir com FPS, volume, qualidade, modo de tela e "minimizar ao abrir" próprios, por cima do perfil global. Serve para o caso "a conta principal abre em tela cheia a 240 fps e as outras abrem no jeito limitado".
+
+Onde fica: `Account.fields` (`AccountData.json`), lido por `account_client_overrides` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs). Tela: seção **Launch Exceptions** na sidebar da conta ([AccountLaunchOverrides.tsx](../../src/components/accounts/AccountLaunchOverrides.tsx)).
+
+| Campo | Valores | Efeito |
+|---|---|---|
+| `ClientOverridesEnabled` | `true` | Interruptor. Sem ele em `true`, os outros campos são ignorados (dá para guardar uma configuração desligada). |
+| `ClientOverrideMaxFPS` | inteiro > 0 | `FramerateCap` + `DFIntTaskSchedulerTargetFps`. Ignorado quando há `CustomClientSettings` válido, igual ao global. |
+| `ClientOverrideVolume` | fração `0.0`–`1.0` | `MasterVolume`. A tela mostra a escala de 0 a 10 do jogo e grava a fração. |
+| `ClientOverrideGraphics` | `auto` ou `1`–`10` | `auto` grava `SavedQualityLevel=0` (qualidade automática) e **não** mexe no `GraphicsQualityLevel`; um número grava o nível fixo. |
+| `ClientOverrideFullscreen` | `true` / `false` | `Fullscreen`. `true` também descarta o tamanho de janela global (senão o XML gravaria `Fullscreen=false` ao lado). |
+| `ClientOverrideStartMinimized` | `true` / `false` | Substitui `StartRobloxMinimized` para esta conta (vale no launch e no Botting). |
+| `ClientOverrideWindowWidth` / `ClientOverrideWindowHeight` | inteiros > 0 | `StartScreenSize`. Só valem **em par** — largura sem altura é ignorada. |
+
+Campo vazio quer dizer "herda o global", não "zero": um FPS apagado não é FPS 0.
+
+Aplicado em: launch de uma conta, fila de várias contas (dentro do laço, por conta) e Botting. O servidor HTTP local não tem contexto de conta nesse ponto e usa só o perfil global.
+
+**Ressalva importante.** `ClientAppSettings.json` é por pasta de versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows — os dois são **globais**. "Por conta" funciona porque a fila é sequencial e o patch roda imediatamente antes de cada spawn; não é isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o Roblox reescreve o XML e o valor pode vazar para a próxima conta que abrir sem exceção própria.
 
 ## Armadilhas / cuidados
 

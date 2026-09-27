@@ -72,9 +72,119 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
 struct WindowsClientOverrides {
     max_fps: Option<u32>,
     master_volume: Option<f32>,
-    graphics_level: Option<u32>,
+    graphics: Option<GraphicsQuality>,
+    /// `Some(true)` abre em tela cheia, `Some(false)` em janela, `None` deixa
+    /// como o Roblox tiver gravado.
+    fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
     fast_flags: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// Nível de qualidade gráfica pedido ao cliente. Existe como enum porque
+/// "automático" **não é** um nível: é o Roblox decidindo sozinho, gravado num
+/// campo diferente do XML. Passar `0` como se fosse um nível fazia o valor
+/// cair no `clamp(1, 10)` e virar 1 — a pior qualidade, não a automática.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GraphicsQuality {
+    Automatic,
+    /// Nível fixo de 1 a 10 (o `clamp` é feito na escrita do XML).
+    Level(u32),
+}
+
+/// Exceções de cliente de **uma conta só**, por cima do perfil global.
+///
+/// Ficam em `Account.fields` (portanto no `AccountData.json`, junto de
+/// `RobloxVersion`), e são aplicadas no instante em que aquela conta vai abrir.
+///
+/// Ressalva que precisa ficar escrita: `ClientAppSettings.json` é por pasta de
+/// versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows —
+/// os dois são **globais**. "Por conta" funciona porque a fila de launch é
+/// sequencial e o patch roda imediatamente antes de cada spawn; não é
+/// isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o
+/// Roblox reescreve o XML e o valor vaza para a próxima conta que abrir sem
+/// exceção própria.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct AccountClientOverrides {
+    pub max_fps: Option<u32>,
+    pub master_volume: Option<f32>,
+    pub graphics: Option<GraphicsQuality>,
+    pub fullscreen: Option<bool>,
+    pub window_size: Option<(u32, u32)>,
+    pub start_minimized: Option<bool>,
+}
+
+/// Chave de `Account.fields` que liga as exceções. Sem ela em `"true"`, os
+/// outros campos são ignorados — dá para guardar uma configuração desligada.
+pub(crate) const ACCOUNT_OVERRIDES_ENABLED_FIELD: &str = "ClientOverridesEnabled";
+
+fn field_str<'a>(fields: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
+    fields
+        .get(key)
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+}
+
+fn field_bool(fields: &HashMap<String, String>, key: &str) -> Option<bool> {
+    match field_str(fields, key)?.to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn field_u32(fields: &HashMap<String, String>, key: &str) -> Option<u32> {
+    field_str(fields, key)?.parse::<u32>().ok().filter(|v| *v > 0)
+}
+
+/// Lê as exceções de uma conta. `None` quando o interruptor está desligado ou
+/// quando nenhum campo tem valor útil — assim o resto do launch continua
+/// falando "esta conta não tem exceção" em vez de aplicar um struct vazio.
+pub(crate) fn account_client_overrides(
+    fields: &HashMap<String, String>,
+) -> Option<AccountClientOverrides> {
+    if field_bool(fields, ACCOUNT_OVERRIDES_ENABLED_FIELD) != Some(true) {
+        return None;
+    }
+
+    let graphics = field_str(fields, "ClientOverrideGraphics").and_then(|raw| {
+        if raw.eq_ignore_ascii_case("auto") || raw.eq_ignore_ascii_case("automatic") {
+            Some(GraphicsQuality::Automatic)
+        } else {
+            raw.parse::<u32>()
+                .ok()
+                .filter(|lvl| (1..=10).contains(lvl))
+                .map(GraphicsQuality::Level)
+        }
+    });
+
+    let master_volume = field_str(fields, "ClientOverrideVolume")
+        .and_then(|raw| raw.parse::<f32>().ok())
+        .filter(|v| v.is_finite())
+        .map(|v| v.clamp(0.0, 1.0));
+
+    let width = field_u32(fields, "ClientOverrideWindowWidth");
+    let height = field_u32(fields, "ClientOverrideWindowHeight");
+    // Meia janela não é janela: largura sem altura é configuração incompleta,
+    // e aplicar só uma das duas deixaria o cliente num tamanho que ninguém
+    // pediu.
+    let window_size = match (width, height) {
+        (Some(w), Some(h)) => Some((w, h)),
+        _ => None,
+    };
+
+    let overrides = AccountClientOverrides {
+        max_fps: field_u32(fields, "ClientOverrideMaxFPS"),
+        master_volume,
+        graphics,
+        fullscreen: field_bool(fields, "ClientOverrideFullscreen"),
+        window_size,
+        start_minimized: field_bool(fields, "ClientOverrideStartMinimized"),
+    };
+
+    if overrides == AccountClientOverrides::default() {
+        return None;
+    }
+    Some(overrides)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -146,6 +256,7 @@ fn windows_client_overrides(
     settings: &SettingsStore,
     allow_fps_override: bool,
     profile: LaunchClientProfile,
+    account: Option<&AccountClientOverrides>,
 ) -> WindowsClientOverrides {
     let unlock_fps_key = profile_key(
         profile,
@@ -208,12 +319,12 @@ fn windows_client_overrides(
         "BottingBotClientGraphicsLevel",
     );
 
-    let graphics_level = if settings.get_bool("General", override_graphics_key) {
+    let graphics = if settings.get_bool("General", override_graphics_key) {
         let lvl = settings
             .get_int("General", graphics_level_key)
             .unwrap_or(10);
         if lvl > 0 {
-            Some(lvl.clamp(1, 10) as u32)
+            Some(GraphicsQuality::Level(lvl.clamp(1, 10) as u32))
         } else {
             None
         }
@@ -271,19 +382,53 @@ fn windows_client_overrides(
         None
     };
 
-    WindowsClientOverrides {
+    // A conta entra **por cima**: cada campo que ela define substitui o global,
+    // e o que ela deixa vazio continua vindo do perfil. O FPS respeita o
+    // `allow_fps_override` igual ao global — quando o usuário aponta um
+    // ClientAppSettings.json próprio, ninguém mexe no FPS dele, nem a exceção.
+    let mut resolved = WindowsClientOverrides {
         max_fps,
         master_volume,
-        graphics_level,
+        graphics,
+        fullscreen: None,
         window_size,
         fast_flags,
+    };
+
+    if let Some(acc) = account {
+        if allow_fps_override {
+            if let Some(fps) = acc.max_fps {
+                resolved.max_fps = Some(fps);
+            }
+        }
+        if let Some(volume) = acc.master_volume {
+            resolved.master_volume = Some(volume);
+        }
+        if let Some(graphics) = acc.graphics {
+            resolved.graphics = Some(graphics);
+        }
+        if let Some(fullscreen) = acc.fullscreen {
+            resolved.fullscreen = Some(fullscreen);
+            // Tela cheia com um tamanho de janela ao lado é contraditório: o XML
+            // grava `Fullscreen=false` junto de `StartScreenSize`. Quem pediu
+            // tela cheia e não pediu tamanho fica só com a tela cheia.
+            if fullscreen && acc.window_size.is_none() {
+                resolved.window_size = None;
+            }
+        }
+        if let Some(size) = acc.window_size {
+            resolved.window_size = Some(size);
+        }
     }
+
+    resolved
 }
 
 #[cfg(target_os = "windows")]
 pub(crate) fn patch_client_settings_for_launch(
     settings: &SettingsStore,
     profile: LaunchClientProfile,
+    account: Option<&AccountClientOverrides>,
 ) {
     use platform::windows;
 
@@ -300,14 +445,16 @@ pub(crate) fn patch_client_settings_for_launch(
         custom_applied = true;
     }
 
-    let mut overrides = windows_client_overrides(settings, !custom_applied, effective_profile);
+    let mut overrides =
+        windows_client_overrides(settings, !custom_applied, effective_profile, account);
     if custom_applied {
         overrides.fast_flags = None;
     }
     let _ = windows::apply_runtime_client_settings(
         overrides.max_fps,
         overrides.master_volume,
-        overrides.graphics_level,
+        overrides.graphics,
+        overrides.fullscreen,
         overrides.window_size,
         overrides.fast_flags.as_ref(),
     );
@@ -338,7 +485,11 @@ fn fps_unlock_target(settings: &SettingsStore, profile: LaunchClientProfile) -> 
 }
 
 #[cfg(target_os = "macos")]
-fn patch_client_settings_for_launch(settings: &SettingsStore, profile: LaunchClientProfile) {
+fn patch_client_settings_for_launch(
+    settings: &SettingsStore,
+    profile: LaunchClientProfile,
+    account: Option<&AccountClientOverrides>,
+) {
     use platform::macos;
 
     let custom_settings = custom_client_settings_path(settings, profile);
@@ -352,7 +503,12 @@ fn patch_client_settings_for_launch(settings: &SettingsStore, profile: LaunchCli
         return;
     }
 
-    if let Some(fps) = fps_unlock_target(settings, profile) {
+    // No macOS só o FPS é aplicável hoje; as outras exceções por conta dependem
+    // do `GlobalBasicSettings_13.xml`, que é do lado Windows.
+    let fps = account
+        .and_then(|a| a.max_fps)
+        .or_else(|| fps_unlock_target(settings, profile));
+    if let Some(fps) = fps {
         let _ = macos::apply_fps_unlock(fps);
     }
 }
@@ -1367,6 +1523,189 @@ mod launch_shared_helper_tests {
         ));
     }
 
+
+    // ---- exceções de cliente por conta ------------------------------------
+
+    fn campos(pares: &[(&str, &str)]) -> HashMap<String, String> {
+        pares
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn account_client_overrides_needs_the_switch_turned_on() {
+        // Os valores estão lá, mas o interruptor não: guardar uma configuração
+        // desligada tem que ser possível sem ela vazar para o launch.
+        let fields = campos(&[
+            ("ClientOverrideMaxFPS", "240"),
+            ("ClientOverrideFullscreen", "true"),
+        ]);
+        assert_eq!(account_client_overrides(&fields), None);
+
+        let fields = campos(&[
+            ("ClientOverridesEnabled", "false"),
+            ("ClientOverrideMaxFPS", "240"),
+        ]);
+        assert_eq!(account_client_overrides(&fields), None);
+    }
+
+    #[test]
+    fn account_client_overrides_reads_the_whole_exception() {
+        let fields = campos(&[
+            ("ClientOverridesEnabled", "true"),
+            ("ClientOverrideMaxFPS", "240"),
+            ("ClientOverrideVolume", "0.2"),
+            ("ClientOverrideGraphics", "auto"),
+            ("ClientOverrideFullscreen", "true"),
+            ("ClientOverrideStartMinimized", "false"),
+        ]);
+        let o = account_client_overrides(&fields).expect("conta com exceção");
+        assert_eq!(o.max_fps, Some(240));
+        assert_eq!(o.master_volume, Some(0.2));
+        assert_eq!(o.graphics, Some(GraphicsQuality::Automatic));
+        assert_eq!(o.fullscreen, Some(true));
+        assert_eq!(o.start_minimized, Some(false));
+        assert_eq!(o.window_size, None);
+    }
+
+    #[test]
+    fn account_client_overrides_ignores_an_empty_or_broken_value() {
+        let fields = campos(&[
+            ("ClientOverridesEnabled", "true"),
+            ("ClientOverrideMaxFPS", "   "),
+            ("ClientOverrideVolume", "alto"),
+            ("ClientOverrideGraphics", "11"),
+            ("ClientOverrideFullscreen", "talvez"),
+        ]);
+        assert_eq!(account_client_overrides(&fields), None);
+    }
+
+    #[test]
+    fn account_client_overrides_takes_a_fixed_graphics_level() {
+        let fields = campos(&[
+            ("ClientOverridesEnabled", "true"),
+            ("ClientOverrideGraphics", "7"),
+        ]);
+        let o = account_client_overrides(&fields).expect("nível fixo");
+        assert_eq!(o.graphics, Some(GraphicsQuality::Level(7)));
+    }
+
+    #[test]
+    fn account_client_overrides_clamps_the_volume() {
+        let fields = campos(&[
+            ("ClientOverridesEnabled", "true"),
+            ("ClientOverrideVolume", "5"),
+        ]);
+        let o = account_client_overrides(&fields).expect("volume");
+        assert_eq!(o.master_volume, Some(1.0));
+    }
+
+    #[test]
+    fn account_client_overrides_needs_both_sides_of_the_window() {
+        // Largura sem altura é configuração incompleta: aplicar só uma deixaria
+        // o cliente num tamanho que ninguém pediu.
+        let fields = campos(&[
+            ("ClientOverridesEnabled", "true"),
+            ("ClientOverrideWindowWidth", "1920"),
+        ]);
+        assert_eq!(account_client_overrides(&fields), None);
+
+        let fields = campos(&[
+            ("ClientOverridesEnabled", "true"),
+            ("ClientOverrideWindowWidth", "1920"),
+            ("ClientOverrideWindowHeight", "1080"),
+        ]);
+        let o = account_client_overrides(&fields).expect("janela");
+        assert_eq!(o.window_size, Some((1920, 1080)));
+    }
+
+    // ---- windows_client_overrides: global embaixo, conta em cima -----------
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_keeps_the_global_when_the_account_is_silent() {
+        let settings = temp_settings("acc-override-silent");
+        settings.set("General", "UnlockFPS", "true").unwrap();
+        settings.set("General", "MaxFPSValue", "60").unwrap();
+        settings
+            .set("General", "OverrideClientGraphics", "true")
+            .unwrap();
+        settings.set("General", "ClientGraphicsLevel", "1").unwrap();
+
+        let conta = AccountClientOverrides {
+            master_volume: Some(0.2),
+            ..Default::default()
+        };
+        let o = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, Some(&conta));
+        assert_eq!(o.max_fps, Some(60));
+        assert_eq!(o.graphics, Some(GraphicsQuality::Level(1)));
+        assert_eq!(o.master_volume, Some(0.2));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_lets_the_account_win() {
+        let settings = temp_settings("acc-override-wins");
+        settings.set("General", "UnlockFPS", "true").unwrap();
+        settings.set("General", "MaxFPSValue", "60").unwrap();
+        settings
+            .set("General", "OverrideClientGraphics", "true")
+            .unwrap();
+        settings.set("General", "ClientGraphicsLevel", "1").unwrap();
+        settings
+            .set("General", "OverrideClientWindowSize", "true")
+            .unwrap();
+        settings.set("General", "ClientWindowWidth", "320").unwrap();
+        settings.set("General", "ClientWindowHeight", "240").unwrap();
+
+        let conta = AccountClientOverrides {
+            max_fps: Some(240),
+            graphics: Some(GraphicsQuality::Automatic),
+            fullscreen: Some(true),
+            ..Default::default()
+        };
+        let o = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, Some(&conta));
+        assert_eq!(o.max_fps, Some(240));
+        assert_eq!(o.graphics, Some(GraphicsQuality::Automatic));
+        assert_eq!(o.fullscreen, Some(true));
+        // Tela cheia pedida sem tamanho próprio descarta a janelinha global —
+        // senão o XML gravaria Fullscreen=false junto e a tela cheia sumiria.
+        assert_eq!(o.window_size, None);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_keeps_the_account_window_size_next_to_fullscreen() {
+        let settings = temp_settings("acc-override-size");
+        let conta = AccountClientOverrides {
+            fullscreen: Some(true),
+            window_size: Some((1920, 1080)),
+            ..Default::default()
+        };
+        let o = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, Some(&conta));
+        assert_eq!(o.fullscreen, Some(true));
+        assert_eq!(o.window_size, Some((1920, 1080)));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_client_overrides_respects_a_custom_settings_file_over_the_account_fps() {
+        // allow_fps_override = false quer dizer "o usuário apontou o próprio
+        // ClientAppSettings.json". Nem o global nem a conta mexem no FPS dele.
+        let settings = temp_settings("acc-override-custom");
+        settings.set("General", "UnlockFPS", "true").unwrap();
+        settings.set("General", "MaxFPSValue", "60").unwrap();
+
+        let conta = AccountClientOverrides {
+            max_fps: Some(240),
+            ..Default::default()
+        };
+        let o =
+            windows_client_overrides(&settings, false, LaunchClientProfile::Normal, Some(&conta));
+        assert_eq!(o.max_fps, None);
+    }
+
     // ---- start_minimized_for_profile / custom_client_settings_path ---------
 
     #[test]
@@ -1424,11 +1763,11 @@ mod launch_shared_helper_tests {
     #[test]
     fn windows_client_overrides_are_all_off_by_default() {
         let settings = temp_settings("overrides-default");
-        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, None);
 
         assert_eq!(overrides.max_fps, None);
         assert_eq!(overrides.master_volume, None);
-        assert_eq!(overrides.graphics_level, None);
+        assert_eq!(overrides.graphics, None);
         assert_eq!(overrides.window_size, None);
         assert!(overrides.fast_flags.is_none());
     }
@@ -1447,10 +1786,10 @@ mod launch_shared_helper_tests {
         settings.set("General", "ClientWindowWidth", "800").unwrap();
         settings.set("General", "ClientWindowHeight", "600").unwrap();
 
-        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, None);
         assert_eq!(overrides.max_fps, Some(240));
         assert_eq!(overrides.master_volume, Some(0.25));
-        assert_eq!(overrides.graphics_level, Some(7));
+        assert_eq!(overrides.graphics, Some(GraphicsQuality::Level(7)));
         assert_eq!(overrides.window_size, Some((800, 600)));
     }
 
@@ -1462,7 +1801,7 @@ mod launch_shared_helper_tests {
         settings.set("General", "UnlockFPS", "true").unwrap();
         settings.set("General", "MaxFPSValue", "240").unwrap();
 
-        let overrides = windows_client_overrides(&settings, false, LaunchClientProfile::Normal);
+        let overrides = windows_client_overrides(&settings, false, LaunchClientProfile::Normal, None);
         assert_eq!(overrides.max_fps, None);
     }
 
@@ -1478,9 +1817,9 @@ mod launch_shared_helper_tests {
         settings.set("General", "ClientWindowWidth", "0").unwrap();
         settings.set("General", "ClientWindowHeight", "600").unwrap();
 
-        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, None);
         assert_eq!(overrides.max_fps, None);
-        assert_eq!(overrides.graphics_level, None);
+        assert_eq!(overrides.graphics, None);
         assert_eq!(overrides.window_size, None);
     }
 
@@ -1493,12 +1832,12 @@ mod launch_shared_helper_tests {
         settings.set("General", "OverrideClientGraphics", "true").unwrap();
         settings.set("General", "ClientGraphicsLevel", "99").unwrap();
 
-        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, None);
         assert_eq!(overrides.master_volume, Some(1.0));
-        assert_eq!(overrides.graphics_level, Some(10));
+        assert_eq!(overrides.graphics, Some(GraphicsQuality::Level(10)));
 
         settings.set("General", "ClientVolume", "-3").unwrap();
-        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, None);
         assert_eq!(overrides.master_volume, Some(0.0));
     }
 
@@ -1511,7 +1850,7 @@ mod launch_shared_helper_tests {
         settings.set("General", "OverrideClientVolume", "true").unwrap();
         settings.set("General", "ClientVolume", "loud").unwrap();
 
-        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, None);
         assert_eq!(overrides.max_fps, Some(120));
         assert_eq!(overrides.master_volume, Some(0.5));
     }
@@ -1525,10 +1864,10 @@ mod launch_shared_helper_tests {
         // The Normal keys must not leak into the bot profile.
         settings.set("General", "MaxFPSValue", "240").unwrap();
 
-        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::BottingBot);
+        let overrides = windows_client_overrides(&settings, true, LaunchClientProfile::BottingBot, None);
         assert_eq!(overrides.max_fps, Some(30));
 
-        let normal = windows_client_overrides(&settings, true, LaunchClientProfile::Normal);
+        let normal = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, None);
         assert_eq!(normal.max_fps, None, "Normal has UnlockFPS off");
     }
 
