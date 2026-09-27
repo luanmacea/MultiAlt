@@ -205,6 +205,21 @@ async fn launch_account_for_cycle(
         )
     };
 
+    // Exceções da conta valem no Botting também: a conta principal continua
+    // sendo a mesma conta, esteja ela numa fila de launch ou num ciclo de bot.
+    let account_overrides = {
+        let state = app.state::<AccountStore>();
+        state
+            .get_all()
+            .ok()
+            .and_then(|list| list.into_iter().find(|a| a.user_id == user_id))
+            .and_then(|a| account_client_overrides(&a.fields))
+    };
+    let start_minimized = account_overrides
+        .as_ref()
+        .and_then(|o| o.start_minimized)
+        .unwrap_or(start_minimized);
+
     let resolved_launch = resolve_launch_job(job_id, false, "");
 
     if multi_rbx {
@@ -216,7 +231,7 @@ async fn launch_account_for_cycle(
     {
         let settings = app.state::<SettingsStore>();
         windows::refresh_production_version().await;
-        patch_client_settings_for_launch(&settings, launch_profile);
+        patch_client_settings_for_launch(&settings, launch_profile, account_overrides.as_ref());
     }
 
     let tracker = windows::tracker();

@@ -498,14 +498,23 @@ async fn launch_roblox_windows(
     let configured_old_join = settings.get_bool("Developer", "UseOldJoin");
     let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
     let auto_close_multi_conflicts = settings.get_bool("General", "AutoCloseRobloxForMultiRbx");
-    let start_minimized = settings.get_bool("General", "StartRobloxMinimized");
-
     let account_snapshot_for_version = state.get_all()?;
     let account_version_override = account_snapshot_for_version
         .iter()
         .find(|a| a.user_id == user_id)
         .and_then(|a| a.fields.get("RobloxVersion").cloned())
         .filter(|v| !v.trim().is_empty());
+    // Exceções desta conta (FPS, volume, qualidade, tela cheia, minimizar).
+    // Lidas antes do `start_minimized` porque podem trocá-lo.
+    let account_overrides = account_snapshot_for_version
+        .iter()
+        .find(|a| a.user_id == user_id)
+        .and_then(|a| account_client_overrides(&a.fields));
+
+    let start_minimized = account_overrides
+        .as_ref()
+        .and_then(|o| o.start_minimized)
+        .unwrap_or_else(|| settings.get_bool("General", "StartRobloxMinimized"));
 
     let (resolved_base_path, resolved_version_id) =
         windows::resolve_roblox_install_path(account_version_override.as_deref(), &settings, &versions)?;
@@ -546,7 +555,11 @@ async fn launch_roblox_windows(
     }
 
     windows::refresh_production_version().await;
-    patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
+    patch_client_settings_for_launch(
+        &settings,
+        LaunchClientProfile::Normal,
+        account_overrides.as_ref(),
+    );
 
     let tracker = windows::tracker();
     if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -790,7 +803,16 @@ async fn launch_roblox_other(
             let _ = macos::disable_multi_roblox();
         }
 
-        patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
+        let account_overrides = state
+            .get_all()
+            .ok()
+            .and_then(|list| list.into_iter().find(|a| a.user_id == user_id))
+            .and_then(|a| account_client_overrides(&a.fields));
+        patch_client_settings_for_launch(
+            &settings,
+            LaunchClientProfile::Normal,
+            account_overrides.as_ref(),
+        );
 
         let tracker = macos::tracker();
         if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -972,6 +994,13 @@ async fn launch_multiple(
         let acct_version_override = account
             .and_then(|a| a.fields.get("RobloxVersion").cloned())
             .filter(|v| !v.trim().is_empty());
+        // Exceções desta conta. A fila é sequencial e o patch roda logo antes de
+        // cada spawn, então cada cliente abre com o que a sua conta pediu.
+        let acct_overrides = account.and_then(|a| account_client_overrides(&a.fields));
+        let acct_start_minimized = acct_overrides
+            .as_ref()
+            .and_then(|o| o.start_minimized)
+            .unwrap_or(start_minimized);
 
         let acct_target_desc = launch_target_description(false, "", &acct_job);
         emit_launch_log(
@@ -1078,7 +1107,11 @@ async fn launch_multiple(
         }
 
         windows::refresh_production_version().await;
-        patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
+        patch_client_settings_for_launch(
+            &settings,
+            LaunchClientProfile::Normal,
+            acct_overrides.as_ref(),
+        );
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;
@@ -1228,7 +1261,7 @@ async fn launch_multiple(
                 pid,
             )
             .await;
-            if start_minimized {
+            if acct_start_minimized {
                 let baseline = pids_before.clone();
                 tokio::spawn(async move {
                     minimize_new_roblox_windows(baseline, std::time::Duration::from_secs(14)).await;
@@ -1373,7 +1406,15 @@ async fn launch_multiple(
                 let _ = macos::disable_multi_roblox();
             }
 
-            patch_client_settings_for_launch(&settings, LaunchClientProfile::Normal);
+            let acct_overrides = accounts
+                .iter()
+                .find(|a| a.user_id == uid)
+                .and_then(|a| account_client_overrides(&a.fields));
+            patch_client_settings_for_launch(
+                &settings,
+                LaunchClientProfile::Normal,
+                acct_overrides.as_ref(),
+            );
 
             if auto_close_last_process && tracker.get_pid(uid).is_some() {
                 tracker.kill_for_user(uid);

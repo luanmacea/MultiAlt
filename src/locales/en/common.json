@@ -1611,5 +1611,22 @@
   "Botting ({{count}})": "Botting ({{count}})",
   "Botting Mode needs at least two accounts. Select another one, or start the cycle from the Botting dialog.": "Botting Mode needs at least two accounts. Select another one, or start the cycle from the Botting dialog.",
   "Could not tell which game these accounts are in. Open the Botting dialog and set the Place ID.": "Could not tell which game these accounts are in. Open the Botting dialog and set the Place ID.",
-  "Keeps these accounts in the cycle without closing the clients that are already open.": "Keeps these accounts in the cycle without closing the clients that are already open."
+  "Keeps these accounts in the cycle without closing the clients that are already open.": "Keeps these accounts in the cycle without closing the clients that are already open.",
+  "Fullscreen": "Fullscreen",
+  "height": "height",
+  "Launch Exceptions": "Launch Exceptions",
+  "Launch this account with its own FPS, volume, quality and screen mode. Empty fields follow the global settings.": "Launch this account with its own FPS, volume, quality and screen mode. Empty fields follow the global settings.",
+  "Minimized": "Minimized",
+  "Normal window": "Normal window",
+  "On open": "On open",
+  "Quality": "Quality",
+  "Roblox keeps these settings in files shared by every client. The app rewrites them right before each account opens, so changing settings inside the game can leak to the next account without its own exceptions.": "Roblox keeps these settings in files shared by every client. The app rewrites them right before each account opens, so changing settings inside the game can leak to the next account without its own exceptions.",
+  "Screen": "Screen",
+  "Size": "Size",
+  "Use exceptions for this account": "Use exceptions for this account",
+  "Volume": "Volume",
+  "width": "width",
+  "Window height": "Window height",
+  "Window width": "Window width",
+  "Windowed": "Windowed"
 }

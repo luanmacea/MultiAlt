@@ -514,3 +514,110 @@ export interface ServerScanUpdate {
   stoppedAtLimit: boolean;
   error: string | null;
 }
+
+/**
+ * Exceções de launch de **uma conta só**, por cima do perfil global.
+ *
+ * Ficam em `Account.Fields` (o mesmo lugar de `RobloxVersion`), e o backend as
+ * lê em `account_client_overrides` (`commands/launch_shared.rs`) no instante em
+ * que aquela conta vai abrir. Campo vazio quer dizer "herda o global" — não
+ * "zero": um FPS vazio não é FPS 0.
+ *
+ * `volume` aqui é a escala que aparece na tela, 0 a 10, igual ao controle de
+ * dentro do jogo; no `Fields` ele é gravado como fração de 0 a 1, que é o que o
+ * `GlobalBasicSettings_13.xml` guarda.
+ */
+export interface AccountLaunchOverrides {
+  enabled: boolean;
+  maxFps: string;
+  volume: string;
+  /** `""` herda, `"auto"` é a qualidade automática, `"1"`–`"10"` é nível fixo. */
+  graphics: string;
+  /** `""` herda, `"true"` tela cheia, `"false"` em janela. */
+  fullscreen: string;
+  /** `""` herda, `"true"` minimiza ao abrir, `"false"` não minimiza. */
+  startMinimized: string;
+  windowWidth: string;
+  windowHeight: string;
+}
+
+/** Chaves de `Account.Fields` usadas pelas exceções (as mesmas do Rust). */
+export const ACCOUNT_OVERRIDE_FIELDS = {
+  enabled: "ClientOverridesEnabled",
+  maxFps: "ClientOverrideMaxFPS",
+  volume: "ClientOverrideVolume",
+  graphics: "ClientOverrideGraphics",
+  fullscreen: "ClientOverrideFullscreen",
+  startMinimized: "ClientOverrideStartMinimized",
+  windowWidth: "ClientOverrideWindowWidth",
+  windowHeight: "ClientOverrideWindowHeight",
+} as const;
+
+export const EMPTY_ACCOUNT_LAUNCH_OVERRIDES: AccountLaunchOverrides = {
+  enabled: false,
+  maxFps: "",
+  volume: "",
+  graphics: "",
+  fullscreen: "",
+  startMinimized: "",
+  windowWidth: "",
+  windowHeight: "",
+};
+
+function overrideBool(raw: string | undefined): string {
+  const v = (raw ?? "").trim().toLowerCase();
+  return v === "true" || v === "false" ? v : "";
+}
+
+export function readAccountLaunchOverrides(
+  fields: Record<string, string> | undefined
+): AccountLaunchOverrides {
+  const f = fields ?? {};
+  const volumeFraction = parseFloat((f[ACCOUNT_OVERRIDE_FIELDS.volume] ?? "").trim());
+  return {
+    enabled: overrideBool(f[ACCOUNT_OVERRIDE_FIELDS.enabled]) === "true",
+    maxFps: (f[ACCOUNT_OVERRIDE_FIELDS.maxFps] ?? "").trim(),
+    // Fração → escala da tela. `1` virando `10` é o esperado: o XML guarda o
+    // volume cheio como 1.0.
+    volume: Number.isFinite(volumeFraction)
+      ? String(Math.round(volumeFraction * 100) / 10)
+      : "",
+    graphics: (f[ACCOUNT_OVERRIDE_FIELDS.graphics] ?? "").trim().toLowerCase(),
+    fullscreen: overrideBool(f[ACCOUNT_OVERRIDE_FIELDS.fullscreen]),
+    startMinimized: overrideBool(f[ACCOUNT_OVERRIDE_FIELDS.startMinimized]),
+    windowWidth: (f[ACCOUNT_OVERRIDE_FIELDS.windowWidth] ?? "").trim(),
+    windowHeight: (f[ACCOUNT_OVERRIDE_FIELDS.windowHeight] ?? "").trim(),
+  };
+}
+
+/**
+ * Devolve um `Fields` novo com as exceções gravadas. Campo vazio **apaga** a
+ * chave em vez de gravar `""`, para o arquivo de contas não juntar entulho de
+ * configuração que ninguém usa.
+ */
+export function writeAccountLaunchOverrides(
+  fields: Record<string, string> | undefined,
+  overrides: AccountLaunchOverrides
+): Record<string, string> {
+  const out = { ...(fields ?? {}) };
+
+  const set = (key: string, value: string) => {
+    if (value === "") delete out[key];
+    else out[key] = value;
+  };
+
+  set(ACCOUNT_OVERRIDE_FIELDS.enabled, overrides.enabled ? "true" : "");
+  set(ACCOUNT_OVERRIDE_FIELDS.maxFps, overrides.maxFps.trim());
+  const volume = parseFloat(overrides.volume.trim());
+  set(
+    ACCOUNT_OVERRIDE_FIELDS.volume,
+    Number.isFinite(volume) ? (Math.min(Math.max(volume, 0), 10) / 10).toFixed(3) : ""
+  );
+  set(ACCOUNT_OVERRIDE_FIELDS.graphics, overrides.graphics);
+  set(ACCOUNT_OVERRIDE_FIELDS.fullscreen, overrides.fullscreen);
+  set(ACCOUNT_OVERRIDE_FIELDS.startMinimized, overrides.startMinimized);
+  set(ACCOUNT_OVERRIDE_FIELDS.windowWidth, overrides.windowWidth.trim());
+  set(ACCOUNT_OVERRIDE_FIELDS.windowHeight, overrides.windowHeight.trim());
+
+  return out;
+}
