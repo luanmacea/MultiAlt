@@ -79,6 +79,38 @@ describe("App — blocking screens", () => {
     const store = renderApp({ needsPassword: true });
     expect(store.checkForUpdates).not.toHaveBeenCalled();
   });
+
+  // A faixa da chave do vault e a unica rede contra o lockout de quem nao tem
+  // senha, e estas duas telas sao exatamente as do momento de panico: a de senha e
+  // onde cai quem nao conseguiu abrir o vault, e a de criptografia e onde o backend
+  // manda o usuario olhar ("See the warning on screen"). Os `return` antecipados do
+  // App deixavam a faixa atras deles — ponteiro quebrado na hora que importa.
+  const keyWarning = {
+    code: "writeFailed" as const,
+    path: "C:\dados\AccountData.key",
+  };
+
+  it("shows the vault key warning on the password screen", () => {
+    renderApp({ needsPassword: true, vaultKeyWarning: keyWarning });
+    expect(screen.getByText("Restricted Access")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("C:\dados\AccountData.key");
+  });
+
+  it("shows the vault key warning on the encryption setup screen", () => {
+    renderApp({ encryptionSetupOpen: true, vaultKeyWarning: keyWarning });
+    expect(screen.getByText("Set Up Encryption")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("C:\dados\AccountData.key");
+  });
+
+  it("shows the vault key warning on the main layout", () => {
+    renderApp({ vaultKeyWarning: keyWarning });
+    expect(screen.getByRole("alert")).toHaveTextContent("C:\dados\AccountData.key");
+  });
+
+  it("draws no alert when there is nothing wrong with the key file", () => {
+    renderApp();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });
 
 describe("App — main layout", () => {

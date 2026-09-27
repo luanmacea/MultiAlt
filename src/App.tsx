@@ -81,12 +81,28 @@ function AppContent() {
     );
   }
 
+  // A faixa da chave do vault acompanha estas duas telas, e não é detalhe: elas
+  // são exatamente as telas do momento de pânico. A tela de senha é onde cai quem
+  // não conseguiu abrir o vault, e a de criptografia é onde o backend manda o
+  // usuário ("See the warning on screen") quando a chave não pôde ser criada. Sem
+  // isto, o aviso existia mas ficava atrás de um `return` antecipado — ponteiro
+  // quebrado no instante em que ele mais importa.
   if (store.needsPassword) {
-    return <PasswordScreen />;
+    return (
+      <>
+        <VaultKeyBanner />
+        <PasswordScreen />
+      </>
+    );
   }
 
   if (store.encryptionSetupOpen) {
-    return <EncryptionSetupScreen />;
+    return (
+      <>
+        <VaultKeyBanner />
+        <EncryptionSetupScreen />
+      </>
+    );
   }
 
   return (

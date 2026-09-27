@@ -1872,6 +1872,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addToast(method === "password" ? tr("Password lock enabled") : tr("Default encryption enabled"));
     } catch (e) {
       setEncryptionSetupError(String(e));
+      // **Também no erro.** O caminho que falha é justamente o que pode ter
+      // deixado um aviso novo (chave que não pôde ser criada), e antes o aviso só
+      // era lido no sucesso — então ele só apareceria no próximo boot, depois de o
+      // usuário já ter fechado o app achando que era só "deu erro, tento outra
+      // vez".
+      await refreshVaultKeyWarning();
       throw e;
     } finally {
       setApplyingEncryption(false);
@@ -1881,6 +1887,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     encryptionSetupMode,
     loadAccounts,
     refreshEncryptionState,
+    refreshVaultKeyWarning,
     settings?.General?.FirstRunWalkthroughState,
   ]);
 

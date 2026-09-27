@@ -55,6 +55,35 @@ describe("VaultKeyBanner", () => {
     expect(banner).not.toHaveTextContent(/make a backup now/i);
   });
 
+  // O aviso mais consequente dos cinco: o dono acha que está criptografado e não
+  // está, com o cookie de todas as contas legível no disco.
+  it("diz que o arquivo ficou em texto puro quando a migração falha", () => {
+    renderWithStore(<VaultKeyBanner />, {
+      vaultKeyWarning: {
+        code: "migrationFailed",
+        path: "C:\dados\AccountData.json",
+        detail: "acesso negado",
+      },
+    });
+
+    const banner = screen.getByRole("alert");
+    expect(banner).toHaveTextContent(/still plain text/i);
+    expect(banner).toHaveTextContent(/cookie of every account is readable/i);
+    // E tem que dizer o que fazer, sem sugerir que algo foi perdido.
+    expect(banner).toHaveTextContent(/Nothing was lost/i);
+    expect(banner).toHaveTextContent(/Change Encryption Method/i);
+  });
+
+  it("avisa sem alarme quando o disco não confirmou a gravação", () => {
+    renderWithStore(<VaultKeyBanner />, {
+      vaultKeyWarning: { code: "syncUnconfirmed", path: "C:\dados\AccountData.json" },
+    });
+
+    const banner = screen.getByRole("alert");
+    expect(banner).toHaveTextContent(/did not confirm the write/i);
+    expect(banner).not.toHaveTextContent(/make a backup now/i);
+  });
+
   it("explica a degradação quando a chave ficou sem a proteção do Windows", () => {
     renderWithStore(<VaultKeyBanner />, {
       vaultKeyWarning: { code: "weakWrapper", path: "C:\\dados\\AccountData.key" },

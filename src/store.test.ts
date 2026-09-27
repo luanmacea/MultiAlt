@@ -2304,5 +2304,27 @@ describe("browser helpers", () => {
       expect(result.current.initialized).toBe(true);
       expect(result.current.vaultKeyWarning).toBeNull();
     });
+
+    // O caminho que falha e justamente o que pode ter deixado um aviso novo (a
+    // chave que nao pode ser criada). Lendo so no sucesso, o aviso aparecia
+    // somente no proximo boot — depois de o dono ja ter fechado o app achando que
+    // era "deu erro, tento outra vez".
+    it("le o aviso mesmo quando trocar o metodo de criptografia falha", async () => {
+      const { result } = await renderStore();
+      const before = invokeCalls("vault_key_warning").length;
+
+      failures.set("set_encryption_password", "nao deu");
+      results.set("vault_key_warning", {
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+      });
+
+      await act(async () => {
+        await expect(result.current.applyEncryptionMethod("default")).rejects.toBeTruthy();
+      });
+
+      expect(invokeCalls("vault_key_warning").length).toBeGreaterThan(before);
+      expect(result.current.vaultKeyWarning?.code).toBe("writeFailed");
+    });
   });
 });
