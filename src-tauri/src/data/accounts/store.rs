@@ -1167,7 +1167,23 @@ impl AccountStore {
                 // texto puro. A chave é montada (e o `.key` gravado) antes de a
                 // sessão da senha ser trocada: erro aqui deixa o arquivo e a
                 // sessão exatamente como estavam.
+                let password_in_effect = self.has_user_password().unwrap_or(false);
+                let key_existed = key_path.exists();
                 let device_session = self.build_device_session().map_err(|e| {
+                    if password_in_effect {
+                        // O vault continua cifrado com a senha, e nada depende
+                        // do `.key` que não saiu: o aviso sobre ele mandaria pôr
+                        // senha em quem já tem, e o erro de `build_device_session`
+                        // diria que o arquivo ficou sem cifra.
+                        self.clear_key_warning_for(&key_path);
+                        if !key_existed {
+                            return format!(
+                                "Removing the password failed: the account key file ({})                                  could not be created, so the password is still in use.",
+                                key_path.display()
+                            );
+                        }
+                        return e;
+                    }
                     // Nova tentativa depois de uma migração ou primeiro boot que
                     // falharam (é o que a faixa manda fazer): sem sessão, o
                     // arquivo segue em texto puro, e a faixa não pode trocar isso
@@ -1175,12 +1191,29 @@ impl AccountStore {
                     self.warn_left_in_plain_text(&e);
                     e
                 })?;
-                {
-                    let mut slot = self.session.lock().map_err(|e| e.to_string())?;
-                    *slot = Some(device_session);
-                }
+                // Como no ramo da senha: a chave do aparelho só passa a valer
+                // **depois** de o vault estar gravado com ela. Trocar antes fazia
+                // a remoção valer mesmo quando a gravação falhava — a UI dizia
+                // que a senha ficou, e a próxima gravação de fundo a tirava.
+                // Ordem de lock do arquivo: accounts → session.
                 let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-                self.save_locked(&accounts)
+                let previous = self
+                    .session
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .replace(device_session);
+                if let Err(e) = self.save_locked(&accounts) {
+                    *self
+                        .session
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = previous;
+                    // O `.key` que esta tentativa criou não cifra nada.
+                    if !key_existed {
+                        crate::data::vault_key::remove_key_file(&key_path);
+                    }
+                    return Err(e);
+                }
+                Ok(())
             }
         }
     }
