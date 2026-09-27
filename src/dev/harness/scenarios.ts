@@ -129,6 +129,12 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     // Sem atualização: o diálogo de update não pode tapar a tela em teste.
     case "check_for_updates_with_channels":
       return null;
+    // Sem aviso da chave do vault: o backend devolve `null` quando está tudo em
+    // ordem. Cair no `[]` do fallback abaixo pintava a faixa vermelha de "faça
+    // backup agora" em todo cenário, porque `[]` é truthy. Os cenários
+    // `vault-key-warning-*` sobrescrevem isto quando querem a faixa.
+    case "vault_key_warning":
+      return null;
     case "get_theme":
       return null;
     default:
