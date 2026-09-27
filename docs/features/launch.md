@@ -29,7 +29,7 @@ Abrir **um** cliente Roblox (`RobloxPlayerBeta.exe`) autenticado como uma conta 
 6. Roda o isolamento pré-launch (`run_pre_launch_isolation`, ver [isolation.md](isolation.md)); se aplicou, emite `isolation-report` e, se ficaram fast flags pendentes, agenda `apply_pending_fast_flags_when_ready` (240 s).
 7. Guarda de versão: `tracker.cleanup_dead_processes()`; se algum cliente rodando (ou launch pendente) tem `version_id` diferente → erro de `version_conflict_message`, que **lista as versões abertas** (`None` aparece como `system install`). A lista não é enfeite: a guarda compara com uma versão alvo, então com duas chaves distintas no tracker — o Auto Rejoin não checa conflito, por desenho ([botting.md](botting.md)) — nenhum alvo a satisfaz, e sem a lista o usuário não tem como saber o que fechar.
 8. Multi Roblox: se `EnableMultiRbx`, `ensure_multi_roblox_enabled`; senão `disable_multi_roblox`.
-9. `refresh_production_version().await` (resolve/atualiza o cache da build production) e em seguida `patch_client_settings_for_launch(Normal)` (FPS, volume, gráficos, tamanho de janela, fast flags da allowlist ou arquivo custom). Como `get_roblox_path()` prefere a build production em cache, o `ClientAppSettings.json` é gravado na mesma pasta que será lançada.
+9. `refresh_production_version().await` (resolve/atualiza o cache da build production) e em seguida `patch_client_settings_for_launch(Normal, …, Some(&resolved_base_path))` (FPS, volume, gráficos, tamanho de janela, fast flags da allowlist ou arquivo custom). A pasta do patch vai **explícita** no parâmetro — é a da versão resolvida no passo 4, não a que `get_roblox_path()` escolheria (ver [Onde o `ClientAppSettings.json` é gravado](#onde-o-clientappsettingsjson-é-gravado)).
 10. Se `AutoCloseLastProcess` e a conta já tem PID → fecha (timeout 4500 ms); se não fechar, aborta.
 11. `resolve_launch_job` (prefixo `vip:`, link de share, `linkCode`); com `followUser` o VIP é descartado.
 12. `shuffleJob` (sem job e sem follow, ver `should_shuffle_server`): `pick_shuffled_public_job` busca servidores públicos e escolhe um índice baseado no relógio (`shuffle_server_index`, nanos % n). Falha ou lista vazia → segue com o Job ID vazio.
@@ -138,7 +138,7 @@ Checklist:
 - [ ] A build retornada pelo `clientsettingscdn` existe em `%LOCALAPPDATA%\Roblox\Versions`? Se não, o app deveria ter baixado ela (evento `roblox-build-install`); se apareceu a tela do instalador do Roblox, esse download falhou — procure "Could not install Roblox production build" no stderr do app.
 - [ ] O isolamento está em Medium/Full? Eles apagam `HKCU\Software\ROBLOX Corporation` (e Full apaga `Versions`), o que força reinstalação.
 - [ ] A conta usa `RobloxVersion`/`DefaultVersion` do catálogo? Então é old join com o exe da pasta RAM: o canal **não** é fixado e a build é a do catálogo (se estiver velha, o próprio cliente pode pedir update).
-- [ ] O `ClientAppSettings.json` com os flags está na pasta da build production (`cmd_get_roblox_path`)? Se não, o cache de versão pode não ter sido preenchido (falha de rede no primeiro launch).
+- [ ] O `ClientAppSettings.json` com os flags está na pasta **da versão que esta conta vai abrir**? Sem `RobloxVersion`/`DefaultVersion` é a pasta da build production (`cmd_get_roblox_path`) — se não estiver lá, o cache de versão pode não ter sido preenchido (falha de rede no primeiro launch). Com versão do catálogo é a pasta dessa versão; achar o arquivo na de produção nesse caso é o defeito, não a prova (ver [Onde o `ClientAppSettings.json` é gravado](#onde-o-clientappsettingsjson-é-gravado)).
 
 ## Teto de tempo das chamadas HTTP do launch
 
@@ -220,13 +220,29 @@ Aplicado em: launch de uma conta, fila de várias contas (dentro do laço, por c
 
 **Ressalva importante.** `ClientAppSettings.json` é por pasta de versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows — os dois são **globais**. "Por conta" funciona porque a fila é sequencial e o patch roda imediatamente antes de cada spawn; não é isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o Roblox reescreve o XML e o valor pode vazar para a próxima conta que abrir sem exceção própria.
 
+## Onde o `ClientAppSettings.json` é gravado
+
+**A regra: o patch vai para a pasta da versão que a conta vai abrir.** Como `ClientAppSettings.json` é por pasta de versão, escrever na pasta errada não dá erro nenhum — o cliente que abriu simplesmente não lê FPS, volume, qualidade, tela cheia nem fast flag nenhum.
+
+A pasta é um **parâmetro explícito** (`base_path: Option<&str>` em `patch_client_settings_for_launch`, [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)), não um palpite de `get_roblox_path()`:
+
+| Caminho | `base_path` | Pasta |
+|---|---|---|
+| Launch de uma conta | `Some(&resolved_base_path)` | a da versão resolvida da conta (`RobloxVersion` → `DefaultVersion` → catálogo → sistema) |
+| Fila de várias contas | `Some(&acct_base_path)` | por conta, dentro do laço |
+| Auto Rejoin | `resolve_botting_base_path` | a da versão da conta no old join; produção quando a conta vai pelo protocolo (ver [botting.md](botting.md)) |
+| Servidor HTTP local | `None` | a build padrão/produção — ele não tem conta no contexto |
+
+`None` continua significando "a build padrão", que é o comportamento antigo de todos eles. Antes de a pasta virar parâmetro, a conta com versão do catálogo tinha os flags gravados na pasta de produção e abria sem nenhum deles.
+
 ## Armadilhas / cuidados
 
 - O fix de canal vale para o protocolo e para o old join **sem** versão do catálogo. Old join **com** versão do catálogo usa a pasta da versão instalada pelo app e não fixa o canal — se essa build estiver desatualizada, o próprio cliente pode pedir update.
 - Cliente HTTP novo no caminho de launch sai de `api::http_client::builder()` — `reqwest::Client::new()` não tem teto nenhum e volta a deixar a reserva de sequência presa (ver a seção do teto acima).
 - `launch_url`, `default_player_dir`, `launch_old_join` e `refresh_production_version` são `async` (fazem HTTP). Não chame a partir de contexto síncrono; todos os call sites atuais (`launch_roblox`, `launch_multiple`, botting, web server) já usam `.await`.
 - `get_roblox_path()` é síncrono e só usa a build production se o cache já tiver sido preenchido (por `refresh_production_version`, `launch_url` ou `default_player_dir`). Por isso todos os caminhos de launch (incluindo o web server) chamam `refresh_production_version().await` antes de `patch_client_settings_for_launch`.
-- O web server (`/LaunchAccount`, `/FollowUser`) e o botting **não** passam por `resolve_roblox_install_path`, isolamento nem pela guarda de versão; quando `UseOldJoin` usam `launch_old_join` (build production via `default_player_dir`, fallback para a pasta do registro).
+- O web server (`/LaunchAccount`, `/FollowUser`) **não** passa por `resolve_roblox_install_path`, isolamento nem pela guarda de versão; quando `UseOldJoin` usa `launch_old_join` (build production via `default_player_dir`, fallback para a pasta do registro).
+- O Auto Rejoin **passa** por `resolve_roblox_install_path` (a conta abre na versão configurada dela no old join, ver [botting.md](botting.md)), mas não roda isolamento nem a guarda de versão — a guarda faria o ciclo deixar de rejoinar, que é pior que o conflito que ela evita.
 - Com isolamento ativo e algum processo Roblox já aberto, `apply_pre_launch` **não fecha** os clientes: o isolamento é pulado (`skipped`) e o launch segue normalmente. Ou seja, o isolamento só é efetivo quando nenhum Roblox está rodando (ver [isolation.md](isolation.md)).
 - Shuffle usa `SystemTime` como "aleatório"; não é uniforme de verdade. `pick_shuffled_public_job` é o mesmo helper do [launch múltiplo](multi-launch.md), onde ele roda **uma vez por conta**.
 - A detecção de PID por diff de snapshot pode pegar o PID errado se outro cliente abrir ao mesmo tempo (ex.: launches concorrentes fora do fluxo sequencial).

@@ -37,7 +37,7 @@ Quando o objetivo é só **não perder o estado** da conta (não sair do lugar d
 
 `launch_account_for_cycle` (por conta):
 1. Escolhe o perfil: `Normal` se `BottingUseSharedClientProfile` (default `true`), senão `BottingPlayer` ou `BottingBot`.
-2. Multi Roblox, `refresh_production_version().await` + patch de client settings do perfil (na pasta da build production), fecha instância anterior se `AutoCloseLastProcess`.
+2. Multi Roblox, `refresh_production_version().await` + patch de client settings do perfil **na pasta que `resolve_botting_base_path` decide** (a versão da conta já foi resolvida a esta altura — a regra está no passo 4), fecha instância anterior se `AutoCloseLastProcess`.
 3. Auth ticket com até 5 tentativas; só re-tenta em erro 429/"authentication failed", esperando 4 s, 8 s, 12 s, 16 s.
 4. Resolve a versão da conta (`RobloxVersion`, mesma precedência do launch — ver [roblox-versions.md](roblox-versions.md)) via `resolve_roblox_install_path`; qualquer versão resolvida força old join (`resolve_use_old_join`). Spawn: old join na pasta resolvida (ou `default_player_dir` — build production com canal fixado — quando não há versão resolvida) via `launch_old_join_from`; ou protocolo via `launch_url`, que **sempre** abre a build de produção (`channel:` vazio vence o registro — `CLAUDE.md`). `resolve_botting_base_path` decide a pasta do patch de client settings com a mesma regra. Espera PID 12 s (timeout = erro).
 5. `track_with_version` (a versão só é reportada no ramo old join — `botting_tracked_version` — senão o tracker mentiria para a guarda de conflito da fila de launch, já que o protocolo sempre abre produção) + `apply_windows_post_launch_profile(profile)`.
