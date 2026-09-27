@@ -176,12 +176,13 @@ A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depoi
 
 ### Backend — `run()` em [lib.rs](../src-tauri/src/lib.rs)
 
+0. **Windows:** `webview_recovery::prepare_environment()` — decide o safe mode de vídeo e monta `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` antes de o Tauri existir, porque o WebView2 lê essa variável na criação da janela ([webview-recovery.md](features/webview-recovery.md)).
 1. `crypto::init()` (inicializa sodiumoxide).
 2. Cria `AccountStore` com `AccountData.json`. Se `needs_password()` for `true` (arquivo tem header criptografado e não há hash em memória), **não carrega** as contas; caso contrário chama `load()`. Erros viram apenas `eprintln!`, mas um `load()` que falha marca `load_failed` e bloqueia qualquer `save()` posterior (o arquivo original fica intacto).
 3. Cria `SettingsStore` (aplica defaults e já regrava o INI), `ThemeStore`, `ThemePresetStore`, `ScriptStore`, `VersionsCatalogStore`, `ImageCache`.
 4. Registra plugins: `single-instance` (segunda instância só mostra/foca a janela `main`), `window-state`, `autostart` (LaunchAgent no macOS), `process`, `updater`.
 5. `.manage(...)` de todas as stores + `UpdaterRuntimeState` + `ChromiumManager`.
-6. `setup`: cria o ícone de bandeja (menu Show/Quit; clique esquerdo mostra a janela).
+6. `setup`: **Windows:** `webview_recovery::start_watchdog` (25 s para o frontend avisar que pintou, senão o app reabre em safe mode de vídeo — só em build de release); cria o ícone de bandeja (menu Show/Quit; clique esquerdo mostra a janela).
 7. Se compilado com `nexus` e `AccountControl.StartOnLaunch = true`: inicia o servidor Nexus na porta `AccountControl.NexusPort` (default 5242).
 8. Se compilado com `webserver` e `Developer.EnableWebServer = true`: inicia o servidor HTTP (`api::server::start`).
 9. Ao sair (`ExitRequested`/`Exit`): se `General.EnableMultiRbx` estiver ativo, mata todos os Roblox quando houver mais de um processo, limpa o tracker e desativa o multi-Roblox; em `Exit` também fecha a sessão de login do Chromium.
@@ -195,7 +196,8 @@ A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depoi
 5. Se não há contas e `General.EncryptionOnboardingState = pending` → abre `EncryptionSetupScreen` (modo `firstRun`).
 6. Se `FirstRunWalkthroughState = pending` e o onboarding de criptografia não está pendente → abre o walkthrough.
 7. `get_theme` → aplica tema; `initialized = true`.
-8. [App.tsx](../src/App.tsx) decide a tela: "Loading..." → `PasswordScreen` (se `needsPassword`) → `EncryptionSetupScreen` → app principal. Depois de inicializado e desbloqueado, roda uma checagem de update.
+8. [App.tsx](../src/App.tsx) decide a tela: "Loading..." → `PasswordScreen` (se `needsPassword`) → `EncryptionSetupScreen` → app principal. Depois de inicializado e desbloqueado, roda uma checagem de update. Tudo isso dentro do `AppErrorBoundary`, para erro de render não virar tela branca ([webview-recovery.md](features/webview-recovery.md)).
+9. Dois `requestAnimationFrame` depois do primeiro render, [main.tsx](../src/main.tsx) chama `frontend_painted` — é o sinal que desarma o watchdog do WebView2.
 
 ## Armadilhas / cuidados
 

@@ -239,7 +239,7 @@ export const SUITES: Record<string, TestSuite> = {
   },
   ui: {
     description: "Casca da UI: layout, menus, componentes genéricos, i18n, hooks",
-    rust: [],
+    rust: ["webview_recovery_tests"],
     front: [
       "src/components/layout",
       "src/components/menus",

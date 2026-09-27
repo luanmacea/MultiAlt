@@ -1629,5 +1629,8 @@
   "Window height": "Altura da janela",
   "Window width": "Largura da janela",
   "Windowed": "Em janela",
-  "A launch is already in progress": "Já existe um launch em andamento"
+  "A launch is already in progress": "Já existe um launch em andamento",
+  "Reload interface": "Recarregar a interface",
+  "Something broke in the interface": "Algo quebrou na interface",
+  "Your accounts and settings were not touched. Reloading rebuilds the interface without closing any Roblox client.": "Suas contas e configurações não foram tocadas. Recarregar remonta a interface sem fechar nenhum cliente do Roblox."
 }
