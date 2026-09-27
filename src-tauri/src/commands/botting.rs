@@ -493,7 +493,7 @@ fn emit_botting_cycle(
     );
 
     if ok {
-        emit_launch_log(app, user_id, "success", "botting", "Entrou no jogo pelo ciclo do Botting");
+        emit_launch_log(app, user_id, "success", "rejoin", "Entrou no jogo pelo ciclo do Auto Rejoin");
         return;
     }
 
@@ -505,17 +505,17 @@ fn emit_botting_cycle(
             app,
             user_id,
             "warn",
-            "botting-retry",
+            "rejoin-retry",
             format!("Rate limit do Roblox (tentativa {tentativa}) — nova tentativa em {delay}s: {motivo}"),
         ),
         Some((delay, false, tentativa)) => emit_launch_log(
             app,
             user_id,
             "error",
-            "botting-retry",
+            "rejoin-retry",
             format!("Falha no ciclo (tentativa {tentativa}) — nova tentativa em {delay}s: {motivo}"),
         ),
-        None => emit_launch_log(app, user_id, "error", "botting", format!("Falha no ciclo: {motivo}")),
+        None => emit_launch_log(app, user_id, "error", "rejoin", format!("Falha no ciclo: {motivo}")),
     }
 }
 
@@ -541,9 +541,9 @@ async fn run_botting_session(
         emit_session_log(
             &app,
             "info",
-            "botting",
+            "rejoin",
             format!(
-                "Botting Mode iniciado — {} conta(s), place {}, ciclo de {} min, {}s entre launches",
+                "Auto Rejoin iniciado — {} conta(s), place {}, ciclo de {} min, {}s entre launches",
                 initial_user_ids.len(),
                 cfg.place_id,
                 cfg.interval_minutes,
@@ -786,7 +786,7 @@ async fn run_botting_session(
                 &app,
                 uid,
                 "info",
-                "botting",
+                "rejoin",
                 format!("Reiniciando a conta (reinicio #{numero} nesta sessao)"),
             );
 
@@ -822,7 +822,7 @@ async fn run_botting_session(
                     &app,
                     uid,
                     "warn",
-                    "botting-retry",
+                    "rejoin-retry",
                     format!(
                         "O cliente anterior nao fechou a tempo{pid_hint} — nova tentativa em {atraso}s"
                     ),
@@ -920,7 +920,7 @@ async fn run_botting_session(
         BOTTING_MANAGER.replace_session(None);
     }
     stopped_notify.notify_waiters();
-    emit_session_log(&app, "info", "botting", "Botting Mode parado");
+    emit_session_log(&app, "info", "rejoin", "Auto Rejoin parado");
     let _ = app.emit("botting-stopped", serde_json::json!({}));
     emit_botting_status(&app);
 }
@@ -944,18 +944,18 @@ async fn start_botting_mode(
     adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
     if user_ids.len() < 2 {
-        return Err("Select at least two accounts for Botting Mode".into());
+        return Err("Select at least two accounts for Auto Rejoin".into());
     }
     if place_id <= 0 {
         return Err("Place ID must be greater than 0".into());
     }
     if !settings.get_bool("General", "EnableMultiRbx") {
-        return Err("Botting Mode currently requires Multi Roblox to be enabled".into());
+        return Err("Auto Rejoin currently requires Multi Roblox to be enabled".into());
     }
 
     let dedup = dedupe_preserving_order(user_ids);
     if dedup.len() < 2 {
-        return Err("Select at least two unique accounts for Botting Mode".into());
+        return Err("Select at least two unique accounts for Auto Rejoin".into());
     }
 
     let player_set = botting_player_set(&dedup, player_user_ids)?;
@@ -1062,7 +1062,7 @@ async fn start_botting_mode(
     _player_grace_minutes: i64,
     _adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
-    Err("Botting Mode is only supported on Windows".into())
+    Err("Auto Rejoin is only supported on Windows".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -1118,7 +1118,7 @@ fn add_botting_accounts(
     user_ids: Vec<i64>,
 ) -> Result<BottingStatusPayload, String> {
     let Some(session) = BOTTING_MANAGER.get_session() else {
-        return Err("Botting Mode is not running".into());
+        return Err("Auto Rejoin is not running".into());
     };
     if user_ids.is_empty() {
         return Err("Select at least one account to add".into());
@@ -1152,7 +1152,7 @@ fn add_botting_accounts(
     }
 
     if to_add.is_empty() {
-        return Err("Selected accounts are already in Botting Mode".into());
+        return Err("Selected accounts are already in Auto Rejoin".into());
     }
 
     for uid in to_add {
@@ -1193,7 +1193,7 @@ fn add_botting_accounts(
     _state: tauri::State<'_, AccountStore>,
     _user_ids: Vec<i64>,
 ) -> Result<BottingStatusPayload, String> {
-    Err("Botting Mode is only supported on Windows".into())
+    Err("Auto Rejoin is only supported on Windows".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -1203,14 +1203,14 @@ fn set_botting_player_accounts(
     player_user_ids: Vec<i64>,
 ) -> Result<BottingStatusPayload, String> {
     let Some(session) = BOTTING_MANAGER.get_session() else {
-        return Err("Botting Mode is not running".into());
+        return Err("Auto Rejoin is not running".into());
     };
 
     let mut cfg = session.config.lock().map_err(|e| e.to_string())?;
     let mut next_set = HashSet::new();
     for uid in player_user_ids {
         if !cfg.user_ids.contains(&uid) {
-            return Err("Player Account must be one of the botting accounts".into());
+            return Err("Main Account must be one of the Auto Rejoin accounts".into());
         }
         next_set.insert(uid);
     }
@@ -1299,7 +1299,7 @@ fn botting_account_action(
     action: BottingAccountAction,
 ) -> Result<BottingStatusPayload, String> {
     let Some(session) = BOTTING_MANAGER.get_session() else {
-        return Err("Botting Mode is not running".into());
+        return Err("Auto Rejoin is not running".into());
     };
 
     let (should_disconnect, should_close, should_restart_client, should_restart_loop) =
@@ -1310,7 +1310,7 @@ fn botting_account_action(
     let (is_player_from_config, interval_ms) = {
         let cfg = session.config.lock().map_err(|e| e.to_string())?;
         if !cfg.user_ids.contains(&user_id) {
-            return Err("Account is not part of the current botting session".into());
+            return Err("Account is not part of the current Auto Rejoin session".into());
         }
         (
             cfg.player_user_ids.contains(&user_id),
@@ -1327,7 +1327,7 @@ fn botting_account_action(
     if should_disconnect {
         let accounts = session.accounts.lock().map_err(|e| e.to_string())?;
         let Some(entry) = accounts.get(&user_id) else {
-            return Err("Account runtime is missing for the current botting session".into());
+            return Err("Account runtime is missing for the current Auto Rejoin session".into());
         };
         if entry.is_player {
             return Err(
@@ -1345,7 +1345,7 @@ fn botting_account_action(
     {
         let mut accounts = session.accounts.lock().map_err(|e| e.to_string())?;
         let Some(entry) = accounts.get_mut(&user_id) else {
-            return Err("Account runtime is missing for the current botting session".into());
+            return Err("Account runtime is missing for the current Auto Rejoin session".into());
         };
         let was_disconnected = entry.disconnected;
         let is_player = is_player_from_config || entry.is_player;

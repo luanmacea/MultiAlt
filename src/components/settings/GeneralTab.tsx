@@ -394,7 +394,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
       <Toggle
         checked={s.getBool("General", "BottingEnabled")}
         onChange={(v) => s.setBool("General", "BottingEnabled", v)}
-        label={<>Botting Mode<WarningBadge>advanced</WarningBadge></>}
+        label={<>Auto Rejoin<WarningBadge>advanced</WarningBadge></>}
         description="Enable account cycling tools to keep selected alts rejoining automatically"
       />
       <Toggle

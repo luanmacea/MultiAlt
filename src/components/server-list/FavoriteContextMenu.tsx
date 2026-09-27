@@ -6,8 +6,8 @@ import { useTr } from "../../i18n/text";
 
 /**
  * Menu do favorito. Além de gerenciar o favorito em si, oferece as ações que
- * agem **sobre aquele jogo** — sem isso, usar o Botting no jogo favorito exigia
- * copiar o Place ID e abrir a tela do Botting à mão.
+ * agem **sobre aquele jogo** — sem isso, usar o Auto Rejoin no jogo favorito exigia
+ * copiar o Place ID e abrir a tela do Auto Rejoin à mão.
  *
  * Ação sem callback não aparece (o Server List não tem para onde abri-las).
  */
@@ -107,7 +107,7 @@ export function FavoriteContextMenu({
           className="flex items-center gap-2.5 w-full px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-800 text-left"
         >
           <Repeat size={12} strokeWidth={2} className="text-violet-400" />
-          {t("Botting Mode")}
+          {t("Auto Rejoin")}
         </button>
       )}
       {onScripts && (

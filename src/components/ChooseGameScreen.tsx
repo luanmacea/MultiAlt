@@ -402,7 +402,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
           {[
             { label: t("Server List"), icon: "🖥", onClick: () => store.setServerListOpen(true) },
             { label: t("Utilities"), icon: "🔧", onClick: () => store.setAccountUtilsOpen(true) },
-            { label: t("Botting Mode"), icon: "🤖", onClick: () => store.openBottingDialog() },
+            { label: t("Auto Rejoin"), icon: "🤖", onClick: () => store.openBottingDialog() },
             { label: t("Scripts"), icon: "📜", onClick: () => store.setScriptsOpen(true) },
           ].map(({ label, icon, onClick }) => (
             <button
@@ -674,7 +674,7 @@ function ConsoleTab() {
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
             <Terminal size={22} strokeWidth={1.5} />
             <p className="text-[12px]">
-              {t("Launch a game or start Botting Mode to see the activity here")}
+              {t("Launch a game or start Auto Rejoin to see the activity here")}
             </p>
           </div>
         ) : (
@@ -686,16 +686,17 @@ function ConsoleTab() {
                 <span className={`shrink-0 w-1.5 h-1.5 rounded-full mt-[6px] ${style.dot}`} />
                 {/* De onde veio a linha. O `step` sempre existiu no evento e
                     nunca era desenhado; agora que o console tem launch,
-                    Botting e Watcher juntos, ele é o que separa um do outro. */}
+                    Auto Rejoin e Watcher juntos, ele é o que separa um do outro. */}
                 {log.step ? (
                   <span
                     data-testid="log-step"
-                    // Largura fixa: sem ela, `[watcher]` e `[botting-retry]`
+                    // Largura fixa: sem ela, `[watcher]` e `[rejoin-retry]`
                     // empurram o nome da conta para colunas diferentes e a
-                    // leitura vertical do log se perde. 112px é o `[botting-retry]`
-                    // medido na tela (108px na fonte mono de 12px) com folga —
-                    // a 104px de antes ele passou a ser cortado quando a fonte
-                    // do app subiu de 11 para 12.
+                    // leitura vertical do log se perde. 112px foi medido no
+                    // nome mais longo na fonte mono de 12px — a 104px de antes
+                    // ele passou a ser cortado quando a fonte do app subiu de
+                    // 11 para 12. A origem do Auto Rejoin é `rejoin` /
+                    // `rejoin-retry` justamente para caber aqui.
                     className="shrink-0 theme-muted w-[112px] truncate"
                     title={log.step}
                   >
@@ -774,7 +775,7 @@ export function ChooseGameScreen() {
   }
 
   /**
-   * Abre o Botting Mode **com o jogo escolhido**. O place vai explícito na
+   * Abre o Auto Rejoin **com o jogo escolhido**. O place vai explícito na
    * abertura porque o rascunho salvo (`General.BottingDraftPlaceId`) vence a
    * store: sem isso, escolher o jogo aqui e ver outro place no diálogo.
    */
@@ -857,7 +858,7 @@ export function ChooseGameScreen() {
     {
       id: "console",
       label: t("Console"),
-      hint: t("Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line."),
+      hint: t("Live history of what the app did: launch, Auto Rejoin, Watcher and errors, with the origin of each line."),
     },
     {
       id: "windows",

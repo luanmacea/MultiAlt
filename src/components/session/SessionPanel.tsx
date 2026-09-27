@@ -181,7 +181,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   }
 
   /**
-   * Liga o Botting nas contas em jogo **sem fechar nada**.
+   * Liga o Auto Rejoin nas contas em jogo **sem fechar nada**.
    *
    * Sem marcação vale para todas as que estão rodando: é o gesto que o usuário
    * espera depois de lançar um lote e ver que quer manter o ciclo.
@@ -382,8 +382,8 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
               >
                 <Repeat size={13} strokeWidth={1.5} />
                 {selected.length > 0
-                  ? t("Botting ({{count}})", { count: selected.length })
-                  : t("Botting")}
+                  ? t("Auto Rejoin ({{count}})", { count: selected.length })
+                  : t("Auto Rejoin")}
               </button>
             )}
             {selected.length > 0 && (
