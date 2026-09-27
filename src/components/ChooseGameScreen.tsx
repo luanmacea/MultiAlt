@@ -386,7 +386,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
         </div>
 
         <div className="text-[12px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed">
-          ℹ️ {t("If the player is not currently in a game, you'll be asked to confirm before proceeding. The player's profile must be public.")}
+          ℹ️ {t("If the player is not in a game, nothing opens. If their server is hidden, you'll be asked before joining a public server of the same game. The player's profile must be public.")}
         </div>
       </div>
 

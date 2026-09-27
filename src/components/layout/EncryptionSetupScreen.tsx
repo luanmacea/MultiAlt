@@ -193,7 +193,7 @@ export function EncryptionSetupScreen() {
               ) : (
                 <div className="text-[12px] text-amber-300/90 pt-0.5 space-y-1.5">
                   <div>
-                    {t("Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops a copied AccountData.json and another user on this PC — but not a program running as you.")}
+                    {t("Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops an AccountData.json copied without that file and another user on this PC — but not a program running as you.")}
                   </div>
                   <div>
                     {t("It also does not protect a leaked backup: the app's backup zip has to carry the key, or the backup could never be restored. Choose a password if you keep backups in cloud storage like OneDrive or Google Drive. You can change this later in Settings.")}
