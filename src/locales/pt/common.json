@@ -1672,5 +1672,12 @@
   "Sent {{key}} to {{count}} accounts": "{{key}} enviada para {{count}} contas",
   "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480).": "Intervalo de rejoin: minutos que uma conta bot fica no servidor antes de o cliente dela ser fechado e aberto de novo (10-480).",
   "Show long aliases and usernames in full instead of cutting them off": "Mostra apelidos e nomes de usuário longos por inteiro em vez de cortá-los",
-  "Wrap Long Names": "Quebrar Nomes Longos"
+  "Wrap Long Names": "Quebrar Nomes Longos",
+  "\"Send the key now\" works because you just clicked this window, and the manager being the window you are using makes the next cycle go through.": "O \"Enviar a tecla agora\" passa porque você acabou de clicar nesta janela, e deixar o gerenciador como a janela em uso faz o próximo ciclo passar também.",
+  "{{name}}: has no Roblox client open right now.": "{{name}}: não tem cliente do Roblox aberto agora.",
+  "{{name}}: Windows did not let this account's window come to the front, so nothing was sent.": "{{name}}: o Windows não deixou a janela desta conta vir para frente, então nada foi enviado.",
+  "{{name}}: Windows refused the key.": "{{name}}: o Windows recusou a tecla.",
+  "And when Windows keeps the window in the background — which is what it usually does while this app is not the one you are using — nothing is sent at all, and the account below says so.": "E quando o Windows mantém a janela em segundo plano — o que ele costuma fazer justamente enquanto este app não é o que você está usando — nada é enviado, e a conta ali embaixo avisa.",
+  "not sent": "não enviada",
+  "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while.": "O Windows só deixa um app trocar a janela que está na frente em algumas situações, então o envio automático pode ficar um tempo sendo pulado."
 }

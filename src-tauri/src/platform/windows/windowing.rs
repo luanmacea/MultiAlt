@@ -53,6 +53,15 @@ pub fn minimize_window(hwnd: HWND) -> bool {
     unsafe { ShowWindow(hwnd, SW_MINIMIZE) != 0 }
 }
 
+/// A janela está minimizada? O AFK mode pergunta antes de trazer a janela para
+/// frente, para devolvê-la ao estado em que o usuário a deixou.
+pub fn window_is_minimized(hwnd: HWND) -> bool {
+    if hwnd.is_null() {
+        return false;
+    }
+    unsafe { IsIconic(hwnd) != 0 }
+}
+
 pub fn focus_window(hwnd: HWND) -> bool {
     unsafe {
         let _ = ShowWindow(hwnd, SW_RESTORE);

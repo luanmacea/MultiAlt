@@ -20,6 +20,18 @@ const ACCOUNTS = [
 /** A lista fechada que o backend entrega (`get_afk_keys`). */
 const KEYS = ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5"];
 
+function makeAfkAccount(overrides: Partial<AfkStatus["accounts"][number]> = {}) {
+  return {
+    userId: 11,
+    lastSendAtMs: 1_000,
+    nextSendAtMs: 601_000,
+    sends: 0,
+    lastError: null,
+    lastErrorCode: null,
+    ...overrides,
+  };
+}
+
 function makeAfkStatus(overrides: Partial<AfkStatus> = {}): AfkStatus {
   return {
     active: false,
@@ -156,9 +168,7 @@ describe("AfkDialog — sessão em andamento", () => {
     startedAtMs: 1_000,
     key: "Space",
     intervalMinutes: 10,
-    accounts: [
-      { userId: 11, lastSendAtMs: 1_000, nextSendAtMs: 601_000, sends: 2, lastError: null },
-    ],
+    accounts: [makeAfkAccount({ sends: 2 })],
   });
 
   it("mostra o botão de parar e não o de ligar", () => {
@@ -210,9 +220,7 @@ describe("AfkDialog — dá para saber que está funcionando", () => {
     active: true,
     startedAtMs: 1_000,
     key: "Space",
-    accounts: [
-      { userId: 11, lastSendAtMs: 1_000, nextSendAtMs: 601_000, sends: 0, lastError: null },
-    ],
+    accounts: [makeAfkAccount()],
   });
 
   it("formata o tempo decorrido em minutos e horas", () => {
@@ -265,6 +273,91 @@ describe("AfkDialog — dá para saber que está funcionando", () => {
       key: "BeepOnCycle",
       value: "true",
     });
+  });
+});
+
+
+/**
+ * O `SendInput` só alcança a janela em primeiro plano, e o Windows **recusa**
+ * trazer janela para frente a pedido de processo que está em segundo plano — que
+ * é o caso normal do AFK mode. Quando isso acontece o ciclo não manda nada, e a
+ * tela tem de dizer as duas coisas: que não mandou, e por quê.
+ */
+describe("AfkDialog — quando o Windows não deixa a janela vir para frente", () => {
+  const DENIED = makeAfkStatus({
+    active: true,
+    startedAtMs: 1_000,
+    key: "Space",
+    accounts: [
+      makeAfkAccount({
+        userId: 11,
+        lastError: "Windows did not bring this account's Roblox window to the front, so nothing was sent",
+        lastErrorCode: "focusDenied",
+      }),
+    ],
+  });
+
+  it("avisa, na configuração, que nada é enviado nesse caso", () => {
+    renderDialog();
+    expect(screen.getByText(/nothing is sent/i)).toBeInTheDocument();
+  });
+
+  it("diz qual conta foi pulada e por quê", () => {
+    renderDialog({ afkStatus: DENIED });
+    const aviso = screen.getByText(/did not let this account's window come to the front/i);
+    expect(aviso).toBeInTheDocument();
+    expect(aviso.textContent).toContain(ACCOUNTS[0].Username);
+  });
+
+  it("marca a linha da conta como não enviada", () => {
+    renderDialog({ afkStatus: DENIED });
+    expect(screen.getByText("not sent")).toBeInTheDocument();
+  });
+
+  it("explica que o envio manual passa porque o app acabou de receber o clique", () => {
+    renderDialog({ afkStatus: DENIED });
+    expect(screen.getByRole("button", { name: /Send the key now/i })).toBeEnabled();
+    const dica = screen.getByText(/works because you just clicked/i);
+    expect(dica.textContent).toMatch(/Send the key now/);
+  });
+
+  it("uma conta sem cliente aberto aparece com o motivo dela, não com o do foco", () => {
+    renderDialog({
+      afkStatus: makeAfkStatus({
+        active: true,
+        startedAtMs: 1_000,
+        key: "Space",
+        accounts: [
+          makeAfkAccount({
+            lastError: "No Roblox window for this account",
+            lastErrorCode: "noWindow",
+          }),
+        ],
+      }),
+    });
+    expect(screen.getByText(/has no Roblox client open/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/did not let this account's window come to the front/i)
+    ).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Envio manual é uma ação do usuário, mas continua valendo a regra de nunca
+ * mexer em cliente de conta que não está no modo: sem sessão, não há a quem
+ * enviar.
+ */
+describe("AfkDialog — envio manual exige sessão", () => {
+  it("com o modo desligado, enviar agora fica indisponível mesmo com tecla e conta escolhidas", async () => {
+    const { store } = renderDialog();
+    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByRole("button", { name: "Space" }));
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+
+    const sendNow = screen.getByRole("button", { name: /Send the key now/i });
+    expect(sendNow).toBeDisabled();
+    await userEvent.click(sendNow);
+    expect(store.afkTriggerNow).not.toHaveBeenCalled();
   });
 });
 

@@ -72,6 +72,44 @@ fn validate_afk_start(key: &str, user_ids: &[i64]) -> Result<(), String> {
     Ok(())
 }
 
+/// Por que uma conta não recebeu a tecla. O código vai para a tela, que escreve
+/// a frase traduzida — a mensagem em inglês fica para log e para caso novo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AfkSendError {
+    /// A conta não tem janela de cliente de pé.
+    NoWindow,
+    /// O Windows recusou trazer a janela para o primeiro plano. **Nada foi
+    /// enviado**: a tecla cairia na janela que o usuário está usando.
+    FocusDenied,
+    /// O `SendInput` foi recusado (ou o "solta a tecla" não passou).
+    KeyRefused,
+    /// Falha inesperada do ciclo.
+    Internal(String),
+}
+
+impl AfkSendError {
+    fn code(&self) -> &'static str {
+        match self {
+            AfkSendError::NoWindow => "noWindow",
+            AfkSendError::FocusDenied => "focusDenied",
+            AfkSendError::KeyRefused => "keyRefused",
+            AfkSendError::Internal(_) => "internal",
+        }
+    }
+
+    fn message(&self) -> String {
+        match self {
+            AfkSendError::NoWindow => "No Roblox window for this account".into(),
+            AfkSendError::FocusDenied => {
+                "Windows did not bring this account's Roblox window to the front, so nothing was sent"
+                    .into()
+            }
+            AfkSendError::KeyRefused => "Windows refused the synthetic key".into(),
+            AfkSendError::Internal(message) => message.clone(),
+        }
+    }
+}
+
 /// Estado de uma conta que **está** no AFK mode.
 #[derive(Debug, Clone)]
 struct AfkAccountRuntime {
@@ -80,7 +118,7 @@ struct AfkAccountRuntime {
     /// que sai o "está na hora desta conta?".
     last_send_at_ms: i64,
     sends: u64,
-    last_error: Option<String>,
+    last_error: Option<AfkSendError>,
 }
 
 impl AfkAccountRuntime {
@@ -146,6 +184,42 @@ fn afk_cycle_step(stopping: bool, window_alive: bool) -> AfkCycleStep {
     }
 }
 
+/// A janela do alvo chegou de fato ao primeiro plano?
+///
+/// `SendInput` entrega na janela em **primeiro plano**, e o Windows recusa
+/// `SetForegroundWindow` de processo que não está em primeiro plano nem recebeu o
+/// último evento de entrada — que é o caso normal do AFK mode, com o app em
+/// segundo plano. Sem esta conferência a tecla ia, **todo ciclo**, para a janela
+/// em que o usuário está digitando, e o ciclo se declarava bem-sucedido.
+///
+/// `foreground` e `target` são handles de janela em forma de número; `0` é
+/// "nenhuma janela", e alvo nulo nunca está pronto.
+fn afk_window_is_ready(focus_requested: bool, foreground: isize, target: isize) -> bool {
+    focus_requested && target != 0 && foreground == target
+}
+
+/// A janela volta a ser minimizada? Trazer para frente desminimiza (o
+/// `focus_window` faz `SW_RESTORE`); quem trabalha com os clientes minimizados
+/// não pediu para vê-los na tela. Só vale para janela que o ciclo mexeu, e só se
+/// o usuário a tinha minimizado.
+fn afk_should_reminimize(was_minimized: bool, focus_attempted: bool) -> bool {
+    was_minimized && focus_attempted
+}
+
+/// As contas de um envio manual: **interseção** com quem está no AFK mode, na
+/// ordem que o usuário pediu.
+///
+/// Sem isso o botão "enviar agora" puxava para frente e teclava cliente de conta
+/// que nunca entrou no modo — o único ponto que contrariava a regra de não mexer
+/// em cliente de conta fora do modo.
+fn afk_manual_targets(requested: &[i64], accounts: &HashMap<i64, AfkAccountRuntime>) -> Vec<i64> {
+    requested
+        .iter()
+        .copied()
+        .filter(|user_id| accounts.contains_key(user_id))
+        .collect()
+}
+
 /// Devolver o foco é coisa de ciclo que terminou: quem está parando não mexe em
 /// foco nenhum, e ciclo que não roubou o foco não tem o que devolver.
 fn afk_should_restore_focus(stopping: bool, focus_taken: bool) -> bool {
@@ -160,6 +234,9 @@ struct AfkAccountStatus {
     next_send_at_ms: i64,
     sends: u64,
     last_error: Option<String>,
+    /// `noWindow`, `focusDenied`, `keyRefused` ou `internal` — a tela escolhe a
+    /// frase traduzida por aqui, em vez de casar texto em inglês.
+    last_error_code: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Default)]
@@ -200,6 +277,10 @@ struct AfkConfig {
 struct AfkSession {
     id: u64,
     stop_flag: Arc<AtomicBool>,
+    /// Ligado pelo laço quando ele realmente saiu. Quem manda parar olha isto
+    /// antes de esperar: sem ele, laço que terminou **antes** de o `notified()`
+    /// ser registrado fazia o parar esperar os 2 s inteiros.
+    stopped: Arc<AtomicBool>,
     stopped_notify: Arc<tokio::sync::Notify>,
     started_at_ms: i64,
     config: Arc<Mutex<AfkConfig>>,
@@ -264,6 +345,12 @@ static AFK_MANAGER: LazyLock<AfkManager> = LazyLock::new(AfkManager::new);
 static AFK_CYCLE_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
 
+/// O mesmo "um ciclo por vez", mas do lado bloqueante: `abort` numa task de
+/// `spawn_blocking` não para a closure que já começou, então o lock assíncrono
+/// sozinho não impede dois corpos de ciclo se sobreporem.
+#[cfg(target_os = "windows")]
+static AFK_CYCLE_SEQ: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
 /// Sessão nova. Cada conta entra com o relógio marcando `started_at_ms`, e é o
 /// que faz a tela **já saber** quando é o primeiro envio (`started_at` +
 /// intervalo) antes de qualquer tecla sair: sem isso, quem liga o modo passa o
@@ -282,10 +369,42 @@ fn new_afk_session(
     AfkSession {
         id,
         stop_flag: Arc::new(AtomicBool::new(false)),
+        stopped: Arc::new(AtomicBool::new(false)),
         stopped_notify: Arc::new(tokio::sync::Notify::new()),
         started_at_ms,
         config: Arc::new(Mutex::new(config)),
         accounts: Arc::new(Mutex::new(accounts)),
+    }
+}
+
+/// O status que a tela recebe, montado a partir das partes — separado de
+/// `afk_status_from` para o teste poder montar um sem sessão viva.
+fn afk_status_from_parts(
+    started_at_ms: Option<i64>,
+    interval_minutes: u64,
+    key: &str,
+    accounts: &HashMap<i64, AfkAccountRuntime>,
+) -> AfkStatusPayload {
+    let interval_ms = (interval_minutes as i64).saturating_mul(60_000);
+    let mut rows: Vec<AfkAccountStatus> = accounts
+        .values()
+        .map(|entry| AfkAccountStatus {
+            user_id: entry.user_id,
+            last_send_at_ms: entry.last_send_at_ms,
+            next_send_at_ms: afk_next_send_at_ms(entry.last_send_at_ms, interval_ms),
+            sends: entry.sends,
+            last_error: entry.last_error.as_ref().map(|e| e.message()),
+            last_error_code: entry.last_error.as_ref().map(|e| e.code().to_string()),
+        })
+        .collect();
+    rows.sort_by_key(|a| a.user_id);
+
+    AfkStatusPayload {
+        active: started_at_ms.is_some(),
+        started_at_ms,
+        interval_minutes,
+        key: key.to_string(),
+        accounts: rows,
     }
 }
 
@@ -299,32 +418,18 @@ fn afk_status_from(session: &AfkSession) -> AfkStatusPayload {
             interval_minutes: 0,
             key: String::new(),
         });
-    let interval_ms = (config.interval_minutes as i64).saturating_mul(60_000);
-
-    let mut accounts: Vec<AfkAccountStatus> = session
+    let accounts = session
         .accounts
         .lock()
-        .map(|map| {
-            map.values()
-                .map(|entry| AfkAccountStatus {
-                    user_id: entry.user_id,
-                    last_send_at_ms: entry.last_send_at_ms,
-                    next_send_at_ms: afk_next_send_at_ms(entry.last_send_at_ms, interval_ms),
-                    sends: entry.sends,
-                    last_error: entry.last_error.clone(),
-                })
-                .collect()
-        })
+        .map(|map| map.clone())
         .unwrap_or_default();
-    accounts.sort_by_key(|a| a.user_id);
 
-    AfkStatusPayload {
-        active: true,
-        started_at_ms: Some(session.started_at_ms),
-        interval_minutes: config.interval_minutes,
-        key: config.key,
-        accounts,
-    }
+    afk_status_from_parts(
+        Some(session.started_at_ms),
+        config.interval_minutes,
+        &config.key,
+        &accounts,
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -363,11 +468,19 @@ fn run_afk_cycle_blocking(
     key: &str,
     targets: &[i64],
     stop_flag: &AtomicBool,
-) -> Result<Vec<(i64, Option<String>)>, String> {
+) -> Result<Vec<(i64, Option<AfkSendError>)>, String> {
     use platform::windows;
 
-    let (vk, scan) = windows::vk_and_scan(key)
-        .ok_or_else(|| format!("Key not allowed in AFK mode: {}", key))?;
+    // Um ciclo por vez **de verdade**: `JoinHandle::abort` não interrompe uma
+    // closure de `spawn_blocking` que já começou, então o lock assíncrono lá fora
+    // pode ser liberado com este corpo ainda rodando.
+    let _serial = AFK_CYCLE_SEQ
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    if afk_virtual_key(key).is_none() {
+        return Err(format!("Key not allowed in AFK mode: {}", key));
+    }
 
     let previous_foreground = windows::get_foreground_hwnd();
     // PID de cliente que já morreu pode ter sido reaproveitado pelo Windows por
@@ -376,7 +489,7 @@ fn run_afk_cycle_blocking(
     let tracker = windows::tracker();
 
     let mut focus_taken = false;
-    let mut outcome: Vec<(i64, Option<String>)> = Vec::new();
+    let mut outcome: Vec<(i64, Option<AfkSendError>)> = Vec::new();
 
     for &user_id in targets {
         let hwnd = tracker
@@ -388,27 +501,40 @@ fn run_afk_cycle_blocking(
         match afk_cycle_step(stop_flag.load(Ordering::Relaxed), hwnd.is_some()) {
             AfkCycleStep::Abort => break,
             AfkCycleStep::Skip => {
-                outcome.push((user_id, Some("No Roblox window for this account".into())));
+                outcome.push((user_id, Some(AfkSendError::NoWindow)));
             }
             AfkCycleStep::Send => {
                 let hwnd = match hwnd {
                     Some(hwnd) => hwnd,
                     None => continue,
                 };
-                windows::focus_window(hwnd);
+                // Quem trabalha com os clientes minimizados não pediu para
+                // vê-los: o estado é devolvido depois do envio.
+                let was_minimized = windows::window_is_minimized(hwnd);
+                let requested = windows::focus_window(hwnd);
                 focus_taken = true;
                 std::thread::sleep(std::time::Duration::from_millis(AFK_FOCUS_SETTLE_MS));
-                let down = windows::send_key(vk, scan, false);
-                std::thread::sleep(std::time::Duration::from_millis(AFK_KEY_HOLD_MS));
-                let up = windows::send_key(vk, scan, true);
-                outcome.push((
-                    user_id,
-                    if down && up {
-                        None
-                    } else {
-                        Some("Windows refused the synthetic key".into())
-                    },
-                ));
+
+                let ready = afk_window_is_ready(
+                    requested,
+                    windows::get_foreground_hwnd() as isize,
+                    hwnd as isize,
+                );
+
+                let result = if ready {
+                    windows::tap_afk_key(key, AFK_KEY_HOLD_MS)
+                        .err()
+                        .map(|_| AfkSendError::KeyRefused)
+                } else {
+                    // O Windows não deixou a janela vir para frente. Mandar a
+                    // tecla aqui a entregaria na janela do usuário.
+                    Some(AfkSendError::FocusDenied)
+                };
+
+                if afk_should_reminimize(was_minimized, true) {
+                    windows::minimize_window(hwnd);
+                }
+                outcome.push((user_id, result));
                 std::thread::sleep(std::time::Duration::from_millis(AFK_BETWEEN_WINDOWS_MS));
             }
         }
@@ -446,6 +572,10 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             let key = config.key.clone();
             let stop = session.stop_flag.clone();
             let cycle_targets = targets.clone();
+            // Marcado **antes** do ciclo: lido depois, o relógio de cada conta
+            // escorregaria a duração do ciclo a cada volta e o intervalo
+            // efetivo cresceria com o número de contas.
+            let cycle_at = now_ms();
             let result = {
                 let _guard = AFK_CYCLE_LOCK.lock().await;
                 tokio::task::spawn_blocking(move || {
@@ -460,7 +590,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             };
 
             if let Ok(mut map) = session.accounts.lock() {
-                let attempted_at = now_ms();
+                let attempted_at = cycle_at;
                 match result {
                     Ok(outcome) => {
                         // Só quem o ciclo visitou tem o relógio remarcado: uma
@@ -479,7 +609,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
                         for user_id in &targets {
                             if let Some(entry) = map.get_mut(user_id) {
                                 entry.last_send_at_ms = attempted_at;
-                                entry.last_error = Some(error.clone());
+                                entry.last_error = Some(AfkSendError::Internal(error.clone()));
                             }
                         }
                     }
@@ -502,7 +632,10 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
     if owns_session {
         AFK_MANAGER.replace_session(None);
     }
-    session.stopped_notify.notify_waiters();
+    session.stopped.store(true, Ordering::SeqCst);
+    // `notify_one` guarda a permissão: quem for esperar depois disto não fica
+    // preso até o timeout.
+    session.stopped_notify.notify_one();
     let _ = app.emit("afk-stopped", ());
     emit_afk_status(&app);
 }
@@ -516,12 +649,14 @@ async fn stop_afk_session() {
         AFK_MANAGER.abort_task();
         return;
     };
-    session.stop_flag.store(true, Ordering::Relaxed);
-    let _ = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        session.stopped_notify.notified(),
-    )
-    .await;
+    session.stop_flag.store(true, Ordering::SeqCst);
+    if !session.stopped.load(Ordering::SeqCst) {
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            session.stopped_notify.notified(),
+        )
+        .await;
+    }
     AFK_MANAGER.abort_task();
     AFK_MANAGER.replace_session(None);
 }
@@ -613,7 +748,21 @@ async fn afk_trigger_now(
     user_ids: Vec<i64>,
     key: String,
 ) -> Result<u32, String> {
-    let user_ids = dedupe_preserving_order(user_ids);
+    let requested = dedupe_preserving_order(user_ids);
+
+    // Envio manual só alcança conta que **está** no modo: fora dele, nem trazer
+    // a janela para frente é permitido.
+    let Some(session) = AFK_MANAGER.get_session() else {
+        return Err("Start AFK mode before sending the key by hand".into());
+    };
+    let user_ids = session
+        .accounts
+        .lock()
+        .map(|map| afk_manual_targets(&requested, &map))
+        .unwrap_or_default();
+    if user_ids.is_empty() {
+        return Err("None of those accounts is in AFK mode".into());
+    }
     validate_afk_start(&key, &user_ids)?;
 
     let cycle_key = key.clone();
@@ -629,21 +778,19 @@ async fn afk_trigger_now(
         .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))?
     };
 
-    if let Some(session) = AFK_MANAGER.get_session() {
-        if let Ok(mut map) = session.accounts.lock() {
-            let attempted_at = now_ms();
-            for (user_id, error) in &outcome {
-                if let Some(entry) = map.get_mut(user_id) {
-                    entry.last_send_at_ms = attempted_at;
-                    if error.is_none() {
-                        entry.sends += 1;
-                    }
-                    entry.last_error = error.clone();
+    if let Ok(mut map) = session.accounts.lock() {
+        let attempted_at = now_ms();
+        for (user_id, error) in &outcome {
+            if let Some(entry) = map.get_mut(user_id) {
+                entry.last_send_at_ms = attempted_at;
+                if error.is_none() {
+                    entry.sends += 1;
                 }
+                entry.last_error = error.clone();
             }
         }
-        emit_afk_status(&app);
     }
+    emit_afk_status(&app);
 
     let sent = outcome.iter().filter(|(_, error)| error.is_none()).count() as u32;
     if sent > 0 {
@@ -918,6 +1065,98 @@ mod afk_command_tests {
         assert!(status.key.is_empty());
     }
 
+    // ── o alvo precisa estar em primeiro plano antes de a tecla sair ────────
+
+    /// O `SendInput` entrega na janela em primeiro plano, e o Windows **recusa**
+    /// `SetForegroundWindow` de processo que está em segundo plano — que é o
+    /// caso normal do AFK mode. Sem conferir, a tecla ia para a janela em que o
+    /// usuário está digitando, e o ciclo dizia que deu tudo certo.
+    #[test]
+    fn a_window_that_did_not_reach_the_foreground_is_not_ready() {
+        // Pedido recusado pelo Windows: nada de tecla.
+        assert!(!afk_window_is_ready(false, 10, 10));
+        // Pedido aceito, mas quem está na frente é outra janela (a do usuário).
+        assert!(!afk_window_is_ready(true, 99, 10));
+        // Sem janela em primeiro plano nenhuma.
+        assert!(!afk_window_is_ready(true, 0, 10));
+    }
+
+    #[test]
+    fn a_window_in_the_foreground_is_ready_for_the_key() {
+        assert!(afk_window_is_ready(true, 10, 10));
+    }
+
+    #[test]
+    fn a_null_target_is_never_ready() {
+        // Alvo nulo casaria com "nenhuma janela em primeiro plano" e a tecla
+        // sairia para o vazio — ou para quem estivesse lá.
+        assert!(!afk_window_is_ready(true, 0, 0));
+    }
+
+    // ── janela minimizada volta a ser minimizada ────────────────────────────
+
+    #[test]
+    fn a_window_the_user_had_minimized_goes_back_to_minimized() {
+        assert!(afk_should_reminimize(true, true));
+    }
+
+    #[test]
+    fn a_window_that_was_not_minimized_is_left_alone() {
+        assert!(!afk_should_reminimize(false, true));
+        // Ciclo que não chegou a mexer na janela não minimiza nada.
+        assert!(!afk_should_reminimize(true, false));
+        assert!(!afk_should_reminimize(false, false));
+    }
+
+    // ── envio manual ───────────────────────────────────────────────────────
+
+    #[test]
+    fn a_manual_send_only_reaches_accounts_that_are_in_afk_mode() {
+        let accounts = session_with(&[(11, 0), (22, 0)]);
+        // 99 não está no modo: o envio manual não pode tocar na janela dela.
+        assert_eq!(afk_manual_targets(&[99], &accounts), Vec::<i64>::new());
+        assert_eq!(afk_manual_targets(&[22, 99, 11], &accounts), vec![22, 11]);
+        assert_eq!(afk_manual_targets(&[], &accounts), Vec::<i64>::new());
+    }
+
+    #[test]
+    fn a_manual_send_keeps_the_order_the_user_asked_for() {
+        let accounts = session_with(&[(11, 0), (22, 0), (33, 0)]);
+        assert_eq!(afk_manual_targets(&[33, 11], &accounts), vec![33, 11]);
+    }
+
+    // ── erro por conta, com código que a tela entende ───────────────────────
+
+    #[test]
+    fn every_send_error_carries_a_code_and_a_message() {
+        for error in [
+            AfkSendError::NoWindow,
+            AfkSendError::FocusDenied,
+            AfkSendError::KeyRefused,
+            AfkSendError::Internal("boom".into()),
+        ] {
+            assert!(!error.code().is_empty());
+            assert!(!error.message().is_empty());
+        }
+        assert_eq!(AfkSendError::FocusDenied.code(), "focusDenied");
+        assert_eq!(AfkSendError::NoWindow.code(), "noWindow");
+        assert_eq!(AfkSendError::KeyRefused.code(), "keyRefused");
+        assert_eq!(AfkSendError::Internal("boom".into()).message(), "boom");
+    }
+
+    #[test]
+    fn the_status_tells_the_screen_which_error_it_was() {
+        let mut runtime = AfkAccountRuntime::joined(11, 0);
+        runtime.last_error = Some(AfkSendError::FocusDenied);
+        let mut accounts = HashMap::new();
+        accounts.insert(11, runtime);
+
+        let status = afk_status_from_parts(Some(1), 10, "Space", &accounts);
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["accounts"][0]["lastErrorCode"], "focusDenied");
+        assert!(json["accounts"][0]["lastError"].is_string());
+    }
+
     /// Defeito que o upstream teve e que aqui não pode nascer: o prazo do
     /// primeiro envio só aparecia **depois** do primeiro ciclo, e quem ligava o
     /// modo passava o intervalo inteiro olhando um "--", sem saber se pegou.
@@ -970,6 +1209,7 @@ mod afk_command_tests {
                 next_send_at_ms: 2,
                 sends: 3,
                 last_error: None,
+                last_error_code: None,
             }],
         };
         let json = serde_json::to_value(&status).unwrap();
@@ -983,73 +1223,325 @@ mod afk_command_tests {
     }
 }
 
-/// O AFK mode **só envia** entrada. Ler teclado do usuário é proibido, e este
-/// módulo é a trava: varre o corpo (fora dos testes) dos dois arquivos da
-/// funcionalidade e reprova se alguma API de leitura de entrada aparecer.
-///
-/// A lista cobre as três formas de ler teclado no Windows: gancho global
-/// (`SetWindowsHookEx`), estado de tecla (`GetAsyncKeyState`, `GetKeyState`,
-/// `GetKeyboardState`) e entrada crua (`GetRawInputData`,
-/// `RegisterRawInputDevices`). `GetLastInputInfo` entra junto porque é o caminho
-/// da "detecção de interação" que esta funcionalidade recusa: ele responde pela
-/// sessão inteira do Windows, não pela janela de uma conta.
 #[cfg(test)]
 mod afk_input_safety_tests {
-    const AFK: &str = include_str!("afk.rs");
-    #[cfg(target_os = "windows")]
-    const INPUT: &str = include_str!("../platform/windows/input.rs");
+    // A trava de segurança do AFK mode: ele **só envia** entrada, e só tecla da
+    // lista fechada. Este módulo varre o código de verdade em vez de confiar em
+    // revisão:
+    //
+    // 1. caminha por `src-tauri/src` inteiro (arquivo novo entra na varredura
+    //    sozinho, e é essa a diferença em relação a listar dois caminhos à mão);
+    // 2. considera "arquivo do AFK mode" todo arquivo cujo caminho cita `afk` e
+    //    **todo arquivo que envia entrada** (cita `SendInput`) — logo um
+    //    `platform/windows/input2.rs` novo cai na rede;
+    // 3. tira os módulos de teste contando chaves, não cortando no primeiro
+    //    `#[cfg(test)]`: código de produção escrito **depois** de um módulo de
+    //    teste continua sendo varrido (`the_scan_sees_code_after_the_test_modules`);
+    // 4. reprova API de leitura de entrada (gancho global, estado de tecla,
+    //    entrada crua, tradução de tecla para caractere, nome de tecla, hook de
+    //    evento de UI, `AttachThreadInput` — o truque que alguém acrescentaria
+    //    para "consertar" o `SetForegroundWindow` recusado — e
+    //    `GetLastInputInfo`, que é a "detecção de interação" que esta
+    //    funcionalidade recusa porque responde pela sessão inteira do Windows);
+    // 5. reprova injeção fora da lista fechada: `INPUT_MOUSE`, `mouse_event` e
+    //    `KEYEVENTF_UNICODE` mandariam entrada sem citar API proibida nenhuma;
+    // 6. reprova **alcance indireto**: os arquivos do AFK mode não podem citar o
+    //    nome de módulo de nenhum arquivo do backend que leia entrada (hoje o
+    //    `webview_recovery`, que importa `GetAsyncKeyState` legitimamente);
+    // 7. confere que só o módulo de entrada chama `SendInput`/`send_key`, para o
+    //    caminho único até o `SendInput` continuar único amanhã.
+    use std::path::{Path, PathBuf};
 
     const FORBIDDEN: &[&str] = &[
+        // gancho global de teclado / de eventos de UI
         "SetWindowsHookEx",
+        "SetWinEventHook",
+        // estado de tecla
         "GetAsyncKeyState",
         "GetKeyState",
         "GetKeyboardState",
+        // entrada crua
         "GetRawInputData",
+        "GetRawInputBuffer",
         "RegisterRawInputDevices",
+        // tecla -> caractere / nome de tecla
+        "ToUnicodeEx",
+        "ToUnicode",
+        "ToAsciiEx",
+        "ToAscii",
+        "GetKeyNameText",
+        // fila de entrada de outra thread e estado da UI dela
+        "AttachThreadInput",
+        "GetGUIThreadInfo",
+        // "detecção de interação": responde pela sessão inteira, não por janela
         "GetLastInputInfo",
+        // envio fora da lista fechada
         "keybd_event",
+        "mouse_event",
+        "INPUT_MOUSE",
+        "KEYEVENTF_UNICODE",
     ];
 
-    /// Corpo do arquivo, sem os módulos de teste — que citam as APIs proibidas
-    /// justamente para proibi-las.
-    fn body(source: &str) -> &str {
-        source.split("#[cfg(test)]").next().unwrap_or(source)
+    fn backend_src() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
     }
 
-    fn assert_send_only(name: &str, source: &str) {
-        let body = body(source);
-        for api in FORBIDDEN {
-            assert!(
-                !body.contains(api),
-                "{name} usa {api}: o AFK mode só pode enviar entrada, nunca ler"
-            );
+    /// Todo `.rs` de `src-tauri/src`, com o conteúdo.
+    fn backend_files() -> Vec<(String, String)> {
+        fn walk(dir: &Path, out: &mut Vec<(String, String)>) {
+            let entries = match std::fs::read_dir(dir) {
+                Ok(entries) => entries,
+                Err(e) => panic!("não consegui ler {}: {e}", dir.display()),
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().map(|e| e == "rs").unwrap_or(false) {
+                    let text = std::fs::read_to_string(&path)
+                        .unwrap_or_else(|e| panic!("não consegui ler {}: {e}", path.display()));
+                    let relative = path
+                        .strip_prefix(backend_src())
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    out.push((relative, text));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&backend_src(), &mut out);
+        out.sort();
+        out
+    }
+
+    /// O arquivo sem os módulos `#[cfg(test)]`, casando chaves — e não cortando
+    /// no primeiro atributo, que deixaria de fora tudo que vem depois dele.
+    fn production_only(source: &str) -> String {
+        let mut out = String::new();
+        let mut rest = source;
+        while let Some(at) = rest.find("#[cfg(test)]") {
+            out.push_str(&rest[..at]);
+            let tail = &rest[at..];
+            let Some(open) = tail.find('{') else {
+                // Atributo sem bloco: nada a remover daqui para frente.
+                rest = "";
+                break;
+            };
+            let bytes = tail.as_bytes();
+            let mut depth = 0i32;
+            let mut end = tail.len();
+            for (i, byte) in bytes.iter().enumerate().skip(open) {
+                if quoted_brace(bytes, i) {
+                    // Chave entre aspas (`'{'`, `b'}'`, `"{"`) não abre nem
+                    // fecha bloco — e este próprio arquivo tem várias.
+                    continue;
+                }
+                if *byte == b'{' {
+                    depth += 1;
+                } else if *byte == b'}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i + 1;
+                        break;
+                    }
+                }
+            }
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// A chave nesta posição está entre aspas (literal de caractere ou de texto)?
+    fn quoted_brace(bytes: &[u8], at: usize) -> bool {
+        if bytes[at] != b'{' && bytes[at] != b'}' {
+            return false;
+        }
+        let before = at.checked_sub(1).map(|i| bytes[i]);
+        let after = bytes.get(at + 1).copied();
+        const QUOTE: u8 = b'\'';
+        const DQUOTE: u8 = b'"';
+        matches!(
+            (before, after),
+            (Some(QUOTE), Some(QUOTE)) | (Some(DQUOTE), Some(DQUOTE))
+        )
+    }
+
+    /// `(caminho, corpo de produção)` de todo o backend.
+    fn backend_production() -> Vec<(String, String)> {
+        backend_files()
+            .into_iter()
+            .map(|(path, text)| (path, production_only(&text)))
+            .collect()
+    }
+
+    /// Módulos (fora do AFK mode) que leem entrada de propósito — hoje a
+    /// recuperação da webview, que usa `GetAsyncKeyState` legitimamente.
+    fn input_reader_modules(files: &[(String, String)], afk_paths: &[String]) -> Vec<String> {
+        let mut out: Vec<String> = files
+            .iter()
+            .filter(|(path, _)| !afk_paths.contains(path))
+            .filter(|(_, body)| FORBIDDEN.iter().any(|api| body.contains(api)))
+            .filter_map(|(path, _)| {
+                Path::new(path)
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().to_string())
+            })
+            .filter(|stem| !matches!(stem.as_str(), "" | "mod" | "lib" | "main"))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// As formas de **chegar** a um módulo pelo nome. Menção solta num
+    /// comentário não conta; caminho de chamada conta.
+    fn module_needles(stem: &str) -> Vec<String> {
+        vec![
+            format!("::{stem}"),
+            format!("{stem}::"),
+            format!("use {stem}"),
+            format!("mod {stem}"),
+        ]
+    }
+
+    /// Arquivo do AFK mode: o caminho cita `afk`, ou o arquivo envia entrada.
+    fn is_afk_file(path: &str, body: &str) -> bool {
+        path.to_ascii_lowercase().contains("afk") || body.contains("SendInput")
+    }
+
+    /// `(caminho, corpo de produção)` de cada arquivo do AFK mode.
+    fn afk_files() -> Vec<(String, String)> {
+        backend_files()
+            .into_iter()
+            .map(|(path, text)| (path, production_only(&text)))
+            .filter(|(path, body)| is_afk_file(path, body))
+            .collect()
+    }
+
+    #[test]
+    fn no_afk_file_reads_input_or_sends_outside_the_closed_list() {
+        let files = afk_files();
+        assert!(
+            files.len() >= 2,
+            "a varredura tem de achar pelo menos commands/afk.rs e o módulo de envio, achei {:?}",
+            files.iter().map(|(p, _)| p).collect::<Vec<_>>()
+        );
+        for (path, body) in &files {
+            for api in FORBIDDEN {
+                assert!(
+                    !body.contains(api),
+                    "{path} usa {api}: o AFK mode só pode enviar tecla da lista fechada, nunca ler entrada"
+                );
+            }
         }
     }
 
     #[test]
-    fn the_afk_module_never_reads_input() {
-        assert_send_only("commands/afk.rs", AFK);
-    }
+    fn no_afk_file_reaches_a_module_that_reads_input() {
+        let afk = afk_files();
+        let paths: Vec<String> = afk.iter().map(|(path, _)| path.clone()).collect();
+        let readers = input_reader_modules(&backend_production(), &paths);
 
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn the_windows_input_module_never_reads_input() {
-        assert_send_only("platform/windows/input.rs", INPUT);
-    }
-
-    #[test]
-    fn the_scan_actually_looks_at_the_source() {
-        // Protege contra `include_str!` apontando para o lugar errado e o teste
-        // virar decoração.
-        assert!(AFK.contains("AFK_KEYS"), "não li commands/afk.rs");
-        assert!(body(AFK).len() > 1_000, "li só o cabeçalho de afk.rs");
-        #[cfg(target_os = "windows")]
-        {
-            assert!(
-                INPUT.contains("SendInput"),
-                "não li platform/windows/input.rs"
-            );
-            assert!(body(INPUT).len() > 500, "li só o cabeçalho de input.rs");
+        for (path, body) in &afk {
+            for reader in &readers {
+                for needle in module_needles(reader) {
+                    assert!(
+                        !body.contains(&needle),
+                        "{path} cita {needle} — o módulo {reader} lê entrada, e o AFK mode não pode chegar lá nem indiretamente"
+                    );
+                }
+            }
         }
+    }
+
+    /// A derivação acima só protege se ela **reconhece** um módulo leitor. Este
+    /// teste alimenta a mesma função com um caso fabricado: assim ela continua
+    /// valendo mesmo quando a árvore não tem (ainda) nenhum arquivo leitor.
+    #[test]
+    fn the_indirect_reach_check_recognizes_a_reader_module() {
+        let files = vec![
+            (
+                "webview_recovery.rs".to_string(),
+                "use windows_sys::...::GetAsyncKeyState;".to_string(),
+            ),
+            ("commands/afk.rs".to_string(), "nada demais".to_string()),
+            ("api/auth.rs".to_string(), "nada demais".to_string()),
+        ];
+        let readers = input_reader_modules(&files, &["commands/afk.rs".to_string()]);
+        assert_eq!(readers, vec!["webview_recovery".to_string()]);
+
+        let needles = module_needles("webview_recovery");
+        assert!(needles.iter().any(|n| n == "::webview_recovery"));
+        assert!(
+            needles
+                .iter()
+                .any(|n| "let _ = crate::webview_recovery::show();".contains(n)),
+            "uma chamada indireta real tem de casar com alguma agulha"
+        );
+    }
+
+    #[test]
+    fn only_the_input_module_sends_input() {
+        let senders: Vec<String> = backend_files()
+            .into_iter()
+            .map(|(path, text)| (path, production_only(&text)))
+            .filter(|(_, body)| body.contains("SendInput(") || body.contains("send_key("))
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(
+            senders,
+            vec!["platform/windows/input.rs".to_string()],
+            "o caminho até o SendInput tem de continuar sendo um só"
+        );
+    }
+
+    #[test]
+    fn the_scan_sees_code_after_the_test_modules() {
+        // `AFK_SCAN_TAIL_MARKER` mora no fim de commands/afk.rs, **depois** dos
+        // módulos de teste: corte ingênuo no primeiro `#[cfg(test)]` deixaria
+        // esse trecho de produção fora da varredura sem ninguém notar.
+        let afk = backend_files()
+            .into_iter()
+            .find(|(path, _)| path == "commands/afk.rs")
+            .map(|(_, text)| text)
+            .expect("commands/afk.rs tem de existir");
+        let body = production_only(&afk);
+
+        assert!(body.contains("fn afk_virtual_key"), "produção do começo sumiu");
+        assert!(
+            body.contains("AFK_SCAN_TAIL_MARKER"),
+            "a varredura não enxerga o código depois dos módulos de teste"
+        );
+        assert!(
+            !body.contains("mod afk_command_tests"),
+            "os módulos de teste continuam no texto varrido"
+        );
+        assert!(
+            body.len() > 1_000,
+            "li quase nada de commands/afk.rs ({} bytes)",
+            body.len()
+        );
+    }
+
+    #[test]
+    fn the_scan_really_walks_the_backend() {
+        let files = backend_files();
+        assert!(
+            files.len() > 40,
+            "a caminhada achou {} arquivos, o backend tem muito mais",
+            files.len()
+        );
+        assert!(files.iter().any(|(path, _)| path == "commands/afk.rs"));
+        assert!(files
+            .iter()
+            .any(|(path, _)| path == "platform/windows/input.rs"));
     }
 }
+
+/// Marcador de fim de arquivo. Mora **depois** dos módulos de teste de propósito:
+/// é ele que prova, em `the_scan_sees_code_after_the_test_modules`, que a
+/// varredura de segurança enxerga código de produção escrito abaixo dos testes.
+#[allow(dead_code)]
+const AFK_SCAN_TAIL_MARKER: &str = "afk-scan-tail";
