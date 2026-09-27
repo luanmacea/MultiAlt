@@ -456,7 +456,23 @@ impl AccountStore {
     /// restauração de backup — o segredo da sessão não é mais o do arquivo, e
     /// qualquer gravação (um launch já chama `mark_used`) cifraria o vault
     /// restaurado com o segredo antigo, deixando-o sem abrir no próximo boot.
+    ///
+    /// **Só volta depois de a gravação em andamento terminar.** Ligar a trava não
+    /// basta: `save_locked` confere a trava no começo e só publica o arquivo no
+    /// fim (fsync + troca atômica), e quem já passou pela checagem com ela aberta
+    /// terminava **depois** — um ciclo do Auto Rejoin no meio do `mark_used`
+    /// punha o vault de antes por cima do que a extração acabara de restaurar.
+    /// Toda gravação segura `accounts` da checagem até a troca do arquivo, então
+    /// tomar esse mutex antes de ligar a trava espera exatamente quem já estava
+    /// gravando, e quem chegar depois encontra a trava ligada. A ordem
+    /// `accounts` → `write_block` é a mesma de `save_locked`.
     pub fn lock_writes_until_restart(&self, reason: &str) {
+        // Envenenado quer dizer que quem segurava morreu: não há gravação em
+        // andamento a esperar, e a trava tem que ligar do mesmo jeito.
+        let _writers = self
+            .accounts
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Ok(mut slot) = self.write_block.lock() {
             *slot = Some(reason.to_string());
         }
