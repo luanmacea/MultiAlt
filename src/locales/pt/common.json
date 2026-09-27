@@ -492,7 +492,6 @@
   "password": "senha",
   "Password changed": "Senha alterada",
   "Password is incorrect. Enter the AccountData.json password:": "A senha está incorreta. Digite a senha do AccountData.json:",
-  "Paste one .ROBLOSECURITY cookie per line": "Cole um cookie .ROBLOSECURITY por linha",
   "PIN unlocked": "PIN desbloqueado",
   "Ping": "Ping",
   "Place": "Place",
@@ -1606,5 +1605,9 @@
   "Move group up": "Subir o grupo",
   "Move up": "Subir",
   "Name prefix (optional)": "Prefixo do nome (opcional)",
-  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados."
+  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Só letras e dígitos. Cada conta vira prefixo_ mais 5 caracteres sorteados.",
+  "A line that already carries the cookie (username:password:cookie) is imported straight away, with no browser.": "Linha que já traz o cookie (username:password:cookie) é importada na hora, sem navegador.",
+  "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, encrypted only if you set an app password.": "Uma linha username:password:cookie também guarda a senha, que é mais que a sessão: ela troca o e-mail e a senha da conta, e sair de todas as sessões não a revoga. Fica gravada no AccountData.json, encriptada só se você puser uma senha no app.",
+  "Paste one .ROBLOSECURITY cookie per line, or one username:password:cookie per line.": "Cole um cookie .ROBLOSECURITY por linha, ou um username:password:cookie por linha.",
+  "Skipped {{name}}: no cookie in this line": "{{name}} pulada: esta linha não tem cookie"
 }

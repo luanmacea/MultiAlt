@@ -75,6 +75,7 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 | Origem | Caminho |
 |---|---|
 | Cookie (Quick Add / Import Cookie / drag & drop de texto) | `validate_cookie(cookie)` → `add_account(securityToken, username, userId)` |
+| `username:password:cookie` em lote (mesma caixa do Import Cookie, e também aceito na aba User:Pass) | `parseImportLine` ([utils/cookies.ts](../../src/utils/cookies.ts)) → `validate_cookie(cookie)` → `add_account(..., password)` — sem navegador, porque a sessão já veio na linha |
 | Username (Quick Add sem cookie) | `lookup_user(username)` → `add_account` com `securityToken: ""` (conta sem sessão) |
 | Login no navegador | `open_login_browser` abre Chromium via CDP; ao detectar o cookie emite `browser-login-detected`; a store chama `extract_browser_cookie` (até 8 tentativas, 350 ms) → `addAccountByCookie` → `close_login_browser`. |
 | user:pass em lote | uma linha `usuario:senha` por vez → `import_userpass`: abre o login, preenche `#login-username`, espera até ~240 s (480 × 500 ms) pelo cookie, valida e salva com `Password` preenchida. |
@@ -97,6 +98,14 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 - **Argon2 só no unlock:** a chave de gravação (`SessionKey`) é derivada uma única vez por unlock/`set_password` e reutilizada. O salt de 16 bytes passa a ser sorteado por sessão em vez de por gravação; o **nonce** continua sorteado a cada gravação, e o layout do arquivo é o mesmo de antes. Antes, cada `save()` rodava um Argon2i MODERATE (256 MiB) segurando o lock na thread principal — mover N contas de grupo congelava a UI N vezes.
 - **Save recusado após load com falha:** se o arquivo existe mas não pôde ser decodificado, o store marca `load_failed` e todo `save()` retorna erro ("Account file could not be loaded; refusing to overwrite it…") até um load bem-sucedido — uma lista vazia em memória nunca sobrescreve as contas do usuário.
 - **Sem texto puro por cima de arquivo criptografado:** com o store bloqueado (sem hash) e o arquivo criptografado, `save()` recusa ("Accounts are locked; unlock them before making changes."). A única exceção é `set_password(None)` a partir de um store desbloqueado.
+- **Linha de import (`parseImportLine`, [utils/cookies.ts](../../src/utils/cookies.ts))** — um só parser para as duas abas de import e para o drag & drop de texto:
+  - o `.ROBLOSECURITY` **tem `:` dentro dele** (`_|WARNING:-DO-NOT-SHARE...`), então o corte **nunca** é `split(":")`: acha-se onde o cookie começa (`COOKIE_PATTERN`, ou o marcador `_|WARNING` quando o aviso vem torto), o que está antes é o prefixo, e dele tira-se **só** o delimitador (`\s*:\s*$`). Um `[\s:;,]+$` comeria a pontuação final de uma senha legítima;
+  - a senha pode conter `:` — só o **primeiro** `:` do prefixo separa usuário de senha;
+  - `user:cookie` (sem senha) vale como cookie sozinho. O `Username` gravado é sempre o que o `validate_cookie` devolve, não o da linha;
+  - **linha incompleta é pulada, não importada pela metade**: `user:pass` sem cookie na aba de cookie vira "Skipped …: no cookie in this line" e a importação segue para a linha seguinte (uma conta gravada só com senha não abre nada);
+  - a mesma linha `user:pass:cookie` colada na aba **User:Pass** é importada direto pelo cookie, sem abrir navegador nem pedir CAPTCHA;
+  - a senha só é enviada ao `add_account` quando a linha a traz (o parâmetro é `Option<String>` no backend).
+- **Aviso do diálogo de import:** o cookie entrega a sessão, e a senha entrega a **conta** (troca de e-mail e de senha, e sair de todas as sessões não a revoga) — e ela fica no `AccountData.json`, encriptado só quando o app tem senha. Os dois riscos estão na tela, em dois parágrafos, cobertos por teste ([ImportDialog.test.tsx](../../src/components/dialogs/ImportDialog.test.tsx)).
 - **Import de arquivo antigo** (`import_old_account_data`):
   - contas com `UserID <= 0` são ignoradas (`skipped`);
   - `UserID` duplicado dentro do arquivo importado conta como `skipped` e o **último** vence;
