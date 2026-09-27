@@ -492,7 +492,6 @@
   "password": "password",
   "Password changed": "Password changed",
   "Password is incorrect. Enter the AccountData.json password:": "Password is incorrect. Enter the AccountData.json password:",
-  "Paste one .ROBLOSECURITY cookie per line": "Paste one .ROBLOSECURITY cookie per line",
   "PIN unlocked": "PIN unlocked",
   "Ping": "Ping",
   "Place": "Place",
@@ -1606,5 +1605,9 @@
   "Move group up": "Move group up",
   "Move up": "Move up",
   "Name prefix (optional)": "Name prefix (optional)",
-  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Only letters and digits. Each account becomes prefix_ plus 5 random characters."
+  "Only letters and digits. Each account becomes prefix_ plus 5 random characters.": "Only letters and digits. Each account becomes prefix_ plus 5 random characters.",
+  "A line that already carries the cookie (username:password:cookie) is imported straight away, with no browser.": "A line that already carries the cookie (username:password:cookie) is imported straight away, with no browser.",
+  "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, encrypted only if you set an app password.": "A username:password:cookie line also saves the password, which is more than the session: it can change the account's email and password, and signing out of every session does not revoke it. It is stored in AccountData.json, encrypted only if you set an app password.",
+  "Paste one .ROBLOSECURITY cookie per line, or one username:password:cookie per line.": "Paste one .ROBLOSECURITY cookie per line, or one username:password:cookie per line.",
+  "Skipped {{name}}: no cookie in this line": "Skipped {{name}}: no cookie in this line"
 }
