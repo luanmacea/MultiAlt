@@ -77,7 +77,7 @@ import {
   normalizeUpdaterFeatureChannel,
   getUpdaterSkipVersionKey,
 } from "./updaterChannels";
-import { recordRecentGame } from "./components/server-list/types";
+import { addRecentJob, recordRecentGame } from "./components/server-list/types";
 
 interface PresenceEntry {
   userId?: number;
@@ -1171,6 +1171,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       await loadAccounts();
       void recordRecentGame(pid, userId, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
+      // O servidor também vira "recente": num alvo VIP o Job ID vai vazio e o
+      // código viaja em `linkCode`, então guarda-se o `vip:<código>` — a forma
+      // que o campo de Job ID e o `resolve_launch_job` sabem reabrir.
+      const recentJob = linkCode ? `vip:${linkCode}` : resolvedJobId;
+      if (recentJob) {
+        addRecentJob(recentJob, pid, parseInt(settings?.General?.MaxRecentJobs || "12") || 12, [userId]);
+      }
       addToast(tr("Launching game..."));
     } catch (e) {
       setJoiningAccounts((prev) => {
@@ -1237,6 +1244,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       await loadAccounts();
       void recordRecentGame(pid, userIds[0], parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
+      // O alvo é das contas **todas** que entraram: é isso que decide para quem
+      // um servidor privado volta a aparecer nos recentes.
+      const recentJob = vipCode ? `vip:${vipCode}` : rawJobId;
+      if (recentJob) {
+        addRecentJob(recentJob, pid, parseInt(settings?.General?.MaxRecentJobs || "12") || 12, userIds);
+      }
       addToast(tr("Launching {{count}} accounts...", { count: userIds.length }));
     } catch (e) {
       setJoiningAccounts(new Set());

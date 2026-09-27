@@ -5,6 +5,7 @@ import type { Account, PlatformCapabilities } from "./types";
 
 const invokeMock = vi.fn();
 const recordRecentGameMock = vi.fn(async () => {});
+const addRecentJobMock = vi.fn(() => {});
 const unlistenMock = vi.fn();
 const listenHandlers = new Map<string, Array<(event: { payload: unknown }) => void>>();
 
@@ -25,6 +26,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("./components/server-list/types", () => ({
   recordRecentGame: (...args: unknown[]) => recordRecentGameMock(...(args as [])),
+  addRecentJob: (...args: unknown[]) => addRecentJobMock(...(args as [])),
 }));
 
 import { StoreProvider, useStore, type StoreValue } from "./store";
@@ -132,6 +134,7 @@ async function renderStore() {
 beforeEach(() => {
   invokeMock.mockReset();
   recordRecentGameMock.mockClear();
+  addRecentJobMock.mockClear();
   unlistenMock.mockClear();
   listenHandlers.clear();
   failures.clear();
@@ -701,6 +704,47 @@ describe("joinServer", () => {
     expect(recordRecentGameMock).toHaveBeenCalledWith(42, 1, 8);
   });
 
+  /**
+   * O servidor entra nos recentes junto com o jogo: voltar ao mesmo servidor
+   * era impossível sem ter copiado o Job ID antes.
+   */
+  it("records the job id as a recent server, with the configured cap", async () => {
+    const { result } = await setup({ SavedPlaceId: "42", MaxRecentJobs: "4" });
+    await act(async () => {
+      await result.current.joinServer(1, { jobId: "job-xyz" });
+    });
+    expect(addRecentJobMock).toHaveBeenCalledWith("job-xyz", 42, 4, [1]);
+  });
+
+  it("defaults the recent-servers cap to 12", async () => {
+    const { result } = await setup({ SavedPlaceId: "42" });
+    await act(async () => {
+      await result.current.joinServer(1, { jobId: "job-xyz" });
+    });
+    expect(addRecentJobMock).toHaveBeenCalledWith("job-xyz", 42, 12, [1]);
+  });
+
+  /**
+   * Num alvo VIP o Job ID vai vazio e o código viaja em `linkCode` — guardar o
+   * Job ID cru perderia o servidor. O que se guarda é o `vip:<código>` que o
+   * campo de Job ID sabe reabrir.
+   */
+  it("records a VIP target as vip:<code>, not as an empty job", async () => {
+    const { result } = await setup({ SavedPlaceId: "42" });
+    await act(async () => {
+      await result.current.joinServer(1, { jobId: "", joinVip: true, linkCode: "abc123" });
+    });
+    expect(addRecentJobMock).toHaveBeenCalledWith("vip:abc123", 42, 12, [1]);
+  });
+
+  it("does not record a recent server when there is no job id at all", async () => {
+    const { result } = await setup({ SavedPlaceId: "42" });
+    await act(async () => {
+      await result.current.joinServer(1);
+    });
+    expect(addRecentJobMock).not.toHaveBeenCalled();
+  });
+
   it("tracks joining state and progress, then clears it after 7s", async () => {
     const { result } = await setup({ SavedPlaceId: "42" });
     vi.useFakeTimers();
@@ -910,6 +954,18 @@ describe("launchMultiple", () => {
       await result.current.launchMultiple([3, 1]);
     });
     expect(recordRecentGameMock).toHaveBeenCalledWith(99, 3, 5);
+  });
+
+  /**
+   * Num launch em lote o alvo privado é das contas **todas** que entraram: é o
+   * que decide para quem ele volta a aparecer na lista de recentes.
+   */
+  it("records the recent server for every account that launched", async () => {
+    const { result } = await setup({ SavedPlaceId: "99", MaxRecentJobs: "6" });
+    await act(async () => {
+      await result.current.launchMultiple([3, 1], { jobId: "vip:abc123" });
+    });
+    expect(addRecentJobMock).toHaveBeenCalledWith("vip:abc123", 99, 6, [3, 1]);
   });
 
   it("refuses multi-launch on an unsupported Linux runner and reports the reason", async () => {

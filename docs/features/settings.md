@@ -62,7 +62,8 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ServerPreference` | `bestfit` | Preferência de servidor do lote: `bestfit` \| `fullest` \| `emptiest` \| `random` \| `none`. |
 | `ServerRegionFilter` | — (vazio) | País exigido ao escolher servidor (`BR`); vazio = sem filtro. |
 | `ServerScanPages` | `30` | Páginas de 100 servidores varridas na aba Servers (teto 500). |
-| `MaxRecentGames` | `8` | Tamanho da lista de recentes. |
+| `MaxRecentGames` | `8` | Tamanho da lista de jogos recentes. |
+| `MaxRecentJobs` | `12` | Tamanho da lista de servidores recentes (Job IDs). |
 | `GroupOrder` | `[]` | Ordem manual dos grupos na lista, em JSON (`["Zeta","Alts, velhas"]`). Vazio/`[]` = ordem automática por prefixo numérico e depois alfabética. Ver [accounts.md](accounts.md). |
 | `Language` | `en` | `en`, `pt` (português do Brasil) ou `de`. |
 | `AutoCookieRefresh` | `true` | Refresh automático de cookies (ver [authentication.md](authentication.md)). |
