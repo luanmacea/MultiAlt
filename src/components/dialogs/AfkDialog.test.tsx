@@ -1,0 +1,293 @@
+import "@testing-library/jest-dom/vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
+vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
+vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
+
+import { AfkDialog, formatAfkElapsed } from "./AfkDialog";
+import type { AfkStatus, StoreValue } from "../../store";
+import { makeAccount, setStore } from "../../test-utils/renderWithStore";
+import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
+
+const ACCOUNTS = [
+  makeAccount({ UserID: 11, Username: "alpha" }),
+  makeAccount({ UserID: 22, Username: "bravo" }),
+];
+
+/** A lista fechada que o backend entrega (`get_afk_keys`). */
+const KEYS = ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5"];
+
+function makeAfkStatus(overrides: Partial<AfkStatus> = {}): AfkStatus {
+  return {
+    active: false,
+    startedAtMs: null,
+    intervalMinutes: 10,
+    key: "",
+    accounts: [],
+    ...overrides,
+  };
+}
+
+function renderDialog(overrides: Partial<StoreValue> = {}) {
+  const store = setStore({
+    accounts: ACCOUNTS,
+    launchedByProgram: new Set([11, 22]),
+    afkKeys: KEYS,
+    afkStatus: makeAfkStatus(),
+    ...overrides,
+  });
+  const onClose = vi.fn();
+  render(<AfkDialog open onClose={onClose} />);
+  return { store, onClose };
+}
+
+beforeEach(() => {
+  resetTauriMocks();
+});
+
+afterEach(cleanup);
+
+/**
+ * `SendInput` entrega na janela em **primeiro plano**, então cada envio traz a
+ * janela do Roblox para frente por um instante. Isso rouba o foco de quem está
+ * usando o PC, e é a primeira coisa que a tela tem de dizer — sem enfeitar.
+ */
+describe("AfkDialog — o preço do envio está na tela", () => {
+  it("diz que cada envio traz a janela do Roblox para frente e devolve o foco", () => {
+    renderDialog();
+    expect(screen.getByText(/brings that account's Roblox window to the front/i)).toBeInTheDocument();
+    expect(screen.getByText(/gives the focus back/i)).toBeInTheDocument();
+  });
+
+  it("avisa que a tecla pode cair na janela errada se você estiver digitando", () => {
+    renderDialog();
+    expect(screen.getByText(/typing in another program/i)).toBeInTheDocument();
+    expect(screen.getByText(/wrong window/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * A lista de teclas é **fechada** e vem do backend (`get_afk_keys`): a tela não
+ * pode oferecer tecla que o backend recusa, nem deixar digitar tecla arbitrária.
+ */
+describe("AfkDialog — só as teclas da lista", () => {
+  it("oferece exatamente as teclas que o backend entregou", async () => {
+    renderDialog();
+    await userEvent.click(screen.getByLabelText("Key"));
+
+    for (const key of KEYS) {
+      expect(screen.getByRole("button", { name: key })).toBeInTheDocument();
+    }
+    // Teclas que fazem outra coisa no jogo não aparecem.
+    for (const outside of ["Enter", "Tab", "Escape", "F4"]) {
+      expect(screen.queryByRole("button", { name: outside })).not.toBeInTheDocument();
+    }
+  });
+
+  it("não tem campo de texto para digitar uma tecla qualquer", () => {
+    renderDialog();
+    // A tecla se escolhe numa lista (botão que abre as opções); campo de texto
+    // para tecla não existe, senão a lista fechada não seria fechada.
+    expect(screen.queryByRole("textbox", { name: /key/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Key").tagName).toBe("BUTTON");
+  });
+});
+
+/**
+ * Sem tecla escolhida o modo não liga: inventar uma tecla padrão mexeria no
+ * personagem sem o usuário ter pedido.
+ */
+describe("AfkDialog — o que impede o start", () => {
+  it("não liga sem tecla escolhida", async () => {
+    const { store } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+
+    const start = screen.getByRole("button", { name: /Start AFK Mode/i });
+    expect(start).toBeDisabled();
+    await userEvent.click(start);
+    expect(store.startAfkMode).not.toHaveBeenCalled();
+  });
+
+  it("não liga sem conta no modo, mesmo com tecla escolhida", async () => {
+    const { store } = renderDialog();
+    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByRole("button", { name: "Space" }));
+
+    expect(screen.getByRole("button", { name: /Start AFK Mode/i })).toBeDisabled();
+    expect(store.startAfkMode).not.toHaveBeenCalled();
+  });
+
+  it("liga com uma tecla da lista e a conta escolhida", async () => {
+    const { store } = renderDialog();
+    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByRole("button", { name: "Space" }));
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+    await userEvent.click(screen.getByRole("button", { name: /Start AFK Mode/i }));
+
+    expect(store.startAfkMode).toHaveBeenCalledWith({
+      userIds: [11],
+      intervalMinutes: 10,
+      key: "Space",
+    });
+  });
+
+  /** Conta que o usuário não marcou não pode entrar no modo por tabela. */
+  it("manda só as contas marcadas", async () => {
+    const { store } = renderDialog();
+    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByRole("button", { name: "W" }));
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[1].Username }));
+    await userEvent.click(screen.getByRole("button", { name: /Start AFK Mode/i }));
+
+    expect(store.startAfkMode).toHaveBeenCalledWith({
+      userIds: [22],
+      intervalMinutes: 10,
+      key: "W",
+    });
+  });
+});
+
+describe("AfkDialog — sessão em andamento", () => {
+  const RUNNING = makeAfkStatus({
+    active: true,
+    startedAtMs: 1_000,
+    key: "Space",
+    intervalMinutes: 10,
+    accounts: [
+      { userId: 11, lastSendAtMs: 1_000, nextSendAtMs: 601_000, sends: 2, lastError: null },
+    ],
+  });
+
+  it("mostra o botão de parar e não o de ligar", () => {
+    renderDialog({ afkStatus: RUNNING });
+    expect(screen.getByRole("button", { name: /Stop AFK Mode/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Start AFK Mode/i })).not.toBeInTheDocument();
+  });
+
+  it("parar é o comando de parar, e nada mais", async () => {
+    const { store } = renderDialog({ afkStatus: RUNNING });
+    await userEvent.click(screen.getByRole("button", { name: /Stop AFK Mode/i }));
+
+    expect(store.stopAfkMode).toHaveBeenCalledTimes(1);
+    // Parar o AFK mode não fecha nem reinicia cliente de conta nenhuma.
+    expect(store.closeRobloxClients).not.toHaveBeenCalled();
+    expect(store.killAllRobloxProcesses).not.toHaveBeenCalled();
+    expect(store.restartRobloxClients).not.toHaveBeenCalled();
+  });
+
+  it("tirar uma conta do modo em andamento vai pelo set_afk_accounts", async () => {
+    const { store } = renderDialog({ afkStatus: RUNNING });
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+
+    expect(store.setAfkAccounts).toHaveBeenCalledWith([]);
+    expect(store.closeRobloxClients).not.toHaveBeenCalled();
+  });
+
+  it("acrescentar uma conta ao modo em andamento mantém quem já estava", async () => {
+    const { store } = renderDialog({ afkStatus: RUNNING });
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[1].Username }));
+
+    expect(store.setAfkAccounts).toHaveBeenCalledWith([11, 22]);
+  });
+
+  it("com sessão ativa o intervalo e a tecla ficam travados", () => {
+    renderDialog({ afkStatus: RUNNING });
+    expect(screen.getByLabelText("Key")).toBeDisabled();
+    expect(screen.getByLabelText("Send every")).toBeDisabled();
+  });
+});
+
+/**
+ * "Isso está funcionando?" é a pergunta de quem acabou de ligar o modo com
+ * intervalo de 10 minutos. Duas respostas na tela: o tempo decorrido da sessão e
+ * o botão de enviar agora.
+ */
+describe("AfkDialog — dá para saber que está funcionando", () => {
+  const RUNNING = makeAfkStatus({
+    active: true,
+    startedAtMs: 1_000,
+    key: "Space",
+    accounts: [
+      { userId: 11, lastSendAtMs: 1_000, nextSendAtMs: 601_000, sends: 0, lastError: null },
+    ],
+  });
+
+  it("formata o tempo decorrido em minutos e horas", () => {
+    expect(formatAfkElapsed(null, 10_000)).toBe("--");
+    expect(formatAfkElapsed(1_000, 1_000)).toBe("<1m");
+    expect(formatAfkElapsed(0, 59_999)).toBe("<1m");
+    expect(formatAfkElapsed(0, 60_000)).toBe("1m");
+    expect(formatAfkElapsed(0, 12 * 60_000)).toBe("12m");
+    expect(formatAfkElapsed(0, 65 * 60_000)).toBe("1h 5m");
+    // Relógio para trás não vira tempo negativo.
+    expect(formatAfkElapsed(10_000, 0)).toBe("<1m");
+  });
+
+  it("mostra há quanto tempo a sessão está rodando", () => {
+    vi.setSystemTime(new Date(1_000 + 12 * 60_000));
+    try {
+      renderDialog({ afkStatus: RUNNING });
+      expect(screen.getByText(/Running for 12m/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("enviar agora manda a tecla escolhida para as contas do modo", async () => {
+    const { store } = renderDialog({ afkStatus: RUNNING });
+    await userEvent.click(screen.getByRole("button", { name: /Send the key now/i }));
+
+    expect(store.afkTriggerNow).toHaveBeenCalledWith([11], "Space");
+  });
+
+  it("não deixa enviar agora sem tecla escolhida", async () => {
+    const { store } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+
+    const sendNow = screen.getByRole("button", { name: /Send the key now/i });
+    expect(sendNow).toBeDisabled();
+    await userEvent.click(sendNow);
+    expect(store.afkTriggerNow).not.toHaveBeenCalled();
+  });
+
+  /** O som explica o piscar de foco; ligado por quem quer, nunca por padrão. */
+  it("o aviso sonoro nasce desligado e grava a escolha no INI", async () => {
+    renderDialog();
+    const toggle = screen.getByRole("button", { name: "Beep when a cycle finishes" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(toggle);
+    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+      section: "Afk",
+      key: "BeepOnCycle",
+      value: "true",
+    });
+  });
+});
+
+/**
+ * O AFK mode só alcança cliente que **este app** abriu (é o tracker que liga
+ * conta a PID). Conta sem cliente aberto não tem o que receber tecla.
+ */
+describe("AfkDialog — contas que podem entrar no modo", () => {
+  it("lista as contas com cliente aberto", () => {
+    renderDialog();
+    expect(screen.getByRole("button", { name: ACCOUNTS[0].Username })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ACCOUNTS[1].Username })).toBeInTheDocument();
+  });
+
+  it("não lista conta sem cliente aberto", () => {
+    renderDialog({ launchedByProgram: new Set([11]) });
+    expect(screen.getByRole("button", { name: ACCOUNTS[0].Username })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ACCOUNTS[1].Username })).not.toBeInTheDocument();
+  });
+
+  it("explica o vazio em vez de mostrar uma lista vazia", () => {
+    renderDialog({ launchedByProgram: new Set<number>() });
+    expect(screen.getByText(/Open an account first/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Start AFK Mode/i })).toBeDisabled();
+  });
+});

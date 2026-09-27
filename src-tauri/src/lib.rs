@@ -40,6 +40,7 @@ include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
 include!("commands/versions.rs");
 include!("commands/watcher.rs");
+include!("commands/afk.rs");
 include!("commands/services.rs");
 include!("commands/updater.rs");
 include!("commands/backups.rs");
@@ -429,6 +430,12 @@ pub fn run() {
             versions_open_folder,
             start_watcher,
             stop_watcher,
+            start_afk_mode,
+            stop_afk_mode,
+            set_afk_accounts,
+            get_afk_mode_status,
+            get_afk_keys,
+            afk_trigger_now,
             chromium::commands::open_login_browser,
             chromium::commands::extract_browser_cookie,
             chromium::commands::close_login_browser,

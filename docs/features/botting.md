@@ -4,6 +4,8 @@
 
 Manter um grupo de contas ("bots") dentro de um place, **relançando cada bot periodicamente** (a cada `interval_minutes`) e reagindo a falhas com backoff, enquanto contas marcadas como **player** são lançadas uma vez e nunca reiniciadas pelo timer. Exclusivo de Windows.
 
+Quando o objetivo é só **não perder o estado** da conta (não sair do lugar do mapa, não precisar de rejoin), o caminho é o [AFK mode](afk-mode.md): ele manda uma tecla de tempo em tempo para a janela da conta em vez de relançar o cliente.
+
 ## Onde fica o código
 
 | Arquivo | Papel |

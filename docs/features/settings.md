@@ -165,6 +165,14 @@ Com `General.BottingUseSharedClientProfile=true`, Player e Bot usam o perfil Nor
 | `PersistentProfile` | `true` | Reutiliza o perfil do Chromium de login (menos captchas). Se `false`, o perfil é apagado antes/depois. |
 | `StealthMode` | `true` | Esconde sinais de automação no navegador de login. |
 
+### `[Afk]` — detalhes em [afk-mode.md](afk-mode.md)
+
+| Chave | Default | Significado |
+|---|---|---|
+| `IntervalMinutes` | `10` | Minutos entre dois envios de tecla da **mesma** conta (1–120). |
+| `Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada do AFK mode. Vazio = o modo não liga. |
+| `BeepOnCycle` | `false` | Bipe curto (sintetizado, sem arquivo de áudio) quando um ciclo de envio termina. |
+
 ### `[Generator]` / `[BloxGen]`
 
 | Chave | Default | Significado |
