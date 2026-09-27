@@ -429,9 +429,9 @@ export interface StoreValue {
   refreshBottingStatus: () => Promise<void>;
   /**
    * Liga o AFK mode nas contas escolhidas. A cada intervalo o app traz a janela
-   * de cada uma para frente por um instante, manda a tecla e devolve o foco —
-   * é a única forma de o cliente do Roblox receber a tecla. Sem tecla escolhida
-   * o backend recusa ligar.
+   * de cada uma para frente, uma depois da outra, manda a tecla e só devolve o
+   * foco depois da última — é a única forma de o cliente do Roblox receber a
+   * tecla. Sem tecla escolhida o backend recusa ligar.
    */
   startAfkMode: (config: AfkStartConfig) => Promise<void>;
   /** Para na hora, inclusive um ciclo em andamento. Não fecha cliente nenhum. */
@@ -1749,7 +1749,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       setAfkStatus(status);
       addToast(
-        tr("AFK mode started for {{count}} accounts", { count: config.userIds.length })
+        config.userIds.length === 1
+          ? tr("AFK mode started for 1 account")
+          : tr("AFK mode started for {{count}} accounts", { count: config.userIds.length })
       );
     } catch (e) {
       setError(String(e));
