@@ -54,6 +54,29 @@ impl VaultKeyWarning {
             detail: None,
         }
     }
+
+    /// A migração para o formato cifrado falhou **fora** do arquivo de chave (a
+    /// cópia de segurança ou a regravação do vault). O arquivo continua em texto
+    /// puro, com o cookie de todas as contas legível, e antes disto **nada**
+    /// aparecia: o `load()` devolvia `Err`, o `lib.rs` fazia `eprintln!`, o
+    /// `needs_password()` era `false` e a tela dizia "Device Key". O app subia
+    /// normal mentindo sobre o estado do arquivo.
+    fn migration_failed(path: &std::path::Path, detail: &str) -> Self {
+        Self {
+            code: "migrationFailed".to_string(),
+            path: path.display().to_string(),
+            detail: Some(detail.to_string()),
+        }
+    }
+
+    /// Gravou, mas sem confirmação do `fsync`.
+    fn sync_unconfirmed(path: &std::path::Path) -> Self {
+        Self {
+            code: "syncUnconfirmed".to_string(),
+            path: path.display().to_string(),
+            detail: None,
+        }
+    }
 }
 
 /// De onde veio o segredo que cifra o vault nesta sessão.
@@ -287,6 +310,8 @@ impl AccountStore {
                     // O `.key` ficou só com o embrulho fraco. Não é perda, mas é
                     // degradação — e degradar calado foi exatamente o problema.
                     self.set_key_warning(VaultKeyWarning::weak_wrapper(&key_path));
+                } else if !health.synced {
+                    self.set_key_warning(VaultKeyWarning::sync_unconfirmed(&key_path));
                 } else {
                     self.clear_key_warning();
                 }
@@ -307,17 +332,25 @@ impl AccountStore {
         }
     }
 
+    /// O mutex do aviso é **destravado do envenenamento** de propósito.
+    ///
+    /// `if let Ok(..)` descartava a escrita e `.lock().ok()` respondia "tudo em
+    /// ordem" com o mutex envenenado: falha não observável **no canal que existe
+    /// para observar falhas**. O dado aqui é um aviso, não invariante de
+    /// segurança — recuperá-lo com `into_inner()` é sempre melhor que engolir.
+    fn key_warning_slot(&self) -> std::sync::MutexGuard<'_, Option<VaultKeyWarning>> {
+        self.key_warning
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn set_key_warning(&self, warning: VaultKeyWarning) {
         eprintln!("Aviso ({}): {}", warning.code, warning.path);
-        if let Ok(mut slot) = self.key_warning.lock() {
-            *slot = Some(warning);
-        }
+        *self.key_warning_slot() = Some(warning);
     }
 
     fn clear_key_warning(&self) {
-        if let Ok(mut slot) = self.key_warning.lock() {
-            *slot = None;
-        }
+        *self.key_warning_slot() = None;
     }
 
     /// O que a UI mostra sobre o arquivo de chave. `None` = tudo em ordem.
@@ -325,7 +358,7 @@ impl AccountStore {
     /// Estruturado (código + caminho), não frase pronta: a frase mora no catálogo
     /// de i18n e passa por `t()`, como todo texto que o usuário lê.
     pub fn vault_key_warning(&self) -> Option<VaultKeyWarning> {
-        self.key_warning.lock().ok().and_then(|s| s.clone())
+        self.key_warning_slot().clone()
     }
 
     /// Recusa a operação quando a gravação está trancada.
@@ -388,6 +421,23 @@ impl AccountStore {
         Ok(())
     }
 
+    /// Pode existir vault cifrado a perder? **Erro conta como "sim".**
+    ///
+    /// Isto guarda a decisão de sortear uma chave mestra nova, que destrói a única
+    /// cópia da antiga. `is_encrypted().unwrap_or(false)` era **fail-open** nessa
+    /// guarda: "não consegui saber" virava "não existe". As duas leituras falham
+    /// juntas com mais frequência do que parece — varredura de antivírus e
+    /// rehidratação do OneDrive pegam a **pasta inteira**, então `.key` ilegível e
+    /// `AccountData.json` ilegível são eventos correlacionados, não independentes.
+    /// Se depois disso a regravação do vault falhasse com o `.key` novo já
+    /// publicado, o resultado era lockout permanente de todas as contas.
+    fn vault_may_hold_data(&self) -> bool {
+        match self.is_encrypted() {
+            Ok(encrypted) => encrypted,
+            Err(_) => true,
+        }
+    }
+
     /// Monta a sessão da chave do aparelho sem tocar no que já está em memória.
     ///
     /// Separado de [`Self::ensure_device_session`] para `set_password(None)`
@@ -402,7 +452,7 @@ impl AccountStore {
             // Antes a condição era só `key_path.exists()`, o que travava também a
             // **instalação nova** quando havia qualquer coisa no lugar do `.key`
             // (um diretório, por exemplo) — sem vault nenhum para proteger.
-            None if key_path.exists() && self.is_encrypted().unwrap_or(false) => {
+            None if key_path.exists() && self.vault_may_hold_data() => {
                 return Err(self.locked_vault_message());
             }
             None => {
@@ -542,11 +592,29 @@ impl AccountStore {
     /// próxima abertura recomeça daqui com a mesma chave. Morrer dentro de 3 não
     /// existe: a troca é atômica, o arquivo é o de antes ou o de depois.
     fn migrate_plain_vault(&self) -> Result<(), String> {
-        self.backup_vault_file()?;
+        // **Toda** falha daqui tem que virar aviso na tela, não só `Err`.
+        //
+        // Este era o pior fail-open que sobrou: `load()` devolvia `Err`, o boot
+        // fazia `eprintln!` (invisível em build GUI), o `mark_memory_fresh` já
+        // tinha limpado o `load_failed`, `needs_password()` era `false` porque o
+        // arquivo está em texto puro, e nenhum `key_warning` era setado. Resultado:
+        // o app subia normal, a tela de criptografia dizia "Device Key", e o
+        // `AccountData.json` continuava em texto puro com o `.ROBLOSECURITY` de
+        // todas as contas — sem um sinal em lugar nenhum. É o mesmo padrão que a
+        // Quebra 1 mandou matar, sobrevivendo no caminho principal desta tarefa.
+        self.backup_vault_file().map_err(|e| {
+            self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
+            e
+        })?;
 
         if let Err(e) = self.ensure_device_session() {
             // Sem chave o arquivo fica como está — em texto puro, legível, mas
             // **inteiro**. Perder o arquivo é pior que ficar sem a criptografia.
+            // `ensure_device_session` já avisou pelo `refresh_key_file`; aqui só
+            // garantimos que o aviso exista mesmo se a falha vier de outro ponto.
+            if self.vault_key_warning().is_none() {
+                self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
+            }
             return Err(format!(
                 "Accounts are loaded, but the file could not be encrypted and was left as-is: {}",
                 e
@@ -554,7 +622,10 @@ impl AccountStore {
         }
 
         let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-        self.save_locked(&accounts)
+        self.save_locked(&accounts).map_err(|e| {
+            self.set_key_warning(VaultKeyWarning::migration_failed(&self.file_path, &e));
+            e
+        })
     }
 
     /// Abre um vault já cifrado sem senha do usuário.
@@ -767,33 +838,30 @@ impl AccountStore {
         // chave dele, até a poda apagar os backups bons. É por isso que a
         // `SessionKey` guarda a chave mestra, não só o hash dela.
         //
-        // A condição é "não abre **para a chave desta sessão**". Três níveis, e
-        // cada um existiu por um defeito real:
+        // A condição é "o `.key` guarda **a chave desta sessão**". Dois defeitos
+        // reais moldaram isso:
         //  - "não existe" era o primeiro, e deixava passar o arquivo truncado;
-        //  - "não abre" deixava passar o `.key` que abre para **outra** chave — o
-        //    caso da pasta de dados em OneDrive/Dropbox, em que o `.key` volta a
-        //    uma versão anterior enquanto o vault fica novo. O vault seguia sendo
+        //  - "abre" deixava passar o `.key` que abre para **outra** chave — o caso
+        //    da pasta de dados em OneDrive/Dropbox, em que o `.key` volta a uma
+        //    versão anterior enquanto o vault fica novo. O vault seguia sendo
         //    gravado com o master da sessão e o boot seguinte pedia uma senha que
-        //    nunca existiu;
-        //  - `Unreadable` **não** dispara reparo nem aviso: pode ser o antivírus
-        //    segurando o handle por um instante, e alarmar aí é falso alarme.
+        //    nunca existiu.
+        //
+        // Qualquer outro estado **tenta** o reparo, inclusive "não consegui ler
+        // agora": ler falhar não quer dizer que escrever vai falhar, e pular
+        // deixaria um arquivo ruim sem reparo enquanto o processo vivesse. Quem
+        // separa o transitório do grave é o **tom do aviso** (`is_transient_io`,
+        // medido), não o pular.
+        //
         // No caminho saudável isto custa uma leitura e uma chamada de DPAPI (sem
         // argon2); só o caminho quebrado paga caro, e paga uma vez.
         if let Some(session) = session.as_ref() {
             if let Some(master) = session.master.as_ref() {
-                use crate::data::vault_key::KeyFileState;
-                match crate::data::vault_key::inspect_key_file(&self.key_file_path()) {
-                    // O arquivo já é o certo: nada a fazer, e um aviso que tenha
-                    // sobrado de uma falha anterior sai da tela.
-                    KeyFileState::Open(found) if found == *master => self.clear_key_warning(),
-                    // Todo o resto **tenta** o reparo, inclusive o "não consegui
-                    // ler agora": ler falhar não quer dizer que escrever vai
-                    // falhar, e pular deixaria um arquivo ruim sem reparo enquanto
-                    // o processo vivesse. Quem separa o transitório do grave é o
-                    // **tom do aviso**, em `refresh_key_file`, não o pular.
-                    _ => {
-                        self.refresh_key_file(master);
-                    }
+                if crate::data::vault_key::key_file_holds_master(&self.key_file_path(), master) {
+                    // Um aviso que tenha sobrado de uma falha anterior sai da tela.
+                    self.clear_key_warning();
+                } else {
+                    self.refresh_key_file(master);
                 }
             }
         }
@@ -813,8 +881,14 @@ impl AccountStore {
         // arquivo cujo conteúdo ainda está em cache, e a queda de energia entre os
         // dois deixaria um `AccountData.json` que existe e está vazio.
         let tmp_path = self.file_path.with_extension("json.tmp");
-        crate::data::versions::write_all_synced(&tmp_path, &data)
+        let synced = crate::data::versions::write_all_synced(&tmp_path, &data)
             .map_err(|e| format!("Failed to write account file: {}", e))?;
+        if !synced {
+            // A gravação vale (os bytes foram entregues ao SO); o que se perde é a
+            // garantia contra queda de energia. Descartar este `bool` tornava a
+            // degradação 100% invisível.
+            self.set_key_warning(VaultKeyWarning::sync_unconfirmed(&self.file_path));
+        }
         crate::data::versions::atomic_replace(&tmp_path, &self.file_path)
             .map_err(|e| format!("Failed to replace account file: {}", e))?;
 
@@ -882,6 +956,12 @@ impl AccountStore {
                 // senha. Na ordem contrária, uma falha na gravação deixaria um
                 // vault cifrado pela chave do aparelho sem a chave para abri-lo.
                 crate::data::vault_key::remove_key_file(&key_path);
+                // A partir daqui o `.key` não importa mais, então um aviso sobre
+                // ele é falso alarme. Sem isto, quem estava com a faixa vermelha e
+                // definia uma senha ficava com ela na tela o resto da sessão,
+                // apontando para um arquivo que acabou de ser apagado — e nenhum
+                // caminho de sessão-com-senha alcança o `clear_key_warning`.
+                self.clear_key_warning();
                 Ok(())
             }
             None => {

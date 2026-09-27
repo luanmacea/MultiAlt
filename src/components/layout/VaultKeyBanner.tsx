@@ -26,15 +26,27 @@ export function VaultKeyBanner() {
   // Transitório é brando de propósito: quase sempre é antivírus segurando o
   // arquivo por um instante, e a gravação seguinte resolve. Alarme falso treina
   // o usuário a ignorar alarme, e aí a rede de verdade não vale nada.
-  const transient = warning.code === "writeFailedTransient";
-  const weak = warning.code === "weakWrapper";
-  const mild = transient || weak;
+  const mild =
+    warning.code === "writeFailedTransient" ||
+    warning.code === "weakWrapper" ||
+    warning.code === "syncUnconfirmed";
 
-  const message = transient
-    ? t("Could not update the account key file just now ({{path}}); the app will try again on the next change.", { path: warning.path })
-    : weak
-      ? t("The account key file ({{path}}) is saved without Windows protection. Your accounts still open, but the key is weaker than it should be — restart the app to try again.", { path: warning.path })
-      : t("The account key file could not be written ({{path}}). Your accounts open while the app is running, but they may not open after you close it — make a backup now in Settings > Misc > Data.", { path: warning.path });
+  const message = (() => {
+    switch (warning.code) {
+      case "writeFailedTransient":
+        return t("Could not update the account key file just now ({{path}}); the app will try again on the next change.", { path: warning.path });
+      case "weakWrapper":
+        return t("The account key file ({{path}}) is saved without Windows protection. Your accounts still open, but the key is weaker than it should be — restart the app to try again.", { path: warning.path });
+      case "syncUnconfirmed":
+        return t("Saved {{path}}, but this drive did not confirm the write. A power loss right now could lose the last change.", { path: warning.path });
+      // O arquivo ficou legível em disco: é o aviso mais consequente dos cinco,
+      // porque o usuário acha que está criptografado e não está.
+      case "migrationFailed":
+        return t("{{path}} could not be encrypted and is still plain text: the login cookie of every account is readable on this PC. Nothing was lost — open Settings > Misc > Change Encryption Method to try again, or set a password.", { path: warning.path });
+      default:
+        return t("The account key file could not be written ({{path}}). Your accounts open while the app is running, but they may not open after you close it — make a backup now in Settings > Misc > Data.", { path: warning.path });
+    }
+  })();
 
   return (
     <div

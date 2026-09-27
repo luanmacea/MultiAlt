@@ -506,7 +506,18 @@ export interface VaultKeyWarning {
    *   usuário a ignorar alarme.
    * - `weakWrapper`: gravou, mas sem o embrulho do DPAPI.
    */
-  code: "writeFailed" | "writeFailedTransient" | "weakWrapper";
+  code:
+    | "writeFailed"
+    | "writeFailedTransient"
+    | "weakWrapper"
+    /**
+     * A migração para o formato cifrado falhou e o `AccountData.json` **continua
+     * em texto puro**, com o cookie de todas as contas legível. Era o pior
+     * fail-open da tarefa: o app subia normal e a tela dizia "Device Key".
+     */
+    | "migrationFailed"
+    /** Gravou, mas sem confirmação do `fsync`. */
+    | "syncUnconfirmed";
   path: string;
   /** Detalhe do SO, para reportar. Nunca contém segredo. */
   detail?: string;

@@ -20,7 +20,12 @@ use std::sync::Mutex;
 /// queda de energia. Como `write_all` + `flush` já passaram, os dados estão
 /// entregues ao SO: o que se perde é a *garantia* de ordem, ou seja, volta-se ao
 /// comportamento de antes desta tarefa. Degradar a garantia é aceitável; tirar o
-/// app do ar não é. Quem chama decide se registra a degradação.
+/// app do ar não é.
+///
+/// `#[must_use]` porque descartar esse `bool` torna a degradação **invisível**, que
+/// era o estado anterior: os dois chamadores jogavam fora o `Ok(false)` enquanto
+/// esta doc afirmava que eles registravam a degradação.
+#[must_use = "o `false` diz que o fsync não foi confirmado; registre isso em vez de descartar"]
 pub(crate) fn write_all_synced(path: &Path, data: &[u8]) -> std::io::Result<bool> {
     use std::io::Write;
 

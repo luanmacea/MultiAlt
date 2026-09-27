@@ -182,6 +182,11 @@ fn load_master_key_blob(data: &[u8]) -> Option<RecoveredKey> {
 pub struct StoredKeyHealth {
     pub dpapi_present: bool,
     pub device_present: bool,
+    /// `false` quando os bytes foram gravados mas o `sync_all` não pôde ser
+    /// confirmado — a gravação segue valendo, o que se perde é a garantia contra
+    /// queda de energia. Existe para isso **não** ser invisível: a versão anterior
+    /// devolvia esse fato num `bool` que ninguém lia.
+    pub synced: bool,
 }
 
 /// Falha ao gravar o `.key`, com a informação que decide o tom do aviso.
@@ -196,47 +201,57 @@ pub struct KeyWriteError {
     pub transient: bool,
 }
 
-/// Erros de IO que costumam sumir sozinhos: quase sempre é scanner de antivírus,
-/// indexador ou backup segurando o handle por um instante.
-fn is_transient_io(kind: std::io::ErrorKind) -> bool {
+/// Erros de IO que **somem sozinhos**: scanner de antivírus, indexador ou backup
+/// segurando o handle por um instante.
+///
+/// **Isto foi medido, não deduzido** (Windows, `rustc 1.96`), porque a primeira
+/// versão classificava por `ErrorKind` e saía invertida nos dois casos que
+/// importavam:
+///
+/// | Situação | `raw_os_error` | `ErrorKind` |
+/// |---|---|---|
+/// | diretório no lugar do `.key` (**permanente**) | `5` | `PermissionDenied` |
+/// | ACL negada, portátil em `Program Files` (**permanente**) | `5` | `PermissionDenied` |
+/// | antivírus com handle exclusivo (**transitório**) | **`32`** | `Uncategorized` |
+/// | `rename` sobre arquivo preso (**transitório**) | `5` | `PermissionDenied` |
+///
+/// Ou seja: o caso benigno chegava como `Uncategorized` e levava o alarme
+/// vermelho, e o caso permanente chegava como `PermissionDenied` e levava
+/// "tento de novo na próxima alteração" **para sempre**. `ERROR_SHARING_VIOLATION`
+/// (32) e `ERROR_LOCK_VIOLATION` (33) não têm `ErrorKind` estável, então só o
+/// `raw_os_error` os identifica.
+///
+/// `PermissionDenied` aparece nos **dois** lados, logo é ambíguo — e ambíguo conta
+/// como **permanente**: sub-avisar é o que custa contas. Um vermelho falso se
+/// limpa na gravação seguinte; um âmbar falso esconde a falha permanente.
+fn is_transient_io(error: &std::io::Error) -> bool {
     use std::io::ErrorKind;
+
+    #[cfg(target_os = "windows")]
+    if matches!(error.raw_os_error(), Some(32) | Some(33)) {
+        return true;
+    }
+
     matches!(
-        kind,
-        ErrorKind::PermissionDenied
-            | ErrorKind::Interrupted
-            | ErrorKind::WouldBlock
-            | ErrorKind::TimedOut
-            | ErrorKind::AlreadyExists
+        error.kind(),
+        ErrorKind::Interrupted | ErrorKind::WouldBlock | ErrorKind::TimedOut
     )
 }
 
-/// O que se sabe sobre o arquivo de chave agora.
+/// O arquivo de chave guarda **esta** chave mestra?
 ///
-/// A diferença entre [`Self::Unreadable`] e [`Self::Unusable`] é a que evita
-/// falso alarme: no primeiro caso o arquivo pode estar íntegro e só
-/// momentaneamente inacessível.
-pub enum KeyFileState {
-    /// Abriu, e esta é a chave mestra que estava lá dentro.
-    Open(Vec<u8>),
-    /// O arquivo não existe.
-    Missing,
-    /// Existe e está ruim: não parseia, ou nenhum embrulho abre. Precisa reparo.
-    Unusable,
-    /// Não deu para **ler** agora. Pode ser transitório; não é motivo de alarme.
-    Unreadable,
-}
-
-/// Estado do `.key`, distinguindo "não consegui ler" de "está corrompido".
-pub fn inspect_key_file(key_path: &Path) -> KeyFileState {
+/// É a única pergunta que o reparo precisa fazer, e é por isso que não existe mais
+/// um enum de estado aqui: a versão anterior separava "não consegui ler" de "está
+/// corrompido" e **nenhum consumidor olhava a diferença** — os dois caíam no mesmo
+/// braço. Separação decorativa, com um comentário que contradizia o código.
+///
+/// `false` cobre tudo que pede reparo: ausente, ilegível agora, truncado, JSON
+/// inválido, nenhum embrulho que abra, e o `.key` que abre mas entrega **outra**
+/// chave (o caso do OneDrive revertendo o arquivo).
+pub fn key_file_holds_master(key_path: &Path, master: &[u8]) -> bool {
     match fs::read(key_path) {
-        Ok(data) => match load_master_key_from(&data) {
-            Some(master) => KeyFileState::Open(master),
-            None => KeyFileState::Unusable,
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => KeyFileState::Missing,
-        Err(e) if is_transient_io(e.kind()) => KeyFileState::Unreadable,
-        // Um diretório no lugar do arquivo, por exemplo: não é transitório.
-        Err(_) => KeyFileState::Unusable,
+        Ok(data) => load_master_key_from(&data).as_deref() == Some(master),
+        Err(_) => false,
     }
 }
 
@@ -311,11 +326,6 @@ pub fn store_master_key(
             "Nenhum embrulho disponível para a chave mestra".to_string(),
         ));
     }
-    let health = StoredKeyHealth {
-        dpapi_present: file.dpapi.is_some(),
-        device_present: file.device.is_some(),
-    };
-
     let json = serde_json::to_string(&file)
         .map_err(|e| fatal(format!("Falha ao serializar o .key: {}", e)))?;
 
@@ -323,19 +333,24 @@ pub fn store_master_key(
         let _ = fs::create_dir_all(parent);
     }
     let tmp_path = key_path.with_extension("key.tmp");
-    crate::data::versions::write_all_synced(&tmp_path, json.as_bytes()).map_err(|e| {
-        KeyWriteError {
+    let synced = crate::data::versions::write_all_synced(&tmp_path, json.as_bytes()).map_err(
+        |e| KeyWriteError {
             message: format!("Falha ao gravar o .key: {}", e),
-            transient: is_transient_io(e.kind()),
-        }
-    })?;
+            transient: is_transient_io(&e),
+        },
+    )?;
     // O rename é o passo que o antivírus costuma barrar; um erro aqui é o caso
     // mais provável de "tenta de novo no save seguinte e funciona".
     crate::data::versions::atomic_replace_io(&tmp_path, key_path).map_err(|e| KeyWriteError {
         message: format!("Falha ao substituir o .key: {}", e),
-        transient: is_transient_io(e.kind()),
+        transient: is_transient_io(&e),
     })?;
-    Ok(health)
+
+    Ok(StoredKeyHealth {
+        dpapi_present: file.dpapi.is_some(),
+        device_present: file.device.is_some(),
+        synced,
+    })
 }
 
 /// Chamado quando o usuário passa a usar senha: a senha manda, e um `.key`
