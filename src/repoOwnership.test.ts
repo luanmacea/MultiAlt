@@ -14,8 +14,14 @@ import { REPO_API_URL, REPO_SLUG, REPO_URL } from "./repo";
  * endereço antigo — num merge, num bloco copiado, num arquivo novo.
  */
 const RAIZ = path.resolve(__dirname, "..");
-const PASTAS = ["src", path.join("src-tauri", "src"), ".github"];
-const EXTENSOES = [".ts", ".tsx", ".rs", ".yml", ".yaml", ".mjs", ".json"];
+/**
+ * `"."` cobre os arquivos soltos da raiz **sem descer** (o `arquivos()` so
+ * desce nas pastas listadas). Foi exatamente o buraco por onde o README
+ * escapou na primeira limpeza: ele continuou com os badges e o link de
+ * download apontando para as releases do outro projeto.
+ */
+const PASTAS = [".", "src", path.join("src-tauri", "src"), ".github", "docs"];
+const EXTENSOES = [".ts", ".tsx", ".rs", ".yml", ".yaml", ".mjs", ".json", ".md"];
 
 /** O próprio teste e o comentário que explica a história citam o nome antigo. */
 const PODEM_CITAR = new Set([
@@ -23,15 +29,17 @@ const PODEM_CITAR = new Set([
   path.join("src", "repoOwnership.test.ts"),
   path.join("src-tauri", "src", "commands", "updater.rs"),
   path.join("src-tauri", "src", "commands", "services.rs"),
+  // Conta a historia da bifurcacao e por que o updater foi redirecionado.
+  path.join("docs", "development.md"),
 ]);
 
-function arquivos(dir: string): string[] {
+function arquivos(dir: string, desceEmSubpastas = true): string[] {
   let achados: string[] = [];
   for (const nome of readdirSync(dir)) {
     const caminho = path.join(dir, nome);
     if (nome === "node_modules" || nome === "target" || nome === "dist") continue;
     if (statSync(caminho).isDirectory()) {
-      achados = achados.concat(arquivos(caminho));
+      if (desceEmSubpastas) achados = achados.concat(arquivos(caminho));
     } else if (EXTENSOES.includes(path.extname(nome))) {
       achados.push(caminho);
     }
@@ -52,7 +60,7 @@ describe("dono do repositório", () => {
       const base = path.join(RAIZ, pasta);
       let lista: string[] = [];
       try {
-        lista = arquivos(base);
+        lista = arquivos(base, pasta !== ".");
       } catch {
         continue; // pasta ausente não é falha
       }

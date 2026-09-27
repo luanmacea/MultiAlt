@@ -25,7 +25,7 @@ Total: **131 achados** — 25 altos, 60 médios, 46 baixos.
 | **P1** | Existe e ninguém acha | ✅ **feito** (15 itens, 4 commits) |
 | **P2** | Está na tela e não se explica | ✅ **feito** (16 itens, 8 commits) |
 | **P3** | Desenho e ergonomia | ✅ **feito** (onda 1: risco, feedback, texto quebrado; onda 2: densidade, preenchimento, teclado) |
-| **Tradução** | Não existe pt-BR | ✅ **feito** (1584 chaves, catálogo `pt` completo) |
+| **Tradução** | Não existe pt-BR | ✅ **feito** (catálogo `pt` completo; a paridade com o `en` é travada por teste, então o número exato de chaves não é repetido aqui — ele muda a cada feature) |
 
 Cada correção entrou com o teste que falha primeiro e `bun run check` verde.
 

@@ -63,7 +63,8 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ServerRegionFilter` | — (vazio) | País exigido ao escolher servidor (`BR`); vazio = sem filtro. |
 | `ServerScanPages` | `30` | Páginas de 100 servidores varridas na aba Servers (teto 500). |
 | `MaxRecentGames` | `8` | Tamanho da lista de recentes. |
-| `Language` | `en` | `en` ou `de`. |
+| `GroupOrder` | `[]` | Ordem manual dos grupos na lista, em JSON (`["Zeta","Alts, velhas"]`). Vazio/`[]` = ordem automática por prefixo numérico e depois alfabética. Ver [accounts.md](accounts.md). |
+| `Language` | `en` | `en`, `pt` (português do Brasil) ou `de`. |
 | `AutoCookieRefresh` | `true` | Refresh automático de cookies (ver [authentication.md](authentication.md)). |
 | `AutoCloseLastProcess` | `false` | Fecha a instância anterior da mesma conta ao relançar. |
 | `AutoCloseRobloxForMultiRbx` | `false` | Fecha Roblox abertos se não conseguir ativar multi-Roblox. |
@@ -173,6 +174,7 @@ Com `General.BottingUseSharedClientProfile=true`, Player e Bot usam o perfil Nor
 | `Generator.TargetGroup` | `BloxGen` | Grupo onde contas geradas são colocadas. |
 | `Generator.MaxAccounts` | `0` | Parar após N contas (0 = sem limite). |
 | `Generator.MaxConsecutiveFailures` | `3` | Para após N falhas seguidas. |
+| `Generator.SignupUsernamePrefix` | `""` | Prefixo do nome das contas criadas pelo **formulário do Roblox**: `arvore` gera `arvore_k3p9z`. Vazio = nome de palavras. Não vale para o BloxGen, cujo nome vem do provedor. Ver [account-creation.md](account-creation.md). |
 | `BloxGen.Endpoint` | `https://core.bloxgen.net` | URL da API. |
 | `BloxGen.ApiKey` | `""` | Chave (em texto no INI). |
 | `BloxGen.AccountType` | `alt` | `alt`, `+30 days old`, `+1 year old`, `5+ years old`, `dump`. |

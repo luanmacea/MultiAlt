@@ -51,7 +51,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 | `User:Pass Login` | Cola `usuario:senha`, uma por linha; abre o navegador para concluir cada login. |
 | `Import Cookie` | Cola um `.ROBLOSECURITY` por linha. O cookie sai do navegador em que você já está logado: DevTools › Application › Cookies › roblox.com. |
 | `Import Old Account Data` | Traz o `AccountData.json` da versão antiga do RAM. |
-| `Create Accounts` | Cria contas **de graça** no navegador embutido: o app preenche nome, senha, data e gênero; **você resolve o CAPTCHA**. |
+| `Create Accounts` | Cria contas **de graça** no navegador embutido: o app preenche nome, senha, data e gênero; **você resolve o CAPTCHA**. O campo `Name prefix` padroniza os nomes do lote: `arvore` gera `arvore_k3p9z` (prefixo + 5 caracteres sorteados). |
 | `Account Generator` | Compra contas prontas de um serviço **pago de terceiro** (BloxGen), com chave de API. |
 | `Roblox Versions` | Gerencia versões instaladas do cliente Roblox (mora aqui por acidente histórico). |
 
@@ -61,8 +61,9 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 
 - **Seleção**: clique, `Ctrl+clique` (alterna), `Shift+clique` (intervalo), arrastar no vazio (retângulo), `Ctrl+A`, `Esc`.
 - **Arrastar a alça `⋮⋮`** reordena dentro do grupo ou move para outro grupo.
+- **Setas ▲▼ à direita** de cada conta e de cada cabeçalho de grupo fazem o mesmo, uma posição por clique, e são o único caminho que funciona pelo teclado. Nas contas o movimento é limitado ao grupo: subir a primeira a jogaria para outro grupo, o que é mudar de grupo e não de ordem.
 - **Largar texto com cookie** na lista adiciona a conta.
-- **Grupos**: o cabeçalho colapsa, aceita drop e tem checkbox. Um **número no começo do nome ordena o grupo** e some da exibição (`1 Main` mostra `Main`) — convenção herdada do RAM antigo.
+- **Grupos**: o cabeçalho colapsa, aceita drop, tem checkbox e um punho de arrastar. Um **número no começo do nome ordena o grupo** e some da exibição (`1 Main` mostra `Main`) — convenção herdada do RAM antigo. Arrastar o grupo (ou usar as setas) grava uma **ordem manual** que passa a mandar, e ela sobrevive a fechar o app.
 - **Bolinhas** (da esquerda para a direita): vermelha = sessão inválida ou conta sem cookie; laranja = `idle 20d+` (nenhum uso registrado há 20 dias ou mais); âmbar = cliente aberto pelo RAM; azul/verde/violeta = online / em jogo / no Studio.
 
 ### Clique direito numa conta
@@ -80,7 +81,9 @@ Alias, descrição, `Roblox Version (all accounts)` — é a versão **global**,
 
 `Clear` · `Account` (abre o painel) · `Actions ▾` · **`Choose Game`**.
 
-`Actions` reúne: `Refresh Cookies`, `Copy All Cookies`, `Make Friends` (modo *mesh* = todos com todos, *star* = todos com uma), `Move to Group`, `Restart Launched`, `Open Botting Mode`, `Add to Botting`, `Close All Roblox`, `Remove`.
+`Actions` reúne: `Refresh Cookies`, `Copy All Cookies`, `Make Friends` (modo *mesh* = todos com todos, *star* = todos com uma, com o **intervalo entre pedidos** em segundos no próprio submenu), `Move to Group`, `Restart Launched`, `Open Botting Mode`, `Add to Botting`, `Close All Roblox`, `Remove`.
+
+O andamento do Make Friends aparece no **Painel de Sessão** (botão `Session` na barra de cima, ou aba `Console` da Choose Game): uma linha por conta com aguardando / processando / amizade feita / erro, e o contador "X / Y contas processadas".
 
 ---
 
@@ -96,14 +99,21 @@ Abre com contas selecionadas e mostra `N accounts will be launched together` com
 | `Servers` | Varredura de servidores do place, ordenada por **quanto o lote cabe**. Filtros: `Sort by`, `Region`, `Pages to scan`. |
 | `Friends` | Amigos online de cada conta; `Join` manda o lote inteiro para o servidor do amigo. |
 | `Follow` | **`Join link`** (cola qualquer link de convite/servidor privado) e **`Follow a Player`** (por nome de usuário). Também atalhos para Server List, Utilities, Botting e Scripts. |
-| `Console` | Painel de sessão e **log ao vivo dos lançamentos** — é aqui que aparece o motivo de uma falha. |
+| `Console` | Painel de sessão e **histórico ao vivo das ações** — launch, Botting Mode e Watcher, cada linha com a origem entre colchetes (`[botting]`, `[watcher]`). É aqui que aparece o motivo de uma falha, inclusive por que o Watcher fechou um cliente. |
 | `Windows` | Organiza as janelas do Roblox em grade nos monitores escolhidos (`Arrange in grid`). |
+
+### Clique direito num jogo (Games, Favoritos, Recentes)
+
+`Join Game` · `Browse servers` · `Favorite` (ou `Rename`/`Remove`, nos favoritos) · **`Botting Mode`** · **`Scripts`** · `Copy Place ID`.
+
+As duas em negrito abrem a tela já **com aquele jogo preenchido** — antes era preciso copiar o Place ID e colar na mão.
 
 ### Aba Servers, em detalhe
 
 - `Sort by`: **Best fit** (padrão) procura o servidor mais cheio em que o lote ainda caiba deixando **uma vaga de folga**; depois `Fullest`, `Emptiest`, `Random` e `Let Roblox choose`.
 - `Pages to scan`: cada página são 100 servidores. Jogo grande precisa de mais páginas.
 - O campo `Place ID` aceita a **URL do jogo** colada. Link de convite e `share?code=` não carregam place: esses vão na aba Follow, em `Join link`.
+- Assim que o place é reconhecido, **o nome e o ícone do jogo aparecem ao lado** — um número de 10 dígitos não diz qual jogo é, e esta aba manda todas as contas selecionadas de uma vez. O mesmo vale na barra de launch, no Botting e no Nexus.
 - `Region` só filtra depois que as regiões forem resolvidas (`Load regions`), porque a região não vem da API do Roblox — sai do IP do servidor.
 - A linha diz `N free` ou `N free · needs M`; quando nada cabe, o resumo explica em vez de fingir.
 
