@@ -99,25 +99,25 @@ describe("BottomActionBar — selection-size rules", () => {
   it("only offers to open the botting dialog once botting is enabled or running", async () => {
     renderBar([A, B]);
     await openActions();
-    expect(screen.queryByRole("button", { name: /Open Botting Mode/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Open Auto Rejoin/ })).not.toBeInTheDocument();
 
     cleanup();
     const settings = defaultSettings();
     settings.General.BottingEnabled = "true";
     renderBar([A, B], { settings });
     await openActions();
-    expect(screen.getByRole("button", { name: /Open Botting Mode/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open Auto Rejoin/ })).toBeInTheDocument();
   });
 
   it("offers Add to Botting only for accounts not already in the loop", async () => {
     renderBar([A, B], { bottingStatus: makeBottingStatus({ active: true, userIds: [1] }) });
     await openActions();
-    expect(screen.getByRole("button", { name: /Add to Botting \(1\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add to Auto Rejoin \(1\)/ })).toBeInTheDocument();
 
     cleanup();
     renderBar([A, B], { bottingStatus: makeBottingStatus({ active: true, userIds: [1, 2] }) });
     await openActions();
-    expect(screen.queryByRole("button", { name: /Add to Botting/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add to Auto Rejoin/ })).not.toBeInTheDocument();
   });
 });
 
@@ -242,7 +242,7 @@ describe("BottomActionBar — actions", () => {
     settings.General.BottingEnabled = "true";
     const store = renderBar([A, B], { settings, bottingStatus: makeBottingStatus({ active: false }) });
     await openActions();
-    await userEvent.click(screen.getByRole("button", { name: /Open Botting Mode/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Open Auto Rejoin/ }));
     // Sem argumento de propósito: abrir pela barra não escolhe jogo nenhum, e
     // por isso limpa o jogo de uma abertura anterior vinda de um clique direito.
     expect(store.openBottingDialog).toHaveBeenCalledWith();
@@ -253,7 +253,7 @@ describe("BottomActionBar — actions", () => {
       bottingStatus: makeBottingStatus({ active: true, userIds: [1] }),
     });
     await openActions();
-    await userEvent.click(screen.getByRole("button", { name: /Add to Botting \(1\)/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Add to Auto Rejoin \(1\)/ }));
     await waitFor(() => expect(store.addBottingAccounts).toHaveBeenCalledWith([2]));
   });
 
@@ -471,7 +471,7 @@ describe("BottomActionBar — Botting Mode discovery", () => {
   it("still names Botting Mode in the menu while the toggle is off", async () => {
     renderBar([A, B]);
     await openActions();
-    expect(screen.getByRole("button", { name: /Botting Mode/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Auto Rejoin/ })).toBeInTheDocument();
   });
 
   it("says on screen what the mode does and how to turn it on", async () => {
@@ -494,7 +494,7 @@ describe("BottomActionBar — Botting Mode discovery", () => {
   it("points at Settings instead of the dialog while the mode is off", async () => {
     const store = renderBar([A, B]);
     await openActions();
-    await userEvent.click(screen.getByRole("button", { name: /Botting Mode/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/ }));
     expect(store.setSettingsOpen).toHaveBeenCalledWith(true);
     expect(store.openBottingDialog).not.toHaveBeenCalled();
     expect(store.setBottingDialogOpen).not.toHaveBeenCalled();

@@ -9,12 +9,12 @@ import { useTr } from "../../i18n/text";
  * Menu do jogo: tudo que se pode fazer **com aquele jogo**, a partir da lista
  * onde ele aparece.
  *
- * O motivo de existir as ações novas: funcionalidades como Botting Mode só
+ * O motivo de existir as ações novas: funcionalidades como Auto Rejoin só
  * podiam ser usadas abrindo a tela delas e colando o Place ID à mão. Aqui a
  * ação já sabe de que jogo se trata.
  *
  * Ação sem callback **não aparece**: o diálogo antigo (Server List) não tem
- * para onde abrir o Botting, e item morto é pior que item ausente.
+ * para onde abrir o Auto Rejoin, e item morto é pior que item ausente.
  */
 export function GameContextMenu({
   x,
@@ -129,7 +129,7 @@ export function GameContextMenu({
       {onBotting && (
         <Item
           onPick={onBotting}
-          label={t("Botting Mode")}
+          label={t("Auto Rejoin")}
           icon={<Repeat size={12} strokeWidth={2} className="text-violet-400" />}
         />
       )}

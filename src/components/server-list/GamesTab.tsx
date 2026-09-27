@@ -76,7 +76,7 @@ export interface GamesTabProps {
    */
   onBrowseServers?: (placeId: number, name?: string) => void;
   /**
-   * Abre o Botting Mode / os Scripts **com este jogo**. Opcional pelo mesmo
+   * Abre o Auto Rejoin / os Scripts **com este jogo**. Opcional pelo mesmo
    * motivo: são diálogos globais, e o Server List não é o lugar de abri-los.
    */
   onBotting?: (placeId: number) => void;

@@ -564,7 +564,7 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
   const bottingEnabled = s.getBool("General", "BottingEnabled");
   const sharedProfile = s.get("General", "BottingUseSharedClientProfile", "true") === "true";
 
-  // So existem 2o e 3o perfil quando Botting esta ligado com perfis
+  // So existem 2o e 3o perfil quando Auto Rejoin esta ligado com perfis
   // separados; caso contrario so "Normal" existe. Antes disso as 3 secoes
   // eram montadas de uma vez (67 controles, 6357px de scroll) — agora so a
   // escolhida monta.
@@ -572,8 +572,8 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
     const list: ProfileOption[] = [{ id: "Normal", label: t("Normal") }];
     if (bottingEnabled && !sharedProfile) {
       list.push(
-        { id: "BottingPlayer", label: t("Botting Player") },
-        { id: "BottingBot", label: t("Botting Bot") }
+        { id: "BottingPlayer", label: t("Auto Rejoin Main") },
+        { id: "BottingBot", label: t("Auto Rejoin Alt") }
       );
     }
     return list;
@@ -581,7 +581,7 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
 
   const [selectedProfile, setSelectedProfile] = useState<OptimizationProfileId>("Normal");
 
-  // Se Botting for desligado (ou voltar a perfil compartilhado) enquanto um
+  // Se Auto Rejoin for desligado (ou voltar a perfil compartilhado) enquanto um
   // perfil de bot esta selecionado, essa secao deixa de existir — cai de
   // volta em Normal em vez de nao renderizar nada.
   useEffect(() => {
@@ -611,8 +611,8 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
             <Toggle
             checked={sharedProfile}
             onChange={(v) => s.setBool("General", "BottingUseSharedClientProfile", v)}
-            label="Use same client settings for player and bots"
-            description="Player and bot profiles inherit Normal while shared mode is enabled"
+            label="Use same client settings for main and alts"
+            description="Main and alt profiles inherit Normal while shared mode is enabled"
           />
           </>
         ) : null}

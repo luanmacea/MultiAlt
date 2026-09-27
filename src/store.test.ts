@@ -1398,7 +1398,7 @@ describe("toasts and action status", () => {
   });
 
   /**
-   * O Botting pode ser aberto por um jogo (clique direito na lista) ou pela
+   * O Auto Rejoin pode ser aberto por um jogo (clique direito na lista) ou pela
    * barra. Abrir pela barra tem que **limpar** o jogo da abertura anterior,
    * senão o place escolhido num clique direito continuaria carimbando a tela.
    */
@@ -1423,7 +1423,7 @@ describe("toasts and action status", () => {
 });
 
 /**
- * Ligar o Botting numa conta que ja esta jogando: o caminho antigo (abrir o
+ * Ligar o Auto Rejoin numa conta que ja esta jogando: o caminho antigo (abrir o
  * dialogo e dar Start) fecha e relanca todo mundo, tirando as contas do
  * servidor em que estavam.
  */
@@ -1900,7 +1900,7 @@ describe("botting and generator commands", () => {
       await result.current.stopBottingMode(true);
     });
     expect(lastArgs("stop_botting_mode")).toEqual({ closeBotAccounts: true });
-    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/bot accounts closed/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/alt accounts closed/i);
   });
 
   it("adds botting accounts and ignores an empty list", async () => {

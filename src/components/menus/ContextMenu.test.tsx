@@ -298,7 +298,7 @@ describe("ContextMenu — group, botting and client entries", () => {
 
   it("hides the botting entry while botting is off", () => {
     renderMenu();
-    expect(screen.queryByText(/Botting Mode/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Auto Rejoin/)).not.toBeInTheDocument();
   });
 
   it("adds the missing accounts to a running botting loop", async () => {
@@ -306,7 +306,7 @@ describe("ContextMenu — group, botting and client entries", () => {
       { bottingStatus: makeBottingStatus({ active: true, userIds: [1] }) },
       [A, B]
     );
-    await userEvent.click(item("Add 1 account to Botting Mode"));
+    await userEvent.click(item("Add 1 account to Auto Rejoin"));
     await waitFor(() => expect(store.addBottingAccounts).toHaveBeenCalledWith([2]));
   });
 
@@ -315,9 +315,9 @@ describe("ContextMenu — group, botting and client entries", () => {
       { bottingStatus: makeBottingStatus({ active: true, userIds: [1, 2] }) },
       [A, B]
     );
-    await userEvent.click(item("Already in Botting Mode"));
+    await userEvent.click(item("Already in Auto Rejoin"));
     await waitFor(() =>
-      expect(store.addToast).toHaveBeenCalledWith("Selected accounts are already in Botting Mode")
+      expect(store.addToast).toHaveBeenCalledWith("Selected accounts are already in Auto Rejoin")
     );
     expect(store.addBottingAccounts).not.toHaveBeenCalled();
   });

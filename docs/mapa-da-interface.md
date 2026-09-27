@@ -72,7 +72,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 `Set Alias` · `Set Description` · `Copy ▸` (Cookie, Username, Password, User:Pass, User ID, Profile Link) · `Focus client` · `Restart client` · `Move to Group ▸` · `Copy Group` · `Sort Alphabetically` · `Toggle Group Visibility` · `Show Details` · `Quick Login` (confirma o código de 6 dígitos que o Roblox mostra em outro dispositivo) · `Remove Account`.
 
 Com **Developer Mode** ligado aparecem também `Copy ▸ rbx-player Link`, `Copy ▸ App Link`, `Get Auth Ticket` e `View/Edit Fields`.
-Com **Botting Mode** ativo aparece `Add N account(s) to Botting Mode`.
+Com **Auto Rejoin** ativo aparece `Add N account(s) to Auto Rejoin`.
 
 ### Painel da conta (uma selecionada)
 
@@ -82,7 +82,7 @@ Alias, descrição, `Roblox Version (all accounts)` — é a versão **global**,
 
 `Clear` · `Account` (abre o painel) · `Actions ▾` · **`Choose Game`**.
 
-`Actions` reúne: `Refresh Cookies`, `Copy All Cookies`, `Make Friends` (modo *mesh* = todos com todos, *star* = todos com uma, com o **intervalo entre pedidos** em segundos no próprio submenu), `Move to Group`, `Restart Launched`, `Open Botting Mode`, `Add to Botting`, `Close All Roblox`, `Remove`.
+`Actions` reúne: `Refresh Cookies`, `Copy All Cookies`, `Make Friends` (modo *mesh* = todos com todos, *star* = todos com uma, com o **intervalo entre pedidos** em segundos no próprio submenu), `Move to Group`, `Restart Launched`, `Open Auto Rejoin`, `Add to Auto Rejoin`, `Close All Roblox`, `Remove`.
 
 O andamento do Make Friends aparece no **Painel de Sessão** (botão `Session` na barra de cima, ou aba `Console` da Choose Game): uma linha por conta com aguardando / processando / amizade feita / erro, e o contador "X / Y contas processadas".
 
@@ -99,13 +99,13 @@ Abre com contas selecionadas e mostra `N accounts will be launched together` com
 | `Recent` | Jogos abertos recentemente, com as mesmas ações das outras listas (tamanho em Settings › General › `Max Recent Games`). |
 | `Servers` | Varredura de servidores do place, ordenada por **quanto o lote cabe**. Filtros: `Sort by`, `Region`, `Pages to scan`. |
 | `Friends` | Amigos online de cada conta; `Join` manda o lote inteiro para o servidor do amigo. |
-| `Follow` | **`Join link`** (cola qualquer link de convite/servidor privado) e **`Follow a Player`** (por nome de usuário). Também atalhos para Server List, Utilities, Botting e Scripts. |
-| `Console` | Painel de sessão e **histórico ao vivo das ações** — launch, Botting Mode e Watcher, cada linha com a origem entre colchetes (`[botting]`, `[watcher]`). É aqui que aparece o motivo de uma falha, inclusive por que o Watcher fechou um cliente. |
+| `Follow` | **`Join link`** (cola qualquer link de convite/servidor privado) e **`Follow a Player`** (por nome de usuário). Também atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
+| `Console` | Painel de sessão e **histórico ao vivo das ações** — launch, Auto Rejoin e Watcher, cada linha com a origem entre colchetes (`[rejoin]`, `[watcher]`). É aqui que aparece o motivo de uma falha, inclusive por que o Watcher fechou um cliente. |
 | `Windows` | Organiza as janelas do Roblox em grade nos monitores escolhidos (`Arrange in grid`). |
 
 ### Clique direito num jogo (Games, Favoritos, Recentes)
 
-`Join Game` · `Browse servers` · `Favorite` (ou `Rename`/`Remove`, nos favoritos) · **`Botting Mode`** · **`Scripts`** · `Copy Place ID`.
+`Join Game` · `Browse servers` · `Favorite` (ou `Rename`/`Remove`, nos favoritos) · **`Auto Rejoin`** · **`Scripts`** · `Copy Place ID`.
 
 As duas em negrito abrem a tela já **com aquele jogo preenchido** — antes era preciso copiar o Place ID e colar na mão.
 
@@ -114,7 +114,7 @@ As duas em negrito abrem a tela já **com aquele jogo preenchido** — antes era
 - `Sort by`: **Best fit** (padrão) procura o servidor mais cheio em que o lote ainda caiba deixando **uma vaga de folga**; depois `Fullest`, `Emptiest`, `Random` e `Let Roblox choose`.
 - `Pages to scan`: cada página são 100 servidores. Jogo grande precisa de mais páginas.
 - O campo `Place ID` aceita a **URL do jogo** colada. Link de convite e `share?code=` não carregam place: esses vão na aba Follow, em `Join link`.
-- Assim que o place é reconhecido, **o nome e o ícone do jogo aparecem ao lado** — um número de 10 dígitos não diz qual jogo é, e esta aba manda todas as contas selecionadas de uma vez. O mesmo vale na barra de launch, no Botting e no Nexus.
+- Assim que o place é reconhecido, **o nome e o ícone do jogo aparecem ao lado** — um número de 10 dígitos não diz qual jogo é, e esta aba manda todas as contas selecionadas de uma vez. O mesmo vale na barra de launch, no Auto Rejoin e no Nexus.
 - `Region` só filtra depois que as regiões forem resolvidas (`Load regions`), porque a região não vem da API do Roblox — sai do IP do servidor.
 - A linha diz `N free` ou `N free · needs M`; quando nada cabe, o resumo explica em vez de fingir.
 
@@ -126,7 +126,7 @@ Nove abas. As mais úteis no dia a dia:
 
 | Aba | O que mora ali |
 |---|---|
-| `General` | Idioma, updates, **Multi Roblox**, **Botting Mode**, `Launch one account at a time` e o atraso entre lançamentos (piso de 8 s), presença, nomes ocultos, navegador de login. |
+| `General` | Idioma, updates, **Multi Roblox**, **Auto Rejoin**, `Launch one account at a time` e o atraso entre lançamentos (piso de 8 s), presença, nomes ocultos, navegador de login. |
 | `Developer` | `Enable Developer Mode` (destrava itens do menu de contexto), web server, diagnóstico de mutex. |
 | `WebServer` | API HTTP local para ferramentas externas. A aba é sempre visível; os ajustes destravam com Developer Mode ou com o servidor ligado. A senha precisa de 6+ caracteres ou o servidor responde 401 a tudo. |
 | `Watcher` | Vigia o cliente do Roblox: fecha se cair a conexão, se a memória baixar, se o título mudar. |
@@ -136,7 +136,7 @@ Nove abas. As mais úteis no dia a dia:
 | `Optimization` | FPS, gráficos, tamanho de janela e política de processo do Windows — um perfil por papel (normal / player / bot). |
 | `Misc` | Sincronia dos campos de launch, shuffle de Job ID, **Backups**, criptografia e "lembrar senha". |
 
-**Dois interruptores em General mudam o app inteiro:** `Multi Roblox` (várias instâncias ao mesmo tempo) e `Botting Mode` (destrava todo o ciclo de rejoin automático). Sem eles ligados, várias funcionalidades simplesmente não aparecem.
+**Dois interruptores em General mudam o app inteiro:** `Multi Roblox` (várias instâncias ao mesmo tempo) e `Auto Rejoin` (destrava todo o ciclo de rejoin automático). Sem eles ligados, várias funcionalidades simplesmente não aparecem.
 
 ---
 
@@ -146,7 +146,7 @@ Nove abas. As mais úteis no dia a dia:
 |---|---|---|
 | `Scripts` | toolbar | **JavaScript rodando dentro do RAM**, num Web Worker isolado, com a API `ram.*` para automatizar o gerenciador (lançar contas, ler settings, HTTP, UI própria). **Não** é executor de Roblox e **não** precisa de injector: nada disso entra no cliente do jogo. As 8 permissões por script controlam o que ele pode tocar. |
 | `Nexus` (título na tela: `Account Control`) | toolbar | Servidor WebSocket que conversa com o `Nexus.lua` **executado dentro do Roblox por um executor de terceiros**. Só então dá para mandar comandos e scripts Lua para os clientes. |
-| `Botting Mode` | Actions ▾ ou Choose Game › Follow | Mantém um grupo de contas "bot" dentro de um servidor: a cada N minutos **fecha e relança** cada cliente, com carência para as contas marcadas como `player`. Exige Multi Roblox. |
+| `Auto Rejoin` | Actions ▾ ou Choose Game › Follow | Mantém um grupo de contas alt dentro de um servidor: a cada N minutos **fecha e relança** cada cliente, com carência para as contas marcadas como main. Exige Multi Roblox. |
 | `Account Utilities` | painel da conta › Tools | Operações na conta Roblox: display name, privacidade, **trocar senha**, **trocar e-mail**, PIN, encerrar outras sessões, bloqueios, outfits, avatar por JSON. |
 | `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
 | `Backups` | Settings › Misc › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
@@ -157,7 +157,7 @@ Nove abas. As mais úteis no dia a dia:
 
 ## 6. Rodapé
 
-`N selected` · `N accounts` · `N online` · `N in game` · `N studio` · `N launched` · `botting next mm:ss` · `generating x/y`, e a legenda das cores.
+`N selected` · `N accounts` · `N online` · `N in game` · `N studio` · `N launched` · `auto rejoin next mm:ss` · `generating x/y`, e a legenda das cores.
 
 Os contadores de presença são **mutuamente exclusivos**: quem está em jogo não é somado em `online`, e quem está no Studio tem contador próprio.
 

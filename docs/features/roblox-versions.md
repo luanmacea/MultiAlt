@@ -89,7 +89,7 @@ Campo por conta: `RobloxVersion` (`canal:hash`).
 
 - Se existir **qualquer** versão no catálogo, contas sem override e sem `DefaultVersion` usam a versão do catálogo mais recente (passo 3), não a instalação do sistema. Isso muda o modo de launch para old join sem o usuário perceber.
 - Misturar contas com versões diferentes num mesmo lote faz as divergentes serem puladas.
-- O web server (Nexus) ignora o catálogo (usa sempre a build production via `launch_url`/`default_player_dir`). O Botting **usa** o catálogo (`RobloxVersion`/`DefaultVersion`, mesma `resolve_roblox_install_path` do launch) e reporta a versão resolvida ao tracker (`track_with_version`, só no ramo old join — ver [botting.md](botting.md)), então ele também participa da guarda de versão concorrente do lado de quem lança depois dele; mas o próprio Botting não checa conflito antes de lançar.
+- O web server (Nexus) ignora o catálogo (usa sempre a build production via `launch_url`/`default_player_dir`). O Auto Rejoin **usa** o catálogo (`RobloxVersion`/`DefaultVersion`, mesma `resolve_roblox_install_path` do launch) e reporta a versão resolvida ao tracker (`track_with_version`, só no ramo old join — ver [botting.md](botting.md)), então ele também participa da guarda de versão concorrente do lado de quem lança depois dele; mas o próprio Auto Rejoin não checa conflito antes de lançar.
 - Versões do catálogo **não** recebem o fix de canal: o old join executa a build instalada como está.
 - Uma build antiga do catálogo pode ser rejeitada pelos servidores do Roblox (exigir update); nesse caso o cliente abre o instalador próprio.
 - Sem `weao.xyz` no ar, a lista remota falha (a instalação por hash manual continua funcionando via CDN).

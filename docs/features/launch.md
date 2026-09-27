@@ -211,12 +211,12 @@ Onde fica: `Account.fields` (`AccountData.json`), lido por `account_client_overr
 | `ClientOverrideVolume` | fração `0.0`–`1.0` | `MasterVolume`. A tela mostra a escala de 0 a 10 do jogo e grava a fração. |
 | `ClientOverrideGraphics` | `auto` ou `1`–`10` | `auto` grava `SavedQualityLevel=0` (qualidade automática) e **não** mexe no `GraphicsQualityLevel`; um número grava o nível fixo. |
 | `ClientOverrideFullscreen` | `true` / `false` | `Fullscreen`. `true` também descarta o tamanho de janela global (senão o XML gravaria `Fullscreen=false` ao lado). |
-| `ClientOverrideStartMinimized` | `true` / `false` | Substitui `StartRobloxMinimized` para esta conta (vale no launch e no Botting). |
+| `ClientOverrideStartMinimized` | `true` / `false` | Substitui `StartRobloxMinimized` para esta conta (vale no launch e no Auto Rejoin). |
 | `ClientOverrideWindowWidth` / `ClientOverrideWindowHeight` | inteiros > 0 | `StartScreenSize`. Só valem **em par** — largura sem altura é ignorada. |
 
 Campo vazio quer dizer "herda o global", não "zero": um FPS apagado não é FPS 0.
 
-Aplicado em: launch de uma conta, fila de várias contas (dentro do laço, por conta) e Botting. O servidor HTTP local não tem contexto de conta nesse ponto e usa só o perfil global.
+Aplicado em: launch de uma conta, fila de várias contas (dentro do laço, por conta) e Auto Rejoin. O servidor HTTP local não tem contexto de conta nesse ponto e usa só o perfil global.
 
 **Ressalva importante.** `ClientAppSettings.json` é por pasta de versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows — os dois são **globais**. "Por conta" funciona porque a fila é sequencial e o patch roda imediatamente antes de cada spawn; não é isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o Roblox reescreve o XML e o valor pode vazar para a próxima conta que abrir sem exceção própria.
 

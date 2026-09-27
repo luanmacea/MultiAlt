@@ -321,8 +321,8 @@ describe("FavoritesTab", () => {
 });
 
 /**
- * Usar o Botting no jogo favorito exigia copiar o Place ID e abrir a tela do
- * Botting à mão. O menu do favorito passa a oferecer as ações do jogo.
+ * Usar o Auto Rejoin no jogo favorito exigia copiar o Place ID e abrir a tela do
+ * Auto Rejoin à mão. O menu do favorito passa a oferecer as ações do jogo.
  */
 /**
  * Visto ao dirigir a tela: a aba Games mostra o ícone de cada jogo e a de
@@ -375,7 +375,7 @@ describe("FavoritesTab — ações do jogo no menu", () => {
   it("abre o Botting Mode com o jogo favorito", async () => {
     const { menu, onBotting, onSelectGame } = await abrirMenu();
 
-    await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+    await userEvent.click(menu.getByRole("button", { name: "Auto Rejoin" }));
 
     expect(onBotting).toHaveBeenCalledWith(606849621);
     // Abrir a tela do jogo não é entrar no jogo (nem no VIP dele).
@@ -542,7 +542,7 @@ describe("RecentTab", () => {
     it("abre o Botting Mode com o jogo recente", async () => {
       const { menu, onBotting, onSelectGame } = await abrirMenu();
 
-      await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+      await userEvent.click(menu.getByRole("button", { name: "Auto Rejoin" }));
 
       expect(onBotting).toHaveBeenCalledWith(920587237);
       expect(onSelectGame).not.toHaveBeenCalled();

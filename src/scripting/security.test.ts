@@ -513,7 +513,7 @@ describe("resolvePrivateNetworkAccess", () => {
  * `ram.window.snapshot()` sob demanda sempre exigiu `allowWindow`. Mas o host
  * **empurrava** o mesmo snapshot por `window:update` para todo script ao iniciar
  * e a cada mudança, sem olhar permissão: um script sem `allowWindow` recebia a
- * lista de contas, a seleção, a presença e o estado do Botting de graça.
+ * lista de contas, a seleção, a presença e o estado do Auto Rejoin de graça.
  */
 describe("snapshotForPermissions", () => {
   const cheio = {

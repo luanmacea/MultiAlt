@@ -69,7 +69,7 @@ Aparece com ≥ 1 conta selecionada:
 | Make Friends | `make_selected_friends` modo `mesh` ou `star`; confirma acima de 30 pedidos; progresso via `friend-link-state`, com uma entrada **por conta** no Painel de Sessão (aguardando/processando/amizade feita/erro) e o contador "X / Y contas processadas" |
 | Move to Group / New group | `moveToGroup` |
 | Restart launched clients | só contas lançadas pelo app |
-| Botting | abre diálogo ou adiciona contas ao botting ativo |
+| Auto Rejoin | abre diálogo ou adiciona contas ao Auto Rejoin ativo |
 | Close All Roblox | `killAllRobloxProcesses` |
 | Remove | exige digitar `REMOVE` |
 | **Choose Game** | abre a `ChooseGameScreen` |
@@ -83,8 +83,8 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 | Favorites | favoritos com VIPs; clicar lança todas as contas selecionadas (público ou VIP). |
 | Games | busca de jogos; clicar lança todas as selecionadas. |
 | Recent | jogos recentes. |
-| Follow | `lookup_user` + `get_presence`; se o alvo não estiver em jogo (`presence < 2`) pede confirmação; chama `launch_roblox` com `followUser: true` para cada conta, 3 s entre elas. Atalhos para Server List, Utilities, Botting e Scripts. |
-| Console | **histórico geral das ações** (evento `launch-log`, auto-scroll, limpar): launch, Botting Mode e Watcher, cada linha com a origem (`step`) numa coluna de largura fixa — sem ela, `[watcher]` e `[botting-retry]` empurram o nome da conta para colunas diferentes. Linha de sessão (início/fim do Botting) vem com `userId` nulo e aparece como `—`. Mais os controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)`. |
+| Follow | `lookup_user` + `get_presence`; se o alvo não estiver em jogo (`presence < 2`) pede confirmação; chama `launch_roblox` com `followUser: true` para cada conta, 3 s entre elas. Atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
+| Console | **histórico geral das ações** (evento `launch-log`, auto-scroll, limpar): launch, Auto Rejoin e Watcher, cada linha com a origem (`step`) numa coluna de largura fixa — sem ela, `[watcher]` e `[rejoin-retry]` empurram o nome da conta para colunas diferentes. Linha de sessão (início/fim do Auto Rejoin) vem com `userId` nulo e aparece como `—`. Mais os controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)`. |
 
 `launchAll` (hook `useLauncher`): confirma contas online, muda para a aba Console, grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
 
@@ -109,7 +109,7 @@ Aparece em dois lugares, com o mesmo estado vindo do store:
 |---|---|---|
 | **Joining** | evento `launch-queue` ([multi-launch.md](multi-launch.md#fila-observável-e-cancelamento)) | ✕ por conta (`cancel_account_launch`), "Stop queue" (`stop_launch_queue`) |
 | **Make Friends** | evento `friend-link-state` | nenhuma (só acompanhamento) — uma linha por conta com aguardando/processando/amizade feita/erro, o erro **na conta que enviou** o pedido que falhou, marca de conta principal no modo `star`, e o contador "X / Y contas processadas" |
-| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`), **Close** (`cmd_kill_roblox`), **Botting** (adota as contas em jogo no ciclo **sem fechar nada** — ver [botting.md](botting.md)), seleção múltipla com uma confirmação só |
+| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`), **Close** (`cmd_kill_roblox`), **Auto Rejoin** (adota as contas em jogo no ciclo **sem fechar nada** — ver [botting.md](botting.md)), seleção múltipla com uma confirmação só |
 
 Regras: cancelar **nunca** chama `cmd_kill_roblox` (há teste de regressão para isso); os nomes respeitam o mascaramento de `hideUsernames`; linhas terminais (`done`/`failed`/`cancelled`) continuam visíveis até a próxima fila substituir.
 
@@ -126,7 +126,7 @@ A seção **Make Friends** só aparece depois que houve uma execução (`total >
 
 ### Status bar
 
-Total/filtradas, selecionadas, contas online e em jogo (se `ShowPresence`), contas lançadas pelo app, status do Botting/gerador e a linha de `actionStatus` (ver abaixo).
+Total/filtradas, selecionadas, contas online e em jogo (se `ShowPresence`), contas lançadas pelo app, status do Auto Rejoin/gerador e a linha de `actionStatus` (ver abaixo).
 
 ### Feedback de ação: toast vs. `actionStatus`
 
@@ -140,7 +140,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 - `addToast` calcula o tom **uma vez** (`toneFromMessage` em [toastTone.ts](../../src/utils/toastTone.ts)) e o guarda no item da fila junto com um `id` — o `id` é a chave de lista, para que a saída de um toast não remonte os que ficaram. `addToast` **não** escreve em `actionStatus`: escrevia, e depois que a `StatusBar` passou a desenhar `actionStatus` a mesma frase apareceria duas vezes na tela.
 - A cor dos dois canais (e do Console de launch) vem do **mesmo** mapa `TONE_STYLES` de [toastTone.ts](../../src/utils/toastTone.ts): `info` neutro (cores do painel), `success` esmeralda, `warn` âmbar, `error` vermelho. Não criar paleta paralela.
 - O tom é deduzido do **texto**, porque quase todo call site entrega a frase já traduzida; por isso o catálogo tem de preservar o marcador em cada idioma — contrato travado por [locales.test.ts](../../src/i18n/locales.test.ts).
-- Progresso vai para `actionStatus`, nunca para toast: download do Chromium, download/instalação da build do Roblox (`timeoutMs` de 60 s), `Launching account N/M...`, `Settings saved` (evento `ram-action-status` disparado por [useSettings.ts](../../src/hooks/useSettings.ts)) e a falha de ciclo do Botting (`warn`).
+- Progresso vai para `actionStatus`, nunca para toast: download do Chromium, download/instalação da build do Roblox (`timeoutMs` de 60 s), `Launching account N/M...`, `Settings saved` (evento `ram-action-status` disparado por [useSettings.ts](../../src/hooks/useSettings.ts)) e a falha de ciclo do Auto Rejoin (`warn`).
 
 ## Regras de negócio
 

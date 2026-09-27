@@ -410,7 +410,7 @@ export interface StoreValue {
   stopLaunchQueue: () => Promise<number>;
   startBottingMode: (config: BottingStartConfig) => Promise<void>;
   /**
-   * Liga o Botting Mode nas contas que **já estão em jogo**, sem fechar nem
+   * Liga o Auto Rejoin nas contas que **já estão em jogo**, sem fechar nem
    * relançar o cliente delas.
    *
    * Com sessão ativa é só entrar nela; sem sessão, o place vem da **presença**
@@ -523,13 +523,13 @@ export interface StoreValue {
   bottingDialogOpen: boolean;
   setBottingDialogOpen: (open: boolean) => void;
   /**
-   * Place com que o Botting deve abrir quando a abertura partiu de um jogo
+   * Place com que o Auto Rejoin deve abrir quando a abertura partiu de um jogo
    * (clique direito numa lista de jogos). **Vence o rascunho salvo**: quem
    * acabou de escolher o jogo quer aquele jogo, não o da vez passada.
    * `null` quando a abertura não trouxe jogo nenhum.
    */
   bottingDialogPlaceId: string | null;
-  /** Abre o Botting, opcionalmente já com um jogo escolhido. */
+  /** Abre o Auto Rejoin, opcionalmente já com um jogo escolhido. */
   openBottingDialog: (placeId?: string) => void;
   bottingStatus: BottingStatus | null;
   generatorDialogOpen: boolean;
@@ -1531,7 +1531,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const message =
         platformCapabilities.reasons[0] ||
         platformCapabilities.warnings[0] ||
-        "Botting Mode is unavailable for the active Linux runner";
+        "Auto Rejoin is unavailable for the active Linux runner";
       setError(message);
       throw new Error(message);
     }
@@ -1548,7 +1548,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         adoptRunning: config.adoptRunning ?? false,
       });
       setBottingStatus(status);
-      addToast(tr("Botting Mode started ({{count}} accounts)", { count: config.userIds.length }));
+      addToast(tr("Auto Rejoin started ({{count}} accounts)", { count: config.userIds.length }));
     } catch (e) {
       setError(String(e));
       throw e;
@@ -1556,7 +1556,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * Adota no Botting Mode contas que já estão jogando.
+   * Adota no Auto Rejoin contas que já estão jogando.
    *
    * O caminho antigo era abrir o diálogo, colar o Place ID e dar Start — e o
    * Start **fecha e relança** todo mundo, tirando as contas do servidor em que
@@ -1574,7 +1574,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     if (ids.length < 2) {
       const message = tr(
-        "Botting Mode needs at least two accounts. Select another one, or start the cycle from the Botting dialog."
+        "Auto Rejoin needs at least two accounts. Select another one, or start the cycle from the Auto Rejoin dialog."
       );
       addToast(message);
       throw new Error(message);
@@ -1599,7 +1599,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     if (!location?.placeId) {
       const message = tr(
-        "Could not tell which game these accounts are in. Open the Botting dialog and set the Place ID."
+        "Could not tell which game these accounts are in. Open the Auto Rejoin dialog and set the Place ID."
       );
       addToast(message);
       throw new Error(message);
@@ -1627,8 +1627,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await invoke("stop_botting_mode", { closeBotAccounts });
       await refreshBottingStatus();
       addToast(tr(closeBotAccounts
-        ? "Botting Mode stopped and bot accounts closed"
-        : "Botting Mode stopped"));
+        ? "Auto Rejoin stopped and alt accounts closed"
+        : "Auto Rejoin stopped"));
     } catch (e) {
       setError(String(e));
       throw e;
@@ -1645,8 +1645,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addToast(
         tr(
           userIds.length === 1
-            ? "Added {{count}} account to Botting Mode"
-            : "Added {{count}} accounts to Botting Mode",
+            ? "Added {{count}} account to Auto Rejoin"
+            : "Added {{count}} accounts to Auto Rejoin",
           { count: userIds.length }
         )
       );
@@ -1662,7 +1662,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         playerUserIds: userIds,
       });
       setBottingStatus(status);
-      addToast(tr(userIds.length === 0 ? "Player accounts cleared" : "Player accounts updated"));
+      addToast(tr(userIds.length === 0 ? "Main accounts cleared" : "Main accounts updated"));
     } catch (e) {
       setError(String(e));
       throw e;
@@ -2451,7 +2451,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               ? `: ${e.payload.error}`
               : "";
           setActionStatusMessage(
-            `${tr("Botting rejoin failed for {{userId}}", { userId: uid })}${errorText}`,
+            `${tr("Auto Rejoin failed for {{userId}}", { userId: uid })}${errorText}`,
             "warn",
             3500
           );

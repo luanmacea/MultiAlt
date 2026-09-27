@@ -773,7 +773,7 @@ describe("ChooseGameScreen — descoberta", () => {
   });
 
   /**
-   * Item do dono: "Right click no jogo > Botting Mode deve abrir a tela já
+   * Item do dono: "Right click no jogo > Auto Rejoin deve abrir a tela já
    * configurada com aquele jogo, sem copiar e colar o Place ID". O place vai
    * **explícito** na abertura porque o rascunho salvo vence a store.
    */
@@ -783,11 +783,11 @@ describe("ChooseGameScreen — descoberta", () => {
 
     fireEvent.contextMenu(await screen.findByText("Jailbreak"), { clientX: 5, clientY: 5 });
     const menu = within(await screen.findByTestId("favorite-context-menu"));
-    await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+    await userEvent.click(menu.getByRole("button", { name: "Auto Rejoin" }));
 
     expect(store.openBottingDialog).toHaveBeenCalledWith("606849621");
     expect(store.setPlaceId).toHaveBeenCalledWith("606849621");
-    // Escolher o jogo para o Botting não lança nada.
+    // Escolher o jogo para o Auto Rejoin não lança nada.
     expect(store.joinServer).not.toHaveBeenCalled();
     expect(store.launchMultiple).not.toHaveBeenCalled();
   });
@@ -855,7 +855,7 @@ describe("ChooseGameScreen — descoberta", () => {
     expect(panelWrapper.className).toMatch(/overflow-y-auto/);
 
     const log = screen
-      .getByText("Launch a game or start Botting Mode to see the activity here")
+      .getByText("Launch a game or start Auto Rejoin to see the activity here")
       .closest(".font-mono") as HTMLElement;
     expect(log.className).toMatch(/min-h-\[160px\]/);
     expect(log.className).not.toMatch(/min-h-0/);
@@ -863,7 +863,7 @@ describe("ChooseGameScreen — descoberta", () => {
 });
 
 /**
- * O console era só do launch: ação do Botting Mode não aparecia em lugar
+ * O console era só do launch: ação do Auto Rejoin não aparecia em lugar
  * nenhum, e o Watcher fechava cliente deixando só um toast de 2,5 s. Agora ele
  * é o histórico geral, e cada linha diz de onde veio.
  */
@@ -874,9 +874,9 @@ describe("ChooseGameScreen — console como histórico geral", () => {
       selectedIds: new Set([1001]),
       selectedAccounts: [ACCOUNT_A],
       launchLogs: [
-        { id: 1, userId: 1001, level: "success", step: "botting", message: "Entrou no jogo pelo ciclo do Botting", ts: Date.now() },
+        { id: 1, userId: 1001, level: "success", step: "rejoin", message: "Entrou no jogo pelo ciclo do Auto Rejoin", ts: Date.now() },
         { id: 2, userId: 1001, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s", ts: Date.now() },
-        { id: 3, userId: null, level: "info", step: "botting", message: "Botting Mode parado", ts: Date.now() },
+        { id: 3, userId: null, level: "info", step: "rejoin", message: "Auto Rejoin parado", ts: Date.now() },
       ],
     });
     render(<ChooseGameScreen />);
@@ -888,10 +888,10 @@ describe("ChooseGameScreen — console como histórico geral", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Console" }));
 
-    expect(screen.getByText("Entrou no jogo pelo ciclo do Botting")).toBeInTheDocument();
+    expect(screen.getByText("Entrou no jogo pelo ciclo do Auto Rejoin")).toBeInTheDocument();
     expect(screen.getByText(/sem conexao por 30s/)).toBeInTheDocument();
     const origens = screen.getAllByTestId("log-step").map((el) => el.textContent);
-    expect(origens).toEqual(["[botting]", "[watcher]", "[botting]"]);
+    expect(origens).toEqual(["[rejoin]", "[watcher]", "[rejoin]"]);
   });
 
   it("linha de sessão não finge pertencer a uma conta", async () => {
@@ -900,7 +900,7 @@ describe("ChooseGameScreen — console como histórico geral", () => {
     await userEvent.click(screen.getByRole("button", { name: "Console" }));
 
     // `userId: null` desenha "—": passar 0 imprimiria "0" no lugar do nome.
-    const linha = screen.getByText("Botting Mode parado").closest("div") as HTMLElement;
+    const linha = screen.getByText("Auto Rejoin parado").closest("div") as HTMLElement;
     expect(linha.textContent).toContain("—");
   });
 });

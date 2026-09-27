@@ -74,33 +74,33 @@ Ao lado dos jogos recentes, a aba Recent do Server List mostra os **servidores**
 
 ### Ações do jogo pelo clique direito
 
-Toda lista de jogos (Games, Favoritos, Recentes) abre um menu com **o que se pode fazer com aquele jogo**. O motivo: funcionalidades como o Botting Mode só podiam ser usadas abrindo a tela delas e **colando o Place ID à mão** — a ação agora já sabe de que jogo se trata.
+Toda lista de jogos (Games, Favoritos, Recentes) abre um menu com **o que se pode fazer com aquele jogo**. O motivo: funcionalidades como o Auto Rejoin só podiam ser usadas abrindo a tela delas e **colando o Place ID à mão** — a ação agora já sabe de que jogo se trata.
 
 | Item | O que faz | Onde aparece |
 |---|---|---|
 | Join Game | Lança o jogo (comportamento antigo) | sempre |
 | Browse servers | Vai para a aba Servers com o place preenchido | quando a tela dona passa `onBrowseServers` |
 | Favorite / Rename / Remove | Gerência do favorito | Games (favoritar) e Favoritos |
-| Botting Mode | Abre o Botting **com aquele jogo** | Choose Game |
+| Auto Rejoin | Abre o Auto Rejoin **com aquele jogo** | Choose Game |
 | Scripts | Abre os Scripts com aquele place como place atual (é o que `ram.window` expõe) | Choose Game |
 | Copy Place ID | Copia o número | sempre |
 
 Regras:
 
-- **Ação sem callback não aparece.** O diálogo antigo (Server List) não tem para onde abrir Botting/Scripts; item morto é pior que item ausente.
+- **Ação sem callback não aparece.** O diálogo antigo (Server List) não tem para onde abrir Auto Rejoin/Scripts; item morto é pior que item ausente.
 - A lista de **Recentes** não tinha clique direito nenhum — ganhou o mesmo `GameContextMenu` das outras.
 - Abrir uma tela sobre o jogo **não entra no jogo**: nenhuma dessas ações lança cliente (travado por teste nas três listas).
-- Para o Botting o place vai **explícito na abertura** (`openBottingDialog(placeId)`), e não só por `store.placeId`: o rascunho salvo (`General.BottingDraftPlaceId`) vence a store, então sem isso o usuário escolhia um jogo e via outro. Abrir o Botting **sem** jogo (barra de ações, toolbar) limpa o jogo da abertura anterior.
+- Para o Auto Rejoin o place vai **explícito na abertura** (`openBottingDialog(placeId)`), e não só por `store.placeId`: o rascunho salvo (`General.BottingDraftPlaceId`) vence a store, então sem isso o usuário escolhia um jogo e via outro. Abrir o Auto Rejoin **sem** jogo (barra de ações, toolbar) limpa o jogo da abertura anterior.
 
 ### Identificação do jogo pelo Place ID
 
-Padrão do app: **toda tela que trabalha com um Place ID mostra qual jogo é aquele**, sempre que der para descobrir. Um número de 10 dígitos não informa nada, e telas de lote (aba Servers, barra de launch, Botting) agem sobre várias contas de uma vez — entrar no jogo errado por um número copiado torto é caro.
+Padrão do app: **toda tela que trabalha com um Place ID mostra qual jogo é aquele**, sempre que der para descobrir. Um número de 10 dígitos não informa nada, e telas de lote (aba Servers, barra de launch, Auto Rejoin) agem sobre várias contas de uma vez — entrar no jogo errado por um número copiado torto é caro.
 
 1. O caminho único é o hook [useGameIdentity.ts](../../src/hooks/useGameIdentity.ts): recebe o texto do campo (número **ou** link do jogo colado) e devolve `{ placeId, name, iconUrl, loading }`.
 2. Ele resolve nome e ícone num **comando só** (`batched_get_game_info`), com **cache de módulo por place** lido de forma síncrona — a segunda tela que abre o mesmo jogo já nasce com o nome, sem piscar — e **dedupe** das chamadas em voo. Do outro lado, o backend também guarda: o corpo de `multiget-place-details` traz nome e `universeId` juntos e o nome era descartado, então quem queria o nome pagava `get_place_details`, que não tem cache nenhum. Nome ausente é guardado como string vazia de propósito — é o registro de "já perguntei", e sem ele a tela perguntaria de novo a cada abertura.
 3. Espera 400 ms de digitação parada antes de perguntar (`6`, `60`, `606`… não são places), descarta resposta que chega depois de o usuário trocar de place, e marca como "não sei" o place que falhou (nova tentativa só depois de 30 s, para queda de rede não virar laço de requisições).
 4. Quem desenha é [GameBadge.tsx](../../src/components/ui/GameBadge.tsx), puramente visual: **sem nome e sem ícone não desenha nada** — "Place 606849621" não informa mais que o número já visível no campo ao lado.
-5. Telas ligadas hoje: aba Servers da Choose Game, Botting Mode (os dois layouts) e Nexus. Games/Favoritos/Recentes já mostravam nome e ícone pelo caminho próprio das listas.
+5. Telas ligadas hoje: aba Servers da Choose Game, Auto Rejoin (os dois layouts) e Nexus. Games/Favoritos/Recentes já mostravam nome e ícone pelo caminho próprio das listas.
 
 ### Resolução do alvo VIP/privado no launch (backend)
 

@@ -23,7 +23,7 @@ import { MAX_ALIAS_LENGTH } from "../../types";
 const A = makeAccount({ UserID: 1, Username: "ann" });
 const B = makeAccount({ UserID: 2, Username: "bob" });
 
-/** Botting refuses to start unless Multi Roblox is on. */
+/** Auto Rejoin refuses to start unless Multi Roblox is on. */
 function settings(multiRbx: boolean, draft: Record<string, string> = {}) {
   const s = defaultSettings();
   s.General.EnableMultiRbx = multiRbx ? "true" : "false";
@@ -49,7 +49,7 @@ function renderDialog(
   return { store, onClose };
 }
 
-const startButton = () => screen.getByRole("button", { name: "Start Botting Mode" });
+const startButton = () => screen.getByRole("button", { name: "Start Auto Rejoin" });
 const placeIdField = () => screen.getByPlaceholderText("Place ID");
 
 beforeEach(() => {
@@ -87,7 +87,7 @@ describe("BottingDialog — start guards", () => {
     await userEvent.type(placeIdField(), "606849621");
 
     expect(
-      screen.getByText("Botting Mode currently requires Multi Roblox to be enabled")
+      screen.getByText("Auto Rejoin currently requires Multi Roblox to be enabled")
     ).toBeInTheDocument();
     expect(startButton()).toBeDisabled();
   });
@@ -154,12 +154,12 @@ describe("BottingDialog — stop controls", () => {
   it("stops the loop, optionally closing the bot clients", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Stop Botting Mode" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop Auto Rejoin" }));
     expect(store.stopBottingMode).toHaveBeenCalledWith(false);
 
     // Fechar clientes é destrutivo: passa pelo confirm.
     promptAnswers.confirm = true;
-    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Bot Accounts" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Alt Accounts" }));
     await waitFor(() => expect(store.stopBottingMode).toHaveBeenCalledWith(true));
   });
 });
@@ -172,12 +172,12 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   it("Stop + Close diz quantos clientes bot fecha e o que fica aberto", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Bot Accounts" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Alt Accounts" }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalled());
     const [message, destructive] = confirmMock.mock.calls[0];
-    expect(message).toContain("2 bot accounts");
-    expect(message).toContain("Player accounts keep their client");
+    expect(message).toContain("2 alt accounts");
+    expect(message).toContain("Main accounts keep their client");
     expect(message).toContain("outside this session are left alone");
     expect(destructive).toBe(true);
     // Recusado: nada fecha.
@@ -187,7 +187,7 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   it("Stop Botting Mode (sem fechar) não pergunta nada", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Stop Botting Mode" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop Auto Rejoin" }));
 
     expect(confirmMock).not.toHaveBeenCalled();
     expect(store.stopBottingMode).toHaveBeenCalledWith(false);
@@ -196,11 +196,11 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   it("o lote Close client diz quantos clientes fecha e não fecha se recusado", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Select alts" }));
     await userEvent.click(screen.getByRole("button", { name: "Close client (2)" }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalled());
-    expect(confirmMock.mock.calls[0][0]).toContain("2 bot accounts");
+    expect(confirmMock.mock.calls[0][0]).toContain("2 alt accounts");
     expect(confirmMock.mock.calls[0][1]).toBe(true);
     expect(store.bottingAccountAction).not.toHaveBeenCalled();
   });
@@ -209,7 +209,7 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
     promptAnswers.confirm = true;
 
-    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Select alts" }));
     await userEvent.click(screen.getByRole("button", { name: "Close + Disconnect (2)" }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalled());
@@ -256,7 +256,7 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   it("os lotes não destrutivos seguem sem pergunta", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Select alts" }));
     await userEvent.click(screen.getByRole("button", { name: "Restart loop (2)" }));
 
     await waitFor(() => expect(store.bottingAccountAction).toHaveBeenCalledTimes(2));
@@ -274,7 +274,7 @@ describe("BottingDialog — explains the cycle", () => {
     expect(screen.getByText("How each cycle works")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Every rejoin closes that bot account's Roblox client and opens it again, so the account leaves the server and joins back."
+        "Every rejoin closes that alt account's Roblox client and opens it again, so the account leaves the server and joins back."
       )
     ).toBeInTheDocument();
   });
@@ -284,12 +284,12 @@ describe("BottingDialog — explains the cycle", () => {
 
     expect(
       screen.getByText(
-        "Only the bot accounts in this session are closed. Player accounts keep their client, and clients of accounts outside this session are left alone."
+        "Only the alt accounts in this session are closed. Main accounts keep their client, and clients of accounts outside this session are left alone."
       )
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Stop + Close Bot Accounts closes those same bot clients; Stop Botting Mode leaves every client open."
+        "Stop + Close Alt Accounts closes those same alt clients; Stop Auto Rejoin leaves every client open."
       )
     ).toBeInTheDocument();
   });
@@ -300,7 +300,7 @@ describe("BottingDialog — explains the cycle", () => {
     await waitFor(() => expect(screen.getByText("How each cycle works")).toBeInTheDocument());
     expect(
       screen.getByText(
-        "Every rejoin closes that bot account's Roblox client and opens it again, so the account leaves the server and joins back."
+        "Every rejoin closes that alt account's Roblox client and opens it again, so the account leaves the server and joins back."
       )
     ).toBeInTheDocument();
   });
@@ -310,7 +310,7 @@ describe("BottingDialog — timing units", () => {
   const unitLabels = [
     "Rejoin Interval (minutes)",
     "Launch Delay (seconds)",
-    "Player Grace (minutes)",
+    "Main Grace (minutes)",
   ];
 
   it("shows the unit of every timing field in the default view", async () => {
@@ -342,7 +342,7 @@ describe("BottingDialog — timing units", () => {
     // `resolve_player_grace_minutes` (1..90).
     expect(
       screen.getByText(
-        "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-480)."
+        "Rejoin Interval: minutes an alt account stays in the server before its client is closed and reopened (10-480)."
       )
     ).toBeInTheDocument();
     expect(
@@ -352,7 +352,7 @@ describe("BottingDialog — timing units", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Player Grace: minutes a player account keeps its client after you remove it from Player Accounts, before it joins the cycle (1-90)."
+        "Main Grace: minutes a main account keeps its client after you remove it from Main Accounts, before it joins the cycle (1-90)."
       )
     ).toBeInTheDocument();
   });
@@ -363,7 +363,7 @@ describe("BottingDialog — long alias chips", () => {
   // chips de "Targets" mostram `Alias || Username` sem limite de largura —
   // sem truncar, um alias no teto estoura o layout do diálogo.
   //
-  // O mesmo nome tambem aparece no dropdown fechado de "Player Accounts"
+  // O mesmo nome tambem aparece no dropdown fechado de "Main Accounts"
   // (fica no DOM, só oculto por opacidade), entao a busca por texto precisa
   // filtrar pelo chip de verdade (`theme-soft`) em vez do primeiro que achar.
   const longAlias = "a".repeat(MAX_ALIAS_LENGTH);
@@ -435,7 +435,7 @@ describe("BottingDialog — draft persistence", () => {
   });
 
   /**
-   * Clique direito num jogo → "Botting Mode" abre esta tela para **aquele**
+   * Clique direito num jogo → "Auto Rejoin" abre esta tela para **aquele**
    * jogo. O rascunho salvo vence a store, então o place escolhido tem que vir
    * explícito na abertura, senão o usuário escolhe um jogo e vê outro.
    */

@@ -117,7 +117,7 @@ Duas sequências ao mesmo tempo (dois cliques no botão, ou um launch de uma con
 - cancelar (`stop_launch_queue`, `cancel_launch`, "Close All Roblox") **não** libera a reserva: cancelar só marca as contas que ainda não foram lançadas. O laço ainda vai acordar, e liberar antes dele sair era exatamente como dois lotes rodavam juntos. O que o usuário espera até poder lançar de novo é só o que falta do trabalho da conta em voo — a espera entre contas termina sozinha quando não há mais nada `queued` (ver as regras de espaçamento acima);
 - lote **sem conta nenhuma** não é sequência: o comando sai antes de reservar (e a fila também recusa), senão ele rodaria o isolamento pré-launch e seguraria a fila para não abrir nada;
 - a fila vive no processo, então um fechamento do app (ou uma queda) começa com a fila livre — não existe reserva presa em disco;
-- o **Botting** não passa por aqui: o ciclo dele não é uma sequência de launch da UI, e continua como era. O mesmo vale para o launch do servidor HTTP local, que tem caminho próprio e nunca alimentou a fila.
+- o **Auto Rejoin** não passa por aqui: o ciclo dele não é uma sequência de launch da UI, e continua como era. O mesmo vale para o launch do servidor HTTP local, que tem caminho próprio e nunca alimentou a fila.
 
 ## Configurações relacionadas
 

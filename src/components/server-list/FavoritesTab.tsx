@@ -45,7 +45,7 @@ export interface FavoritesTabProps {
    * servidores (fora da Choose Game) não tem para onde levar.
    */
   onBrowseServers?: (placeId: number) => void;
-  /** Abre o Botting Mode / os Scripts **com este jogo**, sem copiar Place ID. */
+  /** Abre o Auto Rejoin / os Scripts **com este jogo**, sem copiar Place ID. */
   onBotting?: (placeId: number) => void;
   onScripts?: (placeId: number) => void;
 }

@@ -105,5 +105,5 @@ Seção `[Isolation]` do `RAMSettings.ini`:
 - Medium/Full apagam o valor de canal que o fix de [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix) fixa; `launch_url` recria a chave no launch seguinte.
 - Full + fast flags: o JSON pendente só é aplicado se a nova instalação aparecer em até 240 s.
 - Spoof de MAC corta a conexão brevemente; se rodar no meio de outras sessões, elas podem cair.
-- Botting e web server não executam isolamento.
+- Auto Rejoin e web server não executam isolamento.
 - Dados apagados não vão para a lixeira (remoção direta com `remove_dir_all`/`RegDeleteTreeW`).

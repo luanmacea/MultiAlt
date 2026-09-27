@@ -11,7 +11,7 @@ export interface RecentTabProps {
   onBrowseServers?: (placeId: number) => void;
   /** Salva o jogo nos favoritos (mesma ação da aba Games). */
   onAddFavorite?: (game: GameEntry) => void;
-  /** Abre o Botting Mode / os Scripts **com este jogo**. */
+  /** Abre o Auto Rejoin / os Scripts **com este jogo**. */
   onBotting?: (placeId: number) => void;
   onScripts?: (placeId: number) => void;
   /**

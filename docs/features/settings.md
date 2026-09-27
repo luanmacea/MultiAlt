@@ -82,21 +82,21 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `OverrideClientGraphics` / `ClientGraphicsLevel` | `false` / `10` | Qualidade gráfica. |
 | `OverrideClientWindowSize` / `ClientWindowWidth` / `ClientWindowHeight` | `false` / `1280` / `720` | Tamanho da janela. |
 | `StartRobloxMinimized` | `false` | Abrir cliente minimizado. |
-| `BottingPlayer*` / `BottingBot*` (mesmas chaves acima com prefixo) | iguais ao Normal | Perfis de cliente para Botting (ver [botting.md](botting.md)). |
+| `BottingPlayer*` / `BottingBot*` (mesmas chaves acima com prefixo) | iguais ao Normal | Perfis de cliente para Auto Rejoin (ver [botting.md](botting.md)). |
 | `StartOnPCStartup` | `false` | Autostart (plugin `autostart`). |
 | `MinimizeToTray` | `false` | Botão fechar esconde na bandeja. |
 | `ThemeWindowsNavbar` | `true` | Barra de título do Windows segue o tema. |
 | `ThemeWindowsNavbarAutoEnabledV1` | `true` | Marcador de migração (força `ThemeWindowsNavbar=true` uma vez). |
 | `RestrictedBackgroundStyle` | `warp` | Fundo animado da tela de senha: `bubbles`, `warp`, `warpLegacy`, `waves`. |
-| `BottingEnabled` | `false` | Habilita ferramentas de Botting Mode. |
-| `BottingUseSharedClientProfile` | `true` | Perfis Player/Bot herdam o Normal. |
-| `BottingAutoShareLaunchFields` | `true` | Sincroniza Place/Job/Data entre sidebar e Botting. |
-| `BottingDualPanelDialog` | `true` | Layout em dois painéis no diálogo de Botting. |
+| `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
+| `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
+| `BottingAutoShareLaunchFields` | `true` | Sincroniza Place/Job/Data entre sidebar e Auto Rejoin. |
+| `BottingDualPanelDialog` | `true` | Layout em dois painéis no diálogo de Auto Rejoin. |
 | `BottingDefaultIntervalMinutes` | `19` | Intervalo de ciclo. |
 | `BottingLaunchDelaySeconds` | `20` | Espaço entre launches. |
 | `BottingRetryMax` / `BottingRetryBaseSeconds` | `6` / `8` | Backoff de retry. |
-| `BottingPlayerGraceMinutes` | `15` | Carência para contas "player". |
-| `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do formulário de Botting. |
+| `BottingPlayerGraceMinutes` | `15` | Carência para contas main (papel `player` no INI). |
+| `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do formulário de Auto Rejoin. |
 | `EncryptionMethod` | `default` | `default` ou `password` (ver [accounts.md](accounts.md)). |
 | `EncryptionOnboardingState` | `pending` (novo) / `completed` (INI existente) | Onboarding de criptografia. |
 | `FirstRunWalkthroughState` | `pending` (novo) / `completed` (INI existente) | Walkthrough; vira `skipped`/`completed`. |
@@ -150,7 +150,7 @@ Três perfis com as mesmas 13 chaves, prefixadas por `Normal`, `BottingPlayer` e
 | `EnableJobCpuLimit` / `JobCpuLimitPercent` | false / 25 | false / 25 | false / 20 |
 | `EnableJobMemoryLimit` / `JobMemoryLimitMb` | false / 2048 | false / 2048 | false / 1536 |
 
-Com `General.BottingUseSharedClientProfile=true`, Player e Bot usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
+Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
 
 ### `[Versions]` — detalhes em [roblox-versions.md](roblox-versions.md)
 

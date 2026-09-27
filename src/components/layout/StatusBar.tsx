@@ -129,7 +129,7 @@ export function StatusBar() {
           {bottingActive && (
             <span className="theme-muted inline-flex items-center gap-1 shrink-0">
               <span className="w-2 h-2 rounded-full bg-fuchsia-400 animate-pulse" />
-              <span className="text-fuchsia-300/90">{t("botting")}</span>
+              <span className="text-fuchsia-300/90">{t("auto rejoin")}</span>
               <span className="text-fuchsia-200/90">{t("next")} {bottingLabel}</span>
             </span>
           )}

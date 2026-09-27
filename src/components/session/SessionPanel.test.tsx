@@ -332,7 +332,7 @@ describe("SessionPanel — live updates", () => {
 });
 
 /**
- * Ligar o Botting Mode numa conta que ja esta jogando exigia abrir o diálogo,
+ * Ligar o Auto Rejoin numa conta que ja esta jogando exigia abrir o diálogo,
  * colar o Place ID e dar Start — e o Start **fecha e relança** todo mundo,
  * tirando as contas do servidor em que estavam. O botão aqui adota o cliente
  * que já está de pé.
@@ -350,7 +350,7 @@ describe("SessionPanel — adotar contas em jogo no Botting", () => {
     const { store } = comRodando();
 
     await userEvent.click(screen.getByLabelText("Select all running clients"));
-    await userEvent.click(screen.getByRole("button", { name: /Botting/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
 
     expect(store.adoptRunningIntoBotting).toHaveBeenCalledWith([1, 2]);
     // A promessa do painel: adotar nunca fecha um cliente aberto.
@@ -361,24 +361,24 @@ describe("SessionPanel — adotar contas em jogo no Botting", () => {
   it("sem marcar ninguém, age sobre todas as que estão em jogo", async () => {
     const { store } = comRodando();
 
-    await userEvent.click(screen.getByRole("button", { name: /Botting/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
 
     expect(store.adoptRunningIntoBotting).toHaveBeenCalledWith([1, 2]);
   });
 
   it("não oferece o botão quando não há cliente rodando", () => {
     renderPanel({ launchedByProgram: new Set(), launchQueue: queue([]) });
-    expect(screen.queryByRole("button", { name: /Botting/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Auto Rejoin/i })).not.toBeInTheDocument();
   });
 
   it("mostra o motivo quando a adoção não dá", async () => {
     const { store } = comRodando({
       adoptRunningIntoBotting: vi.fn(async () => {
-        throw new Error("Botting Mode needs at least two accounts.");
+        throw new Error("Auto Rejoin needs at least two accounts.");
       }),
     });
 
-    await userEvent.click(screen.getByRole("button", { name: /Botting/i }));
+    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
 
     expect(store.adoptRunningIntoBotting).toHaveBeenCalled();
     expect(await screen.findByRole("alert")).toHaveTextContent(/at least two accounts/i);

@@ -90,6 +90,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "botting_command_tests",
       "botting_console_tests",
+      "auto_rejoin_naming_tests",
       "watcher_tests",
       "watcher_console_tests",
     ],

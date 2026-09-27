@@ -18,7 +18,7 @@ describe("toneFromMessage", () => {
     expect(toneFromMessage("Launched by Roblox Account Manager")).toBe("success");
     expect(toneFromMessage("Contas salvas")).toBe("success");
     expect(toneFromMessage("Apelido atualizado")).toBe("success");
-    expect(toneFromMessage("Botting Mode iniciado (3 contas)")).toBe("success");
+    expect(toneFromMessage("Auto Rejoin iniciado (3 contas)")).toBe("success");
   });
 
   it("reconhece aviso em inglês e em português", () => {

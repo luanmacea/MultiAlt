@@ -119,7 +119,7 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 | `servers-real-place` | Réplica com **dados reais** capturados da API (4 páginas do place 15101393044), inclusive com os Job IDs repetidos entre páginas |
 | `friends-online` | Amigos por conta, com uma conta falhando |
 | `friend-link` | Make Friends em andamento, com uma conta falhando |
-| `console-history` | Linhas de launch, Botting e Watcher chegando aos poucos no Console |
+| `console-history` | Linhas de launch, Auto Rejoin e Watcher chegando aos poucos no Console |
 | `groups` | Contas em grupos nomeados (um com prefixo numérico, um com vírgula no nome) para ver cabeçalhos e arrastar a ordem |
 | `launch-queue` | Fila de launch e contas em jogo |
 
@@ -210,13 +210,13 @@ $env:RAM_DATA_DIR = "$env:TEMP\ram-dev"; bun run tauri dev
 ### Glossário pt-BR
 
 - **Botão = infinitivo** ("Adicionar", "Salvar"); **resultado = particípio** ("Conta adicionada", "Job ID copiado"); só a primeira maiúscula em rótulo; tratamento "você".
-- **Não se traduz**: `Roblox`, `Job ID`, `Place ID`, `Universe ID`, `Cookie`, `Fast Flags`, `Web Server`, `Botting Mode`, `Nexus`, `Watcher`, `alt`, `place`, `job`, `loop`, `rejoin`, nome de arquivo/caminho/URL/código, nome de tema e de fonte.
+- **Não se traduz**: `Roblox`, `Job ID`, `Place ID`, `Universe ID`, `Cookie`, `Fast Flags`, `Web Server`, `Auto Rejoin`, `Nexus`, `Watcher`, `alt`, `place`, `job`, `loop`, `rejoin`, nome de arquivo/caminho/URL/código, nome de tema e de fonte.
 - Termos fixos: account → conta · launch → iniciar · settings → configurações · aged/idle → sem uso · Player Accounts → Contas de jogador · asset → item · General/Developer/Optimization/Misc/Isolation → Geral/Desenvolvedor/Otimização/Diversos/Isolamento.
 - Rótulo curto (<20 caracteres no inglês) não passa de +30% em português: trunca na tela.
 
 ### Tradução não pode mudar comportamento
 
-O texto exibido nunca é valor de negócio: `<Select>` guarda `value` cru (`"idle"`, `"normal"`) e traduz só o `label`; nome de grupo, fase do Botting e seção/chave do INI são comparados no literal inglês. Ao mexer em tradução, mantenha isso.
+O texto exibido nunca é valor de negócio: `<Select>` guarda `value` cru (`"idle"`, `"normal"`) e traduz só o `label`; nome de grupo, fase do Auto Rejoin e seção/chave do INI são comparados no literal inglês. Ao mexer em tradução, mantenha isso.
 
 O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria dos call sites entrega a frase **já traduzida** (`addToast(tr("..."))`). Por isso o heurístico vive em [src/utils/toastTone.ts](../src/utils/toastTone.ts) com marcadores dos dois idiomas completos, e um teste garante que nenhuma tradução apague o tom que o inglês indica.
 
