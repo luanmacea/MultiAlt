@@ -318,7 +318,11 @@ export interface StoreValue {
   groups: ParsedGroup[];
   loadAccounts: () => Promise<void>;
   saveAccounts: () => Promise<void>;
-  addAccountByCookie: (cookie: string) => Promise<void>;
+  /**
+   * `password` só quando a linha colada trazia `usuario:senha` antes do cookie
+   * (o formato do import): vai separado para o `add_account`, nunca no cookie.
+   */
+  addAccountByCookie: (cookie: string, password?: string) => Promise<void>;
   removeAccounts: (userIds: number[]) => Promise<void>;
   updateAccount: (account: Account) => Promise<void>;
 
@@ -1077,16 +1081,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function addAccountByCookie(cookie: string) {
+  async function addAccountByCookie(cookie: string, password?: string) {
     try {
       const info = await invoke<{ user_id: number; name: string }>("validate_cookie", {
         cookie,
       });
       const alreadyExists = accounts.some((a) => a.UserID === info.user_id);
+      // Sem senha a chamada fica exatamente como sempre foi (o `add_account`
+      // recebe `Option<String>` e só troca a senha guardada quando vem uma).
       await invoke("add_account", {
         securityToken: cookie,
         username: info.name,
         userId: info.user_id,
+        ...(password ? { password } : {}),
       });
       await loadAccounts();
       addToast(tr(alreadyExists ? "Updated {{name}}" : "Added {{name}}", { name: info.name }));
