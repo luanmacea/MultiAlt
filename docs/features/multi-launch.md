@@ -26,7 +26,7 @@ Lançar várias contas, **uma por vez e em sequência**, no mesmo place/Job ID, 
    1. Se `is_launch_cancelled()` → sai do loop.
    2. `launch-log` `start` ("Conta i/N — place …").
    3. Resolve versão da conta (`RobloxVersion` → `DefaultVersion` → catálogo → sistema). Falha → `launch-progress` com `error: "version-resolve-failed"`, espera 2 s, próxima conta.
-   4. Guarda de versão: se houver cliente/pendente em outra versão → `launch-progress` com `error: "version-conflict"`, próxima conta (sem espera). O código fica no evento; a entrada da fila é marcada `Failed` com a **frase** de `version_conflict_message` (com as versões abertas), porque o painel de sessão desenha `entry.error` cru.
+   4. Guarda de versão: se houver cliente/pendente em outra versão → `launch-progress` com `error: "version-conflict"`, próxima conta (sem espera). O código fica no evento; a entrada da fila é marcada `Failed` com a **frase** de `version_conflict_message` (com as versões que impedem aquela conta), porque o painel de sessão desenha `entry.error` cru.
    5. Emite `launch-progress {userId, index, total}`.
    5.1. `shuffleJob` ligado e Job ID vazio: **esta conta** busca a lista de servidores públicos do place e sorteia o seu (`pick_shuffled_public_job`), logando `launch-log` `target` com o Job ID escolhido. Cada conta sorteia o seu — o lote se espalha em vez de entrar todo no mesmo servidor.
    6. Multi Roblox + `refresh_production_version().await` + patch do `ClientAppSettings.json` **na pasta da versão desta conta** (`Some(&acct_base_path)`, resolvida no passo 3 — ver [launch.md](launch.md#onde-o-clientappsettingsjson-é-gravado)).
