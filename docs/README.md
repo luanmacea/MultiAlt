@@ -97,7 +97,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ## Registro de mudanças (2026-09-22)
 
-0. **O app segue o canal do Roblox em vez de fixá-lo.** Forçar `production` fazia o launch pelo *site* divergir e chamar o instalador do Roblox (que fecha os clientes abertos). Agora `launch_url`/`default_player_dir` leem o canal do registro, garantem que a build daquele canal esteja instalada (baixando-a em silêncio) e abrem ela direto — app e site concordam, e cada build é baixada uma única vez — [launch.md](features/launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix).
+0. **O app segue o canal do Roblox em vez de fixá-lo.** Forçar `production` fazia o launch pelo *site* divergir e chamar o instalador do Roblox (que fecha os clientes abertos). Agora `launch_url`/`default_player_dir` leem o canal do registro, garantem que a build daquele canal esteja instalada (baixando-a em silêncio) e abrem ela direto — app e site concordam, e cada build é baixada uma única vez — [launch.md](features/launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix). *(Depois, em 24/09: o `launch_url` passou a abrir sempre a build de **produção**, porque o `channel:` vazio da URL vence o registro; só o old join segue o canal do registro. O app continua sem fixar canal — a única escrita é o reparo de canal morto. O estado atual está em launch.md.)*
 
 1. **Atualização do Roblox não abre mais o instalador dele:** quando a build production não está instalada, o launcher baixa e instala essa build sozinho (`ensure_production_player_exe` + `install_build_to_dir`, progresso no evento `roblox-build-install`) — [launch.md](features/launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix).
 2. **Join links:** campo único na aba Follow aceita convite de experiência, link VIP/privado, `vip:<código>`, link de jogo, servidor específico, deep link e link curto — [join-links.md](features/join-links.md).
@@ -105,7 +105,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ## Registro de correções (2026-09-21)
 
-1. Canal fixado em `production` também no old join sem catálogo (`default_player_dir`), cache da build production de 60 s e ClientSettings gravados na pasta realmente lançada (`refresh_production_version` + `get_roblox_path`) — [launch.md](features/launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix).
+1. Canal fixado em `production` também no old join sem catálogo (`default_player_dir`), cache da build production de 60 s e ClientSettings gravados na pasta realmente lançada (`refresh_production_version` + `get_roblox_path`) — [launch.md](features/launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix). *(**Superado em 22/09 — não reintroduzir:** fixar `production` no registro quebrava o launch pelo site e fazia o instalador do Roblox fechar todos os clientes. Hoje o app não fixa canal (a única escrita é o reparo de canal morto); ver a entrada 0 de 22/09.)*
 2. Mutex `ROBLOX_singletonMutex` adquirido, segurado e liberado numa thread dedicada (`multi-roblox-mutex`) — [launch.md](features/launch.md#regras-de-negócio).
 3. Isolamento pré-launch não fecha mais clientes abertos: com Roblox rodando ele é pulado — [isolation.md](features/isolation.md).
 4. `launch_multiple` checa o cancelamento logo antes do spawn de cada conta (Close All para a conta em andamento) — [multi-launch.md](features/multi-launch.md).

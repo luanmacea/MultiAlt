@@ -11,7 +11,7 @@ Lançar várias contas, **uma por vez e em sequência**, no mesmo place/Job ID, 
 | [launch.rs](../../src-tauri/src/commands/launch.rs) | `launch_multiple` (Windows e macOS), `cancel_launch`, `next_account`, `cmd_kill_all_roblox` |
 | [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) | Helpers reutilizados do launch único (moderação, ticket, private join, PID, logs) |
 | [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | Flags `launcher_cancelled` e `next_account` |
-| [platform/windows/launch.rs](../../src-tauri/src/platform/windows/launch.rs) | Spawn (protocolo com canal fixado ou old join) |
+| [platform/windows/launch.rs](../../src-tauri/src/platform/windows/launch.rs) | Spawn: protocolo (`launch_url`, build de produção) ou old join (pasta do catálogo, ou `default_player_dir` — build do canal lido do registro) |
 | [store.tsx](../../src/store.tsx) | `launchMultiple`, `killAllRobloxProcesses`, listeners `launch-progress` / `launch-complete` / `launch-log` |
 | [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx) | Chamador (1 conta → `joinServer`; várias → `launchMultiple`) |
 

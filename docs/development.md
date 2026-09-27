@@ -76,7 +76,7 @@ O **teto de tempo** dos clientes fica em [api/http_client.rs](../src-tauri/src/a
 
 | Teste | Protege |
 |---|---|
-| `launch_url_tests` ([platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs)) | canal fixado em `production`/`LIVE`, chave do registro e formato da URL de launch — a tela de atualização do Roblox fechando clientes |
+| `launch_url_tests`, `channel_follow_tests`, `channel_build_pairing_tests` ([platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs)) | a build aberta casando com o canal que o cliente consulta: URL de launch sempre com `channel:` vazio (= produção) e o protocolo abrindo a build de produção; o old join **seguindo** o canal do registro (o app não fixa canal); o mapeamento canal → endpoint de versão/CDN (`production` = `LIVE`), o nome da chave do registro e o formato da URL — a tela de atualização do Roblox fechando clientes |
 | `middleware_tests` ([api/server/middleware.rs](../src-tauri/src/api/server/middleware.rs)), `password_tests` | bloqueio de requisições vindas de páginas web e exigência de senha |
 | `save_should_*` ([data/accounts/store.rs](../src-tauri/src/data/accounts/store.rs)) | escrita atômica e recusa de sobrescrever contas trancadas |
 | `join_link_tests` / `join_link_http_tests` ([api/roblox/join_links.rs](../src-tauri/src/api/roblox/join_links.rs)) | formatos de link aceitos e resolução de convites |
