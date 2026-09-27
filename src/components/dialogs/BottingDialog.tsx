@@ -479,6 +479,15 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
         accountById.get(playerUserIds[0])?.Username ||
         t("Unknown")
       : t("{{count}} selected", { count: playerUserIds.length });
+  /**
+   * O rótulo do botão Main Accounts corta o nome (ou diz só "N selected"): o
+   * `title` traz quem são, por inteiro. Mesmo padrão do chip de Targets.
+   */
+  const playerAccountTitle = playerUserIds.length === 0
+    ? undefined
+    : playerUserIds
+        .map((id) => accountById.get(id)?.Alias || accountById.get(id)?.Username || t("Unknown"))
+        .join(", ");
   const splitPlayersCount = liveRows.filter(
     ({ userId, row }) => !!row?.isPlayer || playerUserIds.includes(userId)
   ).length;
@@ -822,7 +831,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                           aria-haspopup="listbox"
                           aria-expanded={playerMenuOpen}
                         >
-                          <span className="truncate">{playerAccountLabel}</span>
+                          <span className="truncate" title={playerAccountTitle}>{playerAccountLabel}</span>
                           <ChevronDown size={14} strokeWidth={2} className={`theme-muted transition-transform duration-150 ${playerMenuOpen ? "rotate-180" : ""}`} />
                         </button>
                         <div
@@ -873,7 +882,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                 }`}
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="truncate">{a.Alias || a.Username}</span>
+                                  <span className="truncate" title={a.Alias || a.Username}>{a.Alias || a.Username}</span>
                                   {active ? (
                                     <span className="text-[12px] opacity-80">{t("Selected")}</span>
                                   ) : null}
@@ -1276,6 +1285,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         const canAct = !!status?.active && !actionButtonsLocked && !!row;
                         const canFocus = canAct && !row?.disconnected && store.launchedByProgram.has(userId);
                         const isBulkSelected = bulkSelectedSet.has(userId);
+                        const rowName = account?.Alias || account?.Username || `${t("User ID")}: ${userId}`;
                         const dueCountdownRaw = row?.disconnected
                           ? "disconnected"
                           : row?.isPlayer
@@ -1341,8 +1351,8 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                                   </div>
                                 )}
                                 <div className="min-w-0">
-                                  <div className="text-[13px] text-[var(--panel-fg)] truncate">
-                                    {account?.Alias || account?.Username || `${t("User ID")}: ${userId}`}
+                                  <div className="text-[13px] text-[var(--panel-fg)] truncate" title={rowName}>
+                                    {rowName}
                                   </div>
                                   <div className={`text-[12px] ${phaseTone(row?.phase || "idle")}`}>
                                     {t(row?.phase || "idle")}
@@ -1580,7 +1590,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                   aria-haspopup="listbox"
                   aria-expanded={playerMenuOpen}
                 >
-                  <span className="truncate">{playerAccountLabel}</span>
+                  <span className="truncate" title={playerAccountTitle}>{playerAccountLabel}</span>
                   <ChevronDown size={14} strokeWidth={2} className={`theme-muted transition-transform duration-150 ${playerMenuOpen ? "rotate-180" : ""}`} />
                 </button>
                 <div
@@ -1631,7 +1641,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate">{a.Alias || a.Username}</span>
+                          <span className="truncate" title={a.Alias || a.Username}>{a.Alias || a.Username}</span>
                           {active ? (
                             <span className="text-[12px] opacity-80">{t("Selected")}</span>
                           ) : null}
@@ -1842,6 +1852,7 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
             <div className="text-[13px] font-medium text-[var(--panel-fg)] mb-2">{t("Live Cycle")}</div>
             <div className="space-y-1.5">
               {liveRows.map(({ userId, account, row }) => {
+                const rowName = account?.Alias || account?.Username || `${t("User ID")}: ${userId}`;
                 const isRowBusy = rowBusy === userId;
                 const canAct = !!status?.active && !actionButtonsLocked && !!row;
                 const canFocus = canAct && !row?.disconnected && store.launchedByProgram.has(userId);
@@ -1885,8 +1896,11 @@ export function BottingDialog({ open, onClose, initialPlaceId = null }: BottingD
                   >
                     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[13px] text-[var(--panel-fg)] truncate">
-                          {account?.Alias || account?.Username || `${t("User ID")}: ${userId}`}
+                        {/* A caixa do nome aqui chega a 90 px (a barra de ações
+                            ocupa o resto da linha): corta até `MyFarmAccount01`.
+                            O `title` é o jeito de ler o nome inteiro. */}
+                        <div className="text-[13px] text-[var(--panel-fg)] truncate" title={rowName}>
+                          {rowName}
                         </div>
                         <div className={`text-[12px] ${phaseTone(row?.phase || "idle")}`}>
                           {t(row?.phase || "idle")}
