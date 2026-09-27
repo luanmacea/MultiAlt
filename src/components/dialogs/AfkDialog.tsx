@@ -37,7 +37,8 @@ export function formatAfkElapsed(startedAtMs: number | null, nowMs: number): str
  * precisar de rejoin.
  *
  * A tela tem duas obrigações que não são enfeite:
- * 1. dizer que **cada envio rouba o foco por um instante** (é o preço do
+ * 1. dizer que **cada ciclo tira o foco da janela do usuário** e só o devolve
+ *    depois da última conta — cerca de meio segundo por conta (é o preço do
  *    `SendInput`, que só alcança a janela em primeiro plano);
  * 2. só oferecer tecla da lista fechada que o backend entrega (`afkKeys`) — sem
  *    campo livre e sem tecla padrão, porque ligar o modo não pode mexer no
@@ -281,11 +282,9 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
             />
             <div className="text-[11px] theme-muted leading-4">
               {t(
-                "Each send brings that account's Roblox window to the front for about half a second and then gives the focus back to the window you were using."
+                "Each cycle takes the focus away from the window you are using: it brings the Roblox window of each account whose turn it is to the front, one after another, for about half a second each, and gives the focus back only after the last one — about 4 seconds with 10 accounts."
               )}{" "}
-              {t(
-                "If you are typing in another program at that instant, the key can land in the wrong window."
-              )}{" "}
+              {t("Meanwhile, what you type goes to the Roblox window, not to the program you were using.")}{" "}
               {t(
                 "And when Windows keeps the window in the background — which is what it usually does while this app is not the one you are using — nothing is sent at all, and the account below says so."
               )}
