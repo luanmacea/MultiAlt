@@ -102,7 +102,8 @@ O diretório base é a **pasta de dados do usuário**, resolvida uma vez por pro
 
 Regras:
 - Na primeira execução com `%LOCALAPPDATA%` disponível, se existir um `RAMVersions.json` legado ao lado do exe, ele é **copiado** para o novo local.
-- Os caminhos dependem do exe; em `bun run tauri dev` os arquivos ficam ao lado do binário de debug em `src-tauri/target/debug/`.
+- **`bun run tauri dev` usa a mesma pasta de dados do app instalado**, com o `AccountData.json`, o `AccountData.key` e as settings **de verdade** do dono. `decide_data_dir` não tem caso de debug: o binário de `src-tauri/target/debug/` só vira pasta de dados se tiver um `portable.txt` ao lado. Quem vai mexer em gravação, migração, criptografia ou restauração de backup roda o dev com `RAM_DATA_DIR` apontando para uma pasta descartável (ver [development.md](development.md#dados-em-desenvolvimento)) — senão testa contra as contas reais.
+- Nem tudo segue `RAM_DATA_DIR`/`portable.txt`: `RAMVersions.json`, `RobloxVersions/` e `IsolationBackup/` ficam sempre em `%LOCALAPPDATA%/Roblox Account Manager`, e os perfis do Chromium de login na pasta de dados local do Tauri (`app_local_data_dir`). O lado do Roblox (registro, `%LOCALAPPDATA%/Roblox`, clientes abertos) também é o de verdade.
 
 ## Feature flags
 

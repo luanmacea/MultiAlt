@@ -188,16 +188,18 @@ Comandos relacionados em [services.rs](../src-tauri/src/commands/services.rs) t�
 
 ## Dados em desenvolvimento
 
-Os arquivos de dados (`AccountData.json`, `RAMSettings.ini`, `RAMScripts.json`, ...) ficam na **pasta de dados do usuário** — `%LOCALAPPDATA%\Roblox Account Manager` no Windows (ver [architecture.md](architecture.md#arquivos-de-persistência)). Isso vale também em `tauri dev`: a mesma pasta do app instalado.
+Os arquivos de dados (`AccountData.json`, `AccountData.key`, `RAMSettings.ini`, `RAMScripts.json`, ...) ficam na **pasta de dados do usuário** — `%LOCALAPPDATA%/Roblox Account Manager` no Windows (ver [architecture.md](architecture.md#arquivos-de-persistência)). Isso vale também em `tauri dev`: a mesma pasta do app instalado, **com as contas reais**. Não existe pasta separada para debug.
 
 Para testar do zero **sem tocar nos seus dados reais**, aponte outra pasta:
 
 ```bash
 # PowerShell
-$env:RAM_DATA_DIR = "$env:TEMP\ram-dev"; bun run tauri dev
+$env:RAM_DATA_DIR = "$env:TEMP/ram-dev"; bun run tauri dev
 ```
 
 `RAMSettings.ini` é recriado com defaults e, como não existia, `EncryptionOnboardingState` e `FirstRunWalkthroughState` ficam `pending` (o app abre o onboarding).
+
+O `RAM_DATA_DIR` não isola tudo: o catálogo de versões (`RAMVersions.json`, `RobloxVersions/`) e o `IsolationBackup/` continuam em `%LOCALAPPDATA%/Roblox Account Manager`, e o Roblox em si (registro, instalação, clientes) é o da máquina.
 
 ## i18n
 
@@ -290,7 +292,7 @@ Exemplo: comando `get_account_note(user_id) -> String`.
    ```
 
    - Retorne sempre `Result<T, String>` com `T: Serialize`.
-   - Se chamar a API do Roblox com o cookie da conta, envolva em `run_with_session_retry(state.inner(), user_id, |cookie| async move { ... })` ([account_api.rs](../src-tauri/src/commands/account_api.rs)) para ganhar refresh automático de sessão (ver [authentication.md](features/authentication.md)).
+   - Se chamar a API do Roblox com o cookie da conta **para ler** (ou para uma ação não crítica), use `read_without_refresh(state.inner(), user_id, |cookie| async move { ... })` ([account_api.rs](../src-tauri/src/commands/account_api.rs)): pega o cookie e chama a API direto, e cookie vencido vira erro na tela. **Não use `run_with_session_retry`** (nem `refresh_account_session`) nesse caso — é regra crítica do `CLAUDE.md`: no primeiro 401 o refresh chama `signoutfromallsessionsandreauthenticate`, que desloga a conta de **todas** as sessões e derruba os clientes Roblox abertos dela. O retry fica para o caminho crítico que já o usa (auth ticket e private join do launch e do Auto Rejoin) e para ações que a pessoa pediu explicitamente naquela conta, aceitando esse custo. Comando de leitura novo em `account_api.rs` entra na lista `LEITURAS` do teste `read_only_retry_tests`, que reprova se ele passar a renovar sessão (ver [authentication.md](features/authentication.md#regras-de-negócio)).
    - Para progresso/notificações assíncronas, receba `app: tauri::AppHandle` e use `app.emit("meu-evento", payload)`.
    - Código específico de SO: use `#[cfg(target_os = "windows")]` e forneça um caminho `#[cfg(not(target_os = "windows"))]` que retorne erro, como em [diagnostics.rs](../src-tauri/src/commands/diagnostics.rs). Código dependente de feature: crie a versão `#[cfg(not(feature = "..."))]`, como em [services.rs](../src-tauri/src/commands/services.rs).
 
