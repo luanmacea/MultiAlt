@@ -274,26 +274,49 @@ impl AccountStore {
             return "Password required for encrypted file".to_string();
         }
 
+        // O dono lê isto na **tela de senha**, que só tem senha e Continue:
+        // Settings não abre com as contas trancadas, e mandar "restaurar pelo
+        // Settings" era mandar abrir uma tela que não abre. O caminho real é à
+        // mão, e a ordem importa: com o app aberto nada é relido, e pôr os
+        // arquivos do backup por cima sem tirar os de agora do lugar perde o
+        // vault que talvez ainda abra no aparelho que o criou.
+        let data_dir = self
+            .file_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        let backups_dir = data_dir.join(crate::BACKUPS_DIR_NAME);
+
         // Só citar o `.json.bak` quando ele **existe**: numa instalação que nasceu
         // cifrada esse arquivo nunca existiu, e mandar restaurá-lo é mandar a
         // pessoa caçar um arquivo inexistente exatamente no momento de pânico.
         let plain_backup = self.file_path.with_extension("json.bak");
-        let where_to_look = if plain_backup.exists() {
+        let put_back = if plain_backup.exists() {
             format!(
-                "Restore the copy at {}, or a backup from Settings > Misc > Data",
-                plain_backup.display()
+                "Put back either the copy at {} renamed to AccountData.json (plain text from before \
+                 encryption: accounts added since then are not in it), or AccountData.json and \
+                 AccountData.key from a backup zip in {}",
+                plain_backup.display(),
+                backups_dir.display()
             )
         } else {
-            "Restore a backup from Settings > Misc > Data (it contains both the account file and its key)"
-                .to_string()
+            format!(
+                "Put back AccountData.json and AccountData.key from a backup zip in {}",
+                backups_dir.display()
+            )
         };
 
         format!(
             "The account vault is encrypted with this device's key and that key could not be recovered ({}). \
-             Nothing was deleted or overwritten. {}, on the machine that created it — or start over by moving \
-             both files aside.",
+             Nothing was deleted or overwritten. Settings does not open while the accounts are locked, so \
+             restore by hand, in this order: 1. Close the app. 2. Move AccountData.json and AccountData.key \
+             out of {} and keep them. 3. {}. 4. Open the app again. A backup only opens on the PC and Windows \
+             user that made it. Instead of step 3, you can also open the app with both files moved out, \
+             restore a backup in Settings > Misc > Backups and restart the app. To start over with no \
+             accounts, just open the app after step 2.",
             key_path.display(),
-            where_to_look
+            data_dir.display(),
+            put_back
         )
     }
 
@@ -3626,6 +3649,62 @@ mod vault_migration_tests {
         fs::write(bak_path(&store), b"[]").unwrap();
         let err = store.load().expect_err("não abre");
         assert!(err.contains(".json.bak"), "{err}");
+    }
+
+    /// **A5 do checkup.** Todo lockout termina na tela de senha, que só tem senha
+    /// e Continue — Settings não abre com as contas trancadas. A mensagem mandava
+    /// restaurar "from Settings > Misc > Data": uma tela que não abre. O caminho
+    /// real é à mão e tem ordem: fechar o app, tirar os dois arquivos do lugar
+    /// (guardando), pôr de volta os do backup, abrir de novo. O Settings só serve
+    /// **depois** de os arquivos saírem do lugar, com o app reaberto vazio.
+    #[test]
+    fn the_lockout_message_gives_a_way_out_that_works_from_the_password_screen() {
+        let store = vault("lockout-way-out");
+        let foreign = crypto::device_hash_for_identifier("aparelho-que-nao-existe-mais");
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        fs::write(&store.file_path, crypto::encrypt(&json, &foreign).unwrap()).unwrap();
+        let device_blob = crypto::encrypt(&"00".repeat(32), &foreign).unwrap();
+        fs::write(
+            key_path(&store),
+            serde_json::json!({ "v": 1, "device": hex_for_test(&device_blob) }).to_string(),
+        )
+        .unwrap();
+        let data_dir = store.file_path.parent().unwrap().to_path_buf();
+        let backups_dir = data_dir.join(crate::BACKUPS_DIR_NAME);
+
+        for with_plain_copy in [false, true] {
+            if with_plain_copy {
+                fs::write(bak_path(&store), b"[]").unwrap();
+            }
+            let err = store.load().expect_err("não abre");
+            let at = |needle: &str| {
+                err.find(needle)
+                    .unwrap_or_else(|| panic!("a mensagem não diz {needle:?}: {err}"))
+            };
+
+            let close = at("Close the app");
+            let move_out = at(&format!(
+                "Move AccountData.json and AccountData.key out of {}",
+                data_dir.display()
+            ));
+            let from_zip = at(&format!("from a backup zip in {}", backups_dir.display()));
+            let reopen = at("Open the app again");
+            assert!(
+                close < move_out && move_out < from_zip && from_zip < reopen,
+                "fora de ordem: {err}"
+            );
+            assert!(
+                at("Settings > ") > move_out,
+                "manda usar o Settings antes de tirar os arquivos do lugar: {err}"
+            );
+            assert!(err.contains("Nothing was deleted or overwritten"), "{err}");
+            if with_plain_copy {
+                assert!(
+                    at(&bak_path(&store).display().to_string()) > move_out,
+                    "manda pôr a cópia por cima antes de tirar o vault do lugar: {err}"
+                );
+            }
+        }
     }
 
     /// **M7.** O `.json.bak` da migração é a única cópia realmente recuperável
