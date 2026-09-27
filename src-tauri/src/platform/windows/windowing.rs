@@ -62,11 +62,51 @@ pub fn window_is_minimized(hwnd: HWND) -> bool {
     unsafe { IsIconic(hwnd) != 0 }
 }
 
-pub fn focus_window(hwnd: HWND) -> bool {
-    unsafe {
-        let _ = ShowWindow(hwnd, SW_RESTORE);
-        SetForegroundWindow(hwnd) != 0
+/// Para que a janela vem para frente — é isso que decide se o estado dela
+/// (minimizada, normal, maximizada) pode mudar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FocusPurpose {
+    /// Trazer uma janela para frente para ela receber algo: o cliente da conta
+    /// no AFK mode, o "focar a janela" da conta. Minimizada é restaurada (não dá
+    /// para receber tecla minimizada); normal ou maximizada fica como está.
+    Bring,
+    /// Devolver o primeiro plano à janela que estava lá antes — a janela em que
+    /// o usuário estava trabalhando. Nunca mexe no estado dela.
+    GiveBack,
+}
+
+/// O `ShowWindow` que vai antes do `SetForegroundWindow`, se algum.
+///
+/// `SW_RESTORE` só em janela **minimizada**: numa maximizada ele a devolve ao
+/// tamanho normal. Aplicado sempre, o AFK mode tirava do maximizado o cliente
+/// alvo e — ao devolver o foco — a janela em que o usuário estava trabalhando,
+/// a cada ciclo, até quando o foco tinha sido negado e nada foi enviado.
+fn show_command_before_focus(purpose: FocusPurpose, minimized: bool) -> Option<i32> {
+    match purpose {
+        FocusPurpose::Bring if minimized => Some(SW_RESTORE),
+        FocusPurpose::Bring | FocusPurpose::GiveBack => None,
     }
+}
+
+fn bring_to_foreground(hwnd: HWND, purpose: FocusPurpose) -> bool {
+    if let Some(command) = show_command_before_focus(purpose, window_is_minimized(hwnd)) {
+        unsafe {
+            let _ = ShowWindow(hwnd, command);
+        }
+    }
+    unsafe { SetForegroundWindow(hwnd) != 0 }
+}
+
+/// Traz a janela para o primeiro plano. Minimizada volta ao tamanho de antes;
+/// normal ou maximizada vem como está.
+pub fn focus_window(hwnd: HWND) -> bool {
+    bring_to_foreground(hwnd, FocusPurpose::Bring)
+}
+
+/// Devolve o primeiro plano à janela que estava lá, **sem mexer no estado
+/// dela**: nem restaurar, nem desmaximizar.
+pub fn give_focus_back(hwnd: HWND) -> bool {
+    bring_to_foreground(hwnd, FocusPurpose::GiveBack)
 }
 
 fn wait_for_process_exit(pid: u32, timeout: Duration) -> bool {
@@ -574,5 +614,37 @@ mod win_windowing_tests {
         assert_eq!(json["width"], 1920);
         assert_eq!(json["height"], 1080);
         assert_eq!(json["primary"], true);
+    }
+}
+
+#[cfg(test)]
+mod win_focus_tests {
+    use super::*;
+
+    // Só a decisão é coberta: `ShowWindow` e `SetForegroundWindow` de verdade
+    // precisam de janela e de desktop.
+
+    #[test]
+    fn a_minimized_window_is_restored_before_it_comes_to_the_front() {
+        assert_eq!(
+            show_command_before_focus(FocusPurpose::Bring, true),
+            Some(SW_RESTORE)
+        );
+    }
+
+    /// `SW_RESTORE` numa janela maximizada a devolve ao tamanho normal: era o
+    /// AFK mode tirando do maximizado o cliente alvo a cada ciclo.
+    #[test]
+    fn a_maximized_or_normal_window_comes_to_the_front_as_it_is() {
+        assert_eq!(show_command_before_focus(FocusPurpose::Bring, false), None);
+    }
+
+    /// Devolver o foco é devolver a janela em que o usuário estava trabalhando:
+    /// nem desmaximizar, nem restaurar — nem quando o foco tinha sido negado e
+    /// nada foi enviado.
+    #[test]
+    fn giving_the_focus_back_never_changes_the_window_state() {
+        assert_eq!(show_command_before_focus(FocusPurpose::GiveBack, false), None);
+        assert_eq!(show_command_before_focus(FocusPurpose::GiveBack, true), None);
     }
 }
