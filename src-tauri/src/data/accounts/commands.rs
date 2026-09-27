@@ -142,7 +142,7 @@ pub fn needs_password(state: tauri::State<'_, AccountStore>) -> Result<bool, Str
 /// em memória, tudo funciona — para virar lockout no boot seguinte. Este comando
 /// é o que leva isso à tela.
 #[tauri::command]
-pub fn vault_key_warning(state: tauri::State<'_, AccountStore>) -> Option<String> {
+pub fn vault_key_warning(state: tauri::State<'_, AccountStore>) -> Option<VaultKeyWarning> {
     state.vault_key_warning()
 }
 
