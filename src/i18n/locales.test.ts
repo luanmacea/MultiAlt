@@ -62,6 +62,7 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "{\"assets\":[{\"id\":12345}]}",
   "<city>, <countryCode>",
   "C:\\path\\ClientAppSettings.json",
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "MB",
   "min",
   "ms",

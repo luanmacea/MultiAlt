@@ -1612,6 +1612,76 @@ describe("backend events", () => {
     expect(result.current.actionStatus).toMatchObject({ tone: "success" });
   });
 
+  /**
+   * `browserDownload` é o que a Settings > General "Bundled Browser" usa para
+   * desenhar a barra de progresso e o botão Download/Reinstall — trilha o
+   * mesmo evento do teste acima, mas guarda estado em vez de só mostrar toast.
+   */
+  it("tracks the bundled-browser download stage in browserDownload", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("chromium-download-progress")).toBe(true));
+
+    act(() => emit("chromium-download-progress", { stage: "resolving", downloaded: 0, total: 0 }));
+    expect(result.current.browserDownload).toMatchObject({ active: true, stage: "resolving" });
+
+    act(() => emit("chromium-download-progress", { stage: "downloading", downloaded: 50, total: 200 }));
+    expect(result.current.browserDownload).toMatchObject({ active: true, stage: "downloading", percent: 25 });
+
+    act(() => emit("chromium-download-progress", { stage: "extracting", downloaded: 0, total: 0 }));
+    expect(result.current.browserDownload).toMatchObject({ active: true, stage: "extracting" });
+
+    act(() => emit("chromium-download-progress", { stage: "ready", downloaded: 0, total: 0 }));
+    expect(result.current.browserDownload).toMatchObject({ active: false, stage: "ready", percent: 100 });
+  });
+
+  it("repeating the same download percentage does not re-render browserDownload", async () => {
+    // Um evento por ~2MB baixados vira várias mensagens com o mesmo
+    // percentual arredondado; sem o dedupe a barra "tremia" em vez de andar.
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("chromium-download-progress")).toBe(true));
+
+    act(() => emit("chromium-download-progress", { stage: "downloading", downloaded: 50, total: 200 }));
+    const first = result.current.browserDownload;
+    // Dois blocos de ~2MB podem arredondar para o mesmo percentual inteiro; o
+    // dedupe olha o percentual final, não os bytes brutos de cada evento.
+    act(() => emit("chromium-download-progress", { stage: "downloading", downloaded: 50.4, total: 200 }));
+    expect(result.current.browserDownload).toBe(first);
+  });
+
+  it("shows a toast when the backend falls back to the system browser", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("chromium-fallback")).toBe(true));
+
+    act(() => emit("chromium-fallback", { browser: "Microsoft Edge", error: "network down" }));
+
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Microsoft Edge");
+  });
+
+  it("ensureBrowserDownload reports success and forwards force to the backend", async () => {
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.ensureBrowserDownload(true);
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("ensure_browser", { force: true });
+    expect(result.current.browserDownload).toMatchObject({ active: false, stage: "ready" });
+  });
+
+  it("ensureBrowserDownload surfaces a backend failure instead of throwing", async () => {
+    failures.set("ensure_browser", "Could not reach browser download service");
+    const { result } = await renderStore();
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.ensureBrowserDownload();
+    });
+
+    expect(ok).toBe(false);
+    expect(result.current.browserDownload).toMatchObject({ active: false, stage: "error" });
+    expect(result.current.browserDownload?.error).toContain("Could not reach browser download service");
+  });
+
   it("marks botting as inactive when the backend stops it without a prior status", async () => {
     const { result } = await renderStore();
     await waitFor(() => expect(listenHandlers.has("botting-stopped")).toBe(true));

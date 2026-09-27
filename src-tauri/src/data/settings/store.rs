@@ -368,6 +368,10 @@ impl SettingsStore {
         let login_defaults: &[(&str, &str)] = &[
             ("PersistentProfile", "true"),
             ("StealthMode", "true"),
+            // Vazio = nada configurado; `IniSection::set` não grava valor em
+            // branco, então esta chave só aparece no INI depois que o usuário
+            // digita um caminho (ver EMPTY_STRING_DEFAULTS no teste abaixo).
+            ("ManualBinaryPath", ""),
         ];
 
         let login = ini.section("Login");
@@ -731,6 +735,7 @@ mod settings_store_tests {
     /// Keys the docs list with a `""` default. `IniSection::set` removes a key
     /// whose value is blank, so these never reach the file at all.
     const EMPTY_STRING_DEFAULTS: &[(&str, &str)] = &[
+        ("Login", "ManualBinaryPath"),
         ("General", "CustomClientSettings"),
         ("General", "BottingPlayerCustomClientSettings"),
         ("General", "BottingBotCustomClientSettings"),

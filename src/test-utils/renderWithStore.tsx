@@ -329,6 +329,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
 
     openLoginBrowser: vi.fn(async () => {}),
     openAccountBrowser: vi.fn(async () => {}),
+    browserDownload: null,
+    ensureBrowserDownload: vi.fn(async () => true),
   };
 
   return { ...base, ...overrides };
