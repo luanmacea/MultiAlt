@@ -9,6 +9,7 @@ import { TitleBar } from "./components/layout/TitleBar";
 import { ModalWindowControls } from "./components/layout/ModalWindowControls";
 import { UpdateBanner } from "./components/layout/UpdateBanner";
 import { SafeModeBanner } from "./components/layout/SafeModeBanner";
+import { VaultKeyBanner } from "./components/layout/VaultKeyBanner";
 import { Toolbar } from "./components/layout/Toolbar";
 import { AccountList } from "./components/accounts/AccountList";
 import { ContextMenu } from "./components/menus/ContextMenu";
@@ -84,12 +85,37 @@ function AppContent() {
     );
   }
 
+  // A faixa da chave do vault acompanha estas duas telas, e não é detalhe: elas
+  // são exatamente as telas do momento de pânico. A tela de senha é onde cai quem
+  // não conseguiu abrir o vault, e a de criptografia é onde o backend manda o
+  // usuário ("See the warning on screen") quando a chave não pôde ser criada. Sem
+  // isto, o aviso existia mas ficava atrás de um `return` antecipado — ponteiro
+  // quebrado no instante em que ele mais importa.
+  // `flex h-screen flex-col` + `min-h-0 flex-1 overflow-auto` porque `body` tem
+  // `overflow: hidden`: como irmãs soltas num fragmento, a faixa somava altura em
+  // cima de uma tela de 100vh e o rodapé saía da janela sem rolagem — e na tela de
+  // criptografia o rodapé são os botões Continue/Cancel. As duas telas passaram a
+  // `h-full`/`min-h-full` para o container ser o dono do viewport.
   if (store.needsPassword) {
-    return <PasswordScreen />;
+    return (
+      <div className="theme-app flex h-screen flex-col">
+        <VaultKeyBanner />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <PasswordScreen />
+        </div>
+      </div>
+    );
   }
 
   if (store.encryptionSetupOpen) {
-    return <EncryptionSetupScreen />;
+    return (
+      <div className="theme-app flex h-screen flex-col">
+        <VaultKeyBanner />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <EncryptionSetupScreen />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -98,6 +124,7 @@ function AppContent() {
       <TitleBar controlsHidden={anyModalOpen} />
       <UpdateBanner />
       <SafeModeBanner />
+      <VaultKeyBanner />
       <Toolbar />
 
       {store.error && (

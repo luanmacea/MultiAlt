@@ -506,6 +506,39 @@ export interface RememberState {
 }
 
 /**
+ * Problema com o `AccountData.key` (`vault_key_warning`).
+ *
+ * É a **única** rede contra o lockout de quem usa a chave do aparelho: sem o
+ * arquivo de chave, um vault sem senha não abre e não existe senha para digitar.
+ * Por isso vem estruturado — a frase mora no catálogo de i18n, não no backend —
+ * e por isso aparece como faixa fixa, não como toast que passa.
+ */
+export interface VaultKeyWarning {
+  /**
+   * - `writeFailed`: o arquivo não pôde ser gravado. É o grave.
+   * - `writeFailedTransient`: falhou agora (antivírus, indexador); a gravação
+   *   seguinte tenta de novo. Tom brando de propósito: alarme falso treina o
+   *   usuário a ignorar alarme.
+   * - `weakWrapper`: gravou, mas sem o embrulho do DPAPI.
+   */
+  code:
+    | "writeFailed"
+    | "writeFailedTransient"
+    | "weakWrapper"
+    /**
+     * A migração para o formato cifrado falhou e o `AccountData.json` **continua
+     * em texto puro**, com o cookie de todas as contas legível. Era o pior
+     * fail-open da tarefa: o app subia normal e a tela dizia "Device Key".
+     */
+    | "migrationFailed"
+    /** Gravou, mas sem confirmação do `fsync`. */
+    | "syncUnconfirmed";
+  path: string;
+  /** Detalhe do SO, para reportar. Nunca contém segredo. */
+  detail?: string;
+}
+
+/**
  * Uma página da varredura de servidores (evento `server-scan`).
  *
  * A lista vem **já ordenada pelo backend** e cresce a cada página: num jogo
