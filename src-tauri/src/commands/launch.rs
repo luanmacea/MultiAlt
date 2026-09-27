@@ -2507,11 +2507,16 @@ mod launch_queue_tests {
     }
 
     #[test]
-    fn the_wait_between_accounts_is_sliced_so_a_cancel_cuts_it_short() {
+    fn a_wait_slice_is_short_and_never_passes_what_is_left() {
         use std::time::Duration;
         // O intervalo anti-captcha inteiro num `sleep` só não dá chance de olhar
         // a fila. Cada fatia é curta o suficiente para o usuário não sentir, e a
         // última fatia nunca passa do que falta (senão o gap cresceria).
+        //
+        // Sem cobertura: que `wait_before_next_account` realmente durma em
+        // fatias — ela recebe `&LaunchSequenceGuard`, que só existe com um
+        // `AppHandle`, e trocar o corpo dela por um `sleep` único deixaria a
+        // suíte verde.
         assert_eq!(next_wait_slice(Duration::from_secs(60)), WAIT_SLICE);
         assert_eq!(
             next_wait_slice(Duration::from_millis(80)),
