@@ -1231,9 +1231,13 @@ mod afk_input_safety_tests {
     //
     // 1. caminha por `src-tauri/src` inteiro (arquivo novo entra na varredura
     //    sozinho, e é essa a diferença em relação a listar dois caminhos à mão);
-    // 2. considera "arquivo do AFK mode" todo arquivo cujo caminho cita `afk` e
+    // 2. considera "arquivo do AFK mode" todo arquivo cujo caminho cita `afk`,
     //    **todo arquivo que envia entrada** (cita `SendInput`) — logo um
-    //    `platform/windows/input2.rs` novo cai na rede;
+    //    `platform/windows/input2.rs` novo cai na rede — e **todo fragmento do
+    //    mesmo módulo** que um deles. `include!()` não cria módulo: os
+    //    `platform/windows/*.rs` são um módulo só, `windows`, e os
+    //    `commands/*.rs` são pedaços da raiz do crate. Fragmento irmão se chama
+    //    sem caminho nenhum, então não há fronteira a vigiar entre eles;
     // 3. tira os módulos de teste contando chaves, não cortando no primeiro
     //    `#[cfg(test)]`: código de produção escrito **depois** de um módulo de
     //    teste continua sendo varrido (`the_scan_sees_code_after_the_test_modules`);
@@ -1246,10 +1250,14 @@ mod afk_input_safety_tests {
     // 5. reprova injeção fora da lista fechada: `INPUT_MOUSE`, `mouse_event` e
     //    `KEYEVENTF_UNICODE` mandariam entrada sem citar API proibida nenhuma;
     // 6. reprova **alcance indireto**: os arquivos do AFK mode não podem citar o
-    //    nome de módulo de nenhum arquivo do backend que leia entrada (hoje o
-    //    `webview_recovery`, que importa `GetAsyncKeyState` legitimamente);
+    //    nome de nenhum módulo do backend que leia entrada (hoje o
+    //    `webview_recovery`, que importa `GetAsyncKeyState` legitimamente). O
+    //    nome é o do **módulo**, não o do fragmento: um `windowing.rs` que
+    //    lesse entrada faria do `windows` inteiro um leitor, e é `windows::` que
+    //    o `commands/afk.rs` escreve;
     // 7. confere que só o módulo de entrada chama `SendInput`/`send_key`, para o
     //    caminho único até o `SendInput` continuar único amanhã.
+    use std::collections::{HashMap, HashSet};
     use std::path::{Path, PathBuf};
 
     const FORBIDDEN: &[&str] = &[
@@ -1376,19 +1384,90 @@ mod afk_input_safety_tests {
             .collect()
     }
 
+    /// Os arquivos que este puxa por `include!("...")`, resolvidos a partir da
+    /// pasta dele — que é como o compilador resolve.
+    fn included_paths(path: &str, body: &str) -> Vec<String> {
+        const OPEN: &str = "include!(\"";
+        let dir = path.rfind('/').map(|at| &path[..at]).unwrap_or("");
+        let mut out = Vec::new();
+        let mut rest = body;
+        while let Some(at) = rest.find(OPEN) {
+            let after = &rest[at + OPEN.len()..];
+            let Some(end) = after.find('"') else {
+                break;
+            };
+            let mut parts: Vec<&str> = dir.split('/').filter(|part| !part.is_empty()).collect();
+            for part in after[..end].split('/') {
+                match part {
+                    "" | "." => {}
+                    ".." => {
+                        parts.pop();
+                    }
+                    other => parts.push(other),
+                }
+            }
+            out.push(parts.join("/"));
+            rest = &after[end..];
+        }
+        out
+    }
+
+    /// O arquivo que **é** o módulo de cada caminho. Fragmento `include!()` sobe
+    /// até quem o inclui (e assim por diante); arquivo que ninguém inclui é o
+    /// próprio módulo.
+    fn module_roots(files: &[(String, String)]) -> HashMap<String, String> {
+        let mut includer: HashMap<String, String> = HashMap::new();
+        for (path, body) in files {
+            for included in included_paths(path, body) {
+                includer.insert(included, path.clone());
+            }
+        }
+        files
+            .iter()
+            .map(|(path, _)| {
+                let mut root = path.clone();
+                // `include!` circular não compila; o teto só impede a varredura
+                // de girar para sempre se alguém tentar.
+                for _ in 0..32 {
+                    match includer.get(&root) {
+                        Some(up) => root = up.clone(),
+                        None => break,
+                    }
+                }
+                (path.clone(), root)
+            })
+            .collect()
+    }
+
+    /// O nome pelo qual o resto do crate chega ao módulo: o do arquivo raiz
+    /// (`platform/windows.rs` → `windows`), ou o da pasta, se o raiz é `mod.rs`.
+    fn module_name(root: &str) -> String {
+        let path = Path::new(root);
+        let stem = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if stem != "mod" {
+            return stem;
+        }
+        path.parent()
+            .and_then(|dir| dir.file_name())
+            .map(|dir| dir.to_string_lossy().to_string())
+            .unwrap_or_default()
+    }
+
     /// Módulos (fora do AFK mode) que leem entrada de propósito — hoje a
-    /// recuperação da webview, que usa `GetAsyncKeyState` legitimamente.
+    /// recuperação da webview, que usa `GetAsyncKeyState` legitimamente. Um
+    /// fragmento que lê entrada entra com o nome do módulo que o inclui.
     fn input_reader_modules(files: &[(String, String)], afk_paths: &[String]) -> Vec<String> {
+        let roots = module_roots(files);
         let mut out: Vec<String> = files
             .iter()
             .filter(|(path, _)| !afk_paths.contains(path))
             .filter(|(_, body)| FORBIDDEN.iter().any(|api| body.contains(api)))
-            .filter_map(|(path, _)| {
-                Path::new(path)
-                    .file_stem()
-                    .map(|stem| stem.to_string_lossy().to_string())
-            })
-            .filter(|stem| !matches!(stem.as_str(), "" | "mod" | "lib" | "main"))
+            .map(|(path, _)| module_name(roots.get(path).unwrap_or(path)))
+            // A raiz do crate não se alcança por nome: `lib::` não existe.
+            .filter(|name| !matches!(name.as_str(), "" | "lib" | "main"))
             .collect();
         out.sort();
         out.dedup();
@@ -1411,12 +1490,34 @@ mod afk_input_safety_tests {
         path.to_ascii_lowercase().contains("afk") || body.contains("SendInput")
     }
 
-    /// `(caminho, corpo de produção)` de cada arquivo do AFK mode.
-    fn afk_files() -> Vec<(String, String)> {
-        backend_files()
+    /// `(caminho, corpo de produção)` dos arquivos que **são** do AFK mode — é
+    /// deles que sai a chamada para outro módulo.
+    fn afk_seed_files() -> Vec<(String, String)> {
+        backend_production()
             .into_iter()
-            .map(|(path, text)| (path, production_only(&text)))
             .filter(|(path, body)| is_afk_file(path, body))
+            .collect()
+    }
+
+    /// `(caminho, corpo de produção)` de todo fragmento de módulo que tem código
+    /// do AFK mode: os arquivos do AFK mode e os irmãos `include!()` deles, que
+    /// se alcançam sem caminho nenhum.
+    fn afk_files() -> Vec<(String, String)> {
+        let files = backend_production();
+        let roots = module_roots(&files);
+        let afk_modules: HashSet<String> = files
+            .iter()
+            .filter(|(path, body)| is_afk_file(path, body))
+            .filter_map(|(path, _)| roots.get(path).cloned())
+            .collect();
+        files
+            .into_iter()
+            .filter(|(path, _)| {
+                roots
+                    .get(path)
+                    .map(|root| afk_modules.contains(root))
+                    .unwrap_or(false)
+            })
             .collect()
     }
 
@@ -1432,7 +1533,10 @@ mod afk_input_safety_tests {
             for api in FORBIDDEN {
                 assert!(
                     !body.contains(api),
-                    "{path} usa {api}: o AFK mode só pode enviar tecla da lista fechada, nunca ler entrada"
+                    "{path} usa {api}: o AFK mode só pode enviar tecla da lista fechada, nunca ler entrada. \
+                     Fragmento include!() do mesmo módulo que um arquivo do AFK mode conta como AFK mode \
+                     (se chama sem caminho); leitura de entrada de outra funcionalidade vai para um módulo \
+                     próprio, como o webview_recovery"
                 );
             }
         }
@@ -1440,7 +1544,7 @@ mod afk_input_safety_tests {
 
     #[test]
     fn no_afk_file_reaches_a_module_that_reads_input() {
-        let afk = afk_files();
+        let afk = afk_seed_files();
         let paths: Vec<String> = afk.iter().map(|(path, _)| path.clone()).collect();
         let readers = input_reader_modules(&backend_production(), &paths);
 
@@ -1480,6 +1584,76 @@ mod afk_input_safety_tests {
                 .any(|n| "let _ = crate::webview_recovery::show();".contains(n)),
             "uma chamada indireta real tem de casar com alguma agulha"
         );
+    }
+
+    /// `include!()` não cria módulo. `platform/windows/*.rs` são pedaços de **um**
+    /// módulo só, `windows` — e é por esse nome que `commands/afk.rs` chama
+    /// (`windows::focus_window`). Um fragmento que lê entrada faz do módulo
+    /// inteiro um leitor; tratado como módulo próprio (`windowing`), ele passava
+    /// com a suíte verde, porque ninguém escreve `windowing::`.
+    #[test]
+    fn a_fragment_that_reads_input_makes_the_module_that_includes_it_a_reader() {
+        let files = vec![
+            ("lib.rs".to_string(), "include!(\"commands/afk.rs\");".to_string()),
+            (
+                "platform/windows.rs".to_string(),
+                "include!(\"windows/windowing.rs\");\ninclude!(\"windows/input.rs\");".to_string(),
+            ),
+            (
+                "platform/windows/windowing.rs".to_string(),
+                "unsafe { AttachThreadInput(a, b, 1) };".to_string(),
+            ),
+            ("platform/windows/input.rs".to_string(), "SendInput(1, &i, n)".to_string()),
+            (
+                "commands/afk.rs".to_string(),
+                "use platform::windows;\nwindows::focus_window(h);".to_string(),
+            ),
+        ];
+        let afk = vec![
+            "commands/afk.rs".to_string(),
+            "platform/windows/input.rs".to_string(),
+        ];
+
+        let readers = input_reader_modules(&files, &afk);
+        assert_eq!(
+            readers,
+            vec!["windows".to_string()],
+            "o fragmento é o módulo windows, não um módulo windowing"
+        );
+        let afk_body = &files[4].1;
+        assert!(
+            module_needles("windows")
+                .iter()
+                .any(|needle| afk_body.contains(needle.as_str())),
+            "a chamada windows::focus_window tem de casar com alguma agulha"
+        );
+    }
+
+    /// Na árvore de verdade: fragmento irmão de arquivo do AFK mode se alcança
+    /// **sem caminho nenhum** — `input.rs` chama o que está em `windowing.rs` só
+    /// pelo nome da função, e `commands/afk.rs` chama o que está em qualquer
+    /// `commands/*.rs` do mesmo jeito. Por isso o módulo inteiro entra na
+    /// varredura, e não só o arquivo que cita `afk` ou `SendInput`.
+    #[test]
+    fn every_fragment_of_a_module_with_afk_code_is_scanned() {
+        let scanned: Vec<String> = afk_files().into_iter().map(|(path, _)| path).collect();
+        for fragment in [
+            "platform/windows.rs",
+            "platform/windows/windowing.rs",
+            "platform/windows/input.rs",
+            "platform/windows/tracker.rs",
+            "lib.rs",
+            "commands/afk.rs",
+            "commands/watcher.rs",
+        ] {
+            assert!(
+                scanned.iter().any(|path| path == fragment),
+                "{fragment} ficou fora da varredura do AFK mode: {scanned:?}"
+            );
+        }
+        // Módulo de verdade, com fronteira própria, continua fora: é para ele
+        // que vale a checagem de alcance indireto.
+        assert!(!scanned.iter().any(|path| path == "webview_recovery.rs"));
     }
 
     #[test]
