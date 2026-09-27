@@ -1749,7 +1749,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       setAfkStatus(status);
       addToast(
-        tr("AFK mode started for {{count}} accounts", { count: config.userIds.length })
+        config.userIds.length === 1
+          ? tr("AFK mode started for 1 account")
+          : tr("AFK mode started for {{count}} accounts", { count: config.userIds.length })
       );
     } catch (e) {
       setError(String(e));

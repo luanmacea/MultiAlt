@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -11,6 +11,7 @@ import { AfkDialog, formatAfkElapsed } from "./AfkDialog";
 import type { AfkStatus, StoreValue } from "../../store";
 import { defaultSettings, makeAccount, setStore, storeRef } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
+import i18n from "../../i18n";
 
 const ACCOUNTS = [
   makeAccount({ UserID: 11, Username: "alpha" }),
@@ -95,7 +96,7 @@ describe("AfkDialog — o preço do envio está na tela", () => {
 describe("AfkDialog — só as teclas da lista", () => {
   it("oferece exatamente as teclas que o backend entregou", async () => {
     renderDialog();
-    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByLabelText("Key to send"));
 
     for (const key of KEYS) {
       expect(screen.getByRole("button", { name: key })).toBeInTheDocument();
@@ -111,7 +112,7 @@ describe("AfkDialog — só as teclas da lista", () => {
     // A tecla se escolhe numa lista (botão que abre as opções); campo de texto
     // para tecla não existe, senão a lista fechada não seria fechada.
     expect(screen.queryByRole("textbox", { name: /key/i })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Key").tagName).toBe("BUTTON");
+    expect(screen.getByLabelText("Key to send").tagName).toBe("BUTTON");
   });
 });
 
@@ -132,7 +133,7 @@ describe("AfkDialog — o que impede o start", () => {
 
   it("não liga sem conta no modo, mesmo com tecla escolhida", async () => {
     const { store } = renderDialog();
-    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByLabelText("Key to send"));
     await userEvent.click(screen.getByRole("button", { name: "Space" }));
 
     expect(screen.getByRole("button", { name: /Start AFK Mode/i })).toBeDisabled();
@@ -141,7 +142,7 @@ describe("AfkDialog — o que impede o start", () => {
 
   it("liga com uma tecla da lista e a conta escolhida", async () => {
     const { store } = renderDialog();
-    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByLabelText("Key to send"));
     await userEvent.click(screen.getByRole("button", { name: "Space" }));
     await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
     await userEvent.click(screen.getByRole("button", { name: /Start AFK Mode/i }));
@@ -156,7 +157,7 @@ describe("AfkDialog — o que impede o start", () => {
   /** Conta que o usuário não marcou não pode entrar no modo por tabela. */
   it("manda só as contas marcadas", async () => {
     const { store } = renderDialog();
-    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByLabelText("Key to send"));
     await userEvent.click(screen.getByRole("button", { name: "W" }));
     await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[1].Username }));
     await userEvent.click(screen.getByRole("button", { name: /Start AFK Mode/i }));
@@ -212,7 +213,7 @@ describe("AfkDialog — sessão em andamento", () => {
 
   it("com sessão ativa o intervalo e a tecla ficam travados", () => {
     renderDialog({ afkStatus: RUNNING });
-    expect(screen.getByLabelText("Key")).toBeDisabled();
+    expect(screen.getByLabelText("Key to send")).toBeDisabled();
     expect(screen.getByLabelText("Send every")).toBeDisabled();
   });
 });
@@ -433,7 +434,7 @@ describe("AfkDialog — quando o Windows não deixa a janela vir para frente", (
 describe("AfkDialog — envio manual exige sessão", () => {
   it("com o modo desligado, enviar agora fica indisponível mesmo com tecla e conta escolhidas", async () => {
     const { store } = renderDialog();
-    await userEvent.click(screen.getByLabelText("Key"));
+    await userEvent.click(screen.getByLabelText("Key to send"));
     await userEvent.click(screen.getByRole("button", { name: "Space" }));
     await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
 
@@ -465,5 +466,141 @@ describe("AfkDialog — contas que podem entrar no modo", () => {
     renderDialog({ launchedByProgram: new Set<number>() });
     expect(screen.getByText(/Open an account first/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Start AFK Mode/i })).toBeDisabled();
+  });
+});
+
+/**
+ * Os detalhes baixos do checkup: nenhum quebra o modo, mas cada um faz a tela
+ * dizer uma coisa que não é verdade — relógio acima do intervalo, "Enviando"
+ * com nada saindo, "1 contas", o modo desligando calado, "Chave" onde é tecla.
+ */
+describe("AfkDialog — a tela diz a coisa certa", () => {
+  const ONE_RUNNING = makeAfkStatus({
+    active: true,
+    startedAtMs: 1_000,
+    key: "Space",
+    accounts: [makeAfkAccount({ userId: 11 })],
+  });
+
+  /**
+   * O prazo chega do backend (agora + intervalo) e era comparado com o relógio
+   * da tela do último tique de 1 s — até 1 s atrás. A contagem nascia em
+   * "10:01", mais que o intervalo, o que não existe; e de novo depois de cada
+   * envio manual.
+   */
+  it("a contagem nunca começa maior que o intervalo", () => {
+    vi.useFakeTimers({ now: 10_000_000 });
+    try {
+      const onClose = vi.fn();
+      setStore({ accounts: ACCOUNTS, launchedByProgram: new Set([11, 22]), afkKeys: KEYS, afkStatus: makeAfkStatus() });
+      const view = render(<AfkDialog open onClose={onClose} />);
+
+      // 900 ms depois do último tique da tela, o start volta com o prazo do
+      // primeiro envio.
+      act(() => {
+        vi.advanceTimersByTime(900);
+      });
+      const startedAt = Date.now();
+      storeRef.current = {
+        ...storeRef.current,
+        afkStatus: makeAfkStatus({
+          active: true,
+          startedAtMs: startedAt,
+          key: "Space",
+          intervalMinutes: 10,
+          accounts: [
+            makeAfkAccount({ userId: 11, lastSendAtMs: startedAt, nextSendAtMs: startedAt + 10 * 60_000 }),
+          ],
+        }),
+      };
+      view.rerender(<AfkDialog open onClose={onClose} />);
+
+      const linha = screen.getByRole("button", { name: ACCOUNTS[0].Username });
+      expect(linha.textContent).toContain("10:00");
+      expect(linha.textContent).not.toContain("10:01");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /** "Enviando" com a sessão ligada mentia entre um ciclo e outro, e com o foco negado em todas. */
+  it("com a sessão ligada a pílula diz o estado, 'On', e não 'Sending'", () => {
+    renderDialog({ afkStatus: ONE_RUNNING });
+    expect(screen.getByText("On")).toBeInTheDocument();
+    expect(screen.queryByText("Sending")).not.toBeInTheDocument();
+  });
+
+  it("desmarcar a última conta avisa que o modo desligou", async () => {
+    const { store } = renderDialog({ afkStatus: ONE_RUNNING });
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+
+    expect(store.setAfkAccounts).toHaveBeenCalledWith([]);
+    expect(store.addToast).toHaveBeenCalledWith("AFK mode off: no account is left in it");
+  });
+
+  it("tirar uma conta que não é a última não avisa nada", async () => {
+    const { store } = renderDialog({
+      afkStatus: makeAfkStatus({
+        active: true,
+        startedAtMs: 1_000,
+        key: "Space",
+        accounts: [makeAfkAccount({ userId: 11 }), makeAfkAccount({ userId: 22 })],
+      }),
+    });
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+
+    expect(store.setAfkAccounts).toHaveBeenCalledWith([22]);
+    expect(store.addToast).not.toHaveBeenCalled();
+  });
+
+  it("enviar para uma conta só diz 'account', no singular", async () => {
+    const { store } = renderDialog({ afkStatus: ONE_RUNNING });
+    vi.mocked(store.afkTriggerNow).mockResolvedValue(1);
+    await userEvent.click(screen.getByRole("button", { name: /Send the key now/i }));
+
+    expect(store.addToast).toHaveBeenCalledWith("Sent Space to 1 account");
+  });
+
+  it("enviar para duas contas continua no plural", async () => {
+    const { store } = renderDialog({
+      afkStatus: makeAfkStatus({
+        active: true,
+        startedAtMs: 1_000,
+        key: "Space",
+        accounts: [makeAfkAccount({ userId: 11 }), makeAfkAccount({ userId: 22 })],
+      }),
+    });
+    vi.mocked(store.afkTriggerNow).mockResolvedValue(2);
+    await userEvent.click(screen.getByRole("button", { name: /Send the key now/i }));
+
+    expect(store.addToast).toHaveBeenCalledWith("Sent Space to 2 accounts");
+  });
+
+  describe("em português", () => {
+    beforeEach(async () => {
+      await i18n.changeLanguage("pt");
+    });
+    afterEach(async () => {
+      await i18n.changeLanguage("en");
+    });
+
+    /**
+     * "Key" → "Chave" está certo na tela de campos da conta, que divide a mesma
+     * chave do catálogo; aqui é tecla. E o campo do intervalo tinha nome
+     * acessível em inglês, porque ia cru para o `NumericInput`.
+     */
+    it("o rótulo é 'Tecla a enviar', não 'Chave', e o campo do intervalo tem nome em português", () => {
+      renderDialog();
+      expect(screen.getByText("Tecla a enviar")).toBeInTheDocument();
+      expect(screen.queryByText("Chave")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Tecla a enviar").tagName).toBe("BUTTON");
+      expect(screen.getByLabelText("Enviar a cada").tagName).toBe("INPUT");
+    });
+
+    it("a pílula diz 'Ligado' com a sessão ligada", () => {
+      renderDialog({ afkStatus: ONE_RUNNING });
+      expect(screen.getByText("Ligado")).toBeInTheDocument();
+      expect(screen.queryByText("Enviando")).not.toBeInTheDocument();
+    });
   });
 });

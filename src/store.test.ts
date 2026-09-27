@@ -1886,6 +1886,37 @@ describe("presence and running instances", () => {
   });
 });
 
+describe("AFK mode", () => {
+  const RUNNING = { active: true, startedAtMs: 1, intervalMinutes: 10, key: "Space", accounts: [] };
+
+  /** "Modo AFK iniciado em 1 contas" era o toast de quem liga o modo numa conta só. */
+  it("o toast de início fala de uma conta no singular", async () => {
+    const { result } = await renderStore();
+    results.set("start_afk_mode", RUNNING);
+
+    await act(async () => {
+      await result.current.startAfkMode({ userIds: [11], intervalMinutes: 10, key: "Space" });
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "AFK mode started for 1 account"
+    );
+  });
+
+  it("e no plural com mais de uma", async () => {
+    const { result } = await renderStore();
+    results.set("start_afk_mode", RUNNING);
+
+    await act(async () => {
+      await result.current.startAfkMode({ userIds: [11, 22], intervalMinutes: 10, key: "Space" });
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "AFK mode started for 2 accounts"
+    );
+  });
+});
+
 describe("botting and generator commands", () => {
   it("maps the botting start config onto the backend arguments", async () => {
     const { result } = await renderStore();
