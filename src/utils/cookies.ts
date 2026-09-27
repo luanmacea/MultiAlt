@@ -9,8 +9,12 @@
 export const COOKIE_PATTERN =
   /_\|WARNING:-DO-NOT-SHARE-THIS\.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items\.\|\w+/;
 
-/** Como o cookie começa. Serve de rede de segurança quando o aviso vem torto. */
-const COOKIE_MARKER = "_|WARNING";
+/**
+ * Como o cookie começa. Serve de rede de segurança quando o aviso vem torto —
+ * e é o que as telas de "colar cookie ou usuário" usam para saber qual dos dois
+ * foi colado, em vez de cada uma repetir um pedaço do aviso.
+ */
+export const COOKIE_MARKER = "_|WARNING";
 
 export type ImportLineKind =
   /** Tem cookie (com ou sem `username:password` na frente). */

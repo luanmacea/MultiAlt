@@ -69,15 +69,28 @@ export interface ServerRegion {
  * O que a entrada de "servidor recente" guarda: um Job ID público, um código
  * VIP (`vip:<código>`) ou um link privado a decodificar. A distinção não é
  * enfeite — ver `visibleRecentJobs`.
+ *
+ * Na prática o `link` quase não é alcançado pelo caminho da store: ela
+ * normaliza o que veio do launch para `vip:<código>` (ver `raw` abaixo), e
+ * `vip:` classifica como `vip`. Ele cobre o que já está gravado e qualquer
+ * chamador que grave o link cru — e é por isso que `classifyJobInput` continua
+ * tendo que reconhecer link, inclusive o duplo-codificado.
  */
 export type RecentJobKind = "job" | "vip" | "link";
 
 export interface RecentJobEntry {
   kind: RecentJobKind;
   /**
-   * O valor **como foi usado** no launch: o `vip:` e a URL ficam intactos,
-   * porque é o `resolve_launch_job` do backend que os entende
-   * (`docs/features/join-links.md`). Reescrever aqui quebraria o significado.
+   * O alvo **como o launch o usou**, no vocabulário que o campo de Job ID
+   * aceita de volta: Job ID público cru, ou `vip:<código>`.
+   *
+   * Não é o texto que o usuário colou: a store **normaliza** link privado para
+   * `vip:<código>` antes de gravar (`store.tsx`, `joinServer`/`launchMultiple`),
+   * porque num alvo VIP o Job ID vai vazio e o código viaja em `linkCode` —
+   * guardar o Job ID cru perderia o servidor. O `resolve_launch_job`
+   * (`docs/features/join-links.md`) chega ao mesmo `link_code` pelas duas
+   * formas, e a normalizada ainda classifica como privada, que é o lado seguro
+   * do erro. O que **não** se faz é reescrever o valor dentro deste módulo.
    */
   raw: string;
   placeId: number | null;
@@ -181,15 +194,46 @@ export function addRecentGame(game: RecentGame, maxCount: number) {
 }
 
 /**
+ * Desfaz as camadas de `%XX` de um link.
+ *
+ * Link curto do AppsFlyer carrega a query de verdade **codificada** dentro do
+ * `af_dp` (`…?af_dp=roblox%3A%2F%2F…%3Fcode%3DDEADBEEF`), então `code=` não
+ * aparece no texto cru. É o mesmo motivo do
+ * `extract_query_param_value_recursive` no backend
+ * (`commands/launch_shared.rs`). Escape quebrado faz `decodeURIComponent`
+ * lançar: aí vale o que já se conseguiu decodificar.
+ */
+function decodeLayers(raw: string): string {
+  let value = raw;
+  for (let i = 0; i < 3; i++) {
+    let next: string;
+    try {
+      next = decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+    if (next === value) return value;
+    value = next;
+  }
+  return value;
+}
+
+/**
  * Que tipo de alvo é este texto do campo "Job ID".
  *
  * Os mesmos formatos que o `resolve_launch_job` aceita: `vip:<código>` declara
  * a intenção, e um link traz o código em `privateServerLinkCode=`, `linkCode=`
  * ou `code=`. O resto é Job ID público.
+ *
+ * Errar para o lado de "público" é o erro caro: um alvo privado classificado
+ * como `job` fica visível para **todas** as contas (`visibleRecentJobs`), com o
+ * código do dono à mostra. Por isso o link é procurado também no texto
+ * decodificado.
  */
 export function classifyJobInput(raw: string): RecentJobKind {
   if (/^vip:\s*\S/i.test(raw.trim())) return "vip";
-  if (/(?:privateServerLinkCode|linkCode|code)=[^&\s]+/i.test(raw)) return "link";
+  const linkCode = /(?:privateServerLinkCode|linkCode|code)=[^&\s]+/i;
+  if (linkCode.test(raw) || linkCode.test(decodeLayers(raw))) return "link";
   return "job";
 }
 

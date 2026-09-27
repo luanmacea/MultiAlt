@@ -1307,7 +1307,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // que o campo de Job ID e o `resolve_launch_job` sabem reabrir.
       const recentJob = linkCode ? `vip:${linkCode}` : resolvedJobId;
       if (recentJob) {
-        addRecentJob(recentJob, pid, parseInt(settings?.General?.MaxRecentJobs || "12") || 12, [userId]);
+        // O cliente já subiu: uma escrita recusada pelo `localStorage` (cota,
+        // perfil sem storage) cairia no `catch` abaixo e diria "Launch failed"
+        // sobre um launch que deu certo. É síncrono, então `.catch` não serve.
+        try {
+          addRecentJob(recentJob, pid, parseInt(settings?.General?.MaxRecentJobs || "12") || 12, [userId]);
+        } catch {
+          // Guardar recentes é conveniência; nunca derruba o launch.
+        }
       }
       addToast(tr("Launching game..."));
     } catch (e) {
@@ -1387,7 +1394,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // um servidor privado volta a aparecer nos recentes.
       const recentJob = vipCode ? `vip:${vipCode}` : rawJobId;
       if (recentJob) {
-        addRecentJob(recentJob, pid, parseInt(settings?.General?.MaxRecentJobs || "12") || 12, userIds);
+        // Como no launch único, e aqui é pior: este `catch` **relança**, então
+        // uma escrita recusada interromperia o que vem depois de um lote que já
+        // subiu os clientes.
+        try {
+          addRecentJob(recentJob, pid, parseInt(settings?.General?.MaxRecentJobs || "12") || 12, userIds);
+        } catch {
+          // Guardar recentes é conveniência; nunca derruba o launch.
+        }
       }
       addToast(tr("Launching {{count}} accounts...", { count: userIds.length }));
     } catch (e) {
