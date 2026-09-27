@@ -1074,20 +1074,36 @@ impl AccountStore {
 
         match password {
             Some(value) => {
-                {
-                    let mut slot = self.session.lock().map_err(|e| e.to_string())?;
-                    *slot = Some(SessionKey::derive(value.trim())?);
-                }
-                // Solta `session` antes de pegar `accounts`: a ordem de lock do
-                // resto do arquivo é accounts → session, e inverter aqui criaria
-                // deadlock.
+                // A sessão da senha só passa a valer **depois** de o vault estar
+                // gravado com ela. Trocar antes (como era) fazia a senha valer
+                // mesmo quando a gravação falhava: a UI dizia que não aplicou, e a
+                // próxima gravação de fundo que desse certo cifrava com a senha —
+                // com o `.key` ainda no disco, o boot seguinte mandava restaurar
+                // uma chave em vez de pedir a senha.
+                //
+                // O argon2 roda antes do lock (custa caro). A troca, a gravação e
+                // a volta no erro acontecem com `accounts` seguro, então nenhuma
+                // gravação de fundo usa a sessão da senha antes de ela valer.
+                // Ordem de lock do arquivo: accounts → session.
+                let password_session = SessionKey::derive(value.trim())?;
                 let accounts = self.accounts.lock().map_err(|e| e.to_string())?;
-                self.save_locked(&accounts)?;
-                drop(accounts);
+                let previous = self
+                    .session
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .replace(password_session);
+                if let Err(e) = self.save_locked(&accounts) {
+                    *self
+                        .session
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = previous;
+                    return Err(e);
+                }
                 // O `.key` só sai **depois** de o vault estar gravado com a
                 // senha. Na ordem contrária, uma falha na gravação deixaria um
                 // vault cifrado pela chave do aparelho sem a chave para abri-lo.
                 crate::data::vault_key::remove_key_file(&key_path);
+                drop(accounts);
                 // A partir daqui o `.key` não importa mais, então um aviso sobre
                 // ele é falso alarme. Sem isto, quem estava com a faixa vermelha e
                 // definia uma senha ficava com ela na tela o resto da sessão,
@@ -3344,6 +3360,53 @@ mod vault_migration_tests {
             err.contains("Nothing was deleted or overwritten"),
             "não tranquiliza sobre o arquivo: {err}"
         );
+    }
+
+    /// **A4 do checkup.** `set_password(Some)` trocava a sessão pela da senha
+    /// **antes** de gravar. Com a gravação falhando (antivírus segurando o
+    /// `AccountData.json` na troca), a UI dizia que não tinha aplicado — o
+    /// `EncryptionMethod` não mudava e o `.key` continuava no disco —, mas a
+    /// próxima gravação de fundo que desse certo cifrava o vault com a senha. No
+    /// boot seguinte, `.key` presente com vault de senha dava "if you never set a
+    /// password... restore the matching AccountData.key": o conselho errado para
+    /// quem só precisava digitar a senha que a tela disse não ter valido.
+    #[test]
+    fn a_password_that_could_not_be_saved_does_not_take_effect() {
+        let store = vault("password-not-saved");
+        store.load().expect("abrir vault novo");
+        store
+            .add(Account::new("cookie".to_string(), "Main".to_string(), 1))
+            .expect("adicionar");
+        let on_disk = fs::read(&store.file_path).unwrap();
+
+        // Um diretório no lugar do `.json.tmp` faz a gravação falhar antes da
+        // troca atômica — como o antivírus segurando o arquivo.
+        let tmp = store.file_path.with_extension("json.tmp");
+        fs::create_dir(&tmp).unwrap();
+        store
+            .set_password(Some("senha-bem-comprida"))
+            .expect_err("a gravação tinha que falhar");
+        fs::remove_dir(&tmp).unwrap();
+
+        assert_eq!(
+            fs::read(&store.file_path).unwrap(),
+            on_disk,
+            "o vault mudou apesar do erro"
+        );
+        assert!(key_path(&store).exists(), "a senha não valeu: o .key fica");
+        assert!(
+            !store.has_user_password().unwrap(),
+            "a UI disse que não aplicou, mas a sessão já era a da senha"
+        );
+
+        // A próxima gravação de fundo (um ciclo do Auto Rejoin)...
+        store.mark_used(1).expect("gravar depois");
+        // ...continua com a chave do aparelho, como a UI disse.
+        let reopened = AccountStore::new(store.file_path.clone());
+        reopened
+            .load()
+            .expect("o boot seguinte tem que abrir sem senha: a senha não foi aplicada");
+        assert_eq!(reopened.get_all().unwrap().len(), 1);
     }
 
     /// **Quebra 4.** O `.json.rekey.bak` era cópia cifrada pela chave do aparelho
