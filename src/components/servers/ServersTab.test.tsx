@@ -413,10 +413,11 @@ describe("ServersTab — região", () => {
   /**
    * A mesma chamada da região já traz a recusa do Roblox (o erro 524, "You do
    * not have permission to join this experience"). Relato do dono
-   * (28/09/2026): as alts só descobriam isso tentando entrar. A linha diz, e o
-   * Entrar daquele servidor fica desativado.
+   * (28/09/2026): as alts só descobriam isso tentando entrar. A linha diz — e
+   * o Entrar continua ativo: a recusa é da primeira conta, e o dono quer poder
+   * testar com as outras.
    */
-  it("marca o servidor que recusa a conta e desativa o Entrar dele", async () => {
+  it("marca o servidor que recusa a conta sem desativar o Entrar", async () => {
     const user = userEvent.setup();
     renderTab([row({ id: "job-ok" }), row({ id: "job-negado" })]);
     await screen.findByText("job-negado");
@@ -438,11 +439,67 @@ describe("ServersTab — região", () => {
 
     const negado = (await screen.findByText("No permission")).closest("li") as HTMLElement;
     expect(within(negado).getByText("job-negado")).toBeInTheDocument();
-    expect(within(negado).getByRole("button", { name: "Join" })).toBeDisabled();
+    expect(within(negado).getByRole("button", { name: "Join" })).toBeEnabled();
 
     const liberado = screen.getByText("job-ok").closest("li") as HTMLElement;
     expect(within(liberado).queryByText("No permission")).not.toBeInTheDocument();
     expect(within(liberado).getByRole("button", { name: "Join" })).toBeEnabled();
+  });
+
+  /**
+   * "Sem permissão" para quem? A verificação das regiões responde só pela
+   * primeira conta; o dono quer saber se alguma das outras entra. A permissão
+   * é do place, então as outras perguntam uma vez, no mesmo servidor.
+   */
+  it("diz, conta por conta, quem pode entrar neste place", async () => {
+    const user = userEvent.setup();
+    renderTab([row({ id: "job-negado" }), row({ id: "job-b" })]);
+    await screen.findByText("job-negado");
+
+    setInvokeMap({
+      start_server_scan: SCAN_ID,
+      get_server_regions: [
+        {
+          jobId: "job-negado",
+          region: null,
+          label: "",
+          error: "You do not have permission to join this experience.",
+          denied: true,
+        },
+      ],
+      check_place_access: [{ userId: 1002, denied: false, error: null }],
+    });
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
+
+    expect(await screen.findByLabelText("alpha: no permission")).toBeInTheDocument();
+    expect(screen.getByLabelText("bravo: can join")).toBeInTheDocument();
+
+    // As outras contas perguntam no servidor que respondeu pela primeira, e a
+    // primeira não pergunta de novo.
+    const args = (callsFor("check_place_access")[0][1] ?? {}) as Record<string, unknown>;
+    expect(args.userIds).toEqual([1002]);
+    expect(args.jobId).toBe("job-negado");
+    expect(args.placeId).toBe(606849621);
+  });
+
+  it("avisa quando nenhuma conta selecionada entra neste place", async () => {
+    const user = userEvent.setup();
+    renderTab([row({ id: "job-negado" })]);
+    await screen.findByText("job-negado");
+
+    const refusal = "You do not have permission to join this experience.";
+    setInvokeMap({
+      start_server_scan: SCAN_ID,
+      get_server_regions: [
+        { jobId: "job-negado", region: null, label: "", error: refusal, denied: true },
+      ],
+      check_place_access: [{ userId: 1002, denied: true, error: refusal }],
+    });
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
+
+    expect(
+      await screen.findByText("None of the selected accounts can join this place's servers directly.")
+    ).toBeInTheDocument();
   });
 
   it("filtra a lista pelo país assim que a região é resolvida", async () => {

@@ -68,6 +68,14 @@ pub struct JoinRefusal {
     pub status: Option<i64>,
 }
 
+impl JoinRefusal {
+    /// Recusa por falta de permissão (o erro 524), e não por servidor cheio,
+    /// sumido ou falha de rede.
+    pub fn denied(&self) -> bool {
+        self.status == Some(JOIN_STATUS_UNAUTHORIZED)
+    }
+}
+
 /// Progresso de `resolve_server_regions`, para a UI não ficar parada.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -288,6 +296,18 @@ pub async fn server_machine_address(
     Err(JoinRefusal { message, status })
 }
 
+/// A conta pode entrar naquele servidor? É o mesmo pedido de entrada da
+/// região, sem a geolocalização. `Err` com `denied()` = sem permissão.
+pub async fn join_access(
+    security_token: &str,
+    place_id: i64,
+    job_id: &str,
+) -> Result<(), JoinRefusal> {
+    server_machine_address(security_token, place_id, job_id)
+        .await
+        .map(|_| ())
+}
+
 /// Região de um servidor: join → IP → geolocalização.
 pub async fn resolve_server_region(
     security_token: &str,
@@ -310,7 +330,7 @@ pub async fn resolve_server_region(
             job_id: job_id.to_string(),
             region: None,
             label: String::new(),
-            denied: refusal.status == Some(JOIN_STATUS_UNAUTHORIZED),
+            denied: refusal.denied(),
             error: Some(refusal.message),
         },
     }
@@ -657,6 +677,26 @@ mod server_region_http_tests {
             Some("You do not have permission to join this experience.")
         );
         assert!(resolved.region.is_none());
+    }
+
+    /// O acesso de **cada conta** ao mesmo servidor. Pedido do dono
+    /// (28/09/2026): a verificação dizia "sem permissão" só para a primeira
+    /// conta, e ele queria saber se alguma das outras entra.
+    #[tokio::test]
+    async fn each_account_gets_its_own_answer_for_the_same_server() {
+        mount_join("access-ok", "job-comum", "200.10.0.9").await;
+        mount_join_refusal(
+            "access-no",
+            12,
+            "You do not have permission to join this experience.",
+        )
+        .await;
+
+        assert_eq!(join_access("access-ok", 1, "job-comum").await, Ok(()));
+        let refusal = join_access("access-no", 1, "job-comum")
+            .await
+            .expect_err("sem permissão");
+        assert!(refusal.denied(), "{refusal:?}");
     }
 
     /// A recusa é pelo **código**, não pelo texto: a mensagem vem no idioma da

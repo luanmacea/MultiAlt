@@ -1704,7 +1704,11 @@
   "Allow launching on an already open version": "Allow launching on an already open version",
   "With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open.": "With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open.",
   "Move window": "Move window",
-  "Loads each server's region and whether the first selected account can join it — one check per server.": "Loads each server's region and whether the first selected account can join it — one check per server.",
+  "Loads each server's region and which of your accounts can join this place — one check per server, plus one per account.": "Loads each server's region and which of your accounts can join this place — one check per server, plus one per account.",
   "No permission": "No permission",
-  "The first selected account does not have permission to join this server": "The first selected account does not have permission to join this server"
+  "Access in this place:": "Access in this place:",
+  "{{name}}: can join": "{{name}}: can join",
+  "{{name}}: no permission": "{{name}}: no permission",
+  "{{name}}: could not check": "{{name}}: could not check",
+  "None of the selected accounts can join this place's servers directly.": "None of the selected accounts can join this place's servers directly."
 }
