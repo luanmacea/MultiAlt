@@ -1806,13 +1806,40 @@ mod botting_console_tests {
     /// Corta o corpo de uma funcao a partir da assinatura ate a chave final na
     /// coluna zero.
     fn corpo(assinatura: &str) -> &'static str {
-        let fonte = fonte();
+        corpo_em(fonte(), assinatura)
+    }
+
+    fn corpo_em<'a>(fonte: &'a str, assinatura: &str) -> &'a str {
         let inicio = fonte
             .find(assinatura)
             .unwrap_or_else(|| panic!("nao achei `{assinatura}` em botting.rs"));
         let resto = &fonte[inicio..];
-        let fim = resto.find("\n}\n").unwrap_or(resto.len());
+        let fim = fim_da_funcao(resto).unwrap_or(resto.len());
         &resto[..fim]
+    }
+
+    /// Posição do `}` de coluna zero que fecha a função — seguido de `\n` ou de
+    /// `\r\n`: a CI (runner Windows) faz checkout com CRLF, e `include_str!`
+    /// entrega o arquivo como está no disco.
+    fn fim_da_funcao(resto: &str) -> Option<usize> {
+        resto
+            .match_indices("\n}")
+            .map(|(i, _)| i)
+            .find(|&i| matches!(resto.as_bytes().get(i + 2), Some(b'\n' | b'\r')))
+    }
+
+    /// A CI roda num runner Windows, que faz checkout com CRLF: sem achar o `}`
+    /// de coluna zero, o "corpo" virava o resto do arquivo e as checagens abaixo
+    /// passavam ou falhavam por acaso.
+    #[test]
+    fn o_corte_do_corpo_nao_depende_do_fim_de_linha() {
+        let lf = "fn a() {\n    um();\n}\n\nfn b() {\n    dois();\n}\n";
+        let crlf = lf.replace('\n', "\r\n");
+        for fonte in [lf, crlf.as_str()] {
+            let corpo = corpo_em(fonte, "fn a(");
+            assert!(corpo.contains("um()"), "{corpo:?}");
+            assert!(!corpo.contains("dois()"), "o corte passou do fim da funcao: {corpo:?}");
+        }
     }
 
     #[test]

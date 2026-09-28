@@ -2997,14 +2997,46 @@ mod read_only_retry_tests {
     /// um comentário que **explica** por que ali não se usa `run_with_session_retry`
     /// fazia o teste acusar quem estava certo.
     fn corpo_da_funcao(nome: &str) -> &'static str {
+        corpo_em(FONTE, nome)
+    }
+
+    fn corpo_em<'a>(fonte: &'a str, nome: &str) -> &'a str {
         let assinatura = format!("async fn {nome}(");
-        let inicio = FONTE
+        let inicio = fonte
             .find(&assinatura)
             .unwrap_or_else(|| panic!("função {nome} não existe mais neste arquivo"));
-        let resto = &FONTE[inicio + assinatura.len()..];
-        match resto.find("\n}\n") {
+        let resto = &fonte[inicio + assinatura.len()..];
+        match fim_da_funcao(resto) {
             Some(fim) => &resto[..fim],
             None => resto,
+        }
+    }
+
+    /// Posição do `}` de coluna zero que fecha a função — seguido de `\n` ou de
+    /// `\r\n`: a CI (runner Windows) faz checkout com CRLF, e `include_str!`
+    /// entrega o arquivo como está no disco.
+    fn fim_da_funcao(resto: &str) -> Option<usize> {
+        resto
+            .match_indices("\n}")
+            .map(|(i, _)| i)
+            .find(|&i| matches!(resto.as_bytes().get(i + 2), Some(b'\n' | b'\r')))
+    }
+
+    /// A CI roda num runner Windows, que faz checkout com CRLF: o corte do corpo
+    /// tem que achar o `}` de coluna zero com os dois fins de linha. Sem isso o
+    /// "corpo" virava o resto do arquivo e todo comando parecia usar o retry
+    /// (o PR #1 falhou assim, passando aqui).
+    #[test]
+    fn the_body_cut_does_not_depend_on_line_endings() {
+        let lf = "async fn a(x: u8) {\n    ler(x);\n}\n\nasync fn b() {\n    run_with_session_retry();\n}\n";
+        let crlf = lf.replace('\n', "\r\n");
+        for fonte in [lf, crlf.as_str()] {
+            let corpo = corpo_em(fonte, "a");
+            assert!(corpo.contains("ler(x)"), "{corpo:?}");
+            assert!(
+                !corpo.contains("run_with_session_retry"),
+                "o corte passou do fim da função: {corpo:?}"
+            );
         }
     }
 
