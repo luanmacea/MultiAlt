@@ -444,6 +444,11 @@ export interface ServerRegion {
   /** Texto já formatado por `General.ServerRegionFormat`. */
   label: string;
   error: string | null;
+  /**
+   * O Roblox recusou o join por falta de permissão (o erro 524) para a conta
+   * que fez a consulta. Vem da mesma chamada da região.
+   */
+  denied?: boolean;
 }
 
 /** Progresso do evento `server-region-progress`. */
