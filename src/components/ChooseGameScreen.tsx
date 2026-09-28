@@ -1004,6 +1004,7 @@ export function ChooseGameScreen() {
           <div className="h-full overflow-y-auto px-4 pt-3 pb-4">
             <RecentTab
               onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
+              onJoinGame={handleJoinGame}
               maxRecent={maxRecent}
               userId={userIds[0] ?? null}
               onBrowseServers={handleBrowseServers}
