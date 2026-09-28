@@ -27,10 +27,11 @@
 
 // Importados aqui (e não no topo de `windows.rs`) porque só este arquivo usa.
 use windows_sys::Win32::Foundation::{
-    DuplicateHandle, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS,
+    DuplicateHandle, GetLastError, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS,
+    ERROR_FILE_NOT_FOUND,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateEventW, GetCurrentProcess, PROCESS_DUP_HANDLE,
+    CreateEventW, GetCurrentProcess, OpenEventW, EVENT_MODIFY_STATE, PROCESS_DUP_HANDLE,
 };
 
 /// Sufixo do evento de instância única do cliente Roblox.
@@ -347,4 +348,17 @@ pub fn close_roblox_singleton_handles() -> usize {
         );
     }
     closed
+}
+
+/// O evento `name` existe nesta sessão? `OpenEventW` sem prefixo abre no mesmo
+/// namespace em que o cliente do Roblox cria o dele. Acesso negado conta como
+/// "existe": o objeto está lá, só não abre para nós.
+fn named_event_exists(name: &str) -> bool {
+    let wide = encode_wide(name);
+    let handle = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide.as_ptr()) };
+    if handle.is_null() {
+        return unsafe { GetLastError() } != ERROR_FILE_NOT_FOUND;
+    }
+    unsafe { CloseHandle(handle) };
+    true
 }

@@ -118,10 +118,16 @@ pub fn enable_multi_roblox() -> Result<bool, String> {
 
     // Mutex ocupado. Antes de desistir (e antes que o chamador caia no último
     // recurso de matar clientes com `AutoCloseRobloxForMultiRbx`), destrava
-    // pelo Event.
-    if close_roblox_singleton_handles() == 0 {
-        // Nada de Roblox para destravar: quem segura o mutex é outra coisa
-        // (RAM legado, outra ferramenta). Caminho antigo.
+    // pelo Event — ou constata que ele já não existe.
+    let closed_now = close_roblox_singleton_handles();
+    let roblox_running = !find_roblox_pids_all().is_empty();
+    if !can_open_another_client(
+        closed_now,
+        roblox_running,
+        named_event_exists(ROBLOX_SINGLETON_EVENT),
+    ) {
+        // O Event existe e não deu para fechá-lo, ou quem segura o mutex é
+        // outra coisa (RAM legado, outra ferramenta). Caminho antigo.
         return Ok(false);
     }
 
@@ -130,6 +136,22 @@ pub fn enable_multi_roblox() -> Result<bool, String> {
     let _ = acquire_multi_roblox_mutex()?;
     lock_roblox_cookies()?;
     Ok(true)
+}
+
+/// Com o mutex nas mãos de outro processo: dá para abrir mais um cliente?
+///
+/// Sim se algum `ROBLOX_singletonEvent` foi fechado agora — **ou** se há
+/// cliente aberto e o nome nem existe mais: ele já foi fechado numa leva
+/// anterior, e os clientes que o recriaram saíram. Sem o Event o próximo
+/// cliente não tem instância antiga para sinalizar e sobe normal; recusar aí
+/// era barrar um launch que funcionaria (relato do dono, 28/09/2026: depois de
+/// fechar as alts de uma leva, todo launch dava "A Roblox client is already
+/// running").
+///
+/// Sem cliente Roblox aberto nada muda: quem segura o mutex é outra coisa (RAM
+/// legado, outra ferramenta) e o chamador segue o caminho antigo.
+fn can_open_another_client(closed_now: usize, roblox_running: bool, event_exists: bool) -> bool {
+    closed_now > 0 || (roblox_running && !event_exists)
 }
 
 fn release_multi_roblox_mutex() {
