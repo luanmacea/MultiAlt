@@ -103,6 +103,36 @@ fn select_preferred_update(
     }
 }
 
+/// Canal que ainda nao tem manifesto publicado (o endpoint responde 404).
+///
+/// O texto e o `Display` de `tauri_plugin_updater::Error::ReleaseNotFound`
+/// (conferido no 2.10), que o plugin devolve tanto para 404 quanto para
+/// resposta ilegivel.
+fn channel_has_no_manifest(error: &str) -> bool {
+    error.contains("Could not fetch a valid release JSON from the remote")
+}
+
+/// Canal principal: canal ainda sem release publicada e "nada para atualizar",
+/// nao falha. Qualquer outro erro sobe.
+fn primary_channel_result<T>(result: Result<Option<T>, String>) -> Result<Option<T>, String> {
+    match result {
+        Err(error) if channel_has_no_manifest(&error) => Ok(None),
+        other => other,
+    }
+}
+
+/// Canal de reserva (o `stable` consultado de dentro do beta): um extra que
+/// nunca pode derrubar a checagem do canal principal.
+fn fallback_channel_result<T>(result: Result<Option<T>, String>) -> Result<Option<T>, String> {
+    match result {
+        Ok(update) => Ok(update),
+        Err(error) => {
+            eprintln!("Updater: canal de reserva ignorado ({})", error);
+            Ok(None)
+        }
+    }
+}
+
 async fn check_update_for_channel(
     app: &tauri::AppHandle,
     release_channel: &str,
@@ -146,9 +176,16 @@ async fn check_for_updates_with_channels(
         feature_channel.as_deref().unwrap_or("standard"),
     );
 
-    let primary_update = check_update_for_channel(&app, normalized_release, normalized_feature).await?;
+    let primary_update = primary_channel_result(
+        check_update_for_channel(&app, normalized_release, normalized_feature).await,
+    )?;
+    // Quem esta no beta tambem olha o stable: uma estavel mais nova vence a
+    // beta. Mas o stable so nasce na primeira release estavel, e ate la ele
+    // responde 404 — por isso a falha dele nao pode derrubar a checagem.
     let fallback_update = if normalized_release == "beta" {
-        check_update_for_channel(&app, "stable", normalized_feature).await?
+        fallback_channel_result(
+            check_update_for_channel(&app, "stable", normalized_feature).await,
+        )?
     } else {
         None
     };
