@@ -51,11 +51,13 @@ jobs:
       # foi removido do workflow.
       #
       # MSI: o download **recomendado**. No VirusTotal o setup NSIS (.exe) leva
-      # marcacao heuristica (3/71 no 4.0.5, todas de modelos de ML) e o MSI sai
-      # limpo (0/61, teste de 28/09/2026). O .exe continua saindo: e por ele que
-      # as instalacoes feitas com ele se atualizam (chave `windows-x86_64-nsis`
-      # do manifesto). Ligar tambem acrescenta o alvo `msi` ao bundle do Tauri no
-      # passo "Configure bundle targets".
+      # marcacao heuristica (3/71 no 4.0.5, todas de modelos de ML; 1/71 no teste
+      # com o WebView2 embutido, o `webviewInstallMode` do tauri.conf.json) e o
+      # MSI sai limpo (0/61, teste de 28/09/2026). O .exe continua saindo: e por
+      # ele que as instalacoes feitas com ele se atualizam (chave
+      # `windows-x86_64-nsis` do manifesto). Ligar tambem acrescenta o alvo `msi`
+      # ao bundle do Tauri no passo "Configure bundle targets". O guia "Which file
+      # to download" do texto da release segue estes dois interruptores.
       PUBLISH_MSI: "true"
       # Portatil: o executavel solto, sem instalar. Nao passa pelo updater.
       PUBLISH_PORTABLE: "false"
@@ -592,6 +594,38 @@ jobs:
               : "This is a stable release intended for general use.";
             const calloutType = channel === "beta" ? "WARNING" : "NOTE";
 
+            // Guia de download: cita so os arquivos que este job publica, pelos
+            // mesmos interruptores do topo (PUBLISH_MSI / PUBLISH_PORTABLE). O
+            // texto fixo que havia aqui anunciou MSI e portatil numa release que
+            // nao tinha nenhum dos dois (4.0.5).
+            const publishMsi = process.env.PUBLISH_MSI === "true";
+            const publishPortable = process.env.PUBLISH_PORTABLE === "true";
+            const heuristicNote =
+              "It is not code-signed, so some antivirus engines may flag it by heuristics (false positive).";
+            const downloadGuide = ["### Which file to download"];
+            if (publishMsi) {
+              downloadGuide.push(
+                "- **The `.msi`** (`..._x64_en-US.msi`): recommended. Clean on VirusTotal. Windows asks for admin permission to install it and on every update.",
+                "- **The setup `.exe`** (`..._x64-setup.exe`): the same app, installed for your user only (no admin prompt). " +
+                  heuristicNote +
+                  " Already installed from it? Keep it: it updates itself (installing the `.msi` too would add a second copy)."
+              );
+            } else {
+              downloadGuide.push(
+                "- **The setup `.exe`** (`..._x64-setup.exe`): recommended. Installed for your user only (no admin prompt). " +
+                  heuristicNote
+              );
+            }
+            if (publishPortable) {
+              downloadGuide.push(
+                "- **The portable `.exe`** (`..._x64_portable.exe`): the app without installing. It does not update itself."
+              );
+            }
+            downloadGuide.push(
+              "- **Files with `_full-nexus-ws` in the name**: the same app plus the local HTTP API and the Nexus WebSocket used by external scripts (they open local ports). Only if you need them.",
+              "- **`zz-...sig`**: signatures for the in-app auto-update. No need to download them."
+            );
+
             const topNote = [
               `> [!${calloutType}]`,
               `> ${warningLine}`,
@@ -601,10 +635,7 @@ jobs:
               `Release commit message: ${releaseCommitMessage}`,
               `App version: ${appVersion}`,
               "",
-              "Recommended download: the .msi without _full-nexus-ws (antivirus heuristics flag the setup .exe; the MSI comes out clean)",
-              "Already installed from the setup .exe? Keep it: it updates itself",
-              "Full feature assets: use files ending in _full-nexus-ws.msi or _full-nexus-ws.exe",
-              "Portable builds are listed after installer and MSI assets"
+              ...downloadGuide
             ].join("\n");
 
             const finalBody = [
