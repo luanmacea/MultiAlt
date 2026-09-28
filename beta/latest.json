@@ -1,15 +1,19 @@
 {
-  "version": "4.0.5-beta",
-  "notes": "> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: 11ee89e\nApp version: 4.0.5\n\n## What's Changed\n* Develop by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/2\n\n\n**Full Changelog**: https://github.com/luanmacea/roblox-account-manager/compare/v4.0.4-beta...v4.0.5-beta",
-  "pub_date": "2026-09-28T05:47:05.178Z",
+  "version": "0.1.0-beta",
+  "notes": "> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: 088d725\nApp version: 0.1.0\n\n## What's Changed\n* Instaladores sem falso positivo e versão 0.1.0 by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/3\n\n\n**Full Changelog**: https://github.com/luanmacea/roblox-account-manager/compare/v4.0.5-beta...v0.1.0-beta",
+  "pub_date": "2026-09-28T08:07:28.846Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmVwelEzOXBtWnJvdHBDRGk5cTc3YlhlN1NKZDlEdDdQdXYvOTd6T3F1clZ2bmYySHVJWktjSkNEY1k5NUtEUE8rdFRsWVVDb2FZbkpnNXYwcTY0UXc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNTc0NDIxCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl80LjAuNV94NjQtc2V0dXAuZXhlCjY1QTlDbERhcjdjT1lFcGZoZ1E0U0g0NXlHZlBORlJ5WkNpMC93a1o2MnlHOFJlS0VacWlSTHdNOHNPNWZhWkswdWZTUllkei9Qc2loUmJNR016SUNnPT0K",
-      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v4.0.5-beta/Roblox.Account.Manager_4.0.5_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcldEVTBlUnRnWFhMZEVpZEJ4YWFNSlRsbFM0dTJhQUtaQktRMXc4ajZTMVBsRGI0NkJHMVg1Y21oU0tVS1RHc21YdWpuMzgrV21tZVovSFRMVU0yekEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNTgyODQzCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuMF94NjQtc2V0dXAuZXhlCkNTaTlJdFdwdEY2SlVKT3VXNG5OYitmc204R2NrRURTNHptdzBsN2FuRHNZa3hrNTRyTHdzODNWZk55M2NtQjg2dGU2ZHFuem1YS0RWYUtTdng3bENRPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.0-beta/Roblox.Account.Manager_0.1.0_x64-setup.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmVwelEzOXBtWnJvdHBDRGk5cTc3YlhlN1NKZDlEdDdQdXYvOTd6T3F1clZ2bmYySHVJWktjSkNEY1k5NUtEUE8rdFRsWVVDb2FZbkpnNXYwcTY0UXc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNTc0NDIxCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl80LjAuNV94NjQtc2V0dXAuZXhlCjY1QTlDbERhcjdjT1lFcGZoZ1E0U0g0NXlHZlBORlJ5WkNpMC93a1o2MnlHOFJlS0VacWlSTHdNOHNPNWZhWkswdWZTUllkei9Qc2loUmJNR016SUNnPT0K",
-      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v4.0.5-beta/Roblox.Account.Manager_4.0.5_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcldEVTBlUnRnWFhMZEVpZEJ4YWFNSlRsbFM0dTJhQUtaQktRMXc4ajZTMVBsRGI0NkJHMVg1Y21oU0tVS1RHc21YdWpuMzgrV21tZVovSFRMVU0yekEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNTgyODQzCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuMF94NjQtc2V0dXAuZXhlCkNTaTlJdFdwdEY2SlVKT3VXNG5OYitmc204R2NrRURTNHptdzBsN2FuRHNZa3hrNTRyTHdzODNWZk55M2NtQjg2dGU2ZHFuem1YS0RWYUtTdng3bENRPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.0-beta/Roblox.Account.Manager_0.1.0_x64-setup.exe"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcldpUU1hWXdxeTJRQkVHcTZYM2dSMzdPT1V4RGxKMG1qWkdFZnlRRXpsdURqcmtSQWRaN0hSTkhxZ0M1N001azd6K3FaSDkwNXBPT0huc3NqVTVlZndzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNTgyODQzCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuMF94NjRfZW4tVVMubXNpCmN2MnlYUEUraUs5ajZtdlpyaXh1M2Y3bVJsNXlPK2l4Qy9xY3dJdDNpd0NLR0dGZHVrT0cvOWI4dXdjeStGc0NDdGdrUEZWUm0zY2p6NUJlRFNKRENRPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.0-beta/Roblox.Account.Manager_0.1.0_x64_en-US.msi"
     }
   }
 }
