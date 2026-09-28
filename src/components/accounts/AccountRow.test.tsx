@@ -255,4 +255,71 @@ describe("AccountRow", () => {
     renderRow({ selectedIds: new Set([501]) });
     expect(row().className).toContain("theme-row-selected");
   });
+
+  /**
+   * O alias agora aceita ate 240 caracteres, o que estoura a linha da conta.
+   * Sem `WrapLongNames` o nome continua sendo cortado (comportamento de
+   * sempre); ligado, o nome quebra em vez de truncar. As duas classes sao
+   * mutuamente exclusivas para nao truncar E quebrar ao mesmo tempo.
+   */
+  describe("long names", () => {
+    const longAlias = "a".repeat(240);
+    const longAccount = makeAccount({ UserID: 501, Username: "roboduck", Alias: longAlias });
+
+    it("truncates a long alias by default (WrapLongNames off)", () => {
+      renderRow({}, longAccount);
+      const nameEl = screen.getByText(longAlias);
+      expect(nameEl.className).toContain("truncate");
+      expect(nameEl.className).not.toContain("wrap-anywhere");
+    });
+
+    it("wraps a long alias instead of truncating when WrapLongNames is on", () => {
+      const settings = defaultSettings();
+      settings.General.WrapLongNames = "true";
+      renderRow({ settings }, longAccount);
+      const nameEl = screen.getByText(longAlias);
+      expect(nameEl.className).toContain("wrap-anywhere");
+      expect(nameEl.className).not.toContain("truncate");
+    });
+
+    it("wraps the @username line too when WrapLongNames is on", () => {
+      const settings = defaultSettings();
+      settings.General.WrapLongNames = "true";
+      const longUsername = makeAccount({
+        UserID: 501,
+        Username: longAlias,
+        Alias: "Main",
+      });
+      renderRow({ settings }, longUsername);
+      const usernameEl = screen.getByText(`@${longAlias}`);
+      expect(usernameEl.className).toContain("wrap-anywhere");
+      expect(usernameEl.className).not.toContain("truncate");
+    });
+
+    it("still masks a long alias correctly when names are hidden", () => {
+      renderRow({ hideUsernames: true, hiddenNameLetters: 3 }, longAccount);
+      expect(screen.getByText("aaa********")).toBeInTheDocument();
+      expect(screen.queryByText(longAlias)).not.toBeInTheDocument();
+    });
+
+    /**
+     * O teste acima usa um alias **sem espaço** e passava com a tela quebrada:
+     * `break-words` num item flex com `min-width: auto` não encolhe abaixo do
+     * trecho sem espaço (as quebras de `break-word` não contam no tamanho
+     * mínimo), então o nome ficava numa linha de 1765 px passando por baixo do
+     * carimbo e das setas — medido no harness nos três tamanhos de janela. O que
+     * resolve (validado num clone) é o nome poder encolher (`min-w-0`) e quebrar
+     * em qualquer ponto também no tamanho mínimo (`overflow-wrap: anywhere`).
+     * O jsdom não calcula layout; a medida de verdade está no relatório.
+     */
+    it("um alias sem espaço também quebra: o nome encolhe abaixo do trecho inteiro", () => {
+      const settings = defaultSettings();
+      settings.General.WrapLongNames = "true";
+      const semEspaco = "A1B2C3D4E5".repeat(23);
+      renderRow({ settings }, makeAccount({ UserID: 502, Username: "roboduck", Alias: semEspaco }));
+      const classes = screen.getByText(semEspaco).className.split(/\s+/);
+      expect(classes).toContain("min-w-0");
+      expect(classes).toContain("wrap-anywhere");
+    });
+  });
 });

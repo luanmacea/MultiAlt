@@ -79,6 +79,11 @@ const PRODUCTION_CHANNEL_CDN: &str = "LIVE";
 const PRODUCTION_VERSION_URL: &str =
     "https://clientsettingscdn.roblox.com/v2/client-version/WindowsPlayer";
 const PRODUCTION_VERSION_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Teto da consulta "qual build este canal exige". Fica **abaixo** do teto das
+/// chamadas de API de propósito: esta consulta tem fallback (o cache vencido, ou
+/// o canal de produção), então esperar mais tempo só atrasaria o launch sem
+/// mudar o resultado. Era o valor que este ponto já praticava.
+const CHANNEL_LOOKUP_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Cache of "channel -> (fetched at, build)".
 static CHANNEL_VERSION_CACHE: LazyLock<Mutex<HashMap<String, (std::time::Instant, String)>>> =
@@ -167,13 +172,14 @@ fn channel_is_production(channel: &str) -> bool {
 
 /// clientsettings endpoint for a channel. The literal "production" has no
 /// `/channel/` route (it answers 401), so it uses the default URL.
-fn channel_version_url(channel: &str) -> String {
+/// `production_url` is [`PRODUCTION_VERSION_URL`] outside the tests.
+fn channel_version_url(production_url: &str, channel: &str) -> String {
     if channel_is_production(channel) {
-        PRODUCTION_VERSION_URL.to_string()
+        production_url.to_string()
     } else {
         format!(
             "{}/channel/{}",
-            PRODUCTION_VERSION_URL,
+            production_url,
             channel.to_ascii_lowercase()
         )
     }
@@ -231,9 +237,51 @@ fn set_player_channel(channel: &str) {
     }
 }
 
-fn remember_resolved_build(version: &str) {
+/// Guarda a build de **produção** para os helpers síncronos
+/// (`get_roblox_path`). Build de outro canal (a do registro, no old join) não
+/// entra: quem pede a pasta de produção receberia a do canal.
+fn remember_resolved_build(channel: &str, version: &str) {
+    if !channel_is_production(channel) {
+        return;
+    }
     if let Ok(mut guard) = LAST_RESOLVED_BUILD.lock() {
         *guard = Some(version.to_string());
+    }
+}
+
+/// De onde o cliente deste launch abre — e, portanto, onde o
+/// `ClientAppSettings.json` (FPS, fast flags) tem que ser gravado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientSource {
+    /// Old join numa versão do catálogo: a pasta dela.
+    Catalog,
+    /// Old join sem versão do catálogo: a build do canal do **registro**.
+    RegistryChannel,
+    /// Protocolo (`launch_url`): sempre a build de produção.
+    Production,
+}
+
+pub fn client_source(use_old_join: bool, has_catalog_version: bool) -> ClientSource {
+    match (use_old_join, has_catalog_version) {
+        (true, true) => ClientSource::Catalog,
+        (true, false) => ClientSource::RegistryChannel,
+        (false, _) => ClientSource::Production,
+    }
+}
+
+/// Pasta de onde o cliente vai abrir. É a **mesma** que o spawn usa: o patch
+/// e o old join têm que receber este valor, não um calculado antes.
+/// `resolved_base_path` é a pasta de `resolve_roblox_install_path` — a da
+/// versão do catálogo, ou o fallback quando a build não pôde ser achada nem
+/// instalada.
+pub async fn client_dir(source: ClientSource, resolved_base_path: &str) -> String {
+    match source {
+        ClientSource::Catalog => resolved_base_path.to_string(),
+        ClientSource::RegistryChannel => default_player_dir(resolved_base_path).await,
+        ClientSource::Production => ensure_player_exe_for_channel(PRODUCTION_CHANNEL)
+            .await
+            .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| resolved_base_path.to_string()),
     }
 }
 
@@ -347,6 +395,65 @@ fn cached_production_player_dir() -> Option<String> {
         .then(|| dir.to_string_lossy().into_owned())
 }
 
+/// O que a consulta de build de um canal decidiu.
+#[derive(Debug, PartialEq)]
+enum ChannelBuild {
+    /// O endpoint do próprio canal respondeu.
+    Channel(String),
+    /// Build de produção no lugar da do canal. Só é seguro abri-la gravando
+    /// `production` no registro (`set_player_channel`): senão o cliente
+    /// consulta o canal antigo e o instalador do Roblox roda.
+    RetiredUseProduction(String),
+}
+
+/// Consulta, em `production_url` (a URL de produção do clientsettings), a
+/// build que o cliente vai exigir para `channel`.
+///
+/// Só um canal **aposentado** — o endpoint dele responde 401/404 — cai na
+/// build de produção (e no reparo do registro). Timeout, 429, 5xx ou resposta
+/// ilegível não dizem nada sobre o canal: dá `None`, e quem chama usa o cache
+/// vencido sem tocar no registro.
+async fn fetch_channel_build(
+    client: &reqwest::Client,
+    production_url: &str,
+    channel: &str,
+) -> Option<ChannelBuild> {
+    let resp = client
+        .get(channel_version_url(production_url, channel))
+        .send()
+        .await
+        .ok()?;
+    let retired = matches!(
+        resp.status(),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::NOT_FOUND
+    );
+    if retired && !channel_is_production(channel) {
+        let production = client.get(production_url).send().await.ok()?;
+        return read_build(production)
+            .await
+            .map(ChannelBuild::RetiredUseProduction);
+    }
+    read_build(resp).await.map(ChannelBuild::Channel)
+}
+
+/// A build (`version-...`) de uma resposta do clientsettings.
+async fn read_build(resp: reqwest::Response) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ClientVersion {
+        client_version_upload: String,
+    }
+
+    let body = resp
+        .error_for_status()
+        .ok()?
+        .json::<ClientVersion>()
+        .await
+        .ok()?;
+    let version = body.client_version_upload.trim().to_string();
+    version.starts_with("version-").then_some(version)
+}
+
 /// Build que o cliente vai exigir para `channel`: o que o endpoint
 /// clientsettings reporta para ele.
 async fn build_version_for_channel(channel: &str) -> Option<String> {
@@ -357,57 +464,37 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         .and_then(|c| c.get(&channel).cloned());
     if let Some((at, version)) = &cached {
         if at.elapsed() < PRODUCTION_VERSION_CACHE_TTL {
-            remember_resolved_build(version);
+            remember_resolved_build(&channel, version);
             return Some(version.clone());
         }
     }
 
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ClientVersion {
-        client_version_upload: String,
-    }
-
     let fetched = async {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(6))
-            .build()
-            .ok()?;
-        let mut urls = vec![(channel_version_url(&channel), false)];
-        if !channel_is_production(&channel) {
-            // A channel Roblox retired answers 401/404. Falling back to the
-            // production build is only safe if the client reads the same
-            // channel, so that fallback also repairs the registry value.
-            urls.push((PRODUCTION_VERSION_URL.to_string(), true));
-        }
-        for (url, repair_channel) in urls {
-            let Ok(resp) = client.get(&url).send().await else {
-                continue;
-            };
-            let Ok(resp) = resp.error_for_status() else {
-                continue;
-            };
-            let Ok(body) = resp.json::<ClientVersion>().await else {
-                continue;
-            };
-            let version = body.client_version_upload.trim().to_string();
-            if version.starts_with("version-") {
-                if repair_channel {
-                    set_player_channel(PRODUCTION_CHANNEL);
-                }
-                return Some(version);
+        // Teto próprio e curto: esta consulta tem fallback (o cache vencido),
+        // então esperar mais que isso só atrasa o launch. `connect_timeout` vem
+        // do builder compartilhado; o total continua sendo os 6 s de sempre.
+        let client = crate::api::http_client::builder_with(
+            CHANNEL_LOOKUP_TIMEOUT,
+            CHANNEL_LOOKUP_TIMEOUT,
+        )
+        .build()
+        .ok()?;
+        match fetch_channel_build(&client, PRODUCTION_VERSION_URL, &channel).await? {
+            ChannelBuild::Channel(version) => Some(version),
+            ChannelBuild::RetiredUseProduction(version) => {
+                set_player_channel(PRODUCTION_CHANNEL);
+                Some(version)
             }
         }
-        None
     }
     .await;
 
     match fetched {
         Some(version) => {
+            remember_resolved_build(&channel, &version);
             if let Ok(mut cache) = CHANNEL_VERSION_CACHE.lock() {
                 cache.insert(channel, (std::time::Instant::now(), version.clone()));
             }
-            remember_resolved_build(&version);
             Some(version)
         }
         // Network hiccup: a stale answer is still far better than the protocol
@@ -415,37 +502,11 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         None => {
             let stale = cached.map(|(_, version)| version);
             if let Some(version) = &stale {
-                remember_resolved_build(version);
+                remember_resolved_build(&channel, version);
             }
             stale
         }
     }
-}
-
-pub async fn launch_old_join(
-    ticket: &str,
-    place_id: i64,
-    job_id: &str,
-    launch_data: &str,
-    follow_user: bool,
-    join_vip: bool,
-    access_code: &str,
-    link_code: &str,
-    is_teleport: bool,
-) -> Result<(), String> {
-    let version_folder = default_player_dir(&get_roblox_path()?).await;
-    launch_old_join_from(
-        &version_folder,
-        ticket,
-        place_id,
-        job_id,
-        launch_data,
-        follow_user,
-        join_vip,
-        access_code,
-        link_code,
-        is_teleport,
-    )
 }
 
 pub fn launch_old_join_from(
@@ -567,13 +628,15 @@ mod launch_url_tests {
         )
     }
 
-    // ---- channel pinning guards ---------------------------------------------
+    // ---- canal de produção: o app lê o canal, nunca o fixa --------------------
 
     #[test]
     fn production_channel_constants_are_intact() {
-        // These pin the Roblox deployment channel to production before launch.
-        // Changing them brings back the foreground installer that closes every
-        // other open client (docs/features/launch.md).
+        // `launch_url` abre a build de produção (`production`, `LIVE` no CDN) e
+        // o old join lê o canal desta chave — o app não fixa canal nenhum no
+        // registro. Mudar estes valores faz a build aberta divergir do canal
+        // que o cliente consulta e traz de volta o instalador que fecha todos
+        // os outros clientes (docs/features/launch.md).
         assert_eq!(PRODUCTION_CHANNEL, "production");
         assert_eq!(PRODUCTION_CHANNEL_CDN, "LIVE");
         assert_eq!(
@@ -584,8 +647,9 @@ mod launch_url_tests {
 
     #[test]
     fn the_launch_url_still_ends_with_an_empty_channel() {
-        // `+channel:` with no value tells the client to use the registry
-        // channel we just pinned to production.
+        // `+channel:` vazio = produção: o campo da URL vence o canal do
+        // registro (provado nos logs do cliente), por isso `launch_url` abre a
+        // build de produção sem ler nem escrever o registro.
         let url = build("", "", false, false, "", "", false);
         assert!(
             url.ends_with("+channel:+LaunchExp:InApp"),
@@ -722,15 +786,24 @@ mod channel_follow_tests {
     fn production_uses_the_default_version_endpoint() {
         // clientsettings answers 401 for /channel/production, so it must not
         // be used for the production channel.
-        assert_eq!(channel_version_url("production"), PRODUCTION_VERSION_URL);
-        assert_eq!(channel_version_url(""), PRODUCTION_VERSION_URL);
-        assert_eq!(channel_version_url("LIVE"), PRODUCTION_VERSION_URL);
+        assert_eq!(
+            channel_version_url(PRODUCTION_VERSION_URL, "production"),
+            PRODUCTION_VERSION_URL
+        );
+        assert_eq!(
+            channel_version_url(PRODUCTION_VERSION_URL, ""),
+            PRODUCTION_VERSION_URL
+        );
+        assert_eq!(
+            channel_version_url(PRODUCTION_VERSION_URL, "LIVE"),
+            PRODUCTION_VERSION_URL
+        );
     }
 
     #[test]
     fn a_test_channel_uses_its_own_version_endpoint_in_lowercase() {
         assert_eq!(
-            channel_version_url("ZTestLinkerSet"),
+            channel_version_url(PRODUCTION_VERSION_URL, "ZTestLinkerSet"),
             format!("{}/channel/ztestlinkerset", PRODUCTION_VERSION_URL)
         );
     }
@@ -751,7 +824,7 @@ mod channel_follow_tests {
 
     #[test]
     fn a_resolved_build_is_remembered_for_sync_callers() {
-        remember_resolved_build("version-deadbeefdeadbeef");
+        remember_resolved_build(PRODUCTION_CHANNEL, "version-deadbeefdeadbeef");
         let remembered = LAST_RESOLVED_BUILD.lock().unwrap().clone();
         assert_eq!(remembered.as_deref(), Some("version-deadbeefdeadbeef"));
         // Not installed, so the sync helper must not hand out a bogus folder.
@@ -791,7 +864,10 @@ mod channel_build_pairing_tests {
         // `launch_url` usa PRODUCTION_CHANNEL, que tem que bater com o campo
         // vazio da URL acima.
         assert!(channel_is_production(PRODUCTION_CHANNEL));
-        assert_eq!(channel_version_url(PRODUCTION_CHANNEL), PRODUCTION_VERSION_URL);
+        assert_eq!(
+            channel_version_url(PRODUCTION_VERSION_URL, PRODUCTION_CHANNEL),
+            PRODUCTION_VERSION_URL
+        );
     }
 
     #[test]
@@ -801,12 +877,174 @@ mod channel_build_pairing_tests {
         let channel = current_player_channel();
         assert!(!channel.trim().is_empty());
         if channel_is_production(&channel) {
-            assert_eq!(channel_version_url(&channel), PRODUCTION_VERSION_URL);
+            assert_eq!(
+                channel_version_url(PRODUCTION_VERSION_URL, &channel),
+                PRODUCTION_VERSION_URL
+            );
         } else {
             assert_eq!(
-                channel_version_url(&channel),
-                format!("{}/channel/{}", PRODUCTION_VERSION_URL, channel.to_ascii_lowercase())
+                channel_version_url(PRODUCTION_VERSION_URL, &channel),
+                format!(
+                    "{}/channel/{}",
+                    PRODUCTION_VERSION_URL,
+                    channel.to_ascii_lowercase()
+                )
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod channel_repair_tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    // Regressão: o reparo do canal — a única escrita no registro do Roblox —
+    // disparava em qualquer falha da consulta (timeout, 429, 5xx) sempre que a
+    // produção respondia. Só um canal aposentado (401/404) justifica abrir a
+    // build de produção e gravar `production`; erro passageiro não diz nada
+    // sobre o canal, e gravar ali faz o launch pelo site divergir.
+
+    const CHANNEL: &str = "zcanaldeteste";
+    const ROUTE: &str = "/v2/client-version/WindowsPlayer";
+
+    /// Resposta real do clientsettings, com todos os campos.
+    fn build_answer(upload: &str) -> ResponseTemplate {
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "version": "0.700.0.7000839",
+            "clientVersionUpload": upload,
+            "bootstrapperVersion": "1, 6, 0, 7000839"
+        }))
+    }
+
+    /// Servidor próprio (esta consulta não passa por `endpoints::host`): o
+    /// endpoint do canal responde `channel`, o de produção responde
+    /// `production`. Devolve o servidor (vivo enquanto o teste roda) e a base.
+    async fn serve(
+        channel: ResponseTemplate,
+        production: ResponseTemplate,
+    ) -> (MockServer, String) {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(format!("{ROUTE}/channel/{CHANNEL}")))
+            .respond_with(channel)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(ROUTE))
+            .respond_with(production)
+            .mount(&server)
+            .await;
+        let base = format!("{}{ROUTE}", server.uri());
+        (server, base)
+    }
+
+    fn client() -> reqwest::Client {
+        crate::api::http_client::builder_with(CHANNEL_LOOKUP_TIMEOUT, CHANNEL_LOOKUP_TIMEOUT)
+            .build()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_transient_failure_never_falls_back_to_production() {
+        for status in [408, 429, 500, 502, 503, 504] {
+            let (_server, base) = serve(
+                ResponseTemplate::new(status),
+                build_answer("version-producao"),
+            )
+            .await;
+            assert_eq!(
+                fetch_channel_build(&client(), &base, CHANNEL).await,
+                None,
+                "HTTP {status} no canal levou à build de produção (e ao reparo)"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_answer_never_falls_back_to_production() {
+        let (_server, base) = serve(
+            ResponseTemplate::new(200).set_body_string("<html>manutenção</html>"),
+            build_answer("version-producao"),
+        )
+        .await;
+        assert_eq!(fetch_channel_build(&client(), &base, CHANNEL).await, None);
+    }
+
+    #[tokio::test]
+    async fn a_retired_channel_falls_back_to_production_and_asks_for_the_repair() {
+        for status in [401, 404] {
+            let (_server, base) = serve(
+                ResponseTemplate::new(status),
+                build_answer("version-producao"),
+            )
+            .await;
+            assert_eq!(
+                fetch_channel_build(&client(), &base, CHANNEL).await,
+                Some(ChannelBuild::RetiredUseProduction(
+                    "version-producao".into()
+                )),
+                "HTTP {status} no canal"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_retired_channel_without_a_production_answer_asks_for_nothing() {
+        let (_server, base) = serve(ResponseTemplate::new(404), ResponseTemplate::new(503)).await;
+        assert_eq!(fetch_channel_build(&client(), &base, CHANNEL).await, None);
+    }
+
+    #[tokio::test]
+    async fn a_live_channel_uses_its_own_build() {
+        let (_server, base) = serve(
+            build_answer("version-docanal"),
+            build_answer("version-producao"),
+        )
+        .await;
+        assert_eq!(
+            fetch_channel_build(&client(), &base, CHANNEL).await,
+            Some(ChannelBuild::Channel("version-docanal".into()))
+        );
+    }
+}
+
+#[cfg(test)]
+mod client_dir_tests {
+    use super::*;
+
+    // O `ClientAppSettings.json` (FPS e fast flags) é por pasta de build: tem
+    // que ir para a pasta de onde o cliente vai abrir. O patch usava a pasta
+    // resolvida antes do launch e o spawn usava outra — no old join sem versão
+    // do catálogo (build do canal do registro) e no protocolo (build de
+    // produção, que pode ter acabado de ser baixada).
+
+    #[test]
+    fn old_join_with_a_catalog_version_opens_that_version() {
+        assert_eq!(client_source(true, true), ClientSource::Catalog);
+    }
+
+    #[test]
+    fn old_join_without_a_catalog_version_opens_the_registry_channel_build() {
+        assert_eq!(client_source(true, false), ClientSource::RegistryChannel);
+    }
+
+    #[test]
+    fn the_protocol_always_opens_the_production_build() {
+        assert_eq!(client_source(false, false), ClientSource::Production);
+        // Versão do catálogo não vale pelo protocolo: o `channel:` vazio da URL
+        // manda abrir produção (é o caso do isolamento que apaga a instalação).
+        assert_eq!(client_source(false, true), ClientSource::Production);
+    }
+
+    /// `get_roblox_path` diz "a build de produção", mas o cache guardava a
+    /// última build resolvida de **qualquer** canal: depois de um old join num
+    /// canal de teste, quem pedia a pasta de produção recebia a do canal.
+    #[test]
+    fn a_test_channel_build_is_not_remembered_as_the_production_build() {
+        remember_resolved_build("zcanaldeteste", "version-docanaldeteste");
+        let remembered = LAST_RESOLVED_BUILD.lock().unwrap().clone();
+        assert_ne!(remembered.as_deref(), Some("version-docanaldeteste"));
     }
 }

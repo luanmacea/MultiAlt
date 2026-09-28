@@ -124,13 +124,17 @@ describe("SessionPanel — rendering", () => {
   });
 
   it("surfaces a failed entry's backend error", () => {
+    // Fixture com frase, não com código: esta linha desenha `entry.error` cru, e
+    // o backend manda frase justamente por isso (`version_conflict_message`).
+    const erro =
+      "A Roblox client is already running on a different Roblox version. Open now: system install.";
     renderPanel({
-      launchQueue: queue([entry(1, "failed", "version-conflict")]),
+      launchQueue: queue([entry(1, "failed", erro)]),
       launchedByProgram: new Set<number>(),
     });
     const row = screen.getByTestId("session-queue-1");
     expect(within(row).getByText("Failed")).toBeInTheDocument();
-    expect(within(row).getByText("version-conflict")).toBeInTheDocument();
+    expect(within(row).getByText(erro)).toBeInTheDocument();
   });
 
   it("explains both empty states and disables Stop queue", () => {
@@ -328,6 +332,60 @@ describe("SessionPanel — live updates", () => {
 
     expect(screen.queryByTestId("session-running-2")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Close selected \(1\)/ })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Ligar o Auto Rejoin numa conta que ja esta jogando exigia abrir o diálogo,
+ * colar o Place ID e dar Start — e o Start **fecha e relança** todo mundo,
+ * tirando as contas do servidor em que estavam. O botão aqui adota o cliente
+ * que já está de pé.
+ */
+describe("SessionPanel — adotar contas em jogo no Botting", () => {
+  function comRodando(overrides: Partial<StoreValue> = {}) {
+    return renderPanel({
+      launchedByProgram: new Set([1, 2]),
+      launchQueue: queue([]),
+      ...overrides,
+    });
+  }
+
+  it("adota as contas marcadas sem fechar cliente nenhum", async () => {
+    const { store } = comRodando();
+
+    await userEvent.click(screen.getByLabelText("Select all running clients"));
+    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
+
+    expect(store.adoptRunningIntoBotting).toHaveBeenCalledWith([1, 2]);
+    // A promessa do painel: adotar nunca fecha um cliente aberto.
+    expect(store.closeRobloxClients).not.toHaveBeenCalled();
+    expect(invokeMock).not.toHaveBeenCalledWith("cmd_kill_roblox", expect.anything());
+  });
+
+  it("sem marcar ninguém, age sobre todas as que estão em jogo", async () => {
+    const { store } = comRodando();
+
+    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
+
+    expect(store.adoptRunningIntoBotting).toHaveBeenCalledWith([1, 2]);
+  });
+
+  it("não oferece o botão quando não há cliente rodando", () => {
+    renderPanel({ launchedByProgram: new Set(), launchQueue: queue([]) });
+    expect(screen.queryByRole("button", { name: /Auto Rejoin/i })).not.toBeInTheDocument();
+  });
+
+  it("mostra o motivo quando a adoção não dá", async () => {
+    const { store } = comRodando({
+      adoptRunningIntoBotting: vi.fn(async () => {
+        throw new Error("Auto Rejoin needs at least two accounts.");
+      }),
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
+
+    expect(store.adoptRunningIntoBotting).toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/at least two accounts/i);
   });
 });
 

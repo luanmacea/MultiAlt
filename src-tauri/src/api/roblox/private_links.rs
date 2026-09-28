@@ -159,7 +159,7 @@ async fn get_root_place_id_from_universe(
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         let status = response.status().as_u16();

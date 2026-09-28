@@ -2,15 +2,20 @@ fn cookie_header(security_token: &str) -> String {
     format!(".ROBLOSECURITY={}", security_token)
 }
 
+/// Cliente dos endpoints de join (`gamejoin`, PlaceLauncher, private/VIP).
+/// O teto vem de [`http_client::builder`]: é por aqui que passa a resolução de
+/// private join, que fica no caminho de launch.
 fn game_join_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    http_client::builder()
         .user_agent("Roblox/WinInet")
         .build()
         .unwrap()
 }
 
+/// Cliente que para no 3xx (resolução de share link e refresh de sessão),
+/// também com o teto de [`http_client::builder`].
 fn no_redirect_client() -> reqwest::Client {
-    reqwest::Client::builder()
+    http_client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap()
@@ -33,7 +38,9 @@ where
                 return Ok(response);
             }
             Err(e) => {
-                last_error = e.to_string();
+                // Já vem como frase: um teto estourado tem de chegar ao usuário
+                // dizendo o que aconteceu, não como texto cru do reqwest.
+                last_error = http_client::describe_error(&e);
                 if attempt < 2 {
                     let delay = Duration::from_millis(400 * 2_u64.pow(attempt as u32));
                     sleep(delay).await;
@@ -43,7 +50,7 @@ where
         }
     }
 
-    Err(format!("Request failed: {}", last_error))
+    Err(last_error)
 }
 
 #[cfg(test)]

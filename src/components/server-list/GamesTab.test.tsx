@@ -166,7 +166,7 @@ describe("GamesTab — ações do jogo pelo menu de contexto", () => {
   it("abre o Botting Mode já com este jogo", async () => {
     const props = await abrirMenu();
 
-    await userEvent.click(props.menu.getByRole("button", { name: "Botting Mode" }));
+    await userEvent.click(props.menu.getByRole("button", { name: "Auto Rejoin" }));
 
     expect(props.onBotting).toHaveBeenCalledWith(606849621);
     // Abrir uma tela sobre o jogo não é entrar no jogo.
@@ -192,11 +192,11 @@ describe("GamesTab — ações do jogo pelo menu de contexto", () => {
     expect(props.onJoinGame).not.toHaveBeenCalled();
   });
 
-  /** No diálogo antigo não há para onde abrir o Botting: o item não pode aparecer morto. */
+  /** Tela que não passa a ação não ganha item morto: sem callback, o item some. */
   it("esconde a ação que a tela não oferece", async () => {
     const { menu } = await abrirMenu({ onBotting: undefined, onScripts: undefined });
 
-    expect(menu.queryByRole("button", { name: "Botting Mode" })).not.toBeInTheDocument();
+    expect(menu.queryByRole("button", { name: "Auto Rejoin" })).not.toBeInTheDocument();
     expect(menu.queryByRole("button", { name: "Scripts" })).not.toBeInTheDocument();
     expect(menu.getByRole("button", { name: "Join Game" })).toBeInTheDocument();
   });

@@ -27,13 +27,18 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "launch_url_tests",
       "launch_command_tests",
+      "http_timeout_tests",
       "launch_queue_tests",
       "singleton_event_tests",
       "launch_resolve_tests",
       "launch_shared_helper_tests",
       "channel_follow_tests",
       "channel_build_pairing_tests",
+      "channel_repair_tests",
+      "client_dir_tests",
       "browser_tracker_tests",
+      "client_settings_file_path_tests",
+      "roblox_install_candidates_tests",
       "win_process_tests",
       "win_tracker_tests",
       "win_client_settings_tests",
@@ -43,6 +48,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/ChooseGameScreen.test.tsx",
       "src/components/session",
       "src/components/dialogs/SessionDialog.test.tsx",
+      "src/accountLaunchOverrides.test.ts",
+      "src/components/accounts/AccountLaunchOverrides.test.tsx",
     ],
   },
   "join-links": {
@@ -70,6 +77,9 @@ export const SUITES: Record<string, TestSuite> = {
       "account_api_http_tests",
       "remember_unlock_tests",
       "crypto_tests",
+      "vault_key_tests",
+      "vault_migration_tests",
+      "vault_key_warning_event_tests",
       "model_tests",
       "data::accounts::tests",
     ],
@@ -78,6 +88,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/dialogs/AddAccountDialog.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
       "src/components/dialogs/ImportDialog.test.tsx",
+      "src/components/layout/VaultKeyBanner.test.tsx",
     ],
   },
   botting: {
@@ -85,10 +96,17 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "botting_command_tests",
       "botting_console_tests",
+      "auto_rejoin_naming_tests",
       "watcher_tests",
       "watcher_console_tests",
     ],
     front: ["src/components/dialogs/BottingDialog.test.tsx"],
+  },
+  afk: {
+    description: "AFK mode: teclas permitidas, agendamento por conta e parada do ciclo",
+    rust: ["afk_command_tests", "afk_input_safety_tests", "win_input_tests", "win_focus_tests"],
+    // `store.test.ts` entra pelo bloco "AFK mode" (os toasts do start).
+    front: ["src/components/dialogs/AfkDialog.test.tsx", "src/utils/afkBeep.test.ts", "src/store.test.ts"],
   },
   isolation: {
     description: "Isolamento pré-launch (cache, registro, MachineGuid/MAC)",
@@ -124,6 +142,7 @@ export const SUITES: Record<string, TestSuite> = {
       "social_presence_extra_tests",
       "http_retry_tests",
       "http_client_tests",
+      "http_timeout_tests",
       "endpoint_host_tests",
       "image_cache_tests",
       "image_cache_command_tests",
@@ -235,7 +254,7 @@ export const SUITES: Record<string, TestSuite> = {
   },
   ui: {
     description: "Casca da UI: layout, menus, componentes genéricos, i18n, hooks",
-    rust: [],
+    rust: ["webview_recovery_tests"],
     front: [
       "src/components/layout",
       "src/components/menus",

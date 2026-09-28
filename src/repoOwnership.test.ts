@@ -31,6 +31,9 @@ const PODEM_CITAR = new Set([
   path.join("src-tauri", "src", "commands", "services.rs"),
   // Conta a historia da bifurcacao e por que o updater foi redirecionado.
   path.join("docs", "development.md"),
+  // Plano de auditoria/sincronização com o upstream: cita o nome dele de
+  // propósito, é o assunto do documento.
+  path.join("docs", "superpowers", "plans", "upstream-sync-2026-09.md"),
 ]);
 
 function arquivos(dir: string, desceEmSubpastas = true): string[] {

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -18,11 +18,12 @@ import {
 import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import type { BottingAccountStatus, StoreValue } from "../../store";
+import { MAX_ALIAS_LENGTH } from "../../types";
 
 const A = makeAccount({ UserID: 1, Username: "ann" });
 const B = makeAccount({ UserID: 2, Username: "bob" });
 
-/** Botting refuses to start unless Multi Roblox is on. */
+/** Auto Rejoin refuses to start unless Multi Roblox is on. */
 function settings(multiRbx: boolean, draft: Record<string, string> = {}) {
   const s = defaultSettings();
   s.General.EnableMultiRbx = multiRbx ? "true" : "false";
@@ -48,7 +49,7 @@ function renderDialog(
   return { store, onClose };
 }
 
-const startButton = () => screen.getByRole("button", { name: "Start Botting Mode" });
+const startButton = () => screen.getByRole("button", { name: "Start Auto Rejoin" });
 const placeIdField = () => screen.getByPlaceholderText("Place ID");
 
 beforeEach(() => {
@@ -86,7 +87,7 @@ describe("BottingDialog — start guards", () => {
     await userEvent.type(placeIdField(), "606849621");
 
     expect(
-      screen.getByText("Botting Mode currently requires Multi Roblox to be enabled")
+      screen.getByText("Auto Rejoin currently requires Multi Roblox to be enabled")
     ).toBeInTheDocument();
     expect(startButton()).toBeDisabled();
   });
@@ -153,12 +154,12 @@ describe("BottingDialog — stop controls", () => {
   it("stops the loop, optionally closing the bot clients", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Stop Botting Mode" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop Auto Rejoin" }));
     expect(store.stopBottingMode).toHaveBeenCalledWith(false);
 
     // Fechar clientes é destrutivo: passa pelo confirm.
     promptAnswers.confirm = true;
-    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Bot Accounts" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Alt Accounts" }));
     await waitFor(() => expect(store.stopBottingMode).toHaveBeenCalledWith(true));
   });
 });
@@ -171,12 +172,12 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   it("Stop + Close diz quantos clientes bot fecha e o que fica aberto", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Bot Accounts" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop + Close Alt Accounts" }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalled());
     const [message, destructive] = confirmMock.mock.calls[0];
-    expect(message).toContain("2 bot accounts");
-    expect(message).toContain("Player accounts keep their client");
+    expect(message).toContain("2 alt accounts");
+    expect(message).toContain("Main accounts keep their client");
     expect(message).toContain("outside this session are left alone");
     expect(destructive).toBe(true);
     // Recusado: nada fecha.
@@ -186,7 +187,7 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   it("Stop Botting Mode (sem fechar) não pergunta nada", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Stop Botting Mode" }));
+    await userEvent.click(screen.getByRole("button", { name: "Stop Auto Rejoin" }));
 
     expect(confirmMock).not.toHaveBeenCalled();
     expect(store.stopBottingMode).toHaveBeenCalledWith(false);
@@ -195,11 +196,11 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   it("o lote Close client diz quantos clientes fecha e não fecha se recusado", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Select alts" }));
     await userEvent.click(screen.getByRole("button", { name: "Close client (2)" }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalled());
-    expect(confirmMock.mock.calls[0][0]).toContain("2 bot accounts");
+    expect(confirmMock.mock.calls[0][0]).toContain("2 alt accounts");
     expect(confirmMock.mock.calls[0][1]).toBe(true);
     expect(store.bottingAccountAction).not.toHaveBeenCalled();
   });
@@ -208,7 +209,7 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
     promptAnswers.confirm = true;
 
-    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Select alts" }));
     await userEvent.click(screen.getByRole("button", { name: "Close + Disconnect (2)" }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalled());
@@ -255,7 +256,7 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   it("os lotes não destrutivos seguem sem pergunta", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
-    await userEvent.click(screen.getByRole("button", { name: "Select bots" }));
+    await userEvent.click(screen.getByRole("button", { name: "Select alts" }));
     await userEvent.click(screen.getByRole("button", { name: "Restart loop (2)" }));
 
     await waitFor(() => expect(store.bottingAccountAction).toHaveBeenCalledTimes(2));
@@ -273,7 +274,7 @@ describe("BottingDialog — explains the cycle", () => {
     expect(screen.getByText("How each cycle works")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Every rejoin closes that bot account's Roblox client and opens it again, so the account leaves the server and joins back."
+        "Every rejoin closes that alt account's Roblox client and opens it again, so the account leaves the server and joins back."
       )
     ).toBeInTheDocument();
   });
@@ -283,12 +284,12 @@ describe("BottingDialog — explains the cycle", () => {
 
     expect(
       screen.getByText(
-        "Only the bot accounts in this session are closed. Player accounts keep their client, and clients of accounts outside this session are left alone."
+        "Only the alt accounts in this session are closed. Main accounts keep their client, and clients of accounts outside this session are left alone."
       )
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Stop + Close Bot Accounts closes those same bot clients; Stop Botting Mode leaves every client open."
+        "Stop + Close Alt Accounts closes those same alt clients; Stop Auto Rejoin leaves every client open."
       )
     ).toBeInTheDocument();
   });
@@ -299,7 +300,7 @@ describe("BottingDialog — explains the cycle", () => {
     await waitFor(() => expect(screen.getByText("How each cycle works")).toBeInTheDocument());
     expect(
       screen.getByText(
-        "Every rejoin closes that bot account's Roblox client and opens it again, so the account leaves the server and joins back."
+        "Every rejoin closes that alt account's Roblox client and opens it again, so the account leaves the server and joins back."
       )
     ).toBeInTheDocument();
   });
@@ -309,7 +310,7 @@ describe("BottingDialog — timing units", () => {
   const unitLabels = [
     "Rejoin Interval (minutes)",
     "Launch Delay (seconds)",
-    "Player Grace (minutes)",
+    "Main Grace (minutes)",
   ];
 
   it("shows the unit of every timing field in the default view", async () => {
@@ -336,12 +337,12 @@ describe("BottingDialog — timing units", () => {
   it("states the accepted range of each timing field", async () => {
     renderDialog();
 
-    // Limites reais: botting.rs `clamp_botting_interval_minutes` (10..120),
+    // Limites reais: botting.rs `clamp_botting_interval_minutes` (10..480),
     // `clamp_botting_launch_delay_seconds` (5..120) e
     // `resolve_player_grace_minutes` (1..90).
     expect(
       screen.getByText(
-        "Rejoin Interval: minutes a bot account stays in the server before its client is closed and reopened (10-120)."
+        "Rejoin Interval: minutes an alt account stays in the server before its client is closed and reopened (10-480)."
       )
     ).toBeInTheDocument();
     expect(
@@ -351,9 +352,173 @@ describe("BottingDialog — timing units", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Player Grace: minutes a player account keeps its client after you remove it from Player Accounts, before it joins the cycle (1-90)."
+        "Main Grace: minutes a main account keeps its client after you remove it from Main Accounts, before it joins the cycle (1-90)."
       )
     ).toBeInTheDocument();
+  });
+});
+
+describe("BottingDialog — long alias chips", () => {
+  // Task 10 subiu o alias de 30 para MAX_ALIAS_LENGTH (240) caracteres. Os
+  // chips de "Targets" mostram `Alias || Username` sem limite de largura —
+  // sem truncar, um alias no teto estoura o layout do diálogo.
+  //
+  // O mesmo nome tambem aparece no dropdown fechado de "Main Accounts"
+  // (fica no DOM, só oculto por opacidade), entao a busca por texto precisa
+  // filtrar pelo chip de verdade (`theme-soft`) em vez do primeiro que achar.
+  const longAlias = "a".repeat(MAX_ALIAS_LENGTH);
+  const longAccount = makeAccount({ UserID: 1, Username: "ann", Alias: longAlias });
+
+  function targetsChip(): HTMLElement {
+    const matches = screen.getAllByText(longAlias);
+    const chip = matches.find((el) => el.className.includes("theme-soft"));
+    if (!chip) throw new Error("Targets chip not found among matches");
+    return chip;
+  }
+
+  it("truncates a long alias chip in the split view", () => {
+    renderDialog({}, [longAccount]);
+    const chip = targetsChip();
+    expect(chip.className).toContain("truncate");
+    expect(chip.className).toMatch(/max-w-\[\d+px\]/);
+  });
+
+  it("truncates a long alias chip in the classic view", async () => {
+    renderDialog(
+      { settings: settings(true, { BottingDualPanelDialog: "false" }) },
+      [longAccount]
+    );
+    await screen.findAllByText(longAlias);
+    const chip = targetsChip();
+    expect(chip.className).toContain("truncate");
+    expect(chip.className).toMatch(/max-w-\[\d+px\]/);
+  });
+
+  it("keeps the full name reachable via title when the chip is truncated", () => {
+    renderDialog({}, [longAccount]);
+    expect(targetsChip()).toHaveAttribute("title", longAlias);
+  });
+});
+
+/**
+ * O chip de Targets já mostrava o nome inteiro no `title`; os outros lugares do
+ * diálogo que cortam o nome não. Medido no harness a 1100x700: na lista ao vivo
+ * da New View o nome tinha 556 de 1765 px, no menu Main Accounts 192 px, no
+ * botão Main Accounts 240 px, e no Live Cycle da Classic uma caixa de **90 px**
+ * — que corta até nome comum (`MyFarmAccount01` mede 109 px), e as alts
+ * numeradas viravam todas "MyFarmAccou…" sem jeito de ler o resto.
+ */
+describe("BottingDialog — nome cortado tem o nome inteiro no title", () => {
+  const longAlias = "a".repeat(MAX_ALIAS_LENGTH);
+  const longAccount = makeAccount({ UserID: 1, Username: "ann", Alias: longAlias });
+
+  /** O `title` que o navegador mostra ao passar o mouse: o do ancestral mais próximo. */
+  function tituloDe(el: Element): string | null {
+    return el.closest("[title]")?.getAttribute("title") ?? null;
+  }
+
+  function comMainAccount() {
+    // O rascunho salvo traz a conta 1 como Main Account.
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlayerAccountIds: "1" } } : undefined
+    );
+  }
+
+  it("na lista ao vivo da New View", () => {
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const secao = screen.getByText("Live Auto Rejoin List").closest("section") as HTMLElement;
+    expect(tituloDe(within(secao).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("nos itens do menu Main Accounts", () => {
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const gatilho = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    const menu = gatilho.nextElementSibling as HTMLElement;
+    expect(tituloDe(within(menu).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("no botão Main Accounts com uma conta escolhida", async () => {
+    comMainAccount();
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const botao = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent(longAlias));
+    expect(tituloDe(within(botao).getByText(longAlias))).toBe(longAlias);
+  });
+
+  it("no botão Main Accounts com várias contas, o title diz quais são", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlayerAccountIds: "1,2" } } : undefined
+    );
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const botao = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent("2 selected"));
+    expect(tituloDe(within(botao).getByText("2 selected"))).toBe(`${longAlias}, bob`);
+  });
+
+  it("no Live Cycle da visão Classic", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDualPanelDialog: "false" } } : undefined
+    );
+    renderDialog({ accounts: [longAccount, B] }, [longAccount, B]);
+    const titulo = await screen.findByText("Live Cycle");
+    const secao = titulo.closest("section") as HTMLElement;
+    expect(tituloDe(within(secao).getByText(longAlias))).toBe(longAlias);
+  });
+});
+
+describe("BottingDialog — New View em janela estreita", () => {
+  /**
+   * Abaixo de `lg` (1024 px) o grid de duas colunas vira duas linhas, e elas
+   * dividiam a altura fixa do diálogo: a 900x560 a "Live Auto Rejoin List"
+   * ficava com 0 px e o conteúdo (`overflow-hidden`) não rolava — nenhuma ação
+   * por conta alcançável, e a 750x450 nem as ações em lote. Medido no harness
+   * (relatório da Frente C do checkup).
+   *
+   * O jsdom não calcula layout, então isto trava a estrutura de que o conserto
+   * depende: quem rola é o **conteúdo** do diálogo, e do conteúdo até a lista
+   * (e até os controles da coluna esquerda) nada limita a altura fora de `lg:`.
+   * A prova de que cabe é a medida no harness, não este teste.
+   */
+  const LIMITA_ALTURA = ["overflow-hidden", "overflow-y-auto", "min-h-0", "h-full", "flex-1"];
+
+  function conteudoDoDialogo(): HTMLElement {
+    const secao = screen.getByText("How each cycle works").closest("section");
+    if (!secao?.parentElement) throw new Error("conteúdo do diálogo não encontrado");
+    return secao.parentElement;
+  }
+
+  /** Classes que limitam a altura sem `lg:`, do elemento até o conteúdo. */
+  function limitesForaDoLg(de: HTMLElement): string[] {
+    const conteudo = conteudoDoDialogo();
+    const achados: string[] = [];
+    for (let el: HTMLElement | null = de; el && el !== conteudo; el = el.parentElement) {
+      for (const classe of el.className.split(/\s+/)) {
+        if (LIMITA_ALTURA.includes(classe)) {
+          achados.push(`${classe} em <${el.tagName.toLowerCase()} class="${el.className.slice(0, 48)}">`);
+        }
+      }
+    }
+    return achados;
+  }
+
+  it("o conteúdo da New View rola em qualquer largura", () => {
+    renderDialog();
+    const classes = conteudoDoDialogo().className.split(/\s+/);
+    expect(classes).toContain("overflow-y-auto");
+    expect(classes).not.toContain("overflow-hidden");
+  });
+
+  it("do conteúdo até a lista ao vivo, só `lg:` limita a altura", () => {
+    renderDialog();
+    const secao = screen.getByText("Live Auto Rejoin List").closest("section");
+    const lista = secao?.lastElementChild as HTMLElement | null;
+    if (!lista) throw new Error("lista ao vivo não encontrada");
+    expect(limitesForaDoLg(lista)).toEqual([]);
+  });
+
+  it("do conteúdo até os controles da coluna esquerda, só `lg:` limita a altura", () => {
+    renderDialog();
+    expect(limitesForaDoLg(startButton())).toEqual([]);
   });
 });
 
@@ -392,7 +557,7 @@ describe("BottingDialog — draft persistence", () => {
   });
 
   /**
-   * Clique direito num jogo → "Botting Mode" abre esta tela para **aquele**
+   * Clique direito num jogo → "Auto Rejoin" abre esta tela para **aquele**
    * jogo. O rascunho salvo vence a store, então o place escolhido tem que vir
    * explícito na abertura, senão o usuário escolhe um jogo e vê outro.
    */

@@ -32,9 +32,9 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 |---|---|---|
 | General | sempre | `General.*` (updates, idioma, launch, privacidade de nomes, multi-Roblox, presença, tray...), `Login.*` |
 | Developer | sempre | `Developer.DevMode`, `Developer.EnableWebServer` (toggle só se `ENABLE_WEBSERVER`) |
-| WebServer | `ENABLE_WEBSERVER` **e** (`DevMode` ou `EnableWebServer`) | `WebServer.*` — ver [webserver.md](webserver.md) |
+| WebServer | `ENABLE_WEBSERVER` (build) — a aba aparece sempre; o que destrava os ajustes é `DevMode` ou `EnableWebServer`, dentro da própria aba ([SettingsDialog.tsx](../../src/components/settings/SettingsDialog.tsx) só a esconde sem `ENABLE_WEBSERVER`) | `WebServer.*` — ver [webserver.md](webserver.md) |
 | Watcher | sempre | `Watcher.*` — ver [watcher.md](watcher.md) |
-| Generator | sempre | `Generator.*`, `BloxGen.*` |
+| Account Generator | sempre | `Generator.*`, `BloxGen.*` |
 | Isolation | sempre | `Isolation.*` — ver [isolation.md](isolation.md) |
 | Versions | sempre | `Versions.*` — ver [roblox-versions.md](roblox-versions.md) |
 | Optimization | sempre | `Optimization.*`, `General.BottingUseSharedClientProfile` |
@@ -56,13 +56,15 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
+| `WrapLongNames` | `false` | Ligado, o alias/username quebra em mais de uma linha na linha da conta em vez de truncar (o alias vai até 240 caracteres). |
 | `ShowAvatarsWhenHidden` / `HideRobuxWhenHidden` | — (false) | Comportamento com nomes ocultos. |
 | `DisableImages` | — (false) | Não carregar thumbnails de avatar. |
 | `ServerRegionFormat` | `<city>, <countryCode>` | Formato do rótulo de região: `<city>`, `<region>`, `<country>`, `<countryCode>`, `<ip>` — ver [server-choice.md](server-choice.md). |
 | `ServerPreference` | `bestfit` | Preferência de servidor do lote: `bestfit` \| `fullest` \| `emptiest` \| `random` \| `none`. |
 | `ServerRegionFilter` | — (vazio) | País exigido ao escolher servidor (`BR`); vazio = sem filtro. |
 | `ServerScanPages` | `30` | Páginas de 100 servidores varridas na aba Servers (teto 500). |
-| `MaxRecentGames` | `8` | Tamanho da lista de recentes. |
+| `MaxRecentGames` | `8` | Tamanho da lista de jogos recentes. |
+| `MaxRecentJobs` | `12` | Tamanho da lista de servidores recentes (Job IDs). |
 | `GroupOrder` | `[]` | Ordem manual dos grupos na lista, em JSON (`["Zeta","Alts, velhas"]`). Vazio/`[]` = ordem automática por prefixo numérico e depois alfabética. Ver [accounts.md](accounts.md). |
 | `Language` | `en` | `en`, `pt` (português do Brasil) ou `de`. |
 | `AutoCookieRefresh` | `true` | Refresh automático de cookies (ver [authentication.md](authentication.md)). |
@@ -80,21 +82,21 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `OverrideClientGraphics` / `ClientGraphicsLevel` | `false` / `10` | Qualidade gráfica. |
 | `OverrideClientWindowSize` / `ClientWindowWidth` / `ClientWindowHeight` | `false` / `1280` / `720` | Tamanho da janela. |
 | `StartRobloxMinimized` | `false` | Abrir cliente minimizado. |
-| `BottingPlayer*` / `BottingBot*` (mesmas chaves acima com prefixo) | iguais ao Normal | Perfis de cliente para Botting (ver [botting.md](botting.md)). |
+| `BottingPlayer*` / `BottingBot*` (mesmas chaves acima com prefixo) | iguais ao Normal | Perfis de cliente para Auto Rejoin (ver [botting.md](botting.md)). |
 | `StartOnPCStartup` | `false` | Autostart (plugin `autostart`). |
 | `MinimizeToTray` | `false` | Botão fechar esconde na bandeja. |
 | `ThemeWindowsNavbar` | `true` | Barra de título do Windows segue o tema. |
 | `ThemeWindowsNavbarAutoEnabledV1` | `true` | Marcador de migração (força `ThemeWindowsNavbar=true` uma vez). |
 | `RestrictedBackgroundStyle` | `warp` | Fundo animado da tela de senha: `bubbles`, `warp`, `warpLegacy`, `waves`. |
-| `BottingEnabled` | `false` | Habilita ferramentas de Botting Mode. |
-| `BottingUseSharedClientProfile` | `true` | Perfis Player/Bot herdam o Normal. |
-| `BottingAutoShareLaunchFields` | `true` | Sincroniza Place/Job/Data entre sidebar e Botting. |
-| `BottingDualPanelDialog` | `true` | Layout em dois painéis no diálogo de Botting. |
+| `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
+| `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
+| `BottingAutoShareLaunchFields` | `true` | Sincroniza Place/Job/Data entre sidebar e Auto Rejoin. |
+| `BottingDualPanelDialog` | `true` | Layout em dois painéis no diálogo de Auto Rejoin. |
 | `BottingDefaultIntervalMinutes` | `19` | Intervalo de ciclo. |
 | `BottingLaunchDelaySeconds` | `20` | Espaço entre launches. |
 | `BottingRetryMax` / `BottingRetryBaseSeconds` | `6` / `8` | Backoff de retry. |
-| `BottingPlayerGraceMinutes` | `15` | Carência para contas "player". |
-| `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do formulário de Botting. |
+| `BottingPlayerGraceMinutes` | `15` | Carência para contas main (papel `player` no INI). |
+| `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do formulário de Auto Rejoin. |
 | `EncryptionMethod` | `default` | `default` ou `password` (ver [accounts.md](accounts.md)). |
 | `EncryptionOnboardingState` | `pending` (novo) / `completed` (INI existente) | Onboarding de criptografia. |
 | `FirstRunWalkthroughState` | `pending` (novo) / `completed` (INI existente) | Walkthrough; vira `skipped`/`completed`. |
@@ -148,11 +150,11 @@ Três perfis com as mesmas 13 chaves, prefixadas por `Normal`, `BottingPlayer` e
 | `EnableJobCpuLimit` / `JobCpuLimitPercent` | false / 25 | false / 25 | false / 20 |
 | `EnableJobMemoryLimit` / `JobMemoryLimitMb` | false / 2048 | false / 2048 | false / 1536 |
 
-Com `General.BottingUseSharedClientProfile=true`, Player e Bot usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
+Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
 
 ### `[Versions]` — detalhes em [roblox-versions.md](roblox-versions.md)
 
-`DefaultVersion=""` (vazio = instalação oficial), `MaxParallelDownloads=4`, `CatalogCacheMinutes=10`, `PreferOldJoinForVersioned=true` (launch direto do exe para versões gerenciadas), `ShowPreReleaseVersions=false`.
+`DefaultVersion=""` (vazio = instalação oficial), `MaxParallelDownloads=4`, `CatalogCacheMinutes=10`, `PreferOldJoinForVersioned=true` (launch direto do exe para versões gerenciadas), `ShowPreReleaseVersions=false`, `AllowLaunchOnOpenVersion=false` (ligado, a guarda de versão aceita abrir numa versão que já tem cliente aberto — ver [launch.md](launch.md)).
 
 ### `[Isolation]` — detalhes em [isolation.md](isolation.md)
 
@@ -164,6 +166,14 @@ Com `General.BottingUseSharedClientProfile=true`, Player e Bot usam o perfil Nor
 |---|---|---|
 | `PersistentProfile` | `true` | Reutiliza o perfil do Chromium de login (menos captchas). Se `false`, o perfil é apagado antes/depois. |
 | `StealthMode` | `true` | Esconde sinais de automação no navegador de login. |
+
+### `[Afk]` — detalhes em [afk-mode.md](afk-mode.md)
+
+| Chave | Default | Significado |
+|---|---|---|
+| `IntervalMinutes` | `10` | Minutos entre dois envios de tecla da **mesma** conta (1–120). |
+| `Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada do AFK mode. Vazio = o modo não liga. |
+| `BeepOnCycle` | `false` | Bipe curto (sintetizado, sem arquivo de áudio) quando um ciclo de envio termina. |
 
 ### `[Generator]` / `[BloxGen]`
 

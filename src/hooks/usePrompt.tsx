@@ -5,7 +5,18 @@ import { useTr } from "../i18n/text";
 interface PromptState {
   message: string;
   defaultValue: string;
+  /** Teto de caracteres do campo; sem ele o campo aceita qualquer tamanho. */
+  maxLength?: number;
   resolve: (value: string | null) => void;
+}
+
+export interface PromptOptions {
+  /**
+   * Trava o campo neste tamanho (como `maxLength` de um `<input>`) e mostra o
+   * contador. Sem isto o prompt aceitava colar qualquer coisa, e quem chamou
+   * cortava depois, calado — o "Set Alias" do menu gravava 240 de 300.
+   */
+  maxLength?: number;
 }
 
 interface ConfirmState {
@@ -31,7 +42,7 @@ interface ConfirmWithOptOutOptions {
 }
 
 interface DialogContext {
-  prompt: (message: string, defaultValue?: string) => Promise<string | null>;
+  prompt: (message: string, defaultValue?: string, options?: PromptOptions) => Promise<string | null>;
   confirm: (message: string, destructive?: boolean) => Promise<boolean>;
   confirmWithOptOut: (
     message: string,
@@ -70,9 +81,9 @@ export function PromptProvider({ children }: { children: ReactNode }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
-  const prompt = useCallback((message: string, defaultValue = "") => {
+  const prompt = useCallback((message: string, defaultValue = "", options: PromptOptions = {}) => {
     return new Promise<string | null>((resolve) => {
-      setPromptState({ message, defaultValue, resolve });
+      setPromptState({ message, defaultValue, maxLength: options.maxLength, resolve });
       setValue(defaultValue);
     });
   }, []);
@@ -186,10 +197,16 @@ export function PromptProvider({ children }: { children: ReactNode }) {
                   <input
                     ref={inputRef}
                     value={value}
+                    maxLength={promptState.maxLength}
                     onChange={(e) => setValue(e.target.value)}
                     onKeyDown={handlePromptKeyDown}
                     className="w-full px-3 py-[7px] bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-[13px] text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
                   />
+                  {promptState.maxLength ? (
+                    <div className="mt-1 text-right text-[11px] text-zinc-500 tabular-nums">
+                      {value.length}/{promptState.maxLength}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex items-center justify-end gap-2 px-4 pb-3.5 pt-1">
                   <button

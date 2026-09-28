@@ -13,7 +13,7 @@ O controle é feito por **CDP** (Chrome DevTools Protocol) sobre WebSocket.
 
 | Arquivo | Papel |
 |---|---|
-| [chromium/download.rs](../../src-tauri/src/chromium/download.rs) | Resolve a build estável no catálogo Chrome for Testing, baixa, extrai e cacheia o binário (`ensure_chromium`, `is_installed`, `chromium_dir`) |
+| [chromium/download.rs](../../src-tauri/src/chromium/download.rs) | Resolve a build estável no catálogo Chrome for Testing, baixa, extrai e cacheia o binário (`ensure_chromium`, `is_installed`, `chromium_dir`); `resolve_browser_binary` decide entre caminho manual, download e navegador do sistema; `reinstall_chromium` apaga e baixa de novo |
 | [chromium/cdp.rs](../../src-tauri/src/chromium/cdp.rs) | `chrome_args` (linha de comando), `spawn_chrome` (processo + leitura do `DevToolsActivePort`), `CdpClient` (WebSocket CDP: `Network.*`, `Page.*`, `Runtime.evaluate`, `Browser.close`) |
 | [chromium/manager.rs](../../src-tauri/src/chromium/manager.rs) | `ChromiumManager`: processos vivos por conta (`LOGIN_KEY` = `i64::MIN` para a janela de login), cookie de login capturado, caminhos dos perfis |
 | [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) | Comandos Tauri: `is_browser_ready`, `ensure_browser`, `open_login_browser`, `extract_browser_cookie`, `close_login_browser`, `open_account_browser`, `import_userpass` |
@@ -44,6 +44,23 @@ Igual aos passos 1–5, mas depois espera o seletor `#login-username` e manda um
 2. **Fase 1 — browser de setup**: sobe com a porta de debug, parado em `about:blank`, **sem nenhuma página do Roblox carregada**. Via CDP grava o `.ROBLOSECURITY` em `.roblox.com` e `www.roblox.com` **com validade de 1 ano** (`persistent_cookie_expiry`), o que faz o Chromium persistir o cookie no perfil em vez de mantê-lo só em memória.
 3. `close_browser` pede o encerramento gracioso (`Browser.close`, com `Page.close` como alternativa) — é o shutdown normal do Chromium que grava o cookie no disco. Esperamos a saída por até 10 s e, se travar, matamos o processo.
 4. **Fase 2 — a janela do usuário**: sobe de novo no mesmo perfil, direto em `https://www.roblox.com/home`, **sem `--remote-debugging-port`**. É essa instância que o `ChromiumManager` rastreia.
+
+## Qual binário abre: manual, baixado ou navegador do sistema
+
+`resolve_browser_binary` (chromium/download.rs) é chamado pelos três fluxos acima (`open_login_browser`, `import_userpass`, `open_account_browser`) **e pela criação de contas** (`start_signup_session`, [signup_session.rs](../../src-tauri/src/chromium/signup_session.rs)) em vez de `ensure_chromium` direto. Até 27/09/2026 a criação chamava `ensure_chromium` direto e ignorava o caminho manual e o navegador do sistema — quem configurou o caminho porque o download falha ficava preso no download ao criar contas. Ordem de preferência:
+
+1. **`Login.ManualBinaryPath`**, se configurado (Settings > General > Login Browser > "Custom browser executable"). É a escolha explícita do usuário — ele digitou aquele caminho para *não* depender do download nem da detecção automática, então vence os outros dois. O caminho **tem** que apontar para um arquivo comum de verdade (`is_regular_file`, via `symlink_metadata` — recusa pasta e link simbólico, ao contrário de `Path::exists`/`is_file`, que seguem o link). Inválido = erro na hora, sem cair silenciosamente para o download ou para o navegador do sistema: cair para outra coisa seria exatamente o que o usuário configurou o campo para evitar. `is_regular_file` só garante o *tipo* do caminho, não que o arquivo é de fato um navegador — se não for, o erro aparece mais adiante (timeout lendo `DevToolsActivePort`, ou falha ao conectar o CDP), como já acontecia com qualquer processo que não sobe corretamente.
+2. **Chromium baixado** (`ensure_chromium`): o caminho de sempre, cacheado em `chromium_dir`.
+3. **Navegador do sistema** (`find_system_chromium`), só quando o download falhar *e* não houver caminho manual configurado. Procura Chrome, Chromium, Brave e Edge em locais padrão (`Program Files`, `Program Files (x86)`, `%LOCALAPPDATA%` no Windows; `/Applications` no macOS; `/usr/bin` no Linux) e usa o primeiro que for um arquivo comum — mesma regra do caminho manual, mesmo motivo: login e criação de conta passam perto de credencial, e um link simbólico ou uma pasta com nome de executável não podem contar como candidato. O frontend recebe o evento `chromium-fallback` (`{ browser, error }`) e mostra um aviso; a sessão continua com o navegador achado, mas fora do nosso controle (versão e flags variam).
+
+Se nenhuma das três resolver, o erro do download original é devolvido (com a dica de `with_download_hint`).
+
+## Robustez do download
+
+- **Retry na consulta de versão**: `resolve_download` tenta `fetch_version_list` até 3 vezes com espera crescente (400 ms, 800 ms) antes de desistir. `fetch_version_list` usa `error_for_status`, então uma resposta não-2xx do catálogo (o CDN do chrome-for-testing devolve 5xx de vez em quando) conta como falha e entra no retry — sem isso o corpo do erro seria lido como se fosse o JSON do catálogo e o retry nunca disparava.
+- **Timeouts**: `fetch_version_list` usa `connect_timeout` de 10 s e `timeout` de 30 s. Sem isso um DNS ou proxy travado prendia o fluxo de login inteiro em vez de falhar rápido e cair no navegador do sistema. O **download do zip** (`download_archive`, cliente de `archive_client`) tem `connect_timeout` de 10 s e teto de **inatividade** de 30 s (`ARCHIVE_IDLE_TIMEOUT`: 30 s sem receber nenhum byte, desiste), mas **não** tem teto para o download inteiro — o zip tem ~150 MB e numa conexão lenta leva minutos de verdade. Antes era `reqwest::get`, sem teto nenhum, e um download parado no meio prendia o login e a criação de contas para sempre.
+- **Extração atômica**: a extração vai para `<chromium_dir>/<versão>.tmp`, nunca direto em `<chromium_dir>/<versão>` (o caminho que `cached_binary` lê do `version.json`). Só depois que a extração inteira termina com sucesso é que `finalize_extraction` troca os nomes (`remove_dir_all` se já existir algo ali, depois `rename`). **Se o processo morrer no meio da extração** (energia, antivírus, disco cheio), o que sobra é só o `.tmp` — o caminho final nunca existe pela metade, então a próxima abertura do app detecta que não há instalação válida e baixa de novo, em vez de aceitar um Chromium com `chrome.exe` presente mas DLLs/recursos faltando (o que aconteceria se o zip gravasse o executável antes dos outros arquivos e a extração fosse interrompida escrevendo direto no destino final).
+- **Reinstalar substitui**: `reinstall_chromium` apaga `chromium_dir` inteiro antes de chamar `ensure_chromium` de novo — é o que o botão "Reinstall" de Settings > General usa (`ensure_browser` com `force: true`). Sem isso, trocar de versão deixava a pasta da versão antiga para trás, ocupando espaço à toa.
 
 ## Segurança: a porta de debug
 
@@ -103,8 +120,9 @@ Ou seja: a mudança não torna o app resistente a um atacante já rodando como o
 |---|---|---|
 | `Login.PersistentProfile` | `true` | Mantém o perfil `_login` entre logins. Desligado, o perfil é apagado antes de subir e logo depois da captura do cookie |
 | `Login.StealthMode` | `true` | `--lang=en-US` e injeção de `navigator.webdriver = undefined` antes do primeiro documento |
+| `Login.ManualBinaryPath` | `""` | Caminho de um Chrome/Edge/Chromium/Brave próprio, digitado pelo usuário. Vazio (default) segue para o download; preenchido, vence o download e o navegador do sistema no login **e** na criação de contas (ver "Qual binário abre" acima). Vazio nunca é gravado no INI (`EMPTY_STRING_DEFAULTS` em `data/settings/store.rs`) |
 
-Ambas ficam na aba General das configurações ([GeneralTab.tsx](../../src/components/settings/GeneralTab.tsx)).
+Todas ficam na aba General das configurações ([GeneralTab.tsx](../../src/components/settings/GeneralTab.tsx)), na seção "Login Browser".
 
 ## Armadilhas / cuidados
 
@@ -113,3 +131,4 @@ Ambas ficam na aba General das configurações ([GeneralTab.tsx](../../src/compo
 - Duas instâncias no mesmo `--user-data-dir` não viram dois processos: a segunda entrega a URL para a primeira e sai. Por isso a fase 2 só sobe depois de o processo da fase 1 ter saído de fato.
 - Não use `.lock().unwrap()` no `ChromiumManager`; use o helper `lock()` do arquivo.
 - Nenhum teste sobe browser de verdade. Depois de mexer neste módulo, **teste manualmente**: login pela janela, login por usuário/senha (incluindo com 2FA), e abrir o browser de uma conta já salva (tem que abrir **logada** em `roblox.com/home`), com `PersistentProfile` ligado e desligado.
+- Testado também manualmente, por não dar para simular sem baixar o Chromium de verdade: apontar `Login.ManualBinaryPath` para um Chrome/Edge instalado e confirmar que ele é quem abre; apagar a conexão de rede e confirmar o fallback para o navegador do sistema (evento `chromium-fallback`); clicar "Reinstall" em Settings > General e confirmar que a pasta da versão anterior não sobra em `chromium_dir`.

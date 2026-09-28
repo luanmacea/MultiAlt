@@ -46,10 +46,12 @@ A regra do projeto é que o frontend fala só com o backend, mas o código tem e
 
 | Onde | O quê |
 |---|---|
-| [ServersTab.tsx](../src/components/server-list/ServersTab.tsx) | `fetch("https://ipapi.co/<ip>/json/")` para descobrir a região de um servidor. |
+| [UpdateDialog.tsx](../src/components/dialogs/UpdateDialog.tsx) | `fetch` direto em `api.github.com` (`REPO_API_URL` de [repo.ts](../src/repo.ts)) para ler as notas da release e o comparativo entre versões. |
 | [ScriptsDialog.tsx](../src/components/dialogs/ScriptsDialog.tsx) | `fetch`/`WebSocket` em nome de scripts do usuário (`ram.http`, `ram.ws`), com permissão explícita. |
 | [fontPresets.ts](../src/fontPresets.ts) | Carrega fontes de `fonts.googleapis.com`. |
-| [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos e recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`), não no backend. |
+| [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos, jogos recentes e servidores recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`), não no backend. A versão que o usuário mandou pular no updater também (`getUpdaterSkipVersionKey`). |
+
+A região de um servidor **não** é mais exceção: o frontend chama `get_server_regions` e o backend faz a geolocalização ([server-choice.md](features/server-choice.md)).
 
 ## Organização do backend
 
@@ -63,7 +65,7 @@ Registradas com `.manage(...)` em [lib.rs](../src-tauri/src/lib.rs) e acessadas 
 
 | Store | Definição | Estado interno | Arquivo |
 |---|---|---|---|
-| `AccountStore` | [data/accounts/store.rs](../src-tauri/src/data/accounts/store.rs) | `Mutex<Vec<Account>>` + `Mutex<Option<Vec<u8>>>` (hash da senha) | `AccountData.json` |
+| `AccountStore` | [data/accounts/store.rs](../src-tauri/src/data/accounts/store.rs) | `Mutex<Vec<Account>>` + `Mutex<Option<SessionKey>>` (segredo da sessão: senha do usuário ou chave do aparelho) | `AccountData.json` + `AccountData.key` |
 | `SettingsStore` | [data/settings/store.rs](../src-tauri/src/data/settings/store.rs) | `Mutex<IniFile>` | `RAMSettings.ini` |
 | `ThemeStore` | [data/settings/theme.rs](../src-tauri/src/data/settings/theme.rs) | tema atual | `RAMTheme.ini` |
 | `ThemePresetStore` | [data/settings/presets.rs](../src-tauri/src/data/settings/presets.rs) | `Mutex<Vec<ThemePresetData>>` | `RAMThemePresets.json` |
@@ -88,7 +90,8 @@ O diretório base é a **pasta de dados do usuário**, resolvida uma vez por pro
 
 | Arquivo | Onde | Formato | Código |
 |---|---|---|---|
-| `AccountData.json` | pasta de dados | JSON (PascalCase, compatível com RAM v3) ou binário criptografado com header RAM | [data/accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `get_account_data_path` |
+| `AccountData.json` | pasta de dados | Binário criptografado com header RAM (senha do usuário ou chave do aparelho); JSON puro em PascalCase é **lido** para migrar arquivos de RAM v3/v4. **Exceção:** se a chave do aparelho não pôde ser criada (disco cheio, antivírus), o store segue sem segredo e **grava JSON puro** — a faixa `VaultKeyBanner` avisa (ver [accounts.md](features/accounts.md#regras-de-negócio)) | [data/accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `get_account_data_path` |
+| `AccountData.key` | pasta de dados, ao lado do vault | JSON com a chave mestra de 32 bytes embrulhada duas vezes (DPAPI do usuário + hash do aparelho). Existe só quando **não** há senha de usuário | [data/vault_key.rs](../src-tauri/src/data/vault_key.rs) `key_file_path_for` |
 | `RAMSettings.ini` | pasta de dados | INI | [paths.rs](../src-tauri/src/data/settings/paths.rs) `get_settings_path` |
 | `RAMTheme.ini` | pasta de dados | INI (seção `Roblox Account Manager`, fallback `RBX Alt Manager`) | [paths.rs](../src-tauri/src/data/settings/paths.rs), [theme.rs](../src-tauri/src/data/settings/theme.rs) |
 | `RAMThemePresets.json` | pasta de dados | JSON | [paths.rs](../src-tauri/src/data/settings/paths.rs) |
@@ -98,10 +101,17 @@ O diretório base é a **pasta de dados do usuário**, resolvida uma vez por pro
 | `RobloxVersions/` | `%LOCALAPPDATA%\Roblox Account Manager\` | versões do cliente instaladas | [data/versions.rs](../src-tauri/src/data/versions.rs) `ram_managed_versions_root` |
 | `AccountControlData.json` | pasta de dados | JSON (lista de contas do Nexus) | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) `data_path` |
 | `backups/*.zip` | pasta de dados | zip com os arquivos acima + manifesto | [commands/backups.rs](../src-tauri/src/commands/backups.rs) |
+| `AccountData.json.bak` | pasta de dados | **texto puro, com os cookies legíveis**: a cópia que a migração para o formato cifrado deixa antes de regravar. Não entra no zip de backup; fica até alguém apagar | [data/accounts/store.rs](../src-tauri/src/data/accounts/store.rs) `migrate_plain_vault` — ver [accounts.md](features/accounts.md#migração-de-accountdatajson-em-texto-puro) |
+| `RAMUnlock.bin` | pasta de dados | senha do "lembrar de mim", cifrada pelo DPAPI do usuário, com o prazo dentro do blob; só existe se o usuário marcar a caixa | [data/accounts/remember.rs](../src-tauri/src/data/accounts/remember.rs) |
+| `webview.safemode` | pasta de dados, ao lado do `RAMSettings.ini` | marcador do safe mode de vídeo do WebView2 | [webview_recovery.rs](../src-tauri/src/webview_recovery.rs) — ver [webview-recovery.md](features/webview-recovery.md) |
+| `ServerRegionCache.json` | pasta de dados | cache IP → região dos servidores | [api/roblox/server_regions.rs](../src-tauri/src/api/roblox/server_regions.rs) |
+| `IsolationBackup/` | `%LOCALAPPDATA%/Roblox Account Manager/` (não segue `RAM_DATA_DIR`) | backups de fast flags e `GlobalBasicSettings_13.xml` do isolamento Full | [platform/windows/isolation.rs](../src-tauri/src/platform/windows/isolation.rs) |
+| `chromium/`, `chromium-profiles/` | pasta de dados local do Tauri (`app_local_data_dir`) | Chromium baixado e perfis de login por conta | [chromium/download.rs](../src-tauri/src/chromium/download.rs), [chromium/manager.rs](../src-tauri/src/chromium/manager.rs) |
 
 Regras:
 - Na primeira execução com `%LOCALAPPDATA%` disponível, se existir um `RAMVersions.json` legado ao lado do exe, ele é **copiado** para o novo local.
-- Os caminhos dependem do exe; em `bun run tauri dev` os arquivos ficam ao lado do binário de debug em `src-tauri/target/debug/`.
+- **`bun run tauri dev` usa a mesma pasta de dados do app instalado**, com o `AccountData.json`, o `AccountData.key` e as settings **de verdade** do dono. `decide_data_dir` não tem caso de debug: o binário de `src-tauri/target/debug/` só vira pasta de dados se tiver um `portable.txt` ao lado. Quem vai mexer em gravação, migração, criptografia ou restauração de backup roda o dev com `RAM_DATA_DIR` apontando para uma pasta descartável (ver [development.md](development.md#dados-em-desenvolvimento)) — senão testa contra as contas reais.
+- Nem tudo segue `RAM_DATA_DIR`/`portable.txt`: `RAMVersions.json`, `RobloxVersions/` e `IsolationBackup/` ficam sempre em `%LOCALAPPDATA%/Roblox Account Manager`, e os perfis do Chromium de login na pasta de dados local do Tauri (`app_local_data_dir`). O lado do Roblox (registro, `%LOCALAPPDATA%/Roblox`, clientes abertos) também é o de verdade.
 
 ## Feature flags
 
@@ -144,7 +154,7 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 
 | Evento | Emitido em | Payload | Quem escuta |
 |---|---|---|---|
-| `launch-log` | [launch_shared.rs](../src-tauri/src/commands/launch_shared.rs) `emit_launch_log` (uma conta) e `emit_session_log` (`userId` nulo) | `{ userId, level, step, message }` | [store.tsx](../src/store.tsx) (console, buffer de 500) — **histórico geral**: launch, Botting e Watcher. O `step` é a origem da linha e é desenhado no console |
+| `launch-log` | [launch_shared.rs](../src-tauri/src/commands/launch_shared.rs) `emit_launch_log` (uma conta) e `emit_session_log` (`userId` nulo) | `{ userId, level, step, message }` | [store.tsx](../src/store.tsx) (console, buffer de 500) — **histórico geral**: launch, Auto Rejoin e Watcher. O `step` é a origem da linha e é desenhado no console |
 | `launch-progress` | [launch.rs](../src-tauri/src/commands/launch.rs) | `{ userId, index, total }` | [store.tsx](../src/store.tsx) |
 | `launch-complete` | [launch.rs](../src-tauri/src/commands/launch.rs) | `{}` | [store.tsx](../src/store.tsx) |
 | `isolation-report` | [launch.rs](../src-tauri/src/commands/launch.rs) | relatório de isolamento | nenhum listener no frontend atualmente |
@@ -159,9 +169,9 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 | `generator-stopped` | [generators.rs](../src-tauri/src/commands/generators.rs) | `{}` | [store.tsx](../src/store.tsx) |
 | `roblox-process-died` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId }` | [store.tsx](../src/store.tsx) |
 | `roblox-low-memory` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, memoryMb }` | [store.tsx](../src/store.tsx) |
-| `roblox-title-mismatch` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, expected }` | [store.tsx](../src/store.tsx) |
-| `roblox-beta-detected` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, title }` | [store.tsx](../src/store.tsx) |
-| `roblox-no-connection` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, timeout }` | [store.tsx](../src/store.tsx) |
+| `roblox-title-mismatch` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, title, expected }` | [store.tsx](../src/store.tsx) |
+| `roblox-beta-detected` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, title }` (macOS: `{ userId, logPath }`) | [store.tsx](../src/store.tsx) |
+| `roblox-no-connection` | [watcher.rs](../src-tauri/src/commands/watcher.rs) | `{ userId, title, timeout }` (o `title` vai em minúsculas; macOS: `{ userId, timeout, logPath }`) | [store.tsx](../src/store.tsx) |
 | `version-install-progress` | [platform/windows/versions.rs](../src-tauri/src/platform/windows/versions.rs) | `{ stage, ... }` | [VersionsDialog.tsx](../src/components/dialogs/VersionsDialog.tsx), [VersionsTab.tsx](../src/components/settings/VersionsTab.tsx), [SingleSelectSidebar.tsx](../src/components/accounts/SingleSelectSidebar.tsx) |
 | `friend-link-state` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `update_friend_link` | `FriendLinkSnapshot` completo: `{ active, phase, processed, total, accounts[{userId,state,error}], mode, mainUserId }` | [store.tsx](../src/store.tsx) → [SessionPanel.tsx](../src/components/session/SessionPanel.tsx), [BottomActionBar.tsx](../src/components/layout/BottomActionBar.tsx). Substituiu o `friend-link-progress`, que era `{phase, done, total}` e contava **pares** na fase de envio |
 | `browser-login-detected` | [chromium/commands.rs](../src-tauri/src/chromium/commands.rs) | `()` | [store.tsx](../src/store.tsx) (extrai cookie e adiciona conta) |
@@ -169,19 +179,30 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 | `nexus-log` | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) | `{ message }` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
 | `nexus-element-created` / `nexus-element-newline` | [server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) | elemento / `{}` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
 | `nexus-account-connected` / `nexus-account-disconnected` | [nexus/websocket/connection.rs](../src-tauri/src/nexus/websocket/connection.rs) | `{ username }` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
+| `launch-queue` | [launch.rs](../src-tauri/src/commands/launch.rs) `emit_launch_queue` | `LaunchQueuePayload`: `{ entries, active, placeId, jobId }` — retrato completo da fila | [store.tsx](../src/store.tsx) → Painel de Sessão ([multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento)) |
+| `roblox-build-install` | [platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs) `emit_build_install` | `{ version, stage, current, total, message }` — download silencioso da build do Roblox | [store.tsx](../src/store.tsx) (linha de `actionStatus`) |
+| `afk-status` / `afk-cycle` / `afk-stopped` | [afk.rs](../src-tauri/src/commands/afk.rs) | `AfkStatusPayload` (`{ active, startedAtMs, intervalMinutes, key, accounts }`) / `{ sent }` / `()` | [store.tsx](../src/store.tsx) ([afk-mode.md](features/afk-mode.md)) |
+| `backup-restored` | [backups.rs](../src-tauri/src/commands/backups.rs) | `RestoreReport` (`backupId`, `safetyBackupId`, `restored`, `skipped`, `accountsReloaded`, `requiresRestart`, `restartReasons`) | [BackupsDialog.tsx](../src/components/dialogs/BackupsDialog.tsx) |
+| `chromium-fallback` | [chromium/download.rs](../src-tauri/src/chromium/download.rs) | `{ browser, error }` — o download falhou e o login vai pelo navegador do sistema | [store.tsx](../src/store.tsx) |
+| `signup-progress` | [chromium/signup_session.rs](../src-tauri/src/chromium/signup_session.rs) | `SignupStatus` (retrato da sessão de criação de contas) | [SignupPanel.tsx](../src/components/signup/SignupPanel.tsx) |
+| `server-scan` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `start_server_scan` | página a página da varredura de servidores | [servers/ServersTab.tsx](../src/components/servers/ServersTab.tsx) |
+| `server-region-progress` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `get_server_regions` | `{ done, total }` | [servers/ServersTab.tsx](../src/components/servers/ServersTab.tsx) |
+| `friends-online-progress` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `get_online_friends_for_accounts` | `{ done, total }` | [FriendsTab.tsx](../src/components/friends/FriendsTab.tsx) |
+| `vault-key-warning-changed` | [accounts/commands.rs](../src-tauri/src/data/accounts/commands.rs) `forward_vault_key_warning` (thread própria, alimentada pelo canal `watch_key_warning` do store) | `VaultKeyWarning` ou `null` (sumiu) | [store.tsx](../src/store.tsx) → [VaultKeyBanner.tsx](../src/components/layout/VaultKeyBanner.tsx). Existe porque o aviso também nasce em gravação de fundo (Auto Rejoin, Watcher, servidor HTTP) — ver [accounts.md](features/accounts.md#a-chave-do-aparelho-accountdatakey) |
 
-A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depois que o app está inicializado e desbloqueado (`!needsPassword && initialized`).
+A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depois que o app está inicializado e desbloqueado (`!needsPassword && initialized`). A exceção é `vault-key-warning-changed`, ligado sempre: a faixa também aparece nas telas de senha e de criptografia.
 
 ## Fluxo de inicialização
 
 ### Backend — `run()` em [lib.rs](../src-tauri/src/lib.rs)
 
+0. **Windows:** `webview_recovery::prepare_environment()` — decide o safe mode de vídeo e monta `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` antes de o Tauri existir, porque o WebView2 lê essa variável na criação da janela ([webview-recovery.md](features/webview-recovery.md)).
 1. `crypto::init()` (inicializa sodiumoxide).
-2. Cria `AccountStore` com `AccountData.json`. Se `needs_password()` for `true` (arquivo tem header criptografado e não há hash em memória), **não carrega** as contas; caso contrário chama `load()`. Erros viram apenas `eprintln!`, mas um `load()` que falha marca `load_failed` e bloqueia qualquer `save()` posterior (o arquivo original fica intacto).
+2. Cria `AccountStore` com `AccountData.json` e chama **`load()`**, que é a única porta: ele abre pela chave do aparelho (`AccountData.key`) e migra um arquivo em texto puro, deixando `AccountData.json.bak` antes de qualquer escrita. Só depois consulta `needs_password()` — `true` quando o arquivo está cifrado e nada em memória abre, e aí a UI mostra a tela de senha. Erros viram apenas `eprintln!` (falha de criptografia não pode impedir o app de subir; é na tela dele que o usuário lê o que houve), mas um `load()` que falha marca `load_failed` e bloqueia qualquer `save()` posterior (o arquivo original fica intacto). Ver [accounts.md](features/accounts.md#carregamento--desbloqueio).
 3. Cria `SettingsStore` (aplica defaults e já regrava o INI), `ThemeStore`, `ThemePresetStore`, `ScriptStore`, `VersionsCatalogStore`, `ImageCache`.
 4. Registra plugins: `single-instance` (segunda instância só mostra/foca a janela `main`), `window-state`, `autostart` (LaunchAgent no macOS), `process`, `updater`.
 5. `.manage(...)` de todas as stores + `UpdaterRuntimeState` + `ChromiumManager`.
-6. `setup`: cria o ícone de bandeja (menu Show/Quit; clique esquerdo mostra a janela).
+6. `setup`: **Windows:** `webview_recovery::start_watchdog` (25 s para o frontend avisar que pintou, senão o app reabre em safe mode de vídeo — só em build de release); liga o aviso do `.key` à janela (`forward_vault_key_warning`, antes de qualquer gravação de fundo existir); cria o ícone de bandeja (menu Show/Quit; clique esquerdo mostra a janela).
 7. Se compilado com `nexus` e `AccountControl.StartOnLaunch = true`: inicia o servidor Nexus na porta `AccountControl.NexusPort` (default 5242).
 8. Se compilado com `webserver` e `Developer.EnableWebServer = true`: inicia o servidor HTTP (`api::server::start`).
 9. Ao sair (`ExitRequested`/`Exit`): se `General.EnableMultiRbx` estiver ativo, mata todos os Roblox quando houver mais de um processo, limpa o tracker e desativa o multi-Roblox; em `Exit` também fecha a sessão de login do Chromium.
@@ -195,11 +216,12 @@ A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depoi
 5. Se não há contas e `General.EncryptionOnboardingState = pending` → abre `EncryptionSetupScreen` (modo `firstRun`).
 6. Se `FirstRunWalkthroughState = pending` e o onboarding de criptografia não está pendente → abre o walkthrough.
 7. `get_theme` → aplica tema; `initialized = true`.
-8. [App.tsx](../src/App.tsx) decide a tela: "Loading..." → `PasswordScreen` (se `needsPassword`) → `EncryptionSetupScreen` → app principal. Depois de inicializado e desbloqueado, roda uma checagem de update.
+8. [App.tsx](../src/App.tsx) decide a tela: "Loading..." → `PasswordScreen` (se `needsPassword`) → `EncryptionSetupScreen` → app principal. Depois de inicializado e desbloqueado, roda uma checagem de update. Tudo isso dentro do `AppErrorBoundary`, para erro de render não virar tela branca ([webview-recovery.md](features/webview-recovery.md)).
+9. Dois `requestAnimationFrame` depois do primeiro render, [main.tsx](../src/main.tsx) chama `frontend_painted` — é o sinal que desarma o watchdog do WebView2.
 
 ## Armadilhas / cuidados
 
-- O frontend chama `get_platform_capabilities`, mas esse comando **não está registrado** em `generate_handler!` — a chamada falha silenciosamente (`catch {}`) e `platformCapabilities` fica `null`.
+- `get_platform_capabilities` ([platform_info.rs](../src-tauri/src/commands/platform_info.rs)) está incluído e registrado em `generate_handler!`; o frontend o chama no boot e quando uma chave de `[Linux]` muda. Se a chamada falhar, `platformCapabilities` fica `null` e `isWindowsPlatform` volta ao palpite pelo user agent — ver [launch.md](features/launch.md#capacidades-da-plataforma-get_platform_capabilities).
 - O webserver é iniciado com um cast `unsafe` de `&AccountStore`/`&SettingsStore` para `'static` em [lib.rs](../src-tauri/src/lib.rs); qualquer mudança no ciclo de vida das stores precisa considerar isso.
 - Como os comandos são `include!`-ados na raiz do crate, nomes de funções auxiliares precisam ser únicos entre todos os arquivos de `commands/` (ex.: `decode_url_component` existe tanto em `launch_shared.rs` quanto em `api/roblox/private_links.rs`, mas em escopos diferentes: raiz do crate vs. módulo `api::roblox`).
 - O evento `isolation-report` é emitido mas ninguém escuta; se precisar mostrar o relatório na UI, é preciso criar o listener.

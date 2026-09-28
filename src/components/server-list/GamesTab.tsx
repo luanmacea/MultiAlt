@@ -71,14 +71,11 @@ export interface GamesTabProps {
   addToast: (msg: string) => void;
   onAddFavorite: (game: GameEntry) => void;
   /**
-   * Abre a lista de servidores daquele jogo. Opcional porque o diálogo de
-   * servidores (fora da Choose Game) já tem a própria aba Servers.
+   * Abre a lista de servidores daquele jogo. Opcional: ação sem callback não
+   * aparece. As duas telas donas (Choose Game e Server List) passam as três.
    */
   onBrowseServers?: (placeId: number, name?: string) => void;
-  /**
-   * Abre o Botting Mode / os Scripts **com este jogo**. Opcional pelo mesmo
-   * motivo: são diálogos globais, e o Server List não é o lugar de abri-los.
-   */
+  /** Abre o Auto Rejoin / os Scripts **com este jogo**, sem copiar Place ID. */
   onBotting?: (placeId: number) => void;
   onScripts?: (placeId: number) => void;
 }

@@ -8,8 +8,17 @@ use crate::data::accounts::{Account, AccountStore};
 use crate::data::settings::SettingsStore;
 
 use super::cdp::{persistent_cookie_expiry, spawn_chrome, CdpClient};
-use super::download::{ensure_chromium, is_installed};
+use super::download::{is_installed, reinstall_chromium, resolve_browser_binary};
 use super::manager::{ChromiumManager, LOGIN_KEY};
+
+/// Chave de settings com o caminho digitado pelo usuário em
+/// Settings > General > Login Browser. Vazia = nada configurado, segue para
+/// o download normal (ver `resolve_browser_binary`).
+const MANUAL_BINARY_PATH_KEY: (&str, &str) = ("Login", "ManualBinaryPath");
+
+pub(super) fn manual_binary_path(settings: &SettingsStore) -> String {
+    settings.get_string(MANUAL_BINARY_PATH_KEY.0, MANUAL_BINARY_PATH_KEY.1)
+}
 
 const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
 const ROBLOX_HOME_URL: &str = "https://www.roblox.com/home";
@@ -82,9 +91,20 @@ pub fn is_browser_ready(app: AppHandle) -> bool {
     is_installed(&app)
 }
 
+/// Botão "Download"/"Reinstall" de Settings > General. `force=true` apaga a
+/// instalação existente e baixa de novo (substitui em vez de empilhar
+/// versões); sem `force`, é a mesma chamada idempotente que os fluxos de
+/// login já fazem — não passa pelo caminho manual nem pelo navegador do
+/// sistema, porque aqui o usuário está pedindo especificamente para gerenciar
+/// a cópia baixada.
 #[tauri::command]
-pub async fn ensure_browser(app: AppHandle) -> Result<(), String> {
-    ensure_chromium(&app).await.map(|_| ())
+pub async fn ensure_browser(app: AppHandle, force: Option<bool>) -> Result<(), String> {
+    let result = if force.unwrap_or(false) {
+        reinstall_chromium(&app).await
+    } else {
+        super::download::ensure_chromium(&app).await
+    };
+    result.map(|_| ()).map_err(super::download::with_download_hint)
 }
 
 #[tauri::command]
@@ -108,7 +128,7 @@ pub async fn open_account_browser(
     }
 
     let stealth = settings.get_bool("Login", "StealthMode");
-    let binary = ensure_chromium(&app).await?;
+    let (binary, _) = resolve_browser_binary(&app, Some(&manual_binary_path(&settings))).await?;
     let profile = ChromiumManager::account_profile(&app, user_id)?;
 
     // Duas instâncias no mesmo perfil brigam pelo lock do Chromium: a janela
@@ -212,7 +232,7 @@ pub async fn open_login_browser(
     chromium: State<'_, ChromiumManager>,
     settings: State<'_, SettingsStore>,
 ) -> Result<(), String> {
-    let binary = ensure_chromium(&app).await?;
+    let (binary, _) = resolve_browser_binary(&app, Some(&manual_binary_path(&settings))).await?;
     chromium.close_login_session();
 
     let persistent = settings.get_bool("Login", "PersistentProfile");
@@ -305,7 +325,7 @@ pub async fn import_userpass(
         return Err("Enter a username and password".into());
     }
 
-    let binary = ensure_chromium(&app).await?;
+    let (binary, _) = resolve_browser_binary(&app, Some(&manual_binary_path(&settings))).await?;
     chromium.close_login_session();
 
     let persistent = settings.get_bool("Login", "PersistentProfile");

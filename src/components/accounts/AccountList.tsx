@@ -5,6 +5,7 @@ import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { GroupSection } from "./GroupSection";
 import { useTr } from "../../i18n/text";
 import { AddAccountDialog } from "../dialogs/AddAccountDialog";
+import { COOKIE_PATTERN } from "../../utils/cookies";
 
 type DragSelectRect = {
   left: number;
@@ -103,9 +104,10 @@ export function AccountList() {
     e.preventDefault();
     const text = e.dataTransfer.getData("text/plain");
     if (!text) return;
-    const cookieRe =
-      /_\|WARNING:-DO-NOT-SHARE-THIS\.--Sharing-this-will-allow-someone-to-log-in-as-you-and-to-steal-your-ROBUX-and-items\.\|\w+/g;
-    const matches = text.match(cookieRe);
+    // Mesmo padrão do import (`utils/cookies.ts`): eram duas cópias da mesma
+    // expressão, e o dia em que o Roblox mudar o texto do aviso só uma seria
+    // corrigida.
+    const matches = text.match(new RegExp(COOKIE_PATTERN.source, "g"));
     if (matches) {
       for (const cookie of matches) {
         await store.addAccountByCookie(cookie);

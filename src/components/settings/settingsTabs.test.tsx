@@ -19,6 +19,7 @@ import { IsolationTab } from "./IsolationTab";
 import { WebServerTab } from "./WebServerTab";
 import { WatcherTab } from "./WatcherTab";
 import { OptimizationTab } from "./OptimizationTab";
+import { VersionsTab } from "./VersionsTab";
 import { useSettings, type UseSettingsReturn } from "../../hooks/useSettings";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
@@ -318,9 +319,10 @@ describe("GeneralTab", () => {
   it.each([
     ["Auto Check for Updates", "General", "CheckForUpdates"],
     ["Launch one account at a time", "General", "AsyncJoin"],
+    ["Wrap Long Names", "General", "WrapLongNames"],
     ["Disable Image Loading", "General", "DisableImages"],
     ["Multi Roblox", "General", "EnableMultiRbx"],
-    ["Botting Mode", "General", "BottingEnabled"],
+    ["Auto Rejoin", "General", "BottingEnabled"],
     ["Show Presence", "General", "ShowPresence"],
     ["Auto Cookie Refresh", "General", "AutoCookieRefresh"],
     ["Minimize to Tray", "General", "MinimizeToTray"],
@@ -419,6 +421,71 @@ describe("GeneralTab", () => {
     await userEvent.click(await screen.findByText("Run on Windows Startup"));
     await expectSaved("General", "StartOnPCStartup", "true");
     expect(autostart.enable).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves a custom browser executable path", async () => {
+    renderGeneral();
+    const field = await screen.findByLabelText("Custom browser executable");
+    await userEvent.type(field, "C:\\browsers\\chrome.exe");
+    await userEvent.tab();
+    await expectSaved("Login", "ManualBinaryPath", "C:\\browsers\\chrome.exe");
+  });
+
+  /**
+   * O botão do navegador embutido chama `store.ensureBrowserDownload`
+   * (`chromium/download.rs` → `ensure_browser`), não `update_setting`: é o
+   * único controle desta aba que dispara um download em vez de gravar settings.
+   */
+  it("downloads the bundled browser through the store", async () => {
+    const store = setStore({});
+    renderGeneral();
+    await userEvent.click(await screen.findByRole("button", { name: "Download" }));
+    expect(store.ensureBrowserDownload).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels the button Reinstall once the bundled browser is already installed and forces a fresh download", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "is_browser_ready") return true;
+      if (cmd === "get_all_settings") return stored;
+      return undefined;
+    });
+    const store = setStore({});
+    renderGeneral();
+    const button = await screen.findByRole("button", { name: "Reinstall" });
+    await userEvent.click(button);
+    expect(store.ensureBrowserDownload).toHaveBeenCalledWith(true);
+  });
+
+  it("shows the download progress and disables the button while it runs", async () => {
+    setStore({
+      browserDownload: { active: true, stage: "downloading", percent: 42, error: null },
+    });
+    renderGeneral();
+    expect(await screen.findByText("Downloading browser (42%)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Downloading..." })).toBeDisabled();
+  });
+
+  it("shows the backend error message when the bundled browser download fails", async () => {
+    setStore({
+      browserDownload: { active: false, stage: "error", percent: null, error: "network down" },
+    });
+    renderGeneral();
+    expect(await screen.findByText("network down")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry Download" })).toBeInTheDocument();
+  });
+});
+
+describe("VersionsTab", () => {
+  /**
+   * A guarda de versão recusa abrir uma conta numa versão diferente das que
+   * já estão abertas; com duas versões abertas nenhum launch passa. O toggle
+   * libera abrir numa versão que já tem cliente aberto — desligado por padrão.
+   */
+  it("liga a opção de abrir numa versão que já está aberta", async () => {
+    stored = {};
+    renderTab((s) => <VersionsTab s={s} />);
+    await userEvent.click(await screen.findByText("Allow launching on an already open version"));
+    await expectSaved("Versions", "AllowLaunchOnOpenVersion", "true");
   });
 });
 
@@ -662,7 +729,7 @@ describe("OptimizationTab", () => {
   });
 
   /**
-   * Antes desta mudanca, Botting ligado + perfis separados montava as 3
+   * Antes desta mudanca, Auto Rejoin ligado + perfis separados montava as 3
    * secoes de uma vez: 6357px de scroll, `Unlock FPS` 3x, e 12 aria-label
    * triplicados (Max FPS, Client Volume, Priority Class...). Um perfil por
    * vez elimina isso — so a secao escolhida existe no DOM.
@@ -672,15 +739,15 @@ describe("OptimizationTab", () => {
 
     it("hides the selector when there is only one profile", async () => {
       renderOptimization();
-      expect(screen.queryByRole("radio", { name: "Botting Player" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Auto Rejoin Main" })).not.toBeInTheDocument();
       expect(screen.queryByRole("radio", { name: "Normal" })).not.toBeInTheDocument();
     });
 
     it("shows one radio per profile once Botting uses separate profiles", async () => {
       renderOptimization(SEPARATE_PROFILES);
       expect(await screen.findByRole("radio", { name: "Normal" })).toBeInTheDocument();
-      expect(screen.getByRole("radio", { name: "Botting Player" })).toBeInTheDocument();
-      expect(screen.getByRole("radio", { name: "Botting Bot" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Auto Rejoin Main" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Auto Rejoin Alt" })).toBeInTheDocument();
     });
 
     it("mounts only the selected profile's section, never more than one", async () => {
@@ -693,8 +760,8 @@ describe("OptimizationTab", () => {
 
     it("switches the mounted section when another profile is picked", async () => {
       renderOptimization(SEPARATE_PROFILES);
-      await userEvent.click(await screen.findByRole("radio", { name: "Botting Bot" }));
-      expect(screen.getByRole("radio", { name: "Botting Bot" })).toHaveAttribute("aria-checked", "true");
+      await userEvent.click(await screen.findByRole("radio", { name: "Auto Rejoin Alt" }));
+      expect(screen.getByRole("radio", { name: "Auto Rejoin Alt" })).toHaveAttribute("aria-checked", "true");
       // Continua havendo so uma secao montada apos trocar de perfil.
       expect(screen.getAllByLabelText("Max FPS")).toHaveLength(1);
     });
@@ -712,7 +779,7 @@ describe("OptimizationTab", () => {
 
     it("falls back to Normal when Botting is turned back off while another profile is selected", async () => {
       renderOptimization(SEPARATE_PROFILES);
-      await userEvent.click(await screen.findByRole("radio", { name: "Botting Bot" }));
+      await userEvent.click(await screen.findByRole("radio", { name: "Auto Rejoin Alt" }));
       cleanup();
       renderOptimization();
       expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();

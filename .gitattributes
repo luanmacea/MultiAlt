@@ -1,0 +1,5 @@
+# Todo checkout em LF, em qualquer máquina — inclusive no runner Windows da CI,
+# cujo git vem com core.autocrlf=true e entregava os arquivos em CRLF. Os
+# testes que leem o próprio fonte (include_str!) viam bytes diferentes dos
+# daqui, e o PR #1 falhou na CI passando localmente.
+* text=auto eol=lf

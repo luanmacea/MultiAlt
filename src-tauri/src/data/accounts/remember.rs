@@ -76,81 +76,17 @@ pub fn can_remember() -> bool {
     false
 }
 
+/// O `unsafe` do DPAPI mora em [`crypto::dpapi_protect`]; aqui só entra a
+/// entropia deste recurso. Dois blocos `unsafe` fazendo a mesma coisa eram duas
+/// chances de errar um ponteiro.
 #[cfg(target_os = "windows")]
 fn protect(data: &[u8]) -> Option<Vec<u8>> {
-    use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB};
-
-    unsafe {
-        let in_blob = CRYPT_INTEGER_BLOB {
-            cbData: data.len() as u32,
-            pbData: data.as_ptr() as *mut u8,
-        };
-        let entropy_blob = CRYPT_INTEGER_BLOB {
-            cbData: REMEMBER_ENTROPY.len() as u32,
-            pbData: REMEMBER_ENTROPY.as_ptr() as *mut u8,
-        };
-        let mut out_blob = CRYPT_INTEGER_BLOB {
-            cbData: 0,
-            pbData: std::ptr::null_mut(),
-        };
-
-        let ok = CryptProtectData(
-            &in_blob,
-            std::ptr::null(),
-            &entropy_blob,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            0,
-            &mut out_blob,
-        );
-        if ok == 0 || out_blob.pbData.is_null() {
-            return None;
-        }
-
-        let protected =
-            std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec();
-        LocalFree(out_blob.pbData as *mut core::ffi::c_void);
-        Some(protected)
-    }
+    crypto::dpapi_protect(data, REMEMBER_ENTROPY)
 }
 
 #[cfg(target_os = "windows")]
 fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
-    use windows_sys::Win32::Foundation::LocalFree;
-    use windows_sys::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
-
-    unsafe {
-        let in_blob = CRYPT_INTEGER_BLOB {
-            cbData: data.len() as u32,
-            pbData: data.as_ptr() as *mut u8,
-        };
-        let entropy_blob = CRYPT_INTEGER_BLOB {
-            cbData: REMEMBER_ENTROPY.len() as u32,
-            pbData: REMEMBER_ENTROPY.as_ptr() as *mut u8,
-        };
-        let mut out_blob = CRYPT_INTEGER_BLOB {
-            cbData: 0,
-            pbData: std::ptr::null_mut(),
-        };
-
-        let ok = CryptUnprotectData(
-            &in_blob,
-            std::ptr::null_mut(),
-            &entropy_blob,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            0,
-            &mut out_blob,
-        );
-        if ok == 0 || out_blob.pbData.is_null() {
-            return None;
-        }
-
-        let plain = std::slice::from_raw_parts(out_blob.pbData, out_blob.cbData as usize).to_vec();
-        LocalFree(out_blob.pbData as *mut core::ffi::c_void);
-        Some(plain)
-    }
+    crypto::dpapi_unprotect(data, REMEMBER_ENTROPY)
 }
 
 #[cfg(not(target_os = "windows"))]

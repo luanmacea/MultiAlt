@@ -19,12 +19,15 @@ import type {
   FriendLinkState,
   LaunchQueuePayload,
   ServerPreference,
+  VaultKeyWarning,
 } from "./types";
+import { playAfkBeep } from "./utils/afkBeep";
 import {
   orderGroupKeys,
   parseGroupName,
   parseGroupOrder,
   serializeGroupOrder,
+  VAULT_KEY_WARNING_EVENT,
 } from "./types";
 
 /**
@@ -68,6 +71,7 @@ export function normalizeServerPreference(value: string | undefined): ServerPref
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
 import i18n, { normalizeLanguage } from "./i18n";
 import { REPO_URL } from "./repo";
+import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import {
@@ -77,7 +81,7 @@ import {
   normalizeUpdaterFeatureChannel,
   getUpdaterSkipVersionKey,
 } from "./updaterChannels";
-import { recordRecentGame } from "./components/server-list/types";
+import { addRecentJob, recordRecentGame } from "./components/server-list/types";
 
 interface PresenceEntry {
   userId?: number;
@@ -121,6 +125,14 @@ interface ActionStatusState {
   message: string;
   tone: ActionStatusTone;
   at: number;
+}
+
+/** Estado do botão "Download"/"Reinstall" de Settings > General. */
+export interface BrowserDownloadState {
+  active: boolean;
+  stage: "resolving" | "downloading" | "extracting" | "ready" | "error";
+  percent: number | null;
+  error: string | null;
 }
 
 /**
@@ -169,6 +181,50 @@ export interface BottingStartConfig {
   intervalMinutes: number;
   launchDelaySeconds: number;
   playerGraceMinutes: number;
+  /**
+   * A sessão nasce sobre contas que **já estão em jogo**: elas não são
+   * fechadas nem relançadas na primeira passagem, só entram no ciclo.
+   */
+  adoptRunning?: boolean;
+}
+
+/** Uma conta que está no AFK mode, com o relógio dela. */
+export interface AfkAccountStatus {
+  userId: number;
+  /** Último envio, ou a entrada no modo enquanto não houve envio. */
+  lastSendAtMs: number;
+  nextSendAtMs: number;
+  sends: number;
+  lastError: string | null;
+  /**
+   * `noWindow`, `focusDenied`, `keyRefused` ou `internal`. A tela escolhe a
+   * frase traduzida por aqui, em vez de casar o texto em inglês do backend.
+   */
+  lastErrorCode: string | null;
+}
+
+export interface AfkStatus {
+  active: boolean;
+  startedAtMs: number | null;
+  intervalMinutes: number;
+  key: string;
+  accounts: AfkAccountStatus[];
+}
+
+export interface AfkStartConfig {
+  userIds: number[];
+  intervalMinutes: number;
+  /** Uma das teclas de `afkKeys`; o backend recusa qualquer outra. */
+  key: string;
+}
+
+/** Onde uma conta está jogando agora, segundo a presença do Roblox. */
+export interface AccountGameLocation {
+  userId: number;
+  inGame: boolean;
+  placeId: number | null;
+  /** Só vem com o cookie da própria conta. */
+  jobId: string | null;
 }
 
 export interface GeneratorStatus {
@@ -232,6 +288,14 @@ export function parsePrivateServerCode(rawJobId: string): string {
  * caller sets place/job via setState and immediately triggers a launch (the
  * launch closure would otherwise still read the PREVIOUS place/job).
  */
+/**
+ * O que aconteceu com um launch de uma conta: `started` = o backend aceitou e o
+ * cliente está subindo; `refused` = já havia uma sequência de launch em
+ * andamento; `failed` = erro de launch (já reportado na tela). Quem chama usa
+ * isto para não anunciar sucesso quando nada começou.
+ */
+export type LaunchAttempt = "started" | "refused" | "failed";
+
 export interface LaunchTarget {
   placeId?: string;
   jobId?: string;
@@ -255,7 +319,11 @@ export interface StoreValue {
   groups: ParsedGroup[];
   loadAccounts: () => Promise<void>;
   saveAccounts: () => Promise<void>;
-  addAccountByCookie: (cookie: string) => Promise<void>;
+  /**
+   * `password` só quando a linha colada trazia `usuario:senha` antes do cookie
+   * (o formato do import): vai separado para o `add_account`, nunca no cookie.
+   */
+  addAccountByCookie: (cookie: string, password?: string) => Promise<void>;
   removeAccounts: (userIds: number[]) => Promise<void>;
   updateAccount: (account: Account) => Promise<void>;
 
@@ -324,7 +392,7 @@ export interface StoreValue {
   presenceByUserId: Map<number, number>;
   launchedByProgram: Set<number>;
 
-  joinServer: (userId: number, target?: LaunchTarget) => Promise<void>;
+  joinServer: (userId: number, target?: LaunchTarget) => Promise<LaunchAttempt>;
   launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
   restartRobloxClients: (userIds: number[]) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
@@ -347,6 +415,15 @@ export interface StoreValue {
   /** Esvazia a fila; devolve quantas contas saíram. Não fecha clientes. */
   stopLaunchQueue: () => Promise<number>;
   startBottingMode: (config: BottingStartConfig) => Promise<void>;
+  /**
+   * Liga o Auto Rejoin nas contas que **já estão em jogo**, sem fechar nem
+   * relançar o cliente delas.
+   *
+   * Com sessão ativa é só entrar nela; sem sessão, o place vem da **presença**
+   * da conta — usar o place da tela mandaria a conta para outro jogo no
+   * primeiro reinício do ciclo.
+   */
+  adoptRunningIntoBotting: (userIds: number[]) => Promise<void>;
   stopBottingMode: (closeBotAccounts: boolean) => Promise<void>;
   addBottingAccounts: (userIds: number[]) => Promise<void>;
   setBottingPlayerAccounts: (userIds: number[]) => Promise<void>;
@@ -355,6 +432,26 @@ export interface StoreValue {
     action: "disconnect" | "close" | "closeDisconnect" | "restartClient" | "restartLoop"
   ) => Promise<void>;
   refreshBottingStatus: () => Promise<void>;
+  /**
+   * Liga o AFK mode nas contas escolhidas. A cada intervalo o app traz a janela
+   * de cada uma para frente, uma depois da outra, manda a tecla e só devolve o
+   * foco depois da última — é a única forma de o cliente do Roblox receber a
+   * tecla. Sem tecla escolhida o backend recusa ligar.
+   */
+  startAfkMode: (config: AfkStartConfig) => Promise<void>;
+  /** Para na hora, inclusive um ciclo em andamento. Não fecha cliente nenhum. */
+  stopAfkMode: () => Promise<void>;
+  /** Troca quem está no modo numa sessão em andamento. Lista vazia desliga. */
+  setAfkAccounts: (userIds: number[]) => Promise<void>;
+  refreshAfkStatus: () => Promise<void>;
+  /**
+   * Um ciclo agora, nas contas passadas: é assim que o usuário confere que o
+   * envio funciona sem esperar o intervalo. Devolve quantas receberam a tecla.
+   */
+  afkTriggerNow: (userIds: number[], key: string) => Promise<number>;
+  afkStatus: AfkStatus | null;
+  /** A lista fechada de teclas que o backend aceita. */
+  afkKeys: string[];
   startGenerator: (config: GeneratorStartConfig) => Promise<GeneratorStatus>;
   stopGenerator: () => Promise<void>;
   refreshGeneratorStatus: () => Promise<void>;
@@ -399,6 +496,8 @@ export interface StoreValue {
   encryptionSetupOpen: boolean;
   encryptionSetupMode: "firstRun" | "settings";
   accountsEncrypted: boolean | null;
+  /** Problema com o AccountData.key; a faixa fixa desenha isto. */
+  vaultKeyWarning: VaultKeyWarning | null;
   applyingEncryption: boolean;
   encryptionSetupError: string | null;
   openEncryptionSetupFromSettings: () => void;
@@ -432,13 +531,13 @@ export interface StoreValue {
   bottingDialogOpen: boolean;
   setBottingDialogOpen: (open: boolean) => void;
   /**
-   * Place com que o Botting deve abrir quando a abertura partiu de um jogo
+   * Place com que o Auto Rejoin deve abrir quando a abertura partiu de um jogo
    * (clique direito numa lista de jogos). **Vence o rascunho salvo**: quem
    * acabou de escolher o jogo quer aquele jogo, não o da vez passada.
    * `null` quando a abertura não trouxe jogo nenhum.
    */
   bottingDialogPlaceId: string | null;
-  /** Abre o Botting, opcionalmente já com um jogo escolhido. */
+  /** Abre o Auto Rejoin, opcionalmente já com um jogo escolhido. */
   openBottingDialog: (placeId?: string) => void;
   bottingStatus: BottingStatus | null;
   generatorDialogOpen: boolean;
@@ -452,6 +551,8 @@ export interface StoreValue {
   generatorStatus: GeneratorStatus | null;
   versionsDialogOpen: boolean;
   setVersionsDialogOpen: (open: boolean) => void;
+  afkDialogOpen: boolean;
+  setAfkDialogOpen: (open: boolean) => void;
   sessionDialogOpen: boolean;
   setSessionDialogOpen: (open: boolean) => void;
   setDefaultVersion: (versionId: string | null) => void;
@@ -481,6 +582,9 @@ export interface StoreValue {
 
   openLoginBrowser: () => Promise<void>;
   openAccountBrowser: (userId: number) => Promise<void>;
+  browserDownload: BrowserDownloadState | null;
+  /** `force=true` apaga a instalação existente e baixa de novo (botão Reinstall). */
+  ensureBrowserDownload: (force?: boolean) => Promise<boolean>;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -573,6 +677,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [encryptionSetupOpen, setEncryptionSetupOpen] = useState(false);
   const [encryptionSetupMode, setEncryptionSetupMode] = useState<"firstRun" | "settings">("firstRun");
   const [accountsEncrypted, setAccountsEncrypted] = useState<boolean | null>(null);
+  const [vaultKeyWarning, setVaultKeyWarning] = useState<VaultKeyWarning | null>(null);
   const [applyingEncryption, setApplyingEncryption] = useState(false);
   const [encryptionSetupError, setEncryptionSetupError] = useState<string | null>(null);
   const [firstRunWalkthroughOpen, setFirstRunWalkthroughOpen] = useState(false);
@@ -601,6 +706,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setBottingDialogOpen(true);
   }, []);
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
+  const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
+  const [afkKeys, setAfkKeys] = useState<string[]>([]);
+  const [afkDialogOpen, setAfkDialogOpen] = useState(false);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
 
@@ -635,6 +743,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   accountsRef.current = accounts;
   const clearLaunchLogs = useCallback(() => setLaunchLogs([]), []);
   const [actionStatus, setActionStatus] = useState<ActionStatusState | null>(null);
+  const [browserDownload, setBrowserDownload] = useState<BrowserDownloadState | null>(null);
 
   const avatarLoadingRef = useRef<Set<number>>(new Set());
   const launchClearTimeoutRef = useRef<number | null>(null);
@@ -866,6 +975,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   /**
+   * Tira do rodapé a linha `message` — **só se ela ainda for a que está lá**.
+   * Quem anunciou "Launching X…" e foi recusado não pode deixar a frase no ar
+   * até o timeout dela (5 s dizendo que lança o que acabou de ser recusado);
+   * mas se outra ação já escreveu por cima nesse meio-tempo, a linha dela fica.
+   */
+  const withdrawActionStatus = useCallback((message: string) => {
+    const localized = i18n.exists(message) ? tr(message) : message;
+    setActionStatus((prev) => (prev?.message === localized ? null : prev));
+  }, []);
+
+  /**
    * A fila de toasts: "isto **acabou de acontecer**". O tom sai do texto uma
    * única vez, aqui, e vai junto no item — os ~200 call sites continuam
    * chamando `addToast(frase)` e nada mais.
@@ -930,12 +1050,72 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Um problema com o `AccountData.key` não pode morrer num `eprintln!` do
+   * backend: numa build GUI aquilo não vai a lugar nenhum, e é justamente o
+   * defeito que passa o dia inteiro invisível (a chave está em memória, tudo
+   * funciona) para virar "não abre mais" no boot seguinte.
+   *
+   * Duas correções em relação à primeira tentativa, que usava a linha de status:
+   * ela é **substituível** (qualquer "Launching…" apagava o aviso) e nunca era
+   * limpa quando o problema sumia. Agora é estado, desenhado por `VaultKeyBanner`,
+   * e **`null` limpa**.
+   *
+   * Chamado no boot (o efeito de inicialização não passa por `loadAccounts`, e o
+   * boot é justamente quando o backend descobre o problema) e depois de cada
+   * recarga de contas.
+   *
+   * Uma resposta que chega depois de um evento do aviso (ver abaixo) é **mais
+   * velha** que ele — a pergunta saiu antes — e é descartada. Sem isso, a
+   * leitura de um `loadAccounts` que cruzasse com a gravação de fundo apagava a
+   * faixa que o evento acabara de pôr, e ela só voltaria na mudança seguinte.
+   */
+  const vaultKeyWarningEvents = useRef(0);
+  const refreshVaultKeyWarning = useCallback(async () => {
+    const eventsBefore = vaultKeyWarningEvents.current;
+    try {
+      const warning = await invoke<VaultKeyWarning | null>("vault_key_warning");
+      if (vaultKeyWarningEvents.current !== eventsBefore) return;
+      setVaultKeyWarning(warning ?? null);
+    } catch {}
+  }, []);
+
+  /**
+   * O aviso também nasce em gravação **de fundo** — Auto Rejoin a cada ciclo,
+   * Watcher, servidor HTTP —, e nenhuma delas passa pelas leituras acima. Com o
+   * Auto Rejoin a noite inteira, o `.key` que ficava ruim de madrugada virava
+   * aviso só no backend, o dono fechava o app sem ver faixa nenhuma e o boot
+   * seguinte caía em lockout. O backend publica cada mudança (inclusive a que
+   * resolve) neste evento; `null` limpa.
+   *
+   * Fica ligado sempre, inclusive nas telas de senha e de criptografia: são as
+   * telas do momento de pânico, e a faixa é desenhada nelas também.
+   */
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    listen<VaultKeyWarning | null>(VAULT_KEY_WARNING_EVENT, (e) => {
+      vaultKeyWarningEvents.current += 1;
+      setVaultKeyWarning(e.payload ?? null);
+    })
+      .then((fn) => {
+        if (disposed) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
   async function loadAccounts() {
     try {
       const result = await invoke<Account[]>("get_accounts");
       setAccounts(result);
       setError(null);
       loadAvatars(result);
+      void refreshVaultKeyWarning();
     } catch (e) {
       setError(String(e));
     }
@@ -950,16 +1130,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function addAccountByCookie(cookie: string) {
+  async function addAccountByCookie(cookie: string, password?: string) {
     try {
       const info = await invoke<{ user_id: number; name: string }>("validate_cookie", {
         cookie,
       });
       const alreadyExists = accounts.some((a) => a.UserID === info.user_id);
+      // Sem senha a chamada fica exatamente como sempre foi (o `add_account`
+      // recebe `Option<String>` e só troca a senha guardada quando vem uma).
       await invoke("add_account", {
         securityToken: cookie,
         username: info.name,
         userId: info.user_id,
+        ...(password ? { password } : {}),
       });
       await loadAccounts();
       addToast(tr(alreadyExists ? "Updated {{name}}" : "Added {{name}}", { name: info.name }));
@@ -1123,7 +1306,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function joinServer(userId: number, target?: LaunchTarget) {
+  async function ensureBrowserDownload(force?: boolean): Promise<boolean> {
+    setBrowserDownload({ active: true, stage: "resolving", percent: null, error: null });
+    try {
+      await invoke("ensure_browser", { force: force === true });
+      setBrowserDownload({ active: false, stage: "ready", percent: 100, error: null });
+      return true;
+    } catch (e) {
+      setBrowserDownload({ active: false, stage: "error", percent: null, error: String(e) });
+      return false;
+    }
+  }
+
+  /**
+   * O backend recusa um launch quando já existe uma sequência em andamento
+   * (duas filas ao mesmo tempo brigariam pelo mutex do Multi Roblox, pelo
+   * registro e pelo `ClientAppSettings.json`, que é global). A mensagem é a
+   * mesma no launch de uma conta e no de várias — e é aqui que o código do
+   * backend vira frase traduzida.
+   *
+   * **Só o toast.** A linha de status do rodapé mostrava a mesma frase ao mesmo
+   * tempo, e a tela de Choose Game ainda devolve uma linha inline no lugar do
+   * clique: eram três cópias simultâneas de uma frase de uma linha. Toast e
+   * rodapé são os dois globais, então saiu o rodapé — ficam o toast (vale para
+   * qualquer origem do launch, inclusive as que não têm linha inline) e a linha
+   * inline (fica onde o usuário clicou).
+   */
+  function reportLaunchAlreadyActive() {
+    addToast(tr("A launch is already in progress"), "warn");
+  }
+
+  /**
+   * Launch de uma conta. Nenhum erro sobe daqui — quem chama não precisa de
+   * `try/catch` —, mas o resultado **diz se começou**: a tela que anuncia
+   * "seguindo com 1 conta..." em cima de um aviso de recusa ou de uma faixa
+   * vermelha de erro está mentindo para o usuário.
+   */
+  async function joinServer(userId: number, target?: LaunchTarget): Promise<LaunchAttempt> {
     clearLaunchTimeout();
     setJoiningAccounts(new Set([userId]));
     setLaunchProgress({
@@ -1134,7 +1353,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
     const launchAccount = accounts.find((a) => a.UserID === userId);
     const accountName = launchAccount?.Alias || launchAccount?.Username || String(userId);
-    setActionStatusMessage(tr("Launching {{name}}...", { name: accountName }), "info", 5000);
+    const launchingLine = tr("Launching {{name}}...", { name: accountName });
+    setActionStatusMessage(launchingLine, "info", 5000);
 
     try {
       const pid = parseInt(target?.placeId ?? placeId) || 5315046213;
@@ -1171,6 +1391,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       await loadAccounts();
       void recordRecentGame(pid, userId, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
+      // O servidor também vira "recente": num alvo VIP o Job ID vai vazio e o
+      // código viaja em `linkCode`, então guarda-se o `vip:<código>` — a forma
+      // que o campo de Job ID e o `resolve_launch_job` sabem reabrir.
+      const recentJob = linkCode ? `vip:${linkCode}` : resolvedJobId;
+      if (recentJob) {
+        // O cliente já subiu: uma escrita recusada pelo `localStorage` (cota,
+        // perfil sem storage) cairia no `catch` abaixo e diria "Launch failed"
+        // sobre um launch que deu certo. É síncrono, então `.catch` não serve.
+        try {
+          addRecentJob(recentJob, pid, parseInt(settings?.General?.MaxRecentJobs || "12") || 12, [userId]);
+        } catch {
+          // Guardar recentes é conveniência; nunca derruba o launch.
+        }
+      }
       addToast(tr("Launching game..."));
     } catch (e) {
       setJoiningAccounts((prev) => {
@@ -1179,9 +1413,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return next;
       });
       setLaunchProgress((prev) => (prev?.mode === "single" && prev.userId === userId ? null : prev));
+      if (isLaunchAlreadyActiveError(e)) {
+        // Recusa, não falha: o backend não deixa duas sequências de launch
+        // rodarem juntas. A faixa vermelha de erro (com "abrir o log") diria a
+        // coisa errada, então isto sai como aviso — e o "Launching X…" que
+        // este launch pôs no rodapé sai junto: nada está sendo lançado.
+        withdrawActionStatus(launchingLine);
+        reportLaunchAlreadyActive();
+        return "refused";
+      }
       setError(String(e));
       setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
-      return;
+      return "failed";
     }
 
     launchClearTimeoutRef.current = window.setTimeout(() => {
@@ -1193,6 +1436,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setLaunchProgress((prev) => (prev?.mode === "single" && prev.userId === userId ? null : prev));
       launchClearTimeoutRef.current = null;
     }, 7000);
+    return "started";
   }
 
   async function launchMultiple(userIds: number[], target?: LaunchTarget) {
@@ -1215,7 +1459,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       total: userIds.length,
       userId: userIds[0],
     });
-    setActionStatusMessage(tr("Launching {{count}} accounts...", { count: userIds.length }), "info", 5000);
+    const launchingLine = tr("Launching {{count}} accounts...", { count: userIds.length });
+    setActionStatusMessage(launchingLine, "info", 5000);
 
     try {
       const pid = parseInt(target?.placeId ?? placeId) || 5315046213;
@@ -1237,10 +1482,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       await loadAccounts();
       void recordRecentGame(pid, userIds[0], parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
+      // O alvo é das contas **todas** que entraram: é isso que decide para quem
+      // um servidor privado volta a aparecer nos recentes.
+      const recentJob = vipCode ? `vip:${vipCode}` : rawJobId;
+      if (recentJob) {
+        // Como no launch único, e aqui é pior: este `catch` **relança**, então
+        // uma escrita recusada interromperia o que vem depois de um lote que já
+        // subiu os clientes.
+        try {
+          addRecentJob(recentJob, pid, parseInt(settings?.General?.MaxRecentJobs || "12") || 12, userIds);
+        } catch {
+          // Guardar recentes é conveniência; nunca derruba o launch.
+        }
+      }
       addToast(tr("Launching {{count}} accounts...", { count: userIds.length }));
     } catch (e) {
       setJoiningAccounts(new Set());
       setLaunchProgress(null);
+      if (isLaunchAlreadyActiveError(e)) {
+        // Ver `joinServer`: recusa por sequência já em andamento é aviso, e o
+        // "Launching N accounts…" deste lote sai do rodapé. O erro original é
+        // relançado com o código intacto para quem chamou reconhecer (a tela de
+        // Choose Game não repete o toast).
+        withdrawActionStatus(launchingLine);
+        reportLaunchAlreadyActive();
+        throw e;
+      }
       setError(String(e));
       setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
       throw e;
@@ -1346,6 +1613,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
 
     if (launchedIds.length === 1) {
+      // O que deu errado (recusa ou falha) já foi reportado pelo próprio
+      // `joinServer`, e aqui não há nada a fazer com o resultado.
       await joinServer(launchedIds[0]);
       return;
     }
@@ -1370,7 +1639,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const message =
         platformCapabilities.reasons[0] ||
         platformCapabilities.warnings[0] ||
-        "Botting Mode is unavailable for the active Linux runner";
+        "Auto Rejoin is unavailable for the active Linux runner";
       setError(message);
       throw new Error(message);
     }
@@ -1384,13 +1653,81 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         intervalMinutes: config.intervalMinutes,
         launchDelaySeconds: config.launchDelaySeconds,
         playerGraceMinutes: config.playerGraceMinutes,
+        adoptRunning: config.adoptRunning ?? false,
       });
       setBottingStatus(status);
-      addToast(tr("Botting Mode started ({{count}} accounts)", { count: config.userIds.length }));
+      addToast(tr("Auto Rejoin started ({{count}} accounts)", { count: config.userIds.length }));
     } catch (e) {
       setError(String(e));
       throw e;
     }
+  }
+
+  /**
+   * Adota no Auto Rejoin contas que já estão jogando.
+   *
+   * O caminho antigo era abrir o diálogo, colar o Place ID e dar Start — e o
+   * Start **fecha e relança** todo mundo, tirando as contas do servidor em que
+   * já estavam. Aqui nada é fechado.
+   */
+  async function adoptRunningIntoBotting(userIds: number[]) {
+    const ids = [...new Set(userIds)].filter((id) => id > 0);
+    if (ids.length === 0) return;
+
+    // Já existe sessão: `add_botting_accounts` adota sem relançar.
+    if (bottingStatus?.active) {
+      await addBottingAccounts(ids);
+      return;
+    }
+
+    if (ids.length < 2) {
+      const message = tr(
+        "Auto Rejoin needs at least two accounts. Select another one, or start the cycle from the Auto Rejoin dialog."
+      );
+      addToast(message);
+      throw new Error(message);
+    }
+
+    // O place vem de onde a conta ESTÁ, não do campo da tela: com o place
+    // errado, o primeiro reinício do ciclo a jogaria em outro jogo.
+    let location: AccountGameLocation | null = null;
+    for (const id of ids) {
+      try {
+        const found = await invoke<AccountGameLocation>("get_account_game_location", {
+          userId: id,
+        });
+        if (found?.inGame && found.placeId) {
+          location = found;
+          break;
+        }
+      } catch {
+        // Presença indisponível para esta conta; tenta a próxima.
+      }
+    }
+
+    if (!location?.placeId) {
+      const message = tr(
+        "Could not tell which game these accounts are in. Open the Auto Rejoin dialog and set the Place ID."
+      );
+      addToast(message);
+      throw new Error(message);
+    }
+
+    const general = settings?.General || {};
+    await startBottingMode({
+      userIds: ids,
+      placeId: location.placeId,
+      // O job fica de fora de propósito: o ciclo relança no place, e fixar o
+      // servidor atual mandaria todo reinício para um servidor que pode não
+      // existir mais.
+      jobId: "",
+      launchData: "",
+      playerUserIds: [],
+      intervalMinutes: parseInt(general.BottingDefaultIntervalMinutes || "19", 10) || 19,
+      launchDelaySeconds: parseInt(general.BottingLaunchDelaySeconds || "20", 10) || 20,
+      playerGraceMinutes: parseInt(general.BottingPlayerGraceMinutes || "15", 10) || 15,
+      adoptRunning: true,
+    });
   }
 
   async function stopBottingMode(closeBotAccounts: boolean) {
@@ -1398,8 +1735,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await invoke("stop_botting_mode", { closeBotAccounts });
       await refreshBottingStatus();
       addToast(tr(closeBotAccounts
-        ? "Botting Mode stopped and bot accounts closed"
-        : "Botting Mode stopped"));
+        ? "Auto Rejoin stopped and alt accounts closed"
+        : "Auto Rejoin stopped"));
     } catch (e) {
       setError(String(e));
       throw e;
@@ -1416,8 +1753,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addToast(
         tr(
           userIds.length === 1
-            ? "Added {{count}} account to Botting Mode"
-            : "Added {{count}} accounts to Botting Mode",
+            ? "Added {{count}} account to Auto Rejoin"
+            : "Added {{count}} accounts to Auto Rejoin",
           { count: userIds.length }
         )
       );
@@ -1433,7 +1770,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         playerUserIds: userIds,
       });
       setBottingStatus(status);
-      addToast(tr(userIds.length === 0 ? "Player accounts cleared" : "Player accounts updated"));
+      addToast(tr(userIds.length === 0 ? "Main accounts cleared" : "Main accounts updated"));
     } catch (e) {
       setError(String(e));
       throw e;
@@ -1450,6 +1787,64 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         action,
       });
       setBottingStatus(status);
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
+  }
+
+  async function refreshAfkStatus() {
+    try {
+      const status = await invoke<AfkStatus>("get_afk_mode_status");
+      setAfkStatus(status);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function startAfkMode(config: AfkStartConfig) {
+    try {
+      const status = await invoke<AfkStatus>("start_afk_mode", {
+        userIds: config.userIds,
+        intervalMinutes: config.intervalMinutes,
+        key: config.key,
+      });
+      setAfkStatus(status);
+      addToast(
+        config.userIds.length === 1
+          ? tr("AFK mode started for 1 account")
+          : tr("AFK mode started for {{count}} accounts", { count: config.userIds.length })
+      );
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
+  }
+
+  async function stopAfkMode() {
+    try {
+      await invoke("stop_afk_mode");
+      await refreshAfkStatus();
+      addToast(tr("AFK mode off"));
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
+  }
+
+  async function afkTriggerNow(userIds: number[], key: string): Promise<number> {
+    try {
+      return await invoke<number>("afk_trigger_now", { userIds, key });
+    } catch (e) {
+      setError(String(e));
+      throw e;
+    }
+  }
+
+  async function setAfkAccounts(userIds: number[]) {
+    try {
+      const status = await invoke<AfkStatus>("set_afk_accounts", { userIds });
+      setAfkStatus(status);
     } catch (e) {
       setError(String(e));
       throw e;
@@ -1726,6 +2121,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addToast(method === "password" ? tr("Password lock enabled") : tr("Default encryption enabled"));
     } catch (e) {
       setEncryptionSetupError(String(e));
+      // **Também no erro.** O caminho que falha é justamente o que pode ter
+      // deixado um aviso novo (chave que não pôde ser criada), e antes o aviso só
+      // era lido no sucesso — então ele só apareceria no próximo boot, depois de o
+      // usuário já ter fechado o app achando que era só "deu erro, tento outra
+      // vez".
+      await refreshVaultKeyWarning();
       throw e;
     } finally {
       setApplyingEncryption(false);
@@ -1735,6 +2136,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     encryptionSetupMode,
     loadAccounts,
     refreshEncryptionState,
+    refreshVaultKeyWarning,
     settings?.General?.FirstRunWalkthroughState,
   ]);
 
@@ -1779,6 +2181,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         setError(String(e));
       }
+
+      // **No boot, e fora do try acima.** O backend descobre o problema com o
+      // `AccountData.key` durante o `load()` do startup, e este efeito não passa
+      // por `loadAccounts` — chama `get_accounts` direto. Sem esta linha o aviso
+      // só apareceria depois de uma mutação, e quem usa a chave do aparelho (o
+      // único afetado) pode passar a sessão inteira sem fazer nenhuma.
+      await refreshVaultKeyWarning();
 
       let loadedSettings: Record<string, Record<string, string>> | null = null;
       try {
@@ -1915,17 +2324,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // O backend também emite este evento durante um login/browser normal
+    // (download automático na primeira vez), não só pelo botão de Settings —
+    // por isso `browserDownload` fica de fora da dependência: ele só reflete o
+    // que chegou pelo evento, nunca reinicia o listener.
+    let lastPercent = -1;
     const unlisten = listen<{ stage: string; downloaded: number; total: number }>(
       "chromium-download-progress",
       (e) => {
         const { stage, downloaded, total } = e.payload;
-        if (stage === "downloading") {
+        if (stage === "resolving") {
+          lastPercent = -1;
+          setBrowserDownload({ active: true, stage: "resolving", percent: null, error: null });
+        } else if (stage === "downloading") {
           const pct = total > 0 ? Math.round((downloaded / total) * 100) : 0;
           setActionStatusMessage(tr("Downloading browser ({{percent}}%)", { percent: pct }), "info", 4000);
+          // Um `chromium-download-progress` por bloco de ~2MB baixado geraria
+          // uma re-render por bloco; sem o dedupe, uma conexão rápida virava
+          // uma barra de progresso "tremendo" em vez de andar suave.
+          if (pct === lastPercent) return;
+          lastPercent = pct;
+          setBrowserDownload({ active: true, stage: "downloading", percent: pct, error: null });
         } else if (stage === "extracting") {
           setActionStatusMessage(tr("Preparing browser..."), "info", 4000);
+          setBrowserDownload({ active: true, stage: "extracting", percent: null, error: null });
         } else if (stage === "ready") {
           setActionStatusMessage(tr("Browser ready"), "success", 3000);
+          setBrowserDownload({ active: false, stage: "ready", percent: 100, error: null });
+        } else if (stage === "error") {
+          // O texto do erro vem só do `catch` de `ensureBrowserDownload`
+          // (`invoke` rejeita com a mensagem do backend); este evento é
+          // disparado antes disso e não carrega o texto, então preserva o que
+          // já estava guardado em vez de apagar.
+          setBrowserDownload((prev) => ({
+            active: false,
+            stage: "error",
+            percent: null,
+            error: prev?.error ?? null,
+          }));
         }
       }
     );
@@ -1933,6 +2369,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       unlisten.then((fn) => fn());
     };
   }, [setActionStatusMessage]);
+
+  useEffect(() => {
+    // Disparado por `resolve_browser_binary` quando o download falhou (ou
+    // ninguém baixou nada ainda) e um Chrome/Edge/Chromium/Brave instalado foi
+    // usado no lugar. O usuário continua conseguindo logar; só o navegador por
+    // trás é outro, com flags e versão fora do nosso controle.
+    const unlisten = listen<{ browser: string; error: string }>("chromium-fallback", (e) => {
+      addToast(
+        tr(
+          "Browser download failed, using {{browser}} instead. You can point Settings > General > Login Browser at your own copy, or retry the download.",
+          { browser: e.payload.browser }
+        ),
+        "warn"
+      );
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [addToast]);
 
   useEffect(() => {
     if (needsPassword || !initialized) return;
@@ -2051,10 +2506,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     refreshBottingStatus();
     refreshGeneratorStatus();
+    refreshAfkStatus();
+    // A lista de teclas do AFK mode é do backend: a tela oferece exatamente o
+    // que ele aceita, em vez de manter uma segunda lista que sai do lugar.
+    invoke<string[]>("get_afk_keys")
+      .then((keys) => setAfkKeys(keys))
+      .catch(() => {});
     const unsubs: Array<() => void> = [];
     const listeners = [
       listen<BottingStatus>("botting-status", (e) => {
         setBottingStatus(e.payload);
+      }),
+      listen<AfkStatus>("afk-status", (e) => {
+        setAfkStatus(e.payload);
+      }),
+      // Ciclo concluído: o bipe é opcional e explica o piscar de foco que o
+      // usuário acabou de ver. A chave é lida na hora porque este ouvinte é
+      // montado uma vez e leria um `settings` velho do closure.
+      listen<{ sent?: number }>("afk-cycle", async (e) => {
+        if ((e.payload?.sent ?? 0) <= 0) return;
+        try {
+          const enabled = await invoke<string | null>("get_setting", {
+            section: "Afk",
+            key: "BeepOnCycle",
+          });
+          if (enabled === "true") playAfkBeep();
+        } catch {
+          // Sem som é perda aceitável; nada a mostrar na tela.
+        }
+      }),
+      listen("afk-stopped", () => {
+        setAfkStatus((prev) => (prev ? { ...prev, active: false, accounts: [] } : prev));
       }),
       listen<GeneratorStatus>("generator-status", (e) => {
         setGeneratorStatus(e.payload);
@@ -2093,7 +2575,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               ? `: ${e.payload.error}`
               : "";
           setActionStatusMessage(
-            `${tr("Botting rejoin failed for {{userId}}", { userId: uid })}${errorText}`,
+            `${tr("Auto Rejoin failed for {{userId}}", { userId: uid })}${errorText}`,
             "warn",
             3500
           );
@@ -2499,11 +2981,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     cancelAccountLaunch,
     stopLaunchQueue,
     startBottingMode,
+    adoptRunningIntoBotting,
     stopBottingMode,
     addBottingAccounts,
     setBottingPlayerAccounts,
     bottingAccountAction,
     refreshBottingStatus,
+    startAfkMode,
+    stopAfkMode,
+    setAfkAccounts,
+    refreshAfkStatus,
+    afkTriggerNow,
+    afkStatus,
+    afkKeys,
+    afkDialogOpen,
+    setAfkDialogOpen,
     startGenerator,
     stopGenerator,
     refreshGeneratorStatus,
@@ -2534,6 +3026,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     encryptionSetupOpen,
     encryptionSetupMode,
     accountsEncrypted,
+    vaultKeyWarning,
     applyingEncryption,
     encryptionSetupError,
     openEncryptionSetupFromSettings,
@@ -2589,6 +3082,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     openUpdatePreviewDialog,
     openLoginBrowser,
     openAccountBrowser,
+    browserDownload,
+    ensureBrowserDownload,
   };
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

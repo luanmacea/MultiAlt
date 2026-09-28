@@ -119,14 +119,66 @@ pub fn forget_remembered_unlock() -> Result<(), String> {
     Ok(())
 }
 
+/// Para a UI, "encrypted" sempre quis dizer **"protegido por senha"** — é isso
+/// que a tela de criptografia mostra e o que o usuário decide ali. Desde que o
+/// vault sem senha também é cifrado (pela chave do aparelho), `is_encrypted()`
+/// deixou de responder essa pergunta: ela é verdadeira nos dois casos. Então o
+/// comando passou a devolver `has_user_password()`; trocar para os bytes do
+/// arquivo faria a tela dizer "Pass Lock" para quem não tem senha nenhuma.
 #[tauri::command]
 pub fn is_accounts_encrypted(state: tauri::State<'_, AccountStore>) -> Result<bool, String> {
-    state.is_encrypted()
+    state.has_user_password()
 }
 
 #[tauri::command]
 pub fn needs_password(state: tauri::State<'_, AccountStore>) -> Result<bool, String> {
     state.needs_password()
+}
+
+/// Problema com o `AccountData.key` que o usuário precisa ver **hoje**.
+///
+/// `eprintln!` numa build GUI não vai a lugar nenhum, e um `.key` ilegível é
+/// justamente o defeito que passa o dia inteiro invisível — a chave mestra está
+/// em memória, tudo funciona — para virar lockout no boot seguinte. Este comando
+/// é o que leva isso à tela.
+#[tauri::command]
+pub fn vault_key_warning(state: tauri::State<'_, AccountStore>) -> Option<VaultKeyWarning> {
+    state.vault_key_warning()
+}
+
+/// Evento com cada mudança do aviso do `.key`. Payload: o aviso, ou `null`
+/// quando ele sumiu. O frontend ouve pelo mesmo nome (`src/types.ts`).
+pub const VAULT_KEY_WARNING_EVENT: &str = "vault-key-warning-changed";
+
+/// Leva à janela, **na hora**, cada mudança do aviso do `.key`.
+///
+/// O comando `vault_key_warning` só responde quando a UI pergunta, e ela só
+/// pergunta no boot, ao recarregar contas e quando trocar a criptografia falha.
+/// Gravador de fundo não passa por nada disso: com o Auto Rejoin a noite inteira,
+/// o `.key` que ficava ruim de madrugada virava aviso só no backend, e o dono
+/// descobria no boot seguinte — o lockout que a faixa existe para evitar.
+///
+/// A thread é dela, e fala com o Tauri **fora** de qualquer lock do store: o
+/// aviso muda dentro de `save_locked`, que roda segurando o lock de contas, e um
+/// comando síncrono na thread principal (restaurar backup) pode estar esperando
+/// justamente esse lock. O store só enfileira no canal, o que nunca bloqueia.
+pub fn forward_vault_key_warning(app: &tauri::AppHandle, store: &AccountStore) {
+    use tauri::Emitter;
+
+    let changes = store.watch_key_warning();
+    let app = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("vault-key-warning".to_string())
+        .spawn(move || {
+            for warning in changes {
+                let _ = app.emit(VAULT_KEY_WARNING_EVENT, warning);
+            }
+        });
+    if let Err(e) = spawned {
+        // Sem a thread a faixa volta a ser lida só quando a UI pergunta; o app
+        // segue funcionando.
+        eprintln!("Não foi possível acompanhar o aviso da chave do vault: {}", e);
+    }
 }
 
 #[tauri::command]
@@ -156,6 +208,26 @@ pub fn import_old_account_data(
     password: Option<String>,
 ) -> Result<OldAccountImportSummary, String> {
     state.import_old_account_data(&file_data, password.as_deref())
+}
+
+#[cfg(test)]
+mod vault_key_warning_event_tests {
+    /// **A2 do checkup.** O canal do store (`watch_key_warning`) não vale nada se
+    /// ninguém o ligar à janela. O `setup` do Tauri é o lugar que tem um
+    /// `AppHandle` antes de qualquer gravação de fundo começar (Auto Rejoin,
+    /// Watcher e servidor HTTP só existem depois dele).
+    #[test]
+    fn the_app_setup_forwards_every_warning_change_to_the_window() {
+        let lib = include_str!("../../lib.rs");
+        let setup = lib
+            .split(".setup(|app|")
+            .nth(1)
+            .expect("lib.rs sem o .setup(|app| ...) do Tauri");
+        assert!(
+            setup.contains("forward_vault_key_warning("),
+            "o aviso de uma gravação de fundo não chega à janela: o setup não liga o canal"
+        );
+    }
 }
 
 #[cfg(test)]

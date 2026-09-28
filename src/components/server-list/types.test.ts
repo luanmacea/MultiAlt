@@ -8,17 +8,24 @@ vi.mock("@tauri-apps/api/core", () => ({
 import { invoke } from "@tauri-apps/api/core";
 import {
   addRecentGame,
+  addRecentJob,
+  classifyJobInput,
   loadFavorites,
   loadRecentGames,
+  loadRecentJobs,
   looksLikeJoinLink,
   makeVipId,
   parsePlaceIdInput,
   recordRecentGame,
+  removeRecentJob,
   resolveRecentGame,
   saveFavorites,
   saveRecentGames,
+  saveRecentJobs,
+  visibleRecentJobs,
   type FavoriteGame,
   type RecentGame,
+  type RecentJobEntry,
 } from "./types";
 
 const invokeMock = invoke as unknown as Mock;
@@ -348,5 +355,176 @@ describe("looksLikeJoinLink", () => {
   it("does not call plain typing a link", () => {
     expect(looksLikeJoinLink("Jailbreak")).toBe(false);
     expect(looksLikeJoinLink("606849621x")).toBe(false);
+  });
+});
+
+// ── Servidores recentes (job ids) ─────────────────────────────────────────────
+
+const STORAGE_KEY_RECENT_JOBS = "ram_recent_jobs";
+
+const JOB_A = "11111111-2222-3333-4444-555555555555";
+const JOB_B = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
+describe("classifyJobInput", () => {
+  it("calls a plain job id a job", () => {
+    expect(classifyJobInput(JOB_A)).toBe("job");
+  });
+
+  it("recognizes the vip: prefix in any case", () => {
+    expect(classifyJobInput("vip:abc123")).toBe("vip");
+    expect(classifyJobInput("VIP:abc123")).toBe("vip");
+  });
+
+  it("recognizes a private server link by its code parameter", () => {
+    expect(
+      classifyJobInput("https://www.roblox.com/games/606849621/X?privateServerLinkCode=987")
+    ).toBe("link");
+    expect(classifyJobInput("https://www.roblox.com/share?code=abc123&type=Server")).toBe("link");
+  });
+
+  /**
+   * Link curto do AppsFlyer: a query de verdade vem **codificada** dentro do
+   * `af_dp`, então `code=` não aparece no texto cru. Classificado como `job`,
+   * ele entraria na lista como alvo público — o código privado do dono à
+   * mostra para qualquer conta. É formato real (mesmo caso de
+   * `extract_query_param_value_recursive`, `launch_shared.rs`).
+   */
+  it("sees through a double-encoded share link", () => {
+    expect(
+      classifyJobInput(
+        "https://ro.blox.com/Ebh5?af_dp=roblox%3A%2F%2Fnavigation%2Fshare_links%3Fcode%3DDEADBEEF%26type%3DServer"
+      )
+    ).toBe("link");
+  });
+
+  it("survives a broken percent-escape instead of throwing", () => {
+    expect(classifyJobInput("job-%zz-%-id")).toBe("job");
+  });
+});
+
+describe("recent jobs storage", () => {
+  it("returns an empty list when nothing is stored", () => {
+    expect(loadRecentJobs()).toEqual([]);
+  });
+
+  it("round-trips through localStorage", () => {
+    const entries: RecentJobEntry[] = [
+      { kind: "job", raw: JOB_A, placeId: 606849621, lastUsed: 5, userIds: [] },
+      { kind: "vip", raw: "vip:abc123", placeId: 123, lastUsed: 4, userIds: [7] },
+    ];
+    saveRecentJobs(entries);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT_JOBS) || "null")).toEqual(entries);
+    expect(loadRecentJobs()).toEqual(entries);
+  });
+
+  it("returns an empty list for corrupt JSON", () => {
+    localStorage.setItem(STORAGE_KEY_RECENT_JOBS, "<<<broken>>>");
+    expect(loadRecentJobs()).toEqual([]);
+  });
+});
+
+describe("addRecentJob", () => {
+  it("ignores an empty job", () => {
+    addRecentJob("", 606849621, 12, [1]);
+    addRecentJob("   ", 606849621, 12, [1]);
+    expect(localStorage.getItem(STORAGE_KEY_RECENT_JOBS)).toBeNull();
+  });
+
+  it("prepends the entry and stamps lastUsed", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));
+
+    addRecentJob(JOB_A, 606849621, 12, [1]);
+
+    expect(loadRecentJobs()).toEqual([
+      {
+        kind: "job",
+        raw: JOB_A,
+        placeId: 606849621,
+        lastUsed: Date.parse("2024-01-01T00:00:00Z"),
+        userIds: [1],
+      },
+    ]);
+  });
+
+  it("moves a job it already has to the top without duplicating it", () => {
+    addRecentJob(JOB_A, 606849621, 12, [1]);
+    addRecentJob(JOB_B, 606849621, 12, [1]);
+    addRecentJob(JOB_A, 606849621, 12, [1]);
+
+    expect(loadRecentJobs().map((e) => e.raw)).toEqual([JOB_A, JOB_B]);
+  });
+
+  it("drops the oldest entry when the list passes the limit", () => {
+    addRecentJob("job-1", 1, 2, [1]);
+    addRecentJob("job-2", 1, 2, [1]);
+    addRecentJob("job-3", 1, 2, [1]);
+
+    expect(loadRecentJobs().map((e) => e.raw)).toEqual(["job-3", "job-2"]);
+  });
+
+  it("keeps at least one entry even with a broken limit", () => {
+    addRecentJob("job-1", 1, 0, [1]);
+    expect(loadRecentJobs().map((e) => e.raw)).toEqual(["job-1"]);
+  });
+
+  it("keeps the vip: prefix exactly as typed, so the meaning survives", () => {
+    addRecentJob("  VIP:abc123  ", 606849621, 12, [1]);
+    expect(loadRecentJobs()[0]).toMatchObject({ kind: "vip", raw: "VIP:abc123" });
+  });
+
+  it("remembers the place of an entry re-used without one", () => {
+    addRecentJob(JOB_A, 606849621, 12, [1]);
+    addRecentJob(JOB_A, null, 12, [1]);
+    expect(loadRecentJobs()[0].placeId).toBe(606849621);
+  });
+
+  it("adds up the accounts that used the same private target", () => {
+    addRecentJob("vip:abc123", 1, 12, [7]);
+    addRecentJob("vip:abc123", 1, 12, [8, 7]);
+    expect(loadRecentJobs()[0].userIds).toEqual([7, 8]);
+  });
+});
+
+/**
+ * Um link VIP/privado vale para quem o tem: deixá-lo aparecer na lista de outra
+ * conta entrega o servidor privado de uma conta a outra sem o dono pedir. Job
+ * id público não tem esse problema — é o mesmo servidor que a aba Servers lista
+ * para todo mundo.
+ */
+describe("visibleRecentJobs", () => {
+  it("shows a public job id to every account", () => {
+    addRecentJob(JOB_A, 606849621, 12, [1]);
+    expect(visibleRecentJobs(loadRecentJobs(), 2).map((e) => e.raw)).toEqual([JOB_A]);
+    expect(visibleRecentJobs(loadRecentJobs(), null).map((e) => e.raw)).toEqual([JOB_A]);
+  });
+
+  it("hides a private target from an account that never used it", () => {
+    addRecentJob("vip:abc123", 1, 12, [7]);
+    expect(visibleRecentJobs(loadRecentJobs(), 8)).toEqual([]);
+    expect(visibleRecentJobs(loadRecentJobs(), null)).toEqual([]);
+  });
+
+  it("shows a private target to each account that used it", () => {
+    addRecentJob("vip:abc123", 1, 12, [7, 8]);
+    expect(visibleRecentJobs(loadRecentJobs(), 7).map((e) => e.raw)).toEqual(["vip:abc123"]);
+    expect(visibleRecentJobs(loadRecentJobs(), 8).map((e) => e.raw)).toEqual(["vip:abc123"]);
+  });
+
+  it("hides a private link entry the same way", () => {
+    addRecentJob("https://www.roblox.com/games/1/X?privateServerLinkCode=987", 1, 12, [7]);
+    expect(visibleRecentJobs(loadRecentJobs(), 9)).toEqual([]);
+    expect(visibleRecentJobs(loadRecentJobs(), 7)).toHaveLength(1);
+  });
+});
+
+describe("removeRecentJob", () => {
+  it("removes only the entry asked for", () => {
+    addRecentJob(JOB_A, 1, 12, [1]);
+    addRecentJob(JOB_B, 1, 12, [1]);
+
+    removeRecentJob(JOB_A);
+
+    expect(loadRecentJobs().map((e) => e.raw)).toEqual([JOB_B]);
   });
 });

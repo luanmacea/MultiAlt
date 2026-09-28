@@ -153,7 +153,7 @@ describe("ScriptsDialog — permission descriptions", () => {
   const PERMISSION_DESCRIPTIONS: Array<[string, string]> = [
     [
       "Invoke Rust Commands",
-      "Runs app commands: add, edit or remove accounts, launch or kill clients, start botting, the generator and the local servers. Cookies and passwords are stripped from the results.",
+      "Runs app commands: add, edit or remove accounts, launch or kill clients, start Auto Rejoin, the generator and the local servers. Cookies and passwords are stripped from the results.",
     ],
     [
       "HTTP Requests",

@@ -127,7 +127,7 @@ describe("StatusBar", () => {
 
   it("stays silent about botting while it is not running", () => {
     renderBar({ bottingStatus: makeBottingStatus({ active: false }) });
-    expect(screen.queryByText("botting")).not.toBeInTheDocument();
+    expect(screen.queryByText("auto rejoin")).not.toBeInTheDocument();
   });
 
   it("counts down to the next botting restart", () => {
@@ -149,7 +149,7 @@ describe("StatusBar", () => {
         ],
       }),
     });
-    expect(screen.getByText("botting")).toBeInTheDocument();
+    expect(screen.getByText("auto rejoin")).toBeInTheDocument();
     expect(screen.getByText(/next 1:(29|30)/)).toBeInTheDocument();
   });
 
@@ -238,7 +238,7 @@ describe("StatusBar — actionStatus", () => {
     ).not.toBeNull();
 
     cleanup();
-    renderBar({ actionStatus: status({ message: "Botting rejoin failed for 4", tone: "warn" }) });
+    renderBar({ actionStatus: status({ message: "Auto Rejoin failed for 4", tone: "warn" }) });
     expect(
       screen.getByTestId("action-status").querySelector(`.${CSS.escape(TONE_STYLES.warn.dot)}`)
     ).not.toBeNull();

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Lock, Unlock } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
+import { ModalWindowControls } from "./ModalWindowControls";
 
 type EncryptionMethod = "default" | "password";
 
@@ -15,6 +17,11 @@ export function EncryptionSetupScreen() {
 
   const isFirstRun = store.encryptionSetupMode === "firstRun";
   const canClose = !isFirstRun;
+
+  // Escape = Cancel, e só onde Cancel existe. Na primeira execução não há para
+  // onde voltar (a escolha é obrigatória, e `closeEncryptionSetup` ignora o
+  // pedido nesse modo): quem quer sair usa a pílula de janela abaixo.
+  useEscapeStack(canClose, store.closeEncryptionSetup);
 
   useEffect(() => {
     const preferred = isFirstRun
@@ -32,7 +39,7 @@ export function EncryptionSetupScreen() {
     if (store.accountsEncrypted === null) return "";
     return store.accountsEncrypted
       ? t("Current method: Password Lock")
-      : t("Current method: No password (AccountData.json is plain text)");
+      : t("Current method: Device Key (no password)");
   }, [store.accountsEncrypted, t]);
 
   async function handleApply() {
@@ -58,7 +65,14 @@ export function EncryptionSetupScreen() {
   }
 
   return (
-    <div className="theme-app min-h-screen w-full flex items-center justify-center px-6 py-8 bg-[radial-gradient(1200px_420px_at_15%_0%,var(--accent-soft),transparent_62%),radial-gradient(900px_360px_at_85%_100%,var(--panel-soft),transparent_68%)]">
+    <div className="theme-app min-h-full w-full flex items-center justify-center px-6 py-8 bg-[radial-gradient(1200px_420px_at_15%_0%,var(--accent-soft),transparent_62%),radial-gradient(900px_360px_at_85%_100%,var(--panel-soft),transparent_68%)]">
+      {/* A janela não tem borda do Windows (`decorations: false`) e esta tela
+          troca a árvore inteira do app, sem TitleBar. Sem a pílula, a primeira
+          execução não tinha minimizar nem fechar: só se saía concluindo, ou com
+          Alt+F4 — e se o Continue falhasse, o usuário ficava preso aqui. A tela
+          de senha já tinha a mesma pílula; a faixa do vault reserva o canto
+          (`pr-32`) para ela. */}
+      <ModalWindowControls visible />
       <div className="w-full max-w-xl rounded-2xl border theme-border theme-panel shadow-2xl overflow-hidden animate-scale-in">
         <div className="px-6 py-5 border-b theme-border bg-[linear-gradient(140deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))]">
           <div className="animate-fade-in-up" style={{ animationDelay: "0.03s" }}>
@@ -125,12 +139,12 @@ export function EncryptionSetupScreen() {
               <div className="flex items-start gap-3">
                 <div className={["mt-0.5", method === "default" ? "theme-accent" : "theme-muted"].join(" ")}><Unlock size={16} strokeWidth={1.8} /></div>
                 <div className="flex-1">
-                  <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("No Password (Not Encrypted)")}</div>
+                  <div className="text-[13px] font-medium text-[var(--panel-fg)]">{t("No Password (Device Key)")}</div>
                   <div className={[
                     "text-[12px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
                     method === "default" ? "max-h-24 opacity-100" : "max-h-10 opacity-90",
                   ].join(" ")}>
-                    {t("AccountData.json is saved as plain JSON: cookies and passwords stay readable on this PC.")}
+                    {t("AccountData.json is encrypted with a key stored on this device. No password to type, but a copy of the account file alone does not open your accounts.")}
                   </div>
                 </div>
                 <div className={[
@@ -177,8 +191,13 @@ export function EncryptionSetupScreen() {
                   <div className="text-[12px] theme-muted">{t("At least 8 characters.")}</div>
                 </div>
               ) : (
-                <div className="text-[12px] text-amber-300/90 pt-0.5">
-                  {t("Without a password there is no encryption: anyone who opens the file — or any program running as you — can read your cookies and passwords. You can change this later in Settings.")}
+                <div className="text-[12px] text-amber-300/90 pt-0.5 space-y-1.5">
+                  <div>
+                    {t("Without a password the key sits in a file next to AccountData.json, protected by your Windows user. That stops an AccountData.json copied without that file and another user on this PC — but not a program running as you.")}
+                  </div>
+                  <div>
+                    {t("It also does not protect a leaked backup: the app's backup zip has to carry the key, or the backup could never be restored. Choose a password if you keep backups in cloud storage like OneDrive or Google Drive. You can change this later in Settings.")}
+                  </div>
                 </div>
               )}
             </div>
@@ -196,10 +215,10 @@ export function EncryptionSetupScreen() {
             {isFirstRun
               ? method === "password"
                 ? t("Required on first setup to secure your account vault.")
-                : t("You can continue without a password, but your accounts will not be encrypted.")
+                : t("You can continue without a password: the vault is locked with this device key instead.")
               : method === "password"
                 ? t("Re-encrypts your current AccountData.json with the selected method.")
-                : t("Removes the password and rewrites AccountData.json as plain text.")}
+                : t("Removes the password and re-encrypts AccountData.json with this device key.")}
           </div>
           <div className={["grid gap-2 shrink-0", canClose ? "grid-cols-2" : "grid-cols-1"].join(" ")}>
             {canClose ? (

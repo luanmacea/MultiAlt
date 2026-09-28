@@ -8,6 +8,7 @@ import {
 } from "../../hooks/useCopyCredentialWarning";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
+import { MAX_ALIAS_LENGTH } from "../../types";
 import { MenuItemView } from "./MenuItemView";
 import type { MenuItem } from "./MenuItemView";
 
@@ -205,12 +206,23 @@ export function ContextMenu() {
     {
       label: t("Set Alias"),
       action: async () => {
-        const alias = await prompt(t("Alias:"), single?.Alias || "");
+        // O campo trava no mesmo limite da sidebar: antes aceitava colar 300
+        // caracteres, gravava 240 e avisava só "Alias updated".
+        const alias = await prompt(t("Alias:"), single?.Alias || "", {
+          maxLength: MAX_ALIAS_LENGTH,
+        });
         if (alias === null) return;
+        const cortado = alias.length > MAX_ALIAS_LENGTH;
         for (const a of accounts) {
-          store.updateAccount({ ...a, Alias: alias.slice(0, 30) });
+          store.updateAccount({ ...a, Alias: alias.slice(0, MAX_ALIAS_LENGTH) });
         }
-        store.addToast(t("Alias updated"));
+        // Rede para o que chegar por fora do campo (um alias antigo maior que o
+        // limite vindo como valor inicial): o corte não fica calado.
+        if (cortado) {
+          store.addToast(t("Alias updated — cut to {{max}} characters", { max: MAX_ALIAS_LENGTH }), "warn");
+        } else {
+          store.addToast(t("Alias updated"));
+        }
       },
     },
     {
@@ -233,19 +245,19 @@ export function ContextMenu() {
     items.push({
       label:
         addableBottingIds.length > 1
-          ? t("Add {{count}} accounts to Botting Mode", { count: addableBottingIds.length })
+          ? t("Add {{count}} accounts to Auto Rejoin", { count: addableBottingIds.length })
           : addableBottingIds.length === 1
-            ? t("Add {{count}} account to Botting Mode", { count: 1 })
-            : t("Already in Botting Mode"),
+            ? t("Add {{count}} account to Auto Rejoin", { count: 1 })
+            : t("Already in Auto Rejoin"),
       action: async () => {
         if (addableBottingIds.length === 0) {
-          store.addToast(t("Selected accounts are already in Botting Mode"));
+          store.addToast(t("Selected accounts are already in Auto Rejoin"));
           return;
         }
         try {
           await store.addBottingAccounts(addableBottingIds);
         } catch (e) {
-          store.addToast(t("Botting account action failed: {{error}}", { error: String(e) }));
+          store.addToast(t("Auto Rejoin account action failed: {{error}}", { error: String(e) }));
         }
       },
     });

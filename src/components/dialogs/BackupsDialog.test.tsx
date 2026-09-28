@@ -199,6 +199,33 @@ describe("BackupsDialog — listing", () => {
   });
 });
 
+/**
+ * A8 do checkup. O dono decidiu manter a chave (`AccountData.key`) dentro do zip
+ * — sem ela o backup nao restaura — com um aviso de usar senha para quem guarda
+ * backup em nuvem. O aviso so existia na tela de configurar criptografia, que so
+ * abre sozinha com zero contas: quem ja tem contas nunca o via. Ele tem que
+ * estar onde o backup e criado.
+ */
+describe("BackupsDialog — the zip carries the key", () => {
+  it("warns, where backups are created, that without a password the zip carries the key", async () => {
+    setStore({ accountsEncrypted: false });
+    render(<BackupsDialog open onClose={vi.fn()} />);
+
+    const warning = await screen.findByText(/carries the key that opens your accounts/i);
+    expect(warning).toHaveTextContent(/OneDrive/);
+    expect(warning).toHaveTextContent(/set a password/i);
+    expect(warning).toHaveTextContent(/Change Encryption Method/);
+  });
+
+  it("does not show it with a password: then the zip holds no key", async () => {
+    setStore({ accountsEncrypted: true });
+    render(<BackupsDialog open onClose={vi.fn()} />);
+
+    await screen.findByText(INFO.dir);
+    expect(screen.queryByText(/carries the key that opens your accounts/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("BackupsDialog — creating", () => {
   it("creates a labelled backup and reloads the list", async () => {
     let listCalls = 0;

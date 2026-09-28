@@ -1,10 +1,14 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account, PlatformCapabilities } from "./types";
+import { VAULT_KEY_WARNING_EVENT } from "./types";
 
 const invokeMock = vi.fn();
 const recordRecentGameMock = vi.fn(async () => {});
+const addRecentJobMock = vi.fn(() => {});
 const unlistenMock = vi.fn();
 const listenHandlers = new Map<string, Array<(event: { payload: unknown }) => void>>();
 
@@ -25,6 +29,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("./components/server-list/types", () => ({
   recordRecentGame: (...args: unknown[]) => recordRecentGameMock(...(args as [])),
+  addRecentJob: (...args: unknown[]) => addRecentJobMock(...(args as [])),
 }));
 
 import { StoreProvider, useStore, type StoreValue } from "./store";
@@ -132,6 +137,9 @@ async function renderStore() {
 beforeEach(() => {
   invokeMock.mockReset();
   recordRecentGameMock.mockClear();
+  // `mockReset` (e não `mockClear`): um teste que faz a gravação dos recentes
+  // explodir não pode deixar a implementação quebrada para o teste seguinte.
+  addRecentJobMock.mockReset();
   unlistenMock.mockClear();
   listenHandlers.clear();
   failures.clear();
@@ -701,6 +709,69 @@ describe("joinServer", () => {
     expect(recordRecentGameMock).toHaveBeenCalledWith(42, 1, 8);
   });
 
+  /**
+   * O servidor entra nos recentes junto com o jogo: voltar ao mesmo servidor
+   * era impossível sem ter copiado o Job ID antes.
+   */
+  it("records the job id as a recent server, with the configured cap", async () => {
+    const { result } = await setup({ SavedPlaceId: "42", MaxRecentJobs: "4" });
+    await act(async () => {
+      await result.current.joinServer(1, { jobId: "job-xyz" });
+    });
+    expect(addRecentJobMock).toHaveBeenCalledWith("job-xyz", 42, 4, [1]);
+  });
+
+  it("defaults the recent-servers cap to 12", async () => {
+    const { result } = await setup({ SavedPlaceId: "42" });
+    await act(async () => {
+      await result.current.joinServer(1, { jobId: "job-xyz" });
+    });
+    expect(addRecentJobMock).toHaveBeenCalledWith("job-xyz", 42, 12, [1]);
+  });
+
+  /**
+   * Num alvo VIP o Job ID vai vazio e o código viaja em `linkCode` — guardar o
+   * Job ID cru perderia o servidor. O que se guarda é o `vip:<código>` que o
+   * campo de Job ID sabe reabrir.
+   */
+  it("records a VIP target as vip:<code>, not as an empty job", async () => {
+    const { result } = await setup({ SavedPlaceId: "42" });
+    await act(async () => {
+      await result.current.joinServer(1, { jobId: "", joinVip: true, linkCode: "abc123" });
+    });
+    expect(addRecentJobMock).toHaveBeenCalledWith("vip:abc123", 42, 12, [1]);
+  });
+
+  it("does not record a recent server when there is no job id at all", async () => {
+    const { result } = await setup({ SavedPlaceId: "42" });
+    await act(async () => {
+      await result.current.joinServer(1);
+    });
+    expect(addRecentJobMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * `addRecentJob` grava no `localStorage`, que o WebView **recusa** com a cota
+   * cheia ou com o perfil sem storage. Isso acontece **depois** de o
+   * `launch_roblox` ter voltado com sucesso: o cliente do Roblox já subiu. Se a
+   * exceção cair no `catch` do launch, a tela diz "Launch failed" sobre um
+   * launch que deu certo. Guardar recentes é conveniência; não derruba launch.
+   */
+  it("keeps the launch successful when recording the recent server throws", async () => {
+    addRecentJobMock.mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    const { result } = await setup({ SavedPlaceId: "42" });
+
+    await act(async () => {
+      await result.current.joinServer(1, { jobId: "job-xyz" });
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.actionStatus?.tone).not.toBe("error");
+    expect([...result.current.joiningAccounts]).toEqual([1]);
+  });
+
   it("tracks joining state and progress, then clears it after 7s", async () => {
     const { result } = await setup({ SavedPlaceId: "42" });
     vi.useFakeTimers();
@@ -740,6 +811,100 @@ describe("joinServer", () => {
     expect(recordRecentGameMock).not.toHaveBeenCalled();
   });
 
+  it("traduz a recusa do backend quando já há um launch em andamento", async () => {
+    // O backend recusa com um código; despejá-lo na tela ("Launch failed:
+    // launch-already-active") não diz nada a quem clicou duas vezes.
+    const { result } = await setup();
+    failures.set("launch_roblox", "launch-already-active");
+
+    // E diz que não começou: quem chamou precisa saber, senão a tela mostra
+    // "seguindo com 1 conta..." em cima do aviso de recusa.
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBe("refused");
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "A launch is already in progress"
+    );
+    // Uma frase de uma linha não precisa de três lugares: o toast basta aqui, e a
+    // tela que disparou o launch ainda mostra a sua linha inline. A linha de
+    // status do rodapé seria uma terceira cópia simultânea.
+    expect(result.current.actionStatus?.message).not.toBe("A launch is already in progress");
+    // Recusa não é falha do app: a faixa vermelha de erro não aparece.
+    expect(result.current.error).toBeNull();
+    expect(result.current.joiningAccounts.size).toBe(0);
+    expect(result.current.launchProgress).toBeNull();
+  });
+
+  /**
+   * O launch escreve "Launching X…" no rodapé, com 5 s de duração, antes do
+   * `invoke`. A recusa volta na hora e só vira toast (o rodapé ficou de fora de
+   * propósito, ver `reportLaunchAlreadyActive`) — e a linha seguia 5 s dizendo
+   * que lançava a conta que acabou de ser recusada. A recusa retira a linha.
+   */
+  it("depois da recusa o rodapé não segue dizendo que está lançando", async () => {
+    const { result } = await setup();
+    failures.set("launch_roblox", "launch-already-active");
+
+    await act(async () => {
+      await result.current.joinServer(1);
+    });
+
+    expect(result.current.actionStatus).toBeNull();
+  });
+
+  it("a recusa só retira a própria linha, não a que outra ação escreveu no meio", async () => {
+    const { result } = await setup();
+    let recusar = () => {};
+    results.set(
+      "launch_roblox",
+      new Promise((_resolve, reject) => {
+        recusar = () => reject("launch-already-active");
+      })
+    );
+
+    let pending: Promise<unknown> | null = null;
+    await act(async () => {
+      pending = result.current.joinServer(1);
+      await Promise.resolve();
+    });
+    // Enquanto o launch espera o backend, outra tela escreve no rodapé.
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("ram-action-status", { detail: { message: "Settings saved" } })
+      );
+    });
+    await act(async () => {
+      recusar();
+      await pending;
+    });
+
+    expect(result.current.actionStatus?.message).toBe("Settings saved");
+  });
+
+  it("uma falha comum de launch não vira exceção, mas também não vira sucesso", async () => {
+    // O irmão do bug da recusa: a tela anunciava "seguindo com 1 conta..." em
+    // cima da faixa vermelha de erro porque o launch de uma conta engolia a
+    // falha e quem chamou não tinha como saber.
+    const { result } = await setup();
+    failures.set("launch_roblox", "version-conflict");
+
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBe("failed");
+    });
+
+    expect(result.current.error).toBe("version-conflict");
+    expect(result.current.actionStatus?.tone).toBe("error");
+  });
+
+  it("diz que começou quando o backend aceitou o launch", async () => {
+    const { result } = await setup();
+
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBe("started");
+    });
+  });
+
   it("announces the account alias in the action status while launching", async () => {
     const { result } = await setup();
     let releaseLaunch = () => {};
@@ -750,7 +915,7 @@ describe("joinServer", () => {
       })
     );
 
-    let pending: Promise<void> | null = null;
+    let pending: Promise<unknown> | null = null;
     await act(async () => {
       pending = result.current.joinServer(1);
       await Promise.resolve();
@@ -912,6 +1077,38 @@ describe("launchMultiple", () => {
     expect(recordRecentGameMock).toHaveBeenCalledWith(99, 3, 5);
   });
 
+  /**
+   * Num launch em lote o alvo privado é das contas **todas** que entraram: é o
+   * que decide para quem ele volta a aparecer na lista de recentes.
+   */
+  it("records the recent server for every account that launched", async () => {
+    const { result } = await setup({ SavedPlaceId: "99", MaxRecentJobs: "6" });
+    await act(async () => {
+      await result.current.launchMultiple([3, 1], { jobId: "vip:abc123" });
+    });
+    expect(addRecentJobMock).toHaveBeenCalledWith("vip:abc123", 99, 6, [3, 1]);
+  });
+
+  /**
+   * Mesmo caso do launch único, e aqui é pior: o `catch` do `launchMultiple`
+   * **relança**, então uma gravação recusada pelo `localStorage` interromperia
+   * o que a Choose Game faz depois de um lote que já subiu os clientes.
+   */
+  it("does not fail or rethrow when recording the recent server throws", async () => {
+    addRecentJobMock.mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    const { result } = await setup({ SavedPlaceId: "99" });
+
+    await act(async () => {
+      await expect(
+        result.current.launchMultiple([3, 1], { jobId: "job-xyz" })
+      ).resolves.toBeUndefined();
+    });
+
+    expect(result.current.error).toBeNull();
+  });
+
   it("refuses multi-launch on an unsupported Linux runner and reports the reason", async () => {
     capabilitiesData = caps({
       os: "linux",
@@ -950,6 +1147,37 @@ describe("launchMultiple", () => {
     expect(result.current.error).toBe("multi failed");
     expect(result.current.joiningAccounts.size).toBe(0);
     expect(result.current.launchProgress).toBeNull();
+  });
+
+  it("traduz a recusa do backend quando já há um launch em andamento", async () => {
+    const { result } = await setup();
+    failures.set("launch_multiple", "launch-already-active");
+
+    await act(async () => {
+      await expect(result.current.launchMultiple([1, 2])).rejects.toBeTruthy();
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "A launch is already in progress"
+    );
+    // Ver o launch de uma conta: a recusa sai no toast, sem repetir no rodapé.
+    expect(result.current.actionStatus?.message).not.toBe("A launch is already in progress");
+    expect(result.current.error).toBeNull();
+    expect(result.current.joiningAccounts.size).toBe(0);
+    expect(result.current.launchProgress).toBeNull();
+  });
+
+  it("depois da recusa o rodapé não segue dizendo que está lançando", async () => {
+    // O mesmo do launch de uma conta: "Launching 2 accounts..." ficava 5 s no
+    // rodapé em cima de um lote que o backend recusou.
+    const { result } = await setup();
+    failures.set("launch_multiple", "launch-already-active");
+
+    await act(async () => {
+      await expect(result.current.launchMultiple([1, 2])).rejects.toBeTruthy();
+    });
+
+    expect(result.current.actionStatus).toBeNull();
   });
 });
 
@@ -1011,6 +1239,28 @@ describe("account mutations", () => {
       userId: 7,
     });
     expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Added Cookie");
+  });
+
+  /**
+   * O Quick Add passou a aceitar a linha do import (`username:password:cookie`):
+   * a senha vai para o `add_account` separada, como no import — nunca dentro
+   * do cookie. Sem senha, a chamada fica exatamente como era.
+   */
+  it("guarda a senha junto quando o cookie veio de uma linha user:pass:cookie", async () => {
+    results.set("validate_cookie", { user_id: 7, name: "Cookie" });
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.addAccountByCookie("_|WARNING:-token", "hunter2");
+    });
+
+    expect(lastArgs("validate_cookie")).toEqual({ cookie: "_|WARNING:-token" });
+    expect(lastArgs("add_account")).toEqual({
+      securityToken: "_|WARNING:-token",
+      username: "Cookie",
+      userId: 7,
+      password: "hunter2",
+    });
   });
 
   it("says 'Updated' when the account already exists", async () => {
@@ -1279,7 +1529,7 @@ describe("toasts and action status", () => {
   });
 
   /**
-   * O Botting pode ser aberto por um jogo (clique direito na lista) ou pela
+   * O Auto Rejoin pode ser aberto por um jogo (clique direito na lista) ou pela
    * barra. Abrir pela barra tem que **limpar** o jogo da abertura anterior,
    * senão o place escolhido num clique direito continuaria carimbando a tela.
    */
@@ -1300,6 +1550,101 @@ describe("toasts and action status", () => {
     const { result } = await renderStore();
     act(() => result.current.openBottingDialog("   "));
     expect(result.current.bottingDialogPlaceId).toBeNull();
+  });
+});
+
+/**
+ * Ligar o Auto Rejoin numa conta que ja esta jogando: o caminho antigo (abrir o
+ * dialogo e dar Start) fecha e relanca todo mundo, tirando as contas do
+ * servidor em que estavam.
+ */
+describe("adotar contas em jogo no Botting", () => {
+  it("com sessao ativa, so entra nela — sem place nem relancamento", async () => {
+    results.set("get_botting_mode_status", {
+      active: true,
+      startedAtMs: 1,
+      placeId: 606849621,
+      jobId: "",
+      intervalMinutes: 19,
+      launchDelaySeconds: 20,
+      playerGraceMinutes: 15,
+      userIds: [1],
+      accounts: [],
+    });
+    results.set("add_botting_accounts", {
+      active: true,
+      startedAtMs: 1,
+      placeId: 606849621,
+      jobId: "",
+      intervalMinutes: 19,
+      launchDelaySeconds: 20,
+      playerGraceMinutes: 15,
+      userIds: [1, 2],
+      accounts: [],
+    });
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.bottingStatus?.active).toBe(true));
+
+    await act(async () => {
+      await result.current.adoptRunningIntoBotting([2]);
+    });
+
+    expect(invokeCalls("add_botting_accounts")).toHaveLength(1);
+    expect(invokeCalls("start_botting_mode")).toHaveLength(0);
+    // Nao precisa perguntar a presenca: a sessao ja tem o place dela.
+    expect(invokeCalls("get_account_game_location")).toHaveLength(0);
+  });
+
+  it("sem sessao, o place vem da presenca da conta e nada e relancado", async () => {
+    results.set("get_account_game_location", {
+      userId: 1,
+      inGame: true,
+      placeId: 606849621,
+      jobId: "job-abc",
+    });
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.adoptRunningIntoBotting([1, 2]);
+    });
+
+    const [, args] = invokeCalls("start_botting_mode")[0];
+    expect(args).toMatchObject({
+      userIds: [1, 2],
+      placeId: 606849621,
+      adoptRunning: true,
+      // O job fica de fora: o ciclo relanca no place, e fixar o servidor atual
+      // mandaria todo reinicio para um servidor que pode nem existir mais.
+      jobId: "",
+    });
+  });
+
+  it("sem saber onde a conta esta, avisa em vez de chutar um place", async () => {
+    results.set("get_account_game_location", {
+      userId: 1,
+      inGame: false,
+      placeId: null,
+      jobId: null,
+    });
+    const { result } = await renderStore();
+
+    await expect(
+      act(async () => {
+        await result.current.adoptRunningIntoBotting([1, 2]);
+      })
+    ).rejects.toThrow(/which game/i);
+    expect(invokeCalls("start_botting_mode")).toHaveLength(0);
+  });
+
+  it("uma conta so, sem sessao, explica o minimo em vez de falhar no backend", async () => {
+    const { result } = await renderStore();
+
+    await expect(
+      act(async () => {
+        await result.current.adoptRunningIntoBotting([1]);
+      })
+    ).rejects.toThrow(/two accounts/i);
+    expect(invokeCalls("get_account_game_location")).toHaveLength(0);
   });
 });
 
@@ -1466,6 +1811,76 @@ describe("backend events", () => {
     expect(result.current.actionStatus).toMatchObject({ tone: "success" });
   });
 
+  /**
+   * `browserDownload` é o que a Settings > General "Bundled Browser" usa para
+   * desenhar a barra de progresso e o botão Download/Reinstall — trilha o
+   * mesmo evento do teste acima, mas guarda estado em vez de só mostrar toast.
+   */
+  it("tracks the bundled-browser download stage in browserDownload", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("chromium-download-progress")).toBe(true));
+
+    act(() => emit("chromium-download-progress", { stage: "resolving", downloaded: 0, total: 0 }));
+    expect(result.current.browserDownload).toMatchObject({ active: true, stage: "resolving" });
+
+    act(() => emit("chromium-download-progress", { stage: "downloading", downloaded: 50, total: 200 }));
+    expect(result.current.browserDownload).toMatchObject({ active: true, stage: "downloading", percent: 25 });
+
+    act(() => emit("chromium-download-progress", { stage: "extracting", downloaded: 0, total: 0 }));
+    expect(result.current.browserDownload).toMatchObject({ active: true, stage: "extracting" });
+
+    act(() => emit("chromium-download-progress", { stage: "ready", downloaded: 0, total: 0 }));
+    expect(result.current.browserDownload).toMatchObject({ active: false, stage: "ready", percent: 100 });
+  });
+
+  it("repeating the same download percentage does not re-render browserDownload", async () => {
+    // Um evento por ~2MB baixados vira várias mensagens com o mesmo
+    // percentual arredondado; sem o dedupe a barra "tremia" em vez de andar.
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("chromium-download-progress")).toBe(true));
+
+    act(() => emit("chromium-download-progress", { stage: "downloading", downloaded: 50, total: 200 }));
+    const first = result.current.browserDownload;
+    // Dois blocos de ~2MB podem arredondar para o mesmo percentual inteiro; o
+    // dedupe olha o percentual final, não os bytes brutos de cada evento.
+    act(() => emit("chromium-download-progress", { stage: "downloading", downloaded: 50.4, total: 200 }));
+    expect(result.current.browserDownload).toBe(first);
+  });
+
+  it("shows a toast when the backend falls back to the system browser", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("chromium-fallback")).toBe(true));
+
+    act(() => emit("chromium-fallback", { browser: "Microsoft Edge", error: "network down" }));
+
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Microsoft Edge");
+  });
+
+  it("ensureBrowserDownload reports success and forwards force to the backend", async () => {
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.ensureBrowserDownload(true);
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("ensure_browser", { force: true });
+    expect(result.current.browserDownload).toMatchObject({ active: false, stage: "ready" });
+  });
+
+  it("ensureBrowserDownload surfaces a backend failure instead of throwing", async () => {
+    failures.set("ensure_browser", "Could not reach browser download service");
+    const { result } = await renderStore();
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.ensureBrowserDownload();
+    });
+
+    expect(ok).toBe(false);
+    expect(result.current.browserDownload).toMatchObject({ active: false, stage: "error" });
+    expect(result.current.browserDownload?.error).toContain("Could not reach browser download service");
+  });
+
   it("marks botting as inactive when the backend stops it without a prior status", async () => {
     const { result } = await renderStore();
     await waitFor(() => expect(listenHandlers.has("botting-stopped")).toBe(true));
@@ -1555,6 +1970,37 @@ describe("presence and running instances", () => {
   });
 });
 
+describe("AFK mode", () => {
+  const RUNNING = { active: true, startedAtMs: 1, intervalMinutes: 10, key: "Space", accounts: [] };
+
+  /** "Modo AFK iniciado em 1 contas" era o toast de quem liga o modo numa conta só. */
+  it("o toast de início fala de uma conta no singular", async () => {
+    const { result } = await renderStore();
+    results.set("start_afk_mode", RUNNING);
+
+    await act(async () => {
+      await result.current.startAfkMode({ userIds: [11], intervalMinutes: 10, key: "Space" });
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "AFK mode started for 1 account"
+    );
+  });
+
+  it("e no plural com mais de uma", async () => {
+    const { result } = await renderStore();
+    results.set("start_afk_mode", RUNNING);
+
+    await act(async () => {
+      await result.current.startAfkMode({ userIds: [11, 22], intervalMinutes: 10, key: "Space" });
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "AFK mode started for 2 accounts"
+    );
+  });
+});
+
 describe("botting and generator commands", () => {
   it("maps the botting start config onto the backend arguments", async () => {
     const { result } = await renderStore();
@@ -1582,6 +2028,9 @@ describe("botting and generator commands", () => {
       intervalMinutes: 10,
       launchDelaySeconds: 20,
       playerGraceMinutes: 30,
+      // O Start normal fecha e relança tudo; só a adoção de contas que já
+      // estão em jogo liga esta bandeira.
+      adoptRunning: false,
     });
     expect(result.current.bottingStatus).toMatchObject({ active: true });
   });
@@ -1613,7 +2062,7 @@ describe("botting and generator commands", () => {
       await result.current.stopBottingMode(true);
     });
     expect(lastArgs("stop_botting_mode")).toEqual({ closeBotAccounts: true });
-    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/bot accounts closed/i);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/alt accounts closed/i);
   });
 
   it("adds botting accounts and ignores an empty list", async () => {
@@ -2114,5 +2563,147 @@ describe("browser helpers", () => {
 
     expect(ok).toBe(true);
     expect(lastArgs("refresh_cookie")).toEqual({ userId: 3 });
+  });
+  // Quebra 1 da re-revisao: o aviso do AccountData.key e a UNICA rede contra o
+  // lockout de quem usa a chave do aparelho, e o boot e o unico momento em que o
+  // backend o descobre. O efeito de inicializacao NAO passa por `loadAccounts`
+  // (chama `get_accounts` direto), entao sem uma chamada explicita o aviso nunca
+  // aparecia: quem esta no modo device key pode passar a sessao inteira sem fazer
+  // nenhuma mutacao e sem nunca destrancar por senha.
+  describe("aviso do arquivo de chave", () => {
+    it("consulta o backend no boot, sem depender de nenhuma mutacao", async () => {
+      results.set("vault_key_warning", {
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+        detail: "acesso negado",
+      });
+
+      const { result } = await renderStore();
+
+      expect(invokeCalls("vault_key_warning").length).toBeGreaterThan(0);
+      expect(result.current.vaultKeyWarning).toEqual({
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+        detail: "acesso negado",
+      });
+    });
+
+    it("fica limpo quando o backend nao tem nada a dizer", async () => {
+      const { result } = await renderStore();
+      expect(invokeCalls("vault_key_warning").length).toBeGreaterThan(0);
+      expect(result.current.vaultKeyWarning).toBeNull();
+    });
+
+    // A primeira versao nunca limpava: aviso resolvido ficava na tela para sempre.
+    it("limpa o aviso quando o problema e resolvido", async () => {
+      results.set("vault_key_warning", {
+        code: "weakWrapper",
+        path: "C:\dados\AccountData.key",
+      });
+      const { result } = await renderStore();
+      expect(result.current.vaultKeyWarning?.code).toBe("weakWrapper");
+
+      results.set("vault_key_warning", null);
+      await act(async () => {
+        await result.current.loadAccounts();
+      });
+
+      expect(result.current.vaultKeyWarning).toBeNull();
+    });
+
+    it("nao derruba o boot quando o comando falha", async () => {
+      failures.set("vault_key_warning", "comando ausente");
+      const { result } = await renderStore();
+      expect(result.current.initialized).toBe(true);
+      expect(result.current.vaultKeyWarning).toBeNull();
+    });
+
+    // O caminho que falha e justamente o que pode ter deixado um aviso novo (a
+    // chave que nao pode ser criada). Lendo so no sucesso, o aviso aparecia
+    // somente no proximo boot — depois de o dono ja ter fechado o app achando que
+    // era "deu erro, tento outra vez".
+    it("le o aviso mesmo quando trocar o metodo de criptografia falha", async () => {
+      const { result } = await renderStore();
+      const before = invokeCalls("vault_key_warning").length;
+
+      failures.set("set_encryption_password", "nao deu");
+      results.set("vault_key_warning", {
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+      });
+
+      await act(async () => {
+        await expect(result.current.applyEncryptionMethod("default")).rejects.toBeTruthy();
+      });
+
+      expect(invokeCalls("vault_key_warning").length).toBeGreaterThan(before);
+      expect(result.current.vaultKeyWarning?.code).toBe("writeFailed");
+    });
+
+    // A2 do checkup: o aviso tambem nasce em gravacao de fundo (Auto Rejoin a
+    // cada ciclo, Watcher, servidor HTTP), que nao passa por nenhuma das leituras
+    // acima. Com o Auto Rejoin a noite inteira a faixa nunca aparecia, e o boot
+    // seguinte caia em lockout. O backend publica cada mudanca num evento.
+    it("mostra na hora o aviso que uma gravacao de fundo levantou, e o tira quando some", async () => {
+      const { result } = await renderStore();
+      expect(result.current.vaultKeyWarning).toBeNull();
+
+      act(() => {
+        emit(VAULT_KEY_WARNING_EVENT, { code: "writeFailed", path: "C:\dados\AccountData.key" });
+      });
+      expect(result.current.vaultKeyWarning).toEqual({
+        code: "writeFailed",
+        path: "C:\dados\AccountData.key",
+      });
+
+      act(() => {
+        emit(VAULT_KEY_WARNING_EVENT, null);
+      });
+      expect(result.current.vaultKeyWarning).toBeNull();
+    });
+
+    // A leitura que ja estava a caminho quando o evento chegou e mais velha que
+    // ele: aplica-la por cima apagaria a faixa que acabou de aparecer — ate a
+    // proxima mudanca, que pode nunca vir.
+    it("uma leitura que ja estava a caminho nao apaga o aviso que chegou por evento", async () => {
+      const { result } = await renderStore();
+
+      let answer: (warning: unknown) => void = () => {};
+      const slowRead = new Promise((done) => {
+        answer = done;
+      });
+      const fallback = invokeMock.getMockImplementation();
+      invokeMock.mockImplementation(async (cmd: string, args?: unknown) =>
+        cmd === "vault_key_warning" ? slowRead : fallback?.(cmd, args)
+      );
+
+      // Uma recarga de contas pede o aviso antes de a gravacao de fundo mudar.
+      await act(async () => {
+        await result.current.loadAccounts();
+      });
+      // A gravacao de fundo levanta o aviso enquanto a resposta ainda vinha.
+      act(() => {
+        emit(VAULT_KEY_WARNING_EVENT, { code: "writeFailed", path: "C:\dados\AccountData.key" });
+      });
+      // A resposta velha chega depois.
+      await act(async () => {
+        answer(null);
+        await slowRead;
+        await new Promise((done) => setTimeout(done, 0));
+      });
+
+      expect(result.current.vaultKeyWarning?.code).toBe("writeFailed");
+    });
+
+    // O evento e contrato entre dois arquivos em linguagens diferentes: um typo
+    // de um lado nao quebra compilacao nenhuma — a faixa so para de aparecer.
+    it("ouve o evento pelo mesmo nome que o backend publica", () => {
+      const rust = readFileSync(
+        resolve(process.cwd(), "src-tauri/src/data/accounts/commands.rs"),
+        "utf8"
+      );
+      const published = rust.match(/VAULT_KEY_WARNING_EVENT: &str = "([^"]+)"/)?.[1];
+      expect(published).toBe(VAULT_KEY_WARNING_EVENT);
+    });
   });
 });

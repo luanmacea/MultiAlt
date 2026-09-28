@@ -23,7 +23,7 @@ use crate::data::accounts::{Account, AccountStore};
 use crate::data::settings::SettingsStore;
 
 use super::cdp::{spawn_chrome, CdpClient};
-use super::download::ensure_chromium;
+use super::download::resolve_browser_binary;
 use super::manager::{ChromiumManager, LOGIN_KEY};
 use super::signup::{
     generate_identity, marked_field_selector, missing_fields, signup_prepare_script, SeededRng,
@@ -284,7 +284,11 @@ pub async fn start_signup_session(
     }
     let total = count.clamp(1, MAX_ACCOUNTS_PER_SESSION);
 
-    let binary = ensure_chromium(&app).await?;
+    // O mesmo navegador do login: o caminho manual, se configurado; senão o
+    // Chromium baixado; e o do sistema se o download falhar. Antes era sempre
+    // o baixado, e o caminho manual valia só para o login.
+    let (binary, _) =
+        resolve_browser_binary(&app, Some(&super::commands::manual_binary_path(&settings))).await?;
     chromium.close_login_session();
 
     let stealth = settings.get_bool("Login", "StealthMode");

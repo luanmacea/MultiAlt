@@ -1,6 +1,6 @@
 pub async fn set_avatar(security_token: &str, avatar_json: serde_json::Value) -> Result<Vec<i64>, String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    let client = reqwest::Client::new();
+    let client = http_client::client();
     let mut invalid_assets = Vec::new();
 
     if let Some(avatar_type) = avatar_json.get("playerAvatarType") {
@@ -58,13 +58,13 @@ pub struct OutfitInfo {
 }
 
 pub async fn get_outfits(user_id: i64) -> Result<Vec<OutfitInfo>, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let response = client
         .get(format!("{}/v1/users/{}/outfits?page=1&itemsPerPage=50", endpoints::host("avatar"), user_id))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get outfits (status {})", response.status().as_u16()));
@@ -82,13 +82,13 @@ pub async fn get_outfits(user_id: i64) -> Result<Vec<OutfitInfo>, String> {
 }
 
 pub async fn get_outfit_details(outfit_id: i64) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let response = client
         .get(format!("{}/v1/outfits/{}/details", endpoints::host("avatar"), outfit_id))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get outfit details (status {})", response.status().as_u16()));
@@ -122,7 +122,7 @@ pub async fn get_place_details(place_ids: &[i64], security_token: Option<&str>) 
         return Ok(Vec::new());
     }
 
-    let client = reqwest::Client::new();
+    let client = http_client::client();
     let mut all_details = Vec::new();
 
     for chunk in place_ids.chunks(50) {
@@ -134,7 +134,7 @@ pub async fn get_place_details(place_ids: &[i64], security_token: Option<&str>) 
             request = request.header(COOKIE, cookie_header(token));
         }
 
-        let response = request.send().await.map_err(|e| format!("Request failed: {}", e))?;
+        let response = request.send().await.map_err(|e| http_client::describe_error(&e))?;
 
         if response.status().is_success() {
             let details: Vec<PlaceDetails> = response.json().await.map_err(|e| format!("Failed to parse: {}", e))?;
@@ -198,7 +198,7 @@ pub async fn get_servers_page(
     sort_order: &str,
     exclude_full: bool,
 ) -> Result<ServersResponse, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
     let limit = if server_type == "VIP" { 25 } else { 100 };
     let sort_order = if sort_order.eq_ignore_ascii_case("desc") { "Desc" } else { "Asc" };
     let mut url = format!(
@@ -295,7 +295,7 @@ pub async fn join_game(security_token: &str, place_id: i64) -> Result<serde_json
 }
 
 pub async fn search_games(security_token: Option<&str>, keyword: &str, _start: i32) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -358,7 +358,7 @@ pub struct UniversePlace {
 }
 
 pub async fn get_universe_places(universe_id: i64, security_token: Option<&str>) -> Result<Vec<UniversePlace>, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
     let mut all_places = Vec::new();
     let mut cursor = String::new();
 
@@ -383,7 +383,7 @@ pub async fn get_universe_places(universe_id: i64, security_token: Option<&str>)
             request = request.header(COOKIE, cookie_header(token));
         }
 
-        let response = request.send().await.map_err(|e| format!("Request failed: {}", e))?;
+        let response = request.send().await.map_err(|e| http_client::describe_error(&e))?;
 
         if !response.status().is_success() {
             break;

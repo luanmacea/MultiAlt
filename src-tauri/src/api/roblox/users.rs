@@ -7,7 +7,7 @@ pub struct UserLookupResult {
 }
 
 pub async fn get_user_id(security_token: Option<&str>, username: &str) -> Result<UserLookupResult, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let mut request = client
         .post(format!("{}/v1/usernames/users", endpoints::host("users")))
@@ -20,7 +20,7 @@ pub async fn get_user_id(security_token: Option<&str>, username: &str) -> Result
     let response = request
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to look up user (status {})", response.status().as_u16()));
@@ -57,7 +57,7 @@ pub struct UserInfo {
 }
 
 pub async fn get_user_info(security_token: Option<&str>, user_id: i64) -> Result<UserInfo, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let mut request = client
         .get(format!("{}/v1/users/{}", endpoints::host("users"), user_id));
@@ -69,7 +69,7 @@ pub async fn get_user_info(security_token: Option<&str>, user_id: i64) -> Result
     let response = request
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get user info (status {})", response.status().as_u16()));
@@ -82,14 +82,14 @@ pub async fn get_user_info(security_token: Option<&str>, user_id: i64) -> Result
 }
 
 pub async fn get_robux(security_token: &str) -> Result<i64, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let response = client
         .get(format!("{}/v1/user/currency", endpoints::host("economy")))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if response.status().is_success() {
         let body: serde_json::Value = response
@@ -107,7 +107,7 @@ pub async fn get_robux(security_token: &str) -> Result<i64, String> {
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
@@ -125,14 +125,14 @@ pub async fn get_robux(security_token: &str) -> Result<i64, String> {
 
 #[allow(dead_code)]
 pub async fn get_email_info(security_token: &str) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let response = client
         .get(format!("{}/v1/email", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get email info (status {})", response.status().as_u16()));
@@ -157,7 +157,7 @@ pub async fn send_friend_request_with_csrf(
     csrf: &str,
     target_user_id: i64,
 ) -> Result<(), String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let request = client
         .post(format!("{}/v1/users/{}/request-friendship", endpoints::host("friends"), target_user_id))
@@ -177,14 +177,14 @@ pub async fn send_friend_request_with_csrf(
 /// Returns the user IDs of an account's current friends. Used to skip pairs
 /// that are already friends and to verify newly-formed friendships.
 pub async fn get_friend_ids(security_token: &str, user_id: i64) -> Result<Vec<i64>, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let response = client
         .get(format!("{}/v1/users/{}/friends", endpoints::host("friends"), user_id))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get friends (status {})", response.status().as_u16()));
@@ -205,7 +205,7 @@ pub async fn get_friend_ids(security_token: &str, user_id: i64) -> Result<Vec<i6
 
 pub async fn block_user(security_token: &str, target_user_id: i64) -> Result<(), String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let request = client
         .post(format!("{}/user-blocking-api/v1/users/{}/block-user", endpoints::host("apis"), target_user_id))
@@ -221,7 +221,7 @@ pub async fn block_user(security_token: &str, target_user_id: i64) -> Result<(),
 
 pub async fn unblock_user(security_token: &str, target_user_id: i64) -> Result<(), String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let request = client
         .post(format!("{}/user-blocking-api/v1/users/{}/unblock-user", endpoints::host("apis"), target_user_id))
@@ -246,14 +246,14 @@ pub struct BlockedUser {
 }
 
 pub async fn get_blocked_users(security_token: &str) -> Result<Vec<BlockedUser>, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let response = client
         .get(format!("{}/user-blocking-api/v1/users/get-blocked-users", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         let status = response.status().as_u16();
@@ -295,7 +295,7 @@ pub async fn get_blocked_users(security_token: &str) -> Result<Vec<BlockedUser>,
 }
 
 async fn lookup_user_names(user_ids: &[i64]) -> Result<Vec<UserLookupResult>, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
     let mut results = Vec::new();
 
     for chunk in user_ids.chunks(100) {
@@ -304,7 +304,7 @@ async fn lookup_user_names(user_ids: &[i64]) -> Result<Vec<UserLookupResult>, St
             .json(&serde_json::json!({ "userIds": chunk }))
             .send()
             .await
-            .map_err(|e| format!("Request failed: {}", e))?;
+            .map_err(|e| http_client::describe_error(&e))?;
 
         if response.status().is_success() {
             let body: serde_json::Value = response.json().await.unwrap_or_default();
@@ -336,7 +336,7 @@ pub async fn unblock_all_users(security_token: &str) -> Result<i32, String> {
 
 pub async fn set_follow_privacy(security_token: &str, privacy: &str) -> Result<(), String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let request = client
         .post(format!("{}/account/settings/follow-me-privacy", endpoints::host("www")))
@@ -354,14 +354,14 @@ pub async fn set_follow_privacy(security_token: &str, privacy: &str) -> Result<(
 }
 
 pub async fn get_private_server_invite_privacy(security_token: &str) -> Result<String, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let response = client
         .get(format!("{}/v1/privacy", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get privacy settings (status {})", response.status().as_u16()));
@@ -381,7 +381,7 @@ pub async fn get_private_server_invite_privacy(security_token: &str) -> Result<S
 
 pub async fn set_private_server_invite_privacy(security_token: &str, privacy: &str) -> Result<(), String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let request = client
         .patch(format!("{}/v1/privacy", endpoints::host("accountsettings")))

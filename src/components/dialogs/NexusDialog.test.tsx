@@ -164,3 +164,18 @@ describe("NexusDialog — Help explica o pré-requisito", () => {
     expect(screen.getByText(/exact Roblox username/i)).toBeInTheDocument();
   });
 });
+
+describe("NexusDialog — cabe na janela", () => {
+  /**
+   * 780x580 fixos: na janela mínima do app (750x450) o cabeçalho — com o Start
+   * e o X — ficava acima da tela (medido no harness, 27/09/2026). O jsdom não
+   * mede layout: isto trava o teto de que o conserto depende.
+   */
+  it("o quadro nunca passa do tamanho da janela", () => {
+    renderDialog();
+    const quadro = document.querySelector(".theme-modal-scope.rounded-2xl") as HTMLElement;
+    const classes = quadro.className.split(/\s+/);
+    expect(classes).toContain("max-h-[calc(100vh-24px)]");
+    expect(classes).toContain("max-w-[calc(100vw-24px)]");
+  });
+});

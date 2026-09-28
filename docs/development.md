@@ -26,19 +26,22 @@ Scripts definidos em [package.json](../package.json) e hooks de build em [tauri.
 | `bun run test:coverage` | Idem, com cobertura (v8). |
 | `bun run typecheck` | `tsc --noEmit`. |
 | `bun run test:rust` | `cd src-tauri && cargo test --all-features`. |
-| `bun run check` | Portão único antes de commit/PR: typecheck + testes do frontend + testes do Rust. |
+| `bun run check` | Portão único antes de commit/PR: typecheck + auditoria das suítes (`test:audit`) + testes do frontend + testes do Rust (`cargo test --all-features`). |
 
 ### O que a CI verifica
 
-[.github/workflows/ci.yml](../.github/workflows/ci.yml) (push/PR na branch `v4`, runner Windows):
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) (push e PR nas branches `main` e `develop`, só quando mudam `src/`, `src-tauri/`, `package.json`, `vite.config.ts` ou o próprio workflow; runner Windows, com cache do Rust):
 
 1. `bun install --frozen-lockfile`
-2. `bun run build` com `VITE_ENABLE_NEXUS=true` e `VITE_ENABLE_WEBSERVER=true`
-3. `bun run build` com ambos `false`
-4. `cargo check --locked` (features default)
-5. `cargo check --locked --no-default-features`
+2. `bun run typecheck`
+3. `bun run test` (vitest)
+4. `cargo test --locked --all-features`
+5. `bun run build` com `VITE_ENABLE_NEXUS=true` e `VITE_ENABLE_WEBSERVER=true`
+6. `bun run build` com ambos `false`
+7. `cargo check --locked` (features default)
+8. `cargo check --locked --no-default-features`
 
-Antes de abrir PR, rode ao menos `bun run build` e `cargo check` nas duas configurações.
+A CI roda o mesmo portão do `bun run check`, em passos separados (typecheck, auditoria das suítes, vitest, `cargo test`). Antes de commitar, `bun run check`; mudança em feature do Cargo pede também o `cargo check --no-default-features`.
 
 ## Testes
 
@@ -68,11 +71,15 @@ As URLs da API passam por [api/endpoints.rs](../src-tauri/src/api/endpoints.rs) 
 
 **Regra:** nunca escreva `https://<algo>.roblox.com` direto num arquivo de `api/`; use `endpoints::host`. Caso contrário aquele caminho deixa de ser testável.
 
+O **teto de tempo** dos clientes fica em [api/http_client.rs](../src-tauri/src/api/http_client.rs) (`builder()` para chamadas de API, `download_builder()` para o download de build). Em teste, `http_client::test_support::shorten` encurta o teto para provar que uma chamada **pendurada** é cortada sem o teste levar 30 s — é como `http_timeout_tests` cobre o pedido de auth ticket.
+
+**Regra:** cliente novo em `api/` (ou em qualquer caminho de launch) sai de `http_client::builder()`, nunca de `reqwest::Client::new()` — este último não tem teto nenhum. E erro de transporte vira texto com `http_client::describe_error`, senão o timeout chega na tela como `error sending request for url (…)`.
+
 ### O que os testes protegem (regressões já vividas)
 
 | Teste | Protege |
 |---|---|
-| `launch_url_tests` ([platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs)) | canal fixado em `production`/`LIVE`, chave do registro e formato da URL de launch — a tela de atualização do Roblox fechando clientes |
+| `launch_url_tests`, `channel_follow_tests`, `channel_build_pairing_tests` ([platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs)) | a build aberta casando com o canal que o cliente consulta: URL de launch sempre com `channel:` vazio (= produção) e o protocolo abrindo a build de produção; o old join **seguindo** o canal do registro (o app não fixa canal); o mapeamento canal → endpoint de versão/CDN (`production` = `LIVE`), o nome da chave do registro e o formato da URL — a tela de atualização do Roblox fechando clientes |
 | `middleware_tests` ([api/server/middleware.rs](../src-tauri/src/api/server/middleware.rs)), `password_tests` | bloqueio de requisições vindas de páginas web e exigência de senha |
 | `save_should_*` ([data/accounts/store.rs](../src-tauri/src/data/accounts/store.rs)) | escrita atômica e recusa de sobrescrever contas trancadas |
 | `join_link_tests` / `join_link_http_tests` ([api/roblox/join_links.rs](../src-tauri/src/api/roblox/join_links.rs)) | formatos de link aceitos e resolução de convites |
@@ -90,7 +97,7 @@ Contorno pontual: gerar um `<exe>.manifest` ao lado do binário em `src-tauri/ta
 
 ### Não coberto por testes
 
-Tudo que depende de Win32/estado global: thread do mutex do Multi Roblox, isolamento pré-launch, cancelamento de launch, guarda de reuso de PID e fechamento de contas bot. Esses continuam exigindo teste manual com o app aberto.
+Tudo que depende de Win32/estado global: thread do mutex do Multi Roblox, isolamento pré-launch, cancelamento de launch, guarda de reuso de PID e fechamento das alts ao parar o Auto Rejoin. Esses continuam exigindo teste manual com o app aberto.
 
 ## Validando a UI no navegador
 
@@ -115,9 +122,13 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 | `servers-real-place` | Réplica com **dados reais** capturados da API (4 páginas do place 15101393044), inclusive com os Job IDs repetidos entre páginas |
 | `friends-online` | Amigos por conta, com uma conta falhando |
 | `friend-link` | Make Friends em andamento, com uma conta falhando |
-| `console-history` | Linhas de launch, Botting e Watcher chegando aos poucos no Console |
+| `console-history` | Linhas de launch, Auto Rejoin e Watcher chegando aos poucos no Console |
 | `groups` | Contas em grupos nomeados (um com prefixo numérico, um com vírgula no nome) para ver cabeçalhos e arrastar a ordem |
 | `launch-queue` | Fila de launch e contas em jogo |
+| `vault-key-warning-locked` | Tela de senha com a faixa vermelha do `.key` (`writeFailed`) — para ver se o rodapé cabe e se a pílula de minimizar/fechar não cobre o texto |
+| `vault-key-warning-setup` | A mesma faixa (`migrationFailed`) na tela de criptografia da primeira execução, onde o rodapé são os botões Continue/Cancel |
+| `afk-mode` | AFK mode desligado, como num INI novo (sem tecla escolhida, intervalo 10, bipe desligado), quatro contas com cliente aberto; no ciclo automático a 2ª volta com `focusDenied` |
+| `afk-mode-running` | AFK mode já rodando ao abrir (há 65 min, ou `&afkSince=<min>`), com uma conta em `focusDenied` e outra sem janela (`noWindow`) |
 
 Um cenário entrega os mesmos dados que o backend entregaria, **inclusive na ordem ruim** — quem tem que se virar é a UI. Ele nunca implementa o comportamento que está sendo testado.
 
@@ -140,10 +151,10 @@ O app **era bifurcado** de `niccsprojects/Roblox-Account-Manager` e continuava a
 Como funciona agora:
 
 1. **Manifesto**: `https://raw.githubusercontent.com/luanmacea/roblox-account-manager/update-manifests/<canal>/latest.json`. Canais: `stable`, `beta`, `stable-nexus-ws`, `beta-nexus-ws` ([updater.rs](../src-tauri/src/commands/updater.rs), `resolve_manifest_channel`).
-2. **Publicacao**: o workflow [release-v4.yml](../.github/workflows/release-v4.yml) roda a cada push em `main` (o runner nasce limpo, entao ele e o CI usam `Swatinem/rust-cache` — sem isso cada release recompila a arvore inteira duas vezes), calcula a versao, compila as duas variantes (padrao e Nexus+WebServer), cria a release e escreve o `latest.json` no branch `update-manifests` ([generate-update-manifest.mjs](../.github/scripts/generate-update-manifest.mjs), que cria o branch se ele ainda nao existir). Commit com `[skip release]` na mensagem nao publica.
+2. **Publicacao**: o trabalho do dia a dia vive na branch `develop` (o CI roda nela); a `main` e a branch de **release** e nao recebe commit direto. O workflow [release-v4.yml](../.github/workflows/release-v4.yml) roda a cada push em `main` — ou seja, uma vez por merge aprovado (o runner nasce limpo, entao ele e o CI usam `Swatinem/rust-cache` — sem isso cada release recompila a arvore inteira duas vezes), calcula a versao, compila as duas variantes (padrao e Nexus+WebServer), cria a release e escreve o `latest.json` no branch `update-manifests` ([generate-update-manifest.mjs](../.github/scripts/generate-update-manifest.mjs), que cria o branch se ele ainda nao existir). Commit com `[skip release]` na mensagem nao publica.
 3. **Assinatura**: o updater do Tauri so aceita manifesto assinado pela chave privada correspondente a `pubkey` do `tauri.conf.json`. A chave deste projeto foi gerada em 26/09/2026 e mora **fora do repositorio**, na pasta `.tauri` do perfil do usuario Windows: `roblox-account-manager.key` (privada), `roblox-account-manager.key.pub` (publica) e `roblox-account-manager.password.txt` (a senha dela). O `.gitignore` barra `*.key`. **Perder a chave ou a senha = nao conseguir mais publicar atualizacao para quem ja instalou** — a saida seria distribuir um instalador novo a mao. ⚠️ A chave **precisa** de senha: gerada com `--password ""`, o `tauri signer` produz um arquivo que ele mesmo depois recusa com "Wrong password for that key" (verificado em 26/09/2026, tanto pela variavel `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` quanto pelo `-p`). Por isso a senha aleatoria guardada ao lado da chave.
 4. **Segredos que o repositorio precisa** (Settings › Secrets and variables › Actions): `TAURI_SIGNING_PRIVATE_KEY` (conteudo do arquivo `.key`), `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (conteudo do `.password.txt`) e `TAURI_SIGNING_PUBLIC_KEY` (conteudo do `.key.pub`, que o workflow injeta no `tauri.conf.json` antes de compilar).
-5. **Build local**: sem `TAURI_SIGNING_PRIVATE_KEY` no ambiente, `bun run tauri build` grava os instaladores e **depois** sai com erro na assinatura do artefato de update. Ver a regra de build no [CLAUDE.md](../CLAUDE.md).
+5. **Build local**: sem `TAURI_SIGNING_PRIVATE_KEY` no ambiente, `bun run tauri build` grava o instalador e **depois** sai com erro na assinatura do artefato de update. Desde `b6c611e` (26/09/2026, 22:22) o `bundle.targets` do [tauri.conf.json](../src-tauri/tauri.conf.json) é só `nsis`: o build local grava **só** o `bundle/nsis/*-setup.exe`. O MSI só sai no CI, com `PUBLISH_MSI` (abaixo) — um `.msi` que apareça em `bundle/msi/` é sobra de build anterior. Ver a regra de build no [CLAUDE.md](../CLAUDE.md).
 
 **Quais arquivos a release publica:** por padrao, so o instalador (`.exe`) das duas variantes, mais as assinaturas. MSI e portatil continuam implementados no workflow, atras de dois interruptores no topo do job `release` ([release-v4.yml](../.github/workflows/release-v4.yml)): `PUBLISH_MSI` e `PUBLISH_PORTABLE`, ambos `"false"`. Trocar para `"true"` volta a publica-los — o `PUBLISH_MSI` tambem acrescenta o alvo `msi` ao bundle do Tauri no passo "Configure bundle targets", entao e um lugar so.
 
@@ -184,21 +195,23 @@ Comandos relacionados em [services.rs](../src-tauri/src/commands/services.rs) t�
 
 ## Dados em desenvolvimento
 
-Os arquivos de dados (`AccountData.json`, `RAMSettings.ini`, `RAMScripts.json`, ...) ficam na **pasta de dados do usuário** — `%LOCALAPPDATA%\Roblox Account Manager` no Windows (ver [architecture.md](architecture.md#arquivos-de-persistência)). Isso vale também em `tauri dev`: a mesma pasta do app instalado.
+Os arquivos de dados (`AccountData.json`, `AccountData.key`, `RAMSettings.ini`, `RAMScripts.json`, ...) ficam na **pasta de dados do usuário** — `%LOCALAPPDATA%/Roblox Account Manager` no Windows (ver [architecture.md](architecture.md#arquivos-de-persistência)). Isso vale também em `tauri dev`: a mesma pasta do app instalado, **com as contas reais**. Não existe pasta separada para debug.
 
 Para testar do zero **sem tocar nos seus dados reais**, aponte outra pasta:
 
 ```bash
 # PowerShell
-$env:RAM_DATA_DIR = "$env:TEMP\ram-dev"; bun run tauri dev
+$env:RAM_DATA_DIR = "$env:TEMP/ram-dev"; bun run tauri dev
 ```
 
 `RAMSettings.ini` é recriado com defaults e, como não existia, `EncryptionOnboardingState` e `FirstRunWalkthroughState` ficam `pending` (o app abre o onboarding).
 
+O `RAM_DATA_DIR` não isola tudo: o catálogo de versões (`RAMVersions.json`, `RobloxVersions/`) e o `IsolationBackup/` continuam em `%LOCALAPPDATA%/Roblox Account Manager`, e o Roblox em si (registro, instalação, clientes) é o da máquina.
+
 ## i18n
 
 - Configuração em [src/i18n/index.ts](../src/i18n/index.ts): idiomas suportados `en`, `de` e `pt` (português do Brasil), fallback `en`, `keySeparator: false` e `nsSeparator: false` — **a chave é a própria frase em inglês**.
-- Arquivos: [en](../src/locales/en/common.json) (1584 chaves, fonte), [pt](../src/locales/pt/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
+- Arquivos: [en](../src/locales/en/common.json) (a fonte; 1695 chaves em 27/09/2026 — o número sobe a cada `i18n:extract`), [pt](../src/locales/pt/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
 - Helpers em [src/i18n/text.ts](../src/i18n/text.ts): `useTr()` (hook), `tr()` (fora de componentes) e `trNode()` (traduz texto dentro de fragments JSX). Ambos usam `defaultValue: text`, então uma chave ausente aparece em inglês.
 - Idioma vem de `General.Language` (normalizado: começa com `de` → `de`; `pt`/`portug` → `pt`; senão `en`). O padrão continua `en` — não há detecção de locale do sistema, de propósito: o app é usado fora do Brasil.
 - [src/i18n/locales.test.ts](../src/i18n/locales.test.ts) trava o contrato do catálogo: `pt` cobre o `en` inteiro na mesma ordem, sem chave inventada nem valor vazio, `{{placeholders}}` idênticos em `pt` e `de`, e nada igual ao inglês fora da lista de jargão (`IDENTICAL_BY_DESIGN`).
@@ -206,13 +219,13 @@ $env:RAM_DATA_DIR = "$env:TEMP\ram-dev"; bun run tauri dev
 ### Glossário pt-BR
 
 - **Botão = infinitivo** ("Adicionar", "Salvar"); **resultado = particípio** ("Conta adicionada", "Job ID copiado"); só a primeira maiúscula em rótulo; tratamento "você".
-- **Não se traduz**: `Roblox`, `Job ID`, `Place ID`, `Universe ID`, `Cookie`, `Fast Flags`, `Web Server`, `Botting Mode`, `Nexus`, `Watcher`, `alt`, `place`, `job`, `loop`, `rejoin`, nome de arquivo/caminho/URL/código, nome de tema e de fonte.
-- Termos fixos: account → conta · launch → iniciar · settings → configurações · aged/idle → sem uso · Player Accounts → Contas de jogador · asset → item · General/Developer/Optimization/Misc/Isolation → Geral/Desenvolvedor/Otimização/Diversos/Isolamento.
+- **Não se traduz**: `Roblox`, `Job ID`, `Place ID`, `Universe ID`, `Cookie`, `Fast Flags`, `Web Server`, `Auto Rejoin`, `Nexus`, `Watcher`, `main`, `alt`, `place`, `job`, `loop`, `rejoin`, nome de arquivo/caminho/URL/código, nome de tema e de fonte.
+- Termos fixos: account → conta · launch → iniciar · settings → configurações · aged/idle → sem uso · Main Accounts → Contas main · asset → item · General/Developer/Optimization/Misc/Isolation → Geral/Desenvolvedor/Otimização/Diversos/Isolamento.
 - Rótulo curto (<20 caracteres no inglês) não passa de +30% em português: trunca na tela.
 
 ### Tradução não pode mudar comportamento
 
-O texto exibido nunca é valor de negócio: `<Select>` guarda `value` cru (`"idle"`, `"normal"`) e traduz só o `label`; nome de grupo, fase do Botting e seção/chave do INI são comparados no literal inglês. Ao mexer em tradução, mantenha isso.
+O texto exibido nunca é valor de negócio: `<Select>` guarda `value` cru (`"idle"`, `"normal"`) e traduz só o `label`; nome de grupo, fase do Auto Rejoin e seção/chave do INI são comparados no literal inglês. Ao mexer em tradução, mantenha isso.
 
 O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria dos call sites entrega a frase **já traduzida** (`addToast(tr("..."))`). Por isso o heurístico vive em [src/utils/toastTone.ts](../src/utils/toastTone.ts) com marcadores dos dois idiomas completos, e um teste garante que nenhuma tradução apague o tom que o inglês indica.
 
@@ -261,7 +274,7 @@ Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das p
 - **Settings no frontend**: leia com `store.settings?.Section?.Key` (sempre string) ou, em telas de configuração, com o hook [useSettings.ts](../src/hooks/useSettings.ts) (`get/getBool/getNumber/set`), que agrupa gravações com debounce de 160 ms.
 - **Erros** do backend são `String`; no frontend vão para `store.setError` (faixa vermelha em [App.tsx](../src/App.tsx)) ou `store.addToast`.
 - **Commits** majoritariamente em português, curtos (ex.: `juste de tempo no join`, `multiplos servidores vips`); também há commits em inglês. Mensagens do log de launch em Rust também estão em português (ex.: `"Alvo resolvido: servidor privado/VIP"` em [launch.rs](../src-tauri/src/commands/launch.rs)).
-- **PRs**: [scripts/pr-flow.ps1](../scripts/pr-flow.ps1) automatiza o fluxo com `gh`; base default `v4`.
+- **PRs**: [scripts/pr-flow.ps1](../scripts/pr-flow.ps1) automatiza o fluxo com `gh`, com base default `develop` (onde o trabalho vive; a `main` é só release). E PR só com pedido do dono (regra de Git do [CLAUDE.md](../CLAUDE.md)).
 
 ## Como adicionar um novo comando Tauri (ponta a ponta)
 
@@ -286,7 +299,7 @@ Exemplo: comando `get_account_note(user_id) -> String`.
    ```
 
    - Retorne sempre `Result<T, String>` com `T: Serialize`.
-   - Se chamar a API do Roblox com o cookie da conta, envolva em `run_with_session_retry(state.inner(), user_id, |cookie| async move { ... })` ([account_api.rs](../src-tauri/src/commands/account_api.rs)) para ganhar refresh automático de sessão (ver [authentication.md](features/authentication.md)).
+   - Se chamar a API do Roblox com o cookie da conta **para ler** (ou para uma ação não crítica), use `read_without_refresh(state.inner(), user_id, |cookie| async move { ... })` ([account_api.rs](../src-tauri/src/commands/account_api.rs)): pega o cookie e chama a API direto, e cookie vencido vira erro na tela. **Não use `run_with_session_retry`** (nem `refresh_account_session`) nesse caso — é regra crítica do `CLAUDE.md`: no primeiro 401 o refresh chama `signoutfromallsessionsandreauthenticate`, que desloga a conta de **todas** as sessões e derruba os clientes Roblox abertos dela. O retry fica para o caminho crítico que já o usa (auth ticket e private join do launch e do Auto Rejoin) e para ações que a pessoa pediu explicitamente naquela conta, aceitando esse custo. Comando de leitura novo em `account_api.rs` entra na lista `LEITURAS` do teste `read_only_retry_tests`, que reprova se ele passar a renovar sessão (ver [authentication.md](features/authentication.md#regras-de-negócio)).
    - Para progresso/notificações assíncronas, receba `app: tauri::AppHandle` e use `app.emit("meu-evento", payload)`.
    - Código específico de SO: use `#[cfg(target_os = "windows")]` e forneça um caminho `#[cfg(not(target_os = "windows"))]` que retorne erro, como em [diagnostics.rs](../src-tauri/src/commands/diagnostics.rs). Código dependente de feature: crie a versão `#[cfg(not(feature = "..."))]`, como em [services.rs](../src-tauri/src/commands/services.rs).
 

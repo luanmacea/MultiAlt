@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Permitir que o usuário escreva pequenos programas JavaScript que automatizam o app (ler contas, lançar, controlar botting, falar com serviços externos, desenhar uma mini-UI), executados em um **sandbox** (Web Worker) com permissões explícitas por script.
+Permitir que o usuário escreva pequenos programas JavaScript que automatizam o app (ler contas, lançar, controlar o Auto Rejoin, falar com serviços externos, desenhar uma mini-UI), executados em um **sandbox** (Web Worker) com permissões explícitas por script.
 
 ## Onde fica o código
 
@@ -41,7 +41,7 @@ Comandos: `get_scripts` (ordenado por nome, case-insensitive), `save_script` (up
 5. Cada `ram.<algo>(...)` vira uma mensagem `host-request { requestId, action, payload }`. O host em [ScriptsDialog.tsx](../../src/components/dialogs/ScriptsDialog.tsx) valida permissão/trust, executa e responde. Timeout de host request no worker: 20 s.
 6. O host envia eventos para o script: `window:update` (snapshot do app), `ws` (mensagens de WebSocket) e `ui` (interações com a mini-UI).
 7. **Stop**: mensagem `stop` → rejeita pendentes, limpa handlers e `close()`; o host também faz `worker.terminate()`.
-8. **Save**: `sanitizeScriptSourceForSave` (normaliza aspas/traços "inteligentes", remove caracteres invisíveis, desembrulha bloco ```` ``` ````) → `save_script`. Se a assinatura de segurança (trusted + 7 permissões) mudou e o script está rodando, ele é **parado**.
+8. **Save**: `sanitizeScriptSourceForSave` (normaliza aspas/traços "inteligentes", remove caracteres invisíveis, desembrulha bloco ```` ``` ````) → `save_script`. Se a assinatura de segurança (`getScriptSecuritySignature`: trusted + 8 permissões, com `allowPrivateNetwork`) mudou e o script está rodando, ele é **parado**.
 
 ## API `ram` e permissões
 
@@ -86,7 +86,7 @@ O ciclo ler → editar → gravar continua funcionando: `update_account` no back
 
 | Onde | O quê |
 |---|---|
-| `RAMScripts.json` (pasta do exe) | Scripts salvos. |
+| `RAMScripts.json` (pasta de dados do usuário — `get_scripts_path` em [paths.rs](../../src-tauri/src/data/settings/paths.rs); só é a pasta do exe no modo portátil) | Scripts salvos. |
 | `RAMSettings.ini` → `[Script.<id>]` | Estado persistido por cada script via `ram.settings`. |
 
 ## Armadilhas / cuidados

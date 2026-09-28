@@ -1,4 +1,5 @@
 use crate::api::endpoints;
+use crate::api::http_client;
 use reqwest::header::COOKIE;
 use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};

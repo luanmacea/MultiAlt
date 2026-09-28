@@ -504,7 +504,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
       onClick={handleCancel}
     >
       <div
-        className={`theme-modal-scope theme-panel theme-border rounded-2xl shadow-2xl w-[560px] h-[560px] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`theme-modal-scope theme-panel theme-border rounded-2xl shadow-2xl w-[560px] h-[560px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0">

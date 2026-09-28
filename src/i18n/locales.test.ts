@@ -24,10 +24,13 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "WebServer",
   "Watcher",
   "online",
-  "botting",
   "studio",
   "Multi Roblox",
-  "Botting Mode",
+  // Nome da funcionalidade na tela; traduzir "Auto Rejoin" isolado criaria um
+  // segundo nome para a mesma coisa.
+  "Auto Rejoin",
+  "Auto Rejoin ({{count}})",
+  "auto rejoin",
   "OK",
   "Nexus",
   "ID: {{id}}",
@@ -37,6 +40,8 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "cookie",
   "Cookie",
   "FPS",
+  // Rotulo de campo na sidebar da conta: "Volume" e a mesma palavra em pt-BR.
+  "Volume",
   "ID: ********",
   "username:password",
   "Job",
@@ -56,14 +61,17 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "{\"assets\":[{\"id\":12345}]}",
   "<city>, <countryCode>",
   "C:\\path\\ClientAppSettings.json",
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "MB",
   "min",
   "ms",
   "Normal",
   "Roblox",
   "Universe ID",
-  "Botting Bot",
-  "Botting Player",
+  // Perfil de client settings por papel: o nome do recurso fica em inglês, e
+  // "main"/"alt" é como a comunidade chama conta principal e conta secundária.
+  "Auto Rejoin Alt",
+  "Auto Rejoin Main",
   "EcoQoS",
   "Social",
   "Catppuccin",
@@ -282,5 +290,87 @@ describe.each([
 
   it("as exceções continuam sendo texto de corpo presente no catálogo", () => {
     expect([...TONE_EXCEPTIONS].filter((k) => !(k in en))).toEqual([]);
+  });
+});
+
+/**
+ * O recurso se chama **Auto Rejoin** na tela. Por dentro ele continua `botting`
+ * — chave do `RAMSettings.ini`, comando Tauri, evento, nome de arquivo, de
+ * módulo e de função — porque renomear isso apagaria a configuração de quem já
+ * usa o app. Essa fronteira é fácil de furar sem querer: basta um rótulo novo
+ * copiado de um bloco antigo.
+ *
+ * A varredura abaixo é o que impede o nome antigo de voltar à tela. Ela olha o
+ * catálogo inteiro (todo texto de UI passa por ali) e, no fonte, as strings
+ * literais e o texto JSX de arquivo que não é de teste — é onde mora um rótulo
+ * que ainda não chegou ao catálogo. Comentário fica de fora de propósito: ali o
+ * nome interno é o nome certo.
+ */
+const NOME_ANTIGO = /\bBotting\b/;
+
+/** Arquivos de fonte que carregam texto de tela (teste e catálogo ficam fora). */
+function uiSourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      if (entry === "locales") continue;
+      out.push(...uiSourceFiles(full));
+      continue;
+    }
+    if (!/\.(ts|tsx)$/.test(entry) || /\.test\.(ts|tsx)$/.test(entry)) continue;
+    out.push(full);
+  }
+  return out.sort();
+}
+
+/** String literal de JS/TS: é o que chega a `t()`, a um `label=` ou a um toast. */
+const STRING_LITERAL = /"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|`((?:\\.|[^`\\])*)`/g;
+
+/** Texto filho de JSX na mesma linha: `label={<>Auto Rejoin<Badge/></>}`. */
+const JSX_TEXT = />([^<>{}]*)</g;
+
+function uiTextsWithOldName(): string[] {
+  const found: string[] = [];
+  for (const file of uiSourceFiles(SRC_ROOT)) {
+    const where = relative(process.cwd(), file).replace(/\\/g, "/");
+    readFileSync(file, "utf8")
+      .split("\n")
+      .forEach((line, index) => {
+        const candidates: string[] = [];
+        for (const m of line.matchAll(STRING_LITERAL)) candidates.push(m[1] ?? m[2] ?? m[3] ?? "");
+        for (const m of line.matchAll(JSX_TEXT)) candidates.push(m[1]);
+        for (const text of candidates) {
+          if (NOME_ANTIGO.test(text)) found.push(`${where}:${index + 1} ${JSON.stringify(text)}`);
+        }
+      });
+  }
+  return found;
+}
+
+describe("o nome na tela é Auto Rejoin", () => {
+  it.each([
+    ["en", en],
+    ["pt", pt],
+    ["de", de],
+  ])("nenhuma chave nem tradução do catálogo %s diz o nome antigo", (_name, dict) => {
+    const leaked = Object.keys(dict)
+      .filter((k) => /botting/i.test(k) || /botting/i.test(dict[k]))
+      .map((k) => `${JSON.stringify(k)} -> ${JSON.stringify(dict[k])}`);
+    expect(leaked).toEqual([]);
+  });
+
+  it("nenhuma string nem texto JSX do fonte diz o nome antigo", () => {
+    expect(uiTextsWithOldName()).toEqual([]);
+  });
+
+  it("a varredura realmente enxerga texto de tela (protege contra regex morta)", () => {
+    expect(uiSourceFiles(SRC_ROOT).length).toBeGreaterThan(50);
+    // Este arquivo é de teste, então fica fora da própria varredura: dá para
+    // citar o nome antigo aqui sem a varredura se autodenunciar.
+    expect(NOME_ANTIGO.test("Start Botting Mode")).toBe(true);
+    // Nome interno não é texto de tela: a varredura não pode reprovar por ele.
+    expect(NOME_ANTIGO.test("BottingDraftPlaceId")).toBe(false);
+    expect(NOME_ANTIGO.test("supportsBotting")).toBe(false);
   });
 });

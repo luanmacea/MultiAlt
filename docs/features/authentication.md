@@ -62,7 +62,7 @@ Como o arquivo vale o mínimo possível para quem não for o dono da máquina:
 
 - é cifrado pelo **DPAPI do Windows no escopo do usuário atual**, com entropia própria do app — copiar `RAMUnlock.bin` para outra máquina, ou abri-lo com outra conta do Windows, não devolve nada;
 - o **prazo mora dentro do blob cifrado**: editar o arquivo não estende a validade;
-- é apagado quando expira, quando não abre mais, quando a senha muda ou sai (`set_encryption_password`), e pelo botão **Forget** em Settings → Security;
+- é apagado quando expira, quando não abre mais, quando a senha muda ou sai (`set_encryption_password`), e pelo botão **Forget** em Settings → Misc → seção Security (não existe aba Security);
 - é **opt-in**: só existe se o usuário marcar a caixa.
 
 Fora do Windows não há DPAPI e a caixa nem aparece (`remembered_unlock_state.supported == false`) — guardar a senha em texto puro seria pior que digitá-la.
@@ -110,7 +110,7 @@ O "Refresh Cookies" manual da barra inferior faz o mesmo para as contas selecion
 
 ## Regras de negócio
 
-- Os comandos que operam "como" uma conta usam `run_with_session_retry` — no máximo **um** refresh e **uma** nova tentativa por chamada. Exceção: `make_selected_friends` (não renova sessão, ver abaixo).
+- As **ações** que operam "como" uma conta (bloquear, avatar, privacidade, trocar senha/e-mail, PIN, quick login, compra, grupo, pedido de amizade avulso) e o auth ticket/private join do launch e do Auto Rejoin usam `run_with_session_retry` — no máximo **um** refresh e **uma** nova tentativa por chamada. **Leituras não** (regra logo abaixo), nem `make_selected_friends` (ver mais abaixo).
 - **Regra: nunca use refresh de sessão (`run_with_session_retry` / `refresh_account_session`) em leituras ou ações não críticas.** Quem lê usa o helper `read_without_refresh` (pega o cookie e chama a API direto), e o teste estrutural `read_only_retry_tests` reprova se um comando da lista de leituras voltar a usar retry — `get_auth_ticket`, `get_csrf_token`, `check_pin`, `get_robux`, `get_blocked_users`, `get_private_server_invite_privacy` e `resolve_join_link` estão nessa lista. O refresh desloga a conta de **todas** as sessões e derruba clientes Roblox em execução. Para leituras tolerantes a falha, chame a API com `get_cookie` direto e trate o erro; para ações em lote, reporte a sessão inválida em vez de "consertá-la".
 - O refresh **desloga todas as outras sessões** da conta (é o endpoint `signoutfromallsessionsandreauthenticate`): clientes Roblox abertos com o cookie antigo podem cair.
 - `LastAttemptedRefresh` é atualizado mesmo se o refresh falhar.
@@ -136,4 +136,4 @@ O "Refresh Cookies" manual da barra inferior faz o mesmo para as contas selecion
 - `test_auth(cookie)` é um comando de diagnóstico que devolve texto com validação, CSRF e ticket truncados — não use para lógica.
 - O `Referer` de CSRF/ticket é uma URL fixa de jogo (`REFERER_URL` em [auth.rs](../../src-tauri/src/api/auth.rs)); mudanças no Roblox podem exigir ajustá-la.
 - Contas adicionadas só por username têm `SecurityToken` vazio: todas as operações autenticadas falham e o refresh não consegue recuperar.
-- Como o refresh derruba outras sessões, evitar chamá-lo durante botting/multi-launch ativos. Note que o próprio launch usa `run_with_session_retry` para o auth ticket: uma conta com sessão inválida é renovada ali (e seus clientes antigos caem).
+- Como o refresh derruba outras sessões, evitar chamá-lo durante Auto Rejoin/multi-launch ativos. Note que o próprio launch usa `run_with_session_retry` para o auth ticket: uma conta com sessão inválida é renovada ali (e seus clientes antigos caem).

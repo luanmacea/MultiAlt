@@ -90,15 +90,46 @@ describe("ContextMenu — account actions", () => {
     expect(store.updateAccount).toHaveBeenCalledWith(expect.objectContaining({ UserID: 2, Alias: "Main" }));
   });
 
-  it("caps the alias at 30 characters", async () => {
-    promptAnswers.prompt = "x".repeat(50);
+  it("caps the alias at 240 characters", async () => {
+    promptAnswers.prompt = "x".repeat(260);
     const store = renderMenu();
     await userEvent.click(item("Set Alias"));
     await waitFor(() =>
       expect(store.updateAccount).toHaveBeenCalledWith(
-        expect.objectContaining({ Alias: "x".repeat(30) })
+        expect.objectContaining({ Alias: "x".repeat(240) })
       )
     );
+  });
+
+  /**
+   * Colar 300 caracteres no "Set Alias" do menu gravava 240 e avisava só
+   * "Alias updated": o corte era calado (medido no harness — o campo do prompt
+   * não tinha `maxlength`). O campo agora trava no mesmo limite da sidebar.
+   */
+  it("limita o campo do prompt a 240 caracteres, como a sidebar", async () => {
+    promptAnswers.prompt = null;
+    renderMenu();
+    await userEvent.click(item("Set Alias"));
+    await waitFor(() => expect(promptMock).toHaveBeenCalled());
+    expect(promptMock.mock.calls[0][2]).toEqual({ maxLength: 240 });
+  });
+
+  it("se o alias chegar maior que o limite, o aviso diz que ele foi cortado", async () => {
+    // O campo já trava em 240; isto é a rede para quem chegar por fora dele.
+    promptAnswers.prompt = "x".repeat(260);
+    const store = renderMenu();
+    await userEvent.click(item("Set Alias"));
+    await waitFor(() => expect(store.addToast).toHaveBeenCalled());
+    const aviso = (store.addToast as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(aviso).toContain("240");
+    expect(aviso).not.toBe("Alias updated");
+  });
+
+  it("um alias dentro do limite segue com o aviso de sempre", async () => {
+    promptAnswers.prompt = "Main";
+    const store = renderMenu();
+    await userEvent.click(item("Set Alias"));
+    await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Alias updated"));
   });
 
   it("leaves the alias alone when the prompt is cancelled", async () => {
@@ -298,7 +329,7 @@ describe("ContextMenu — group, botting and client entries", () => {
 
   it("hides the botting entry while botting is off", () => {
     renderMenu();
-    expect(screen.queryByText(/Botting Mode/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Auto Rejoin/)).not.toBeInTheDocument();
   });
 
   it("adds the missing accounts to a running botting loop", async () => {
@@ -306,7 +337,7 @@ describe("ContextMenu — group, botting and client entries", () => {
       { bottingStatus: makeBottingStatus({ active: true, userIds: [1] }) },
       [A, B]
     );
-    await userEvent.click(item("Add 1 account to Botting Mode"));
+    await userEvent.click(item("Add 1 account to Auto Rejoin"));
     await waitFor(() => expect(store.addBottingAccounts).toHaveBeenCalledWith([2]));
   });
 
@@ -315,9 +346,9 @@ describe("ContextMenu — group, botting and client entries", () => {
       { bottingStatus: makeBottingStatus({ active: true, userIds: [1, 2] }) },
       [A, B]
     );
-    await userEvent.click(item("Already in Botting Mode"));
+    await userEvent.click(item("Already in Auto Rejoin"));
     await waitFor(() =>
-      expect(store.addToast).toHaveBeenCalledWith("Selected accounts are already in Botting Mode")
+      expect(store.addToast).toHaveBeenCalledWith("Selected accounts are already in Auto Rejoin")
     );
     expect(store.addBottingAccounts).not.toHaveBeenCalled();
   });

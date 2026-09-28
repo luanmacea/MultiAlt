@@ -47,7 +47,7 @@ fn botting_retry_config(settings: &SettingsStore) -> (u32, u64, i64) {
 /// Rejoin interval, in minutes. Too short and Roblox rate-limits the account.
 #[cfg(target_os = "windows")]
 fn clamp_botting_interval_minutes(interval_minutes: i64) -> u64 {
-    interval_minutes.clamp(10, 120) as u64
+    interval_minutes.clamp(10, 480) as u64
 }
 
 /// Spacing between two launches of the session, in seconds.
@@ -106,6 +106,40 @@ fn botting_add_schedule(
     }
 }
 
+/// O que a primeira passagem da sessao faz com uma conta.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BottingFirstPass {
+    /// Conta marcada como desconectada: fica de fora do ciclo.
+    Disconnected,
+    /// Ja esta em jogo e a sessao foi aberta em modo adocao: **nao** relanca.
+    /// O cliente que o usuario abriu continua de pe e so entra no ciclo no
+    /// primeiro vencimento do intervalo.
+    Adopt,
+    /// O caminho de sempre: fecha o que houver e lanca.
+    Launch,
+}
+
+/// Decide entre adotar o cliente que ja esta aberto e relancar do zero.
+///
+/// Sem a adocao, ligar o Botting em contas que ja estavam jogando derrubava
+/// todas elas: a primeira passagem fecha o cliente e abre outro no place da
+/// sessao. Quem ja esta no lugar certo nao precisa disso.
+#[cfg(target_os = "windows")]
+fn botting_first_pass(
+    adopt_running: bool,
+    has_running_client: bool,
+    disconnected: bool,
+) -> BottingFirstPass {
+    if disconnected {
+        return BottingFirstPass::Disconnected;
+    }
+    if adopt_running && has_running_client {
+        return BottingFirstPass::Adopt;
+    }
+    BottingFirstPass::Launch
+}
+
 /// `(disconnect, close, restart_client, restart_loop)` for a context-menu
 /// action on one botting account.
 #[cfg(target_os = "windows")]
@@ -131,6 +165,35 @@ fn botting_action_flags(action: &BottingAccountAction) -> (bool, bool, bool, boo
     )
 }
 
+/// Versão a reportar ao `ProcessTracker` para o cliente que este ciclo do
+/// Botting acabou de abrir (Task de sync com o upstream: sem isto,
+/// `has_version_conflict` — a guarda que a fila de launch usa para recusar
+/// abrir numa versão diferente da que já está rodando — não enxergava os
+/// clientes do Botting, porque o ciclo só chamava `tracker.track` (sem
+/// versão). Duas contas em versões diferentes (uma pelo Botting, outra pela
+/// fila) abriam lado a lado sem aviso nenhum, que é exatamente o que essa
+/// guarda existe para impedir.
+///
+/// Só vale no old join: pelo protocolo (`launch_url`) o cliente sempre abre a
+/// build de **produção** — o `channel:` vazio da URL vence o registro
+/// (`CLAUDE.md`, `docs/features/launch.md`) — então reportar
+/// `resolved_version_id` nesse ramo mentiria para a guarda. Na prática
+/// `resolve_use_old_join` já garante `resolved_version_id.is_none()` sempre
+/// que `use_old_join` for falso (a mesma invariante de que depende
+/// `windows::client_source`), mas a função fica segura por conta própria
+/// em vez de confiar nisso silenciosamente.
+#[cfg(target_os = "windows")]
+fn botting_tracked_version(
+    use_old_join: bool,
+    resolved_version_id: Option<String>,
+) -> Option<String> {
+    if use_old_join {
+        resolved_version_id
+    } else {
+        None
+    }
+}
+
 async fn launch_account_for_cycle(
     app: &tauri::AppHandle,
     user_id: i64,
@@ -154,7 +217,7 @@ async fn launch_account_for_cycle(
 
     let (
         is_teleport,
-        use_old_join,
+        configured_old_join,
         auto_close_last_process,
         multi_rbx,
         auto_close_multi_conflicts,
@@ -171,6 +234,43 @@ async fn launch_account_for_cycle(
         )
     };
 
+    // Exceções da conta valem no Botting também: a conta principal continua
+    // sendo a mesma conta, esteja ela numa fila de launch ou num ciclo de bot.
+    let account_snapshot = app.state::<AccountStore>().get_all().ok();
+    let account_overrides = account_snapshot
+        .as_ref()
+        .and_then(|list| list.iter().find(|a| a.user_id == user_id))
+        .and_then(|a| account_client_overrides(&a.fields));
+    let start_minimized = account_overrides
+        .as_ref()
+        .and_then(|o| o.start_minimized)
+        .unwrap_or(start_minimized);
+
+    // Versão do catálogo que a conta usa — a mesma resolução que
+    // `commands/launch.rs` já faz para o launch avulso e para a fila (Task 3
+    // do plano de sync com o upstream, `docs/superpowers/plans/upstream-sync-2026-09.md`).
+    // Sem isso, uma conta com `RobloxVersion` própria abria no Botting sempre
+    // na build padrão.
+    let account_version_override = account_snapshot
+        .as_ref()
+        .and_then(|list| list.iter().find(|a| a.user_id == user_id))
+        .and_then(|a| a.fields.get("RobloxVersion").cloned())
+        .filter(|v| !v.trim().is_empty());
+    let (resolved_base_path, resolved_version_id) = {
+        let settings = app.state::<SettingsStore>();
+        let versions = app.state::<data::versions::VersionsCatalogStore>();
+        windows::resolve_roblox_install_path(
+            account_version_override.as_deref(),
+            &settings,
+            &versions,
+        )?
+    };
+    // O Botting não roda isolamento pré-launch (`run_pre_launch_isolation` é
+    // exclusivo da fila em `commands/launch.rs`), então não há pasta sendo
+    // apagada por baixo do old join aqui — `isolation_wipes_install` sempre
+    // `false`.
+    let use_old_join = resolve_use_old_join(false, configured_old_join, resolved_version_id.as_deref());
+
     let resolved_launch = resolve_launch_job(job_id, false, "");
 
     if multi_rbx {
@@ -179,10 +279,26 @@ async fn launch_account_for_cycle(
         let _ = windows::disable_multi_roblox();
     }
 
+    // A pasta de onde o cliente vai abrir, a mesma para o patch (FPS, fast
+    // flags) e para o spawn do old join: versão do catálogo pelo old join, a
+    // build do canal do registro no old join sem catálogo, e a de produção
+    // pelo protocolo (`launch_url`) — versão por conta não se aplica nesse
+    // caminho (CLAUDE.md). Ver `windows::client_source`.
+    let client_dir = windows::client_dir(
+        windows::client_source(use_old_join, resolved_version_id.is_some()),
+        &resolved_base_path,
+    )
+    .await;
+
     {
         let settings = app.state::<SettingsStore>();
         windows::refresh_production_version().await;
-        patch_client_settings_for_launch(&settings, launch_profile);
+        patch_client_settings_for_launch(
+            &settings,
+            launch_profile,
+            account_overrides.as_ref(),
+            Some(&client_dir),
+        );
     }
 
     let tracker = windows::tracker();
@@ -235,7 +351,12 @@ async fn launch_account_for_cycle(
     let pids_before = windows::get_roblox_pids();
 
     let launch_result = if use_old_join {
-        windows::launch_old_join(
+        // Sem versão resolvida (nem da conta, nem do catálogo), a pasta do old
+        // join é a build do canal do registro, porque é o registro quem decide
+        // o canal nesse caminho (CLAUDE.md#regras-críticas) — `client_dir` já
+        // resolveu isso, e o patch foi para a mesma pasta.
+        windows::launch_old_join_from(
+            &client_dir,
             &ticket,
             private_join.place_id,
             &resolved_launch.job_id,
@@ -245,7 +366,7 @@ async fn launch_account_for_cycle(
             &private_join.access_code,
             &private_join.link_code,
             is_teleport,
-        ).await
+        )
     } else {
         let url = windows::build_launch_url(
             &ticket,
@@ -275,7 +396,15 @@ async fn launch_account_for_cycle(
         return Err("Timed out waiting for Roblox process after launch".into());
     };
 
-    tracker.track(user_id, pid, browser_tracker_id);
+    // Registra a versão do jeito que `commands/launch.rs` já faz (Task de sync
+    // com o upstream): sem isso `has_version_conflict` da fila de launch não
+    // enxergava os clientes que o Botting abre.
+    tracker.track_with_version(
+        user_id,
+        pid,
+        browser_tracker_id,
+        botting_tracked_version(use_old_join, resolved_version_id.clone()),
+    );
     {
         let settings_state = app.state::<SettingsStore>();
         apply_windows_post_launch_profile(Some(app), settings_state.inner(), launch_profile, pid)
@@ -322,7 +451,7 @@ fn emit_botting_cycle(
     );
 
     if ok {
-        emit_launch_log(app, user_id, "success", "botting", "Entrou no jogo pelo ciclo do Botting");
+        emit_launch_log(app, user_id, "success", "rejoin", "Entrou no jogo pelo ciclo do Auto Rejoin");
         return;
     }
 
@@ -334,17 +463,17 @@ fn emit_botting_cycle(
             app,
             user_id,
             "warn",
-            "botting-retry",
+            "rejoin-retry",
             format!("Rate limit do Roblox (tentativa {tentativa}) — nova tentativa em {delay}s: {motivo}"),
         ),
         Some((delay, false, tentativa)) => emit_launch_log(
             app,
             user_id,
             "error",
-            "botting-retry",
+            "rejoin-retry",
             format!("Falha no ciclo (tentativa {tentativa}) — nova tentativa em {delay}s: {motivo}"),
         ),
-        None => emit_launch_log(app, user_id, "error", "botting", format!("Falha no ciclo: {motivo}")),
+        None => emit_launch_log(app, user_id, "error", "rejoin", format!("Falha no ciclo: {motivo}")),
     }
 }
 
@@ -370,9 +499,9 @@ async fn run_botting_session(
         emit_session_log(
             &app,
             "info",
-            "botting",
+            "rejoin",
             format!(
-                "Botting Mode iniciado — {} conta(s), place {}, ciclo de {} min, {}s entre launches",
+                "Auto Rejoin iniciado — {} conta(s), place {}, ciclo de {} min, {}s entre launches",
                 initial_user_ids.len(),
                 cfg.place_id,
                 cfg.interval_minutes,
@@ -386,21 +515,46 @@ async fn run_botting_session(
             break;
         }
 
+        let adopt_running = config.lock().map(|c| c.adopt_running).unwrap_or(false);
+        let interval_ms = config
+            .lock()
+            .map(|c| c.interval_minutes as i64 * 60_000)
+            .unwrap_or(0);
+        let has_client = platform::windows::tracker().get_pid(*uid).is_some();
+
         let mut skip_launch = false;
         if let Ok(mut map) = accounts.lock() {
             if let Some(entry) = map.get_mut(uid) {
-                if entry.disconnected {
-                    entry.phase = if platform::windows::tracker().get_pid(*uid).is_some() {
-                        "disconnected-running"
-                    } else {
-                        "disconnected"
-                    };
-                    entry.next_restart_at_ms = None;
-                    entry.player_grace_until_ms = None;
-                    skip_launch = true;
-                } else {
-                    entry.phase = "launching";
-                    entry.last_error = None;
+                match botting_first_pass(adopt_running, has_client, entry.disconnected) {
+                    BottingFirstPass::Disconnected => {
+                        entry.phase = if has_client {
+                            "disconnected-running"
+                        } else {
+                            "disconnected"
+                        };
+                        entry.next_restart_at_ms = None;
+                        entry.player_grace_until_ms = None;
+                        skip_launch = true;
+                    }
+                    BottingFirstPass::Adopt => {
+                        // O cliente que o usuario abriu continua de pe. A conta
+                        // entra no ciclo valendo um intervalo inteiro a partir
+                        // de agora, como quem acabou de ser lancada.
+                        entry.last_error = None;
+                        entry.retry_count = 0;
+                        if entry.is_player {
+                            entry.phase = "running-player";
+                            entry.next_restart_at_ms = None;
+                        } else {
+                            entry.phase = "running";
+                            entry.next_restart_at_ms = Some(now_ms().saturating_add(interval_ms));
+                        }
+                        skip_launch = true;
+                    }
+                    BottingFirstPass::Launch => {
+                        entry.phase = "launching";
+                        entry.last_error = None;
+                    }
                 }
             }
         }
@@ -590,7 +744,7 @@ async fn run_botting_session(
                 &app,
                 uid,
                 "info",
-                "botting",
+                "rejoin",
                 format!("Reiniciando a conta (reinicio #{numero} nesta sessao)"),
             );
 
@@ -626,7 +780,7 @@ async fn run_botting_session(
                     &app,
                     uid,
                     "warn",
-                    "botting-retry",
+                    "rejoin-retry",
                     format!(
                         "O cliente anterior nao fechou a tempo{pid_hint} — nova tentativa em {atraso}s"
                     ),
@@ -724,7 +878,7 @@ async fn run_botting_session(
         BOTTING_MANAGER.replace_session(None);
     }
     stopped_notify.notify_waiters();
-    emit_session_log(&app, "info", "botting", "Botting Mode parado");
+    emit_session_log(&app, "info", "rejoin", "Auto Rejoin parado");
     let _ = app.emit("botting-stopped", serde_json::json!({}));
     emit_botting_status(&app);
 }
@@ -743,20 +897,23 @@ async fn start_botting_mode(
     interval_minutes: i64,
     launch_delay_seconds: i64,
     player_grace_minutes: i64,
+    // `true` quando a sessao nasce de contas que ja estao em jogo: elas nao
+    // sao fechadas nem relancadas na primeira passagem.
+    adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
     if user_ids.len() < 2 {
-        return Err("Select at least two accounts for Botting Mode".into());
+        return Err("Select at least two accounts for Auto Rejoin".into());
     }
     if place_id <= 0 {
         return Err("Place ID must be greater than 0".into());
     }
     if !settings.get_bool("General", "EnableMultiRbx") {
-        return Err("Botting Mode currently requires Multi Roblox to be enabled".into());
+        return Err("Auto Rejoin currently requires Multi Roblox to be enabled".into());
     }
 
     let dedup = dedupe_preserving_order(user_ids);
     if dedup.len() < 2 {
-        return Err("Select at least two unique accounts for Botting Mode".into());
+        return Err("Select at least two unique accounts for Auto Rejoin".into());
     }
 
     let player_set = botting_player_set(&dedup, player_user_ids)?;
@@ -796,6 +953,7 @@ async fn start_botting_mode(
         retry_max,
         retry_base_seconds,
         player_grace_minutes,
+        adopt_running: adopt_running.unwrap_or(false),
     };
 
     let mut runtime_map = HashMap::new();
@@ -860,8 +1018,9 @@ async fn start_botting_mode(
     _interval_minutes: i64,
     _launch_delay_seconds: i64,
     _player_grace_minutes: i64,
+    _adopt_running: Option<bool>,
 ) -> Result<BottingStatusPayload, String> {
-    Err("Botting Mode is only supported on Windows".into())
+    Err("Auto Rejoin is only supported on Windows".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -917,7 +1076,7 @@ fn add_botting_accounts(
     user_ids: Vec<i64>,
 ) -> Result<BottingStatusPayload, String> {
     let Some(session) = BOTTING_MANAGER.get_session() else {
-        return Err("Botting Mode is not running".into());
+        return Err("Auto Rejoin is not running".into());
     };
     if user_ids.is_empty() {
         return Err("Select at least one account to add".into());
@@ -951,7 +1110,7 @@ fn add_botting_accounts(
     }
 
     if to_add.is_empty() {
-        return Err("Selected accounts are already in Botting Mode".into());
+        return Err("Selected accounts are already in Auto Rejoin".into());
     }
 
     for uid in to_add {
@@ -992,7 +1151,7 @@ fn add_botting_accounts(
     _state: tauri::State<'_, AccountStore>,
     _user_ids: Vec<i64>,
 ) -> Result<BottingStatusPayload, String> {
-    Err("Botting Mode is only supported on Windows".into())
+    Err("Auto Rejoin is only supported on Windows".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -1002,14 +1161,14 @@ fn set_botting_player_accounts(
     player_user_ids: Vec<i64>,
 ) -> Result<BottingStatusPayload, String> {
     let Some(session) = BOTTING_MANAGER.get_session() else {
-        return Err("Botting Mode is not running".into());
+        return Err("Auto Rejoin is not running".into());
     };
 
     let mut cfg = session.config.lock().map_err(|e| e.to_string())?;
     let mut next_set = HashSet::new();
     for uid in player_user_ids {
         if !cfg.user_ids.contains(&uid) {
-            return Err("Player Account must be one of the botting accounts".into());
+            return Err("Main Account must be one of the Auto Rejoin accounts".into());
         }
         next_set.insert(uid);
     }
@@ -1098,7 +1257,7 @@ fn botting_account_action(
     action: BottingAccountAction,
 ) -> Result<BottingStatusPayload, String> {
     let Some(session) = BOTTING_MANAGER.get_session() else {
-        return Err("Botting Mode is not running".into());
+        return Err("Auto Rejoin is not running".into());
     };
 
     let (should_disconnect, should_close, should_restart_client, should_restart_loop) =
@@ -1109,7 +1268,7 @@ fn botting_account_action(
     let (is_player_from_config, interval_ms) = {
         let cfg = session.config.lock().map_err(|e| e.to_string())?;
         if !cfg.user_ids.contains(&user_id) {
-            return Err("Account is not part of the current botting session".into());
+            return Err("Account is not part of the current Auto Rejoin session".into());
         }
         (
             cfg.player_user_ids.contains(&user_id),
@@ -1126,7 +1285,7 @@ fn botting_account_action(
     if should_disconnect {
         let accounts = session.accounts.lock().map_err(|e| e.to_string())?;
         let Some(entry) = accounts.get(&user_id) else {
-            return Err("Account runtime is missing for the current botting session".into());
+            return Err("Account runtime is missing for the current Auto Rejoin session".into());
         };
         if entry.is_player {
             return Err(
@@ -1144,7 +1303,7 @@ fn botting_account_action(
     {
         let mut accounts = session.accounts.lock().map_err(|e| e.to_string())?;
         let Some(entry) = accounts.get_mut(&user_id) else {
-            return Err("Account runtime is missing for the current botting session".into());
+            return Err("Account runtime is missing for the current Auto Rejoin session".into());
         };
         let was_disconnected = entry.disconnected;
         let is_player = is_player_from_config || entry.is_player;
@@ -1361,14 +1520,17 @@ mod botting_command_tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn clamp_botting_interval_minutes_keeps_10_to_120() {
+    fn clamp_botting_interval_minutes_keeps_10_to_480() {
         assert_eq!(clamp_botting_interval_minutes(19), 19);
         assert_eq!(clamp_botting_interval_minutes(10), 10);
         assert_eq!(clamp_botting_interval_minutes(120), 120);
+        assert_eq!(clamp_botting_interval_minutes(480), 480);
+        assert_eq!(clamp_botting_interval_minutes(481), 480);
+        assert_eq!(clamp_botting_interval_minutes(9), 10);
         assert_eq!(clamp_botting_interval_minutes(0), 10);
         assert_eq!(clamp_botting_interval_minutes(-100), 10);
-        assert_eq!(clamp_botting_interval_minutes(100_000), 120);
-        assert_eq!(clamp_botting_interval_minutes(i64::MAX), 120);
+        assert_eq!(clamp_botting_interval_minutes(100_000), 480);
+        assert_eq!(clamp_botting_interval_minutes(i64::MAX), 480);
         assert_eq!(clamp_botting_interval_minutes(i64::MIN), 10);
     }
 
@@ -1477,6 +1639,43 @@ mod botting_command_tests {
         assert_eq!(due, Some(i64::MAX));
     }
 
+    // ---- adocao de conta ja em jogo -----------------------------------------
+
+    /// Ligar o Botting em contas que ja estavam jogando derrubava todas elas:
+    /// a primeira passagem fecha o cliente e abre outro no place da sessao. Em
+    /// modo adocao, quem ja esta em jogo fica de pe e so entra no ciclo no
+    /// primeiro vencimento do intervalo.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn adopting_keeps_the_client_that_is_already_running() {
+        assert_eq!(botting_first_pass(true, true, false), BottingFirstPass::Adopt);
+        // Sem cliente aberto nao ha o que adotar: lanca como sempre.
+        assert_eq!(botting_first_pass(true, false, false), BottingFirstPass::Launch);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn without_adoption_the_old_behaviour_is_untouched() {
+        assert_eq!(botting_first_pass(false, true, false), BottingFirstPass::Launch);
+        assert_eq!(botting_first_pass(false, false, false), BottingFirstPass::Launch);
+    }
+
+    /// Conta desconectada fica fora do ciclo, adotando ou nao — senao o modo
+    /// adocao ressuscitaria quem o usuario tirou de proposito.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_disconnected_account_is_never_launched_nor_adopted() {
+        for adopt in [true, false] {
+            for running in [true, false] {
+                assert_eq!(
+                    botting_first_pass(adopt, running, true),
+                    BottingFirstPass::Disconnected,
+                    "adopt={adopt} running={running}"
+                );
+            }
+        }
+    }
+
     // ---- botting_action_flags ----------------------------------------------
 
     #[cfg(target_os = "windows")]
@@ -1536,6 +1735,38 @@ mod botting_command_tests {
         assert!(!parse("null"));
     }
 
+    // ---- botting_tracked_version ---------------------------------------------
+
+    /// Caso normal: old join realmente abriu a versão resolvida, e é ela que
+    /// `has_version_conflict` (na fila de launch) precisa enxergar.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn botting_tracked_version_reports_the_resolved_version_on_old_join() {
+        assert_eq!(
+            botting_tracked_version(true, Some("LIVE:version-aaa".to_string())),
+            Some("LIVE:version-aaa".to_string())
+        );
+        // Old join sem versão resolvida (nem da conta, nem do catálogo): o
+        // registro decide o canal, e "instalação do sistema" já é a chave
+        // `None` que o tracker usa para isso.
+        assert_eq!(botting_tracked_version(true, None), None);
+    }
+
+    /// A Global Constraint do plano de sync com o upstream (`CLAUDE.md`): pelo
+    /// protocolo o cliente sempre abre a build de produção, então reportar uma
+    /// versão de conta aqui mentiria para a guarda de conflito. Na prática
+    /// `resolve_use_old_join` nunca deixa `resolved_version_id` ser `Some`
+    /// junto de `use_old_join = false`, mas a função não confia nisso.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn botting_tracked_version_never_reports_a_version_when_going_by_url() {
+        assert_eq!(
+            botting_tracked_version(false, Some("LIVE:version-aaa".to_string())),
+            None
+        );
+        assert_eq!(botting_tracked_version(false, None), None);
+    }
+
     // ---- status payload ------------------------------------------------------
 
     #[test]
@@ -1575,13 +1806,40 @@ mod botting_console_tests {
     /// Corta o corpo de uma funcao a partir da assinatura ate a chave final na
     /// coluna zero.
     fn corpo(assinatura: &str) -> &'static str {
-        let fonte = fonte();
+        corpo_em(fonte(), assinatura)
+    }
+
+    fn corpo_em<'a>(fonte: &'a str, assinatura: &str) -> &'a str {
         let inicio = fonte
             .find(assinatura)
             .unwrap_or_else(|| panic!("nao achei `{assinatura}` em botting.rs"));
         let resto = &fonte[inicio..];
-        let fim = resto.find("\n}\n").unwrap_or(resto.len());
+        let fim = fim_da_funcao(resto).unwrap_or(resto.len());
         &resto[..fim]
+    }
+
+    /// Posição do `}` de coluna zero que fecha a função — seguido de `\n` ou de
+    /// `\r\n`: a CI (runner Windows) faz checkout com CRLF, e `include_str!`
+    /// entrega o arquivo como está no disco.
+    fn fim_da_funcao(resto: &str) -> Option<usize> {
+        resto
+            .match_indices("\n}")
+            .map(|(i, _)| i)
+            .find(|&i| matches!(resto.as_bytes().get(i + 2), Some(b'\n' | b'\r')))
+    }
+
+    /// A CI roda num runner Windows, que faz checkout com CRLF: sem achar o `}`
+    /// de coluna zero, o "corpo" virava o resto do arquivo e as checagens abaixo
+    /// passavam ou falhavam por acaso.
+    #[test]
+    fn o_corte_do_corpo_nao_depende_do_fim_de_linha() {
+        let lf = "fn a() {\n    um();\n}\n\nfn b() {\n    dois();\n}\n";
+        let crlf = lf.replace('\n', "\r\n");
+        for fonte in [lf, crlf.as_str()] {
+            let corpo = corpo_em(fonte, "fn a(");
+            assert!(corpo.contains("um()"), "{corpo:?}");
+            assert!(!corpo.contains("dois()"), "o corte passou do fim da funcao: {corpo:?}");
+        }
     }
 
     #[test]
@@ -1616,10 +1874,10 @@ mod botting_console_tests {
     fn o_inicio_e_o_fim_da_sessao_aparecem_no_console() {
         let sessao = corpo("async fn run_botting_session(");
         assert!(
-            sessao.contains("Botting Mode iniciado"),
+            sessao.contains("Auto Rejoin iniciado"),
             "quem abre o console depois precisa saber que a sessao comecou"
         );
-        assert!(sessao.contains("Botting Mode parado"));
+        assert!(sessao.contains("Auto Rejoin parado"));
         // Linha de sessao nao pertence a conta nenhuma: `userId` nulo, senao o
         // console imprime "0" no lugar do nome.
         assert!(sessao.contains("emit_session_log("));
@@ -1630,5 +1888,163 @@ mod botting_console_tests {
         let sessao = corpo("async fn run_botting_session(");
         assert!(sessao.contains("reinicio #"), "o numero foi pedido explicitamente");
         assert!(sessao.contains("restarts.entry(uid)"));
+    }
+
+    /// Regressão: o ciclo do Botting chamava `tracker.track` sem versão, então
+    /// `has_version_conflict` (a guarda que a fila de launch usa para recusar
+    /// abrir numa versão diferente da que já está rodando) não enxergava os
+    /// clientes abertos pelo Botting — Botting numa versão e um launch avulso
+    /// noutra abriam lado a lado sem aviso. O ciclo precisa registrar a versão
+    /// resolvida do jeito que `commands/launch.rs` já faz, através da função
+    /// pura `botting_tracked_version` (testada à parte).
+    #[test]
+    fn o_ciclo_registra_a_versao_resolvida_no_tracker() {
+        let corpo = corpo("async fn launch_account_for_cycle(");
+        assert!(
+            corpo.contains("tracker.track_with_version("),
+            "sem isso `has_version_conflict` na fila de launch nao ve os clientes do Botting"
+        );
+        assert!(
+            corpo.contains("botting_tracked_version(use_old_join, resolved_version_id"),
+            "a versao reportada precisa vir da funcao pura que respeita a regra de canal/build"
+        );
+        assert!(
+            !corpo.contains("tracker.track(user_id, pid, browser_tracker_id);"),
+            "o `track` sem versao e exatamente o bug: reporta o PID sem dizer em qual build ele abriu"
+        );
+    }
+}
+
+/// O recurso se chama **Auto Rejoin** na tela. Por dentro tudo continua
+/// `botting` — chave do `RAMSettings.ini`, comando Tauri, evento, nome de
+/// arquivo, de módulo e de função — porque renomear isso apagaria a
+/// configuração de quem já usa o app.
+///
+/// O backend também escreve texto que o usuário lê: erro que sobe para a tela
+/// (`Err("...")`) e linha do console (`emit_launch_log` / `emit_session_log`).
+/// É por ali que o nome antigo volta sem ninguém notar, porque nada no
+/// frontend cobre string que nasce no Rust. Esta varredura fecha esse lado.
+#[cfg(test)]
+mod auto_rejoin_naming_tests {
+    /// Só o código de produção de cada arquivo: o módulo de teste cita os
+    /// nomes de propósito e contaria como vazamento.
+    fn producao(fonte: &'static str) -> &'static str {
+        let fim = fonte.find("\n#[cfg(test)]").unwrap_or(fonte.len());
+        &fonte[..fim]
+    }
+
+    /// Strings literais do fonte, com comentário de fora: em comentário o nome
+    /// interno é o nome certo, e reprovar por ele forçaria a reescrever a
+    /// explicação de código que continua se chamando `botting`.
+    fn literais(fonte: &str) -> Vec<String> {
+        let cs: Vec<char> = fonte.chars().collect();
+        let mut out = Vec::new();
+        let mut i = 0usize;
+        while i < cs.len() {
+            // Comentário de linha.
+            if cs[i] == '/' && cs.get(i + 1) == Some(&'/') {
+                while i < cs.len() && cs[i] != '\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            // Comentário de bloco.
+            if cs[i] == '/' && cs.get(i + 1) == Some(&'*') {
+                i += 2;
+                while i + 1 < cs.len() && !(cs[i] == '*' && cs[i + 1] == '/') {
+                    i += 1;
+                }
+                i = (i + 2).min(cs.len());
+                continue;
+            }
+            // Literal de caractere (`'"'` enganaria o scanner de string).
+            if cs[i] == '\'' && cs.get(i + 2) == Some(&'\'') && cs.get(i + 1) != Some(&'\\') {
+                i += 3;
+                continue;
+            }
+            if cs[i] == '"' {
+                i += 1;
+                let mut s = String::new();
+                while i < cs.len() && cs[i] != '"' {
+                    if cs[i] == '\\' {
+                        i += 1;
+                        if i < cs.len() {
+                            s.push(cs[i]);
+                            i += 1;
+                        }
+                        continue;
+                    }
+                    s.push(cs[i]);
+                    i += 1;
+                }
+                i += 1;
+                out.push(s);
+                continue;
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// `needle` como palavra inteira: `BottingPlayer` e `supportsBotting` são
+    /// nome interno legítimo e não podem reprovar a varredura.
+    fn palavra_inteira(texto: &str, needle: &str) -> bool {
+        let mut de = 0usize;
+        while let Some(pos) = texto[de..].find(needle) {
+            let ini = de + pos;
+            let fim = ini + needle.len();
+            let colado = |c: char| c.is_alphanumeric() || c == '_';
+            let antes_livre = texto[..ini].chars().next_back().map_or(true, |c| !colado(c));
+            let depois_livre = texto[fim..].chars().next().map_or(true, |c| !colado(c));
+            if antes_livre && depois_livre {
+                return true;
+            }
+            de = fim;
+        }
+        false
+    }
+
+    fn fontes() -> [(&'static str, &'static str); 2] {
+        [
+            ("botting.rs", producao(include_str!("botting.rs"))),
+            ("platform_info.rs", producao(include_str!("platform_info.rs"))),
+        ]
+    }
+
+    #[test]
+    fn nenhuma_frase_do_backend_diz_o_nome_antigo() {
+        let mut vazamentos: Vec<String> = Vec::new();
+        for (arquivo, fonte) in fontes() {
+            for literal in literais(fonte) {
+                let frase = literal.contains(' ');
+                // Fora de frase o nome minúsculo é identificador (`botting-status`,
+                // `start_botting_mode`); dentro dela é texto que o usuário lê.
+                let vazou = palavra_inteira(&literal, "Botting")
+                    || (frase && palavra_inteira(&literal.to_lowercase(), "botting"));
+                if vazou {
+                    vazamentos.push(format!("{arquivo}: {literal:?}"));
+                }
+            }
+        }
+        assert!(
+            vazamentos.is_empty(),
+            "texto de tela ainda diz o nome antigo: {vazamentos:#?}"
+        );
+    }
+
+    #[test]
+    fn a_varredura_enxerga_o_fonte_e_poupa_o_nome_interno() {
+        let (_, botting) = fontes()[0];
+        let achados = literais(botting);
+        assert!(
+            achados.len() > 50,
+            "sem literais a varredura passaria sempre: {}",
+            achados.len()
+        );
+        assert!(palavra_inteira("Start Auto Rejoin", "Rejoin"));
+        assert!(!palavra_inteira("BottingPlayerGraceMinutes", "Botting"));
+        assert!(!palavra_inteira("supportsBotting", "Botting"));
+        // Comentário não conta: é onde o nome interno continua valendo.
+        assert!(literais("// o ciclo do Botting\nlet a = \"ok\";") == vec!["ok".to_string()]);
     }
 }

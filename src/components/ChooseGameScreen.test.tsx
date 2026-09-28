@@ -8,6 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../test-utils/tauriMo
 vi.mock("@tauri-apps/api/event", async () => (await import("../test-utils/tauriMocks")).tauriEventMock());
 
 import { ChooseGameScreen } from "./ChooseGameScreen";
+import { saveRecentGames } from "./server-list/types";
 import { makeAccount, setStore } from "../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
 import type { JoinTarget } from "../types";
@@ -204,6 +205,22 @@ describe("ChooseGameScreen — JoinLinkSection", () => {
     expect(linkInput()).toHaveValue("https://www.roblox.com/games/1");
   });
 
+  it("explica a recusa por launch já em andamento sem repetir o toast do store", async () => {
+    // O store já avisou (é ele que traduz o código do backend). A tela mostra a
+    // frase na linha inline e não empilha um "Launch failed: <código>" em cima.
+    setInvokeHandler(() => joinTarget({ kind: "place" }));
+    const store = await renderFollowTab();
+    (store.launchMultiple as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("launch-already-active")
+    );
+
+    await userEvent.type(linkInput(), "https://www.roblox.com/games/1");
+    await userEvent.click(joinButton());
+
+    expect(await screen.findByText(/A launch is already in progress/i)).toBeInTheDocument();
+    expect(store.addToast).not.toHaveBeenCalled();
+  });
+
   it("submits on Enter", async () => {
     setInvokeHandler(() => joinTarget({ kind: "place" }));
     const store = await renderFollowTab();
@@ -269,6 +286,43 @@ describe("ChooseGameScreen — FollowTab", () => {
     return [{ userPresenceType: 2, placeId: 111, rootPlaceId: 606849621, gameId: "job-x", ...overrides }];
   }
 
+  it("não anuncia que está seguindo quando o launch de UMA conta é recusado", async () => {
+    // Uma conta vai por `joinServer`. Se a recusa for engolida, `launchAll`
+    // devolve ok e a tela mostra "Following ... with 1 account(s)..." em cima do
+    // aviso "Já existe um launch em andamento".
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence();
+      return undefined;
+    });
+    const store = await renderFollowTab([ACCOUNT_A]);
+    (store.joinServer as ReturnType<typeof vi.fn>).mockResolvedValue("refused");
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() => expect(store.joinServer).toHaveBeenCalledTimes(1));
+    expect(store.addToast).not.toHaveBeenCalled();
+  });
+
+  it("não anuncia que está seguindo quando o launch de UMA conta falha", async () => {
+    // Mesma forma, um degrau ao lado: erro comum (ex.: `version-conflict`) põe a
+    // faixa vermelha, e anunciar "Following ..." em cima dela é a tela mentindo.
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence();
+      return undefined;
+    });
+    const store = await renderFollowTab([ACCOUNT_A]);
+    (store.joinServer as ReturnType<typeof vi.fn>).mockResolvedValue("failed");
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() => expect(store.joinServer).toHaveBeenCalledTimes(1));
+    expect(store.addToast).not.toHaveBeenCalled();
+  });
+
   it("resolves the target once and launches every account through the batch launcher", async () => {
     setInvokeHandler((cmd) => {
       if (cmd === "lookup_user") return { id: 42 };
@@ -326,6 +380,29 @@ describe("ChooseGameScreen — FollowTab", () => {
     expect(invokeMock.mock.calls.filter((call) => call[0] === "launch_roblox")).toHaveLength(0);
   });
 
+  /**
+   * O card promete: servidor escondido pela privacidade → pergunta antes de cair
+   * num servidor público do mesmo jogo. Sem `PromptProvider`, `confirm()`
+   * resolve `false` — então aqui nada pode ser aberto.
+   */
+  it("com o servidor escondido, não cai num servidor público sem perguntar", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence({ gameId: "" });
+      return undefined;
+    });
+    const store = await renderFollowTab();
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    // O campo volta a ficar habilitado no `finally`: o fluxo inteiro terminou.
+    await waitFor(() => expect(screen.getByPlaceholderText("e.g. Builderman")).toBeEnabled());
+    expect(invokeMock).toHaveBeenCalledWith("get_presence", expect.anything());
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+    expect(store.joinServer).not.toHaveBeenCalled();
+  });
+
   it("uses rootPlaceId over placeId", async () => {
     setInvokeHandler((cmd) => {
       if (cmd === "lookup_user") return { id: 42 };
@@ -339,6 +416,33 @@ describe("ChooseGameScreen — FollowTab", () => {
 
     await waitFor(() =>
       expect(store.launchMultiple).toHaveBeenCalledWith([1001, 1002], expect.objectContaining({ placeId: "999" }))
+    );
+  });
+});
+
+describe("ChooseGameScreen — Recent tab", () => {
+  /**
+   * A dica da aba promete "use Join Game to launch directly" — e na aba Games é
+   * o que o botão faz. Nos Recentes ele caía no mesmo caminho do clique no
+   * card, que só abre a aba Servers.
+   */
+  it("o Join Game de um jogo recente entra no jogo com as contas selecionadas", async () => {
+    saveRecentGames([{ placeId: 606849621, name: "Jailbreak", iconUrl: "icon.png", lastPlayed: Date.now() }]);
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+    });
+    render(<ChooseGameScreen />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Recent" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Join Game" }));
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ placeId: "606849621" })
+      )
     );
   });
 });
@@ -720,7 +824,7 @@ describe("ChooseGameScreen — descoberta", () => {
   });
 
   /**
-   * Item do dono: "Right click no jogo > Botting Mode deve abrir a tela já
+   * Item do dono: "Right click no jogo > Auto Rejoin deve abrir a tela já
    * configurada com aquele jogo, sem copiar e colar o Place ID". O place vai
    * **explícito** na abertura porque o rascunho salvo vence a store.
    */
@@ -730,11 +834,11 @@ describe("ChooseGameScreen — descoberta", () => {
 
     fireEvent.contextMenu(await screen.findByText("Jailbreak"), { clientX: 5, clientY: 5 });
     const menu = within(await screen.findByTestId("favorite-context-menu"));
-    await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+    await userEvent.click(menu.getByRole("button", { name: "Auto Rejoin" }));
 
     expect(store.openBottingDialog).toHaveBeenCalledWith("606849621");
     expect(store.setPlaceId).toHaveBeenCalledWith("606849621");
-    // Escolher o jogo para o Botting não lança nada.
+    // Escolher o jogo para o Auto Rejoin não lança nada.
     expect(store.joinServer).not.toHaveBeenCalled();
     expect(store.launchMultiple).not.toHaveBeenCalled();
   });
@@ -802,7 +906,7 @@ describe("ChooseGameScreen — descoberta", () => {
     expect(panelWrapper.className).toMatch(/overflow-y-auto/);
 
     const log = screen
-      .getByText("Launch a game or start Botting Mode to see the activity here")
+      .getByText("Launch a game or start Auto Rejoin to see the activity here")
       .closest(".font-mono") as HTMLElement;
     expect(log.className).toMatch(/min-h-\[160px\]/);
     expect(log.className).not.toMatch(/min-h-0/);
@@ -810,7 +914,7 @@ describe("ChooseGameScreen — descoberta", () => {
 });
 
 /**
- * O console era só do launch: ação do Botting Mode não aparecia em lugar
+ * O console era só do launch: ação do Auto Rejoin não aparecia em lugar
  * nenhum, e o Watcher fechava cliente deixando só um toast de 2,5 s. Agora ele
  * é o histórico geral, e cada linha diz de onde veio.
  */
@@ -821,9 +925,9 @@ describe("ChooseGameScreen — console como histórico geral", () => {
       selectedIds: new Set([1001]),
       selectedAccounts: [ACCOUNT_A],
       launchLogs: [
-        { id: 1, userId: 1001, level: "success", step: "botting", message: "Entrou no jogo pelo ciclo do Botting", ts: Date.now() },
+        { id: 1, userId: 1001, level: "success", step: "rejoin", message: "Entrou no jogo pelo ciclo do Auto Rejoin", ts: Date.now() },
         { id: 2, userId: 1001, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s", ts: Date.now() },
-        { id: 3, userId: null, level: "info", step: "botting", message: "Botting Mode parado", ts: Date.now() },
+        { id: 3, userId: null, level: "info", step: "rejoin", message: "Auto Rejoin parado", ts: Date.now() },
       ],
     });
     render(<ChooseGameScreen />);
@@ -835,10 +939,10 @@ describe("ChooseGameScreen — console como histórico geral", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Console" }));
 
-    expect(screen.getByText("Entrou no jogo pelo ciclo do Botting")).toBeInTheDocument();
+    expect(screen.getByText("Entrou no jogo pelo ciclo do Auto Rejoin")).toBeInTheDocument();
     expect(screen.getByText(/sem conexao por 30s/)).toBeInTheDocument();
     const origens = screen.getAllByTestId("log-step").map((el) => el.textContent);
-    expect(origens).toEqual(["[botting]", "[watcher]", "[botting]"]);
+    expect(origens).toEqual(["[rejoin]", "[watcher]", "[rejoin]"]);
   });
 
   it("linha de sessão não finge pertencer a uma conta", async () => {
@@ -847,7 +951,7 @@ describe("ChooseGameScreen — console como histórico geral", () => {
     await userEvent.click(screen.getByRole("button", { name: "Console" }));
 
     // `userId: null` desenha "—": passar 0 imprimiria "0" no lugar do nome.
-    const linha = screen.getByText("Botting Mode parado").closest("div") as HTMLElement;
+    const linha = screen.getByText("Auto Rejoin parado").closest("div") as HTMLElement;
     expect(linha.textContent).toContain("—");
   });
 });

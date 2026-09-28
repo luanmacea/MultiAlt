@@ -116,7 +116,7 @@ lia. Abaixo, o que cada item virou.
 | ✓ | **O botão `Names` não tem tooltip** — o único da toolbar sem (`Toolbar.tsx:137`) |
 | ✓ | **O estado vazio da lista oferece 4 opções**; o menu `Add` oferece 8, e faltam justamente as duas de criar conta (`AddAccountDialog.tsx:90-114`) |
 | | **`Join link`** — a funcionalidade que resolve qualquer link — está dentro da aba Follow, a única sem dica 💡 |
-| | **Botting Mode é invisível** até alguém achar o toggle em Settings › General |
+| | **Auto Rejoin é invisível** até alguém achar o toggle em Settings › General |
 | | **Os ícones da toolbar não têm nome acessível**; o rótulo só existe em tooltip com 350 ms de atraso |
 | | **A aba WebServer só existe se o usuário descobrir o Developer Mode** |
 | | **As duas redes de segurança do Isolation** (restaurar identificadores, pré-visualizar o que será apagado) estão dentro de "Advanced" |
@@ -124,7 +124,7 @@ lia. Abaixo, o que cada item virou.
 | | **Os ajustes que reduzem CAPTCHA** ficam em Settings › General, longe da tela de criar contas |
 | | **Favoritar só é possível por botão direito** na aba Games |
 | | **Não existe nenhum ponto de ajuda** na barra de título nem na toolbar |
-| | **O gerador rodando some da tela** ao fechar o diálogo — e ele gasta dinheiro (o Botting, que não gasta, tem contador no rodapé) |
+| | **O gerador rodando some da tela** ao fechar o diálogo — e ele gasta dinheiro (o Auto Rejoin, que não gasta, tem contador no rodapé) |
 | | **O tour nunca menciona o Painel de Sessão** e fecha os diálogos de ferramenta sem apresentá-los |
 
 ## P2 — está na tela e não se explica ✅
@@ -138,7 +138,7 @@ deu para confirmar ficou sem texto, e está listado abaixo.
 |---|---|---|
 | ✓ | **Scripts não diz o que é**: JavaScript num Web Worker *dentro do RAM*, não executor, sem injector | Cabeçalho diz onde roda, que fala com o app pela API `ram.*`, que não injeta nada e que não recebe cookie nem senha |
 | ✓ | **As 8 permissões de script são nomes técnicos** sem descrição (`PermissionRow` nem aceita uma) | `PermissionRow` passa a exigir descrição; cada permissão diz o risco concreto |
-| ✓ | **Botting não diz que fecha e reabre o cliente a cada ciclo**, e os campos de tempo perdem a unidade na vista padrão | Bloco "How each cycle works" nas duas vistas + unidade, significado e faixa de cada campo de Timing |
+| ✓ | **Auto Rejoin não diz que fecha e reabre o cliente a cada ciclo**, e os campos de tempo perdem a unidade na vista padrão | Bloco "How each cycle works" nas duas vistas + unidade, significado e faixa de cada campo de Timing |
 | ✓ | **Nexus**: o ícone diz "Nexus", o diálogo diz "Account Control", e o Help não menciona que é preciso um executor de terceiros | Diálogo se chama Nexus; seção Requirements diz que ele só escuta, e o endereço `ws://localhost:<porta>/Nexus` |
 | ✓ | **A aba WebServer inteira é uma lista de permissões sem uma linha de explicação** — `Allow GetCookie` entrega o cookie da conta | Uma linha por permissão, conferida nos handlers; `GetCookie` em aviso âmbar |
 | ✓ | **A aba Watcher liga um sistema inteiro** sem dizer o que ele faz | Topo da aba diz o que varre, que ignora a janela em uso, a carência de 30 s, e que fecha sem reabrir |
@@ -162,7 +162,7 @@ escrito escapando do ponto (e isso está dito na linha).
 
 | Gravidade | Achado | Onde |
 |---|---|---|
-| ✅ Alta | **`LastUse` nunca era atualizado por lançamento** — a coluna "3d"/"2mo" e a bolinha mediam idade do cadastro. Agora `mark_used` roda no `Done` da fila de launch, no ciclo do Botting e nos launches do web server. Efeito colateral bom: o auto-refresh de cookie (que desloga todas as sessões) deixa de mirar conta que está em uso | `data/accounts/store.rs` (`mark_used`), `commands/launch.rs` (`launch_queue_mark`) |
+| ✅ Alta | **`LastUse` nunca era atualizado por lançamento** — a coluna "3d"/"2mo" e a bolinha mediam idade do cadastro. Agora `mark_used` roda no `Done` da fila de launch, no ciclo do Auto Rejoin e nos launches do web server. Efeito colateral bom: o auto-refresh de cookie (que desloga todas as sessões) deixa de mirar conta que está em uso | `data/accounts/store.rs` (`mark_used`), `commands/launch.rs` (`launch_queue_mark`) |
 | ✅ Alta | **`Allow Account Editing` não cobria tudo que edita a conta**: `/SetAvatar`, `/BlockUser`, `/UnblockUser` e `/UnblockEveryone` passavam só com a senha. Agora exigem a flag, como as rotas de campo/apelido/descrição já exigiam (quebra de compatibilidade registrada em webserver.md) | `api/server/handlers_edit.rs` + `edit_permission_tests` |
 | ✅ Média | **O snapshot da janela era empurrado para todo script** sem checar `allowWindow`. Agora os dois pontos de envio passam por `snapshotForPermissions`: sem a permissão sobram só as settings redigidas e o `ts` | `scripting/security.ts`, `ScriptsDialog.tsx` |
 | ✅ Média | **A descrição de `Background Mode` estava errada** (falava em cliente minimizado). Agora diz que força Idle em todos os clientes do perfil, inclusive o em foco | `OptimizationTab.tsx` + teste em `settingsHelp.test.tsx` |
@@ -201,10 +201,10 @@ derrubou cinco afirmações da versão anterior desta lista, corrigidas abaixo.
 |---|---|---|
 | ✓ | **`Copy ▸ Cookie`/`Password`/`User:Pass` entregam credencial sem aviso** — e `copyMulti` junta **todas** as contas selecionadas: um clique com 50 selecionadas põe 50 `.ROBLOSECURITY` na área de transferência. Mais dois botões fazem o mesmo em massa (`BottomActionBar`, `MultiSelectSidebar`) | Confirmação dizendo o que o cookie entrega e quantas contas entram na cópia, com opt-out persistido em `General.WarnOnCopyCredential` (hook `useCopyCredentialWarning`, no molde do `useJoinOnlineWarning`) |
 | ✓ | **Copiar link de debug podia derrubar as sessões da conta**: o comando `get_auth_ticket` estava sob `run_with_session_retry`, e o refresh chama `signoutfromallsessionsandreauthenticate` — leitura não crítica, o que o CLAUDE.md proíbe | `auth_ticket_without_refresh`: cookie velho virou erro na tela, não refresh. O launch tem caminho próprio e segue com retry. Os três itens que copiam ticket/link também confirmam antes |
-| ✓ | **Ações destrutivas do Botting não confirmavam** (`BottingDialog` nem importava `usePrompt`): `Stop + Close Bot Accounts` e os lotes `close`/`closeDisconnect` fechavam N clientes num clique | Confirmação com a contagem real e a frase que o próprio diálogo já usa — fecha só as bot **desta sessão**; player e clientes de fora ficam abertos. `Stop Botting Mode` e `restart` seguem sem perguntar, de propósito |
+| ✓ | **Ações destrutivas do Auto Rejoin não confirmavam** (`BottingDialog` nem importava `usePrompt`): `Stop + Close Bot Accounts` e os lotes `close`/`closeDisconnect` fechavam N clientes num clique | Confirmação com a contagem real e a frase que o próprio diálogo já usa — fecha só as bot **desta sessão**; player e clientes de fora ficam abertos. `Stop Auto Rejoin` e `restart` seguem sem perguntar, de propósito |
 | ✓ | **`Clear all` dos recentes**, remover favorito e remover VIP apagavam direto no `localStorage` | Confirmação destrutiva dizendo quantos itens somem e que não há como recuperar |
 | ✓ | **Toast de erro idêntico ao de sucesso**: a store calculava `tone` e **nenhum componente lia** | A fila virou `{id, message, tone}` e o toast usa a mesma paleta do Console de launch (`TONE_STYLES`). De lambuja: remover por `id` conserta o `slice(1)`, que derrubava o vizinho errado quando dois toasts se sobrepunham |
-| ✓ | **16 mensagens só existiam em `actionStatus`, que ninguém desenhava** — `Settings saved`, todo o progresso de download do Chromium e da versão do Roblox (`timeoutMs: 60000`), `Botting rejoin failed` | A `StatusBar` desenha o slot com a bolinha do tom. Fronteira explícita: toast = "acabou de acontecer", `actionStatus` = "está acontecendo agora" — e `addToast` parou de escrever nos dois |
+| ✓ | **16 mensagens só existiam em `actionStatus`, que ninguém desenhava** — `Settings saved`, todo o progresso de download do Chromium e da versão do Roblox (`timeoutMs: 60000`), `Auto Rejoin rejoin failed` | A `StatusBar` desenha o slot com a bolinha do tom. Fronteira explícita: toast = "acabou de acontecer", `actionStatus` = "está acontecendo agora" — e `addToast` parou de escrever nos dois |
 | ✓ | **Três atributos JSX com escape cru** (`HKLM\\SOFTWARE\\…`, `C:\\path\\…`, `\n` literal no JSON dos fast flags) | `attr={"..."}`. O bug era triplo: escape na tela, frase caindo no inglês **em todos os idiomas**, e a tradução pt existente como chave morta. Um teste estrutural varre `src/**/*.tsx` e reprova o quarto caso |
 | ✓ | **A confirmação de entrar com conta online estava inteira em inglês** — modal bloqueante, chamado de 4 telas, com a frase num template literal (que o extrator descarta por princípio) e `Join Anyway`/`Don't show this warning again` fora do catálogo | Frases com `{{placeholder}}`, singular e plural em chaves separadas, e o estado de presença traduzido dentro da frase |
 

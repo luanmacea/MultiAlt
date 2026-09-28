@@ -321,8 +321,8 @@ describe("FavoritesTab", () => {
 });
 
 /**
- * Usar o Botting no jogo favorito exigia copiar o Place ID e abrir a tela do
- * Botting à mão. O menu do favorito passa a oferecer as ações do jogo.
+ * Usar o Auto Rejoin no jogo favorito exigia copiar o Place ID e abrir a tela do
+ * Auto Rejoin à mão. O menu do favorito passa a oferecer as ações do jogo.
  */
 /**
  * Visto ao dirigir a tela: a aba Games mostra o ícone de cada jogo e a de
@@ -375,7 +375,7 @@ describe("FavoritesTab — ações do jogo no menu", () => {
   it("abre o Botting Mode com o jogo favorito", async () => {
     const { menu, onBotting, onSelectGame } = await abrirMenu();
 
-    await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+    await userEvent.click(menu.getByRole("button", { name: "Auto Rejoin" }));
 
     expect(onBotting).toHaveBeenCalledWith(606849621);
     // Abrir a tela do jogo não é entrar no jogo (nem no VIP dele).
@@ -399,6 +399,7 @@ describe("FavoritesTab — ações do jogo no menu", () => {
 describe("RecentTab", () => {
   function renderRecent(userId: number | null = 1001) {
     const onSelectGame = vi.fn();
+    const onJoinGame = vi.fn();
     const onBrowseServers = vi.fn();
     const onAddFavorite = vi.fn();
     const onBotting = vi.fn();
@@ -406,6 +407,7 @@ describe("RecentTab", () => {
     render(
       <RecentTab
         onSelectGame={onSelectGame}
+        onJoinGame={onJoinGame}
         maxRecent={8}
         userId={userId}
         onBrowseServers={onBrowseServers}
@@ -414,7 +416,7 @@ describe("RecentTab", () => {
         onScripts={onScripts}
       />
     );
-    return { onSelectGame, onBrowseServers, onAddFavorite, onBotting, onScripts };
+    return { onSelectGame, onJoinGame, onBrowseServers, onAddFavorite, onBotting, onScripts };
   }
 
   it("shows the empty state when nothing has been played", () => {
@@ -542,7 +544,7 @@ describe("RecentTab", () => {
     it("abre o Botting Mode com o jogo recente", async () => {
       const { menu, onBotting, onSelectGame } = await abrirMenu();
 
-      await userEvent.click(menu.getByRole("button", { name: "Botting Mode" }));
+      await userEvent.click(menu.getByRole("button", { name: "Auto Rejoin" }));
 
       expect(onBotting).toHaveBeenCalledWith(920587237);
       expect(onSelectGame).not.toHaveBeenCalled();
@@ -566,13 +568,15 @@ describe("RecentTab", () => {
       );
     });
 
-    it("entra pelo menu com o nome e o ícone que já estavam em cache", async () => {
-      const { menu, onSelectGame } = await abrirMenu();
+    it("entra no jogo pelo menu, em vez de só abrir os servidores", async () => {
+      const { menu, onSelectGame, onJoinGame } = await abrirMenu();
 
       await userEvent.click(menu.getByRole("button", { name: "Join Game" }));
 
-      // Mesmo caminho do clique na linha: nome e ícone vão com o place.
-      expect(onSelectGame).toHaveBeenCalledWith(920587237, "Adopt Me", expect.anything());
+      // "Join Game" entra, como na aba Games; o clique no card é que abre os
+      // servidores (`onSelectGame`).
+      expect(onJoinGame).toHaveBeenCalledWith(920587237);
+      expect(onSelectGame).not.toHaveBeenCalled();
     });
   });
 });

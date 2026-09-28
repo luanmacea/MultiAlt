@@ -40,12 +40,9 @@ export function isPlausibleVipLink(text: string): boolean {
 export interface FavoritesTabProps {
   onSelectGame: (placeId: number, privateServer?: string) => void;
   addToast: (msg: string) => void;
-  /**
-   * Abre a lista de servidores daquele jogo. Opcional porque o diálogo de
-   * servidores (fora da Choose Game) não tem para onde levar.
-   */
+  /** Abre a lista de servidores daquele jogo (opcional: sem callback, some). */
   onBrowseServers?: (placeId: number) => void;
-  /** Abre o Botting Mode / os Scripts **com este jogo**, sem copiar Place ID. */
+  /** Abre o Auto Rejoin / os Scripts **com este jogo**, sem copiar Place ID. */
   onBotting?: (placeId: number) => void;
   onScripts?: (placeId: number) => void;
 }

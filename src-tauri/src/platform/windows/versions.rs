@@ -104,12 +104,19 @@ fn fallback_common_base_url() -> String {
     format!("{}/channel/common/", CDN_HOST)
 }
 
+/// Cliente do catálogo e do **download de build**, com teto próprio e maior
+/// (`DOWNLOAD_REQUEST_TIMEOUT`, os mesmos 180 s de sempre): um zip de build passa
+/// de 100 MB e o teto de uma chamada de API cortaria um download que ia bem. O
+/// que ganhou teto aqui foi o handshake — sem `connect_timeout`, um socket que
+/// aceita e nunca fala TLS prendia o launch os 3 minutos inteiros.
 async fn http_client_versioned() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
+    // `expect` e não `unwrap_or_else(reqwest::Client::new)`: o fallback antigo
+    // devolvia um cliente **sem teto nenhum** justamente no download, que é o
+    // caminho mais longo do launch. `build()` só falha se o TLS não inicializar.
+    crate::api::http_client::download_builder()
         .user_agent("RobloxAccountManager/4")
         .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+        .expect("TLS backend for the Roblox build downloader")
 }
 
 async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, String> {
@@ -117,7 +124,7 @@ async fn fetch_text(client: &reqwest::Client, url: &str) -> Result<String, Strin
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
+        .map_err(|e| crate::api::http_client::describe_error(&e))?;
     if !response.status().is_success() {
         return Err(format!(
             "HTTP {} for {}",
@@ -136,7 +143,7 @@ async fn fetch_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Str
         .get(url)
         .send()
         .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
+        .map_err(|e| crate::api::http_client::describe_error(&e))?;
     if !response.status().is_success() {
         return Err(format!(
             "HTTP {} for {}",
@@ -147,7 +154,7 @@ async fn fetch_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Str
     let bytes = response
         .bytes()
         .await
-        .map_err(|e| format!("Download failed: {}", e))?;
+        .map_err(|e| crate::api::http_client::describe_error(&e))?;
     Ok(bytes.to_vec())
 }
 

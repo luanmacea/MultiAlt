@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -47,6 +47,40 @@ describe("ImportDialog — the cookie tab explains the cookie", () => {
     expect(where).toHaveTextContent(/Application/);
     expect(where).toHaveTextContent(/Cookies/);
   });
+
+  /**
+   * A caixa passou a aceitar `username:password:cookie`, e a senha é mais do
+   * que a sessão: troca e-mail e senha, e sair de todas as sessões não a
+   * revoga. O aviso que falava só do cookie subestimava o que está em jogo.
+   */
+  it("says the password raises the stakes over the cookie alone", () => {
+    renderDialog();
+    const warning = screen.getByText(/also saves the password/i);
+    expect(warning).toHaveTextContent(/email and password/i);
+    expect(warning).toHaveTextContent(/AccountData\.json/);
+  });
+
+  /**
+   * A7 do checkup: desde a criptografia do vault, o `AccountData.json` e cifrado
+   * **sempre** — com a chave do aparelho, ou com a senha do app. O aviso dizia
+   * "encrypted only if you set an app password" e contradizia a tela de
+   * criptografia justamente no momento em que o dono decide colar senhas.
+   */
+  it("does not claim the account file is only encrypted with an app password", () => {
+    renderDialog();
+    const warning = screen.getByText(/also saves the password/i);
+    expect(warning).not.toHaveTextContent(/only if you set an app password/i);
+    expect(warning).toHaveTextContent(/always encrypted/i);
+    expect(warning).toHaveTextContent(/this device's key/i);
+    expect(warning).toHaveTextContent(/app password if you set one/i);
+  });
+
+  it("offers the username:password:cookie format in the hint", () => {
+    renderDialog();
+    expect(
+      screen.getByText(/Paste one \.ROBLOSECURITY cookie per line, or one username:password:cookie/)
+    ).toBeInTheDocument();
+  });
 });
 
 describe("ImportDialog — importing cookies", () => {
@@ -65,5 +99,72 @@ describe("ImportDialog — importing cookies", () => {
       })
     );
     expect(store.loadAccounts).toHaveBeenCalled();
+  });
+
+  /**
+   * O cookie tem `:` dentro dele (`_|WARNING:-DO-NOT-SHARE...`): um
+   * `split(":")` ingênuo manda `_|WARNING` como cookie e grava credencial
+   * quebrada. O corte é pelo lugar onde o cookie começa, não pelos dois-pontos.
+   */
+  it("imports username:password:cookie without cutting the cookie in half", async () => {
+    setInvokeMap({ validate_cookie: { user_id: 7, name: "name_from_roblox" } });
+    renderDialog();
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: `alt_two:hunter2:${COOKIE}` },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("add_account", {
+        securityToken: COOKIE,
+        username: "name_from_roblox",
+        userId: 7,
+        password: "hunter2",
+      })
+    );
+    expect(invokeMock).toHaveBeenCalledWith("validate_cookie", { cookie: COOKIE });
+  });
+
+  /**
+   * Conta que já existe não passa pelo `add_account`, então a senha da linha
+   * **não** é gravada. "already exists" sozinho deixava pensar que foi.
+   */
+  it("says the password was not stored when the account already exists", async () => {
+    setInvokeMap({ validate_cookie: { user_id: 5, name: "alt_one" } });
+    setStore({ accounts: [{ UserID: 5, Username: "alt_one" } as never] });
+    render(<ImportDialog open onClose={vi.fn()} defaultTab="cookie" />);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: `alt_one:hunter2:${COOKIE}` },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/password in this line was not stored/i)).toBeInTheDocument()
+    );
+    expect(invokeMock).not.toHaveBeenCalledWith("add_account", expect.anything());
+  });
+
+  it("skips a line that has only username:password, instead of importing half a credential", async () => {
+    // O nome gravado é o que `validate_cookie` devolve, não o da linha.
+    setInvokeMap({ validate_cookie: { user_id: 9, name: "name_from_roblox" } });
+    renderDialog();
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: `alt_three:hunter2\nalt_four:hunter2:${COOKIE}` },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    await waitFor(() => expect(screen.getByText(/no cookie in this line/i)).toBeInTheDocument());
+    // A linha completa depois dela continua entrando: pular não é abortar.
+    expect(invokeMock).toHaveBeenCalledWith("add_account", {
+      securityToken: COOKIE,
+      username: "name_from_roblox",
+      userId: 9,
+      password: "hunter2",
+    });
+    const validated = invokeMock.mock.calls.filter((c) => c[0] === "validate_cookie");
+    expect(validated).toHaveLength(1);
   });
 });

@@ -211,33 +211,60 @@ describe("EncryptionSetupScreen", () => {
     expect(store.applyEncryptionMethod).toHaveBeenCalledWith("default", undefined);
   });
 
-  // Regressão: a opção sem senha se chamava "Default Encryption" / "local
-  // default protection", mas grava AccountData.json em JSON puro. O texto
-  // precisa dizer isso, senão o usuário escolhe achando que está protegido.
-  it("says out loud that the no-password option is not encrypted", async () => {
+  // Regressão, duas vezes no mesmo texto: primeiro a opção sem senha se chamava
+  // "Default Encryption" e gravava JSON puro (o rótulo escondia isso); agora ela
+  // **é** criptografada, pela chave do aparelho, e o rótulo antigo ("Not
+  // Encrypted", "plain JSON") passou a ser a mentira oposta. O texto tem que
+  // dizer onde a chave fica, senão o usuário escolhe sem saber o que ganhou.
+  it("says the no-password option is locked with a device key, not plain JSON", async () => {
     renderSetup();
     expect(screen.queryByText(/Default Encryption/)).not.toBeInTheDocument();
     expect(screen.queryByText(/local default protection/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/plain JSON/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Not Encrypted/i)).not.toBeInTheDocument();
 
     const plainOption = screen.getByRole("button", { name: /No Password/ });
-    expect(plainOption).toHaveTextContent(/Not Encrypted/i);
-    expect(plainOption).toHaveTextContent(/plain JSON/i);
-    expect(plainOption).toHaveTextContent(/cookies and passwords/i);
+    expect(plainOption).toHaveTextContent(/Device Key/i);
+    expect(plainOption).toHaveTextContent(/encrypted with a key stored on this device/i);
   });
 
-  it("warns about plain text once the no-password option is picked", async () => {
+  // O limite da proteção tem que estar na tela onde o usuário decide, não só na
+  // doc. E ele tem que ser o limite **real**: a chave viaja no zip de backup (é
+  // obrigatório, senão o backup não restaura), então backup vazado **não** está
+  // protegido. A versão anterior desta frase afirmava que estava — vender
+  // proteção que não existe é pior que não falar nada.
+  it("states the real limit of the device key once the no-password option is picked", async () => {
     renderSetup();
     await userEvent.click(screen.getByRole("button", { name: /No Password/ }));
-    expect(screen.getByText(/there is no encryption/i)).toBeInTheDocument();
+
+    const limit = screen.getByText(/the key sits in a file next to AccountData\.json/i);
+    // Só o arquivo copiado **sem** o `.key` fica fechado; a pasta inteira
+    // copiada é o caso do backup vazado, abaixo.
+    expect(limit).toHaveTextContent(/AccountData\.json copied without that file/i);
+    expect(limit).toHaveTextContent(/another user on this PC/i);
+    expect(limit).toHaveTextContent(/but not a program running as you/i);
+
+    // O que o backup vazado realmente ganha: nada. E a saída oferecida é senha.
+    const backups = screen.getByText(/does not protect a leaked backup/i);
+    expect(backups).toHaveTextContent(/backup zip has to carry the key/i);
+    expect(backups).toHaveTextContent(/Choose a password if you keep backups in cloud storage/i);
+
+    // A frase antiga afirmava o contrário; ela não pode voltar.
     expect(
-      screen.getByText("You can continue without a password, but your accounts will not be encrypted.")
+      screen.queryByText(/stops a copied file, a leaked backup/i),
+    ).not.toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        "You can continue without a password: the vault is locked with this device key instead.",
+      ),
     ).toBeInTheDocument();
   });
 
-  it("describes the current method honestly when nothing is encrypted", () => {
+  it("describes the current method honestly when there is no password", () => {
     renderSetup({ encryptionSetupMode: "settings", accountsEncrypted: false });
     expect(
-      screen.getByText("Current method: No password (AccountData.json is plain text)")
+      screen.getByText("Current method: Device Key (no password)"),
     ).toBeInTheDocument();
   });
 

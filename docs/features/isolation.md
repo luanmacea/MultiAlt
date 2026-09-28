@@ -102,8 +102,8 @@ Seção `[Isolation]` do `RAMSettings.ini`:
 
 - Isolamento é tentado **a cada launch único** e uma vez por `launch_multiple`, mas só limpa quando **nenhum** Roblox está aberto. Lançando contas uma a uma, apenas a primeira é isolada; as seguintes recebem `skipped` (antes o isolamento matava todos os clientes abertos — isso foi removido para não derrubar as outras contas).
 - Com `skipped`, o launch prossegue sem limpeza: quem depende do isolamento para separar sessões deve fechar os clientes antes (ex.: "Close All Roblox").
-- Medium/Full apagam o valor de canal que o fix de [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix) fixa; `launch_url` recria a chave no launch seguinte.
+- Medium/Full apagam o valor de canal que o **Roblox** gravou — o app não fixa canal nenhum (ver [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix)). E o app **não recria** a chave: sem ela, `current_player_channel` lê `production` por ausência, e o `launch_url` nunca escreve no registro. Quem volta a gravar o canal é o próprio Roblox, na próxima vez que inscrever a conta num canal. Não "conserte" isso gravando `production`.
 - Full + fast flags: o JSON pendente só é aplicado se a nova instalação aparecer em até 240 s.
 - Spoof de MAC corta a conexão brevemente; se rodar no meio de outras sessões, elas podem cair.
-- Botting e web server não executam isolamento.
+- Auto Rejoin e web server não executam isolamento.
 - Dados apagados não vão para a lixeira (remoção direta com `remove_dir_all`/`RegDeleteTreeW`).

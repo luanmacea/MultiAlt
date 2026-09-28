@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { ENABLE_NEXUS } from "../../featureFlags";
+import { quickAddAccount } from "../../utils/quickAdd";
 import { SessionToolbarButton } from "../dialogs/SessionDialog";
-import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp } from "lucide-react";
+import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp, Keyboard } from "lucide-react";
 
 export function Toolbar() {
   const t = useTr();
@@ -102,32 +102,9 @@ export function Toolbar() {
       )
     );
     if (!input?.trim()) return;
-    const value = input.trim();
-
-    try {
-      if (value.includes("_|WARNING:-DO-NOT-SHARE")) {
-        await store.addAccountByCookie(value);
-        return;
-      }
-
-      const user = await invoke<{ id: number; name: string }>("lookup_user", { username: value });
-      await invoke("add_account", {
-        securityToken: "",
-        username: user.name,
-        userId: user.id,
-      });
-      await store.loadAccounts();
-      // Busca por nome de usuário não entrega cookie nenhum: a conta entra só
-      // como registro, sem sessão, e não lança. Dizer só "Added" fazia parecer
-      // que tinha dado certo — o aviso tem que nomear o que falta.
-      store.addToast(
-        tr("Added {{name}} with no session — paste its cookie or use Browser Login to sign in", {
-          name: user.name,
-        })
-      );
-    } catch (e) {
-      store.addToast(tr("Add failed: {{error}}", { error: String(e) }));
-    }
+    // Cookie, `usuario:senha:cookie` ou nome de usuário: quem decide é o leitor
+    // do import, o mesmo nas duas portas (ver `quickAddAccount`).
+    await quickAddAccount(input, store);
   }
 
   return (
@@ -219,7 +196,9 @@ export function Toolbar() {
             <ChevronDown size={10} strokeWidth={2.5} />
           </button>
           {addMenuOpen && (
-            <div className="theme-panel theme-border absolute right-0 top-full mt-1.5 w-64 border rounded-xl shadow-2xl z-50 animate-scale-in py-1">
+            // Teto: na janela mínima (750x450) o menu passava da borda de baixo
+            // e o último item ficava cortado; com ele, o menu rola por dentro.
+            <div className="theme-panel theme-border absolute right-0 top-full mt-1.5 w-64 max-h-[calc(100vh-96px)] overflow-y-auto border rounded-xl shadow-2xl z-50 animate-scale-in py-1">
               <button
                 onClick={handleQuickAdd}
                 className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
@@ -332,6 +311,23 @@ export function Toolbar() {
             </button>
           </Tooltip>
         )}
+
+        {/*
+          O AFK mode é por conta e só alcança cliente aberto, então a porta dele
+          fica aqui, sempre visível — e não na barra de ações, que só aparece com
+          conta selecionada.
+        */}
+        <Tooltip content={t("AFK Mode")} side="bottom">
+          <button
+            onClick={() => store.setAfkDialogOpen(true)}
+            aria-label={t("AFK Mode")}
+            className={`theme-btn-ghost p-1.5 rounded-lg transition-colors ${
+              store.afkStatus?.active ? activeToggleStyle : ""
+            }`}
+          >
+            <Keyboard size={16} strokeWidth={1.5} />
+          </button>
+        </Tooltip>
 
         <Tooltip content={t("Scripts")} side="bottom">
           <button
