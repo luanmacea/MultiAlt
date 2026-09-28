@@ -222,6 +222,7 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
           {activeTab === "recent" && (
             <RecentTab
               onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
+              onJoinGame={handleJoinGame}
               maxRecent={maxRecent}
               maxRecentJobs={maxRecentJobs}
               userId={userId}

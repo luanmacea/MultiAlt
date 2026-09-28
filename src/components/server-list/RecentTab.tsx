@@ -5,6 +5,8 @@ import type { GameEntry } from "./types";
 
 export interface RecentTabProps {
   onSelectGame: (placeId: number, name?: string, iconUrl?: string | null) => void;
+  /** "Join Game" da linha: entra no jogo, como na aba Games. */
+  onJoinGame: (placeId: number) => void;
   maxRecent: number;
   userId: number | null;
   /** Abre a lista de servidores daquele jogo. */
@@ -25,6 +27,7 @@ export interface RecentTabProps {
 
 export function RecentTab({
   onSelectGame,
+  onJoinGame,
   maxRecent,
   userId,
   onBrowseServers,
@@ -40,6 +43,7 @@ export function RecentTab({
       userId={userId}
       maxRecent={maxRecent}
       onSelect={onSelectGame}
+      onJoinGame={onJoinGame}
       onBrowseServers={onBrowseServers}
       onAddFavorite={onAddFavorite}
       onBotting={onBotting}

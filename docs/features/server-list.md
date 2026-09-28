@@ -59,6 +59,7 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 2. Insere otimisticamente no topo (nome = placeId se desconhecido), remove duplicata do mesmo placeId e corta em `MaxRecentGames`.
 3. Em seguida resolve nome e ícone (`batched_get_game_info`, uma chamada) e atualiza a entrada. `RecentGamesList` também completa entradas antigas sem nome/ícone ao exibir.
 4. Persistência em `localStorage["ram_recent_games"]`.
+5. Na linha (e no menu de contexto), **clicar no card abre os servidores** do jogo e **"Join Game" entra** com as contas selecionadas — as mesmas ações da aba Games, nas duas telas (Choose Game e Server List). Até 27/09/2026 o "Join Game" dos Recentes chamava o mesmo `onSelect` do card e só abria os servidores, embora a dica da aba prometesse entrar direto. No popover de escolha de jogo (`RecentGamesPopover`, sem `onJoinGame`), "Join Game" continua sendo escolher.
 
 #### Servidores recentes (Job IDs)
 

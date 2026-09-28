@@ -8,6 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../test-utils/tauriMo
 vi.mock("@tauri-apps/api/event", async () => (await import("../test-utils/tauriMocks")).tauriEventMock());
 
 import { ChooseGameScreen } from "./ChooseGameScreen";
+import { saveRecentGames } from "./server-list/types";
 import { makeAccount, setStore } from "../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
 import type { JoinTarget } from "../types";
@@ -415,6 +416,33 @@ describe("ChooseGameScreen — FollowTab", () => {
 
     await waitFor(() =>
       expect(store.launchMultiple).toHaveBeenCalledWith([1001, 1002], expect.objectContaining({ placeId: "999" }))
+    );
+  });
+});
+
+describe("ChooseGameScreen — Recent tab", () => {
+  /**
+   * A dica da aba promete "use Join Game to launch directly" — e na aba Games é
+   * o que o botão faz. Nos Recentes ele caía no mesmo caminho do clique no
+   * card, que só abre a aba Servers.
+   */
+  it("o Join Game de um jogo recente entra no jogo com as contas selecionadas", async () => {
+    saveRecentGames([{ placeId: 606849621, name: "Jailbreak", iconUrl: "icon.png", lastPlayed: Date.now() }]);
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+    });
+    render(<ChooseGameScreen />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Recent" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Join Game" }));
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ placeId: "606849621" })
+      )
     );
   });
 });
