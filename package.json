@@ -17,6 +17,7 @@
     "check": "bun run typecheck && bun run test:audit && bun run test && bun run test:rust",
     "t": "bun scripts/test-suite.ts",
     "vt": "bun scripts/virustotal.ts",
+    "scan": "bun scripts/scan.ts",
     "test:suite": "bun scripts/test-suite.ts",
     "test:audit": "bun scripts/test-suite.ts --audit",
     "dev:ui": "UI_HARNESS=1 vite"
