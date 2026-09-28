@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -400,7 +400,7 @@ describe("ServersTab — região", () => {
       start_server_scan: SCAN_ID,
       get_server_regions: [region("job-a", "BR", "São Paulo"), region("job-b", "US", "Ashburn")],
     });
-    await user.click(screen.getByRole("button", { name: /Load regions/i }));
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
 
     await screen.findByText("São Paulo, BR");
     expect(screen.getByText("Ashburn, US")).toBeInTheDocument();
@@ -408,6 +408,41 @@ describe("ServersTab — região", () => {
     const args = (callsFor("get_server_regions")[0][1] ?? {}) as Record<string, unknown>;
     expect(args.jobIds).toEqual(["job-a", "job-b"]);
     expect(args.userId).toBe(1001);
+  });
+
+  /**
+   * A mesma chamada da região já traz a recusa do Roblox (o erro 524, "You do
+   * not have permission to join this experience"). Relato do dono
+   * (28/09/2026): as alts só descobriam isso tentando entrar. A linha diz, e o
+   * Entrar daquele servidor fica desativado.
+   */
+  it("marca o servidor que recusa a conta e desativa o Entrar dele", async () => {
+    const user = userEvent.setup();
+    renderTab([row({ id: "job-ok" }), row({ id: "job-negado" })]);
+    await screen.findByText("job-negado");
+
+    setInvokeMap({
+      start_server_scan: SCAN_ID,
+      get_server_regions: [
+        region("job-ok", "BR", "São Paulo"),
+        {
+          jobId: "job-negado",
+          region: null,
+          label: "",
+          error: "You do not have permission to join this experience.",
+          denied: true,
+        },
+      ],
+    });
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
+
+    const negado = (await screen.findByText("No permission")).closest("li") as HTMLElement;
+    expect(within(negado).getByText("job-negado")).toBeInTheDocument();
+    expect(within(negado).getByRole("button", { name: "Join" })).toBeDisabled();
+
+    const liberado = screen.getByText("job-ok").closest("li") as HTMLElement;
+    expect(within(liberado).queryByText("No permission")).not.toBeInTheDocument();
+    expect(within(liberado).getByRole("button", { name: "Join" })).toBeEnabled();
   });
 
   it("filtra a lista pelo país assim que a região é resolvida", async () => {
@@ -424,7 +459,7 @@ describe("ServersTab — região", () => {
       start_server_scan: SCAN_ID,
       get_server_regions: [region("job-br", "BR"), region("job-us", "US")],
     });
-    await user.click(screen.getByRole("button", { name: /Load regions/i }));
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
 
     await screen.findByText("Cidade, BR");
     expect(screen.queryByText("job-us")).not.toBeInTheDocument();
@@ -449,7 +484,7 @@ describe("ServersTab — região", () => {
       start_server_scan: SCAN_ID,
       get_server_regions: [region("job-us", "US")],
     });
-    await user.click(screen.getByRole("button", { name: /Load regions/i }));
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
 
     await screen.findByText(/No server matched BR/i);
   });
@@ -466,7 +501,7 @@ describe("ServersTab — região", () => {
         { jobId: "job-cheio", region: null, label: "", error: "This game is full" },
       ],
     });
-    await user.click(screen.getByRole("button", { name: /Load regions/i }));
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
 
     await screen.findByText("This game is full");
   });
@@ -476,8 +511,8 @@ describe("ServersTab — região", () => {
     const { store } = renderTab([row({ id: "job-a" })], {}, []);
 
     // Sem conta não dá para listar nem resolver região.
-    await waitFor(() => expect(screen.getByRole("button", { name: /Load regions/i })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: /Load regions/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Check servers/i })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
 
     expect(callsFor("get_server_regions")).toHaveLength(0);
     expect(store.addToast).toHaveBeenCalled();
@@ -688,7 +723,7 @@ describe("ServersTab — região sem conta", () => {
   it("mantém o botão de região desabilitado enquanto não há servidor listado", async () => {
     renderTab([]);
     await screen.findByText(/No public server was found/i);
-    expect(screen.getByRole("button", { name: /Load regions/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Check servers/i })).toBeDisabled();
   });
 });
 

@@ -38,7 +38,8 @@ Decidir **em qual servidor público** o lote entra, em vez de deixar o Roblox es
 ### Região
 
 1. A lista de servidores **não** traz região. Para cada servidor: `join-game-instance` → `joinScript.MachineAddress` (o IP da máquina) → geolocalização (`ipwho.is`, com `ip-api.com` de reserva).
-2. Na aba Servers isso só acontece quando o usuário clica **Load regions**, em lotes de 10.
+2. Na aba Servers isso só acontece quando o usuário clica **Check servers** ("Verificar servidores"; antes "Load regions"), em lotes de 10.
+   - **Permissão vem junto.** O `join-game-instance` é um pedido de entrada, e a resposta já diz se a conta da consulta (a primeira selecionada) pode entrar: `status` 12 é o "Unauthorized" do Roblox — o erro 524, *You do not have permission to join this experience* — e vira `denied` no `ServerRegion` ([server_regions.rs](../../src-tauri/src/api/roblox/server_regions.rs)). A linha mostra **Sem permissão** (com a mensagem do Roblox no title) e o **Entrar** daquele servidor fica desativado. É pelo código, não pelo texto (a mensagem vem no idioma da conta); servidor cheio (`status` 6) não conta como falta de permissão. Não custa chamada a mais. Antes a recusa aparecia só como texto cinza no lugar da região, e as alts descobriam o 524 tentando entrar (relato do dono, 28/09/2026: sub-places do Life Sentence que não aceitam entrada direta).
 3. Com filtro de país no launch, `pick_server` percorre os candidatos **na ordem da preferência** e para no primeiro que bate.
 
 ## Varredura da lista (aba Servers)

@@ -40,7 +40,7 @@ import { looksLikeJoinLink, parsePlaceIdInput } from "../server-list/types";
  * vagas do lote desenhadas nela, e não uma célula de texto "3/13".
  */
 
-/** Quantos servidores têm a região resolvida por clique em "Load regions". */
+/** Quantos servidores têm a região (e a permissão) verificada por clique em "Check servers". */
 const REGION_BATCH = 10;
 
 export type LaunchAllFn = (
@@ -619,14 +619,22 @@ export function ServersTab({
           />
         </label>
 
-        <button onClick={() => void loadRegions()} disabled={regionBusy || !rows?.length} className={buttonClass}>
+        {/* A consulta da região é um pedido de join àquele servidor, e a
+            resposta já diz se a conta pode entrar — por isso o botão verifica
+            as duas coisas. */}
+        <button
+          onClick={() => void loadRegions()}
+          disabled={regionBusy || !rows?.length}
+          title={t("Loads each server's region and whether the first selected account can join it — one check per server.")}
+          className={buttonClass}
+        >
           {regionBusy ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} strokeWidth={1.5} />}
           {regionBusy && regionProgress
-            ? t("Loading regions ({{done}}/{{total}})", {
+            ? t("Checking servers ({{done}}/{{total}})", {
                 done: regionProgress.done,
                 total: regionProgress.total,
               })
-            : t("Load regions")}
+            : t("Check servers")}
         </button>
 
         <button onClick={() => void loadServers()} disabled={loading} className={`${buttonClass} ml-auto`}>
@@ -763,7 +771,16 @@ export function ServersTab({
                       truncava nomes de cidade enquanto o Job ID sobrava vazio
                       ao lado. Agora quem sobra é ela. */}
                   <div className="flex-1 min-w-0 truncate text-[12px]">
-                    {region ? (
+                    {region?.denied ? (
+                      // Recusa do Roblox para a conta da consulta (erro 524): é
+                      // o que o usuário só descobria tentando entrar.
+                      <span
+                        title={region.error ?? undefined}
+                        className="inline-flex items-center rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-300"
+                      >
+                        {t("No permission")}
+                      </span>
+                    ) : region ? (
                       region.label ? (
                         <span className="text-[var(--panel-fg)]">{region.label}</span>
                       ) : (
@@ -787,11 +804,13 @@ export function ServersTab({
 
                   <button
                     onClick={() => void handleJoin(row)}
-                    disabled={!room || joining !== null}
+                    disabled={!room || joining !== null || region?.denied === true}
                     title={
-                      room
-                        ? undefined
-                        : t("Not enough room for {{count}} accounts", { count: batchSize })
+                      region?.denied
+                        ? t("The first selected account does not have permission to join this server")
+                        : room
+                          ? undefined
+                          : t("Not enough room for {{count}} accounts", { count: batchSize })
                     }
                     className="shrink-0 px-3 py-1 rounded-lg text-[12px] theme-btn-ghost border theme-border text-[var(--panel-fg)] disabled:opacity-30 transition-colors"
                   >

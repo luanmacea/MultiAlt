@@ -48,6 +48,24 @@ pub struct ServerRegion {
     /// Texto já formatado pelo template de `General.ServerRegionFormat`.
     pub label: String,
     pub error: Option<String>,
+    /// O Roblox recusou o join **por falta de permissão** (`status` 12, o erro
+    /// 524 do cliente) para a conta que fez a consulta. Vem da mesma chamada da
+    /// região: marcar não custa nada a mais.
+    #[serde(default)]
+    pub denied: bool,
+}
+
+/// `status` do `join-game-instance` para "Unauthorized": o cliente mostra "You
+/// do not have permission to join this experience" (erro 524). É pelo código,
+/// não pelo texto, porque a mensagem vem no idioma da conta.
+const JOIN_STATUS_UNAUTHORIZED: i64 = 12;
+
+/// O join de um servidor foi recusado: a mensagem do Roblox e o `status`,
+/// quando a resposta trouxe um.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinRefusal {
+    pub message: String,
+    pub status: Option<i64>,
 }
 
 /// Progresso de `resolve_server_regions`, para a UI não ficar parada.
@@ -242,8 +260,10 @@ pub async fn server_machine_address(
     security_token: &str,
     place_id: i64,
     job_id: &str,
-) -> Result<String, String> {
-    let response = join_game_instance(security_token, place_id, job_id, false).await?;
+) -> Result<String, JoinRefusal> {
+    let response = join_game_instance(security_token, place_id, job_id, false)
+        .await
+        .map_err(|message| JoinRefusal { message, status: None })?;
     let address = response["joinScript"]["MachineAddress"]
         .as_str()
         .unwrap_or_default()
@@ -256,15 +276,16 @@ pub async fn server_machine_address(
 
     // O join responde 200 com um payload de erro quando o servidor encheu ou
     // sumiu; a mensagem dele é mais útil que "sem endereço".
+    let status = response["status"].as_i64();
     let message = response["message"]
         .as_str()
         .filter(|m| !m.trim().is_empty())
         .map(|m| m.to_string())
-        .unwrap_or_else(|| match response["status"].as_i64() {
+        .unwrap_or_else(|| match status {
             Some(status) => format!("Join status {}", status),
             None => "Server address not returned".to_string(),
         });
-    Err(message)
+    Err(JoinRefusal { message, status })
 }
 
 /// Região de um servidor: join → IP → geolocalização.
@@ -282,13 +303,15 @@ pub async fn resolve_server_region(
                 label: format_region(&region, template),
                 region: Some(region),
                 error: None,
+                denied: false,
             }
         }
-        Err(error) => ServerRegion {
+        Err(refusal) => ServerRegion {
             job_id: job_id.to_string(),
             region: None,
             label: String::new(),
-            error: Some(error),
+            denied: refusal.status == Some(JOIN_STATUS_UNAUTHORIZED),
+            error: Some(refusal.message),
         },
     }
 }
@@ -396,6 +419,7 @@ mod server_region_format_tests {
             label: "São Paulo, BR".to_string(),
             region: Some(sample()),
             error: None,
+            denied: false,
         };
         assert!(region_matches(&matching, "br"));
         assert!(region_matches(&matching, "BR"));
@@ -408,6 +432,7 @@ mod server_region_format_tests {
             region: None,
             label: String::new(),
             error: Some("Join status 3".to_string()),
+            denied: false,
         };
         assert!(!region_matches(&failed, "BR"));
         assert!(region_matches(&failed, ""));
@@ -584,25 +609,69 @@ mod server_region_http_tests {
         assert_eq!(format_region(&region, TEMPLATE), "200.10.0.4");
     }
 
-    /// O join responde 200 com payload de erro quando o servidor encheu; a
-    /// mensagem dele tem que chegar ao usuário.
-    #[tokio::test]
-    async fn a_join_without_an_address_reports_the_roblox_message() {
-        mount_csrf("region-full", "csrf-region-full").await;
+    /// O `join-game-instance` recusando com um `status` e a mensagem do Roblox.
+    async fn mount_join_refusal(token: &str, status: i64, message: &str) {
+        mount_csrf(token, &format!("csrf-{}", token)).await;
         Mock::given(method("POST"))
             .and(path(mock_path("gamejoin", "/v1/join-game-instance")))
-            .and(header("cookie", cookie_of("region-full")))
+            .and(header("cookie", cookie_of(token)))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "status": 12,
-                "message": "This game is full"
+                "status": status,
+                "message": message
             })))
             .mount(mock_server().await)
             .await;
+    }
+
+    /// O join responde 200 com payload de erro quando o servidor encheu
+    /// (`status` 6); a mensagem dele tem que chegar ao usuário — e servidor
+    /// cheio **não** é falta de permissão.
+    #[tokio::test]
+    async fn a_join_without_an_address_reports_the_roblox_message() {
+        mount_join_refusal("region-full", 6, "This game is full").await;
 
         let resolved = resolve_server_region("region-full", 1, "job-cheio", TEMPLATE).await;
         assert_eq!(resolved.error.as_deref(), Some("This game is full"));
         assert!(resolved.region.is_none());
         assert!(!region_matches(&resolved, "BR"));
+        assert!(!resolved.denied, "servidor cheio marcado como sem permissão");
+    }
+
+    /// `status` 12 é o "Unauthorized" do Roblox — o cliente mostra "You do not
+    /// have permission to join this experience" (erro 524). Relato do dono
+    /// (28/09/2026): as alts só descobriam isso tentando entrar; a mesma
+    /// chamada da região já traz a recusa, e agora ela vira um aviso na lista.
+    #[tokio::test]
+    async fn a_join_refused_for_permission_is_flagged_as_denied() {
+        mount_join_refusal(
+            "region-denied",
+            12,
+            "You do not have permission to join this experience.",
+        )
+        .await;
+
+        let resolved = resolve_server_region("region-denied", 1, "job-negado", TEMPLATE).await;
+        assert!(resolved.denied, "{resolved:?}");
+        assert_eq!(
+            resolved.error.as_deref(),
+            Some("You do not have permission to join this experience.")
+        );
+        assert!(resolved.region.is_none());
+    }
+
+    /// A recusa é pelo **código**, não pelo texto: a mensagem vem no idioma da
+    /// conta.
+    #[tokio::test]
+    async fn the_permission_refusal_is_read_from_the_status_not_the_text() {
+        mount_join_refusal(
+            "region-denied-pt",
+            12,
+            "Você não tem permissão para entrar nesta experiência.",
+        )
+        .await;
+
+        let resolved = resolve_server_region("region-denied-pt", 1, "job-negado-pt", TEMPLATE).await;
+        assert!(resolved.denied, "{resolved:?}");
     }
 
     /// O lote informa progresso e respeita o teto de servidores.
