@@ -18,7 +18,7 @@ function walk(dir: string, out: string[] = []): string[] {
     }
     if (!/\.(ts|tsx)$/.test(ent)) continue;
     // Fixture de teste não é texto de tela: `<MenuItemView item={{ label: "First" }}>`
-    // virava chave no catálogo e ia para o Crowdin como se alguém fosse traduzir.
+    // virava chave no catálogo como se alguém fosse traduzir.
     if (/\.test\.(ts|tsx)$/.test(ent)) continue;
     out.push(full);
   }
