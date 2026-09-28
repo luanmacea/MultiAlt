@@ -9,7 +9,7 @@ Full credit to [ic3w0lf22](https://github.com/ic3w0lf22) for the original Roblox
 
 Desktop app para gerenciar múltiplas contas Roblox: adicionar contas, rodar vários clientes ao mesmo tempo, alternar entre alts sem trocar de login, e automatizar o rejoin (Auto Rejoin).
 
-Reporte bugs na aba Issues ou via Discord @niccdev.
+Reporte bugs na [aba Issues](https://github.com/luanmacea/roblox-account-manager/issues).
 
 # ⚠️ Aviso
 Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link pode entrar em qualquer jogo (ou até o Roblox Studio) usando sua conta, gastar seu Robux, ou causar banimento.
