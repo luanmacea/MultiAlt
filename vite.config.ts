@@ -53,7 +53,9 @@ export default defineConfig({
   },
   test: {
     environment: "happy-dom",
-    include: ["src/**/*.test.{ts,tsx}"],
+    // Os scripts de release (.github/scripts) também têm testes: a regra do
+    // número da versão decide o que sai publicado.
+    include: ["src/**/*.test.{ts,tsx}", ".github/scripts/**/*.test.mjs"],
     coverage: {
       provider: "v8",
       include: [

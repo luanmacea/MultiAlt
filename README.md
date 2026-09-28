@@ -14,8 +14,8 @@ Reporte bugs na aba Issues ou via Discord @niccdev.
 # ⚠️ Aviso
 Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link pode entrar em qualquer jogo (ou até o Roblox Studio) usando sua conta, gastar seu Robux, ou causar banimento.
 
-# RAM v4 (Beta)
-Reescrita em Rust + TypeScript com [Tauri](https://tauri.app/). Em desenvolvimento ativo — espere bugs e mudanças de comportamento entre versões beta. Para estabilidade máxima, use o release legado.
+# Versão 0.x (Beta)
+Reescrita em Rust + TypeScript com [Tauri](https://tauri.app/). Em desenvolvimento ativo: as versões 0.x vão até a primeira versão completamente corrigida, que será a 1.0.0. Espere bugs e mudanças de comportamento entre elas. Para estabilidade máxima, use o release legado.
 
 ---
 
@@ -103,7 +103,7 @@ A interface é desenhada pelo Microsoft Edge WebView2 Runtime, então reinstalar
 Quando o modo está ligado aparece uma faixa amarela no topo do app com o botão **Voltar ao modo normal** — ele apaga o marcador e reabre o app com a aceleração de vídeo de volta. Se a faixa não aparecer, ou o botão falhar, apague na mão o arquivo `webview.safemode` que fica junto do `RAMSettings.ini` (por padrão em `%LOCALAPPDATA%\Roblox Account Manager`) e abra o app de novo. Se você estiver segurando Shift, solte antes de abrir: Shift força o modo por essa sessão.
 
 **Funciona no Mac?**
-Ainda não — suporte parcial, chegando com a reescrita v4.
+Ainda não — o suporte a macOS é parcial.
 
 # Preview
 ![github-large](Images/Image5.png)
