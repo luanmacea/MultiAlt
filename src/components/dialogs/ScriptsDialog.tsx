@@ -3395,7 +3395,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                           // Allow-list em SCRIPT_INVOKE_COMMANDS; `get_accounts`
                           // só passa pela rota filtrada (SCRIPT_INVOKE_SANITIZERS).
                           description={t(
-                            "Runs app commands: add, edit or remove accounts, launch or kill clients, start botting, the generator and the local servers. Cookies and passwords are stripped from the results."
+                            "Runs app commands: add, edit or remove accounts, launch or kill clients, start Auto Rejoin, the generator and the local servers. Cookies and passwords are stripped from the results."
                           )}
                           enabled={draft.permissions.allowInvoke}
                           onChange={(value) => {

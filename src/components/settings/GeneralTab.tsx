@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { enable, disable } from "@tauri-apps/plugin-autostart";
 import type { UseSettingsReturn } from "../../hooks/useSettings";
 import { Toggle } from "../ui/Toggle";
@@ -24,6 +25,32 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
   const t = useTr();
   const store = useStore();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [browserReady, setBrowserReady] = useState<boolean | null>(null);
+  const browserDownload = store.browserDownload;
+  const browserBusy = browserDownload?.active === true;
+
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<boolean>("is_browser_ready")
+      .then((ready) => {
+        if (!cancelled) setBrowserReady(ready);
+      })
+      .catch(() => {
+        if (!cancelled) setBrowserReady(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Reconsulta quando um download termina (sucesso ou erro) para não deixar
+    // o botão preso em "Download" depois de uma instalação bem-sucedida.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browserBusy]);
+
+  const handleBrowserDownload = async () => {
+    if (browserBusy) return;
+    const ok = await store.ensureBrowserDownload(browserReady === true);
+    if (ok) setBrowserReady(true);
+  };
   const restrictedBackgroundStyle = (() => {
     const style = s.get("General", "RestrictedBackgroundStyle", "warp");
     if (style === "bubbles" || style === "warp" || style === "warpLegacy" || style === "waves") {
@@ -221,6 +248,12 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         suffix="sec"
       />
       <Toggle
+        checked={s.getBool("General", "WrapLongNames")}
+        onChange={(v) => s.setBool("General", "WrapLongNames", v)}
+        label="Wrap Long Names"
+        description="Show long aliases and usernames in full instead of cutting them off"
+      />
+      <Toggle
         checked={s.getBool("General", "DisableAgingAlert")}
         onChange={(v) => s.setBool("General", "DisableAgingAlert", v)}
         label="Disable Aging Alert"
@@ -247,6 +280,80 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         label="Reduce automation signals"
         description="Hide browser automation flags Roblox can detect during login. Helps lower captcha prompts but is not a complete solution"
       />
+      <TextField
+        value={s.get("Login", "ManualBinaryPath", "")}
+        onChange={(v) => s.set("Login", "ManualBinaryPath", v)}
+        label="Custom browser executable"
+        // `{}` para o escape ser processado uma vez, como no placeholder de
+        // Custom ClientSettings logo acima nesta mesma tela.
+        placeholder={"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"}
+      />
+      {/* `TextField` não tem `description`; o caminho vira `Login.ManualBinaryPath`
+          e passa por `resolve_browser_binary` (chromium/download.rs), que exige
+          um arquivo comum de verdade — nunca pasta, nunca atalho/link. */}
+      <div className="px-1 -mt-1 mb-1 text-[12px] text-zinc-500">
+        {t(
+          "Use your own Chrome, Edge or Chromium instead of the downloaded copy. Must be a file you picked yourself, not a folder — leave empty to use the downloaded browser."
+        )}
+      </div>
+
+      <div className="px-1 py-3">
+        <div className="rounded-lg border border-zinc-800/70 bg-zinc-900/35 px-3 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[13px] text-zinc-200">{t("Bundled Browser")}</div>
+              <div className="mt-0.5 text-[11px] text-zinc-500">
+                {browserReady === true
+                  ? t("Chrome for Testing is installed and used for browser logins")
+                  : browserReady === false
+                    ? t("Not installed yet. It downloads automatically on the first browser login, or you can download it now")
+                    : t("Used for browser logins and the account browser")}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void handleBrowserDownload();
+              }}
+              disabled={browserBusy}
+              className="shrink-0 rounded-lg border border-zinc-700/70 bg-zinc-800 px-3 py-1.5 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {browserBusy
+                ? t("Downloading...")
+                : browserDownload?.stage === "error"
+                  ? t("Retry Download")
+                  : browserReady === true
+                    ? t("Reinstall")
+                    : t("Download")}
+            </button>
+          </div>
+          {browserBusy && (
+            <div className="mt-2">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+                <div
+                  className="h-full rounded-full bg-emerald-500/70 transition-all duration-300"
+                  style={{
+                    width:
+                      browserDownload?.stage === "downloading" && browserDownload.percent !== null
+                        ? `${browserDownload.percent}%`
+                        : "100%",
+                  }}
+                />
+              </div>
+              <div className="mt-1 text-[11px] text-zinc-500">
+                {browserDownload?.stage === "downloading" && browserDownload.percent !== null
+                  ? t("Downloading browser ({{percent}}%)", { percent: browserDownload.percent })
+                  : browserDownload?.stage === "extracting"
+                    ? t("Preparing browser...")
+                    : t("Contacting download service...")}
+              </div>
+            </div>
+          )}
+          {!browserBusy && browserDownload?.stage === "error" && browserDownload.error && (
+            <div className="mt-2 text-[11px] leading-snug text-red-400">{browserDownload.error}</div>
+          )}
+        </div>
+      </div>
 
       <Divider />
       <SectionLabel>Hidden Names</SectionLabel>
@@ -287,7 +394,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
       <Toggle
         checked={s.getBool("General", "BottingEnabled")}
         onChange={(v) => s.setBool("General", "BottingEnabled", v)}
-        label={<>Botting Mode<WarningBadge>advanced</WarningBadge></>}
+        label={<>Auto Rejoin<WarningBadge>advanced</WarningBadge></>}
         description="Enable account cycling tools to keep selected alts rejoining automatically"
       />
       <Toggle
@@ -340,6 +447,16 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         description="How many games the Recent list keeps before the oldest one drops off."
         min={1}
         max={30}
+      />
+      {/* Corta a lista de servidores recentes (`addRecentJob`,
+          server-list/types.ts), que fica ao lado dos jogos na aba Recent. */}
+      <NumberField
+        value={s.getNumber("General", "MaxRecentJobs", 12)}
+        onChange={(v) => s.setNumber("General", "MaxRecentJobs", v)}
+        label="Max Recent Servers"
+        description="How many servers (Job IDs) the Recent list keeps before the oldest one drops off."
+        min={1}
+        max={50}
       />
       <TextField
         value={s.get("General", "ServerRegionFormat", "<city>, <countryCode>")}

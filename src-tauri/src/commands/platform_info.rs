@@ -88,7 +88,7 @@ fn build_platform_capabilities(
             supports_botting: false,
             supports_updater: true,
             supports_client_settings: true,
-            reasons: vec!["Botting Mode is only supported on Windows".to_string()],
+            reasons: vec!["Auto Rejoin is only supported on Windows".to_string()],
             warnings: vec![
                 "macOS support is partial: no per-client memory watch, no window grid and no pre-launch isolation".to_string(),
             ],
@@ -110,7 +110,7 @@ fn build_platform_capabilities(
             supports_client_settings: false,
             reasons: vec!["Launching Roblox is only supported on Windows and macOS".to_string()],
             warnings: vec![
-                "Account management works, but launching, the watcher and Botting Mode are unavailable on this platform".to_string(),
+                "Account management works, but launching, the watcher and Auto Rejoin are unavailable on this platform".to_string(),
             ],
         },
     }

@@ -10,11 +10,16 @@ export interface RecentGamesListProps {
   userId: number | null;
   maxRecent: number;
   onSelect: (placeId: number, name?: string, iconUrl?: string | null) => void;
+  /**
+   * O "Join Game" da linha e do menu: entra no jogo, como na aba Games. Sem
+   * ele (o popover de escolha de jogo), "Join Game" é o mesmo que escolher.
+   */
+  onJoinGame?: (placeId: number) => void;
   /** Abre a lista de servidores daquele jogo. */
   onBrowseServers?: (placeId: number) => void;
   /** Salva o jogo nos favoritos (mesma ação da aba Games). */
   onAddFavorite?: (game: GameEntry) => void;
-  /** Abre o Botting Mode / os Scripts **com este jogo**. */
+  /** Abre o Auto Rejoin / os Scripts **com este jogo**. */
   onBotting?: (placeId: number) => void;
   onScripts?: (placeId: number) => void;
 }
@@ -23,6 +28,7 @@ export function RecentGamesList({
   userId,
   maxRecent,
   onSelect,
+  onJoinGame,
   onBrowseServers,
   onAddFavorite,
   onBotting,
@@ -33,7 +39,7 @@ export function RecentGamesList({
   const [games, setGames] = useState<RecentGame[]>(loadRecentGames);
   /**
    * Os recentes eram a única lista de jogos sem clique direito: as ações do
-   * jogo estavam só nos botões da linha, e Botting/Scripts em lugar nenhum.
+   * jogo estavam só nos botões da linha, e Auto Rejoin/Scripts em lugar nenhum.
    */
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; game: RecentGame } | null>(
     null
@@ -195,7 +201,10 @@ export function RecentGamesList({
                     key: "join",
                     label: t("Join Game"),
                     icon: joinGameIcon,
-                    onClick: () => onSelect(game.placeId, game.name, game.iconUrl),
+                    onClick: () =>
+                      onJoinGame
+                        ? onJoinGame(game.placeId)
+                        : onSelect(game.placeId, game.name, game.iconUrl),
                   },
                 ]}
               />
@@ -217,7 +226,9 @@ export function RecentGamesList({
           }}
           onClose={() => setContextMenu(null)}
           onJoin={() =>
-            onSelect(contextMenu.game.placeId, contextMenu.game.name, contextMenu.game.iconUrl)
+            onJoinGame
+              ? onJoinGame(contextMenu.game.placeId)
+              : onSelect(contextMenu.game.placeId, contextMenu.game.name, contextMenu.game.iconUrl)
           }
           onFavorite={() =>
             onAddFavorite?.({

@@ -360,7 +360,7 @@ export function isPrivateOrLoopbackHost(hostname: string): boolean {
  * `ram.window.snapshot()` sempre exigiu `allowWindow`, mas o host **empurra** o
  * mesmo snapshot por `window:update` ao iniciar cada script e a cada mudança de
  * estado — e fazia isso sem olhar permissão, entregando lista de contas,
- * seleção, presença e estado do Botting a script que não tinha o direito. A
+ * seleção, presença e estado do Auto Rejoin a script que não tinha o direito. A
  * permissão só barrava a leitura sob demanda.
  *
  * Sem `allowWindow` sobra o que o host anuncia para todo mundo de propósito: as

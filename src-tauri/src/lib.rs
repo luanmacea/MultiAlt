@@ -6,6 +6,8 @@ mod data;
 #[cfg(feature = "nexus")]
 mod nexus;
 mod platform;
+#[cfg(target_os = "windows")]
+mod webview_recovery;
 
 use api::batch::ImageCache;
 use data::accounts::{get_account_data_path, AccountStore};
@@ -38,6 +40,7 @@ include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
 include!("commands/versions.rs");
 include!("commands/watcher.rs");
+include!("commands/afk.rs");
 include!("commands/services.rs");
 include!("commands/updater.rs");
 include!("commands/backups.rs");
@@ -82,18 +85,85 @@ fn cleanup_multi_roblox_on_exit(app: &AppHandle<Wry>) {
     let _ = platform::macos::disable_multi_roblox();
 }
 
+/// O frontend pintou o primeiro quadro.
+///
+/// Mora aqui, e não em `commands/`, porque não é funcionalidade: é o sinal de
+/// vida da casca do app, e ele precisa existir em todo SO mesmo com
+/// `webview_recovery` sendo Windows-only.
+#[tauri::command]
+fn frontend_painted() {
+    #[cfg(target_os = "windows")]
+    webview_recovery::mark_painted();
+}
+
+/// Espelho de `WebviewSafeModeState` em `src/types.ts`. Existe fora do
+/// `#[cfg]` porque o frontend é um só: fora do Windows a resposta é
+/// simplesmente "não está em safe mode".
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SafeModeReport {
+    active: bool,
+    sticky: bool,
+}
+
+/// O app está com a aceleração de vídeo desligada? A faixa da UI depende disto
+/// para o usuário não rodar em modo degradado sem saber.
+#[tauri::command]
+fn get_webview_safe_mode() -> SafeModeReport {
+    #[cfg(target_os = "windows")]
+    {
+        let state = webview_recovery::current_state();
+        SafeModeReport {
+            active: state.active,
+            sticky: state.sticky,
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    SafeModeReport {
+        active: false,
+        sticky: false,
+    }
+}
+
+/// Apaga o marcador e reabre o app no modo normal.
+///
+/// O safe mode **deste** boot não dá para desligar: as flags foram entregues ao
+/// WebView2 quando a janela foi criada. Por isso a saída é reiniciar.
+#[tauri::command]
+fn leave_webview_safe_mode(app: AppHandle<Wry>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        webview_recovery::leave_safe_mode()?;
+        app.restart();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
 pub fn run() {
+    // Antes de tudo: é a última hora de mexer nos argumentos que o WebView2 vai
+    // receber (ver webview_recovery.rs).
+    #[cfg(target_os = "windows")]
+    webview_recovery::prepare_environment();
+
     crypto::init();
 
     let account_store = AccountStore::new(get_account_data_path());
 
+    // `load()` é a única porta: ele abre pela chave do aparelho (arquivo `.key`
+    // ao lado do vault) e migra um `AccountData.json` em texto puro, deixando
+    // `.json.bak` antes. Só quando nada disso abre é que a senha é necessária —
+    // e nem falha de criptografia nem chave perdida podem impedir o app de
+    // subir, porque é na tela dele que o usuário lê o que aconteceu.
+    if let Err(e) = account_store.load() {
+        eprintln!("Warning: Failed to load accounts: {}", e);
+    }
     match account_store.needs_password() {
         Ok(true) => eprintln!("Encrypted account file detected, password required"),
-        Ok(false) => {
-            if let Err(e) = account_store.load() {
-                eprintln!("Warning: Failed to load accounts: {}", e);
-            }
-        }
+        Ok(false) => {}
         Err(e) => eprintln!("Warning: Failed to check encryption: {}", e),
     }
 
@@ -129,10 +199,23 @@ pub fn run() {
         .manage(UpdaterRuntimeState::default())
         .manage(chromium::ChromiumManager::new())
         .setup(|app| {
+            // A janela já existe: daqui em diante o prazo do primeiro quadro
+            // está correndo (ver webview_recovery.rs).
+            #[cfg(target_os = "windows")]
+            webview_recovery::start_watchdog(app.handle().clone());
+
             // Lets the launcher report progress while it installs a new Roblox
             // production build by itself (see platform/windows/launch.rs).
             #[cfg(target_os = "windows")]
             platform::windows::set_build_install_app_handle(app.handle().clone());
+
+            // O aviso do `.key` também nasce em gravação de fundo (Auto Rejoin,
+            // Watcher, servidor HTTP), que a UI não acompanha: sem isto a faixa
+            // só aparecia no boot seguinte — que é justamente o lockout.
+            data::accounts::forward_vault_key_warning(
+                app.handle(),
+                app.state::<AccountStore>().inner(),
+            );
 
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -214,6 +297,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            frontend_painted,
+            get_webview_safe_mode,
+            leave_webview_safe_mode,
             data::accounts::get_accounts,
             data::accounts::save_accounts,
             data::accounts::add_account,
@@ -225,6 +311,7 @@ pub fn run() {
             data::accounts::forget_remembered_unlock,
             data::accounts::is_accounts_encrypted,
             data::accounts::needs_password,
+            data::accounts::vault_key_warning,
             data::accounts::set_encryption_password,
             data::accounts::reorder_accounts,
             data::accounts::import_old_account_data,
@@ -287,6 +374,7 @@ pub fn run() {
             parse_private_server_link_code,
             join_group,
             get_presence,
+            get_account_game_location,
             get_online_friends,
             get_online_friends_for_accounts,
             get_server_regions,
@@ -355,6 +443,12 @@ pub fn run() {
             versions_open_folder,
             start_watcher,
             stop_watcher,
+            start_afk_mode,
+            stop_afk_mode,
+            set_afk_accounts,
+            get_afk_mode_status,
+            get_afk_keys,
+            afk_trigger_now,
             chromium::commands::open_login_browser,
             chromium::commands::extract_browser_cookie,
             chromium::commands::close_login_browser,

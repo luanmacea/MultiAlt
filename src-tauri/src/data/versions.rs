@@ -3,13 +3,61 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-#[cfg(target_os = "windows")]
-pub(crate) fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
+/// Grava o arquivo e **espera o conteúdo chegar ao disco** antes de devolver.
+///
+/// Existe porque `fs::write` + rename não é durável: o rename pode publicar um
+/// arquivo cujo conteúdo ainda está em cache, e uma queda de energia entre os
+/// dois deixa um arquivo que existe, tem o nome certo e está **vazio**. Para o
+/// `AccountData.json` isso é a lista de contas; para o `AccountData.key` é a
+/// chave que abre a lista. Os dois passam por aqui.
+/// Devolve `false` quando os bytes foram escritos mas o `sync_all` **não** pôde
+/// ser confirmado.
+///
+/// Isso é deliberado, e a alternativa era pior: `sync_all` falha em volumes onde
+/// `fs::write` funciona normalmente (share de rede, sistema de arquivos virtual
+/// de nuvem, pen drive exótico). Abortar ali deixaria **toda** gravação de conta
+/// falhando — o app viraria somente-leitura — para proteger contra uma janela de
+/// queda de energia. Como `write_all` + `flush` já passaram, os dados estão
+/// entregues ao SO: o que se perde é a *garantia* de ordem, ou seja, volta-se ao
+/// comportamento de antes desta tarefa. Degradar a garantia é aceitável; tirar o
+/// app do ar não é.
+///
+/// `#[must_use]` porque descartar esse `bool` torna a degradação **invisível**, que
+/// era o estado anterior: os dois chamadores jogavam fora o `Ok(false)` enquanto
+/// esta doc afirmava que eles registravam a degradação.
+#[must_use = "o `false` diz que o fsync não foi confirmado; registre isso em vez de descartar"]
+pub(crate) fn write_all_synced(path: &Path, data: &[u8]) -> std::io::Result<bool> {
+    use std::io::Write;
 
-    let src_wide: Vec<u16> = src.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-    let dst_wide: Vec<u16> = dst.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut file = std::fs::File::create(path)?;
+    file.write_all(data)?;
+    file.flush()?;
+    Ok(file.sync_all().is_ok())
+}
+
+/// Igual a [`atomic_replace`], mas preserva o `io::Error`.
+///
+/// Existe porque o `ErrorKind` é o que separa "o antivírus segurou o arquivo por
+/// um instante" de "isto não vai funcionar" — e é essa diferença que decide se o
+/// app alarma o usuário ou só tenta de novo na gravação seguinte. É o primitivo;
+/// [`atomic_replace`] é só a versão que descarta o tipo do erro.
+#[cfg(target_os = "windows")]
+pub(crate) fn atomic_replace_io(src: &Path, dst: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let src_wide: Vec<u16> = src
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let dst_wide: Vec<u16> = dst
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     let ok = unsafe {
         MoveFileExW(
             src_wide.as_ptr(),
@@ -18,15 +66,27 @@ pub(crate) fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
         )
     };
     if ok == 0 {
-        let err = std::io::Error::last_os_error();
-        return Err(format!("MoveFileExW failed: {}", err));
+        return Err(std::io::Error::last_os_error());
     }
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
+pub(crate) fn atomic_replace_io(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::rename(src, dst)
+}
+
+/// Troca atômica, com o erro já virado texto. Os ~10 chamadores que só querem
+/// reportar continuam usando esta; quem precisa do `ErrorKind` usa
+/// [`atomic_replace_io`].
 pub(crate) fn atomic_replace(src: &Path, dst: &Path) -> Result<(), String> {
-    std::fs::rename(src, dst).map_err(|e| e.to_string())
+    atomic_replace_io(src, dst).map_err(|e| {
+        if cfg!(target_os = "windows") {
+            format!("MoveFileExW failed: {}", e)
+        } else {
+            e.to_string()
+        }
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

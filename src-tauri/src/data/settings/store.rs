@@ -45,6 +45,7 @@ impl SettingsStore {
             ("AsyncJoin", "false", None),
             ("DisableAgingAlert", "false", None),
             ("HideUsernames", "false", None),
+            ("WrapLongNames", "false", None),
             (
                 "ServerRegionFormat",
                 "<city>, <countryCode>",
@@ -53,6 +54,7 @@ impl SettingsStore {
                 Some("Tokens: <city>, <region>, <country>, <countryCode>, <ip>; other text is kept as typed"),
             ),
             ("MaxRecentGames", "8", None),
+            ("MaxRecentJobs", "12", None),
             (
                 "GroupOrder",
                 "[]",
@@ -336,6 +338,7 @@ impl SettingsStore {
             ("CatalogCacheMinutes", "10"),
             ("PreferOldJoinForVersioned", "true"),
             ("ShowPreReleaseVersions", "false"),
+            ("AllowLaunchOnOpenVersion", "false"),
         ];
 
         let versions = ini.section("Versions");
@@ -368,12 +371,29 @@ impl SettingsStore {
         let login_defaults: &[(&str, &str)] = &[
             ("PersistentProfile", "true"),
             ("StealthMode", "true"),
+            // Vazio = nada configurado; `IniSection::set` não grava valor em
+            // branco, então esta chave só aparece no INI depois que o usuário
+            // digita um caminho (ver EMPTY_STRING_DEFAULTS no teste abaixo).
+            ("ManualBinaryPath", ""),
         ];
 
         let login = ini.section("Login");
         for (key, value) in login_defaults {
             if !login.exists(key) {
                 login.set(key, value, None);
+            }
+        }
+
+        // AFK mode. `Key` nasce **vazia** de proposito: sem tecla escolhida pelo
+        // usuario o modo nao liga, e chave vazia nao chega a ser gravada no INI
+        // (`IniSection::set` trata valor em branco como remocao).
+        let afk_defaults: &[(&str, &str)] =
+            &[("IntervalMinutes", "10"), ("Key", ""), ("BeepOnCycle", "false")];
+
+        let afk = ini.section("Afk");
+        for (key, value) in afk_defaults {
+            if !afk.exists(key) {
+                afk.set(key, value, None);
             }
         }
 

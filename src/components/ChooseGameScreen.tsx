@@ -17,6 +17,7 @@ import type { LaunchLogLevel, LaunchTarget } from "../store";
 import { TONE_STYLES, type ToneStyle } from "../utils/toastTone";
 import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
+import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
 
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
 
@@ -108,13 +109,28 @@ function useLauncher() {
     store.setJobId(extras?.joinVip && extras.linkCode ? `vip:${extras.linkCode}` : jobId);
     try {
       if (userIds.length === 1) {
-        await store.joinServer(userIds[0], target);
+        const attempt = await store.joinServer(userIds[0], target);
+        if (attempt !== "started") {
+          // O store já avisou (recusa) ou já pôs a faixa de erro (falha): aqui só
+          // não se pode devolver `ok`, senão a tela anuncia um launch que não
+          // aconteceu. A frase da recusa vai para a linha inline de quem a mostra.
+          if (attempt === "refused") {
+            return { ok: false, error: tr("A launch is already in progress") };
+          }
+          return { ok: false };
+        }
       } else {
         await store.launchMultiple(userIds, target);
       }
       // Recent games are recorded by the store on a successful launch.
       return { ok: true };
     } catch (e) {
+      if (isLaunchAlreadyActiveError(e)) {
+        // Recusa por sequência já em andamento: o store já avisou com um toast
+        // traduzido. Repetir aqui mostraria a mesma frase duas vezes, e o
+        // "Launch failed: {{error}}" despejaria o código do backend na tela.
+        return { ok: false, error: tr("A launch is already in progress") };
+      }
       store.addToast(tr("Launch failed: {{error}}", { error: String(e) }));
       return { ok: false, error: String(e) };
     }
@@ -370,7 +386,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
         </div>
 
         <div className="text-[12px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed">
-          ℹ️ {t("If the player is not currently in a game, you'll be asked to confirm before proceeding. The player's profile must be public.")}
+          ℹ️ {t("If the player is not in a game, nothing opens. If their server is hidden, you'll be asked before joining a public server of the same game. The player's profile must be public.")}
         </div>
       </div>
 
@@ -386,7 +402,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
           {[
             { label: t("Server List"), icon: "🖥", onClick: () => store.setServerListOpen(true) },
             { label: t("Utilities"), icon: "🔧", onClick: () => store.setAccountUtilsOpen(true) },
-            { label: t("Botting Mode"), icon: "🤖", onClick: () => store.openBottingDialog() },
+            { label: t("Auto Rejoin"), icon: "🤖", onClick: () => store.openBottingDialog() },
             { label: t("Scripts"), icon: "📜", onClick: () => store.setScriptsOpen(true) },
           ].map(({ label, icon, onClick }) => (
             <button
@@ -658,7 +674,7 @@ function ConsoleTab() {
           <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
             <Terminal size={22} strokeWidth={1.5} />
             <p className="text-[12px]">
-              {t("Launch a game or start Botting Mode to see the activity here")}
+              {t("Launch a game or start Auto Rejoin to see the activity here")}
             </p>
           </div>
         ) : (
@@ -670,16 +686,17 @@ function ConsoleTab() {
                 <span className={`shrink-0 w-1.5 h-1.5 rounded-full mt-[6px] ${style.dot}`} />
                 {/* De onde veio a linha. O `step` sempre existiu no evento e
                     nunca era desenhado; agora que o console tem launch,
-                    Botting e Watcher juntos, ele é o que separa um do outro. */}
+                    Auto Rejoin e Watcher juntos, ele é o que separa um do outro. */}
                 {log.step ? (
                   <span
                     data-testid="log-step"
-                    // Largura fixa: sem ela, `[watcher]` e `[botting-retry]`
+                    // Largura fixa: sem ela, `[watcher]` e `[rejoin-retry]`
                     // empurram o nome da conta para colunas diferentes e a
-                    // leitura vertical do log se perde. 112px é o `[botting-retry]`
-                    // medido na tela (108px na fonte mono de 12px) com folga —
-                    // a 104px de antes ele passou a ser cortado quando a fonte
-                    // do app subiu de 11 para 12.
+                    // leitura vertical do log se perde. 112px foi medido no
+                    // nome mais longo na fonte mono de 12px — a 104px de antes
+                    // ele passou a ser cortado quando a fonte do app subiu de
+                    // 11 para 12. A origem do Auto Rejoin é `rejoin` /
+                    // `rejoin-retry` justamente para caber aqui.
                     className="shrink-0 theme-muted w-[112px] truncate"
                     title={log.step}
                   >
@@ -758,7 +775,7 @@ export function ChooseGameScreen() {
   }
 
   /**
-   * Abre o Botting Mode **com o jogo escolhido**. O place vai explícito na
+   * Abre o Auto Rejoin **com o jogo escolhido**. O place vai explícito na
    * abertura porque o rascunho salvo (`General.BottingDraftPlaceId`) vence a
    * store: sem isso, escolher o jogo aqui e ver outro place no diálogo.
    */
@@ -841,7 +858,7 @@ export function ChooseGameScreen() {
     {
       id: "console",
       label: t("Console"),
-      hint: t("Live history of what the app did: launch, Botting Mode, Watcher and errors, with the origin of each line."),
+      hint: t("Live history of what the app did: launch, Auto Rejoin, Watcher and errors, with the origin of each line."),
     },
     {
       id: "windows",
@@ -987,6 +1004,7 @@ export function ChooseGameScreen() {
           <div className="h-full overflow-y-auto px-4 pt-3 pb-4">
             <RecentTab
               onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
+              onJoinGame={handleJoinGame}
               maxRecent={maxRecent}
               userId={userIds[0] ?? null}
               onBrowseServers={handleBrowseServers}

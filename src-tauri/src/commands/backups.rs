@@ -655,6 +655,62 @@ const RELOADLESS_FILES: &[(&str, &str)] = &[
     ("RAMVersions.json", "o catálogo de versões"),
 ];
 
+/// A chave do vault (`AccountData.key`) voltou do backup?
+///
+/// Ela **exige** reinício, mesmo que o `AccountData.json` não tenha sido
+/// restaurado: a chave desta sessão foi derivada da chave mestra que estava em
+/// disco antes: se o arquivo agora guarda outra, a próxima gravação cifra o vault
+/// com a chave antiga e no boot seguinte nada abre. Reiniciar é a única resposta
+/// que não custa as contas do usuário.
+pub fn restored_vault_key_requires_restart(restored: &[String]) -> bool {
+    restored.iter().any(|name| name == "AccountData.key")
+}
+
+/// A restauração mexeu em algum arquivo que torna a **memória** velha?
+///
+/// Quando sim, a gravação é trancada **por padrão** e só o caminho que releu o
+/// arquivo com sucesso destranca. A ordem inversa (destrancado por padrão, com
+/// cada ramo lembrando de trancar) já falhou: o ramo em que `is_encrypted()`
+/// **erra** (antivírus segurando o arquivo recém-substituído, permissão) só
+/// empilhava aviso, e um launch depois disso regravava a lista de antes da
+/// restauração — desfazendo-a em silêncio, com o arquivo ainda abrindo, então o
+/// usuário só descobria pelas contas velhas. Agora um ramo novo nasce seguro.
+pub fn restore_touches_accounts(restored: &[String]) -> bool {
+    restored
+        .iter()
+        .any(|name| name == "AccountData.json" || name == "AccountData.key")
+}
+
+/// Depois da extração, a trava de gravação **continua**?
+///
+/// A trava é ligada **antes** de extrair, porque só dá para saber o que o zip
+/// mexeu depois de ele ter mexido. Isso fecha a janela de quem **começa** a gravar
+/// depois da substituição do arquivo. A de quem **já estava** gravando — um ciclo
+/// de Auto Rejoin que passou pela checagem com a trava aberta e ainda estava no
+/// fsync — só fecha porque `lock_writes_until_restart` espera essa gravação
+/// terminar antes de voltar (ver lá). Sem essa espera, o `MoveFileExW` daquela
+/// gravação caía por cima do vault recém-extraído. A trava só é solta por um
+/// `load()` bem-sucedido.
+///
+/// `extraction_failed` mantém trancado **por não saber**: com a extração pela
+/// metade, não há lista confiável de arquivos para consultar.
+pub fn restore_keeps_writes_locked(extraction_failed: bool, restored: &[String]) -> bool {
+    extraction_failed || restore_touches_accounts(restored)
+}
+
+/// Esta restauração pode **soltar** a trava de gravação?
+///
+/// `was_locked_before` é o que faltava: trancar antes de extrair obrigou a
+/// destrancar quando o zip não mexeu em arquivo de conta, mas a trava **não sabe
+/// de quem é**. Restaurar um backup com `AccountData.key`, não reiniciar, e depois
+/// restaurar um que só tem `RAMSettings.ini` soltava a trava da primeira — com a
+/// memória velha e o segredo da sessão anterior. O launch seguinte regravaria o
+/// vault com o master antigo e o `.key` por cima do restaurado, matando justamente
+/// o estado que a primeira restauração trouxe.
+pub fn restore_may_release_lock(was_locked_before: bool, restored: &[String]) -> bool {
+    !was_locked_before && !restore_touches_accounts(restored)
+}
+
 /// Motivos legíveis para reiniciar, a partir do que foi restaurado. As contas
 /// ficam de fora: dependem da criptografia e são decididas em `restore_backup`.
 pub fn restart_reasons_for(restored: &[String]) -> Vec<String> {
@@ -760,31 +816,73 @@ fn restore_backup(
     })?;
     prune_automatic_backups(&dir, MAX_AUTOMATIC_BACKUPS);
 
+    // **Trancado antes de extrair.** Qualquer arquivo de conta que volte do backup
+    // torna a memória velha, e um único launch (`mark_used` → `save`) bastaria para
+    // regravar a lista de antes por cima do que acabou de ser restaurado. Só dá
+    // para saber **o que** o zip mexeu depois de ele ter mexido, então a ordem
+    // segura é trancar primeiro. E `lock_writes_until_restart` só volta depois de a
+    // gravação que já estiver em andamento terminar (um ciclo de Auto Rejoin no
+    // meio do fsync): sem essa espera, ela publicava o vault de antes **depois** da
+    // extração. Só um `load()` bem-sucedido solta a trava.
+    // Lido **antes** de trancar: se já havia trava, ela é de outra restauração que
+    // ainda espera o reinício, e soltá-la aqui é o mesmo que nunca tê-la ligado.
+    let was_locked_before = accounts.writes_locked();
+    accounts.lock_writes_until_restart("a backup is being restored");
+
+    // `?` aqui mantém a trava, e é o que se quer: com a extração pela metade não
+    // existe lista confiável de arquivos para decidir qualquer coisa.
     let outcome = restore_backup_archive(&layout, &path)?;
 
     let mut restart_reasons = restart_reasons_for(&outcome.restored);
     let mut accounts_reloaded = false;
 
-    if outcome.restored.iter().any(|n| n == "AccountData.json") {
+    let vault_key_restored = restored_vault_key_requires_restart(&outcome.restored);
+    if restore_keeps_writes_locked(false, &outcome.restored) {
+        // Já está trancado; aqui só se troca o motivo pelo específico, que é o que
+        // a mensagem de reinício vai explicar.
+        accounts.lock_writes_until_restart(if vault_key_restored {
+            "the vault key file was restored from a backup"
+        } else {
+            "the account file was restored from a backup"
+        });
+    } else if restore_may_release_lock(was_locked_before, &outcome.restored) {
+        // O zip não mexeu em arquivo de conta **e** não havia trava antes: a
+        // premissa da trava não vale, e manter as contas somente-leitura (com
+        // pedido de reinício) seria punir quem restaurou só o tema ou as settings.
+        accounts.allow_writes_after_reload();
+    }
+
+    // A chave restaurada é tratada **antes** de qualquer tentativa de recarregar:
+    // com um `.key` novo em disco, o segredo desta sessão é o velho, e até a
+    // migração de um vault em texto puro gravaria com o segredo errado.
+    if !vault_key_restored && outcome.restored.iter().any(|n| n == "AccountData.json") {
         match accounts.is_encrypted() {
             // A chave desta sessão foi derivada da senha antiga e vive em
             // memória; reler aqui poderia travar o store com `load_failed`.
-            Ok(true) => restart_reasons.push(
-                "O AccountData.json restaurado está criptografado: reinicie o app e destranque com a senha daquele backup (a chave desta sessão é a da senha antiga)."
-                    .to_string(),
-            ),
+            // Já está trancado (default acima); aqui só se explica o motivo.
+            Ok(true) => {
+                restart_reasons.push(
+                    "O AccountData.json restaurado está criptografado: reinicie o app para ele ser aberto com a chave daquele backup (senha daquele backup, ou o AccountData.key que vem no zip). Até reiniciar, as contas estão somente para leitura — o segredo desta sessão é o de antes da restauração."
+                        .to_string(),
+                )
+            }
             Ok(false) => {
                 let session_uses_password = settings
                     .get_string("General", "EncryptionMethod")
                     .eq_ignore_ascii_case("password");
                 if session_uses_password {
                     restart_reasons.push(
-                        "O AccountData.json restaurado está sem criptografia, mas esta sessão está com senha ativa: reinicie o app antes de mexer nas contas, senão a próxima gravação re-criptografa o arquivo."
+                        "O AccountData.json restaurado está sem criptografia, mas esta sessão está com senha ativa: reinicie o app antes de mexer nas contas. Até lá as contas estão somente para leitura, senão a próxima gravação re-criptografa o arquivo."
                             .to_string(),
                     );
                 } else {
                     match accounts.load() {
-                        Ok(()) => accounts_reloaded = true,
+                        // **O único ponto que destranca**: o arquivo foi de fato
+                        // relido, então a memória não está mais velha.
+                        Ok(()) => {
+                            accounts.allow_writes_after_reload();
+                            accounts_reloaded = true;
+                        }
                         Err(e) => restart_reasons.push(format!(
                             "Não foi possível reler o AccountData.json restaurado ({e}); reinicie o app."
                         )),
@@ -795,6 +893,15 @@ fn restore_backup(
                 "Não foi possível inspecionar o AccountData.json restaurado ({e}); reinicie o app."
             )),
         }
+    }
+
+    if restored_vault_key_requires_restart(&outcome.restored) {
+        restart_reasons.push(
+            "A chave do vault (AccountData.key) foi restaurada: reinicie o app antes de mexer nas contas. O segredo desta sessão é o de antes, e gravar com ele deixaria o arquivo sem abrir no próximo boot."
+                .to_string(),
+        );
+        // Vale mais que o "recarreguei na hora" do caminho de texto puro.
+        accounts_reloaded = false;
     }
 
     let report = RestoreReport {

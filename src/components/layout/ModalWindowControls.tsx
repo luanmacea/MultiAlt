@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
-import { Minus, Square, Copy, X } from "lucide-react";
+import { Minus, Square, Copy, X, GripVertical } from "lucide-react";
 import { useTr } from "../../i18n/text";
 
 export function ModalWindowControls({ visible }: { visible: boolean }) {
@@ -43,6 +43,22 @@ export function ModalWindowControls({ visible }: { visible: boolean }) {
           : "opacity-0 -translate-y-2 scale-95 pointer-events-none shadow-none",
       ].join(" ")}
     >
+      {/* Alça de arrastar. A janela é sem decoração e só a TitleBar a movia —
+          e a TitleBar some nas telas de senha e de criptografia e fica coberta
+          pelo fundo de qualquer diálogo, justamente quando esta pílula aparece.
+          Só o botão esquerdo arrasta; o direito não pode prender a janela. */}
+      <div
+        role="button"
+        tabIndex={-1}
+        aria-label={t("Move window")}
+        title={t("Move window")}
+        onMouseDown={(e) => {
+          if (e.button === 0) appWindow.startDragging().catch(() => {});
+        }}
+        className="h-7 w-5 rounded-md flex items-center justify-center cursor-move theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors"
+      >
+        <GripVertical size={12} strokeWidth={1.4} />
+      </div>
       <button
         type="button"
         title={t("Minimize")}

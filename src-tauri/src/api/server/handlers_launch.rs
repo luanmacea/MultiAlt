@@ -40,9 +40,19 @@ async fn handle_launch_account(
         use crate::platform::windows;
 
         windows::refresh_production_version().await;
-        patch_client_settings_for_launch(state.settings);
         let is_teleport = state.settings.get_bool("Developer", "IsTeleport");
         let use_old_join = state.settings.get_bool("Developer", "UseOldJoin");
+        // A pasta de onde o cliente vai abrir, a mesma para o patch e para o
+        // old join (sem versão do catálogo aqui: build do canal do registro no
+        // old join, a de produção pelo protocolo).
+        let roblox_path = windows::get_roblox_path();
+        let client_dir = windows::client_dir(
+            windows::client_source(use_old_join, false),
+            roblox_path.as_deref().unwrap_or(""),
+        )
+        .await;
+        let client_dir = Some(client_dir).filter(|dir| !dir.trim().is_empty());
+        patch_client_settings_for_launch(state.settings, client_dir.as_deref());
         let auto_close_last_process = state.settings.get_bool("General", "AutoCloseLastProcess");
         let multi_rbx = state.settings.get_bool("General", "EnableMultiRbx");
 
@@ -109,17 +119,23 @@ async fn handle_launch_account(
         }
 
         let launch_result = if use_old_join {
-            windows::launch_old_join(
-                &ticket,
-                place_id,
-                job_id,
-                "",
-                follow_user,
-                join_vip,
-                &access_code,
-                &link_code,
-                is_teleport,
-            ).await
+            match client_dir.as_deref() {
+                Some(dir) => windows::launch_old_join_from(
+                    dir,
+                    &ticket,
+                    place_id,
+                    job_id,
+                    "",
+                    follow_user,
+                    join_vip,
+                    &access_code,
+                    &link_code,
+                    is_teleport,
+                ),
+                None => Err(roblox_path
+                    .err()
+                    .unwrap_or_else(|| "Could not find the Roblox installation".to_string())),
+            }
         } else {
             let url = windows::build_launch_url(
                 &ticket,
@@ -209,9 +225,19 @@ async fn handle_follow_user(
         use crate::platform::windows;
 
         windows::refresh_production_version().await;
-        patch_client_settings_for_launch(state.settings);
         let is_teleport = state.settings.get_bool("Developer", "IsTeleport");
         let use_old_join = state.settings.get_bool("Developer", "UseOldJoin");
+        // A pasta de onde o cliente vai abrir, a mesma para o patch e para o
+        // old join (sem versão do catálogo aqui: build do canal do registro no
+        // old join, a de produção pelo protocolo).
+        let roblox_path = windows::get_roblox_path();
+        let client_dir = windows::client_dir(
+            windows::client_source(use_old_join, false),
+            roblox_path.as_deref().unwrap_or(""),
+        )
+        .await;
+        let client_dir = Some(client_dir).filter(|dir| !dir.trim().is_empty());
+        patch_client_settings_for_launch(state.settings, client_dir.as_deref());
         let auto_close_last_process = state.settings.get_bool("General", "AutoCloseLastProcess");
         let multi_rbx = state.settings.get_bool("General", "EnableMultiRbx");
 
@@ -246,17 +272,23 @@ async fn handle_follow_user(
         let pids_before = windows::get_roblox_pids();
 
         let launch_result = if use_old_join {
-            windows::launch_old_join(
-                &ticket,
-                target.id,
-                "",
-                "",
-                true,
-                false,
-                "",
-                "",
-                is_teleport,
-            ).await
+            match client_dir.as_deref() {
+                Some(dir) => windows::launch_old_join_from(
+                    dir,
+                    &ticket,
+                    target.id,
+                    "",
+                    "",
+                    true,
+                    false,
+                    "",
+                    "",
+                    is_teleport,
+                ),
+                None => Err(roblox_path
+                    .err()
+                    .unwrap_or_else(|| "Could not find the Roblox installation".to_string())),
+            }
         } else {
             let url = windows::build_launch_url(
                 &ticket,

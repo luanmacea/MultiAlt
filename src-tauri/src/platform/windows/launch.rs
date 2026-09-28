@@ -79,6 +79,11 @@ const PRODUCTION_CHANNEL_CDN: &str = "LIVE";
 const PRODUCTION_VERSION_URL: &str =
     "https://clientsettingscdn.roblox.com/v2/client-version/WindowsPlayer";
 const PRODUCTION_VERSION_CACHE_TTL: Duration = Duration::from_secs(60);
+/// Teto da consulta "qual build este canal exige". Fica **abaixo** do teto das
+/// chamadas de API de propósito: esta consulta tem fallback (o cache vencido, ou
+/// o canal de produção), então esperar mais tempo só atrasaria o launch sem
+/// mudar o resultado. Era o valor que este ponto já praticava.
+const CHANNEL_LOOKUP_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Cache of "channel -> (fetched at, build)".
 static CHANNEL_VERSION_CACHE: LazyLock<Mutex<HashMap<String, (std::time::Instant, String)>>> =
@@ -167,13 +172,14 @@ fn channel_is_production(channel: &str) -> bool {
 
 /// clientsettings endpoint for a channel. The literal "production" has no
 /// `/channel/` route (it answers 401), so it uses the default URL.
-fn channel_version_url(channel: &str) -> String {
+/// `production_url` is [`PRODUCTION_VERSION_URL`] outside the tests.
+fn channel_version_url(production_url: &str, channel: &str) -> String {
     if channel_is_production(channel) {
-        PRODUCTION_VERSION_URL.to_string()
+        production_url.to_string()
     } else {
         format!(
             "{}/channel/{}",
-            PRODUCTION_VERSION_URL,
+            production_url,
             channel.to_ascii_lowercase()
         )
     }
@@ -231,9 +237,51 @@ fn set_player_channel(channel: &str) {
     }
 }
 
-fn remember_resolved_build(version: &str) {
+/// Guarda a build de **produção** para os helpers síncronos
+/// (`get_roblox_path`). Build de outro canal (a do registro, no old join) não
+/// entra: quem pede a pasta de produção receberia a do canal.
+fn remember_resolved_build(channel: &str, version: &str) {
+    if !channel_is_production(channel) {
+        return;
+    }
     if let Ok(mut guard) = LAST_RESOLVED_BUILD.lock() {
         *guard = Some(version.to_string());
+    }
+}
+
+/// De onde o cliente deste launch abre — e, portanto, onde o
+/// `ClientAppSettings.json` (FPS, fast flags) tem que ser gravado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientSource {
+    /// Old join numa versão do catálogo: a pasta dela.
+    Catalog,
+    /// Old join sem versão do catálogo: a build do canal do **registro**.
+    RegistryChannel,
+    /// Protocolo (`launch_url`): sempre a build de produção.
+    Production,
+}
+
+pub fn client_source(use_old_join: bool, has_catalog_version: bool) -> ClientSource {
+    match (use_old_join, has_catalog_version) {
+        (true, true) => ClientSource::Catalog,
+        (true, false) => ClientSource::RegistryChannel,
+        (false, _) => ClientSource::Production,
+    }
+}
+
+/// Pasta de onde o cliente vai abrir. É a **mesma** que o spawn usa: o patch
+/// e o old join têm que receber este valor, não um calculado antes.
+/// `resolved_base_path` é a pasta de `resolve_roblox_install_path` — a da
+/// versão do catálogo, ou o fallback quando a build não pôde ser achada nem
+/// instalada.
+pub async fn client_dir(source: ClientSource, resolved_base_path: &str) -> String {
+    match source {
+        ClientSource::Catalog => resolved_base_path.to_string(),
+        ClientSource::RegistryChannel => default_player_dir(resolved_base_path).await,
+        ClientSource::Production => ensure_player_exe_for_channel(PRODUCTION_CHANNEL)
+            .await
+            .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| resolved_base_path.to_string()),
     }
 }
 
@@ -347,6 +395,65 @@ fn cached_production_player_dir() -> Option<String> {
         .then(|| dir.to_string_lossy().into_owned())
 }
 
+/// O que a consulta de build de um canal decidiu.
+#[derive(Debug, PartialEq)]
+enum ChannelBuild {
+    /// O endpoint do próprio canal respondeu.
+    Channel(String),
+    /// Build de produção no lugar da do canal. Só é seguro abri-la gravando
+    /// `production` no registro (`set_player_channel`): senão o cliente
+    /// consulta o canal antigo e o instalador do Roblox roda.
+    RetiredUseProduction(String),
+}
+
+/// Consulta, em `production_url` (a URL de produção do clientsettings), a
+/// build que o cliente vai exigir para `channel`.
+///
+/// Só um canal **aposentado** — o endpoint dele responde 401/404 — cai na
+/// build de produção (e no reparo do registro). Timeout, 429, 5xx ou resposta
+/// ilegível não dizem nada sobre o canal: dá `None`, e quem chama usa o cache
+/// vencido sem tocar no registro.
+async fn fetch_channel_build(
+    client: &reqwest::Client,
+    production_url: &str,
+    channel: &str,
+) -> Option<ChannelBuild> {
+    let resp = client
+        .get(channel_version_url(production_url, channel))
+        .send()
+        .await
+        .ok()?;
+    let retired = matches!(
+        resp.status(),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::NOT_FOUND
+    );
+    if retired && !channel_is_production(channel) {
+        let production = client.get(production_url).send().await.ok()?;
+        return read_build(production)
+            .await
+            .map(ChannelBuild::RetiredUseProduction);
+    }
+    read_build(resp).await.map(ChannelBuild::Channel)
+}
+
+/// A build (`version-...`) de uma resposta do clientsettings.
+async fn read_build(resp: reqwest::Response) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ClientVersion {
+        client_version_upload: String,
+    }
+
+    let body = resp
+        .error_for_status()
+        .ok()?
+        .json::<ClientVersion>()
+        .await
+        .ok()?;
+    let version = body.client_version_upload.trim().to_string();
+    version.starts_with("version-").then_some(version)
+}
+
 /// Build que o cliente vai exigir para `channel`: o que o endpoint
 /// clientsettings reporta para ele.
 async fn build_version_for_channel(channel: &str) -> Option<String> {
@@ -357,57 +464,37 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         .and_then(|c| c.get(&channel).cloned());
     if let Some((at, version)) = &cached {
         if at.elapsed() < PRODUCTION_VERSION_CACHE_TTL {
-            remember_resolved_build(version);
+            remember_resolved_build(&channel, version);
             return Some(version.clone());
         }
     }
 
-    #[derive(serde::Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct ClientVersion {
-        client_version_upload: String,
-    }
-
     let fetched = async {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(6))
-            .build()
-            .ok()?;
-        let mut urls = vec![(channel_version_url(&channel), false)];
-        if !channel_is_production(&channel) {
-            // A channel Roblox retired answers 401/404. Falling back to the
-            // production build is only safe if the client reads the same
-            // channel, so that fallback also repairs the registry value.
-            urls.push((PRODUCTION_VERSION_URL.to_string(), true));
-        }
-        for (url, repair_channel) in urls {
-            let Ok(resp) = client.get(&url).send().await else {
-                continue;
-            };
-            let Ok(resp) = resp.error_for_status() else {
-                continue;
-            };
-            let Ok(body) = resp.json::<ClientVersion>().await else {
-                continue;
-            };
-            let version = body.client_version_upload.trim().to_string();
-            if version.starts_with("version-") {
-                if repair_channel {
-                    set_player_channel(PRODUCTION_CHANNEL);
-                }
-                return Some(version);
+        // Teto próprio e curto: esta consulta tem fallback (o cache vencido),
+        // então esperar mais que isso só atrasa o launch. `connect_timeout` vem
+        // do builder compartilhado; o total continua sendo os 6 s de sempre.
+        let client = crate::api::http_client::builder_with(
+            CHANNEL_LOOKUP_TIMEOUT,
+            CHANNEL_LOOKUP_TIMEOUT,
+        )
+        .build()
+        .ok()?;
+        match fetch_channel_build(&client, PRODUCTION_VERSION_URL, &channel).await? {
+            ChannelBuild::Channel(version) => Some(version),
+            ChannelBuild::RetiredUseProduction(version) => {
+                set_player_channel(PRODUCTION_CHANNEL);
+                Some(version)
             }
         }
-        None
     }
     .await;
 
     match fetched {
         Some(version) => {
+            remember_resolved_build(&channel, &version);
             if let Ok(mut cache) = CHANNEL_VERSION_CACHE.lock() {
                 cache.insert(channel, (std::time::Instant::now(), version.clone()));
             }
-            remember_resolved_build(&version);
             Some(version)
         }
         // Network hiccup: a stale answer is still far better than the protocol
@@ -415,37 +502,11 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         None => {
             let stale = cached.map(|(_, version)| version);
             if let Some(version) = &stale {
-                remember_resolved_build(version);
+                remember_resolved_build(&channel, version);
             }
             stale
         }
     }
-}
-
-pub async fn launch_old_join(
-    ticket: &str,
-    place_id: i64,
-    job_id: &str,
-    launch_data: &str,
-    follow_user: bool,
-    join_vip: bool,
-    access_code: &str,
-    link_code: &str,
-    is_teleport: bool,
-) -> Result<(), String> {
-    let version_folder = default_player_dir(&get_roblox_path()?).await;
-    launch_old_join_from(
-        &version_folder,
-        ticket,
-        place_id,
-        job_id,
-        launch_data,
-        follow_user,
-        join_vip,
-        access_code,
-        link_code,
-        is_teleport,
-    )
 }
 
 pub fn launch_old_join_from(

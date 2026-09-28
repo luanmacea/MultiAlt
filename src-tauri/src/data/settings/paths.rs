@@ -9,6 +9,12 @@ pub const DATA_DIR_ENV: &str = "RAM_DATA_DIR";
 /// Arquivos e pastas que pertencem ao usuário e migram junto com ele.
 pub const DATA_FILES: &[&str] = &[
     "AccountData.json",
+    // A chave que abre o vault sem senha. Tem que viajar **junto** com o
+    // `AccountData.json` na migração de pasta e no backup: um vault cifrado sem
+    // a chave dele é um vault perdido. O custo é honesto e está na doc — o zip
+    // de backup passa a carregar a chave, então o que protege um backup vazado
+    // é o embrulho do aparelho, não o DPAPI (que só abre no perfil de origem).
+    "AccountData.key",
     "RAMSettings.ini",
     "RAMTheme.ini",
     "RAMThemePresets.json",

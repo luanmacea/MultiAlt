@@ -21,7 +21,7 @@ pub struct AssetDetails {
 }
 
 pub async fn get_asset_details(asset_id: i64, security_token: Option<&str>) -> Result<AssetDetails, String> {
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let mut request = client
         .get(format!("{}/v2/assets/{}/details", endpoints::host("economy"), asset_id))
@@ -31,7 +31,7 @@ pub async fn get_asset_details(asset_id: i64, security_token: Option<&str>) -> R
         request = request.header(COOKIE, cookie_header(token));
     }
 
-    let response = request.send().await.map_err(|e| format!("Request failed: {}", e))?;
+    let response = request.send().await.map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get asset details (status {})", response.status().as_u16()));
@@ -56,7 +56,7 @@ pub async fn purchase_product(
     expected_seller_id: i64,
 ) -> Result<PurchaseResult, String> {
     let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    let client = reqwest::Client::new();
+    let client = http_client::client();
 
     let request = client
         .post(format!("{}/v1/purchases/products/{}", endpoints::host("economy"), product_id))

@@ -32,6 +32,7 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
   const [jobIdPrefillNonce, setJobIdPrefillNonce] = useState(0);
 
   const maxRecent = parseInt(store.settings?.General?.MaxRecentGames || "8") || 8;
+  const maxRecentJobs = parseInt(store.settings?.General?.MaxRecentJobs || "12") || 12;
   const userId = store.selectedAccount?.UserID || null;
 
   useEffect(() => {
@@ -46,7 +47,8 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
     store.setPlaceId(localPlaceId);
     if (userId) {
       if (!(await confirmJoinOnline([userId]))) return;
-      store.joinServer(userId);
+      // O resultado (recusa/falha) já é reportado pelo próprio `joinServer`.
+      void store.joinServer(userId);
     }
   }
 
@@ -57,6 +59,49 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
     setJobIdPrefillNonce((v) => v + 1);
     setActiveTab("servers");
     recordRecentGame(placeId, userId, maxRecent, { name, iconUrl });
+  }
+
+  /**
+   * Clique num servidor recente: **preenche** o Job ID e vai para a aba
+   * Servers, não entra. Entrar é o gesto seguinte, com o aviso de conta online
+   * que `handleJoinServer` já faz.
+   */
+  function handleSelectJob(placeId: number | null, raw: string) {
+    if (placeId) {
+      setLocalPlaceId(String(placeId));
+      store.setPlaceId(String(placeId));
+    }
+    setJobIdPrefill(raw);
+    setJobIdPrefillNonce((v) => v + 1);
+    setActiveTab("servers");
+  }
+
+  /**
+   * "Browse servers" (menu do jogo ou botão da linha): o mesmo destino do
+   * clique no card — a aba Servers com o place, Job ID limpo —, sem gravar o
+   * jogo nos recentes, como a Choose Game faz.
+   */
+  function handleBrowseServers(placeId: number) {
+    setLocalPlaceId(String(placeId));
+    store.setPlaceId(String(placeId));
+    setJobIdPrefill("");
+    setJobIdPrefillNonce((v) => v + 1);
+    setActiveTab("servers");
+  }
+
+  /**
+   * Auto Rejoin e Scripts **com este jogo**, as mesmas ações do menu na Choose
+   * Game. Os dois abrem por cima deste diálogo (z-[70]); fechar volta aqui. O
+   * place vai explícito ao Auto Rejoin porque o rascunho salvo vence a store.
+   */
+  function handleBottingForGame(placeId: number) {
+    store.setPlaceId(String(placeId));
+    store.openBottingDialog(String(placeId));
+  }
+
+  function handleScriptsForGame(placeId: number) {
+    store.setPlaceId(String(placeId));
+    store.setScriptsOpen(true);
   }
 
   async function handleJoinGame(placeId: number) {
@@ -107,8 +152,13 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
       onClick={handleClose}
     >
+      {/* O teto é o mesmo dos outros diálogos grandes. Sem ele, na janela
+          mínima do app (750x450) os 560 px fixos transbordavam 55 px para cada
+          lado: título e X ficavam fora da tela, e na base os campos Teleport e
+          Find player — `body` não rola. Com o teto, quem cede altura é a lista
+          de servidores, que já rola por dentro. */}
       <div
-        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[680px] h-[560px] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[680px] h-[560px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0">
@@ -145,25 +195,42 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
               prefillNonce={jobIdPrefillNonce}
             />
           )}
+          {/* O menu do jogo é o mesmo da Choose Game (Browse servers, Auto
+              Rejoin, Scripts): as duas telas ficaram espelhadas pela metade —
+              aqui havia a coluna de servidores recentes e não o menu
+              completo; lá, o contrário. */}
           {activeTab === "games" && (
             <GamesTab
               onSelectGame={handleSelectGame}
               onJoinGame={handleJoinGame}
               addToast={store.addToast}
               onAddFavorite={handleAddFavorite}
+              onBrowseServers={(placeId) => handleBrowseServers(placeId)}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           )}
           {activeTab === "favorites" && (
             <FavoritesTab
               onSelectGame={(placeId, privateServer) => handleSelectGame(placeId, undefined, undefined, privateServer)}
               addToast={store.addToast}
+              onBrowseServers={handleBrowseServers}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           )}
           {activeTab === "recent" && (
             <RecentTab
               onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
+              onJoinGame={handleJoinGame}
               maxRecent={maxRecent}
+              maxRecentJobs={maxRecentJobs}
               userId={userId}
+              onSelectJob={handleSelectJob}
+              onBrowseServers={handleBrowseServers}
+              onAddFavorite={handleAddFavorite}
+              onBotting={handleBottingForGame}
+              onScripts={handleScriptsForGame}
             />
           )}
         </div>

@@ -205,10 +205,14 @@ impl ThemePresetStore {
         self.save_all(&snapshot)
     }
 
-    pub fn import_preset_file(&self, path: &str) -> Result<ThemePresetData, String> {
+    /// `fonts_dir` só é usado quando `path` é um bundle `.zip` (fontes locais
+    /// embutidas); recebido em vez de resolvido aqui dentro via
+    /// `get_theme_fonts_dir()` para que os testes gravem num `TempDir` e nunca
+    /// na pasta real de fontes do usuário.
+    pub fn import_preset_file(&self, path: &str, fonts_dir: &Path) -> Result<ThemePresetData, String> {
         let lower = path.to_ascii_lowercase();
         if lower.ends_with(".zip") || lower.ends_with(".ram-theme.zip") {
-            return self.import_bundle_file(path);
+            return self.import_bundle_file(path, fonts_dir);
         }
 
         let raw =
@@ -245,7 +249,7 @@ impl ThemePresetStore {
         self.save_preset(&chosen_name, theme)
     }
 
-    fn import_bundle_file(&self, path: &str) -> Result<ThemePresetData, String> {
+    fn import_bundle_file(&self, path: &str, fonts_dir: &Path) -> Result<ThemePresetData, String> {
         let file =
             fs::File::open(path).map_err(|e| format!("Failed to open theme bundle: {}", e))?;
         let mut archive =
@@ -267,8 +271,7 @@ impl ThemePresetStore {
             return Err("Unsupported theme bundle format".to_string());
         }
 
-        let fonts_dir = get_theme_fonts_dir();
-        fs::create_dir_all(&fonts_dir).map_err(|e| format!("Failed to create font dir: {}", e))?;
+        fs::create_dir_all(fonts_dir).map_err(|e| format!("Failed to create font dir: {}", e))?;
 
         for i in 0..archive.len() {
             let mut f = archive.by_index(i).map_err(|e| e.to_string())?;
@@ -322,10 +325,19 @@ impl ThemePresetStore {
         self.save_preset(&preset_name, parsed.theme)
     }
 
-    pub fn export_preset_file(name: &str, theme: ThemeData) -> Result<String, String> {
+    /// `base_dir` (onde o arquivo exportado é gravado) e `fonts_dir` (de onde
+    /// as fontes locais referenciadas são lidas, para o bundle `.zip`) são
+    /// recebidos em vez de resolvidos aqui via `get_runtime_data_dir()` /
+    /// `get_theme_fonts_dir()`, para que os testes gravem num `TempDir` e
+    /// nunca na pasta real de dados do usuário.
+    pub fn export_preset_file(
+        name: &str,
+        theme: ThemeData,
+        base_dir: &Path,
+        fonts_dir: &Path,
+    ) -> Result<String, String> {
         let normalized_name = Self::sanitize_preset_name(name);
         let stem = Self::sanitize_file_stem(&normalized_name);
-        let base_dir = get_runtime_data_dir();
 
         let local_fonts = Self::local_font_files(&theme);
         let should_export_json = local_fonts.is_empty();
@@ -380,7 +392,6 @@ impl ThemePresetStore {
                         .map_err(|e| format!("Failed to write theme.json: {}", e))?;
 
                     if !local_fonts.is_empty() {
-                        let fonts_dir = get_theme_fonts_dir();
                         for font_file in local_fonts {
                             let safe = Path::new(&font_file)
                                 .file_name()

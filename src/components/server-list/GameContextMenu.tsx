@@ -6,15 +6,53 @@ import type { GameEntry } from "./types";
 import { useTr } from "../../i18n/text";
 
 /**
+ * Um item do menu. O `title` leva o nome do jogo: a ação age sobre ele.
+ *
+ * Fica **fora** de `GameContextMenu` de propósito. Declarado dentro do corpo,
+ * era um tipo novo a cada render, e o React desmontava e remontava os botões —
+ * as telas donas do menu leem a store inteira, que se atualiza sozinha a cada
+ * poucos segundos, então com o menu aberto e parado os botões eram recriados
+ * (24 remoções em 8 s no harness): clique perdido na troca, hover piscando.
+ */
+function MenuItem({
+  icon,
+  label,
+  gameName,
+  onPick,
+  onClose,
+}: {
+  icon: ReactNode;
+  label: string;
+  gameName: string;
+  onPick: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <button
+      onClick={() => {
+        onPick();
+        onClose();
+      }}
+      title={gameName ? `${label} — ${gameName}` : label}
+      className="flex items-center gap-2.5 w-full px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-800 text-left"
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+/**
  * Menu do jogo: tudo que se pode fazer **com aquele jogo**, a partir da lista
  * onde ele aparece.
  *
- * O motivo de existir as ações novas: funcionalidades como Botting Mode só
+ * O motivo de existir as ações novas: funcionalidades como Auto Rejoin só
  * podiam ser usadas abrindo a tela delas e colando o Place ID à mão. Aqui a
  * ação já sabe de que jogo se trata.
  *
- * Ação sem callback **não aparece**: o diálogo antigo (Server List) não tem
- * para onde abrir o Botting, e item morto é pior que item ausente.
+ * Ação sem callback **não aparece** — item morto é pior que item ausente. As
+ * duas telas donas (Choose Game e Server List) passam todas: o Server List já
+ * foi a metade sem Auto Rejoin/Scripts/Browse servers, e isso confundia.
  */
 export function GameContextMenu({
   x,
@@ -68,30 +106,8 @@ export function GameContextMenu({
     setPos({ left, top });
   }, [x, y]);
 
-  /** Um item do menu. O `title` leva o nome do jogo: a ação age sobre ele. */
-  function Item({
-    icon,
-    label,
-    onPick,
-  }: {
-    icon: ReactNode;
-    label: string;
-    onPick: () => void;
-  }) {
-    return (
-      <button
-        onClick={() => {
-          onPick();
-          onClose();
-        }}
-        title={game.name ? `${label} — ${game.name}` : label}
-        className="flex items-center gap-2.5 w-full px-3 py-1.5 text-[12px] text-zinc-300 hover:bg-zinc-800 text-left"
-      >
-        {icon}
-        {label}
-      </button>
-    );
-  }
+  /** Liga um item ao jogo e ao fechamento do menu. */
+  const itemProps = { gameName: game.name, onClose };
 
   return createPortal(
     <div
@@ -100,7 +116,8 @@ export function GameContextMenu({
       className="theme-modal-scope theme-panel theme-border fixed z-[60] bg-zinc-900/98 border border-zinc-700/60 rounded-xl shadow-2xl py-1 w-48 backdrop-blur-xl animate-scale-in"
       style={{ top: pos.top, left: pos.left }}
     >
-      <Item
+      <MenuItem
+        {...itemProps}
         onPick={onJoin}
         label={t("Join Game")}
         icon={
@@ -110,13 +127,15 @@ export function GameContextMenu({
         }
       />
       {onBrowseServers && (
-        <Item
+        <MenuItem
+          {...itemProps}
           onPick={onBrowseServers}
           label={t("Browse servers")}
           icon={<Server size={12} strokeWidth={2} className="text-sky-400" />}
         />
       )}
-      <Item
+      <MenuItem
+        {...itemProps}
         onPick={onFavorite}
         label={t("Favorite")}
         icon={
@@ -127,21 +146,24 @@ export function GameContextMenu({
       />
       {(onBotting || onScripts) && <div className="h-px bg-zinc-800 my-0.5" />}
       {onBotting && (
-        <Item
+        <MenuItem
+          {...itemProps}
           onPick={onBotting}
-          label={t("Botting Mode")}
+          label={t("Auto Rejoin")}
           icon={<Repeat size={12} strokeWidth={2} className="text-violet-400" />}
         />
       )}
       {onScripts && (
-        <Item
+        <MenuItem
+          {...itemProps}
           onPick={onScripts}
           label={t("Scripts")}
           icon={<Code2 size={12} strokeWidth={2} className="text-zinc-400" />}
         />
       )}
       <div className="h-px bg-zinc-800 my-0.5" />
-      <Item
+      <MenuItem
+        {...itemProps}
         onPick={onCopyPlaceId}
         label={t("Copy Place ID")}
         icon={

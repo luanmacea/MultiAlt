@@ -37,7 +37,7 @@ export function BottomActionBar() {
   const bottingActive = store.bottingStatus?.active === true;
   const bottingEnabled = store.settings?.General?.BottingEnabled === "true";
   /**
-   * A entrada do Botting aparece mesmo com o toggle desligado: antes o recurso
+   * A entrada do Auto Rejoin aparece mesmo com o toggle desligado: antes o recurso
    * só existia para quem já tinha ligado a opção, ou seja, ninguém descobria
    * que ele existe. Desligado, a linha explica o que o modo faz e manda para
    * Settings em vez de abrir um diálogo que não vai funcionar.
@@ -167,25 +167,25 @@ export function BottomActionBar() {
   async function handleAddToBotting() {
     setActionsOpen(false);
     if (!bottingActive) {
-      store.addToast(t("Start Botting Mode first"));
+      store.addToast(t("Start Auto Rejoin first"));
       store.openBottingDialog();
       return;
     }
     if (addableBottingIds.length === 0) {
-      store.addToast(t("Selected accounts are already in Botting Mode"));
+      store.addToast(t("Selected accounts are already in Auto Rejoin"));
       return;
     }
     try {
       await store.addBottingAccounts(addableBottingIds);
     } catch (e) {
-      store.addToast(t("Botting account action failed: {{error}}", { error: String(e) }));
+      store.addToast(t("Auto Rejoin account action failed: {{error}}", { error: String(e) }));
     }
   }
 
   // Com o modo desligado o diálogo não adianta: leva direto para o toggle.
   function handleOpenBottingSettings() {
     setActionsOpen(false);
-    store.addToast(t("Botting Mode is off — enable it in Settings › General."));
+    store.addToast(t("Auto Rejoin is off — enable it in Settings › General."));
     store.setSettingsOpen(true);
   }
 
@@ -473,14 +473,14 @@ export function BottomActionBar() {
                   title={bottingSummary}
                   className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] flex items-center gap-2"
                 >
-                  🤖 {t("Open Botting Mode")}
+                  🤖 {t("Open Auto Rejoin")}
                 </button>
                 {bottingActive && addableBottingIds.length > 0 && (
                   <button
                     onClick={handleAddToBotting}
                     className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] flex items-center gap-2"
                   >
-                    ➕ {t("Add to Botting ({{count}})", { count: addableBottingIds.length })}
+                    ➕ {t("Add to Auto Rejoin ({{count}})", { count: addableBottingIds.length })}
                   </button>
                 )}
               </>
@@ -491,7 +491,7 @@ export function BottomActionBar() {
                   title={bottingSummary}
                   className="w-full text-left px-3 py-1.5 text-[12px] theme-muted hover:bg-[var(--panel-soft)] flex items-center justify-between gap-2"
                 >
-                  <span>🤖 {t("Botting Mode")}</span>
+                  <span>🤖 {t("Auto Rejoin")}</span>
                   <span className="text-[11px] uppercase tracking-widest">{t("Off")}</span>
                 </button>
                 <div className="px-3 pb-1.5 text-[11px] theme-muted leading-snug">
