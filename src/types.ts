@@ -444,6 +444,20 @@ export interface ServerRegion {
   /** Texto já formatado por `General.ServerRegionFormat`. */
   label: string;
   error: string | null;
+  /**
+   * O Roblox recusou o join por falta de permissão (o erro 524) para a conta
+   * que fez a consulta. Vem da mesma chamada da região.
+   */
+  denied?: boolean;
+}
+
+/** Resposta de `check_place_access`: uma conta pode entrar naquele servidor? */
+export interface AccountAccess {
+  userId: number;
+  /** Recusada por falta de permissão (o erro 524). */
+  denied: boolean;
+  /** Outro motivo de não dar para saber (servidor cheio, rede, cookie). */
+  error: string | null;
 }
 
 /** Progresso do evento `server-region-progress`. */

@@ -61,15 +61,18 @@ type Translate = ReturnType<typeof useTr>;
 /**
  * Decide se dá para entrar no servidor do amigo e, quando não dá, por quê.
  *
- * `rootPlaceId` tem prioridade sobre `placeId`: o Roblox devolve o place
- * específico em que o jogador está (que pode ser um sub-place de teleporte) e o
- * place raiz da experiência, e é o raiz que o launch aceita.
+ * `placeId` tem prioridade sobre `rootPlaceId`: o Job ID é de um servidor **do
+ * place em que o amigo está**, que pode ser um sub-place (Life Sentence tem 6 —
+ * o raiz distribui para "VC Only", "Pro Players"...). O raiz com o Job ID de um
+ * sub-place pede um servidor que não existe no raiz, e o cliente abria em "This
+ * experience has ended". O raiz fica de reserva, para quando o `placeId` não
+ * vem.
  */
 export function friendTarget(friend: OnlineFriend, t: Translate): FriendTarget {
   if (friend.presenceType === 3) return { joinable: false, reason: t("In Studio") };
   if (friend.presenceType === 1) return { joinable: false, reason: t("On the website") };
 
-  const placeId = friend.rootPlaceId ?? friend.placeId;
+  const placeId = friend.placeId ?? friend.rootPlaceId;
   if (friend.presenceType === 2 && friend.gameId && placeId) {
     return { joinable: true, placeId, jobId: friend.gameId };
   }

@@ -48,6 +48,32 @@ pub struct ServerRegion {
     /// Texto já formatado pelo template de `General.ServerRegionFormat`.
     pub label: String,
     pub error: Option<String>,
+    /// O Roblox recusou o join **por falta de permissão** (`status` 12, o erro
+    /// 524 do cliente) para a conta que fez a consulta. Vem da mesma chamada da
+    /// região: marcar não custa nada a mais.
+    #[serde(default)]
+    pub denied: bool,
+}
+
+/// `status` do `join-game-instance` para "Unauthorized": o cliente mostra "You
+/// do not have permission to join this experience" (erro 524). É pelo código,
+/// não pelo texto, porque a mensagem vem no idioma da conta.
+const JOIN_STATUS_UNAUTHORIZED: i64 = 12;
+
+/// O join de um servidor foi recusado: a mensagem do Roblox e o `status`,
+/// quando a resposta trouxe um.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinRefusal {
+    pub message: String,
+    pub status: Option<i64>,
+}
+
+impl JoinRefusal {
+    /// Recusa por falta de permissão (o erro 524), e não por servidor cheio,
+    /// sumido ou falha de rede.
+    pub fn denied(&self) -> bool {
+        self.status == Some(JOIN_STATUS_UNAUTHORIZED)
+    }
 }
 
 /// Progresso de `resolve_server_regions`, para a UI não ficar parada.
@@ -229,8 +255,10 @@ pub async fn server_machine_address(
     security_token: &str,
     place_id: i64,
     job_id: &str,
-) -> Result<String, String> {
-    let response = join_game_instance(security_token, place_id, job_id, false).await?;
+) -> Result<String, JoinRefusal> {
+    let response = join_game_instance(security_token, place_id, job_id, false)
+        .await
+        .map_err(|message| JoinRefusal { message, status: None })?;
     let address = response["joinScript"]["MachineAddress"]
         .as_str()
         .unwrap_or_default()
@@ -243,15 +271,28 @@ pub async fn server_machine_address(
 
     // O join responde 200 com um payload de erro quando o servidor encheu ou
     // sumiu; a mensagem dele é mais útil que "sem endereço".
+    let status = response["status"].as_i64();
     let message = response["message"]
         .as_str()
         .filter(|m| !m.trim().is_empty())
         .map(|m| m.to_string())
-        .unwrap_or_else(|| match response["status"].as_i64() {
+        .unwrap_or_else(|| match status {
             Some(status) => format!("Join status {}", status),
             None => "Server address not returned".to_string(),
         });
-    Err(message)
+    Err(JoinRefusal { message, status })
+}
+
+/// A conta pode entrar naquele servidor? É o mesmo pedido de entrada da
+/// região, sem a geolocalização. `Err` com `denied()` = sem permissão.
+pub async fn join_access(
+    security_token: &str,
+    place_id: i64,
+    job_id: &str,
+) -> Result<(), JoinRefusal> {
+    server_machine_address(security_token, place_id, job_id)
+        .await
+        .map(|_| ())
 }
 
 /// Região de um servidor: join → IP → geolocalização.
@@ -269,13 +310,15 @@ pub async fn resolve_server_region(
                 label: format_region(&region, template),
                 region: Some(region),
                 error: None,
+                denied: false,
             }
         }
-        Err(error) => ServerRegion {
+        Err(refusal) => ServerRegion {
             job_id: job_id.to_string(),
             region: None,
             label: String::new(),
-            error: Some(error),
+            denied: refusal.denied(),
+            error: Some(refusal.message),
         },
     }
 }
