@@ -16,43 +16,60 @@ permissions:
   contents: write
   pull-requests: write
 
+# Sem os secrets do Crowdin (CROWDIN_PROJECT_ID e CROWDIN_PERSONAL_TOKEN) o
+# workflow **pula** em vez de falhar: este repositório não tem projeto no
+# Crowdin, e a action quebrava em todo push na main ("Required option
+# 'api_token' is missing"). Configurar os dois secrets liga a sincronização.
 jobs:
   upload-sources:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
     steps:
+      - name: Crowdin não configurado — pula
+        if: env.CROWDIN_PROJECT_ID == '' || env.CROWDIN_PERSONAL_TOKEN == ''
+        run: echo "::notice::Crowdin não configurado (faltam os secrets CROWDIN_PROJECT_ID e CROWDIN_PERSONAL_TOKEN) — sincronização pulada."
+
       - name: Checkout
+        if: env.CROWDIN_PROJECT_ID != '' && env.CROWDIN_PERSONAL_TOKEN != ''
         uses: actions/checkout@v4
 
       - name: Upload source strings to Crowdin
+        if: env.CROWDIN_PROJECT_ID != '' && env.CROWDIN_PERSONAL_TOKEN != ''
         uses: crowdin/github-action@v2
         with:
           config: crowdin.yml
           upload_sources: true
           upload_translations: false
-        env:
-          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
-          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
   download-translations:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    env:
+      CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
+      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
     steps:
+      - name: Crowdin não configurado — pula
+        if: env.CROWDIN_PROJECT_ID == '' || env.CROWDIN_PERSONAL_TOKEN == ''
+        run: echo "::notice::Crowdin não configurado (faltam os secrets CROWDIN_PROJECT_ID e CROWDIN_PERSONAL_TOKEN) — sincronização pulada."
+
       - name: Checkout
+        if: env.CROWDIN_PROJECT_ID != '' && env.CROWDIN_PERSONAL_TOKEN != ''
         uses: actions/checkout@v4
 
       - name: Download translations from Crowdin
+        if: env.CROWDIN_PROJECT_ID != '' && env.CROWDIN_PERSONAL_TOKEN != ''
         uses: crowdin/github-action@v2
         with:
           config: crowdin.yml
           download_translations: true
           upload_sources: false
           upload_translations: false
-        env:
-          CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
-          CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
       - name: Create or update translation PR
+        if: env.CROWDIN_PROJECT_ID != '' && env.CROWDIN_PERSONAL_TOKEN != ''
         uses: peter-evans/create-pull-request@v7
         with:
           commit-message: "chore(i18n): sync translations from Crowdin"
@@ -60,4 +77,4 @@ jobs:
           body: |
             Automated translation sync from Crowdin.
           branch: "chore/crowdin-translations"
-          base: "v4"
+          base: "develop"

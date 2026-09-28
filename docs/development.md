@@ -256,7 +256,7 @@ não aparece traduzida, confira primeiro se a chave existe em
 todos os idiomas. [src/i18n/reachesTheScreen.test.tsx](../src/i18n/reachesTheScreen.test.tsx)
 renderiza em português os pontos que já falharam assim.
 
-A tradução para outros idiomas é sincronizada pelo Crowdin ([crowdin.yml](../crowdin.yml): fonte `src/locales/en/common.json`, destino `src/locales/%two_letters_code%/common.json`; workflow [crowdin-sync.yml](../.github/workflows/crowdin-sync.yml)).
+A tradução para outros idiomas é sincronizada pelo Crowdin ([crowdin.yml](../crowdin.yml): fonte `src/locales/en/common.json`, destino `src/locales/%two_letters_code%/common.json`; workflow [crowdin-sync.yml](../.github/workflows/crowdin-sync.yml)). Este repositório **não tem projeto no Crowdin**: sem os secrets `CROWDIN_PROJECT_ID` e `CROWDIN_PERSONAL_TOKEN` o workflow pula (com um aviso) em vez de falhar — até 28/09/2026 ele quebrava em todo push na `main` com "Required option 'api_token' is missing". Configurar os dois secrets liga a sincronização; o PR de traduções abre contra a `develop`.
 
 Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das props reconhecidas, com interpolação no formato `{{nome}}` (nunca template string), e rode o extrator.
 
