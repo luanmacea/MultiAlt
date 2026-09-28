@@ -56,14 +56,14 @@ export function VaultKeyBanner() {
     <div
       role="alert"
       className={[
-        // `pr-28` reserva o canto: `ModalWindowControls` é `fixed top-2.5 right-3`, e
-        // nas telas de senha/criptografia não há TitleBar segurando o topo — a
+        // O `pr` reserva o canto: `ModalWindowControls` é `fixed top-2.5 right-3`,
+        // e nas telas de senha/criptografia não há TitleBar segurando o topo — a
         // pílula de minimizar/fechar ficava **sobre** a primeira linha do aviso,
-        // cortando justamente o fim do texto. Medido no harness: a pílula ocupa
-        // 106 px mais os 12 px do `right-3` = 118 px a partir da borda, então
-        // `pr-28` (112 px) ainda deixava 5 px de sobreposição — o bastante para
-        // comer uma letra. `pr-32` (128 px) folga 10 px.
-        "flex items-start gap-2 pl-4 pr-32 py-1.5 border-b shrink-0",
+        // cortando justamente o fim do texto. Medido no harness (27/09/2026): com
+        // a alça de arrastar, a pílula ocupa 130 px mais os 12 px do `right-3` =
+        // 142 px a partir da borda. `pr-32` (128 px, a medida de antes da alça)
+        // deixaria 14 px de sobreposição; `pr-40` (160 px) folga 18 px.
+        "flex items-start gap-2 pl-4 pr-40 py-1.5 border-b shrink-0",
         mild
           ? "bg-amber-600/15 border-amber-500/20"
           : "bg-red-600/15 border-red-500/25",

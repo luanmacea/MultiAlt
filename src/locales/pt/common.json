@@ -1702,5 +1702,6 @@
   "That line has no cookie. Quick Add takes a cookie or a username; to sign in with a username and password, use User:Pass Login.": "Essa linha não tem cookie. A Adição rápida aceita um cookie ou um nome de usuário; para entrar com usuário e senha, use o Login usuário:senha.",
   "Alias updated — cut to {{max}} characters": "Apelido atualizado — cortado em {{max}} caracteres",
   "Allow launching on an already open version": "Permitir abrir numa versão que já está aberta",
-  "With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open.": "Com clientes abertos em versões diferentes do Roblox, todo launch é bloqueado. Ligado: a conta ainda abre numa versão que já tem cliente aberto."
+  "With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open.": "Com clientes abertos em versões diferentes do Roblox, todo launch é bloqueado. Ligado: a conta ainda abre numa versão que já tem cliente aberto.",
+  "Move window": "Mover a janela"
 }
