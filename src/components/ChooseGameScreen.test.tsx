@@ -6,11 +6,13 @@ import userEvent from "@testing-library/user-event";
 vi.mock("../store", async () => (await import("../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../test-utils/tauriMocks")).tauriEventMock());
+vi.mock("../hooks/usePrompt", async () => (await import("../test-utils/promptMocks")).promptModuleMock());
 
 import { ChooseGameScreen } from "./ChooseGameScreen";
 import { saveRecentGames } from "./server-list/types";
 import { makeAccount, setStore } from "../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
+import { promptAnswers, resetPromptMocks } from "../test-utils/promptMocks";
 import type { JoinTarget } from "../types";
 import type { StoreValue } from "../store";
 
@@ -53,6 +55,7 @@ function joinButton(): HTMLButtonElement {
 
 beforeEach(() => {
   resetTauriMocks();
+  resetPromptMocks();
   localStorage.clear();
 });
 
@@ -334,10 +337,11 @@ describe("ChooseGameScreen — FollowTab", () => {
     await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
     await userEvent.click(followButton());
 
+    // O place do servidor (111), não o raiz: o Job ID é de um servidor dele.
     await waitFor(() =>
       expect(store.launchMultiple).toHaveBeenCalledWith(
         [1001, 1002],
-        expect.objectContaining({ placeId: "606849621", jobId: "job-x" })
+        expect.objectContaining({ placeId: "111", jobId: "job-x" })
       )
     );
     expect(store.launchMultiple).toHaveBeenCalledTimes(1);
@@ -403,7 +407,12 @@ describe("ChooseGameScreen — FollowTab", () => {
     expect(store.joinServer).not.toHaveBeenCalled();
   });
 
-  it("uses rootPlaceId over placeId", async () => {
+  /**
+   * Com Job ID, o place tem que ser o do servidor (`placeId`): num jogo com
+   * sub-places, o raiz + o Job ID de um sub-place pede um servidor que não
+   * existe no raiz e o cliente abre em "This experience has ended".
+   */
+  it("joins the place the player's server is in when there is a Job ID", async () => {
     setInvokeHandler((cmd) => {
       if (cmd === "lookup_user") return { id: 42 };
       if (cmd === "get_presence") return presence({ rootPlaceId: 999, placeId: 111 });
@@ -415,7 +424,35 @@ describe("ChooseGameScreen — FollowTab", () => {
     await userEvent.click(followButton());
 
     await waitFor(() =>
-      expect(store.launchMultiple).toHaveBeenCalledWith([1001, 1002], expect.objectContaining({ placeId: "999" }))
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ placeId: "111", jobId: "job-x" })
+      )
+    );
+  });
+
+  /**
+   * Sem Job ID (servidor escondido) entra-se num servidor público **do jogo**, e
+   * aí o place é o raiz: um sub-place de teleporte pode não aceitar entrada
+   * direta.
+   */
+  it("joins a public server of the root place when the server is hidden", async () => {
+    promptAnswers.confirm = true;
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return presence({ rootPlaceId: 999, placeId: 111, gameId: "" });
+      return undefined;
+    });
+    const store = await renderFollowTab();
+
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    await userEvent.click(followButton());
+
+    await waitFor(() =>
+      expect(store.launchMultiple).toHaveBeenCalledWith(
+        [1001, 1002],
+        expect.objectContaining({ placeId: "999", jobId: "" })
+      )
     );
   });
 });

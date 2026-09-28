@@ -199,22 +199,29 @@ describe("FriendsTab — joining", () => {
     expect(callsFor("launch_roblox")).toHaveLength(0);
   });
 
-  it("prefers rootPlaceId over placeId", async () => {
+  /**
+   * O Job ID é de um servidor **do place em que o amigo está**. Num jogo com
+   * sub-places (Life Sentence tem 6: o raiz distribui para "VC Only", "Pro
+   * Players"...), mandar o raiz com o Job ID do sub-place pede um servidor que
+   * não existe ali — o cliente abria em "This experience has ended, or the
+   * server became unavailable" (relato do dono, 28/09/2026).
+   */
+  it("joins the place the friend's server is in, not the root place", async () => {
     setFriends([group(1001, [friend({ userId: 7001, placeId: 111, rootPlaceId: 999, gameId: "job-b" })])]);
     renderTab([ACCOUNT_A]);
 
     await userEvent.click(within(await screen.findByTestId("friend-1001-7001")).getByRole("button"));
 
-    await waitFor(() => expect(launchAll).toHaveBeenCalledWith([1001], 999, "job-b", undefined));
+    await waitFor(() => expect(launchAll).toHaveBeenCalledWith([1001], 111, "job-b", undefined));
   });
 
-  it("falls back to placeId when rootPlaceId is missing", async () => {
-    setFriends([group(1001, [friend({ userId: 7001, placeId: 111, rootPlaceId: null, gameId: "job-c" })])]);
+  it("falls back to rootPlaceId when placeId is missing", async () => {
+    setFriends([group(1001, [friend({ userId: 7001, placeId: null, rootPlaceId: 999, gameId: "job-c" })])]);
     renderTab([ACCOUNT_A]);
 
     await userEvent.click(within(await screen.findByTestId("friend-1001-7001")).getByRole("button"));
 
-    await waitFor(() => expect(launchAll).toHaveBeenCalledWith([1001], 111, "job-c", undefined));
+    await waitFor(() => expect(launchAll).toHaveBeenCalledWith([1001], 999, "job-c", undefined));
   });
 
   it("does not launch twice while a join is in flight", async () => {
