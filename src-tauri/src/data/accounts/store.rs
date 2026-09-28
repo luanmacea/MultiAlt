@@ -261,6 +261,18 @@ impl AccountStore {
         Ok(())
     }
 
+    /// A pasta de dados (onde ficam `AccountData.json` e `.key`) e a de
+    /// backups, para as mensagens de bloqueio darem o caminho à mão.
+    fn data_and_backups_dirs(&self) -> (std::path::PathBuf, std::path::PathBuf) {
+        let data_dir = self
+            .file_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        let backups_dir = data_dir.join(crate::BACKUPS_DIR_NAME);
+        (data_dir, backups_dir)
+    }
+
     /// Mensagem para o caso em que o vault existe, está cifrado e **nada** abre.
     ///
     /// A presença do `.key` separa os dois motivos, e eles pedem respostas
@@ -280,12 +292,7 @@ impl AccountStore {
         // mão, e a ordem importa: com o app aberto nada é relido, e pôr os
         // arquivos do backup por cima sem tirar os de agora do lugar perde o
         // vault que talvez ainda abra no aparelho que o criou.
-        let data_dir = self
-            .file_path
-            .parent()
-            .map(std::path::Path::to_path_buf)
-            .unwrap_or_default();
-        let backups_dir = data_dir.join(crate::BACKUPS_DIR_NAME);
+        let (data_dir, backups_dir) = self.data_and_backups_dirs();
 
         // Só citar o `.json.bak` quando ele **existe**: numa instalação que nasceu
         // cifrada esse arquivo nunca existiu, e mandar restaurá-lo é mandar a
@@ -851,11 +858,18 @@ impl AccountStore {
             // Nada é gravado nos dois casos (o latch abaixo garante).
             self.load_failed
                 .store(true, std::sync::atomic::Ordering::SeqCst);
+            // Os passos vão à mão: isto sai na tela de senha, onde o Settings
+            // não abre.
+            let (data_dir, backups_dir) = self.data_and_backups_dirs();
             return Err(format!(
                 "Password required for encrypted file. If you never set a password, this file was \
-                 encrypted with a different device key — restore the matching {} next to it (both \
-                 come in the same backup zip). Nothing was deleted or overwritten.",
-                self.key_file_path().display()
+                 encrypted with a different device key than {}: close the app, move AccountData.json \
+                 and AccountData.key out of {} (keep them), put back both from a backup zip in {} \
+                 (they have to come from the same zip), and open the app again. Nothing was deleted \
+                 or overwritten.",
+                self.key_file_path().display(),
+                data_dir.display(),
+                backups_dir.display()
             ));
         };
 
@@ -923,11 +937,18 @@ impl AccountStore {
                     // foi apagado (usuário, antivírus, limpeza de disco). O
                     // segundo não se resolve digitando de novo, e quem não souber
                     // disso vai ficar tentando senhas até desistir.
+                    // E "restaure de um backup" sem dizer como é beco sem saída: esta
+                    // mensagem sai na tela de senha, onde o Settings não abre.
+                    let (data_dir, backups_dir) = self.data_and_backups_dirs();
                     format!(
                         "Failed to decrypt: wrong password. If this vault never had a password, \
-                         its device key file is missing — restore {} (together with the account \
-                         file) from a backup instead of retyping.",
-                        self.key_file_path().display()
+                         its device key file is missing ({}) and retyping will not help: close the \
+                         app, move AccountData.json out of {} (keep it), put back AccountData.json \
+                         and AccountData.key from a backup zip in {}, and open the app again. A \
+                         backup only opens on the PC and Windows user that made it.",
+                        self.key_file_path().display(),
+                        data_dir.display(),
+                        backups_dir.display()
                     )
                 }
             })?;
