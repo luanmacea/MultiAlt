@@ -867,11 +867,20 @@ async fn launch_roblox_windows(
     }
 
     windows::refresh_production_version().await;
+    // A pasta de onde o cliente vai abrir, resolvida uma vez: o patch (FPS,
+    // fast flags) e o spawn do old join usam esta mesma — antes o patch ia
+    // para `resolved_base_path` e o old join sem versão do catálogo abria a
+    // build do canal do registro.
+    let client_dir = windows::client_dir(
+        windows::client_source(use_old_join, resolved_version_id.is_some()),
+        &resolved_base_path,
+    )
+    .await;
     patch_client_settings_for_launch(
         &settings,
         LaunchClientProfile::Normal,
         account_overrides.as_ref(),
-        Some(&resolved_base_path),
+        Some(&client_dir),
     );
 
     let tracker = windows::tracker();
@@ -937,13 +946,8 @@ async fn launch_roblox_windows(
     );
 
     let spawn_result = if use_old_join {
-        let base_path = if resolved_version_id.is_none() {
-            windows::default_player_dir(&resolved_base_path).await
-        } else {
-            resolved_base_path.clone()
-        };
         windows::launch_old_join_from(
-            &base_path,
+            &client_dir,
             &ticket,
             private_join.place_id,
             &actual_job,
@@ -1436,11 +1440,18 @@ async fn launch_multiple(
         }
 
         windows::refresh_production_version().await;
+        // Mesma pasta para o patch e para o spawn do old join (ver o launch de
+        // uma conta, acima).
+        let acct_client_dir = windows::client_dir(
+            windows::client_source(acct_use_old_join, acct_version_id.is_some()),
+            &acct_base_path,
+        )
+        .await;
         patch_client_settings_for_launch(
             &settings,
             LaunchClientProfile::Normal,
             acct_overrides.as_ref(),
-            Some(&acct_base_path),
+            Some(&acct_client_dir),
         );
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
@@ -1519,13 +1530,8 @@ async fn launch_multiple(
         );
 
         let launch_result = if acct_use_old_join {
-            let base_path = if acct_version_id.is_none() {
-                windows::default_player_dir(&acct_base_path).await
-            } else {
-                acct_base_path.clone()
-            };
             windows::launch_old_join_from(
-                &base_path,
+                &acct_client_dir,
                 &ticket,
                 private_join.place_id,
                 &resolved_launch.job_id,

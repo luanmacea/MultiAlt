@@ -35,7 +35,7 @@ Precedência:
 1. **Override da conta** (`account.fields["RobloxVersion"]`, formato `<canal>:<hash>`): precisa existir no catálogo e ter `RobloxPlayerBeta.exe`, senão **erro** (não cai para o próximo nível). As mensagens de erro mandam "clear the per-account override" — e isso só se faz editando o campo à mão (ver "Override por conta" abaixo).
 2. **`Versions.DefaultVersion`**: mesma validação e erro.
 3. **Versão do catálogo usada mais recentemente** (`last_launched_at`, ou `installed_at`) que tenha o exe.
-4. **Instalação do sistema** (`get_roblox_path`: a pasta da **última build resolvida** por qualquer consulta de canal — `cached_production_player_dir`, que apesar do nome também guarda a build do canal do registro —, senão a do `HKCR/roblox/DefaultIcon`, senão a pasta `version-*` mais recente da primeira pasta `Versions` que tiver alguma, nesta ordem: `%LOCALAPPDATA%/Roblox`, `Bloxstrap`, `Fishstrap`, `Voidstrap` — `candidate_versions_dirs` em [core.rs](../../src-tauri/src/platform/windows/core.rs); a instalação oficial ganha de qualquer bootstrapper) → `version_id = None`. No spawn essa pasta é só a reserva: pelo protocolo, `launch_url` abre a build de **produção**; no old join, `default_player_dir` troca pela pasta da build do canal **lido** do registro, instalando-a se faltar, e só devolve esta pasta se nem isso der (ver [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix)). O app não fixa canal: só o lê — a única escrita é o reparo de canal morto descrito lá.
+4. **Instalação do sistema** (`get_roblox_path`: a pasta da **última build de produção resolvida** — `cached_production_player_dir` —, senão a do `HKCR/roblox/DefaultIcon`, senão a pasta `version-*` mais recente da primeira pasta `Versions` que tiver alguma, nesta ordem: `%LOCALAPPDATA%/Roblox`, `Bloxstrap`, `Fishstrap`, `Voidstrap` — `candidate_versions_dirs` em [core.rs](../../src-tauri/src/platform/windows/core.rs); a instalação oficial ganha de qualquer bootstrapper) → `version_id = None`. No spawn essa pasta é só a reserva: pelo protocolo, `launch_url` abre a build de **produção**; no old join, `default_player_dir` troca pela pasta da build do canal **lido** do registro, instalando-a se faltar, e só devolve esta pasta se nem isso der (ver [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix)). O app não fixa canal: só o lê — a única escrita é o reparo de canal morto descrito lá.
 
 ```mermaid
 sequenceDiagram
@@ -50,7 +50,7 @@ sequenceDiagram
     else catálogo não vazio
         R->>C: mais recente com exe
     else
-        R->>R: get_roblox_path() (última build resolvida, HKCR ou pasta Versions; version_id=None)
+        R->>R: get_roblox_path() (última build de produção resolvida, HKCR ou pasta Versions; version_id=None)
     end
     R-->>L: (base_path, version_id)
     alt version_id.is_some()
@@ -91,7 +91,7 @@ Campo por conta: `RobloxVersion` (`canal:hash`).
 
 - Se existir **qualquer** versão no catálogo, contas sem override e sem `DefaultVersion` usam a versão do catálogo mais recente (passo 3), não a instalação do sistema. Isso muda o modo de launch para old join sem o usuário perceber.
 - Misturar contas com versões diferentes num mesmo lote faz as divergentes serem puladas.
-- O web server ignora o catálogo: pelo protocolo abre a build de produção (`launch_url`); com `UseOldJoin`, a build do canal lido do registro (`launch_old_join` → `default_player_dir`). O Auto Rejoin **usa** o catálogo (`RobloxVersion`/`DefaultVersion`, mesma `resolve_roblox_install_path` do launch) e reporta a versão resolvida ao tracker (`track_with_version`, só no ramo old join — ver [botting.md](botting.md)), então ele também participa da guarda de versão concorrente do lado de quem lança depois dele; mas o próprio Auto Rejoin não checa conflito antes de lançar.
+- O web server ignora o catálogo: pelo protocolo abre a build de produção (`launch_url`); com `UseOldJoin`, a build do canal lido do registro (`client_dir` → `default_player_dir`). O Auto Rejoin **usa** o catálogo (`RobloxVersion`/`DefaultVersion`, mesma `resolve_roblox_install_path` do launch) e reporta a versão resolvida ao tracker (`track_with_version`, só no ramo old join — ver [botting.md](botting.md)), então ele também participa da guarda de versão concorrente do lado de quem lança depois dele; mas o próprio Auto Rejoin não checa conflito antes de lançar.
 - Versões do catálogo **não** passam pelo casamento build × canal (ver [launch.md](launch.md#canal-do-roblox-e-a-tela-de-atualização-causa-raiz-e-fix)): o old join executa a build instalada como está.
 - Uma build antiga do catálogo pode ser rejeitada pelos servidores do Roblox (exigir update); nesse caso o cliente abre o instalador próprio.
 - Sem `weao.xyz` no ar, a lista remota falha (a instalação por hash manual continua funcionando via CDN).

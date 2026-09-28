@@ -165,41 +165,6 @@ fn botting_action_flags(action: &BottingAccountAction) -> (bool, bool, bool, boo
     )
 }
 
-/// Qual pasta o Botting usa como base do launch e do patch de client settings
-/// (Task 1): a pasta resolvida do catálogo (versão da conta, `DefaultVersion`,
-/// ou a mais usada recentemente) só entra quando a conta tem **versão própria
-/// configurada** *e* o launch realmente vai pelo old join.
-///
-/// Regra do projeto (`CLAUDE.md`, Global Constraint do plano de sync com o
-/// upstream): pelo protocolo (`launch_url`) o cliente sempre abre a build de
-/// **produção** — o `channel:` vazio da URL vence o registro — e versão por
-/// conta não se aplica nesse caminho. Como `resolve_use_old_join` já força old
-/// join sempre que existe uma versão resolvida (de qualquer origem), esse
-/// "tem versão própria mas vai por URL" não deveria acontecer na prática — mas
-/// se algum dia acontecer (ex.: um bug muda o cálculo de `use_old_join` sem
-/// mexer aqui), a pasta cai para produção em vez de arriscar escrever o patch
-/// ou abrir o old join na pasta errada.
-#[cfg(target_os = "windows")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BottingBasePath {
-    /// Pasta devolvida por `resolve_roblox_install_path` — cobre tanto a
-    /// versão própria da conta quanto `DefaultVersion`/mais recente do
-    /// catálogo (nesses dois últimos casos ela já É a produção, quando não há
-    /// nenhum dos dois configurados).
-    Resolved,
-    /// Build de produção (`get_roblox_path()`) — o que o protocolo abre.
-    Production,
-}
-
-#[cfg(target_os = "windows")]
-fn resolve_botting_base_path(has_account_version: bool, use_old_join: bool) -> BottingBasePath {
-    if has_account_version && !use_old_join {
-        BottingBasePath::Production
-    } else {
-        BottingBasePath::Resolved
-    }
-}
-
 /// Versão a reportar ao `ProcessTracker` para o cliente que este ciclo do
 /// Botting acabou de abrir (Task de sync com o upstream: sem isto,
 /// `has_version_conflict` — a guarda que a fila de launch usa para recusar
@@ -215,7 +180,7 @@ fn resolve_botting_base_path(has_account_version: bool, use_old_join: bool) -> B
 /// `resolved_version_id` nesse ramo mentiria para a guarda. Na prática
 /// `resolve_use_old_join` já garante `resolved_version_id.is_none()` sempre
 /// que `use_old_join` for falso (a mesma invariante de que depende
-/// `resolve_botting_base_path`), mas a função fica segura por conta própria
+/// `windows::client_source`), mas a função fica segura por conta própria
 /// em vez de confiar nisso silenciosamente.
 #[cfg(target_os = "windows")]
 fn botting_tracked_version(
@@ -291,7 +256,6 @@ async fn launch_account_for_cycle(
         .and_then(|list| list.iter().find(|a| a.user_id == user_id))
         .and_then(|a| a.fields.get("RobloxVersion").cloned())
         .filter(|v| !v.trim().is_empty());
-    let has_account_version = account_version_override.is_some();
     let (resolved_base_path, resolved_version_id) = {
         let settings = app.state::<SettingsStore>();
         let versions = app.state::<data::versions::VersionsCatalogStore>();
@@ -315,17 +279,16 @@ async fn launch_account_for_cycle(
         let _ = windows::disable_multi_roblox();
     }
 
-    // Pelo protocolo (`launch_url`) a build é sempre a de produção — versão
-    // por conta não se aplica nesse caminho (Global Constraint 1 do plano de
-    // sync com o upstream / CLAUDE.md). `resolve_botting_base_path` garante
-    // essa regra mesmo que `use_old_join` algum dia saia diferente do que
-    // `resolved_version_id` sugere.
-    let base_path_for_patch = match resolve_botting_base_path(has_account_version, use_old_join) {
-        BottingBasePath::Resolved => resolved_base_path.clone(),
-        BottingBasePath::Production => {
-            windows::get_roblox_path().unwrap_or_else(|_| resolved_base_path.clone())
-        }
-    };
+    // A pasta de onde o cliente vai abrir, a mesma para o patch (FPS, fast
+    // flags) e para o spawn do old join: versão do catálogo pelo old join, a
+    // build do canal do registro no old join sem catálogo, e a de produção
+    // pelo protocolo (`launch_url`) — versão por conta não se aplica nesse
+    // caminho (CLAUDE.md). Ver `windows::client_source`.
+    let client_dir = windows::client_dir(
+        windows::client_source(use_old_join, resolved_version_id.is_some()),
+        &resolved_base_path,
+    )
+    .await;
 
     {
         let settings = app.state::<SettingsStore>();
@@ -334,7 +297,7 @@ async fn launch_account_for_cycle(
             &settings,
             launch_profile,
             account_overrides.as_ref(),
-            Some(&base_path_for_patch),
+            Some(&client_dir),
         );
     }
 
@@ -389,16 +352,11 @@ async fn launch_account_for_cycle(
 
     let launch_result = if use_old_join {
         // Sem versão resolvida (nem da conta, nem do catálogo), a pasta do old
-        // join vem do canal do registro — igual ao `default_player_dir` que
-        // `commands/launch.rs` já usa — porque é o registro quem decide o
-        // canal nesse caminho (CLAUDE.md#regras-críticas).
-        let base_path = if resolved_version_id.is_none() {
-            windows::default_player_dir(&base_path_for_patch).await
-        } else {
-            base_path_for_patch.clone()
-        };
+        // join é a build do canal do registro, porque é o registro quem decide
+        // o canal nesse caminho (CLAUDE.md#regras-críticas) — `client_dir` já
+        // resolveu isso, e o patch foi para a mesma pasta.
         windows::launch_old_join_from(
-            &base_path,
+            &client_dir,
             &ticket,
             private_join.place_id,
             &resolved_launch.job_id,
@@ -1775,53 +1733,6 @@ mod botting_command_tests {
         assert!(!parse("\"close_disconnect\""));
         assert!(!parse("\"\""));
         assert!(!parse("null"));
-    }
-
-    // ---- resolve_botting_base_path ------------------------------------------
-
-    /// A pasta resolvida (versão própria da conta) só vale quando o launch
-    /// realmente vai pelo old join — é o caso normal, já que
-    /// `resolve_use_old_join` força old join sempre que há uma versão
-    /// resolvida.
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn resolve_botting_base_path_uses_the_resolved_folder_for_an_account_version_on_old_join() {
-        assert_eq!(
-            resolve_botting_base_path(true, true),
-            BottingBasePath::Resolved
-        );
-    }
-
-    /// O caso que a Global Constraint 1 do plano de sync com o upstream exige:
-    /// pelo protocolo (`launch_url`) a build é sempre a de produção, mesmo que
-    /// a conta tenha uma versão própria configurada. Na prática
-    /// `resolve_use_old_join` nunca deixa essa combinação acontecer, mas a
-    /// função tem que ser segura por conta própria.
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn resolve_botting_base_path_falls_back_to_production_when_the_account_version_would_go_by_url()
-    {
-        assert_eq!(
-            resolve_botting_base_path(true, false),
-            BottingBasePath::Production
-        );
-    }
-
-    /// Sem versão própria da conta, a pasta resolvida por
-    /// `resolve_roblox_install_path` já é a certa em qualquer um dos dois
-    /// caminhos (ela cai para `DefaultVersion`/mais recente do catálogo, ou
-    /// para a própria produção quando nada está configurado).
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn resolve_botting_base_path_uses_resolved_without_an_account_override() {
-        assert_eq!(
-            resolve_botting_base_path(false, true),
-            BottingBasePath::Resolved
-        );
-        assert_eq!(
-            resolve_botting_base_path(false, false),
-            BottingBasePath::Resolved
-        );
     }
 
     // ---- botting_tracked_version ---------------------------------------------

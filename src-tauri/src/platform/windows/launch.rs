@@ -237,9 +237,51 @@ fn set_player_channel(channel: &str) {
     }
 }
 
-fn remember_resolved_build(version: &str) {
+/// Guarda a build de **produção** para os helpers síncronos
+/// (`get_roblox_path`). Build de outro canal (a do registro, no old join) não
+/// entra: quem pede a pasta de produção receberia a do canal.
+fn remember_resolved_build(channel: &str, version: &str) {
+    if !channel_is_production(channel) {
+        return;
+    }
     if let Ok(mut guard) = LAST_RESOLVED_BUILD.lock() {
         *guard = Some(version.to_string());
+    }
+}
+
+/// De onde o cliente deste launch abre — e, portanto, onde o
+/// `ClientAppSettings.json` (FPS, fast flags) tem que ser gravado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientSource {
+    /// Old join numa versão do catálogo: a pasta dela.
+    Catalog,
+    /// Old join sem versão do catálogo: a build do canal do **registro**.
+    RegistryChannel,
+    /// Protocolo (`launch_url`): sempre a build de produção.
+    Production,
+}
+
+pub fn client_source(use_old_join: bool, has_catalog_version: bool) -> ClientSource {
+    match (use_old_join, has_catalog_version) {
+        (true, true) => ClientSource::Catalog,
+        (true, false) => ClientSource::RegistryChannel,
+        (false, _) => ClientSource::Production,
+    }
+}
+
+/// Pasta de onde o cliente vai abrir. É a **mesma** que o spawn usa: o patch
+/// e o old join têm que receber este valor, não um calculado antes.
+/// `resolved_base_path` é a pasta de `resolve_roblox_install_path` — a da
+/// versão do catálogo, ou o fallback quando a build não pôde ser achada nem
+/// instalada.
+pub async fn client_dir(source: ClientSource, resolved_base_path: &str) -> String {
+    match source {
+        ClientSource::Catalog => resolved_base_path.to_string(),
+        ClientSource::RegistryChannel => default_player_dir(resolved_base_path).await,
+        ClientSource::Production => ensure_player_exe_for_channel(PRODUCTION_CHANNEL)
+            .await
+            .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| resolved_base_path.to_string()),
     }
 }
 
@@ -422,7 +464,7 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         .and_then(|c| c.get(&channel).cloned());
     if let Some((at, version)) = &cached {
         if at.elapsed() < PRODUCTION_VERSION_CACHE_TTL {
-            remember_resolved_build(version);
+            remember_resolved_build(&channel, version);
             return Some(version.clone());
         }
     }
@@ -449,10 +491,10 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
 
     match fetched {
         Some(version) => {
+            remember_resolved_build(&channel, &version);
             if let Ok(mut cache) = CHANNEL_VERSION_CACHE.lock() {
                 cache.insert(channel, (std::time::Instant::now(), version.clone()));
             }
-            remember_resolved_build(&version);
             Some(version)
         }
         // Network hiccup: a stale answer is still far better than the protocol
@@ -460,37 +502,11 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         None => {
             let stale = cached.map(|(_, version)| version);
             if let Some(version) = &stale {
-                remember_resolved_build(version);
+                remember_resolved_build(&channel, version);
             }
             stale
         }
     }
-}
-
-pub async fn launch_old_join(
-    ticket: &str,
-    place_id: i64,
-    job_id: &str,
-    launch_data: &str,
-    follow_user: bool,
-    join_vip: bool,
-    access_code: &str,
-    link_code: &str,
-    is_teleport: bool,
-) -> Result<(), String> {
-    let version_folder = default_player_dir(&get_roblox_path()?).await;
-    launch_old_join_from(
-        &version_folder,
-        ticket,
-        place_id,
-        job_id,
-        launch_data,
-        follow_user,
-        join_vip,
-        access_code,
-        link_code,
-        is_teleport,
-    )
 }
 
 pub fn launch_old_join_from(
@@ -808,7 +824,7 @@ mod channel_follow_tests {
 
     #[test]
     fn a_resolved_build_is_remembered_for_sync_callers() {
-        remember_resolved_build("version-deadbeefdeadbeef");
+        remember_resolved_build(PRODUCTION_CHANNEL, "version-deadbeefdeadbeef");
         let remembered = LAST_RESOLVED_BUILD.lock().unwrap().clone();
         assert_eq!(remembered.as_deref(), Some("version-deadbeefdeadbeef"));
         // Not installed, so the sync helper must not hand out a bogus folder.
@@ -991,5 +1007,44 @@ mod channel_repair_tests {
             fetch_channel_build(&client(), &base, CHANNEL).await,
             Some(ChannelBuild::Channel("version-docanal".into()))
         );
+    }
+}
+
+#[cfg(test)]
+mod client_dir_tests {
+    use super::*;
+
+    // O `ClientAppSettings.json` (FPS e fast flags) é por pasta de build: tem
+    // que ir para a pasta de onde o cliente vai abrir. O patch usava a pasta
+    // resolvida antes do launch e o spawn usava outra — no old join sem versão
+    // do catálogo (build do canal do registro) e no protocolo (build de
+    // produção, que pode ter acabado de ser baixada).
+
+    #[test]
+    fn old_join_with_a_catalog_version_opens_that_version() {
+        assert_eq!(client_source(true, true), ClientSource::Catalog);
+    }
+
+    #[test]
+    fn old_join_without_a_catalog_version_opens_the_registry_channel_build() {
+        assert_eq!(client_source(true, false), ClientSource::RegistryChannel);
+    }
+
+    #[test]
+    fn the_protocol_always_opens_the_production_build() {
+        assert_eq!(client_source(false, false), ClientSource::Production);
+        // Versão do catálogo não vale pelo protocolo: o `channel:` vazio da URL
+        // manda abrir produção (é o caso do isolamento que apaga a instalação).
+        assert_eq!(client_source(false, true), ClientSource::Production);
+    }
+
+    /// `get_roblox_path` diz "a build de produção", mas o cache guardava a
+    /// última build resolvida de **qualquer** canal: depois de um old join num
+    /// canal de teste, quem pedia a pasta de produção recebia a do canal.
+    #[test]
+    fn a_test_channel_build_is_not_remembered_as_the_production_build() {
+        remember_resolved_build("zcanaldeteste", "version-docanaldeteste");
+        let remembered = LAST_RESOLVED_BUILD.lock().unwrap().clone();
+        assert_ne!(remembered.as_deref(), Some("version-docanaldeteste"));
     }
 }
