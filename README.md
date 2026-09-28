@@ -47,14 +47,16 @@ cd src-tauri && cargo build --features webserver,nexus   # com as features opcio
 
 A primeira execução de `tauri dev`/`tauri build` compila todas as crates Rust do zero e pode levar alguns minutos; builds seguintes usam cache incremental do Cargo e são bem mais rápidas.
 
-`bun run tauri build` gera o instalador em `src-tauri/target/release/bundle/nsis/` (o `tauri.conf.json` só pede `nsis`; o `.msi` só sai no CI, com `PUBLISH_MSI` ligado). O `.exe` solto (sem installer) fica direto em `src-tauri/target/release/`.
+`bun run tauri build` gera o instalador em `src-tauri/target/release/bundle/nsis/` (o `tauri.conf.json` só pede `nsis`; o `.msi` sai no CI, com `PUBLISH_MSI`, ou localmente com `bun run tauri build --bundles msi`). O `.exe` solto (sem installer) fica direto em `src-tauri/target/release/`.
 
 # Download
 Releases prontas: [GitHub Releases](https://github.com/luanmacea/roblox-account-manager/releases).
 
-A release publica **só o instalador** (`.exe`), em duas variantes:
+Baixe o **`.msi`**: é o instalador recomendado. O setup `.exe` também é publicado, mas antivírus que julgam por heurística marcam esse formato (falso positivo), e o `.msi` sai limpo no VirusTotal. O `.msi` pede permissão de administrador ao instalar. Quem já instalou pelo `.exe` pode continuar com ele: o app se atualiza sozinho.
+
+Cada formato sai em duas variantes:
 - sem `_full-nexus-ws` = **recomendado** (não abre porta nenhuma)
-- com `_full-nexus-ws.exe` = versão full-feature (API HTTP local e Nexus)
+- com `_full-nexus-ws` = versão full-feature (API HTTP local e Nexus)
 
 Não precisa instalar .NET Framework ou VC++ manualmente. Baixe só da página oficial de releases.
 

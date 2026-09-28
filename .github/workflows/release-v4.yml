@@ -50,10 +50,13 @@ jobs:
       # desligam os formatos extras; "true" volta a publica-los, e nenhum passo
       # foi removido do workflow.
       #
-      # MSI: mesmo app em formato de instalacao corporativa (silenciosa, por
-      # politica de dominio). Ligar tambem acrescenta o alvo `msi` ao bundle do
-      # Tauri no passo "Configure bundle targets".
-      PUBLISH_MSI: "false"
+      # MSI: o download **recomendado**. No VirusTotal o setup NSIS (.exe) leva
+      # marcacao heuristica (3/71 no 4.0.5, todas de modelos de ML) e o MSI sai
+      # limpo (0/61, teste de 28/09/2026). O .exe continua saindo: e por ele que
+      # as instalacoes feitas com ele se atualizam (chave `windows-x86_64-nsis`
+      # do manifesto). Ligar tambem acrescenta o alvo `msi` ao bundle do Tauri no
+      # passo "Configure bundle targets".
+      PUBLISH_MSI: "true"
       # Portatil: o executavel solto, sem instalar. Nao passa pelo updater.
       PUBLISH_PORTABLE: "false"
 
@@ -196,6 +199,10 @@ jobs:
           generateReleaseNotes: true
           prerelease: ${{ steps.controls.outputs.channel == 'beta' }}
           releaseDraft: false
+          # A chave generica do latest.json fica no instalador .exe, o formato
+          # das instalacoes existentes. Quem instalou pelo MSI acha antes a
+          # `windows-x86_64-msi` (o updater procura a do proprio formato).
+          updaterJsonPreferNsis: true
 
       - name: Stage standard portable binary
         if: env.PUBLISH_PORTABLE == 'true'
@@ -367,30 +374,26 @@ jobs:
           $fullSetupSignature = (Get-Content $fullSetupSigSrc -Raw).Trim()
           $fullMsiSignature = if ($fullMsiSigSrc) { (Get-Content $fullMsiSigSrc -Raw).Trim() } else { $null }
 
-          # `windows-x86_64` e a chave que o updater consulta. Com o MSI
-          # publicado ela aponta para ele (era o comportamento historico); sem
-          # MSI ela precisa apontar para o instalador, senao a atualizacao da
-          # variante completa quebraria em silencio, baixando um arquivo que
-          # nao existe mais na release.
+          # O updater procura primeiro a chave do proprio formato
+          # (`windows-x86_64-nsis` / `-msi`, tauri-plugin-updater 2.10) e so
+          # depois a generica. A generica fica **sempre** no instalador .exe: e o
+          # formato das instalacoes existentes, e mandar para o MSI um app de
+          # formato desconhecido instalaria uma segunda copia, por maquina, ao
+          # lado da atual.
           $platforms = [ordered]@{}
-          if ($env:PUBLISH_MSI -eq "true") {
-            $platforms["windows-x86_64"] = [ordered]@{
-              signature = $fullMsiSignature
-              url = "$baseUrl/$fullMsiName"
-            }
-            $platforms["windows-x86_64-msi"] = [ordered]@{
-              signature = $fullMsiSignature
-              url = "$baseUrl/$fullMsiName"
-            }
-          } else {
-            $platforms["windows-x86_64"] = [ordered]@{
-              signature = $fullSetupSignature
-              url = "$baseUrl/$fullSetupName"
-            }
+          $platforms["windows-x86_64"] = [ordered]@{
+            signature = $fullSetupSignature
+            url = "$baseUrl/$fullSetupName"
           }
           $platforms["windows-x86_64-nsis"] = [ordered]@{
             signature = $fullSetupSignature
             url = "$baseUrl/$fullSetupName"
+          }
+          if ($env:PUBLISH_MSI -eq "true") {
+            $platforms["windows-x86_64-msi"] = [ordered]@{
+              signature = $fullMsiSignature
+              url = "$baseUrl/$fullMsiName"
+            }
           }
 
           $manifest = [ordered]@{
@@ -598,8 +601,9 @@ jobs:
               `Release commit message: ${releaseCommitMessage}`,
               `App version: ${appVersion}`,
               "",
-              "Recommended assets: use installer/MSI/portable files without _full-nexus-ws",
-              "Full feature assets: use files ending in _full-nexus-ws.exe or _full-nexus-ws.msi",
+              "Recommended download: the .msi without _full-nexus-ws (antivirus heuristics flag the setup .exe; the MSI comes out clean)",
+              "Already installed from the setup .exe? Keep it: it updates itself",
+              "Full feature assets: use files ending in _full-nexus-ws.msi or _full-nexus-ws.exe",
               "Portable builds are listed after installer and MSI assets"
             ].join("\n");
 
