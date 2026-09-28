@@ -84,6 +84,7 @@ Seção `[Versions]`:
 | `CatalogCacheMinutes` | `10` | Criado nos defaults; não é lido em lugar nenhum |
 | `PreferOldJoinForVersioned` | `true` | Exibido na UI ([VersionsTab.tsx](../../src/components/settings/VersionsTab.tsx)); **ignorado pelo backend** (versionado sempre usa old join) |
 | `ShowPreReleaseVersions` | `false` | Toggle na UI ([VersionsTab.tsx](../../src/components/settings/VersionsTab.tsx)); não lido pelo backend |
+| `AllowLaunchOnOpenVersion` | `false` | Toggle na UI ("Allow launching on an already open version"). Ligado, a guarda de versão deixa abrir numa versão que já tem cliente aberto, mesmo com outras abertas ao lado (`version_guard_blocks` em [commands/launch.rs](../../src-tauri/src/commands/launch.rs)) |
 
 Campo por conta: `RobloxVersion` (`canal:hash`).
 

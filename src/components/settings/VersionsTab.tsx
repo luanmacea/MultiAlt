@@ -117,6 +117,15 @@ export function VersionsTab({ s }: { s: UseSettingsReturn }) {
         label="Always use direct exe launch for managed versions"
         description="Required to spawn a non-default Roblox version. Disable only for troubleshooting."
       />
+      {/* Guarda de versão do launch (`version_guard_blocks`, commands/launch.rs):
+          desligado, recusa abrir numa versão diferente de qualquer cliente
+          aberto — com duas versões abertas, nenhum launch passa. */}
+      <Toggle
+        checked={s.getBool("Versions", "AllowLaunchOnOpenVersion")}
+        onChange={(v) => s.setBool("Versions", "AllowLaunchOnOpenVersion", v)}
+        label="Allow launching on an already open version"
+        description="With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open."
+      />
 
       <Divider />
       <SectionLabel>Credits</SectionLabel>

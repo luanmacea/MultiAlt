@@ -1700,5 +1700,7 @@
   "{{path}} could not be encrypted and is still plain text: the login cookie of every account is readable on this PC. Nothing was lost — open Settings > Misc > Change Encryption Method to try again, or set a password.": "{{path}} could not be encrypted and is still plain text: the login cookie of every account is readable on this PC. Nothing was lost — open Settings > Misc > Change Encryption Method to try again, or set a password.",
   "Saved {{path}}, but this drive did not confirm the write. A power loss right now could lose the last change.": "Saved {{path}}, but this drive did not confirm the write. A power loss right now could lose the last change.",
   "That line has no cookie. Quick Add takes a cookie or a username; to sign in with a username and password, use User:Pass Login.": "That line has no cookie. Quick Add takes a cookie or a username; to sign in with a username and password, use User:Pass Login.",
-  "Alias updated — cut to {{max}} characters": "Alias updated — cut to {{max}} characters"
+  "Alias updated — cut to {{max}} characters": "Alias updated — cut to {{max}} characters",
+  "Allow launching on an already open version": "Allow launching on an already open version",
+  "With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open.": "With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open."
 }

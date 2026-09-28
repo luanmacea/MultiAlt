@@ -19,6 +19,7 @@ import { IsolationTab } from "./IsolationTab";
 import { WebServerTab } from "./WebServerTab";
 import { WatcherTab } from "./WatcherTab";
 import { OptimizationTab } from "./OptimizationTab";
+import { VersionsTab } from "./VersionsTab";
 import { useSettings, type UseSettingsReturn } from "../../hooks/useSettings";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
@@ -471,6 +472,20 @@ describe("GeneralTab", () => {
     renderGeneral();
     expect(await screen.findByText("network down")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry Download" })).toBeInTheDocument();
+  });
+});
+
+describe("VersionsTab", () => {
+  /**
+   * A guarda de versão recusa abrir uma conta numa versão diferente das que
+   * já estão abertas; com duas versões abertas nenhum launch passa. O toggle
+   * libera abrir numa versão que já tem cliente aberto — desligado por padrão.
+   */
+  it("liga a opção de abrir numa versão que já está aberta", async () => {
+    stored = {};
+    renderTab((s) => <VersionsTab s={s} />);
+    await userEvent.click(await screen.findByText("Allow launching on an already open version"));
+    await expectSaved("Versions", "AllowLaunchOnOpenVersion", "true");
   });
 });
 

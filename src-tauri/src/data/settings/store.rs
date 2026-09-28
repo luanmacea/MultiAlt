@@ -338,6 +338,7 @@ impl SettingsStore {
             ("CatalogCacheMinutes", "10"),
             ("PreferOldJoinForVersioned", "true"),
             ("ShowPreReleaseVersions", "false"),
+            ("AllowLaunchOnOpenVersion", "false"),
         ];
 
         let versions = ini.section("Versions");
@@ -689,6 +690,7 @@ mod settings_store_tests {
                 ("CatalogCacheMinutes", "10"),
                 ("PreferOldJoinForVersioned", "true"),
                 ("ShowPreReleaseVersions", "false"),
+                ("AllowLaunchOnOpenVersion", "false"),
             ],
         );
 

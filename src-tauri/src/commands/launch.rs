@@ -50,6 +50,22 @@ fn has_version_conflict(
     running_keys.iter().any(|k| k != target_version_id)
 }
 
+/// A guarda que o launch aplica de fato. Com
+/// `Versions.AllowLaunchOnOpenVersion` ligado, abrir numa versão que **já tem
+/// cliente aberto** passa, mesmo com outras versões abertas ao lado — é o que
+/// destrava o launch depois de o Auto Rejoin (que não checa conflito) deixar
+/// duas versões abertas. Desligado (padrão), é a guarda estrita.
+fn version_guard_blocks(
+    running_keys: &HashSet<Option<String>>,
+    target_version_id: &Option<String>,
+    allow_launch_on_open_version: bool,
+) -> bool {
+    if allow_launch_on_open_version && running_keys.contains(target_version_id) {
+        return false;
+    }
+    has_version_conflict(running_keys, target_version_id)
+}
+
 /// Como uma versão aparece na frase da guarda. A instalação do sistema entra
 /// como texto em vez de sumir: `None` é uma "versão" como as do catálogo, e é
 /// justamente a que o usuário não reconhece como "versão aberta".
@@ -85,6 +101,7 @@ fn running_version_names(running_keys: &HashSet<Option<String>>) -> Vec<String> 
 fn version_conflict_message(
     running_keys: &HashSet<Option<String>>,
     target_version_id: &Option<String>,
+    allow_launch_on_open_version: bool,
 ) -> String {
     let blocking: HashSet<Option<String>> = running_keys
         .iter()
@@ -97,8 +114,14 @@ fn version_conflict_message(
     } else {
         String::new()
     };
+    // O toggle só resolveria se o alvo já estiver aberto; aí a frase o aponta.
+    let toggle = if !allow_launch_on_open_version && running_keys.contains(target_version_id) {
+        " Or turn on \"Allow launching on an already open version\" in Settings > Versions."
+    } else {
+        ""
+    };
     format!(
-        "A Roblox client is already running on a different Roblox version. This account launches on {target}; close the clients on {} before launching it.{keep} Concurrent multi-version support is planned for a future update.",
+        "A Roblox client is already running on a different Roblox version. This account launches on {target}; close the clients on {} before launching it.{keep}{toggle} Concurrent multi-version support is planned for a future update.",
         running_version_names(&blocking).join(", ")
     )
 }
@@ -855,8 +878,13 @@ async fn launch_roblox_windows(
     let tracker_check = windows::tracker();
     let _ = tracker_check.cleanup_dead_processes();
     let running_keys = tracker_check.running_version_keys();
-    if has_version_conflict(&running_keys, &resolved_version_id) {
-        return Err(version_conflict_message(&running_keys, &resolved_version_id));
+    let allow_launch_on_open_version = settings.get_bool("Versions", "AllowLaunchOnOpenVersion");
+    if version_guard_blocks(&running_keys, &resolved_version_id, allow_launch_on_open_version) {
+        return Err(version_conflict_message(
+            &running_keys,
+            &resolved_version_id,
+            allow_launch_on_open_version,
+        ));
     }
 
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
@@ -1381,13 +1409,19 @@ async fn launch_multiple(
 
         let _ = tracker.cleanup_dead_processes();
         let running_keys = tracker.running_version_keys();
-        if has_version_conflict(&running_keys, &acct_version_id) {
+        // Lido a cada conta: ligar o toggle no meio da fila já vale para a próxima.
+        let allow_launch_on_open_version = settings.get_bool("Versions", "AllowLaunchOnOpenVersion");
+        if version_guard_blocks(&running_keys, &acct_version_id, allow_launch_on_open_version) {
             // O painel de sessão desenha `entry.error` cru: aqui vai frase, não
             // o código `version-conflict` que viaja no evento `launch-progress`.
             sequence.mark(
                 uid,
                 LaunchQueueState::Failed,
-                Some(version_conflict_message(&running_keys, &acct_version_id)),
+                Some(version_conflict_message(
+                    &running_keys,
+                    &acct_version_id,
+                    allow_launch_on_open_version,
+                )),
             );
             let _ = app.emit(
                 "launch-progress",
@@ -2958,6 +2992,44 @@ mod launch_command_tests {
         ));
     }
 
+    // ---- toggle: abrir numa versão que já está aberta ------------------------
+
+    /// Com duas versões abertas (o Auto Rejoin não checa conflito), a guarda
+    /// estrita não aceita alvo nenhum. Com `Versions.AllowLaunchOnOpenVersion`
+    /// ligado, abrir numa versão que já tem cliente aberto passa.
+    #[test]
+    fn the_toggle_lets_an_account_launch_on_a_version_that_is_already_open() {
+        let mixed = version_keys(&[Some("LIVE:version-aaa"), None]);
+        assert!(!version_guard_blocks(&mixed, &Some("LIVE:version-aaa".to_string()), true));
+        assert!(!version_guard_blocks(&mixed, &None, true));
+    }
+
+    #[test]
+    fn the_toggle_still_refuses_a_version_that_is_not_open() {
+        assert!(version_guard_blocks(
+            &version_keys(&[Some("LIVE:version-aaa"), None]),
+            &Some("LIVE:version-bbb".to_string()),
+            true
+        ));
+    }
+
+    #[test]
+    fn with_the_toggle_off_the_guard_stays_strict() {
+        let mixed = version_keys(&[Some("LIVE:version-aaa"), None]);
+        assert!(version_guard_blocks(&mixed, &Some("LIVE:version-aaa".to_string()), false));
+        assert!(!version_guard_blocks(&version_keys(&[None]), &None, false));
+    }
+
+    /// A recusa aponta o toggle só quando ele resolveria: o alvo já está aberto.
+    #[test]
+    fn the_refusal_points_to_the_toggle_only_when_it_would_help() {
+        let mixed = version_keys(&[Some("LIVE:version-aaa"), None]);
+        let open = version_conflict_message(&mixed, &Some("LIVE:version-aaa".to_string()), false);
+        assert!(open.contains("Settings > Versions"), "{open}");
+        let closed = version_conflict_message(&mixed, &Some("LIVE:version-ccc".to_string()), false);
+        assert!(!closed.contains("Settings > Versions"), "{closed}");
+    }
+
     // ---- version_conflict_message -------------------------------------------
 
     /// O trecho da frase que diz **o que fechar**.
@@ -2974,7 +3046,7 @@ mod launch_command_tests {
     fn the_version_conflict_message_names_every_version_that_blocks() {
         let message = version_conflict_message(
             &version_keys(&[Some("LIVE:version-bbb"), None, Some("LIVE:version-aaa")]),
-            &Some("LIVE:version-ccc".to_string()),
+            &Some("LIVE:version-ccc".to_string()), false,
         );
         // Sem a lista, "feche o cliente" não diz qual fechar — e com duas chaves
         // distintas no tracker nenhum launch é aceito até o usuário fechar as
@@ -3001,7 +3073,7 @@ mod launch_command_tests {
     fn the_version_conflict_message_only_asks_to_close_the_clients_that_block() {
         let target = Some("LIVE:version-aaa".to_string());
         let message =
-            version_conflict_message(&version_keys(&[Some("LIVE:version-aaa"), None]), &target);
+            version_conflict_message(&version_keys(&[Some("LIVE:version-aaa"), None]), &target, false);
 
         assert_eq!(versions_to_close(&message), "system install", "{message}");
         assert!(
@@ -3019,7 +3091,7 @@ mod launch_command_tests {
         // O contrário: alvo na instalação do sistema, cliente aberto numa versão
         // fixada. Fecha-se a fixada; nada da instalação do sistema está aberto,
         // então a frase não promete que "clientes da versão certa ficam".
-        let message = version_conflict_message(&version_keys(&[Some("LIVE:version-bbb")]), &None);
+        let message = version_conflict_message(&version_keys(&[Some("LIVE:version-bbb")]), &None, false);
         assert_eq!(versions_to_close(&message), "LIVE:version-bbb", "{message}");
         assert!(message.contains("This account launches on system install"), "{message}");
         assert!(!message.contains("can stay open"), "{message}");
@@ -3031,7 +3103,7 @@ mod launch_command_tests {
         // mostra o erro do backend: código interno na tela não diz nada a quem
         // clicou.
         let message =
-            version_conflict_message(&version_keys(&[None]), &Some("LIVE:version-aaa".to_string()));
+            version_conflict_message(&version_keys(&[None]), &Some("LIVE:version-aaa".to_string()), false);
         assert!(!message.contains("version-conflict"), "{message}");
         assert!(message.contains("system install"), "{message}");
         assert!(message.split_whitespace().count() > 5, "{message}");

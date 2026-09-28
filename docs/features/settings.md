@@ -154,7 +154,7 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 
 ### `[Versions]` — detalhes em [roblox-versions.md](roblox-versions.md)
 
-`DefaultVersion=""` (vazio = instalação oficial), `MaxParallelDownloads=4`, `CatalogCacheMinutes=10`, `PreferOldJoinForVersioned=true` (launch direto do exe para versões gerenciadas), `ShowPreReleaseVersions=false`.
+`DefaultVersion=""` (vazio = instalação oficial), `MaxParallelDownloads=4`, `CatalogCacheMinutes=10`, `PreferOldJoinForVersioned=true` (launch direto do exe para versões gerenciadas), `ShowPreReleaseVersions=false`, `AllowLaunchOnOpenVersion=false` (ligado, a guarda de versão aceita abrir numa versão que já tem cliente aberto — ver [launch.md](launch.md)).
 
 ### `[Isolation]` — detalhes em [isolation.md](isolation.md)
 
