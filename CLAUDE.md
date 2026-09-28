@@ -12,7 +12,7 @@ Roblox Account Manager 4 é um gerenciador desktop de múltiplas contas Roblox �
 - Existe um servidor HTTP local opcional (feature `webserver`, baseado em axum) e um servidor WebSocket (feature `nexus`) para integração com scripts Lua externos (Nexus.lua) — ambos atrás de feature flags no Cargo, não sempre compilados.
 - Lógica específica de OS isolada em `platform/windows/` e `platform/macos/` para manter o resto do backend portável.
 - "Isolamento pré-launch" (cache wipe, limpeza de registro, MAC rotation) existe deliberadamente para uma conta não herdar sessão/cache/fingerprint da anterior — é tratado como feature central, não hack pontual. Mas ele **só roda com nenhum cliente Roblox aberto**: com cliente aberto é pulado inteiro (inclusive o spoof), para não fechar as outras contas. Não separa contas que rodam juntas (`docs/features/isolation.md`).
-- i18n via react-i18next com chaves extraídas por script próprio (`scripts/i18n/extract-keys.ts`) e geridas via Crowdin.
+- i18n via react-i18next com chaves extraídas por script próprio (`scripts/i18n/extract-keys.ts`) e traduzidas no próprio repositório (`src/locales/<idioma>/common.json`, com o inglês como fonte; o português acompanha cada mudança). O Crowdin do projeto original foi removido em 28/09/2026.
 
 **Convenções:**
 - Frontend em TypeScript estrito (tsconfig strict mode); estado global em padrão Zustand-like (`src/store.tsx`).

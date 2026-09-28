@@ -75,7 +75,7 @@ Não precisa instalar .NET Framework ou VC++ manualmente. Baixe só da página o
 | Watcher | Fecha clientes por timeout, memória, ou detecção de beta |
 | Local Web API / Nexus | API HTTP local e WebSocket para scripts externos (Nexus.lua) |
 | Script Manager | Scripts JS custom com acesso a comandos Rust, HTTP/WebSocket, UI |
-| Themes + i18n | Editor de tema embutido, localização via Crowdin |
+| Themes + i18n | Editor de tema embutido, localização em inglês e português (alemão parcial) |
 
 # FAQ
 

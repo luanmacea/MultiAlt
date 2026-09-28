@@ -246,8 +246,8 @@ literal de comparação é identificador interno). Uma frase que **cita** uma UR
 também conta: o filtro só descarta a string que é URL inteira.
 
 O extrator **não varre arquivo de teste**: fixture como
-`<MenuItemView item={{ label: "First" }}>` virava chave no catálogo e ia para o
-Crowdin como se alguém fosse traduzir.
+`<MenuItemView item={{ label: "First" }}>` virava chave no catálogo como se
+alguém fosse traduzir.
 
 O que ele ainda não pode ver é chave montada em variável (`t(cat)` com `cat`
 vindo de um array, `t(status)`): essas entram no catálogo à mão. Se a sua string
@@ -256,7 +256,7 @@ não aparece traduzida, confira primeiro se a chave existe em
 todos os idiomas. [src/i18n/reachesTheScreen.test.tsx](../src/i18n/reachesTheScreen.test.tsx)
 renderiza em português os pontos que já falharam assim.
 
-A tradução para outros idiomas é sincronizada pelo Crowdin ([crowdin.yml](../crowdin.yml): fonte `src/locales/en/common.json`, destino `src/locales/%two_letters_code%/common.json`; workflow [crowdin-sync.yml](../.github/workflows/crowdin-sync.yml)). Este repositório **não tem projeto no Crowdin**: sem os secrets `CROWDIN_PROJECT_ID` e `CROWDIN_PERSONAL_TOKEN` o workflow pula (com um aviso) em vez de falhar — até 28/09/2026 ele quebrava em todo push na `main` com "Required option 'api_token' is missing". Configurar os dois secrets liga a sincronização; o PR de traduções abre contra a `develop`.
+As traduções ficam no próprio repositório: `src/locales/<idioma>/common.json`, com o inglês como fonte. O português acompanha cada mudança — o `locales.test.ts` exige o catálogo pt com todas as chaves do inglês, na mesma ordem e sem chave a mais —, e o alemão é parcial. O Crowdin que o projeto original usava (workflow `crowdin-sync.yml` e `crowdin.yml`) foi removido em 28/09/2026: este repositório não tem projeto lá, e o workflow falhava em todo push na `main`.
 
 Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das props reconhecidas, com interpolação no formato `{{nome}}` (nunca template string), e rode o extrator.
 
