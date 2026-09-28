@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { nextReleaseVersion, setCargoPackageVersion } from "./release-version.mjs";
 
 const bump = (process.env.RELEASE_BUMP || "patch").toLowerCase();
 const channel = (process.env.RELEASE_CHANNEL || "beta").toLowerCase();
@@ -42,39 +43,17 @@ const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf8"));
 const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, "utf8"));
 const cargoToml = fs.readFileSync(cargoPath, "utf8");
 
-const current = parseVersion(packageJson.version);
-if (!current) {
-  throw new Error(`Invalid current version in package.json: ${packageJson.version}`);
-}
-
 const rawTags = execSync('git tag --list "v*"', { encoding: "utf8" })
   .split(/\r?\n/)
   .map((line) => line.trim())
   .filter(Boolean);
 
-const parsedTags = rawTags
-  .map((tag) => parseTag(tag))
-  .filter(Boolean)
-  .filter((version) => version.major === current.major);
-
-const latestTagged = parsedTags.length > 0 ? pickLatest(parsedTags) : null;
-const latest = pickLatest([
-  ...parsedTags,
-  { ...current, tag: `v${current.raw}` }
-]);
-
-let nextMajor = latest.major;
-let nextMinor = latest.minor;
-let nextPatch = latest.patch;
-
-if (bump === "minor") {
-  nextMinor += 1;
-  nextPatch = 0;
-} else {
-  nextPatch += 1;
-}
-
-const coreVersion = `${nextMajor}.${nextMinor}.${nextPatch}`;
+// Serie e numero da release: regra em release-version.mjs (suite `release`).
+const { version: coreVersion, previousTag } = nextReleaseVersion({
+  current: packageJson.version,
+  tags: rawTags,
+  bump
+});
 const fullVersion = channel === "beta" ? `${coreVersion}-beta` : coreVersion;
 const appVersion = coreVersion;
 const tag = `v${fullVersion}`;
@@ -88,10 +67,7 @@ tauriConfig.plugins ??= {};
 tauriConfig.plugins.updater ??= {};
 tauriConfig.plugins.updater.endpoints = [updaterEndpoint];
 
-const updatedCargoToml = cargoToml.replace(/^version\s*=\s*".*"$/m, `version = "${appVersion}"`);
-if (updatedCargoToml === cargoToml) {
-  throw new Error(`Could not update version in ${cargoPath}`);
-}
+const updatedCargoToml = setCargoPackageVersion(cargoToml, appVersion);
 
 fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
 fs.writeFileSync(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`, "utf8");
@@ -116,57 +92,7 @@ setOutput("tag", tag);
 setOutput("release_title", releaseTitle);
 setMultilineOutput("release_body", releaseBody);
 setOutput("updater_endpoint", updaterEndpoint);
-setOutput("previous_tag", latestTagged?.tag || "");
-
-function parseTag(tag) {
-  if (!tag.startsWith("v")) {
-    return null;
-  }
-
-  const parsed = parseVersion(tag.slice(1));
-  if (!parsed) {
-    return null;
-  }
-
-  return { ...parsed, tag };
-}
-
-function parseVersion(input) {
-  const raw = String(input).trim();
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-beta(?:\.(\d+))?)?$/.exec(raw);
-  if (!match) {
-    return null;
-  }
-
-  const hasBeta = /-beta(?:\.\d+)?$/.test(raw);
-
-  return {
-    raw,
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-    beta: hasBeta ? (match[4] ? Number(match[4]) : 0) : null
-  };
-}
-
-function pickLatest(versions) {
-  return versions.reduce((best, candidate) => (compareVersions(candidate, best) > 0 ? candidate : best));
-}
-
-function compareVersions(a, b) {
-  if (a.major !== b.major) return a.major - b.major;
-  if (a.minor !== b.minor) return a.minor - b.minor;
-  if (a.patch !== b.patch) return a.patch - b.patch;
-
-  const aStable = a.beta === null;
-  const bStable = b.beta === null;
-
-  if (aStable && !bStable) return 1;
-  if (!aStable && bStable) return -1;
-  if (aStable && bStable) return 0;
-
-  return a.beta - b.beta;
-}
+setOutput("previous_tag", previousTag);
 
 function setOutput(name, value) {
   const outputPath = process.env.GITHUB_OUTPUT;
