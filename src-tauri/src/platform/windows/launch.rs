@@ -237,9 +237,51 @@ fn set_player_channel(channel: &str) {
     }
 }
 
-fn remember_resolved_build(version: &str) {
+/// Guarda a build de **produção** para os helpers síncronos
+/// (`get_roblox_path`). Build de outro canal (a do registro, no old join) não
+/// entra: quem pede a pasta de produção receberia a do canal.
+fn remember_resolved_build(channel: &str, version: &str) {
+    if !channel_is_production(channel) {
+        return;
+    }
     if let Ok(mut guard) = LAST_RESOLVED_BUILD.lock() {
         *guard = Some(version.to_string());
+    }
+}
+
+/// De onde o cliente deste launch abre — e, portanto, onde o
+/// `ClientAppSettings.json` (FPS, fast flags) tem que ser gravado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientSource {
+    /// Old join numa versão do catálogo: a pasta dela.
+    Catalog,
+    /// Old join sem versão do catálogo: a build do canal do **registro**.
+    RegistryChannel,
+    /// Protocolo (`launch_url`): sempre a build de produção.
+    Production,
+}
+
+pub fn client_source(use_old_join: bool, has_catalog_version: bool) -> ClientSource {
+    match (use_old_join, has_catalog_version) {
+        (true, true) => ClientSource::Catalog,
+        (true, false) => ClientSource::RegistryChannel,
+        (false, _) => ClientSource::Production,
+    }
+}
+
+/// Pasta de onde o cliente vai abrir. É a **mesma** que o spawn usa: o patch
+/// e o old join têm que receber este valor, não um calculado antes.
+/// `resolved_base_path` é a pasta de `resolve_roblox_install_path` — a da
+/// versão do catálogo, ou o fallback quando a build não pôde ser achada nem
+/// instalada.
+pub async fn client_dir(source: ClientSource, resolved_base_path: &str) -> String {
+    match source {
+        ClientSource::Catalog => resolved_base_path.to_string(),
+        ClientSource::RegistryChannel => default_player_dir(resolved_base_path).await,
+        ClientSource::Production => ensure_player_exe_for_channel(PRODUCTION_CHANNEL)
+            .await
+            .and_then(|exe| exe.parent().map(|p| p.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| resolved_base_path.to_string()),
     }
 }
 
@@ -422,7 +464,7 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         .and_then(|c| c.get(&channel).cloned());
     if let Some((at, version)) = &cached {
         if at.elapsed() < PRODUCTION_VERSION_CACHE_TTL {
-            remember_resolved_build(version);
+            remember_resolved_build(&channel, version);
             return Some(version.clone());
         }
     }
@@ -449,10 +491,10 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
 
     match fetched {
         Some(version) => {
+            remember_resolved_build(&channel, &version);
             if let Ok(mut cache) = CHANNEL_VERSION_CACHE.lock() {
                 cache.insert(channel, (std::time::Instant::now(), version.clone()));
             }
-            remember_resolved_build(&version);
             Some(version)
         }
         // Network hiccup: a stale answer is still far better than the protocol
@@ -460,37 +502,11 @@ async fn build_version_for_channel(channel: &str) -> Option<String> {
         None => {
             let stale = cached.map(|(_, version)| version);
             if let Some(version) = &stale {
-                remember_resolved_build(version);
+                remember_resolved_build(&channel, version);
             }
             stale
         }
     }
-}
-
-pub async fn launch_old_join(
-    ticket: &str,
-    place_id: i64,
-    job_id: &str,
-    launch_data: &str,
-    follow_user: bool,
-    join_vip: bool,
-    access_code: &str,
-    link_code: &str,
-    is_teleport: bool,
-) -> Result<(), String> {
-    let version_folder = default_player_dir(&get_roblox_path()?).await;
-    launch_old_join_from(
-        &version_folder,
-        ticket,
-        place_id,
-        job_id,
-        launch_data,
-        follow_user,
-        join_vip,
-        access_code,
-        link_code,
-        is_teleport,
-    )
 }
 
 pub fn launch_old_join_from(
