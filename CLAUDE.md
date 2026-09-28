@@ -48,6 +48,8 @@ Regras do harness: ele **não substitui** `bun run check`, não fala com a rede 
 
 **Git (padrão do projeto):** ao terminar uma tarefa, **commitar e dar push imediatamente**, sem perguntar — um commit por tarefa, mensagem em português descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes de commitar.
 
+**Autoria só do dono.** Commits e PRs saem só em nome dele: **nunca** adicionar `Co-Authored-By: Claude ...` (nem outra linha de coautoria de IA) na mensagem de commit, nem o rodapé "Generated with Claude Code" em PR. Vale para subagentes também. Pedido do dono (28/09/2026) — essas linhas punham "claude" como contribuidor ao lado dele no GitHub.
+
 **O trabalho vive em `develop`.** É para lá que vão os commits do dia a dia (`git push` na branch atual). A `main` é a branch de **release**: todo push nela dispara o workflow que compila, assina e publica ([docs/development.md](docs/development.md)). Por isso:
 
 - **nunca commitar nem fazer merge na `main` sem o usuário pedir** — cada merge vira uma versão publicada;
