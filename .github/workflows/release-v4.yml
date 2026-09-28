@@ -59,11 +59,10 @@ jobs:
       # ao bundle do Tauri no passo "Configure bundle targets". O guia "Which file
       # to download" do texto da release segue estes dois interruptores.
       PUBLISH_MSI: "true"
-      # Portatil: o executavel solto, sem instalar. Nao passa pelo updater, mas
-      # e o unico download limpo (0/75) E sem admin ao mesmo tempo: nao tem o
-      # empacotador NSIS que o APEX marca nem o MSI que pede admin. Ligado em
-      # 28/09/2026 para quem quer simplicidade; quem quer auto-update usa um
-      # instalador.
+      # Portatil: o executavel solto, sem instalar. Limpo (0/75) e sem admin,
+      # mas nao passa pelo updater. Desde que o MSI virou per-user (28/09/2026)
+      # ele deixou de ser o unico limpo-e-sem-admin; serve a quem nao quer
+      # instalar nada.
       PUBLISH_PORTABLE: "true"
 
     steps:
@@ -608,21 +607,24 @@ jobs:
               "It is not code-signed, so some antivirus engines may flag it by heuristics (false positive).";
             const downloadGuide = ["### Which file to download"];
             if (publishMsi) {
+              // O MSI e o caminho principal; o NSIS entra como alternativa de
+              // quem tiver problema com ele, nao como opcao paralela.
               downloadGuide.push(
-                "- **The `.msi`** (`..._x64_en-US.msi`): recommended. Clean on VirusTotal. Windows asks for admin permission to install it and on every update.",
-                "- **The setup `.exe`** (`..._x64-setup.exe`): the same app, installed for your user only (no admin prompt). " +
+                "**Start here: the `.msi`** (`..._x64_en-US.msi`). It installs for your user only (no admin prompt), updates itself, and comes out clean on VirusTotal. For most people this is the only file you need.",
+                "",
+                "- **If the `.msi` does not work for you** (it fails to run, your system blocks it, or you prefer the classic wizard), use **the setup `.exe`** (`..._x64-setup.exe`) instead: it is the same app and also installs without an admin prompt. " +
                   heuristicNote +
-                  " Already installed from it? Keep it: it updates itself (installing the `.msi` too would add a second copy)."
+                  " Already installed from it? Keep it: it updates itself. Do not install both, or you end up with two copies."
               );
             } else {
               downloadGuide.push(
-                "- **The setup `.exe`** (`..._x64-setup.exe`): recommended. Installed for your user only (no admin prompt). " +
+                "**Start here: the setup `.exe`** (`..._x64-setup.exe`). It installs for your user only (no admin prompt). " +
                   heuristicNote
               );
             }
             if (publishPortable) {
               downloadGuide.push(
-                "- **The portable `.exe`** (`..._x64_portable.exe`): the app without installing. It does not update itself."
+                "- **If you would rather not install anything**, use **the portable `.exe`** (`..._x64_portable.exe`): it runs as-is. In exchange it does not update itself and creates no Start Menu shortcut."
               );
             }
             downloadGuide.push(
