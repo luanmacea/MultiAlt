@@ -31,6 +31,7 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_queue_tests",
       "singleton_event_tests",
       "multi_roblox_decision_tests",
+      "exit_cleanup_tests",
       "launch_resolve_tests",
       "launch_shared_helper_tests",
       "channel_follow_tests",

@@ -45,16 +45,68 @@ include!("commands/services.rs");
 include!("commands/updater.rs");
 include!("commands/backups.rs");
 
+/// O que o app desfaz do Multi Roblox quando fecha.
+#[derive(Debug, PartialEq, Eq)]
+enum ExitCleanup {
+    /// Multi Roblox desligado: nao ha o que desfazer.
+    Nothing,
+    /// Solta o mutex do singleton e limpa o rastreamento, deixando os clientes
+    /// abertos em paz.
+    ReleaseSingleton,
+}
+
+/// Separado de [`cleanup_multi_roblox_on_exit`] para poder ser testado: o que
+/// estava errado aqui era a decisao, nao a chamada das APIs do Windows.
+///
+/// `roblox_clients` entra de proposito e e **ignorado**. Era ele que mandava
+/// fechar tudo quando havia mais de um cliente aberto — herdado do projeto
+/// original, sem teste. Fica no parametro para o teste poder afirmar que
+/// nenhuma quantidade volta a mudar a decisao.
+fn exit_cleanup_plan(multi_rbx_enabled: bool, roblox_clients: usize) -> ExitCleanup {
+    let _ = roblox_clients;
+    if !multi_rbx_enabled {
+        return ExitCleanup::Nothing;
+    }
+    ExitCleanup::ReleaseSingleton
+}
+
+#[cfg(test)]
+mod exit_cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn closing_the_app_never_closes_a_roblox_client() {
+        // Relato do dono (28/09/2026): jogando na conta principal, aberta pelo
+        // site, mais 4 alts abertas pelo RAM. Ao fechar o RAM, **todos** os
+        // clientes fecharam — inclusive o que o RAM nunca abriu.
+        //
+        // Fechar o gerenciador nao pode tirar ninguem do jogo. Quem quer fechar
+        // tudo tem o comando explicito (`cmd_kill_all_roblox`).
+        for clientes in [0, 1, 2, 5, 12] {
+            assert_eq!(
+                exit_cleanup_plan(true, clientes),
+                ExitCleanup::ReleaseSingleton,
+                "com {} cliente(s) aberto(s)",
+                clientes
+            );
+        }
+    }
+
+    #[test]
+    fn with_multi_roblox_off_there_is_nothing_to_undo() {
+        for clientes in [0, 1, 5] {
+            assert_eq!(exit_cleanup_plan(false, clientes), ExitCleanup::Nothing);
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn cleanup_multi_roblox_on_exit(app: &AppHandle<Wry>) {
     let settings = app.state::<SettingsStore>();
-    if !settings.get_bool("General", "EnableMultiRbx") {
-        return;
-    }
-
-    let pids = platform::windows::get_roblox_pids();
-    if pids.len() > 1 {
-        let _ = platform::windows::kill_all_roblox();
+    let clients = platform::windows::get_roblox_pids().len();
+    match exit_cleanup_plan(settings.get_bool("General", "EnableMultiRbx"), clients) {
+        ExitCleanup::Nothing => return,
+        ExitCleanup::ReleaseSingleton => {}
     }
 
     let tracker = platform::windows::tracker();
@@ -68,13 +120,10 @@ fn cleanup_multi_roblox_on_exit(app: &AppHandle<Wry>) {
 #[cfg(target_os = "macos")]
 fn cleanup_multi_roblox_on_exit(app: &AppHandle<Wry>) {
     let settings = app.state::<SettingsStore>();
-    if !settings.get_bool("General", "EnableMultiRbx") {
-        return;
-    }
-
-    let pids = platform::macos::get_roblox_pids();
-    if pids.len() > 1 {
-        let _ = platform::macos::kill_all_roblox();
+    let clients = platform::macos::get_roblox_pids().len();
+    match exit_cleanup_plan(settings.get_bool("General", "EnableMultiRbx"), clients) {
+        ExitCleanup::Nothing => return,
+        ExitCleanup::ReleaseSingleton => {}
     }
 
     let tracker = platform::macos::tracker();
