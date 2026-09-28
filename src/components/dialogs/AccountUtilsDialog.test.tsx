@@ -278,3 +278,18 @@ describe("AccountUtilsDialog", () => {
     });
   });
 });
+
+describe("AccountUtilsDialog — cabe na janela", () => {
+  /**
+   * O teto era só `max-h-[600px]`: na janela mínima do app (750x450) o quadro
+   * ia de y −67 a 524 — o X acima da tela e o fim da lista abaixo, fora do
+   * alcance da rolagem (medido no harness, 27/09/2026).
+   */
+  it("o quadro nunca passa do tamanho da janela", () => {
+    renderDialog();
+    const quadro = document.querySelector(".theme-modal-scope.rounded-2xl") as HTMLElement;
+    const classes = quadro.className.split(/\s+/);
+    expect(classes).toContain("max-h-[min(600px,calc(100vh-24px))]");
+    expect(classes).toContain("max-w-[calc(100vw-24px)]");
+  });
+});

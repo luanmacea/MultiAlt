@@ -196,7 +196,9 @@ export function Toolbar() {
             <ChevronDown size={10} strokeWidth={2.5} />
           </button>
           {addMenuOpen && (
-            <div className="theme-panel theme-border absolute right-0 top-full mt-1.5 w-64 border rounded-xl shadow-2xl z-50 animate-scale-in py-1">
+            // Teto: na janela mínima (750x450) o menu passava da borda de baixo
+            // e o último item ficava cortado; com ele, o menu rola por dentro.
+            <div className="theme-panel theme-border absolute right-0 top-full mt-1.5 w-64 max-h-[calc(100vh-96px)] overflow-y-auto border rounded-xl shadow-2xl z-50 animate-scale-in py-1">
               <button
                 onClick={handleQuickAdd}
                 className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"

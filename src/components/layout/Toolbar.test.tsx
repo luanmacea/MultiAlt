@@ -403,3 +403,21 @@ describe("Toolbar — dialog shortcuts", () => {
     expect(iconButton("panel")).toBeEnabled();
   });
 });
+
+describe("Toolbar — menu Add cabe na janela", () => {
+  /**
+   * O menu não tinha teto: na janela mínima do app (750x450) o último item
+   * ("Roblox Versions") passava 14 px da borda de baixo em inglês e 30 px em
+   * português, meio cortado ou fora da tela (medido no harness, 27/09/2026).
+   * O jsdom não mede layout: isto trava o teto e a rolagem de que o conserto
+   * depende.
+   */
+  it("o menu tem teto de altura e rola por dentro", async () => {
+    renderToolbar();
+    await openAddMenu();
+    const painel = screen.getByRole("button", { name: /Quick Add/ }).closest(".rounded-xl") as HTMLElement;
+    const classes = painel.className.split(/\s+/);
+    expect(classes).toContain("max-h-[calc(100vh-96px)]");
+    expect(classes).toContain("overflow-y-auto");
+  });
+});

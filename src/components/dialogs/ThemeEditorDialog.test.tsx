@@ -180,3 +180,20 @@ describe("ThemeEditorDialog — importing a preset file", () => {
     );
   });
 });
+
+describe("ThemeEditorDialog — cabe na janela", () => {
+  /**
+   * Na janela mínima do app (750x450, `tauri.conf.json`) o quadro fixo de 560 px
+   * passava 55 px para cada lado: título e X acima da tela, e Save e Cancel
+   * abaixo — não dava para salvar o tema com o mouse (medido no harness,
+   * 27/09/2026). O jsdom não mede layout: isto trava o teto de que o conserto
+   * depende; quem cede altura é o miolo (`flex-1 min-h-0`).
+   */
+  it("o quadro nunca passa do tamanho da janela", () => {
+    renderDialog();
+    const quadro = document.querySelector(".theme-modal-scope.rounded-2xl") as HTMLElement;
+    const classes = quadro.className.split(/\s+/);
+    expect(classes).toContain("max-h-[calc(100vh-24px)]");
+    expect(classes).toContain("max-w-[calc(100vw-24px)]");
+  });
+});

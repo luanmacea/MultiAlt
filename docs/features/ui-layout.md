@@ -40,6 +40,8 @@ Ordem de decisão:
    - `StatusBar`, `ContextMenu`, toasts, todos os diálogos e `IsolationProgressOverlay`;
    - modal genérico `store.modal` (título + `<pre>`), usado para mostrar textos longos.
 
+**Todo diálogo cabe na janela mínima** (750x450, `tauri.conf.json`): o quadro leva `max-w-[calc(100vw-24px)]` e `max-h-[calc(100vh-24px)]` (ou `max-h-[min(<teto>,calc(100vh-24px))]` quando já tinha teto próprio), e quem cede altura é o miolo (`flex-1 min-h-0`, que rola por dentro) — nunca o cabeçalho com o X nem o rodapé com Save/Cancel. Tamanho fixo sem esse teto jogava título e botões para fora da tela: Server List, Theme Editor, Nexus e Account Utils (medido no harness, 26–27/09/2026). O menu **Add** da toolbar segue a mesma regra, com `max-h-[calc(100vh-96px)]` e rolagem própria.
+
 ### Toolbar
 
 Busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator e Roblox Versions. Botões: **Session** (Painel de Sessão, com contador de clientes), Theme, Nexus (se `ENABLE_NEXUS`), **AFK Mode** ([afk-mode.md](afk-mode.md)), Scripts, Settings e **Help** (reabre o walkthrough de primeira execução).
