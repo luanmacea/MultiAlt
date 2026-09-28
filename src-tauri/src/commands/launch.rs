@@ -50,6 +50,22 @@ fn has_version_conflict(
     running_keys.iter().any(|k| k != target_version_id)
 }
 
+/// A guarda que o launch aplica de fato. Com
+/// `Versions.AllowLaunchOnOpenVersion` ligado, abrir numa versão que **já tem
+/// cliente aberto** passa, mesmo com outras versões abertas ao lado — é o que
+/// destrava o launch depois de o Auto Rejoin (que não checa conflito) deixar
+/// duas versões abertas. Desligado (padrão), é a guarda estrita.
+fn version_guard_blocks(
+    running_keys: &HashSet<Option<String>>,
+    target_version_id: &Option<String>,
+    allow_launch_on_open_version: bool,
+) -> bool {
+    if allow_launch_on_open_version && running_keys.contains(target_version_id) {
+        return false;
+    }
+    has_version_conflict(running_keys, target_version_id)
+}
+
 /// Como uma versão aparece na frase da guarda. A instalação do sistema entra
 /// como texto em vez de sumir: `None` é uma "versão" como as do catálogo, e é
 /// justamente a que o usuário não reconhece como "versão aberta".
@@ -85,6 +101,7 @@ fn running_version_names(running_keys: &HashSet<Option<String>>) -> Vec<String> 
 fn version_conflict_message(
     running_keys: &HashSet<Option<String>>,
     target_version_id: &Option<String>,
+    allow_launch_on_open_version: bool,
 ) -> String {
     let blocking: HashSet<Option<String>> = running_keys
         .iter()
@@ -97,8 +114,14 @@ fn version_conflict_message(
     } else {
         String::new()
     };
+    // O toggle só resolveria se o alvo já estiver aberto; aí a frase o aponta.
+    let toggle = if !allow_launch_on_open_version && running_keys.contains(target_version_id) {
+        " Or turn on \"Allow launching on an already open version\" in Settings > Versions."
+    } else {
+        ""
+    };
     format!(
-        "A Roblox client is already running on a different Roblox version. This account launches on {target}; close the clients on {} before launching it.{keep} Concurrent multi-version support is planned for a future update.",
+        "A Roblox client is already running on a different Roblox version. This account launches on {target}; close the clients on {} before launching it.{keep}{toggle} Concurrent multi-version support is planned for a future update.",
         running_version_names(&blocking).join(", ")
     )
 }
@@ -855,8 +878,13 @@ async fn launch_roblox_windows(
     let tracker_check = windows::tracker();
     let _ = tracker_check.cleanup_dead_processes();
     let running_keys = tracker_check.running_version_keys();
-    if has_version_conflict(&running_keys, &resolved_version_id) {
-        return Err(version_conflict_message(&running_keys, &resolved_version_id));
+    let allow_launch_on_open_version = settings.get_bool("Versions", "AllowLaunchOnOpenVersion");
+    if version_guard_blocks(&running_keys, &resolved_version_id, allow_launch_on_open_version) {
+        return Err(version_conflict_message(
+            &running_keys,
+            &resolved_version_id,
+            allow_launch_on_open_version,
+        ));
     }
 
     let multi_rbx = settings.get_bool("General", "EnableMultiRbx");
@@ -1381,13 +1409,19 @@ async fn launch_multiple(
 
         let _ = tracker.cleanup_dead_processes();
         let running_keys = tracker.running_version_keys();
-        if has_version_conflict(&running_keys, &acct_version_id) {
+        // Lido a cada conta: ligar o toggle no meio da fila já vale para a próxima.
+        let allow_launch_on_open_version = settings.get_bool("Versions", "AllowLaunchOnOpenVersion");
+        if version_guard_blocks(&running_keys, &acct_version_id, allow_launch_on_open_version) {
             // O painel de sessão desenha `entry.error` cru: aqui vai frase, não
             // o código `version-conflict` que viaja no evento `launch-progress`.
             sequence.mark(
                 uid,
                 LaunchQueueState::Failed,
-                Some(version_conflict_message(&running_keys, &acct_version_id)),
+                Some(version_conflict_message(
+                    &running_keys,
+                    &acct_version_id,
+                    allow_launch_on_open_version,
+                )),
             );
             let _ = app.emit(
                 "launch-progress",
