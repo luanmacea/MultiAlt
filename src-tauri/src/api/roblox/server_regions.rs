@@ -68,6 +68,14 @@ pub struct JoinRefusal {
     pub status: Option<i64>,
 }
 
+impl JoinRefusal {
+    /// Recusa por falta de permissão (o erro 524), e não por servidor cheio,
+    /// sumido ou falha de rede.
+    pub fn denied(&self) -> bool {
+        self.status == Some(JOIN_STATUS_UNAUTHORIZED)
+    }
+}
+
 /// Progresso de `resolve_server_regions`, para a UI não ficar parada.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -275,6 +283,18 @@ pub async fn server_machine_address(
     Err(JoinRefusal { message, status })
 }
 
+/// A conta pode entrar naquele servidor? É o mesmo pedido de entrada da
+/// região, sem a geolocalização. `Err` com `denied()` = sem permissão.
+pub async fn join_access(
+    security_token: &str,
+    place_id: i64,
+    job_id: &str,
+) -> Result<(), JoinRefusal> {
+    server_machine_address(security_token, place_id, job_id)
+        .await
+        .map(|_| ())
+}
+
 /// Região de um servidor: join → IP → geolocalização.
 pub async fn resolve_server_region(
     security_token: &str,
@@ -297,7 +317,7 @@ pub async fn resolve_server_region(
             job_id: job_id.to_string(),
             region: None,
             label: String::new(),
-            denied: refusal.status == Some(JOIN_STATUS_UNAUTHORIZED),
+            denied: refusal.denied(),
             error: Some(refusal.message),
         },
     }
