@@ -59,8 +59,12 @@ jobs:
       # ao bundle do Tauri no passo "Configure bundle targets". O guia "Which file
       # to download" do texto da release segue estes dois interruptores.
       PUBLISH_MSI: "true"
-      # Portatil: o executavel solto, sem instalar. Nao passa pelo updater.
-      PUBLISH_PORTABLE: "false"
+      # Portatil: o executavel solto, sem instalar. Nao passa pelo updater, mas
+      # e o unico download limpo (0/75) E sem admin ao mesmo tempo: nao tem o
+      # empacotador NSIS que o APEX marca nem o MSI que pede admin. Ligado em
+      # 28/09/2026 para quem quer simplicidade; quem quer auto-update usa um
+      # instalador.
+      PUBLISH_PORTABLE: "true"
 
     steps:
       - name: Checkout
