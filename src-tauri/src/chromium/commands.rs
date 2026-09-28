@@ -16,7 +16,7 @@ use super::manager::{ChromiumManager, LOGIN_KEY};
 /// o download normal (ver `resolve_browser_binary`).
 const MANUAL_BINARY_PATH_KEY: (&str, &str) = ("Login", "ManualBinaryPath");
 
-fn manual_binary_path(settings: &SettingsStore) -> String {
+pub(super) fn manual_binary_path(settings: &SettingsStore) -> String {
     settings.get_string(MANUAL_BINARY_PATH_KEY.0, MANUAL_BINARY_PATH_KEY.1)
 }
 
