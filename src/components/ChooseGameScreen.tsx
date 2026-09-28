@@ -311,8 +311,15 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
       const presence = await invoke<FollowPresence[]>("get_presence", { userIds: [user.id] });
       const entry = presence?.[0];
       const presenceType = entry?.userPresenceType ?? entry?.user_presence_type ?? 0;
-      const placeId = entry?.rootPlaceId ?? entry?.root_place_id ?? entry?.placeId ?? entry?.place_id ?? null;
       const jobId = entry?.gameId ?? entry?.game_id ?? "";
+      const serverPlace = entry?.placeId ?? entry?.place_id ?? null;
+      const rootPlace = entry?.rootPlaceId ?? entry?.root_place_id ?? null;
+      // Com Job ID, o place é o do servidor: o Job ID é de um servidor do place
+      // em que o jogador está, que pode ser um sub-place — o raiz + esse Job ID
+      // pede um servidor que não existe no raiz ("This experience has ended").
+      // Sem Job ID entra-se num servidor público do jogo, e aí é o raiz: um
+      // sub-place de teleporte pode não aceitar entrada direta.
+      const placeId = jobId ? (serverPlace ?? rootPlace) : (rootPlace ?? serverPlace);
 
       if (presenceType < 2 || !placeId) {
         store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
