@@ -115,7 +115,7 @@ As duas em negrito abrem a tela já **com aquele jogo preenchido** — antes era
 - `Pages to scan`: cada página são 100 servidores. Jogo grande precisa de mais páginas.
 - O campo `Place ID` aceita a **URL do jogo** colada. Link de convite e `share?code=` não carregam place: esses vão na aba Follow, em `Join link`.
 - Assim que o place é reconhecido, **o nome e o ícone do jogo aparecem ao lado** — um número de 10 dígitos não diz qual jogo é, e esta aba manda todas as contas selecionadas de uma vez. O mesmo vale na barra de launch, no Auto Rejoin e no Nexus.
-- `Region` só filtra depois que as regiões forem resolvidas (`Load regions`), porque a região não vem da API do Roblox — sai do IP do servidor.
+- `Region` só filtra depois que as regiões forem resolvidas (`Check servers`, que também marca os servidores **sem permissão** para a conta da consulta), porque a região não vem da API do Roblox — sai do IP do servidor.
 - A linha diz `N free` ou `N free · needs M`; quando nada cabe, o resumo explica em vez de fingir.
 
 ---

@@ -1348,9 +1348,9 @@
   "Keys accepted by the launcher": "Chaves aceitas no lançamento",
   "Launch one account at a time": "Iniciar uma conta por vez",
   "Let Roblox choose": "Deixar o Roblox escolher",
-  "Load regions": "Carregar regiões",
+  "Check servers": "Verificar servidores",
   "Loading friends...": "Carregando amigos...",
-  "Loading regions ({{done}}/{{total}})": "Carregando regiões ({{done}}/{{total}})",
+  "Checking servers ({{done}}/{{total}})": "Verificando servidores ({{done}}/{{total}})",
   "Looking for servers...": "Procurando servidores...",
   "Mask the usernames in the list (for screenshots)": "Esconder os nomes de usuário na lista (para prints)",
   "Names hidden": "Nomes ocultos",
@@ -1703,5 +1703,12 @@
   "Alias updated — cut to {{max}} characters": "Apelido atualizado — cortado em {{max}} caracteres",
   "Allow launching on an already open version": "Permitir abrir numa versão que já está aberta",
   "With clients open on different Roblox versions, every launch is blocked. On: an account can still launch on a version that already has a client open.": "Com clientes abertos em versões diferentes do Roblox, todo launch é bloqueado. Ligado: a conta ainda abre numa versão que já tem cliente aberto.",
-  "Move window": "Mover a janela"
+  "Move window": "Mover a janela",
+  "Loads each server's region and which of your accounts can join this place — one check per server, plus one per account.": "Carrega a região de cada servidor e quais das suas contas podem entrar neste place — uma consulta por servidor, mais uma por conta.",
+  "No permission": "Sem permissão",
+  "Access in this place:": "Acesso neste place:",
+  "{{name}}: can join": "{{name}}: pode entrar",
+  "{{name}}: no permission": "{{name}}: sem permissão",
+  "{{name}}: could not check": "{{name}}: não deu para verificar",
+  "None of the selected accounts can join this place's servers directly.": "Nenhuma das contas selecionadas pode entrar direto nos servidores deste place."
 }

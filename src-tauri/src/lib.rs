@@ -378,6 +378,7 @@ pub fn run() {
             get_online_friends,
             get_online_friends_for_accounts,
             get_server_regions,
+            check_place_access,
             list_servers_ranked,
             start_server_scan,
             stop_server_scan,

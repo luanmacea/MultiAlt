@@ -1488,6 +1488,51 @@ fn server_region_template(settings: &SettingsStore) -> String {
         .unwrap_or_else(|| "<city>, <countryCode>".to_string())
 }
 
+/// Acesso de uma conta a um servidor, para a aba Servidores.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AccountAccess {
+    user_id: i64,
+    /// Recusada por falta de permissão (o erro 524 do cliente).
+    denied: bool,
+    /// Outro motivo de não dar para saber (servidor cheio, rede, cookie).
+    error: Option<String>,
+}
+
+/// Pergunta, **uma conta por vez** e com a pausa da região, se cada conta
+/// pode entrar em `job_id`. Permissão costuma ser do place (regra de acesso
+/// do jogo, teleporte, VC) e não do servidor, então um servidor responde pela
+/// lista inteira — é o que deixa barato perguntar por todas as contas, em vez
+/// de só pela primeira como a verificação das regiões faz.
+#[tauri::command]
+async fn check_place_access(
+    state: tauri::State<'_, AccountStore>,
+    user_ids: Vec<i64>,
+    place_id: i64,
+    job_id: String,
+) -> Result<Vec<AccountAccess>, String> {
+    let delay = std::time::Duration::from_millis(api::roblox::REGION_LOOKUP_DELAY_MS);
+    let mut out = Vec::with_capacity(user_ids.len());
+    for (index, user_id) in user_ids.into_iter().enumerate() {
+        if index > 0 {
+            tokio::time::sleep(delay).await;
+        }
+        let access = match get_cookie(state.inner(), user_id) {
+            Err(error) => AccountAccess { user_id, denied: false, error: Some(error) },
+            Ok(cookie) => match api::roblox::join_access(&cookie, place_id, &job_id).await {
+                Ok(()) => AccountAccess { user_id, denied: false, error: None },
+                Err(refusal) => AccountAccess {
+                    user_id,
+                    denied: refusal.denied(),
+                    error: Some(refusal.message),
+                },
+            },
+        };
+        out.push(access);
+    }
+    Ok(out)
+}
+
 /// Região de vários servidores de um place, uma chamada de join por servidor.
 ///
 /// Emite `server-region-progress` com `{ done, total }`. Sequencial e com pausa

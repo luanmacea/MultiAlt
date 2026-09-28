@@ -2,12 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Copy, Globe, Loader2, RefreshCw, Search, Server, Wifi } from "lucide-react";
+import { Check, Copy, Globe, Loader2, RefreshCw, Search, Server, Wifi, X } from "lucide-react";
 import { MAX_SERVER_SCAN_PAGES, useStore } from "../../store";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { GameBadge } from "../ui/GameBadge";
 import { useTr } from "../../i18n/text";
 import type {
+  AccountAccess,
   ServerPreference,
   ServerRegion,
   ServerRegionProgress,
@@ -40,7 +41,7 @@ import { looksLikeJoinLink, parsePlaceIdInput } from "../server-list/types";
  * vagas do lote desenhadas nela, e não uma célula de texto "3/13".
  */
 
-/** Quantos servidores têm a região resolvida por clique em "Load regions". */
+/** Quantos servidores têm a região (e a permissão) verificada por clique em "Check servers". */
 const REGION_BATCH = 10;
 
 export type LaunchAllFn = (
@@ -295,6 +296,13 @@ function JobIdCell({ jobId, onCopy }: { jobId: string; onCopy: (jobId: string) =
   );
 }
 
+function maskName(name: string, previewLetters: number): string {
+  if (previewLetters > 0 && previewLetters < name.length) {
+    return name.slice(0, previewLetters) + "********";
+  }
+  return "************";
+}
+
 export interface ServersTabProps {
   /** Contas selecionadas — todas entram no servidor clicado. */
   userIds: number[];
@@ -321,6 +329,12 @@ export function ServersTab({
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [regions, setRegions] = useState<Map<string, ServerRegion>>(new Map());
+  /**
+   * Quem pode entrar neste place, conta por conta. A verificação das regiões
+   * responde pela primeira conta; as outras perguntam uma vez, num servidor do
+   * place — a permissão (o erro 524) é do place, não do servidor.
+   */
+  const [access, setAccess] = useState<Map<number, AccountAccess>>(new Map());
   const [regionBusy, setRegionBusy] = useState(false);
   const [regionProgress, setRegionProgress] = useState<ServerRegionProgress | null>(null);
   const [joining, setJoining] = useState<string | null>(null);
@@ -401,8 +415,10 @@ export function ServersTab({
     setError(null);
     setScan(null);
     setRows(null);
-    // Os Job IDs mudam a cada varredura; regiões antigas não valem mais.
+    // Os Job IDs mudam a cada varredura; regiões antigas não valem mais — e o
+    // place pode ter mudado, então o acesso das contas também.
     setRegions(new Map());
+    setAccess(new Map());
     try {
       const started = await invoke<number>("start_server_scan", {
         placeId: place,
@@ -464,13 +480,63 @@ export function ServersTab({
         for (const entry of resolved) next.set(entry.jobId, entry);
         return next;
       });
+      await checkAccountsAccess(place, resolved);
     } catch (e) {
       store.addToast(t("Failed to load regions: {{error}}", { error: String(e) }));
     } finally {
       setRegionBusy(false);
       setRegionProgress(null);
     }
-  }, [accountForApi, regions, store, t, visible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountForApi, access, regions, store, t, visible, userIds]);
+
+  /**
+   * Responde "sem permissão para quem?". O servidor que decidiu pela primeira
+   * conta (entrou, ou recusou por permissão) é o que as outras consultam — uma
+   * vez cada, e só as que ainda não têm resposta neste place.
+   */
+  async function checkAccountsAccess(place: number, resolved: ServerRegion[]) {
+    if (!accountForApi) return;
+    const probe = resolved.find((entry) => entry.denied || entry.label);
+    if (!probe) return;
+    const first: AccountAccess = {
+      userId: accountForApi,
+      denied: probe.denied === true,
+      error: probe.denied ? probe.error : null,
+    };
+    const others = userIds.filter((id) => id !== accountForApi && !access.has(id));
+    let answers: AccountAccess[] = [];
+    if (others.length > 0) {
+      try {
+        const result = await invoke<AccountAccess[] | null>("check_place_access", {
+          userIds: others,
+          placeId: place,
+          jobId: probe.jobId,
+        });
+        answers = Array.isArray(result) ? result : [];
+      } catch {
+        // Sem resposta das outras: a da primeira conta continua valendo.
+      }
+    }
+    setAccess((prev) => {
+      const next = new Map(prev);
+      next.set(first.userId, first);
+      for (const answer of answers) next.set(answer.userId, answer);
+      return next;
+    });
+  }
+
+  /** Nome da conta como a tela mostra — com a máscara de "Nomes visíveis". */
+  const accountName = (userId: number): string => {
+    const account = store.accounts.find((a) => a.UserID === userId);
+    const raw = account ? account.Alias || account.Username : String(userId);
+    return store.hideUsernames ? maskName(raw, store.hiddenNameLetters) : raw;
+  };
+  const accessAnswers = userIds
+    .map((id) => access.get(id))
+    .filter((entry): entry is AccountAccess => entry !== undefined);
+  const noAccountCanJoin =
+    accessAnswers.length === userIds.length && accessAnswers.every((entry) => entry.denied);
 
   /**
    * O que entra no campo "Place ID".
@@ -619,14 +685,22 @@ export function ServersTab({
           />
         </label>
 
-        <button onClick={() => void loadRegions()} disabled={regionBusy || !rows?.length} className={buttonClass}>
+        {/* A consulta da região é um pedido de join àquele servidor, e a
+            resposta já diz se a conta pode entrar — por isso o botão verifica
+            as duas coisas. */}
+        <button
+          onClick={() => void loadRegions()}
+          disabled={regionBusy || !rows?.length}
+          title={t("Loads each server's region and which of your accounts can join this place — one check per server, plus one per account.")}
+          className={buttonClass}
+        >
           {regionBusy ? <Loader2 size={12} className="animate-spin" /> : <Globe size={12} strokeWidth={1.5} />}
           {regionBusy && regionProgress
-            ? t("Loading regions ({{done}}/{{total}})", {
+            ? t("Checking servers ({{done}}/{{total}})", {
                 done: regionProgress.done,
                 total: regionProgress.total,
               })
-            : t("Load regions")}
+            : t("Check servers")}
         </button>
 
         <button onClick={() => void loadServers()} disabled={loading} className={`${buttonClass} ml-auto`}>
@@ -685,6 +759,45 @@ export function ServersTab({
             </>
           )}
         </p>
+      )}
+
+      {/* ── Acesso de cada conta a este place ── */}
+      {accessAnswers.length > 0 && (
+        <div className="shrink-0 flex flex-wrap items-center gap-1.5 text-[12px]">
+          <span className="theme-muted">{t("Access in this place:")}</span>
+          {accessAnswers.map((entry) => {
+            const name = accountName(entry.userId);
+            const canJoin = !entry.denied && !entry.error;
+            const label = canJoin
+              ? t("{{name}}: can join", { name })
+              : entry.denied
+                ? t("{{name}}: no permission", { name })
+                : t("{{name}}: could not check", { name });
+            return (
+              <span
+                key={entry.userId}
+                aria-label={label}
+                title={entry.error ?? label}
+                className={[
+                  "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
+                  canJoin
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                    : entry.denied
+                      ? "border-red-500/30 bg-red-500/10 text-red-300"
+                      : "theme-border theme-muted",
+                ].join(" ")}
+              >
+                {canJoin ? <Check size={11} strokeWidth={2} /> : <X size={11} strokeWidth={2} />}
+                {name}
+              </span>
+            );
+          })}
+          {noAccountCanJoin && (
+            <span className="text-red-300">
+              {t("None of the selected accounts can join this place's servers directly.")}
+            </span>
+          )}
+        </div>
       )}
 
       {/* ── Lista ── */}
@@ -763,7 +876,20 @@ export function ServersTab({
                       truncava nomes de cidade enquanto o Job ID sobrava vazio
                       ao lado. Agora quem sobra é ela. */}
                   <div className="flex-1 min-w-0 truncate text-[12px]">
-                    {region ? (
+                    {region?.denied ? (
+                      // Recusa do Roblox para a conta da consulta (erro 524): é
+                      // o que o usuário só descobria tentando entrar.
+                      <span
+                        title={
+                          accountForApi
+                            ? `${accountName(accountForApi)}: ${region.error ?? ""}`
+                            : region.error ?? undefined
+                        }
+                        className="inline-flex items-center rounded-md border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-300"
+                      >
+                        {t("No permission")}
+                      </span>
+                    ) : region ? (
                       region.label ? (
                         <span className="text-[var(--panel-fg)]">{region.label}</span>
                       ) : (

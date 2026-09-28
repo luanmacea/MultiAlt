@@ -35,7 +35,7 @@ Mostrar os amigos **online** de cada conta selecionada e, com um clique num amig
   | `presenceType == 3` | *In Studio* |
   | Em jogo, sem `gameId` | *Server not visible* (privacidade do amigo) |
 
-- **`rootPlaceId` tem prioridade sobre `placeId`**: o Roblox devolve o place específico (que pode ser um sub-place de teleporte) e o place raiz da experiência; o launch aceita o raiz.
+- **`placeId` tem prioridade sobre `rootPlaceId`**: o Job ID (`gameId`) é de um servidor **do place em que o amigo está**, que pode ser um sub-place. Com o raiz, o launch pedia "o servidor X no place raiz" — que não existe ali — e o cliente abria em *This experience has ended, or the server became unavailable*. Visto no Life Sentence, que tem 6 places (o raiz distribui para "VC Only", "Pro Players"...). O raiz fica de reserva, para quando o `placeId` não vem. Até 28/09/2026 era o contrário. O Follow da Choose Game segue a mesma regra com Job ID; **sem** Job ID (servidor escondido, entrada num servidor público do jogo) ele usa o raiz, porque sub-place de teleporte pode não aceitar entrada direta.
 - **O launch passa sempre por `launch_multiple`** (`launchAll`). Um laço próprio com `launch_roblox` fura o piso anti-captcha de 8 s que o backend aplica entre contas — foi exatamente o bug corrigido no Follow (ver [multi-launch.md](multi-launch.md)).
 - **Nomes de amigos nunca são mascarados.** São terceiros e o usuário precisa reconhecê-los; `hideUsernames` vale só para os nomes das contas do próprio usuário.
 - O servidor do amigo é resolvido **uma vez** e todas as contas vão para aquele `jobId` — não há uma resolução por conta.
