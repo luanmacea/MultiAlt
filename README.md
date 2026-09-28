@@ -52,7 +52,7 @@ A primeira execução de `tauri dev`/`tauri build` compila todas as crates Rust 
 # Download
 Releases prontas: [GitHub Releases](https://github.com/luanmacea/roblox-account-manager/releases).
 
-Baixe o **`.msi`**: é o instalador recomendado e sai limpo no VirusTotal, mas o Windows pede permissão de administrador ao instalar e a cada atualização. O setup `.exe` é o mesmo app, instalado só para o seu usuário (sem pedir admin); como não tem assinatura de código, alguns antivírus o marcam por heurística (falso positivo). Quem já instalou pelo `.exe` pode continuar com ele: o app se atualiza sozinho. Os arquivos `zz-…sig` são da atualização automática: não precisa baixá-los.
+Baixe o **`.msi`**: é o instalador recomendado. Sai limpo no VirusTotal (0/75), instala só para o seu usuário — **sem pedir administrador** — e se atualiza sozinho. O setup `.exe` é o mesmo app, também sem admin, mas como nada aqui tem assinatura de código, um antivírus ou outro o marca por heurística (falso positivo do formato). O **portátil** é o app sem instalar nada, para quem prefere: não cria atalho nem se atualiza sozinho. Os arquivos `zz-…sig` são da atualização automática: não precisa baixá-los.
 
 Cada formato sai em duas variantes:
 - sem `_full-nexus-ws` = **recomendado** (não abre porta nenhuma)
