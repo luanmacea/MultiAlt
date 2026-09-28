@@ -103,6 +103,36 @@ fn select_preferred_update(
     }
 }
 
+/// Canal que ainda nao tem manifesto publicado (o endpoint responde 404).
+///
+/// O texto e o `Display` de `tauri_plugin_updater::Error::ReleaseNotFound`
+/// (conferido no 2.10), que o plugin devolve tanto para 404 quanto para
+/// resposta ilegivel.
+fn channel_has_no_manifest(error: &str) -> bool {
+    error.contains("Could not fetch a valid release JSON from the remote")
+}
+
+/// Canal principal: canal ainda sem release publicada e "nada para atualizar",
+/// nao falha. Qualquer outro erro sobe.
+fn primary_channel_result<T>(result: Result<Option<T>, String>) -> Result<Option<T>, String> {
+    match result {
+        Err(error) if channel_has_no_manifest(&error) => Ok(None),
+        other => other,
+    }
+}
+
+/// Canal de reserva (o `stable` consultado de dentro do beta): um extra que
+/// nunca pode derrubar a checagem do canal principal.
+fn fallback_channel_result<T>(result: Result<Option<T>, String>) -> Result<Option<T>, String> {
+    match result {
+        Ok(update) => Ok(update),
+        Err(error) => {
+            eprintln!("Updater: canal de reserva ignorado ({})", error);
+            Ok(None)
+        }
+    }
+}
+
 async fn check_update_for_channel(
     app: &tauri::AppHandle,
     release_channel: &str,
@@ -146,9 +176,16 @@ async fn check_for_updates_with_channels(
         feature_channel.as_deref().unwrap_or("standard"),
     );
 
-    let primary_update = check_update_for_channel(&app, normalized_release, normalized_feature).await?;
+    let primary_update = primary_channel_result(
+        check_update_for_channel(&app, normalized_release, normalized_feature).await,
+    )?;
+    // Quem esta no beta tambem olha o stable: uma estavel mais nova vence a
+    // beta. Mas o stable so nasce na primeira release estavel, e ate la ele
+    // responde 404 — por isso a falha dele nao pode derrubar a checagem.
     let fallback_update = if normalized_release == "beta" {
-        check_update_for_channel(&app, "stable", normalized_feature).await?
+        fallback_channel_result(
+            check_update_for_channel(&app, "stable", normalized_feature).await,
+        )?
     } else {
         None
     };
@@ -292,6 +329,44 @@ mod updater_tests {
         assert_eq!(normalize_updater_feature_channel("standard"), "standard");
         assert_eq!(normalize_updater_feature_channel(""), "standard");
         assert_eq!(normalize_updater_feature_channel("whatever"), "standard");
+    }
+
+    // ---- falha de canal ------------------------------------------------------
+
+    /// O que o `check_update_for_channel` devolve quando o canal responde 404.
+    const SEM_MANIFESTO: &str =
+        "Failed to check for updates: Could not fetch a valid release JSON from the remote";
+
+    #[test]
+    fn a_channel_without_a_published_manifest_is_not_a_failure() {
+        // O canal `stable` so nasce na primeira release estavel. Ate la ele
+        // responde 404, e isso e "nada para atualizar", nao "a checagem falhou".
+        assert_eq!(primary_channel_result::<u8>(Err(SEM_MANIFESTO.into())), Ok(None));
+    }
+
+    #[test]
+    fn a_real_failure_in_the_primary_channel_still_surfaces() {
+        let erro = "Failed to check for updates: error sending request".to_string();
+        assert_eq!(primary_channel_result::<u8>(Err(erro.clone())), Err(erro));
+    }
+
+    #[test]
+    fn the_fallback_channel_never_breaks_the_check() {
+        // Bug vivido (28/09/2026): no canal beta o app consultava tambem o
+        // `stable`, que nunca teve release, e subia o 404 — entao "Procurar
+        // agora" falhava sempre, mesmo sem nada para atualizar.
+        assert_eq!(fallback_channel_result::<u8>(Err(SEM_MANIFESTO.into())), Ok(None));
+        assert_eq!(
+            fallback_channel_result::<u8>(Err("Failed to check for updates: timed out".into())),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn both_channels_pass_their_update_through() {
+        assert_eq!(primary_channel_result(Ok(Some(7u8))), Ok(Some(7)));
+        assert_eq!(fallback_channel_result(Ok(Some(7u8))), Ok(Some(7)));
+        assert_eq!(fallback_channel_result::<u8>(Ok(None)), Ok(None));
     }
 
     // ---- manifest channel / endpoint ----------------------------------------
