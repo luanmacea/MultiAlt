@@ -15,6 +15,7 @@ import { SUITES, SUITE_NAMES } from "./test-suites";
 const ROOT = join(import.meta.dir, "..");
 const RUST_SRC = join(ROOT, "src-tauri", "src");
 const FRONT_SRC = join(ROOT, "src");
+const RELEASE_SCRIPTS = join(ROOT, ".github", "scripts");
 
 function walk(dir: string, match: (p: string) => boolean): string[] {
   const out: string[] = [];
@@ -37,9 +38,15 @@ function rustTestMods(): string[] {
   return [...mods].sort();
 }
 
-/** Todos os arquivos de teste do frontend, relativos à raiz, com "/". */
+/**
+ * Todos os arquivos de teste que o vitest roda (frontend e scripts de
+ * release), relativos à raiz, com "/".
+ */
 function frontTestFiles(): string[] {
-  return walk(FRONT_SRC, (p) => /\.test\.tsx?$/.test(p))
+  return [
+    ...walk(FRONT_SRC, (p) => /\.test\.tsx?$/.test(p)),
+    ...walk(RELEASE_SCRIPTS, (p) => /\.test\.mjs$/.test(p)),
+  ]
     .map((p) => relative(ROOT, p).split(sep).join("/"))
     .sort();
 }

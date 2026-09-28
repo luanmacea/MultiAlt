@@ -283,6 +283,11 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: ["src/utils/platform.test.ts"],
   },
+  release: {
+    description: "Workflow de release: número da próxima versão (série pelo major do package.json)",
+    rust: [],
+    front: [".github/scripts/release-version.test.mjs"],
+  },
 };
 
 export const SUITE_NAMES = Object.keys(SUITES).sort();

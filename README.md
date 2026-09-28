@@ -9,13 +9,13 @@ Full credit to [ic3w0lf22](https://github.com/ic3w0lf22) for the original Roblox
 
 Desktop app para gerenciar múltiplas contas Roblox: adicionar contas, rodar vários clientes ao mesmo tempo, alternar entre alts sem trocar de login, e automatizar o rejoin (Auto Rejoin).
 
-Reporte bugs na aba Issues ou via Discord @niccdev.
+Reporte bugs na [aba Issues](https://github.com/luanmacea/roblox-account-manager/issues).
 
 # ⚠️ Aviso
 Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link pode entrar em qualquer jogo (ou até o Roblox Studio) usando sua conta, gastar seu Robux, ou causar banimento.
 
-# RAM v4 (Beta)
-Reescrita em Rust + TypeScript com [Tauri](https://tauri.app/). Em desenvolvimento ativo — espere bugs e mudanças de comportamento entre versões beta. Para estabilidade máxima, use o release legado.
+# Versão 0.x (Beta)
+Reescrita em Rust + TypeScript com [Tauri](https://tauri.app/). Em desenvolvimento ativo: as versões 0.x vão até a primeira versão completamente corrigida, que será a 1.0.0. Espere bugs e mudanças de comportamento entre elas. Para estabilidade máxima, use o release legado.
 
 ---
 
@@ -47,14 +47,16 @@ cd src-tauri && cargo build --features webserver,nexus   # com as features opcio
 
 A primeira execução de `tauri dev`/`tauri build` compila todas as crates Rust do zero e pode levar alguns minutos; builds seguintes usam cache incremental do Cargo e são bem mais rápidas.
 
-`bun run tauri build` gera o instalador em `src-tauri/target/release/bundle/nsis/` (o `tauri.conf.json` só pede `nsis`; o `.msi` só sai no CI, com `PUBLISH_MSI` ligado). O `.exe` solto (sem installer) fica direto em `src-tauri/target/release/`.
+`bun run tauri build` gera o instalador em `src-tauri/target/release/bundle/nsis/` (o `tauri.conf.json` só pede `nsis`; o `.msi` sai no CI, com `PUBLISH_MSI`, ou localmente com `bun run tauri build --bundles msi`). O `.exe` solto (sem installer) fica direto em `src-tauri/target/release/`.
 
 # Download
 Releases prontas: [GitHub Releases](https://github.com/luanmacea/roblox-account-manager/releases).
 
-A release publica **só o instalador** (`.exe`), em duas variantes:
+Baixe o **`.msi`**: é o instalador recomendado e sai limpo no VirusTotal, mas o Windows pede permissão de administrador ao instalar e a cada atualização. O setup `.exe` é o mesmo app, instalado só para o seu usuário (sem pedir admin); como não tem assinatura de código, alguns antivírus o marcam por heurística (falso positivo). Quem já instalou pelo `.exe` pode continuar com ele: o app se atualiza sozinho. Os arquivos `zz-…sig` são da atualização automática: não precisa baixá-los.
+
+Cada formato sai em duas variantes:
 - sem `_full-nexus-ws` = **recomendado** (não abre porta nenhuma)
-- com `_full-nexus-ws.exe` = versão full-feature (API HTTP local e Nexus)
+- com `_full-nexus-ws` = versão full-feature (API HTTP local e Nexus)
 
 Não precisa instalar .NET Framework ou VC++ manualmente. Baixe só da página oficial de releases.
 
@@ -75,7 +77,7 @@ Não precisa instalar .NET Framework ou VC++ manualmente. Baixe só da página o
 | Watcher | Fecha clientes por timeout, memória, ou detecção de beta |
 | Local Web API / Nexus | API HTTP local e WebSocket para scripts externos (Nexus.lua) |
 | Script Manager | Scripts JS custom com acesso a comandos Rust, HTTP/WebSocket, UI |
-| Themes + i18n | Editor de tema embutido, localização via Crowdin |
+| Themes + i18n | Editor de tema embutido, localização em inglês e português (alemão parcial) |
 
 # FAQ
 
@@ -101,7 +103,7 @@ A interface é desenhada pelo Microsoft Edge WebView2 Runtime, então reinstalar
 Quando o modo está ligado aparece uma faixa amarela no topo do app com o botão **Voltar ao modo normal** — ele apaga o marcador e reabre o app com a aceleração de vídeo de volta. Se a faixa não aparecer, ou o botão falhar, apague na mão o arquivo `webview.safemode` que fica junto do `RAMSettings.ini` (por padrão em `%LOCALAPPDATA%\Roblox Account Manager`) e abra o app de novo. Se você estiver segurando Shift, solte antes de abrir: Shift força o modo por essa sessão.
 
 **Funciona no Mac?**
-Ainda não — suporte parcial, chegando com a reescrita v4.
+Ainda não — o suporte a macOS é parcial.
 
 # Preview
 ![github-large](Images/Image5.png)
