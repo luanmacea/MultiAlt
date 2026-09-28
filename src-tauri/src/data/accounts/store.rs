@@ -261,6 +261,18 @@ impl AccountStore {
         Ok(())
     }
 
+    /// A pasta de dados (onde ficam `AccountData.json` e `.key`) e a de
+    /// backups, para as mensagens de bloqueio darem o caminho à mão.
+    fn data_and_backups_dirs(&self) -> (std::path::PathBuf, std::path::PathBuf) {
+        let data_dir = self
+            .file_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
+        let backups_dir = data_dir.join(crate::BACKUPS_DIR_NAME);
+        (data_dir, backups_dir)
+    }
+
     /// Mensagem para o caso em que o vault existe, está cifrado e **nada** abre.
     ///
     /// A presença do `.key` separa os dois motivos, e eles pedem respostas
@@ -280,12 +292,7 @@ impl AccountStore {
         // mão, e a ordem importa: com o app aberto nada é relido, e pôr os
         // arquivos do backup por cima sem tirar os de agora do lugar perde o
         // vault que talvez ainda abra no aparelho que o criou.
-        let data_dir = self
-            .file_path
-            .parent()
-            .map(std::path::Path::to_path_buf)
-            .unwrap_or_default();
-        let backups_dir = data_dir.join(crate::BACKUPS_DIR_NAME);
+        let (data_dir, backups_dir) = self.data_and_backups_dirs();
 
         // Só citar o `.json.bak` quando ele **existe**: numa instalação que nasceu
         // cifrada esse arquivo nunca existiu, e mandar restaurá-lo é mandar a
@@ -851,11 +858,18 @@ impl AccountStore {
             // Nada é gravado nos dois casos (o latch abaixo garante).
             self.load_failed
                 .store(true, std::sync::atomic::Ordering::SeqCst);
+            // Os passos vão à mão: isto sai na tela de senha, onde o Settings
+            // não abre.
+            let (data_dir, backups_dir) = self.data_and_backups_dirs();
             return Err(format!(
                 "Password required for encrypted file. If you never set a password, this file was \
-                 encrypted with a different device key — restore the matching {} next to it (both \
-                 come in the same backup zip). Nothing was deleted or overwritten.",
-                self.key_file_path().display()
+                 encrypted with a different device key than {}: close the app, move AccountData.json \
+                 and AccountData.key out of {} (keep them), put back both from a backup zip in {} \
+                 (they have to come from the same zip), and open the app again. Nothing was deleted \
+                 or overwritten.",
+                self.key_file_path().display(),
+                data_dir.display(),
+                backups_dir.display()
             ));
         };
 
@@ -923,11 +937,18 @@ impl AccountStore {
                     // foi apagado (usuário, antivírus, limpeza de disco). O
                     // segundo não se resolve digitando de novo, e quem não souber
                     // disso vai ficar tentando senhas até desistir.
+                    // E "restaure de um backup" sem dizer como é beco sem saída: esta
+                    // mensagem sai na tela de senha, onde o Settings não abre.
+                    let (data_dir, backups_dir) = self.data_and_backups_dirs();
                     format!(
                         "Failed to decrypt: wrong password. If this vault never had a password, \
-                         its device key file is missing — restore {} (together with the account \
-                         file) from a backup instead of retyping.",
-                        self.key_file_path().display()
+                         its device key file is missing ({}) and retyping will not help: close the \
+                         app, move AccountData.json out of {} (keep it), put back AccountData.json \
+                         and AccountData.key from a backup zip in {}, and open the app again. A \
+                         backup only opens on the PC and Windows user that made it.",
+                        self.key_file_path().display(),
+                        data_dir.display(),
+                        backups_dir.display()
                     )
                 }
             })?;
@@ -4004,6 +4025,83 @@ mod vault_migration_tests {
             "segredo na mensagem de erro: {err}"
         );
         assert_eq!(fs::read(&store.file_path).unwrap(), encrypted);
+    }
+
+    /// Checa que `err` traz os passos à mão **nesta ordem** — a mesma exigência
+    /// do A5: as duas mensagens abaixo também terminam na tela de senha, onde o
+    /// Settings não abre, e "restaure de um backup" sem dizer como é beco sem
+    /// saída.
+    fn assert_manual_restore_in_order(err: &str, move_out: &str, backups_dir: &std::path::Path) {
+        let at = |needle: &str| {
+            err.find(needle)
+                .unwrap_or_else(|| panic!("a mensagem não diz {needle:?}: {err}"))
+        };
+        let close = at("close the app");
+        let out = at(move_out);
+        let from_zip = at(&format!("from a backup zip in {}", backups_dir.display()));
+        let reopen = at("open the app again");
+        assert!(
+            close < out && out < from_zip && from_zip < reopen,
+            "fora de ordem: {err}"
+        );
+        assert!(!err.contains("Settings"), "manda para uma tela que não abre: {err}");
+    }
+
+    #[test]
+    fn a_failed_unlock_without_a_key_file_says_how_to_restore_by_hand() {
+        let store = vault("missing-key-by-hand");
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        let encrypted =
+            crypto::encrypt(&json, &crypto::hash_password("senha-bem-comprida")).unwrap();
+        fs::write(&store.file_path, &encrypted).unwrap();
+        let data_dir = store.file_path.parent().unwrap().to_path_buf();
+
+        let err = store
+            .load_with_password("senha-errada-mesmo")
+            .expect_err("senha errada tem que falhar");
+
+        // O caso comum (senha errada) continua sendo a primeira coisa lida.
+        assert!(err.starts_with("Failed to decrypt: wrong password."), "{err}");
+        assert_manual_restore_in_order(
+            &err,
+            &format!("move AccountData.json out of {}", data_dir.display()),
+            &data_dir.join(crate::BACKUPS_DIR_NAME),
+        );
+    }
+
+    #[test]
+    fn a_vault_of_another_device_key_says_how_to_restore_by_hand() {
+        let store = vault("foreign-master-by-hand");
+        let other_master = crate::data::vault_key::generate_master_key();
+        let json = serde_json::to_string(&sample_accounts()).unwrap();
+        fs::write(
+            &store.file_path,
+            crypto::encrypt(
+                &json,
+                &crate::data::vault_key::master_password_hash(&other_master),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        crate::data::vault_key::store_master_key(
+            &key_path(&store),
+            &crate::data::vault_key::generate_master_key(),
+            &crypto::primary_device_hash(),
+        )
+        .unwrap();
+        let data_dir = store.file_path.parent().unwrap().to_path_buf();
+
+        let err = store.load().expect_err("não abre");
+
+        assert_manual_restore_in_order(
+            &err,
+            &format!(
+                "move AccountData.json and AccountData.key out of {}",
+                data_dir.display()
+            ),
+            &data_dir.join(crate::BACKUPS_DIR_NAME),
+        );
+        let _ = fs::remove_file(key_path(&store));
     }
 
     /// "Importar backup encriptado por padrão (sem senha) tem que funcionar."
