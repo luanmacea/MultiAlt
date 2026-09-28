@@ -27,6 +27,9 @@ const EXTENSOES = [".ts", ".tsx", ".rs", ".yml", ".yaml", ".mjs", ".json", ".md"
 const PODEM_CITAR = new Set([
   path.join("src", "repo.ts"),
   path.join("src", "repoOwnership.test.ts"),
+  // Trava a identidade do instalador; o comentário conta de onde veio o
+  // `com.niccdevs.…` que o app carregava.
+  path.join("src", "appIdentity.test.ts"),
   path.join("src-tauri", "src", "commands", "updater.rs"),
   path.join("src-tauri", "src", "commands", "services.rs"),
   // Conta a historia da bifurcacao e por que o updater foi redirecionado.

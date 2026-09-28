@@ -286,7 +286,7 @@ export const SUITES: Record<string, TestSuite> = {
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json)",
     rust: [],
-    front: [".github/scripts/release-version.test.mjs"],
+    front: [".github/scripts/release-version.test.mjs", "src/appIdentity.test.ts"],
   },
 };
 

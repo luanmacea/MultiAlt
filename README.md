@@ -1,4 +1,4 @@
-Full credit to [ic3w0lf22](https://github.com/ic3w0lf22) for the original Roblox Account Manager. This is a continuation of the project.
+Full credit to [ic3w0lf22](https://github.com/ic3w0lf22), who created the original Roblox Account Manager, and to [niccdevs](https://github.com/niccdevs), who maintained it afterwards. This project continues their work.
 
 # Roblox Account Manager
 ![github-large](Images/Image5.png)

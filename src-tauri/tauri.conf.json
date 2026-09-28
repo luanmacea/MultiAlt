@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/nicovank/tauri-v2/main/packages/cli/schema.json",
   "productName": "Roblox Account Manager",
   "version": "0.1.0",
-  "identifier": "com.niccdevs.roblox-account-manager",
+  "identifier": "com.luanmacea.roblox-account-manager",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "Luan Silveira",
     "createUpdaterArtifacts": true,
     "targets": [
       "nsis"
