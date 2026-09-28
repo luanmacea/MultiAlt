@@ -122,7 +122,7 @@ pub fn master_password_hash(master: &[u8]) -> Vec<u8> {
 }
 
 pub fn generate_master_key() -> Vec<u8> {
-    sodiumoxide::randombytes::randombytes(MASTER_KEY_LEN)
+    crypto::random_bytes(MASTER_KEY_LEN)
 }
 
 /// Recupera a chave mestra do arquivo `.key`, tentando o DPAPI e depois cada

@@ -11,7 +11,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | Modelo `Account` (serde, compatível com RAM v3) | [data/accounts/model.rs](../../src-tauri/src/data/accounts/model.rs) |
 | `AccountStore` (load/save/criptografia/import) | [data/accounts/store.rs](../../src-tauri/src/data/accounts/store.rs) |
 | Comandos de CRUD e senha | [data/accounts/commands.rs](../../src-tauri/src/data/accounts/commands.rs) |
-| Criptografia (sodiumoxide, DPAPI, hash do aparelho) | [data/crypto.rs](../../src-tauri/src/data/crypto.rs) |
+| Criptografia (RustCrypto, DPAPI, hash do aparelho) | [data/crypto.rs](../../src-tauri/src/data/crypto.rs) |
 | Chave mestra do vault (`AccountData.key`) | [data/vault_key.rs](../../src-tauri/src/data/vault_key.rs) |
 | Comandos de API por conta | [commands/account_api.rs](../../src-tauri/src/commands/account_api.rs), [commands/account_helpers.rs](../../src-tauri/src/commands/account_helpers.rs) |
 | Grupo `moderadas` | [commands/launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) (`MODERATED_GROUP`, `is_moderated_error`, `mark_account_moderated`) |
@@ -164,8 +164,8 @@ Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro e inteiro**; a
 | Aspecto | Implementação ([crypto.rs](../../src-tauri/src/data/crypto.rs)) |
 |---|---|
 | Hash da senha | `sha512(senha.trim())` |
-| KDF | Argon2i13 (`OPSLIMIT_MODERATE`, `MEMLIMIT_MODERATE`) com salt de 16 bytes |
-| Cifra | `secretbox` (XSalsa20-Poly1305), nonce de 24 bytes |
+| KDF | Argon2i v0x13, t_cost=6 / m_cost=131072 KiB (128 MiB) / paralelismo 1, salt de 16 bytes (RustCrypto `argon2`) |
+| Cifra | XSalsa20-Poly1305 (RustCrypto `crypto_secretbox`), nonce de 24 bytes, MAC de 16 bytes na frente |
 | Layout | `RAM_HEADER` + salt(16) + nonce(24) + ciphertext |
 | Quando o salt e a chave são sorteados/derivados | Uma vez por unlock ou `set_password` (`SessionKey` em [accounts/store.rs](../../src-tauri/src/data/accounts/store.rs)); o **nonce** continua novo a cada gravação |
 | Headers aceitos | `RAM_HEADER` (ic3w0lf22) e `TRANSITION_RAM_HEADER` (niccdevs); gravação sempre com `RAM_HEADER` |
@@ -303,7 +303,8 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 - Esquecer a senha = perda do arquivo; não há recuperação no código. Perder o `.key` **junto com** o vault cifrado por ele, idem.
 - Nenhum log, mensagem de erro ou payload carrega cookie, senha ou chave: o `.key` guarda só os dois embrulhos, e `own_secret_hashes` circula hashes derivados, nunca a chave mestra.
 - A senha é `trim()`-ada em todos os caminhos que a consomem: `load_with_password`, `set_password` e `decode_accounts_for_import`.
-- Não altere `RAM_HEADER`, parâmetros do Argon2 ou o layout sem migração: quebra a leitura de todos os arquivos existentes.
+- Não altere `RAM_HEADER`, parâmetros do Argon2 ou o layout sem migração: quebra a leitura de todos os arquivos existentes. **Os parâmetros do Argon2 são os que o libsodium usava** (o formato foi mantido ao trocar a lib): o `decrypts_a_libsodium_fixture` em [crypto.rs](../../src-tauri/src/data/crypto.rs) trava isso decifrando um arquivo gravado pela versão antiga.
+- **Por que RustCrypto e não sodiumoxide:** o libsodium (biblioteca C embutida no `.exe`) fazia o binário ser marcado como `Trojan:Win32/Wacatac.B!ml` pelo Windows Defender — falso positivo de modelo de ML, achado por bissecção com `bun run vt` em 28/09/2026. A criptografia em Rust puro (`argon2` + `crypto_secretbox` + `sha2`) faz o mesmo, no mesmo formato, e o binário sai 0/75 no VirusTotal e limpo no Defender.
 - `update_account` substitui o objeto inteiro (menos `SecurityToken`/`Password`, que vêm do store) — sempre envie a conta completa (o frontend faz `{ ...account, Campo: valor }`). Para trocar o cookie use `add_account` (mesmo `UserID`) ou os fluxos de refresh; `update_account` ignora cookie/senha enviados.
 - **Latch de arquivo ilegível (vale para todas as stores de dados).** Quando um arquivo de persistência existe mas não pôde ser lido ou parseado, a store carrega vazia/no default, marca `load_failed` e **recusa toda gravação** até o arquivo ser corrigido/restaurado e o app reiniciado — assim a primeira gravação não apaga os dados do usuário. Mudanças feitas nessa sessão retornam erro. Hoje aplicam o latch: `AccountStore` (`AccountData.json`), `ScriptStore` (`RAMScripts.json`), `VersionsCatalogStore` (`RAMVersions.json`), `ThemePresetStore`, `ThemeStore` e `SettingsStore` (`RAMSettings.ini`). Um arquivo de 0 byte **não** conta como corrupção (é um estado vazio legítimo e continua gravável).
 - **`LastUse` mede uso, não cadastro.** É escrito ao criar/atualizar via `add` e, desde então, também a cada launch que dá certo: `AccountStore::mark_used` é chamado em `launch_queue_mark` quando a fila marca `Done` (cobre conta única e lote, nas duas plataformas), no ciclo do Auto Rejoin (`launch_account_for_cycle`) e nos dois launches do web server (que não passam pela fila). Estado que não seja `Done` não conta — tentativa não é uso.
