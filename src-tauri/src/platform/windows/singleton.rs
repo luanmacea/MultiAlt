@@ -27,10 +27,11 @@
 
 // Importados aqui (e não no topo de `windows.rs`) porque só este arquivo usa.
 use windows_sys::Win32::Foundation::{
-    DuplicateHandle, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS,
+    DuplicateHandle, GetLastError, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS,
+    ERROR_FILE_NOT_FOUND,
 };
 use windows_sys::Win32::System::Threading::{
-    CreateEventW, GetCurrentProcess, PROCESS_DUP_HANDLE,
+    CreateEventW, GetCurrentProcess, OpenEventW, EVENT_MODIFY_STATE, PROCESS_DUP_HANDLE,
 };
 
 /// Sufixo do evento de instância única do cliente Roblox.
@@ -349,12 +350,23 @@ pub fn close_roblox_singleton_handles() -> usize {
     closed
 }
 
+/// O evento `name` existe nesta sessão? `OpenEventW` sem prefixo abre no mesmo
+/// namespace em que o cliente do Roblox cria o dele. Acesso negado conta como
+/// "existe": o objeto está lá, só não abre para nós.
+fn named_event_exists(name: &str) -> bool {
+    let wide = encode_wide(name);
+    let handle = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide.as_ptr()) };
+    if handle.is_null() {
+        return unsafe { GetLastError() } != ERROR_FILE_NOT_FOUND;
+    }
+    unsafe { CloseHandle(handle) };
+    true
+}
+
 #[cfg(test)]
 mod singleton_event_tests {
     use super::*;
-    use windows_sys::Win32::System::Threading::{
-        GetCurrentProcessId, OpenEventW, EVENT_MODIFY_STATE,
-    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 
     struct OwnedEvent(HANDLE);
 
@@ -380,14 +392,16 @@ mod singleton_event_tests {
         (!handle.is_null()).then_some(OwnedEvent(handle))
     }
 
-    fn named_event_exists(name: &str) -> bool {
-        let wide = encode_wide(name);
-        let handle = unsafe { OpenEventW(EVENT_MODIFY_STATE, 0, wide.as_ptr()) };
-        if handle.is_null() {
-            return false;
-        }
-        unsafe { CloseHandle(handle) };
-        true
+    /// A checagem de existência é a de produção (`super::named_event_exists`):
+    /// é ela que decide se o launch segue com o Event já fechado.
+    #[test]
+    fn an_event_exists_only_while_someone_holds_it() {
+        let name = format!("RAMTest_existsProbe_{}", self_pid());
+        assert!(!named_event_exists(&name), "o nome já existia antes do teste");
+        let event = create_named_event(&name).expect("CreateEventW falhou");
+        assert!(named_event_exists(&name));
+        drop(event);
+        assert!(!named_event_exists(&name), "o nome sobreviveu ao último handle");
     }
 
     fn self_pid() -> u32 {
