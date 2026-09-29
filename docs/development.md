@@ -32,6 +32,9 @@ Scripts definidos em [package.json](../package.json) e hooks de build em [tauri.
 
 [.github/workflows/ci.yml](../.github/workflows/ci.yml) (push e PR nas branches `main` e `develop`, só quando mudam `src/`, `src-tauri/`, `package.json`, `vite.config.ts` ou o próprio workflow; runner Windows, com cache do Rust):
 
+**Cada commit é verificado uma vez só.** Com um PR aberto da branch, o evento `pull_request` já roda o CI **no mesmo commit** que o `push` — eram dois runs de ~20 min medindo a mesma coisa (visto no `af99c73`, 28/09/2026). O job `guard` (segundos, no runner Linux) consulta se há PR aberto para a branch e, se houver, pula o run do `push`: quem vale é o evento do PR, que é o check que libera o merge. Um `concurrency` por branch/PR também cancela o run anterior quando chega um commit novo — o resultado do commit já substituído não interessa.
+
+
 1. `bun install --frozen-lockfile`
 2. `bun run typecheck`
 3. `bun run test` (vitest)

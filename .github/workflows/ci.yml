@@ -24,8 +24,52 @@ on:
       - ".github/workflows/ci.yml"
       - ".github/scripts/**"
 
+concurrency:
+  # Um push novo na mesma branch (ou no mesmo PR) cancela o run anterior: o
+  # resultado do commit que ja foi substituido nao interessa a ninguem.
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Com um PR aberto da branch, o evento `pull_request` ja roda o CI **no mesmo
+  # commit** que o `push` — eram dois runs de ~20 min para verificar a mesma
+  # coisa. Este guard (segundos, no runner barato do Linux) decide se o run do
+  # `push` e redundante. Medido em 28/09/2026: o commit `af99c73` teve os dois.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // O evento do PR e sempre a fonte da verdade: ele e que aparece
+            // como check no PR e libera o merge.
+            if (context.eventName === 'pull_request') {
+              core.setOutput('run', 'true');
+              return;
+            }
+            const branch = context.ref.replace('refs/heads/', '');
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:${branch}`,
+            });
+            if (prs.data.length > 0) {
+              core.info(
+                `PR aberto para ${branch} (#${prs.data[0].number}): o evento ` +
+                  'pull_request ja verifica este commit, entao o run do push e pulado.'
+              );
+              core.setOutput('run', 'false');
+              return;
+            }
+            core.setOutput('run', 'true');
+
   verify:
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
     runs-on: windows-latest
     steps:
       - name: Checkout
