@@ -61,10 +61,177 @@ fn clamp_afk_interval_minutes(minutes: i64) -> u64 {
     minutes.clamp(1, 120) as u64
 }
 
-/// Por que um start não pode acontecer. Sem tecla escolhida o modo **não liga**:
-/// inventar uma tecla padrão seria mexer no personagem sem o usuário pedir.
-fn validate_afk_start(key: &str, user_ids: &[i64]) -> Result<(), String> {
-    if afk_virtual_key(key).is_none() {
+/// O que o AFK mode manda para cada conta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfkMode {
+    /// Toca uma tecla da lista fechada.
+    Key,
+    /// Clique esquerdo num ponto relativo da janela da conta. Existe para quem
+    /// quer o personagem **parado**: toda tecla da lista mexe nele.
+    Click,
+}
+
+impl AfkMode {
+    /// Qualquer valor desconhecido vira `Key`: é o modo que já existia.
+    fn parse(raw: &str) -> AfkMode {
+        if raw.trim().eq_ignore_ascii_case("click") {
+            AfkMode::Click
+        } else {
+            AfkMode::Key
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            AfkMode::Key => "key",
+            AfkMode::Click => "click",
+        }
+    }
+}
+
+/// Ponto do clique em porcentagem da área interna da janela (0–100 nos dois
+/// eixos). Relativo de propósito: cai no mesmo lugar com a janela pequena,
+/// grande ou maximizada, e nenhuma janela precisa ser redimensionada.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AfkPoint {
+    x_pct: f64,
+    y_pct: f64,
+}
+
+const AFK_DEFAULT_POINT: AfkPoint = AfkPoint {
+    x_pct: 50.0,
+    y_pct: 50.0,
+};
+
+/// Porcentagem travada em 0–100; valor que não é número vira o meio.
+fn clamp_afk_percent(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(0.0, 100.0)
+    } else {
+        50.0
+    }
+}
+
+impl AfkPoint {
+    fn clamped(x: f64, y: f64) -> Self {
+        Self {
+            x_pct: clamp_afk_percent(x),
+            y_pct: clamp_afk_percent(y),
+        }
+    }
+}
+
+/// Área interna (cliente) de uma janela, em coordenadas de tela.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AfkClientRect {
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+}
+
+/// Pixel de tela do ponto, **sempre dentro** da área interna: 0% é a primeira
+/// coluna/linha e 100% a última, nunca a borda de fora.
+fn afk_point_to_pixel(rect: AfkClientRect, point: AfkPoint) -> Option<(i32, i32)> {
+    if rect.width <= 0 || rect.height <= 0 {
+        return None;
+    }
+    let p = AfkPoint::clamped(point.x_pct, point.y_pct);
+    let dx = ((p.x_pct / 100.0) * f64::from(rect.width - 1)).round() as i32;
+    let dy = ((p.y_pct / 100.0) * f64::from(rect.height - 1)).round() as i32;
+    Some((rect.left + dx, rect.top + dy))
+}
+
+/// O inverso, para o Marcar. `None` quando o cursor não está dentro da área
+/// interna (em cima da borda, da barra de título ou fora da janela).
+fn afk_pixel_to_point(rect: AfkClientRect, x: i32, y: i32) -> Option<AfkPoint> {
+    if rect.width <= 0 || rect.height <= 0 {
+        return None;
+    }
+    let (dx, dy) = (x - rect.left, y - rect.top);
+    if dx < 0 || dy < 0 || dx >= rect.width || dy >= rect.height {
+        return None;
+    }
+    let span_x = f64::from((rect.width - 1).max(1));
+    let span_y = f64::from((rect.height - 1).max(1));
+    // Duas casas: o bastante para a ida e volta cair no mesmo pixel até em 4K.
+    let round2 = |v: f64| (v * 100.0).round() / 100.0;
+    Some(AfkPoint::clamped(
+        round2(f64::from(dx) / span_x * 100.0),
+        round2(f64::from(dy) / span_y * 100.0),
+    ))
+}
+
+/// Ponto próprio da conta, dos campos `AfkClickX`/`AfkClickY`. Só vale com os
+/// dois números: um sem o outro cai no padrão.
+fn afk_point_from_fields(fields: &HashMap<String, String>) -> Option<AfkPoint> {
+    let x = fields.get("AfkClickX")?.trim().parse::<f64>().ok()?;
+    let y = fields.get("AfkClickY")?.trim().parse::<f64>().ok()?;
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some(AfkPoint::clamped(x, y))
+}
+
+/// O ponto de cada alvo: o próprio, se a conta tiver, senão o padrão.
+fn afk_points_for_targets(
+    targets: &[i64],
+    default: AfkPoint,
+    overrides: &HashMap<i64, AfkPoint>,
+) -> HashMap<i64, AfkPoint> {
+    targets
+        .iter()
+        .map(|uid| (*uid, overrides.get(uid).copied().unwrap_or(default)))
+        .collect()
+}
+
+/// Resultado do Marcar: de que conta é a janela e onde, em porcentagem.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AfkCapturedPoint {
+    user_id: i64,
+    x_pct: f64,
+    y_pct: f64,
+}
+
+/// O Marcar a partir das partes, para o teste não precisar de janela. `tracked`
+/// é `(conta, PID)` dos clientes abertos por este app. O erro é um **código**; a
+/// tela escreve a frase.
+fn afk_capture_from_parts(
+    cursor: (i32, i32),
+    window_pid: Option<u32>,
+    tracked: &[(i64, u32)],
+    rect: Option<AfkClientRect>,
+) -> Result<AfkCapturedPoint, String> {
+    let pid = window_pid.ok_or("noWindow")?;
+    let user_id = tracked
+        .iter()
+        .find(|(_, p)| *p == pid)
+        .map(|(uid, _)| *uid)
+        .ok_or("notAnAccountWindow")?;
+    let rect = rect.ok_or("outsideGameArea")?;
+    let point = afk_pixel_to_point(rect, cursor.0, cursor.1).ok_or("outsideGameArea")?;
+    Ok(AfkCapturedPoint {
+        user_id,
+        x_pct: point.x_pct,
+        y_pct: point.y_pct,
+    })
+}
+
+/// O que o ciclo faz em cada conta. No clique o ponto já vem resolvido por
+/// conta (o próprio ou o padrão), então o corpo bloqueante não lê store nenhum.
+#[derive(Debug, Clone)]
+enum AfkCycleAction {
+    Key(String),
+    Click(HashMap<i64, AfkPoint>),
+}
+
+/// Por que um start não pode acontecer. No modo tecla, sem tecla escolhida o
+/// modo **não liga**: inventar uma tecla padrão seria mexer no personagem sem o
+/// usuário pedir. O modo clique não usa tecla.
+fn validate_afk_start(mode: AfkMode, key: &str, user_ids: &[i64]) -> Result<(), String> {
+    if mode == AfkMode::Key && afk_virtual_key(key).is_none() {
         return Err("Choose one of the AFK mode keys before starting".into());
     }
     if user_ids.is_empty() {
@@ -84,6 +251,8 @@ enum AfkSendError {
     FocusDenied,
     /// O `SendInput` foi recusado (ou o "solta a tecla" não passou).
     KeyRefused,
+    /// O clique foi recusado (ou o "solta o botão" não passou).
+    ClickRefused,
     /// Falha inesperada do ciclo.
     Internal(String),
 }
@@ -94,6 +263,7 @@ impl AfkSendError {
             AfkSendError::NoWindow => "noWindow",
             AfkSendError::FocusDenied => "focusDenied",
             AfkSendError::KeyRefused => "keyRefused",
+            AfkSendError::ClickRefused => "clickRefused",
             AfkSendError::Internal(_) => "internal",
         }
     }
@@ -106,6 +276,7 @@ impl AfkSendError {
                     .into()
             }
             AfkSendError::KeyRefused => "Windows refused the synthetic key".into(),
+            AfkSendError::ClickRefused => "Windows refused the synthetic click".into(),
             AfkSendError::Internal(message) => message.clone(),
         }
     }
@@ -236,19 +407,31 @@ struct AfkAccountStatus {
     next_send_at_ms: i64,
     sends: u64,
     last_error: Option<String>,
-    /// `noWindow`, `focusDenied`, `keyRefused` ou `internal` — a tela escolhe a
-    /// frase traduzida por aqui, em vez de casar texto em inglês.
+    /// `noWindow`, `focusDenied`, `keyRefused`, `clickRefused` ou `internal` — a
+    /// tela escolhe a frase traduzida por aqui, em vez de casar texto em inglês.
     last_error_code: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, Default)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AfkStatusPayload {
     active: bool,
     started_at_ms: Option<i64>,
     interval_minutes: u64,
     key: String,
+    /// `key` ou `click`.
+    mode: String,
+    /// Ponto padrão do modo clique, em porcentagem.
+    click_x: f64,
+    click_y: f64,
     accounts: Vec<AfkAccountStatus>,
+}
+
+impl Default for AfkStatusPayload {
+    /// Sem sessão: o que a tela mostra antes de ligar.
+    fn default() -> Self {
+        afk_status_from_parts(None, 0, "", AfkMode::Key, AFK_DEFAULT_POINT, &HashMap::new())
+    }
 }
 
 /// Tempo que a janela fica em frente antes da tecla sair: sem essa folga o
@@ -277,6 +460,9 @@ const AFK_TICK_MS: i64 = 1_000;
 struct AfkConfig {
     interval_minutes: u64,
     key: String,
+    mode: AfkMode,
+    /// Ponto de quem não tem ponto próprio (modo clique).
+    default_point: AfkPoint,
 }
 
 #[cfg(target_os = "windows")]
@@ -390,6 +576,8 @@ fn afk_status_from_parts(
     started_at_ms: Option<i64>,
     interval_minutes: u64,
     key: &str,
+    mode: AfkMode,
+    default_point: AfkPoint,
     accounts: &HashMap<i64, AfkAccountRuntime>,
 ) -> AfkStatusPayload {
     let interval_ms = (interval_minutes as i64).saturating_mul(60_000);
@@ -411,6 +599,9 @@ fn afk_status_from_parts(
         started_at_ms,
         interval_minutes,
         key: key.to_string(),
+        mode: mode.as_str().to_string(),
+        click_x: default_point.x_pct,
+        click_y: default_point.y_pct,
         accounts: rows,
     }
 }
@@ -424,6 +615,8 @@ fn afk_status_from(session: &AfkSession) -> AfkStatusPayload {
         .unwrap_or_else(|_| AfkConfig {
             interval_minutes: 0,
             key: String::new(),
+            mode: AfkMode::Key,
+            default_point: AFK_DEFAULT_POINT,
         });
     let accounts = session
         .accounts
@@ -435,6 +628,8 @@ fn afk_status_from(session: &AfkSession) -> AfkStatusPayload {
         Some(session.started_at_ms),
         config.interval_minutes,
         &config.key,
+        config.mode,
+        config.default_point,
         &accounts,
     )
 }
@@ -472,7 +667,7 @@ fn emit_afk_cycle(app: &tauri::AppHandle, sent: u32) {
 /// sabe qual PID é de qual conta. Nada aqui fecha, mata ou minimiza janela.
 #[cfg(target_os = "windows")]
 fn run_afk_cycle_blocking(
-    key: &str,
+    action: &AfkCycleAction,
     targets: &[i64],
     stop_flag: &AtomicBool,
 ) -> Result<Vec<(i64, Option<AfkSendError>)>, String> {
@@ -485,8 +680,10 @@ fn run_afk_cycle_blocking(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    if afk_virtual_key(key).is_none() {
-        return Err(format!("Key not allowed in AFK mode: {}", key));
+    if let AfkCycleAction::Key(key) = action {
+        if afk_virtual_key(key).is_none() {
+            return Err(format!("Key not allowed in AFK mode: {}", key));
+        }
     }
 
     let previous_foreground = windows::get_foreground_hwnd();
@@ -528,14 +725,22 @@ fn run_afk_cycle_blocking(
                     hwnd as isize,
                 );
 
-                let result = if ready {
-                    windows::tap_afk_key(key, AFK_KEY_HOLD_MS)
-                        .err()
-                        .map(|_| AfkSendError::KeyRefused)
-                } else {
-                    // O Windows não deixou a janela vir para frente. Mandar a
-                    // tecla aqui a entregaria na janela do usuário.
+                let result = if !ready {
+                    // O Windows não deixou a janela vir para frente. Tecla ou
+                    // clique aqui cairiam na janela do usuário.
                     Some(AfkSendError::FocusDenied)
+                } else {
+                    match action {
+                        AfkCycleAction::Key(key) => windows::tap_afk_key(key, AFK_KEY_HOLD_MS)
+                            .err()
+                            .map(|_| AfkSendError::KeyRefused),
+                        AfkCycleAction::Click(points) => {
+                            let point = points.get(&user_id).copied().unwrap_or(AFK_DEFAULT_POINT);
+                            windows::click_afk_point(hwnd, point, AFK_KEY_HOLD_MS)
+                                .err()
+                                .map(|_| AfkSendError::ClickRefused)
+                        }
+                    }
                 };
 
                 if afk_should_reminimize(was_minimized, true) {
@@ -558,6 +763,32 @@ fn run_afk_cycle_blocking(
     Ok(outcome)
 }
 
+/// A ação do ciclo. O ponto próprio de cada conta é lido **agora**, dos campos
+/// dela: mudar o ponto de uma conta vale no ciclo seguinte, sem religar o modo.
+#[cfg(target_os = "windows")]
+fn afk_cycle_action(app: &tauri::AppHandle, config: &AfkConfig, targets: &[i64]) -> AfkCycleAction {
+    match config.mode {
+        AfkMode::Key => AfkCycleAction::Key(config.key.clone()),
+        AfkMode::Click => {
+            let overrides: HashMap<i64, AfkPoint> = app
+                .state::<AccountStore>()
+                .get_all()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|account| targets.contains(&account.user_id))
+                .filter_map(|account| {
+                    afk_point_from_fields(&account.fields).map(|point| (account.user_id, point))
+                })
+                .collect();
+            AfkCycleAction::Click(afk_points_for_targets(
+                targets,
+                config.default_point,
+                &overrides,
+            ))
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
     loop {
@@ -578,7 +809,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
         };
 
         if !targets.is_empty() {
-            let key = config.key.clone();
+            let action = afk_cycle_action(&app, &config, &targets);
             let stop = session.stop_flag.clone();
             let cycle_targets = targets.clone();
             // Marcado **antes** do ciclo: lido depois, o relógio de cada conta
@@ -588,7 +819,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             let result = {
                 let _guard = AFK_CYCLE_LOCK.lock().await;
                 tokio::task::spawn_blocking(move || {
-                    run_afk_cycle_blocking(&key, &cycle_targets, &stop)
+                    run_afk_cycle_blocking(&action, &cycle_targets, &stop)
                 })
                 .await
                 .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))
@@ -677,9 +908,13 @@ async fn start_afk_mode(
     user_ids: Vec<i64>,
     interval_minutes: i64,
     key: String,
+    mode: String,
+    click_x: f64,
+    click_y: f64,
 ) -> Result<AfkStatusPayload, String> {
     let user_ids = dedupe_preserving_order(user_ids);
-    validate_afk_start(&key, &user_ids)?;
+    let mode = AfkMode::parse(&mode);
+    validate_afk_start(mode, &key, &user_ids)?;
 
     stop_afk_session().await;
 
@@ -689,6 +924,8 @@ async fn start_afk_mode(
         AfkConfig {
             interval_minutes: clamp_afk_interval_minutes(interval_minutes),
             key,
+            mode,
+            default_point: AfkPoint::clamped(click_x, click_y),
         },
         &user_ids,
     );
@@ -752,11 +989,7 @@ async fn set_afk_accounts(
 /// envio manual seria seguido de outro logo depois.
 #[cfg(target_os = "windows")]
 #[tauri::command]
-async fn afk_trigger_now(
-    app: tauri::AppHandle,
-    user_ids: Vec<i64>,
-    key: String,
-) -> Result<u32, String> {
+async fn afk_trigger_now(app: tauri::AppHandle, user_ids: Vec<i64>) -> Result<u32, String> {
     let requested = dedupe_preserving_order(user_ids);
 
     // Envio manual só alcança conta que **está** no modo: fora dele, nem trazer
@@ -772,16 +1005,22 @@ async fn afk_trigger_now(
     if user_ids.is_empty() {
         return Err("None of those accounts is in AFK mode".into());
     }
-    validate_afk_start(&key, &user_ids)?;
+    // Tecla ou clique: o da sessão ligada, não um que a tela mande agora.
+    let config = session
+        .config
+        .lock()
+        .map(|c| c.clone())
+        .map_err(|_| "AFK mode is not running".to_string())?;
+    validate_afk_start(config.mode, &config.key, &user_ids)?;
 
-    let cycle_key = key.clone();
+    let action = afk_cycle_action(&app, &config, &user_ids);
     let cycle_targets = user_ids.clone();
     let outcome = {
         let _guard = AFK_CYCLE_LOCK.lock().await;
         // Sem stop_flag: este ciclo é o clique do usuário, não o agendador.
         let idle = AtomicBool::new(false);
         tokio::task::spawn_blocking(move || {
-            run_afk_cycle_blocking(&cycle_key, &cycle_targets, &idle)
+            run_afk_cycle_blocking(&action, &cycle_targets, &idle)
         })
         .await
         .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))?
@@ -810,7 +1049,7 @@ async fn afk_trigger_now(
 
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
-async fn afk_trigger_now(_user_ids: Vec<i64>, _key: String) -> Result<u32, String> {
+async fn afk_trigger_now(_user_ids: Vec<i64>) -> Result<u32, String> {
     Err("AFK mode is only available on Windows".into())
 }
 
@@ -820,6 +1059,9 @@ async fn start_afk_mode(
     _user_ids: Vec<i64>,
     _interval_minutes: i64,
     _key: String,
+    _mode: String,
+    _click_x: f64,
+    _click_y: f64,
 ) -> Result<AfkStatusPayload, String> {
     Err("AFK mode is only available on Windows".into())
 }
@@ -833,6 +1075,37 @@ async fn stop_afk_mode() -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 async fn set_afk_accounts(_user_ids: Vec<i64>) -> Result<AfkStatusPayload, String> {
+    Err("AFK mode is only available on Windows".into())
+}
+
+/// O Marcar: lê a posição do cursor **uma vez** (a contagem regressiva é da
+/// tela) e diz de que conta é a janela embaixo dele e onde, em porcentagem. Só
+/// vale cliente aberto por este app e que ainda é um Roblox — PID reaproveitado
+/// pelo Windows não conta. Não lê botão nem tecla.
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn afk_capture_point() -> Result<AfkCapturedPoint, String> {
+    use platform::windows;
+    let cursor = windows::cursor_position().ok_or("noCursor")?;
+    let hwnd = windows::root_window_at(cursor.0, cursor.1);
+    let alive: HashSet<u32> = windows::get_roblox_pids().into_iter().collect();
+    let tracked: Vec<(i64, u32)> = windows::tracker()
+        .get_all()
+        .into_iter()
+        .filter(|process| alive.contains(&process.pid))
+        .map(|process| (process.user_id, process.pid))
+        .collect();
+    afk_capture_from_parts(
+        cursor,
+        windows::window_pid(hwnd),
+        &tracked,
+        windows::client_rect_on_screen(hwnd),
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn afk_capture_point() -> Result<AfkCapturedPoint, String> {
     Err("AFK mode is only available on Windows".into())
 }
 

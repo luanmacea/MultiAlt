@@ -62,6 +62,26 @@ pub fn window_is_minimized(hwnd: HWND) -> bool {
     unsafe { IsIconic(hwnd) != 0 }
 }
 
+/// A janela de topo sob um ponto da tela — a janela do programa, não um
+/// controle filho dela. É o Marcar do AFK mode que pergunta.
+pub fn root_window_at(x: i32, y: i32) -> HWND {
+    let hwnd = unsafe { WindowFromPoint(POINT { x, y }) };
+    if hwnd.is_null() {
+        return hwnd;
+    }
+    unsafe { GetAncestor(hwnd, GA_ROOT) }
+}
+
+/// O PID dono da janela, ou `None` para janela nula.
+pub fn window_pid(hwnd: HWND) -> Option<u32> {
+    if hwnd.is_null() {
+        return None;
+    }
+    let mut pid: u32 = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, &mut pid) };
+    (pid != 0).then_some(pid)
+}
+
 /// Para que a janela vem para frente — é isso que decide se o estado dela
 /// (minimizada, normal, maximizada) pode mudar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
