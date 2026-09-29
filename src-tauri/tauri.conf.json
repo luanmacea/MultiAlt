@@ -42,6 +42,9 @@
     "windows": {
       "webviewInstallMode": {
         "type": "embedBootstrapper"
+      },
+      "wix": {
+        "template": "wix-peruser.wxs"
       }
     }
   },

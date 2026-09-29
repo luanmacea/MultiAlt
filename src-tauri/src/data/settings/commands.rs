@@ -65,7 +65,7 @@ fn import_theme_font_asset_in(
         return Err("Font file is empty".to_string());
     }
 
-    let digest = sodiumoxide::crypto::hash::sha256::hash(&bytes);
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&bytes);
     let hash_hex = to_hex(digest.as_ref());
     let file_name = format!("{}.{}", hash_hex, ext);
 
@@ -190,7 +190,7 @@ fn import_theme_font_bytes_in(
         ));
     }
 
-    let digest = sodiumoxide::crypto::hash::sha256::hash(&file_data);
+    let digest = <sha2::Sha256 as sha2::Digest>::digest(&file_data);
     let hash_hex = to_hex(digest.as_ref());
     let stored_name = format!("{}.{}", hash_hex, ext);
 

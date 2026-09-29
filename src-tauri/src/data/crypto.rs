@@ -1,8 +1,43 @@
 use std::sync::OnceLock;
 
-use sodiumoxide::crypto::hash::sha512;
-use sodiumoxide::crypto::pwhash::argon2i13;
-use sodiumoxide::crypto::secretbox;
+use argon2::{Algorithm, Argon2, Params, Version};
+use crypto_secretbox::aead::{Aead, KeyInit};
+use crypto_secretbox::XSalsa20Poly1305;
+use sha2::{Digest, Sha512};
+
+/// Chave de 32 bytes do secretbox (XSalsa20-Poly1305).
+pub type Key = [u8; 32];
+/// Salt de 16 bytes do Argon2i (mesmo tamanho do libsodium).
+pub type Salt = [u8; 16];
+/// Nonce de 24 bytes do secretbox.
+pub type Nonce = [u8; 24];
+
+/// Preenche `buf` com bytes aleatorios do SO. Falta de CSPRNG e irrecuperavel
+/// para criptografia, entao aborta em vez de seguir com bytes fracos.
+fn random_fill(buf: &mut [u8]) {
+    getrandom::fill(buf).expect("OS RNG unavailable");
+}
+
+/// Salt novo de 16 bytes.
+pub fn gen_salt() -> Salt {
+    let mut s = [0u8; 16];
+    random_fill(&mut s);
+    s
+}
+
+/// Nonce novo de 24 bytes.
+pub fn gen_nonce() -> Nonce {
+    let mut n = [0u8; 24];
+    random_fill(&mut n);
+    n
+}
+
+/// Bytes aleatorios do SO (a chave mestra do aparelho usa isto).
+pub fn random_bytes(len: usize) -> Vec<u8> {
+    let mut v = vec![0u8; len];
+    random_fill(&mut v);
+    v
+}
 
 pub const RAM_HEADER: &[u8] = b"Roblox Account Manager created by ic3w0lf22 @ github.com .......";
 const TRANSITION_RAM_HEADER: &[u8] =
@@ -30,24 +65,46 @@ impl std::fmt::Display for CryptoError {
 impl std::error::Error for CryptoError {}
 
 pub fn hash_password(password: &str) -> Vec<u8> {
-    let digest = sha512::hash(password.as_bytes());
-    digest.as_ref().to_vec()
+    Sha512::digest(password.as_bytes()).to_vec()
 }
 
-pub fn derive_key(password_hash: &[u8], salt: &[u8]) -> Result<secretbox::Key, CryptoError> {
-    let salt = argon2i13::Salt::from_slice(salt).ok_or(CryptoError::InvalidData)?;
+/// Deriva a chave de 32 bytes com Argon2i, **exatamente** como o libsodium
+/// (`crypto_pwhash` argon2i13, OPSLIMIT/MEMLIMIT_MODERATE): Argon2i, versao
+/// 0x13, t_cost=6, m_cost=131072 KiB (128 MiB), paralelismo 1, saida de 32
+/// bytes. Os numeros sairam das constantes do proprio libsodium-sys; mudar
+/// qualquer um torna os arquivos ja gravados ilegiveis. Travado pelo
+/// `decrypts_a_libsodium_fixture`.
+pub fn derive_key(password_hash: &[u8], salt: &[u8]) -> Result<Key, CryptoError> {
+    if salt.len() != 16 {
+        return Err(CryptoError::InvalidData);
+    }
+    let params = Params::new(131072, 6, 1, Some(32)).map_err(|_| CryptoError::InvalidData)?;
+    let argon = Argon2::new(Algorithm::Argon2i, Version::V0x13, params);
+    let mut key: Key = [0u8; 32];
+    argon
+        .hash_password_into(password_hash, salt, &mut key)
+        .map_err(|_| CryptoError::InvalidPassword)?;
+    Ok(key)
+}
 
-    let mut key_bytes = [0u8; secretbox::KEYBYTES];
-    argon2i13::derive_key(
-        &mut key_bytes,
-        password_hash,
-        &salt,
-        argon2i13::OPSLIMIT_MODERATE,
-        argon2i13::MEMLIMIT_MODERATE,
-    )
-    .map_err(|_| CryptoError::InvalidPassword)?;
+/// Sela como o `crypto_secretbox` do libsodium: XSalsa20-Poly1305, com o MAC de
+/// 16 bytes **na frente** do texto cifrado (o `crypto_secretbox` do RustCrypto
+/// ja produz esse layout). Nao falha: a chave tem o tamanho certo por tipo.
+pub fn seal(plaintext: &[u8], nonce: &Nonce, key: &Key) -> Vec<u8> {
+    let cipher = XSalsa20Poly1305::new_from_slice(key).expect("32-byte key");
+    let n = crypto_secretbox::Nonce::from_slice(nonce);
+    cipher
+        .encrypt(n, plaintext)
+        .expect("secretbox encryption never fails")
+}
 
-    secretbox::Key::from_slice(&key_bytes).ok_or(CryptoError::InvalidData)
+/// Abre o que `seal` (ou o libsodium) produziu.
+pub fn open(ciphertext: &[u8], nonce: &Nonce, key: &Key) -> Result<Vec<u8>, CryptoError> {
+    let cipher = XSalsa20Poly1305::new_from_slice(key).map_err(|_| CryptoError::InvalidData)?;
+    let n = crypto_secretbox::Nonce::from_slice(nonce);
+    cipher
+        .decrypt(n, ciphertext)
+        .map_err(|_| CryptoError::DecryptionFailed)
 }
 
 // ---------------------------------------------------------------------------
@@ -346,9 +403,9 @@ pub fn decrypt(encrypted: &[u8], password_hash: &[u8]) -> Result<Vec<u8>, Crypto
 
     let key = derive_key(password_hash, salt)?;
 
-    let nonce = secretbox::Nonce::from_slice(nonce_bytes).ok_or(CryptoError::InvalidData)?;
-
-    secretbox::open(ciphertext, &nonce, &key).map_err(|_| CryptoError::DecryptionFailed)
+    let mut nonce: Nonce = [0u8; 24];
+    nonce.copy_from_slice(nonce_bytes);
+    open(ciphertext, &nonce, &key)
 }
 
 pub fn encrypt(content: &str, password_hash: &[u8]) -> Result<Vec<u8>, CryptoError> {
@@ -356,15 +413,15 @@ pub fn encrypt(content: &str, password_hash: &[u8]) -> Result<Vec<u8>, CryptoErr
         return Err(CryptoError::InvalidData);
     }
 
-    let salt = argon2i13::gen_salt();
-    let key = derive_key(password_hash, salt.as_ref())?;
-    let nonce = secretbox::gen_nonce();
-    let ciphertext = secretbox::seal(content.as_bytes(), &nonce, &key);
+    let salt = gen_salt();
+    let key = derive_key(password_hash, &salt)?;
+    let nonce = gen_nonce();
+    let ciphertext = seal(content.as_bytes(), &nonce, &key);
 
     let mut output = Vec::with_capacity(RAM_HEADER.len() + 16 + 24 + ciphertext.len());
     output.extend_from_slice(RAM_HEADER);
-    output.extend_from_slice(salt.as_ref());
-    output.extend_from_slice(nonce.as_ref());
+    output.extend_from_slice(&salt);
+    output.extend_from_slice(&nonce);
     output.extend_from_slice(&ciphertext);
 
     Ok(output)
@@ -421,6 +478,8 @@ pub fn try_decrypt_legacy_dpapi(_data: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+/// Mantido por compatibilidade com os chamadores (lib.rs). A criptografia em
+/// Rust puro nao tem inicializacao global; sempre pronta.
 pub fn init() -> bool {
-    sodiumoxide::init().is_ok()
+    true
 }
