@@ -217,6 +217,7 @@ const AFK_SEND_ERRORS = {
   focusDenied:
     "Windows did not bring this account's Roblox window to the front, so nothing was sent",
   keyRefused: "Windows refused the synthetic key",
+  clickRefused: "Windows refused the synthetic click",
 } as const;
 
 type AfkSendErrorCode = keyof typeof AFK_SEND_ERRORS;
@@ -234,6 +235,11 @@ interface AfkSessionFields {
   startedAtMs: number;
   intervalMinutes: number;
   key: string;
+  /** `AfkMode::as_str()`. */
+  mode: "key" | "click";
+  /** Ponto padrão do modo clique, em %. */
+  clickX: number;
+  clickY: number;
   accounts: Map<number, AfkRuntime>;
 }
 
@@ -251,6 +257,11 @@ interface AfkWorld {
    * aí o Windows deixa a janela vir para frente.
    */
   focusDeniedWhenScheduled: Set<number>;
+  /**
+   * O que o Marcar (`afk_capture_point`) acha embaixo do mouse: a janela de uma
+   * conta e o ponto em %, ou o código do erro — fixo por cenário.
+   */
+  underMouse: { userId: number; xPct: number; yPct: number } | string;
 }
 
 /** As quatro primeiras contas com cliente aberto; a janela da 2ª fica presa atrás. */
@@ -258,6 +269,9 @@ function afkWorld(): AfkWorld {
   return {
     withClient: new Set(accounts.slice(0, 4).map((a) => a.UserID)),
     focusDeniedWhenScheduled: new Set(accounts.slice(1, 2).map((a) => a.UserID)),
+    underMouse: accounts[0]
+      ? { userId: accounts[0].UserID, xPct: 37.5, yPct: 62.5 }
+      : "notAnAccountWindow",
   };
 }
 
@@ -309,6 +323,9 @@ function afkRunningSession(world: AfkWorld, sinceMinutes: number): AfkSessionFie
     startedAtMs,
     intervalMinutes,
     key: "Space",
+    mode: "key",
+    clickX: 50,
+    clickY: 50,
     accounts: new Map(entries.map((entry) => [entry.userId, entry])),
   };
 }
@@ -346,9 +363,18 @@ function afkHandler(
     ...new Set(((raw as unknown[] | undefined) ?? []).map(Number)),
   ];
 
-  /** `validate_afk_start`. */
-  function startRefusal(key: string, userIds: number[]): string | null {
-    if (!AFK_KEYS.some((allowed) => allowed.toLowerCase() === key.toLowerCase())) {
+  /** `clamp_afk_percent`. */
+  const clampPercent = (raw: unknown): number => {
+    const value = Number(raw);
+    return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 50;
+  };
+
+  /** `validate_afk_start`: o modo clique não usa tecla. */
+  function startRefusal(mode: "key" | "click", key: string, userIds: number[]): string | null {
+    if (
+      mode === "key" &&
+      !AFK_KEYS.some((allowed) => allowed.toLowerCase() === key.toLowerCase())
+    ) {
       return "Choose one of the AFK mode keys before starting";
     }
     if (userIds.length === 0) return "Put at least one account in AFK mode before starting";
@@ -358,7 +384,16 @@ function afkHandler(
   /** `afk_status_from_parts`; sem sessão, o `AfkStatusPayload::default()`. */
   function status() {
     if (!session) {
-      return { active: false, startedAtMs: null, intervalMinutes: 0, key: "", accounts: [] };
+      return {
+        active: false,
+        startedAtMs: null,
+        intervalMinutes: 0,
+        key: "",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+        accounts: [],
+      };
     }
     const intervalMs = session.intervalMinutes * 60_000;
     return {
@@ -366,6 +401,9 @@ function afkHandler(
       startedAtMs: session.startedAtMs,
       intervalMinutes: session.intervalMinutes,
       key: session.key,
+      mode: session.mode,
+      clickX: session.clickX,
+      clickY: session.clickY,
       accounts: [...session.accounts.values()]
         .sort((a, b) => a.userId - b.userId)
         .map((entry) => ({
@@ -482,7 +520,9 @@ function afkHandler(
       case "start_afk_mode": {
         const userIds = dedupe(args.userIds);
         const key = String(args.key ?? "");
-        const refusal = startRefusal(key, userIds);
+        // `AfkMode::parse`: qualquer outra coisa é tecla.
+        const mode = String(args.mode ?? "").trim().toLowerCase() === "click" ? "click" : "key";
+        const refusal = startRefusal(mode, key, userIds);
         if (refusal) return Promise.reject(refusal);
         return stopSession().then(() => {
           const now = Date.now();
@@ -491,6 +531,9 @@ function afkHandler(
             // `clamp_afk_interval_minutes`
             intervalMinutes: Math.min(120, Math.max(1, Math.trunc(Number(args.intervalMinutes) || 0))),
             key,
+            mode,
+            clickX: clampPercent(args.clickX),
+            clickY: clampPercent(args.clickY),
             // Cada conta entra com o relógio marcando agora: o prazo do primeiro
             // envio já vai no status do start.
             accounts: new Map(userIds.map((userId) => [userId, afkJoined(userId, now)])),
@@ -530,7 +573,8 @@ function afkHandler(
         // `afk_manual_targets`: só quem está no modo, na ordem pedida.
         const targets = dedupe(args.userIds).filter((userId) => current.accounts.has(userId));
         if (targets.length === 0) return Promise.reject("None of those accounts is in AFK mode");
-        const refusal = startRefusal(String(args.key ?? ""), targets);
+        // Tecla ou clique é o da sessão ligada.
+        const refusal = startRefusal(current.mode, current.key, targets);
         if (refusal) return Promise.reject(refusal);
         return runCycle(targets, false).then((outcome) => {
           apply(current, outcome, Date.now());
@@ -540,6 +584,11 @@ function afkHandler(
           return sent;
         });
       }
+      // `afk_capture_point`: o que o mundo diz que está embaixo do mouse.
+      case "afk_capture_point":
+        return typeof world.underMouse === "string"
+          ? Promise.reject(world.underMouse)
+          : { ...world.underMouse };
       // O ouvinte do `afk-cycle` relê `Afk.BeepOnCycle` na hora de bipar.
       case "get_setting": {
         const { section, key } = args as { section?: string; key?: string };
@@ -997,10 +1046,17 @@ const SCENARIOS: Record<string, () => void> = {
    * contas têm cliente aberto por este app. No ciclo automático o Windows mantém
    * a janela da 2ª atrás e ela volta com `focusDenied`; o "Enviar a tecla agora",
    * que vem de um clique no app, passa para todas. Para ver um ciclo automático
-   * sem esperar 10 min, ligue com 1 min.
+   * sem esperar 10 min, ligue com 1 min. O Marcar do modo clique acha a janela
+   * da 1ª conta, no ponto 37,5% × 62,5%.
    */
   "afk-mode"() {
-    settings.Afk = { IntervalMinutes: "10", BeepOnCycle: "false" };
+    settings.Afk = {
+      IntervalMinutes: "10",
+      BeepOnCycle: "false",
+      Mode: "key",
+      ClickX: "50",
+      ClickY: "50",
+    };
     setInvokeHandler(afkHandler(baseHandler, afkWorld(), null));
   },
 
@@ -1010,7 +1066,14 @@ const SCENARIOS: Record<string, () => void> = {
    * `focusDenied` e zero envios; uma conta cujo cliente fechou, com `noWindow`.
    */
   "afk-mode-running"() {
-    settings.Afk = { IntervalMinutes: "10", Key: "Space", BeepOnCycle: "false" };
+    settings.Afk = {
+      IntervalMinutes: "10",
+      Key: "Space",
+      BeepOnCycle: "false",
+      Mode: "key",
+      ClickX: "50",
+      ClickY: "50",
+    };
     const since = Number(params.get("afkSince") ?? 65);
     const world = afkWorld();
     setInvokeHandler(

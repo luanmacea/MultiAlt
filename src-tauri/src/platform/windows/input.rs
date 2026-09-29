@@ -7,17 +7,22 @@
 // trazer a janela do Roblox para frente, **confirmar que ela chegou lá** e
 // devolver o foco depois (o ciclo mora em `commands/afk.rs`).
 //
-// Este módulo só **envia**, e envia só tecla da lista fechada: `send_key` é
-// privado de propósito, e a única porta é `tap_afk_key`, que recebe **nome** de
-// tecla e o resolve pela lista. Assim não existe chamador com virtual key cru.
-// Ler o teclado do usuário é proibido aqui, e a trava é o
-// `afk_input_safety_tests` (em `commands/afk.rs`), que varre este arquivo.
+// Este módulo só **envia**, e por duas portas estreitas:
+// - `tap_afk_key` recebe **nome** de tecla e o resolve pela lista fechada
+//   (`send_key` é privado): não existe chamador com virtual key cru;
+// - `click_afk_point` recebe janela + **porcentagem** e clica com o botão
+//   esquerdo dentro da área interna dela (`send_mouse_button` é privado): não
+//   existe chamador com coordenada de tela crua. O cursor volta para onde estava.
+// Ler teclado ou botão do usuário é proibido aqui; a posição do cursor é lida só
+// para devolvê-lo e para o Marcar. A trava é o `afk_input_safety_tests` (em
+// `commands/afk.rs`), que varre este arquivo e só aqui aceita injeção de mouse.
 
+use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP,
-    MAPVK_VK_TO_VSC,
+    MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
+    KEYEVENTF_KEYUP, MAPVK_VK_TO_VSC, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::IsWindow;
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetClientRect, GetCursorPos, IsWindow, SetCursorPos};
 
 /// Quantas vezes o "solta a tecla" é tentado. Tecla que fica logicamente
 /// pressionada no cliente faz o personagem **andar** — exatamente o que o AFK
@@ -101,13 +106,117 @@ pub fn tap_afk_key(key: &str, hold_ms: u64) -> Result<(), String> {
     Ok(())
 }
 
+/// Área interna (cliente) da janela, em coordenadas de tela. `None` para janela
+/// nula, fechada ou sem área.
+pub fn client_rect_on_screen(hwnd: HWND) -> Option<crate::AfkClientRect> {
+    if !window_exists(hwnd) {
+        return None;
+    }
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    if unsafe { GetClientRect(hwnd, &mut rect) } == 0 {
+        return None;
+    }
+    let mut origin = POINT { x: 0, y: 0 };
+    if unsafe { ClientToScreen(hwnd, &mut origin) } == 0 {
+        return None;
+    }
+    let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    Some(crate::AfkClientRect {
+        left: origin.x,
+        top: origin.y,
+        width,
+        height,
+    })
+}
+
+/// Posição do cursor. **Só a posição**: nunca botão, nunca tecla.
+pub fn cursor_position() -> Option<(i32, i32)> {
+    let mut point = POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut point) } == 0 {
+        None
+    } else {
+        Some((point.x, point.y))
+    }
+}
+
+/// Botão esquerdo no lugar em que o cursor está: `down = true` pressiona,
+/// `false` solta. Privado: a única porta é `click_afk_point`, que decide o lugar
+/// a partir da janela e da porcentagem.
+fn send_mouse_button(down: bool) -> bool {
+    let input = INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: 0,
+                dwFlags: if down {
+                    MOUSEEVENTF_LEFTDOWN
+                } else {
+                    MOUSEEVENTF_LEFTUP
+                },
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    unsafe { SendInput(1, &input, std::mem::size_of::<INPUT>() as i32) == 1 }
+}
+
+/// Um clique esquerdo no ponto relativo `point` da área interna da janela
+/// `hwnd`, que o chamador **já confirmou** estar em primeiro plano: move o
+/// cursor, pressiona, espera `hold_ms`, solta e devolve o cursor para onde
+/// estava — inclusive quando o clique falha.
+///
+/// O "solta" é tentado até três vezes: botão que fica pressionado vira arrastar
+/// dentro do jogo.
+pub fn click_afk_point(hwnd: HWND, point: crate::AfkPoint, hold_ms: u64) -> Result<(), String> {
+    let rect = client_rect_on_screen(hwnd).ok_or("The window has no game area")?;
+    let (x, y) = crate::afk_point_to_pixel(rect, point).ok_or("The window has no game area")?;
+    let back = cursor_position();
+
+    let result = (|| {
+        if unsafe { SetCursorPos(x, y) } == 0 {
+            return Err("Windows did not move the cursor".to_string());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(KEY_UP_RETRY_MS));
+        if !send_mouse_button(true) {
+            return Err("Windows refused the synthetic click".to_string());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(hold_ms));
+        for attempt in 0..KEY_UP_ATTEMPTS {
+            if send_mouse_button(false) {
+                return Ok(());
+            }
+            if attempt + 1 < KEY_UP_ATTEMPTS {
+                std::thread::sleep(std::time::Duration::from_millis(KEY_UP_RETRY_MS));
+            }
+        }
+        Err("Windows refused to release the click".to_string())
+    })();
+
+    if let Some((bx, by)) = back {
+        unsafe { SetCursorPos(bx, by) };
+    }
+    result
+}
+
 #[cfg(test)]
 mod win_input_tests {
     use super::*;
 
-    // Nada aqui envia entrada: `send_key`/`tap_afk_key` são o único caminho de
-    // envio e não são chamados em teste nenhum. `vk_and_scan` só traduz um
-    // código de tecla pelo layout ativo.
+    // Nada aqui envia entrada: `send_key`/`tap_afk_key` e `send_mouse_button`/
+    // `click_afk_point` só são chamados com janela nula, que é recusada antes de
+    // qualquer envio. `vk_and_scan` só traduz um código de tecla pelo layout
+    // ativo.
 
     #[test]
     fn a_listed_key_gets_a_virtual_key_and_a_scan_code() {
@@ -132,5 +241,16 @@ mod win_input_tests {
     #[test]
     fn a_null_window_never_counts_as_existing() {
         assert!(!window_exists(std::ptr::null_mut()));
+    }
+
+    #[test]
+    fn a_null_window_has_no_game_area() {
+        assert_eq!(client_rect_on_screen(std::ptr::null_mut()), None);
+    }
+
+    #[test]
+    fn a_null_window_is_never_clicked() {
+        // Recusado antes de mover o cursor: nada é enviado.
+        assert!(click_afk_point(std::ptr::null_mut(), crate::AFK_DEFAULT_POINT, 1).is_err());
     }
 }

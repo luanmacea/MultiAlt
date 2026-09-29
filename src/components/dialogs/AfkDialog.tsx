@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, Check, Send } from "lucide-react";
+import { X, Check, Send, Crosshair } from "lucide-react";
 import { useStore } from "../../store";
+import {
+  clampAfkPercent,
+  formatAfkPoint,
+  readAfkPoint,
+  readAfkSettingsPoint,
+  writeAfkPoint,
+  type AfkMode,
+  type AfkPoint,
+} from "../../afkClickPoint";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
@@ -52,6 +61,10 @@ export function formatAfkElapsed(startedAtMs: number | null, nowMs: number): str
  * 2. só oferecer tecla da lista fechada que o backend entrega (`afkKeys`) — sem
  *    campo livre e sem tecla padrão, porque ligar o modo não pode mexer no
  *    personagem com uma tecla que o usuário não escolheu.
+ *
+ * No modo **clique** não há tecla: cada conta leva um clique esquerdo num ponto
+ * relativo (%) da janela dela — o padrão, ou o próprio da conta. O Marcar dá
+ * 3 s para o usuário parar o mouse em cima do ponto e o backend lê a posição.
  */
 export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useTr();
@@ -68,6 +81,19 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const [busy, setBusy] = useState(false);
   const [sendingNow, setSendingNow] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [mode, setMode] = useState<AfkMode>("key");
+  const [defaultPoint, setDefaultPoint] = useState<AfkPoint>(() => readAfkSettingsPoint(undefined));
+  /** Marcar em andamento: de quem é o ponto e quantos segundos faltam. */
+  const [capture, setCapture] = useState<{ target: "default" | number; secondsLeft: number } | null>(
+    null
+  );
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Intervalo e tecla vêm do INI ao abrir; com sessão em andamento, o que vale
   // é o que a sessão está usando.
@@ -77,6 +103,8 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
     setIntervalMinutes(parseInt(afk.IntervalMinutes || "10", 10) || 10);
     setKey(afk.Key || "");
     setBeepOnCycle(afk.BeepOnCycle === "true");
+    setMode(afk.Mode === "click" ? "click" : "key");
+    setDefaultPoint(readAfkSettingsPoint(afk));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
@@ -84,6 +112,11 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
   // rascunho local, que o efeito de abertura relê do INI a qualquer momento.
   const effectiveKey = running ? status?.key ?? "" : key;
   const effectiveInterval = running ? status?.intervalMinutes ?? 0 : intervalMinutes;
+  const effectiveMode: AfkMode = running ? (status?.mode === "click" ? "click" : "key") : mode;
+  const effectivePoint: AfkPoint = running
+    ? { x: clampAfkPercent(status?.clickX ?? 50), y: clampAfkPercent(status?.clickY ?? 50) }
+    : defaultPoint;
+  const clickMode = effectiveMode === "click";
 
   // O tique não depende de `running`: o tempo decorrido tem de andar sempre que
   // existe sessão, inclusive no intervalo em que a tela ainda não recebeu o
@@ -123,7 +156,9 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
   const focusDenied = (status?.accounts ?? []).some((a) => a.lastErrorCode === "focusDenied");
   const keyAllowed = store.afkKeys.includes(effectiveKey);
-  const canStart = keyAllowed && inAfk.length > 0 && !busy;
+  /** O modo clique não usa tecla; o modo tecla não liga sem uma da lista. */
+  const sendReady = clickMode || keyAllowed;
+  const canStart = sendReady && inAfk.length > 0 && !busy;
   const statusByUserId = useMemo(
     () => new Map((status?.accounts ?? []).map((a) => [a.userId, a])),
     [status]
@@ -141,8 +176,76 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
         return t("{{name}}: has no Roblox client open right now.", { name });
       case "keyRefused":
         return t("{{name}}: Windows refused the key.", { name });
+      case "clickRefused":
+        return t("{{name}}: Windows refused the click.", { name });
       default:
         return `${name}: ${raw ?? ""}`.trim();
+    }
+  }
+
+  /** A frase de um Marcar que não deu certo, pelo código que o backend devolve. */
+  function captureErrorText(code: string): string {
+    switch (code) {
+      case "noCursor":
+        return t("Could not read where the mouse is");
+      case "noWindow":
+        return t("There is no window under the mouse");
+      case "notAnAccountWindow":
+        return t("That window is not a Roblox client this app opened");
+      case "outsideGameArea":
+        return t("Put the mouse inside the game area, not on the border or the title bar");
+      default:
+        return code;
+    }
+  }
+
+  function accountName(userId: number): string {
+    const account = store.accounts.find((it) => it.UserID === userId);
+    return account?.Alias || account?.Username || `${t("User ID")}: ${userId}`;
+  }
+
+  /**
+   * Marcar: 3 s para o usuário parar o mouse em cima do ponto numa janela de
+   * conta, e aí o backend lê a posição **uma vez**. O ponto vira o padrão ou o
+   * próprio da conta `target`. Qualquer janela de conta serve: o ponto é
+   * relativo, então cai no mesmo lugar nas outras.
+   */
+  async function startMark(target: "default" | number) {
+    if (capture) return;
+    for (let seconds = 3; seconds > 0; seconds--) {
+      if (!mountedRef.current) return;
+      setCapture({ target, secondsLeft: seconds });
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    }
+    if (!mountedRef.current) return;
+    setCapture(null);
+    try {
+      const got = await store.captureAfkPoint();
+      const point = { x: clampAfkPercent(got.xPct), y: clampAfkPercent(got.yPct) };
+      if (target === "default") {
+        setDefaultPoint(point);
+        persist("ClickX", String(point.x));
+        persist("ClickY", String(point.y));
+      } else {
+        const account = store.accounts.find((it) => it.UserID === target);
+        if (account) {
+          await store.updateAccount({ ...account, Fields: writeAfkPoint(account.Fields, point) });
+        }
+      }
+      store.addToast(t("Point marked on {{name}}'s window", { name: accountName(got.userId) }));
+    } catch (e) {
+      store.addToast(captureErrorText(String(e)), "error");
+    }
+  }
+
+  /** Tira o ponto próprio da conta: ela volta a usar o padrão no ciclo seguinte. */
+  async function clearOwnPoint(userId: number) {
+    const account = store.accounts.find((it) => it.UserID === userId);
+    if (!account) return;
+    try {
+      await store.updateAccount({ ...account, Fields: writeAfkPoint(account.Fields, null) });
+    } catch {
+      // O erro já virou toast no store.
     }
   }
 
@@ -183,6 +286,9 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
         userIds: inAfk,
         intervalMinutes: effectiveInterval,
         key: effectiveKey,
+        mode: effectiveMode,
+        clickX: effectivePoint.x,
+        clickY: effectivePoint.y,
       });
     } catch {
       // idem
@@ -194,10 +300,20 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
   async function handleSendNow() {
     // Sem sessão não há conta no modo, e envio manual não pode alcançar cliente
     // de conta fora dele.
-    if (!running || !keyAllowed || inAfk.length === 0) return;
+    if (!running || !sendReady || inAfk.length === 0) return;
     setSendingNow(true);
     try {
-      const sent = await store.afkTriggerNow(inAfk, effectiveKey);
+      const sent = await store.afkTriggerNow(inAfk);
+      if (clickMode) {
+        store.addToast(
+          sent === 1
+            ? t("Clicked on 1 account")
+            : sent > 1
+              ? t("Clicked on {{count}} accounts", { count: sent })
+              : t("No Roblox window received the click")
+        );
+        return;
+      }
       store.addToast(
         sent === 1
           ? t("Sent {{key}} to 1 account", { key: effectiveKey })
@@ -283,26 +399,78 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
               <span className="text-[12px] theme-muted">{t("min")}</span>
             </div>
             <div className="flex items-center gap-2">
-              {/* "Key" sozinho é a chave de campo da conta ("Chave" em pt), da
-                  tela de campos; aqui é tecla, e precisa de texto próprio. */}
-              <span className="text-[12px] theme-muted w-32 shrink-0">{t("Key to send")}</span>
+              <span className="text-[12px] theme-muted w-32 shrink-0">{t("What to send")}</span>
               <Select
-                value={effectiveKey}
-                options={store.afkKeys.map((k) => ({ value: k, label: k }))}
+                value={effectiveMode}
+                options={[
+                  { value: "key", label: "Key press" },
+                  { value: "click", label: "Mouse click" },
+                ]}
                 disabled={configDisabled}
-                ariaLabel="Key to send"
+                ariaLabel="What to send"
                 onChange={(v) => {
-                  setKey(v);
-                  persist("Key", v);
+                  const next: AfkMode = v === "click" ? "click" : "key";
+                  setMode(next);
+                  persist("Mode", next);
                 }}
                 className="flex-1"
               />
             </div>
-            {!keyAllowed && !running ? (
-              <div className="text-[11px] text-amber-300/90 leading-4">
-                {t("Choose one of these keys — AFK mode does not start without a key you picked")}
-              </div>
-            ) : null}
+            {clickMode ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] theme-muted w-32 shrink-0">{t("Click point")}</span>
+                  <span className="flex-1 text-[12px] font-mono text-[var(--panel-fg)]">
+                    {formatAfkPoint(effectivePoint)}
+                  </span>
+                  <button
+                    onClick={() => startMark("default")}
+                    disabled={configDisabled || capture !== null}
+                    aria-label={t("Mark the click point for all accounts")}
+                    className="sidebar-btn-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Crosshair size={13} strokeWidth={1.75} />
+                    {t("Mark")}
+                  </button>
+                </div>
+                {capture ? (
+                  <div className="text-[11px] text-sky-300 leading-4" role="status">
+                    {t("Put the mouse over the spot in a game window: {{seconds}}", {
+                      seconds: capture.secondsLeft,
+                    })}
+                  </div>
+                ) : null}
+                <div className="text-[11px] theme-muted leading-4">
+                  {t(
+                    "Mark gives you 3 seconds to rest the mouse on the spot inside the Roblox window of any account in the list. The point is a percentage of the window, so it lands in the same place in windows of any size. An account can have its own point below."
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  {/* "Key" sozinho é a chave de campo da conta ("Chave" em pt), da
+                      tela de campos; aqui é tecla, e precisa de texto próprio. */}
+                  <span className="text-[12px] theme-muted w-32 shrink-0">{t("Key to send")}</span>
+                  <Select
+                    value={effectiveKey}
+                    options={store.afkKeys.map((k) => ({ value: k, label: k }))}
+                    disabled={configDisabled}
+                    ariaLabel="Key to send"
+                    onChange={(v) => {
+                      setKey(v);
+                      persist("Key", v);
+                    }}
+                    className="flex-1"
+                  />
+                </div>
+                {!keyAllowed && !running ? (
+                  <div className="text-[11px] text-amber-300/90 leading-4">
+                    {t("Choose one of these keys — AFK mode does not start without a key you picked")}
+                  </div>
+                ) : null}
+              </>
+            )}
             <ToggleRow
               label="Beep when a cycle finishes"
               checked={beepOnCycle}
@@ -316,6 +484,9 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
                 "Each cycle takes the focus away from the window you are using: it brings the Roblox window of each account whose turn it is to the front, one after another, for about half a second each, and gives the focus back only after the last one — about 4 seconds with 10 accounts."
               )}{" "}
               {t("Meanwhile, what you type goes to the Roblox window, not to the program you were using.")}{" "}
+              {clickMode ? (
+                <>{t("In click mode the cursor also jumps to the point and comes back.")} </>
+              ) : null}
               {t(
                 "And when Windows keeps the window in the background — which is what it usually does while this app is not the one you are using — nothing is sent at all, and the account below says so."
               )}
@@ -335,48 +506,78 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
                 {candidates.map((account) => {
                   const picked = inAfk.includes(account.UserID);
                   const row = statusByUserId.get(account.UserID);
+                  const name = account.Alias || account.Username;
+                  const ownPoint = readAfkPoint(account.Fields);
                   return (
-                    <button
-                      key={account.UserID}
-                      onClick={() => toggleAccount(account.UserID)}
-                      disabled={busy}
-                      aria-pressed={picked}
-                      // O nome acessível é só o da conta: o relógio e o aviso
-                      // ao lado mudam a cada segundo e tornariam o botão
-                      // impossível de achar por nome.
-                      aria-label={account.Alias || account.Username}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-colors ${
-                        picked
-                          ? "border-emerald-500/30 bg-emerald-500/10"
-                          : "theme-border hover:bg-[var(--panel-soft)]"
-                      } disabled:opacity-60`}
-                    >
-                      <span
-                        className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center ${
-                          picked ? "border-emerald-400/60 text-emerald-300" : "theme-border"
-                        }`}
+                    <div key={account.UserID}>
+                      <button
+                        onClick={() => toggleAccount(account.UserID)}
+                        disabled={busy}
+                        aria-pressed={picked}
+                        // O nome acessível é só o da conta: o relógio e o aviso
+                        // ao lado mudam a cada segundo e tornariam o botão
+                        // impossível de achar por nome.
+                        aria-label={account.Alias || account.Username}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border text-left transition-colors ${
+                          picked
+                            ? "border-emerald-500/30 bg-emerald-500/10"
+                            : "theme-border hover:bg-[var(--panel-soft)]"
+                        } disabled:opacity-60`}
                       >
-                        {picked ? <Check size={11} strokeWidth={3} /> : null}
-                      </span>
-                      <span className="flex-1 truncate text-[12px] text-[var(--panel-fg)]">
-                        {account.Alias || account.Username}
-                      </span>
-                      {running && picked ? (
-                        <span className="text-[11px] font-mono theme-muted shrink-0">
-                          {formatCountdown(row?.nextSendAtMs ?? null, nowMs, effectiveInterval * 60_000)}
+                        <span
+                          className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center ${
+                            picked ? "border-emerald-400/60 text-emerald-300" : "theme-border"
+                          }`}
+                        >
+                          {picked ? <Check size={11} strokeWidth={3} /> : null}
                         </span>
-                      ) : null}
-                      {row?.lastErrorCode === "focusDenied" ? (
-                        <span className="text-[11px] text-amber-300/90 shrink-0">
-                          {t("not sent")}
+                        <span className="flex-1 truncate text-[12px] text-[var(--panel-fg)]">
+                          {account.Alias || account.Username}
                         </span>
+                        {running && picked ? (
+                          <span className="text-[11px] font-mono theme-muted shrink-0">
+                            {formatCountdown(row?.nextSendAtMs ?? null, nowMs, effectiveInterval * 60_000)}
+                          </span>
+                        ) : null}
+                        {row?.lastErrorCode === "focusDenied" ? (
+                          <span className="text-[11px] text-amber-300/90 shrink-0">
+                            {t("not sent")}
+                          </span>
+                        ) : null}
+                        {!store.launchedByProgram.has(account.UserID) ? (
+                          <span className="text-[11px] text-amber-300/90 shrink-0">
+                            {t("no client")}
+                          </span>
+                        ) : null}
+                      </button>
+                      {clickMode && picked ? (
+                        // Fora do botão da linha: botão dentro de botão não existe.
+                        // O ponto próprio é lido a cada ciclo, então muda com a
+                        // sessão ligada.
+                        <div className="flex items-center gap-2 pl-8 pr-2 py-1 text-[11px] theme-muted">
+                          <span className="flex-1 font-mono">
+                            {ownPoint ? formatAfkPoint(ownPoint) : t("Default point")}
+                          </span>
+                          <button
+                            onClick={() => startMark(account.UserID)}
+                            disabled={capture !== null}
+                            aria-label={t("Mark the click point for {{name}}", { name })}
+                            className="px-1.5 py-0.5 rounded-md border theme-border hover:bg-[var(--panel-soft)] disabled:opacity-50"
+                          >
+                            {t("Mark")}
+                          </button>
+                          {ownPoint ? (
+                            <button
+                              onClick={() => clearOwnPoint(account.UserID)}
+                              aria-label={t("Use the default point for {{name}}", { name })}
+                              className="px-1.5 py-0.5 rounded-md border theme-border hover:bg-[var(--panel-soft)]"
+                            >
+                              {t("Use default")}
+                            </button>
+                          ) : null}
+                        </div>
                       ) : null}
-                      {!store.launchedByProgram.has(account.UserID) ? (
-                        <span className="text-[11px] text-amber-300/90 shrink-0">
-                          {t("no client")}
-                        </span>
-                      ) : null}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -411,9 +612,13 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
                 {t(
                   "Windows only lets an app change which window is in front in some situations, so the automatic send can be skipped for a while."
                 )}{" "}
-                {t(
-                  "\"Send the key now\" works because you just clicked this window, and the manager being the window you are using makes the next cycle go through."
-                )}
+                {clickMode
+                  ? t(
+                      "\"Click now\" works because you just clicked this window, and the manager being the window you are using makes the next cycle go through."
+                    )
+                  : t(
+                      "\"Send the key now\" works because you just clicked this window, and the manager being the window you are using makes the next cycle go through."
+                    )}
               </div>
             ) : null}
           </section>
@@ -438,11 +643,11 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
             )}
             <button
               onClick={handleSendNow}
-              disabled={sendingNow || !running || !keyAllowed || inAfk.length === 0}
+              disabled={sendingNow || !running || !sendReady || inAfk.length === 0}
               className="sidebar-btn-sm w-full mt-1.5 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send size={13} strokeWidth={1.75} />
-              {sendingNow ? t("Sending...") : t("Send the key now")}
+              {sendingNow ? t("Sending...") : clickMode ? t("Click now") : t("Send the key now")}
             </button>
             {running ? (
               <div className="mt-2 text-[11px] theme-muted leading-4">

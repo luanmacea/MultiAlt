@@ -61,10 +61,177 @@ fn clamp_afk_interval_minutes(minutes: i64) -> u64 {
     minutes.clamp(1, 120) as u64
 }
 
-/// Por que um start não pode acontecer. Sem tecla escolhida o modo **não liga**:
-/// inventar uma tecla padrão seria mexer no personagem sem o usuário pedir.
-fn validate_afk_start(key: &str, user_ids: &[i64]) -> Result<(), String> {
-    if afk_virtual_key(key).is_none() {
+/// O que o AFK mode manda para cada conta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfkMode {
+    /// Toca uma tecla da lista fechada.
+    Key,
+    /// Clique esquerdo num ponto relativo da janela da conta. Existe para quem
+    /// quer o personagem **parado**: toda tecla da lista mexe nele.
+    Click,
+}
+
+impl AfkMode {
+    /// Qualquer valor desconhecido vira `Key`: é o modo que já existia.
+    fn parse(raw: &str) -> AfkMode {
+        if raw.trim().eq_ignore_ascii_case("click") {
+            AfkMode::Click
+        } else {
+            AfkMode::Key
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            AfkMode::Key => "key",
+            AfkMode::Click => "click",
+        }
+    }
+}
+
+/// Ponto do clique em porcentagem da área interna da janela (0–100 nos dois
+/// eixos). Relativo de propósito: cai no mesmo lugar com a janela pequena,
+/// grande ou maximizada, e nenhuma janela precisa ser redimensionada.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AfkPoint {
+    x_pct: f64,
+    y_pct: f64,
+}
+
+const AFK_DEFAULT_POINT: AfkPoint = AfkPoint {
+    x_pct: 50.0,
+    y_pct: 50.0,
+};
+
+/// Porcentagem travada em 0–100; valor que não é número vira o meio.
+fn clamp_afk_percent(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(0.0, 100.0)
+    } else {
+        50.0
+    }
+}
+
+impl AfkPoint {
+    fn clamped(x: f64, y: f64) -> Self {
+        Self {
+            x_pct: clamp_afk_percent(x),
+            y_pct: clamp_afk_percent(y),
+        }
+    }
+}
+
+/// Área interna (cliente) de uma janela, em coordenadas de tela.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AfkClientRect {
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+}
+
+/// Pixel de tela do ponto, **sempre dentro** da área interna: 0% é a primeira
+/// coluna/linha e 100% a última, nunca a borda de fora.
+fn afk_point_to_pixel(rect: AfkClientRect, point: AfkPoint) -> Option<(i32, i32)> {
+    if rect.width <= 0 || rect.height <= 0 {
+        return None;
+    }
+    let p = AfkPoint::clamped(point.x_pct, point.y_pct);
+    let dx = ((p.x_pct / 100.0) * f64::from(rect.width - 1)).round() as i32;
+    let dy = ((p.y_pct / 100.0) * f64::from(rect.height - 1)).round() as i32;
+    Some((rect.left + dx, rect.top + dy))
+}
+
+/// O inverso, para o Marcar. `None` quando o cursor não está dentro da área
+/// interna (em cima da borda, da barra de título ou fora da janela).
+fn afk_pixel_to_point(rect: AfkClientRect, x: i32, y: i32) -> Option<AfkPoint> {
+    if rect.width <= 0 || rect.height <= 0 {
+        return None;
+    }
+    let (dx, dy) = (x - rect.left, y - rect.top);
+    if dx < 0 || dy < 0 || dx >= rect.width || dy >= rect.height {
+        return None;
+    }
+    let span_x = f64::from((rect.width - 1).max(1));
+    let span_y = f64::from((rect.height - 1).max(1));
+    // Duas casas: o bastante para a ida e volta cair no mesmo pixel até em 4K.
+    let round2 = |v: f64| (v * 100.0).round() / 100.0;
+    Some(AfkPoint::clamped(
+        round2(f64::from(dx) / span_x * 100.0),
+        round2(f64::from(dy) / span_y * 100.0),
+    ))
+}
+
+/// Ponto próprio da conta, dos campos `AfkClickX`/`AfkClickY`. Só vale com os
+/// dois números: um sem o outro cai no padrão.
+fn afk_point_from_fields(fields: &HashMap<String, String>) -> Option<AfkPoint> {
+    let x = fields.get("AfkClickX")?.trim().parse::<f64>().ok()?;
+    let y = fields.get("AfkClickY")?.trim().parse::<f64>().ok()?;
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some(AfkPoint::clamped(x, y))
+}
+
+/// O ponto de cada alvo: o próprio, se a conta tiver, senão o padrão.
+fn afk_points_for_targets(
+    targets: &[i64],
+    default: AfkPoint,
+    overrides: &HashMap<i64, AfkPoint>,
+) -> HashMap<i64, AfkPoint> {
+    targets
+        .iter()
+        .map(|uid| (*uid, overrides.get(uid).copied().unwrap_or(default)))
+        .collect()
+}
+
+/// Resultado do Marcar: de que conta é a janela e onde, em porcentagem.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AfkCapturedPoint {
+    user_id: i64,
+    x_pct: f64,
+    y_pct: f64,
+}
+
+/// O Marcar a partir das partes, para o teste não precisar de janela. `tracked`
+/// é `(conta, PID)` dos clientes abertos por este app. O erro é um **código**; a
+/// tela escreve a frase.
+fn afk_capture_from_parts(
+    cursor: (i32, i32),
+    window_pid: Option<u32>,
+    tracked: &[(i64, u32)],
+    rect: Option<AfkClientRect>,
+) -> Result<AfkCapturedPoint, String> {
+    let pid = window_pid.ok_or("noWindow")?;
+    let user_id = tracked
+        .iter()
+        .find(|(_, p)| *p == pid)
+        .map(|(uid, _)| *uid)
+        .ok_or("notAnAccountWindow")?;
+    let rect = rect.ok_or("outsideGameArea")?;
+    let point = afk_pixel_to_point(rect, cursor.0, cursor.1).ok_or("outsideGameArea")?;
+    Ok(AfkCapturedPoint {
+        user_id,
+        x_pct: point.x_pct,
+        y_pct: point.y_pct,
+    })
+}
+
+/// O que o ciclo faz em cada conta. No clique o ponto já vem resolvido por
+/// conta (o próprio ou o padrão), então o corpo bloqueante não lê store nenhum.
+#[derive(Debug, Clone)]
+enum AfkCycleAction {
+    Key(String),
+    Click(HashMap<i64, AfkPoint>),
+}
+
+/// Por que um start não pode acontecer. No modo tecla, sem tecla escolhida o
+/// modo **não liga**: inventar uma tecla padrão seria mexer no personagem sem o
+/// usuário pedir. O modo clique não usa tecla.
+fn validate_afk_start(mode: AfkMode, key: &str, user_ids: &[i64]) -> Result<(), String> {
+    if mode == AfkMode::Key && afk_virtual_key(key).is_none() {
         return Err("Choose one of the AFK mode keys before starting".into());
     }
     if user_ids.is_empty() {
@@ -84,6 +251,8 @@ enum AfkSendError {
     FocusDenied,
     /// O `SendInput` foi recusado (ou o "solta a tecla" não passou).
     KeyRefused,
+    /// O clique foi recusado (ou o "solta o botão" não passou).
+    ClickRefused,
     /// Falha inesperada do ciclo.
     Internal(String),
 }
@@ -94,6 +263,7 @@ impl AfkSendError {
             AfkSendError::NoWindow => "noWindow",
             AfkSendError::FocusDenied => "focusDenied",
             AfkSendError::KeyRefused => "keyRefused",
+            AfkSendError::ClickRefused => "clickRefused",
             AfkSendError::Internal(_) => "internal",
         }
     }
@@ -106,6 +276,7 @@ impl AfkSendError {
                     .into()
             }
             AfkSendError::KeyRefused => "Windows refused the synthetic key".into(),
+            AfkSendError::ClickRefused => "Windows refused the synthetic click".into(),
             AfkSendError::Internal(message) => message.clone(),
         }
     }
@@ -236,19 +407,31 @@ struct AfkAccountStatus {
     next_send_at_ms: i64,
     sends: u64,
     last_error: Option<String>,
-    /// `noWindow`, `focusDenied`, `keyRefused` ou `internal` — a tela escolhe a
-    /// frase traduzida por aqui, em vez de casar texto em inglês.
+    /// `noWindow`, `focusDenied`, `keyRefused`, `clickRefused` ou `internal` — a
+    /// tela escolhe a frase traduzida por aqui, em vez de casar texto em inglês.
     last_error_code: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, Default)]
+#[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AfkStatusPayload {
     active: bool,
     started_at_ms: Option<i64>,
     interval_minutes: u64,
     key: String,
+    /// `key` ou `click`.
+    mode: String,
+    /// Ponto padrão do modo clique, em porcentagem.
+    click_x: f64,
+    click_y: f64,
     accounts: Vec<AfkAccountStatus>,
+}
+
+impl Default for AfkStatusPayload {
+    /// Sem sessão: o que a tela mostra antes de ligar.
+    fn default() -> Self {
+        afk_status_from_parts(None, 0, "", AfkMode::Key, AFK_DEFAULT_POINT, &HashMap::new())
+    }
 }
 
 /// Tempo que a janela fica em frente antes da tecla sair: sem essa folga o
@@ -277,6 +460,9 @@ const AFK_TICK_MS: i64 = 1_000;
 struct AfkConfig {
     interval_minutes: u64,
     key: String,
+    mode: AfkMode,
+    /// Ponto de quem não tem ponto próprio (modo clique).
+    default_point: AfkPoint,
 }
 
 #[cfg(target_os = "windows")]
@@ -390,6 +576,8 @@ fn afk_status_from_parts(
     started_at_ms: Option<i64>,
     interval_minutes: u64,
     key: &str,
+    mode: AfkMode,
+    default_point: AfkPoint,
     accounts: &HashMap<i64, AfkAccountRuntime>,
 ) -> AfkStatusPayload {
     let interval_ms = (interval_minutes as i64).saturating_mul(60_000);
@@ -411,6 +599,9 @@ fn afk_status_from_parts(
         started_at_ms,
         interval_minutes,
         key: key.to_string(),
+        mode: mode.as_str().to_string(),
+        click_x: default_point.x_pct,
+        click_y: default_point.y_pct,
         accounts: rows,
     }
 }
@@ -424,6 +615,8 @@ fn afk_status_from(session: &AfkSession) -> AfkStatusPayload {
         .unwrap_or_else(|_| AfkConfig {
             interval_minutes: 0,
             key: String::new(),
+            mode: AfkMode::Key,
+            default_point: AFK_DEFAULT_POINT,
         });
     let accounts = session
         .accounts
@@ -435,6 +628,8 @@ fn afk_status_from(session: &AfkSession) -> AfkStatusPayload {
         Some(session.started_at_ms),
         config.interval_minutes,
         &config.key,
+        config.mode,
+        config.default_point,
         &accounts,
     )
 }
@@ -472,7 +667,7 @@ fn emit_afk_cycle(app: &tauri::AppHandle, sent: u32) {
 /// sabe qual PID é de qual conta. Nada aqui fecha, mata ou minimiza janela.
 #[cfg(target_os = "windows")]
 fn run_afk_cycle_blocking(
-    key: &str,
+    action: &AfkCycleAction,
     targets: &[i64],
     stop_flag: &AtomicBool,
 ) -> Result<Vec<(i64, Option<AfkSendError>)>, String> {
@@ -485,8 +680,10 @@ fn run_afk_cycle_blocking(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    if afk_virtual_key(key).is_none() {
-        return Err(format!("Key not allowed in AFK mode: {}", key));
+    if let AfkCycleAction::Key(key) = action {
+        if afk_virtual_key(key).is_none() {
+            return Err(format!("Key not allowed in AFK mode: {}", key));
+        }
     }
 
     let previous_foreground = windows::get_foreground_hwnd();
@@ -528,14 +725,22 @@ fn run_afk_cycle_blocking(
                     hwnd as isize,
                 );
 
-                let result = if ready {
-                    windows::tap_afk_key(key, AFK_KEY_HOLD_MS)
-                        .err()
-                        .map(|_| AfkSendError::KeyRefused)
-                } else {
-                    // O Windows não deixou a janela vir para frente. Mandar a
-                    // tecla aqui a entregaria na janela do usuário.
+                let result = if !ready {
+                    // O Windows não deixou a janela vir para frente. Tecla ou
+                    // clique aqui cairiam na janela do usuário.
                     Some(AfkSendError::FocusDenied)
+                } else {
+                    match action {
+                        AfkCycleAction::Key(key) => windows::tap_afk_key(key, AFK_KEY_HOLD_MS)
+                            .err()
+                            .map(|_| AfkSendError::KeyRefused),
+                        AfkCycleAction::Click(points) => {
+                            let point = points.get(&user_id).copied().unwrap_or(AFK_DEFAULT_POINT);
+                            windows::click_afk_point(hwnd, point, AFK_KEY_HOLD_MS)
+                                .err()
+                                .map(|_| AfkSendError::ClickRefused)
+                        }
+                    }
                 };
 
                 if afk_should_reminimize(was_minimized, true) {
@@ -558,6 +763,32 @@ fn run_afk_cycle_blocking(
     Ok(outcome)
 }
 
+/// A ação do ciclo. O ponto próprio de cada conta é lido **agora**, dos campos
+/// dela: mudar o ponto de uma conta vale no ciclo seguinte, sem religar o modo.
+#[cfg(target_os = "windows")]
+fn afk_cycle_action(app: &tauri::AppHandle, config: &AfkConfig, targets: &[i64]) -> AfkCycleAction {
+    match config.mode {
+        AfkMode::Key => AfkCycleAction::Key(config.key.clone()),
+        AfkMode::Click => {
+            let overrides: HashMap<i64, AfkPoint> = app
+                .state::<AccountStore>()
+                .get_all()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|account| targets.contains(&account.user_id))
+                .filter_map(|account| {
+                    afk_point_from_fields(&account.fields).map(|point| (account.user_id, point))
+                })
+                .collect();
+            AfkCycleAction::Click(afk_points_for_targets(
+                targets,
+                config.default_point,
+                &overrides,
+            ))
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
     loop {
@@ -578,7 +809,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
         };
 
         if !targets.is_empty() {
-            let key = config.key.clone();
+            let action = afk_cycle_action(&app, &config, &targets);
             let stop = session.stop_flag.clone();
             let cycle_targets = targets.clone();
             // Marcado **antes** do ciclo: lido depois, o relógio de cada conta
@@ -588,7 +819,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             let result = {
                 let _guard = AFK_CYCLE_LOCK.lock().await;
                 tokio::task::spawn_blocking(move || {
-                    run_afk_cycle_blocking(&key, &cycle_targets, &stop)
+                    run_afk_cycle_blocking(&action, &cycle_targets, &stop)
                 })
                 .await
                 .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))
@@ -677,9 +908,13 @@ async fn start_afk_mode(
     user_ids: Vec<i64>,
     interval_minutes: i64,
     key: String,
+    mode: String,
+    click_x: f64,
+    click_y: f64,
 ) -> Result<AfkStatusPayload, String> {
     let user_ids = dedupe_preserving_order(user_ids);
-    validate_afk_start(&key, &user_ids)?;
+    let mode = AfkMode::parse(&mode);
+    validate_afk_start(mode, &key, &user_ids)?;
 
     stop_afk_session().await;
 
@@ -689,6 +924,8 @@ async fn start_afk_mode(
         AfkConfig {
             interval_minutes: clamp_afk_interval_minutes(interval_minutes),
             key,
+            mode,
+            default_point: AfkPoint::clamped(click_x, click_y),
         },
         &user_ids,
     );
@@ -752,11 +989,7 @@ async fn set_afk_accounts(
 /// envio manual seria seguido de outro logo depois.
 #[cfg(target_os = "windows")]
 #[tauri::command]
-async fn afk_trigger_now(
-    app: tauri::AppHandle,
-    user_ids: Vec<i64>,
-    key: String,
-) -> Result<u32, String> {
+async fn afk_trigger_now(app: tauri::AppHandle, user_ids: Vec<i64>) -> Result<u32, String> {
     let requested = dedupe_preserving_order(user_ids);
 
     // Envio manual só alcança conta que **está** no modo: fora dele, nem trazer
@@ -772,16 +1005,22 @@ async fn afk_trigger_now(
     if user_ids.is_empty() {
         return Err("None of those accounts is in AFK mode".into());
     }
-    validate_afk_start(&key, &user_ids)?;
+    // Tecla ou clique: o da sessão ligada, não um que a tela mande agora.
+    let config = session
+        .config
+        .lock()
+        .map(|c| c.clone())
+        .map_err(|_| "AFK mode is not running".to_string())?;
+    validate_afk_start(config.mode, &config.key, &user_ids)?;
 
-    let cycle_key = key.clone();
+    let action = afk_cycle_action(&app, &config, &user_ids);
     let cycle_targets = user_ids.clone();
     let outcome = {
         let _guard = AFK_CYCLE_LOCK.lock().await;
         // Sem stop_flag: este ciclo é o clique do usuário, não o agendador.
         let idle = AtomicBool::new(false);
         tokio::task::spawn_blocking(move || {
-            run_afk_cycle_blocking(&cycle_key, &cycle_targets, &idle)
+            run_afk_cycle_blocking(&action, &cycle_targets, &idle)
         })
         .await
         .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))?
@@ -810,7 +1049,7 @@ async fn afk_trigger_now(
 
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
-async fn afk_trigger_now(_user_ids: Vec<i64>, _key: String) -> Result<u32, String> {
+async fn afk_trigger_now(_user_ids: Vec<i64>) -> Result<u32, String> {
     Err("AFK mode is only available on Windows".into())
 }
 
@@ -820,6 +1059,9 @@ async fn start_afk_mode(
     _user_ids: Vec<i64>,
     _interval_minutes: i64,
     _key: String,
+    _mode: String,
+    _click_x: f64,
+    _click_y: f64,
 ) -> Result<AfkStatusPayload, String> {
     Err("AFK mode is only available on Windows".into())
 }
@@ -833,6 +1075,37 @@ async fn stop_afk_mode() -> Result<(), String> {
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 async fn set_afk_accounts(_user_ids: Vec<i64>) -> Result<AfkStatusPayload, String> {
+    Err("AFK mode is only available on Windows".into())
+}
+
+/// O Marcar: lê a posição do cursor **uma vez** (a contagem regressiva é da
+/// tela) e diz de que conta é a janela embaixo dele e onde, em porcentagem. Só
+/// vale cliente aberto por este app e que ainda é um Roblox — PID reaproveitado
+/// pelo Windows não conta. Não lê botão nem tecla.
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn afk_capture_point() -> Result<AfkCapturedPoint, String> {
+    use platform::windows;
+    let cursor = windows::cursor_position().ok_or("noCursor")?;
+    let hwnd = windows::root_window_at(cursor.0, cursor.1);
+    let alive: HashSet<u32> = windows::get_roblox_pids().into_iter().collect();
+    let tracked: Vec<(i64, u32)> = windows::tracker()
+        .get_all()
+        .into_iter()
+        .filter(|process| alive.contains(&process.pid))
+        .map(|process| (process.user_id, process.pid))
+        .collect();
+    afk_capture_from_parts(
+        cursor,
+        windows::window_pid(hwnd),
+        &tracked,
+        windows::client_rect_on_screen(hwnd),
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn afk_capture_point() -> Result<AfkCapturedPoint, String> {
     Err("AFK mode is only available on Windows".into())
 }
 
@@ -909,26 +1182,26 @@ mod afk_command_tests {
     fn afk_mode_does_not_start_without_a_key() {
         // Não existe tecla padrão: uma tecla escolhida pelo app mexeria no
         // personagem sem o usuário ter pedido.
-        let err = validate_afk_start("", &[11]).expect_err("sem tecla não liga");
+        let err = validate_afk_start(AfkMode::Key, "", &[11]).expect_err("sem tecla não liga");
         assert!(err.to_lowercase().contains("key"), "{err}");
     }
 
     #[test]
     fn afk_mode_does_not_start_with_a_key_outside_the_list() {
-        assert!(validate_afk_start("Enter", &[11]).is_err());
-        assert!(validate_afk_start("F4", &[11]).is_err());
+        assert!(validate_afk_start(AfkMode::Key, "Enter", &[11]).is_err());
+        assert!(validate_afk_start(AfkMode::Key, "F4", &[11]).is_err());
     }
 
     #[test]
     fn afk_mode_does_not_start_without_an_account() {
-        let err = validate_afk_start("Space", &[]).expect_err("sem conta não liga");
+        let err = validate_afk_start(AfkMode::Key, "Space", &[]).expect_err("sem conta não liga");
         assert!(err.to_lowercase().contains("account"), "{err}");
     }
 
     #[test]
     fn afk_mode_starts_with_a_listed_key_and_one_account() {
-        assert!(validate_afk_start("Space", &[11]).is_ok());
-        assert!(validate_afk_start("e", &[11, 22]).is_ok());
+        assert!(validate_afk_start(AfkMode::Key, "Space", &[11]).is_ok());
+        assert!(validate_afk_start(AfkMode::Key, "e", &[11, 22]).is_ok());
     }
 
     // ── intervalo ──────────────────────────────────────────────────────────
@@ -1205,7 +1478,7 @@ mod afk_command_tests {
         let mut accounts = HashMap::new();
         accounts.insert(11, runtime);
 
-        let status = afk_status_from_parts(Some(1), 10, "Space", &accounts);
+        let status = afk_status_from_parts(Some(1), 10, "Space", AfkMode::Key, AFK_DEFAULT_POINT, &accounts);
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["accounts"][0]["lastErrorCode"], "focusDenied");
         assert!(json["accounts"][0]["lastError"].is_string());
@@ -1224,6 +1497,8 @@ mod afk_command_tests {
             AfkConfig {
                 interval_minutes: 10,
                 key: "Space".into(),
+                mode: AfkMode::Key,
+                default_point: AFK_DEFAULT_POINT,
             },
             &[11, 22],
         );
@@ -1257,6 +1532,9 @@ mod afk_command_tests {
             started_at_ms: Some(7),
             interval_minutes: 10,
             key: "Space".into(),
+            mode: "click".into(),
+            click_x: 25.0,
+            click_y: 75.0,
             accounts: vec![AfkAccountStatus {
                 user_id: 11,
                 last_send_at_ms: 1,
@@ -1274,6 +1552,198 @@ mod afk_command_tests {
         assert_eq!(json["accounts"][0]["userId"], 11);
         assert_eq!(json["accounts"][0]["nextSendAtMs"], 2);
         assert_eq!(json["accounts"][0]["sends"], 3);
+        assert_eq!(json["mode"], "click");
+        assert_eq!(json["clickX"], 25.0);
+        assert_eq!(json["clickY"], 75.0);
+    }
+
+    // ── modo clique: ponto relativo da janela ──────────────────────────────
+
+    const RECT: AfkClientRect = AfkClientRect {
+        left: 100,
+        top: 200,
+        width: 801,
+        height: 601,
+    };
+
+    #[test]
+    fn a_percentage_becomes_the_same_relative_pixel_in_any_window_size() {
+        assert_eq!(
+            afk_point_to_pixel(RECT, AfkPoint::clamped(50.0, 50.0)),
+            Some((500, 500))
+        );
+        let small = AfkClientRect {
+            left: 0,
+            top: 0,
+            width: 401,
+            height: 301,
+        };
+        assert_eq!(
+            afk_point_to_pixel(small, AfkPoint::clamped(50.0, 50.0)),
+            Some((200, 150))
+        );
+    }
+
+    #[test]
+    fn the_click_never_leaves_the_game_area() {
+        // 0% e 100% são a primeira e a última coluna/linha **de dentro**.
+        assert_eq!(
+            afk_point_to_pixel(RECT, AfkPoint::clamped(0.0, 0.0)),
+            Some((100, 200))
+        );
+        assert_eq!(
+            afk_point_to_pixel(RECT, AfkPoint::clamped(100.0, 100.0)),
+            Some((900, 800))
+        );
+        // Fora de 0–100 é travado, não extrapolado.
+        assert_eq!(
+            afk_point_to_pixel(
+                RECT,
+                AfkPoint {
+                    x_pct: 150.0,
+                    y_pct: -5.0
+                }
+            ),
+            Some((900, 200))
+        );
+        assert_eq!(clamp_afk_percent(f64::NAN), 50.0);
+        assert_eq!(clamp_afk_percent(f64::INFINITY), 50.0);
+        let empty = AfkClientRect {
+            left: 0,
+            top: 0,
+            width: 0,
+            height: 10,
+        };
+        assert_eq!(afk_point_to_pixel(empty, AFK_DEFAULT_POINT), None);
+    }
+
+    #[test]
+    fn marking_turns_the_cursor_into_a_percentage_of_the_window() {
+        assert_eq!(
+            afk_pixel_to_point(RECT, 500, 500),
+            Some(AfkPoint {
+                x_pct: 50.0,
+                y_pct: 50.0
+            })
+        );
+        assert_eq!(
+            afk_pixel_to_point(RECT, 900, 800),
+            Some(AfkPoint {
+                x_pct: 100.0,
+                y_pct: 100.0
+            })
+        );
+        // Na borda de fora (ou fora da janela) não há ponto.
+        assert_eq!(afk_pixel_to_point(RECT, 99, 500), None);
+        assert_eq!(afk_pixel_to_point(RECT, 901, 500), None);
+        assert_eq!(afk_pixel_to_point(RECT, 500, 801), None);
+        // Ida e volta cai no mesmo lugar.
+        let point = afk_pixel_to_point(RECT, 519, 631).unwrap();
+        assert_eq!(afk_point_to_pixel(RECT, point), Some((519, 631)));
+    }
+
+    fn fields(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn an_account_point_needs_both_numbers() {
+        assert_eq!(
+            afk_point_from_fields(&fields(&[("AfkClickX", "52.5"), ("AfkClickY", "71")])),
+            Some(AfkPoint {
+                x_pct: 52.5,
+                y_pct: 71.0
+            })
+        );
+        assert_eq!(afk_point_from_fields(&fields(&[("AfkClickX", "52.5")])), None);
+        assert_eq!(
+            afk_point_from_fields(&fields(&[("AfkClickX", "abc"), ("AfkClickY", "1")])),
+            None
+        );
+        assert_eq!(
+            afk_point_from_fields(&fields(&[("AfkClickX", "NaN"), ("AfkClickY", "1")])),
+            None
+        );
+        assert_eq!(
+            afk_point_from_fields(&fields(&[("AfkClickX", "150"), ("AfkClickY", "10")])),
+            Some(AfkPoint {
+                x_pct: 100.0,
+                y_pct: 10.0
+            })
+        );
+    }
+
+    #[test]
+    fn an_account_without_its_own_point_uses_the_default() {
+        let own = AfkPoint::clamped(10.0, 20.0);
+        let default = AfkPoint::clamped(50.0, 60.0);
+        let overrides: HashMap<i64, AfkPoint> = [(1, own)].into_iter().collect();
+        let points = afk_points_for_targets(&[1, 2], default, &overrides);
+        assert_eq!(points[&1], own);
+        assert_eq!(points[&2], default);
+    }
+
+    #[test]
+    fn the_click_mode_starts_without_a_key() {
+        assert!(validate_afk_start(AfkMode::Click, "", &[1]).is_ok());
+        assert!(validate_afk_start(AfkMode::Key, "", &[1]).is_err());
+        assert!(validate_afk_start(AfkMode::Click, "", &[]).is_err());
+    }
+
+    #[test]
+    fn an_unknown_mode_falls_back_to_the_key() {
+        assert_eq!(AfkMode::parse("click"), AfkMode::Click);
+        assert_eq!(AfkMode::parse(" CLICK "), AfkMode::Click);
+        assert_eq!(AfkMode::parse("key"), AfkMode::Key);
+        assert_eq!(AfkMode::parse("banana"), AfkMode::Key);
+        assert_eq!(AfkMode::Click.as_str(), "click");
+        assert_eq!(AfkMode::Key.as_str(), "key");
+    }
+
+    #[test]
+    fn a_refused_click_has_its_own_code() {
+        assert_eq!(AfkSendError::ClickRefused.code(), "clickRefused");
+        assert!(!AfkSendError::ClickRefused.message().is_empty());
+    }
+
+    #[test]
+    fn marking_on_an_account_window_returns_that_account_and_the_percentage() {
+        let got =
+            afk_capture_from_parts((500, 500), Some(42), &[(7, 41), (9, 42)], Some(RECT)).unwrap();
+        assert_eq!((got.user_id, got.x_pct, got.y_pct), (9, 50.0, 50.0));
+    }
+
+    #[test]
+    fn marking_refuses_what_is_not_an_account_window() {
+        assert_eq!(
+            afk_capture_from_parts((5, 5), None, &[], None).unwrap_err(),
+            "noWindow"
+        );
+        assert_eq!(
+            afk_capture_from_parts((500, 500), Some(99), &[(7, 41)], Some(RECT)).unwrap_err(),
+            "notAnAccountWindow"
+        );
+        assert_eq!(
+            afk_capture_from_parts((10, 10), Some(41), &[(7, 41)], Some(RECT)).unwrap_err(),
+            "outsideGameArea"
+        );
+        assert_eq!(
+            afk_capture_from_parts((500, 500), Some(41), &[(7, 41)], None).unwrap_err(),
+            "outsideGameArea"
+        );
+    }
+
+    #[test]
+    fn the_captured_point_reaches_the_frontend_in_camel_case() {
+        let got =
+            afk_capture_from_parts((500, 500), Some(41), &[(7, 41)], Some(RECT)).unwrap();
+        let json = serde_json::to_value(&got).unwrap();
+        assert_eq!(json["userId"], 7);
+        assert_eq!(json["xPct"], 50.0);
+        assert_eq!(json["yPct"], 50.0);
     }
 }
 
@@ -1301,20 +1771,25 @@ mod afk_input_safety_tests {
     //    para "consertar" o `SetForegroundWindow` recusado — e
     //    `GetLastInputInfo`, que é a "detecção de interação" que esta
     //    funcionalidade recusa porque responde pela sessão inteira do Windows);
-    // 5. reprova injeção fora da lista fechada: `INPUT_MOUSE`, `mouse_event` e
-    //    `KEYEVENTF_UNICODE` mandariam entrada sem citar API proibida nenhuma;
+    // 5. reprova injeção fora das portas: `mouse_event`, `keybd_event` e
+    //    `KEYEVENTF_UNICODE` mandariam entrada sem citar API proibida nenhuma. A
+    //    porta do clique (`INPUT_MOUSE`, `SetCursorPos`, `MOUSEEVENTF_*`) só pode
+    //    aparecer no módulo de entrada, atrás de `click_afk_point`;
     // 6. reprova **alcance indireto**: os arquivos do AFK mode não podem citar o
     //    nome de nenhum módulo do backend que leia entrada (hoje o
     //    `webview_recovery`, que importa `GetAsyncKeyState` legitimamente). O
     //    nome é o do **módulo**, não o do fragmento: um `windowing.rs` que
     //    lesse entrada faria do `windows` inteiro um leitor, e é `windows::` que
     //    o `commands/afk.rs` escreve;
-    // 7. confere que só o módulo de entrada chama `SendInput`/`send_key`, para o
-    //    caminho único até o `SendInput` continuar único amanhã.
+    // 7. confere que só o módulo de entrada chama `SendInput`/`send_key`/
+    //    `send_mouse_button`, para o caminho único até o `SendInput` continuar
+    //    único amanhã.
     use std::collections::{HashMap, HashSet};
     use std::path::{Path, PathBuf};
 
-    const FORBIDDEN: &[&str] = &[
+    /// Ler entrada: proibido em todo arquivo do AFK mode, sem exceção — inclusive
+    /// o módulo de entrada. Ler botão do mouse é `GetAsyncKeyState` também.
+    const READS_INPUT: &[&str] = &[
         // gancho global de teclado / de eventos de UI
         "SetWindowsHookEx",
         "SetWinEventHook",
@@ -1337,12 +1812,34 @@ mod afk_input_safety_tests {
         "GetGUIThreadInfo",
         // "detecção de interação": responde pela sessão inteira, não por janela
         "GetLastInputInfo",
-        // envio fora da lista fechada
-        "keybd_event",
-        "mouse_event",
-        "INPUT_MOUSE",
-        "KEYEVENTF_UNICODE",
     ];
+
+    /// Injetar sem passar pelas portas (`tap_afk_key`, `click_afk_point`):
+    /// proibido em todo arquivo do AFK mode.
+    const INJECTS_OUTSIDE_THE_DOORS: &[&str] = &["keybd_event", "mouse_event", "KEYEVENTF_UNICODE"];
+
+    /// A porta do clique: só o módulo de entrada pode citar. `GetCursorPos` fica
+    /// de fora de propósito — é posição do ponteiro, não botão nem tecla.
+    const CLICK_DOOR_ONLY: &[&str] = &["INPUT_MOUSE", "SetCursorPos", "MOUSEEVENTF_"];
+
+    const INPUT_MODULE: &str = "platform/windows/input.rs";
+
+    /// `(arquivo, API)` de toda citação da porta do clique fora do módulo de
+    /// entrada.
+    fn click_door_violations(files: &[(String, String)]) -> Vec<(String, &'static str)> {
+        let mut out = Vec::new();
+        for (path, body) in files {
+            if path == INPUT_MODULE {
+                continue;
+            }
+            for api in CLICK_DOOR_ONLY {
+                if body.contains(api) {
+                    out.push((path.clone(), *api));
+                }
+            }
+        }
+        out
+    }
 
     fn backend_src() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
@@ -1518,7 +2015,7 @@ mod afk_input_safety_tests {
         let mut out: Vec<String> = files
             .iter()
             .filter(|(path, _)| !afk_paths.contains(path))
-            .filter(|(_, body)| FORBIDDEN.iter().any(|api| body.contains(api)))
+            .filter(|(_, body)| READS_INPUT.iter().any(|api| body.contains(api)))
             .map(|(path, _)| module_name(roots.get(path).unwrap_or(path)))
             // A raiz do crate não se alcança por nome: `lib::` não existe.
             .filter(|name| !matches!(name.as_str(), "" | "lib" | "main"))
@@ -1584,7 +2081,7 @@ mod afk_input_safety_tests {
             files.iter().map(|(p, _)| p).collect::<Vec<_>>()
         );
         for (path, body) in &files {
-            for api in FORBIDDEN {
+            for api in READS_INPUT.iter().chain(INJECTS_OUTSIDE_THE_DOORS) {
                 assert!(
                     !body.contains(api),
                     "{path} usa {api}: o AFK mode só pode enviar tecla da lista fechada, nunca ler entrada. \
@@ -1715,7 +2212,11 @@ mod afk_input_safety_tests {
         let senders: Vec<String> = backend_files()
             .into_iter()
             .map(|(path, text)| (path, production_only(&text)))
-            .filter(|(_, body)| body.contains("SendInput(") || body.contains("send_key("))
+            .filter(|(_, body)| {
+                body.contains("SendInput(")
+                    || body.contains("send_key(")
+                    || body.contains("send_mouse_button(")
+            })
             .map(|(path, _)| path)
             .collect();
         assert_eq!(
@@ -1723,6 +2224,51 @@ mod afk_input_safety_tests {
             vec!["platform/windows/input.rs".to_string()],
             "o caminho até o SendInput tem de continuar sendo um só"
         );
+    }
+
+    /// A porta do clique (`INPUT_MOUSE`, `SetCursorPos`, `MOUSEEVENTF_*`) só existe
+    /// no módulo de entrada. Caso fabricado, para a checagem valer mesmo que a
+    /// árvore mude.
+    #[test]
+    fn the_click_door_is_only_open_in_the_input_module() {
+        let files = vec![
+            (
+                INPUT_MODULE.to_string(),
+                "INPUT_MOUSE SetCursorPos MOUSEEVENTF_LEFTDOWN".to_string(),
+            ),
+            ("commands/afk.rs".to_string(), "let x = INPUT_MOUSE;".to_string()),
+            (
+                "platform/windows/windowing.rs".to_string(),
+                "SetCursorPos(1, 2)".to_string(),
+            ),
+        ];
+        assert_eq!(
+            click_door_violations(&files),
+            vec![
+                ("commands/afk.rs".to_string(), "INPUT_MOUSE"),
+                ("platform/windows/windowing.rs".to_string(), "SetCursorPos"),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_afk_file_opens_the_click_door_outside_the_input_module() {
+        let violations = click_door_violations(&afk_files());
+        assert!(
+            violations.is_empty(),
+            "injeção de mouse fora de {INPUT_MODULE}: {violations:?} — o clique tem uma porta só, click_afk_point"
+        );
+    }
+
+    #[test]
+    fn reading_the_mouse_buttons_is_still_forbidden() {
+        // Ler botão é `GetAsyncKeyState(VK_LBUTTON)`: continua na lista de leitura,
+        // que vale para todo arquivo, inclusive o módulo de entrada.
+        assert!(READS_INPUT.contains(&"GetAsyncKeyState"));
+        assert!(INJECTS_OUTSIDE_THE_DOORS.contains(&"mouse_event"));
+        assert!(INJECTS_OUTSIDE_THE_DOORS.contains(&"keybd_event"));
+        assert!(!READS_INPUT.contains(&"INPUT_MOUSE"));
+        assert!(CLICK_DOOR_ONLY.contains(&"INPUT_MOUSE"));
     }
 
     #[test]

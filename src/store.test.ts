@@ -1979,7 +1979,14 @@ describe("AFK mode", () => {
     results.set("start_afk_mode", RUNNING);
 
     await act(async () => {
-      await result.current.startAfkMode({ userIds: [11], intervalMinutes: 10, key: "Space" });
+      await result.current.startAfkMode({
+        userIds: [11],
+        intervalMinutes: 10,
+        key: "Space",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+      });
     });
 
     expect(result.current.toasts.map((toast) => toast.message)).toContain(
@@ -1992,12 +1999,74 @@ describe("AFK mode", () => {
     results.set("start_afk_mode", RUNNING);
 
     await act(async () => {
-      await result.current.startAfkMode({ userIds: [11, 22], intervalMinutes: 10, key: "Space" });
+      await result.current.startAfkMode({
+        userIds: [11, 22],
+        intervalMinutes: 10,
+        key: "Space",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+      });
     });
 
     expect(result.current.toasts.map((toast) => toast.message)).toContain(
       "AFK mode started for 2 accounts"
     );
+  });
+
+  it("o start leva o modo e o ponto padrão do clique ao backend", async () => {
+    const { result } = await renderStore();
+    results.set("start_afk_mode", RUNNING);
+
+    await act(async () => {
+      await result.current.startAfkMode({
+        userIds: [11],
+        intervalMinutes: 5,
+        key: "",
+        mode: "click",
+        clickX: 37.5,
+        clickY: 62.5,
+      });
+    });
+
+    expect(lastArgs("start_afk_mode")).toEqual({
+      userIds: [11],
+      intervalMinutes: 5,
+      key: "",
+      mode: "click",
+      clickX: 37.5,
+      clickY: 62.5,
+    });
+  });
+
+  /** Tecla ou clique é o da sessão ligada: a tela não manda outro no envio manual. */
+  it("o envio manual só leva as contas", async () => {
+    const { result } = await renderStore();
+    results.set("afk_trigger_now", 1);
+
+    await act(async () => {
+      await result.current.afkTriggerNow([11, 22]);
+    });
+
+    expect(lastArgs("afk_trigger_now")).toEqual({ userIds: [11, 22] });
+  });
+
+  it("o Marcar devolve o ponto, e o erro chega à tela como código", async () => {
+    const { result } = await renderStore();
+    results.set("afk_capture_point", { userId: 11, xPct: 40, yPct: 60 });
+
+    let captured: unknown;
+    await act(async () => {
+      captured = await result.current.captureAfkPoint();
+    });
+    expect(captured).toEqual({ userId: 11, xPct: 40, yPct: 60 });
+
+    failures.set("afk_capture_point", "notAnAccountWindow");
+    await act(async () => {
+      await expect(result.current.captureAfkPoint()).rejects.toBe("notAnAccountWindow");
+    });
+    // O código cru não vira faixa de erro: a tela escreve a frase.
+    expect(result.current.error).not.toBe("notAnAccountWindow");
   });
 });
 

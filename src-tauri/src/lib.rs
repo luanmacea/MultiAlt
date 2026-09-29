@@ -499,6 +499,7 @@ pub fn run() {
             get_afk_mode_status,
             get_afk_keys,
             afk_trigger_now,
+            afk_capture_point,
             chromium::commands::open_login_browser,
             chromium::commands::extract_browser_cookie,
             chromium::commands::close_login_browser,
