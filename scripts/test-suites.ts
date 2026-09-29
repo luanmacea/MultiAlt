@@ -294,6 +294,11 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [],
     front: [".github/scripts/release-version.test.mjs", "src/appIdentity.test.ts"],
   },
+  scan: {
+    description: "bun run scan: veredito do Defender e do VirusTotal por arquivo",
+    rust: [],
+    front: ["scripts/scanVerdict.test.ts"],
+  },
 };
 
 export const SUITE_NAMES = Object.keys(SUITES).sort();

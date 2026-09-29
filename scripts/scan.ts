@@ -11,6 +11,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { defenderResult, scanSummary, virusTotalResult, type FileScan } from "./scanVerdict";
 
 const ROOT = join(import.meta.dir, "..");
 const RELEASE = join(ROOT, "src-tauri", "target", "release");
@@ -48,7 +49,7 @@ function run(cmd: string, cmdArgs: string[]): number {
   return r.status ?? 1;
 }
 
-let algumMarcou = false;
+const resultados: FileScan[] = [];
 
 for (const alvo of alvos) {
   if (!existsSync(alvo) || !statSync(alvo).isFile()) {
@@ -59,13 +60,15 @@ for (const alvo of alvos) {
 
   console.log("\n--- Windows Defender (local) ---");
   const def = run("powershell", ["-NoProfile", "-File", "scripts/defender-scan.ps1", `"${alvo}"`]);
-  if (def === 2) algumMarcou = true;
 
   console.log("\n--- VirusTotal ---");
   const vt = run("bun", ["scripts/virustotal.ts", `"${alvo}"`]);
-  if (vt !== 0) algumMarcou = true;
+  resultados.push({ file: alvo, defender: defenderResult(def), virustotal: virusTotalResult(vt) });
 }
 
+// Resumo por arquivo no fim: a saída de cada motor rola para fora da tela, e
+// "tudo limpo" só sai com os dois motores limpos em todo arquivo.
+const resumo = scanSummary(resultados);
 console.log(`\n${"=".repeat(70)}`);
-console.log(algumMarcou ? "RESULTADO: algum motor marcou — ver acima" : "RESULTADO: tudo limpo nos dois motores");
-process.exit(algumMarcou ? 2 : 0);
+console.log(resumo.lines.join("\n"));
+process.exit(resumo.exitCode);
