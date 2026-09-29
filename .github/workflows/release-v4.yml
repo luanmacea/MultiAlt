@@ -59,10 +59,9 @@ jobs:
       # ao bundle do Tauri no passo "Configure bundle targets". O guia "Which file
       # to download" do texto da release segue estes dois interruptores.
       PUBLISH_MSI: "true"
-      # Portatil: o executavel solto, sem instalar. Limpo (0/75) e sem admin,
-      # mas nao passa pelo updater. Desde que o MSI virou per-user (28/09/2026)
-      # ele deixou de ser o unico limpo-e-sem-admin; serve a quem nao quer
-      # instalar nada.
+      # Portatil: o executavel solto, sem instalar. Sem admin, mas nao passa
+      # pelo updater. Nao e o mais limpo: na v0.1.3 levou 1/75 (Wacatac, da
+      # Microsoft) contra 0/75 do MSI. Serve a quem nao quer instalar nada.
       PUBLISH_PORTABLE: "true"
 
     steps:

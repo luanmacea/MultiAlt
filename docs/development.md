@@ -158,7 +158,7 @@ Como funciona agora:
 
 **Numero da versao:** a serie e o major do `package.json` — hoje `0.x`, porque o app ainda esta antes da primeira versao completamente corrigida (as releases `v4.x` eram testes e carregavam o numero herdado do projeto original). O workflow **nao** commita o numero de volta: o `package.json` fica parado e cada release soma um patch a partir da tag mais alta da serie (`[bump:minor]` na mensagem do commit, ou o rotulo `bump:minor` no PR, soma um minor). Para escolher um numero — a 1.0.0, quando chegar a hora —, ponha-o no `package.json`, no `tauri.conf.json` e no `Cargo.toml`: se ele for maior que todas as tags da serie, a release sai exatamente com ele. Regra em [release-version.mjs](../.github/scripts/release-version.mjs), testada na suite `release` (`bun run t release`). ⚠️ O updater so troca por versao **maior**: quem tem uma `4.x` instalada nao recebe a `0.x` sozinho — instala a `0.x` por cima, uma vez.
 
-**Quais arquivos a release publica:** o instalador (`.exe`), o **MSI** e o **portatil** das duas variantes, mais as assinaturas. Sao dois interruptores no topo do job `release` ([release-v4.yml](../.github/workflows/release-v4.yml)): `PUBLISH_MSI` e `PUBLISH_PORTABLE`, ambos `"true"` desde 28/09/2026. O **portatil** e o `.exe` solto (sem instalar): limpo (0/75) e sem admin, mas nao passa pelo updater e nao cria atalho no Menu Iniciar. Ele deixou de ser o unico limpo-e-sem-admin quando o MSI virou **per-user** (28/09/2026, ver abaixo); serve a quem nao quer instalar nada. O `PUBLISH_MSI` tambem acrescenta o alvo `msi` ao bundle do Tauri no passo "Configure bundle targets", entao e um lugar so. O guia "Which file to download" do texto da release (passo "Finalize release notes") segue os mesmos dois interruptores: so cita o que foi publicado.
+**Quais arquivos a release publica:** o instalador (`.exe`), o **MSI** e o **portatil** das duas variantes, mais as assinaturas. Sao dois interruptores no topo do job `release` ([release-v4.yml](../.github/workflows/release-v4.yml)): `PUBLISH_MSI` e `PUBLISH_PORTABLE`, ambos `"true"` desde 28/09/2026. O **portatil** e o `.exe` solto (sem instalar): sem admin, mas nao passa pelo updater e nao cria atalho no Menu Iniciar. Serve a quem nao quer instalar nada. **Nao assuma que ele e o mais limpo:** na v0.1.3 o portatil publicado levou 1/75 (`Wacatac.B!ml`, Microsoft) enquanto o MSI saiu 0/75 — ver a tabela abaixo. O `PUBLISH_MSI` tambem acrescenta o alvo `msi` ao bundle do Tauri no passo "Configure bundle targets", entao e um lugar so. O guia "Which file to download" do texto da release (passo "Finalize release notes") segue os mesmos dois interruptores: so cita o que foi publicado.
 
 **Dependencias saem otimizadas mesmo em debug** (`[profile.dev.package."*"] opt-level = 3` no [Cargo.toml](../src-tauri/Cargo.toml)). Motivo medido em 28/09/2026: o Argon2 em Rust puro leva **5,4 s por derivacao sem otimizacao** contra **0,3 s com ela** — 17x. Como `cargo test` roda em debug, a suite Rust levava 18 dos 24 minutos do CI. Com a mudanca: **230 s -> 41 s** local, mais rapido ate do que era com o libsodium. O nosso codigo segue sem otimizacao (compila rapido, debug bom). O libsodium nao sofria disso por ser C pre-compilado; qualquer cripto em Rust puro sofre.
 
@@ -183,6 +183,19 @@ As quatro primeiras foram pegas por validacao (o `light.exe` recusa) — a quint
 ⚠️ **Troca de per-machine para per-user:** o Windows trata os dois como apps diferentes. Quem tem a versao antiga instalada precisa desinstala-la antes, senao fica com duas copias. O valor `InstallDir` em `HKCU\Software\<fabricante>\<produto>` sobrevive a desinstalacao e deve ser apagado junto.
 
 **O MSI e o download recomendado**, porque e o unico que junta as tres coisas: limpo, sem admin e com auto-update.
+
+**Medicao dos arquivos publicados na v0.1.3-beta** (os tres baixados da release e escaneados nos dois motores):
+
+| Arquivo | VirusTotal | Defender local |
+|---|---|---|
+| **MSI** (recomendado) | **0/75** | limpo |
+| setup NSIS | 2/75 (APEX + Sophos, os dois de ML generico) | limpo |
+| portatil | 1/75 (`Wacatac.B!ml`, Microsoft) | limpo |
+
+Duas licoes desta medicao, que contrariam o que se supunha antes:
+
+1. **O motor da Microsoft no VirusTotal e mais severo que o Defender local.** O portatil passou limpo no `MpCmdRun` da maquina e mesmo assim levou `Wacatac.B!ml` no VirusTotal. O que o usuario ve no dia a dia e o Defender local — mas o numero que ele ve no VirusTotal e outro. Reportar sempre os dois.
+2. **A mesma fonte com flags diferentes recebe veredito diferente.** O portatil publicado e a variante `--no-default-features`; o build local com as features completas deu 0/75. Binarios quase iguais, veredito diferente do mesmo modelo. Perseguir esses numeros e alvo movel: o que da para fazer e manter o **download recomendado** limpo e medir a cada release.
 
 **Historico do falso positivo (tudo medido, 27-28/09/2026):**
 
