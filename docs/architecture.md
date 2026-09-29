@@ -197,7 +197,7 @@ A maioria dos listeners de [store.tsx](../src/store.tsx) só é registrada depoi
 ### Backend — `run()` em [lib.rs](../src-tauri/src/lib.rs)
 
 0. **Windows:** `webview_recovery::prepare_environment()` — decide o safe mode de vídeo e monta `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` antes de o Tauri existir, porque o WebView2 lê essa variável na criação da janela ([webview-recovery.md](features/webview-recovery.md)).
-1. `crypto::init()` (inicializa sodiumoxide).
+1. `crypto::init()` (no-op; a criptografia em Rust puro nao tem init global).
 2. Cria `AccountStore` com `AccountData.json` e chama **`load()`**, que é a única porta: ele abre pela chave do aparelho (`AccountData.key`) e migra um arquivo em texto puro, deixando `AccountData.json.bak` antes de qualquer escrita. Só depois consulta `needs_password()` — `true` quando o arquivo está cifrado e nada em memória abre, e aí a UI mostra a tela de senha. Erros viram apenas `eprintln!` (falha de criptografia não pode impedir o app de subir; é na tela dele que o usuário lê o que houve), mas um `load()` que falha marca `load_failed` e bloqueia qualquer `save()` posterior (o arquivo original fica intacto). Ver [accounts.md](features/accounts.md#carregamento--desbloqueio).
 3. Cria `SettingsStore` (aplica defaults e já regrava o INI), `ThemeStore`, `ThemePresetStore`, `ScriptStore`, `VersionsCatalogStore`, `ImageCache`.
 4. Registra plugins: `single-instance` (segunda instância só mostra/foca a janela `main`), `window-state`, `autostart` (LaunchAgent no macOS), `process`, `updater`.

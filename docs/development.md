@@ -158,9 +158,52 @@ Como funciona agora:
 
 **Numero da versao:** a serie e o major do `package.json` — hoje `0.x`, porque o app ainda esta antes da primeira versao completamente corrigida (as releases `v4.x` eram testes e carregavam o numero herdado do projeto original). O workflow **nao** commita o numero de volta: o `package.json` fica parado e cada release soma um patch a partir da tag mais alta da serie (`[bump:minor]` na mensagem do commit, ou o rotulo `bump:minor` no PR, soma um minor). Para escolher um numero — a 1.0.0, quando chegar a hora —, ponha-o no `package.json`, no `tauri.conf.json` e no `Cargo.toml`: se ele for maior que todas as tags da serie, a release sai exatamente com ele. Regra em [release-version.mjs](../.github/scripts/release-version.mjs), testada na suite `release` (`bun run t release`). ⚠️ O updater so troca por versao **maior**: quem tem uma `4.x` instalada nao recebe a `0.x` sozinho — instala a `0.x` por cima, uma vez.
 
-**Quais arquivos a release publica:** o instalador (`.exe`) e o **MSI** das duas variantes, mais as assinaturas; o portatil fica desligado. Sao dois interruptores no topo do job `release` ([release-v4.yml](../.github/workflows/release-v4.yml)): `PUBLISH_MSI` (`"true"` desde 28/09/2026) e `PUBLISH_PORTABLE` (`"false"`). O `PUBLISH_MSI` tambem acrescenta o alvo `msi` ao bundle do Tauri no passo "Configure bundle targets", entao e um lugar so. O guia "Which file to download" do texto da release (passo "Finalize release notes") segue os mesmos dois interruptores: so cita o que foi publicado.
+**Quais arquivos a release publica:** o instalador (`.exe`), o **MSI** e o **portatil** das duas variantes, mais as assinaturas. Sao dois interruptores no topo do job `release` ([release-v4.yml](../.github/workflows/release-v4.yml)): `PUBLISH_MSI` e `PUBLISH_PORTABLE`, ambos `"true"` desde 28/09/2026. O **portatil** e o `.exe` solto (sem instalar): limpo (0/75) e sem admin, mas nao passa pelo updater e nao cria atalho no Menu Iniciar. Ele deixou de ser o unico limpo-e-sem-admin quando o MSI virou **per-user** (28/09/2026, ver abaixo); serve a quem nao quer instalar nada. O `PUBLISH_MSI` tambem acrescenta o alvo `msi` ao bundle do Tauri no passo "Configure bundle targets", entao e um lugar so. O guia "Which file to download" do texto da release (passo "Finalize release notes") segue os mesmos dois interruptores: so cita o que foi publicado.
 
-**O MSI e o download recomendado.** No VirusTotal o setup NSIS do 4.0.5 levou 3/71 (CrowdStrike, Sophos e SecureAge, todos modelos de aprendizado de maquina, nenhuma assinatura de virus) e o MSI saiu 0/61. Testes de 28/09/2026: embutir o bootstrapper do WebView2 no NSIS (`webviewInstallMode: embedBootstrapper`, sem baixar e executar nada na instalacao) baixou para 1/71 e esta **aplicado** no [tauri.conf.json](../src-tauri/tauri.conf.json) (`bundle.windows.webviewInstallMode`), valendo para os dois formatos; sem a compressao LZMA, 1/70 (outro antivirus, nao aplicado). O formato NSIS em si segue marcado. O MSI foi medido 0/61 ainda sem o bootstrapper embutido: conferir de novo com a primeira build que o leva. O `.exe` continua publicado porque as instalacoes feitas por ele se atualizam por ele. O que resolveria para os dois formatos e assinatura de codigo (Authenticode) — ha opcao gratuita para projetos open source (SignPath Foundation).
+**Dependencias saem otimizadas mesmo em debug** (`[profile.dev.package."*"] opt-level = 3` no [Cargo.toml](../src-tauri/Cargo.toml)). Motivo medido em 28/09/2026: o Argon2 em Rust puro leva **5,4 s por derivacao sem otimizacao** contra **0,3 s com ela** — 17x. Como `cargo test` roda em debug, a suite Rust levava 18 dos 24 minutos do CI. Com a mudanca: **230 s -> 41 s** local, mais rapido ate do que era com o libsodium. O nosso codigo segue sem otimizacao (compila rapido, debug bom). O libsodium nao sofria disso por ser C pre-compilado; qualquer cripto em Rust puro sofre.
+
+⚠️ O primeiro build depois desta mudanca (ou apos limpar o cache) e **mais lento**, porque compila todas as dependencias otimizadas. O `Swatinem/rust-cache` guarda isso e os seguintes ganham.
+
+**O MSI e per-user: sem admin, e com um template WiX proprio.** O MSI do Tauri e per-machine por padrao (instala em `Program Files`, pede elevacao ao instalar **e a cada atualizacao**). Desde 28/09/2026 o projeto usa um template proprio, [src-tauri/wix-peruser.wxs](../src-tauri/wix-peruser.wxs), apontado por `bundle.windows.wix.template` no [tauri.conf.json](../src-tauri/tauri.conf.json). Resultado medido: **0/75 no VirusTotal, limpo no Defender, sem prompt de admin e com auto-update funcionando** — as tres coisas que nenhum formato entregava junto.
+
+O template saiu do oficial do Tauri **2.10.0** (`crates/tauri-bundler/src/bundle/windows/msi/main.wxs`, tag `tauri-cli-v2.10.0`) com **cinco** mudancas, cada uma por um motivo concreto:
+
+| # | Mudanca | Por que |
+|---|---|---|
+| 1 | `InstallScope` `perMachine` → `perUser` | e o que tira a elevacao |
+| 2 | Diretorio `ProgramFiles` → `LocalAppDataFolder\Programs\<produto>` | per-user nao pode escrever em `Program Files` |
+| 3 | Componente do binario: `File KeyPath="no"` + `RegistryValue` HKCU `KeyPath="yes"` | **ICE38**: componente que instala no perfil do usuario precisa de ancora HKCU, nao arquivo |
+| 4 | `RemoveFolder` da `ProgramsFolder` no uninstall | **ICE64**: pasta no perfil precisa sair na desinstalacao |
+| 5 | Removida a busca `PrevInstallDir*` que reusava o diretorio de uma instalacao anterior | uma instalacao **per-machine** anterior deixa `C:\Program Files\...` em `HKCU`; o MSI per-user tentava escrever la e falhava com *"Error writing to file / Verify that you have access to that directory"*. Num instalador per-user o diretorio e fixo, nunca herdado |
+
+As quatro primeiras foram pegas por validacao (o `light.exe` recusa) — a quinta so apareceu **instalando de verdade** numa maquina que ja tinha a versao per-machine. Scan nenhum pegaria.
+
+⚠️ **Manutencao:** este template esta preso ao Tauri **2.10.0**. Quando o Tauri subir de versao, o template oficial pode mudar e o nosso fica para tras **em silencio** (o build continua passando). Ao atualizar o Tauri: baixar o `main.wxs` da tag nova, comparar com o nosso, reaplicar as cinco mudancas, e **testar a instalacao de verdade** — nao so o build.
+
+⚠️ **Troca de per-machine para per-user:** o Windows trata os dois como apps diferentes. Quem tem a versao antiga instalada precisa desinstala-la antes, senao fica com duas copias. O valor `InstallDir` em `HKCU\Software\<fabricante>\<produto>` sobrevive a desinstalacao e deve ser apagado junto.
+
+**O MSI e o download recomendado**, porque e o unico que junta as tres coisas: limpo, sem admin e com auto-update.
+
+**Historico do falso positivo (tudo medido, 27-28/09/2026):**
+
+| Arquivo | Antes | Depois |
+|---|---|---|
+| `.exe` do app | 1/75 `Trojan:Win32/Wacatac.B!ml` (Microsoft) | **0/75**, Defender limpo |
+| MSI | 0/61, mas pedia admin | **0/75**, sem admin |
+| Setup NSIS | 3/71 | 1/75 (so o APEX, no empacotador) |
+
+Duas causas separadas, achadas por bisseccao com `bun run vt`:
+
+1. **A marcacao da Microsoft vinha da criptografia**, nao do resto do app: o `sodiumoxide` embute a biblioteca C **libsodium** no binario, e esse blob e o padrao nº 1 que modelos de ML associam a ransomware. O commit `2b3b660` virava 0/75 em 1/75. Resolvido trocando por criptografia em **Rust puro** (RustCrypto), no mesmo formato — ver [features/accounts.md](features/accounts.md). **Nao foi preciso remover a criptografia nem assinar o codigo.**
+2. **O 1/75 que sobra no NSIS e do empacotador**, nao do nosso codigo (o `.exe` de dentro e 0/75). E um motor de ML obscuro (APEX) com rotulo generico. Perseguir isso e alvo movel; o MSI e o portatil saem 0/75 e cobrem quem se incomoda.
+
+Tambem aplicado: `webviewInstallMode: embedBootstrapper` no [tauri.conf.json](../src-tauri/tauri.conf.json), que tirou o download-e-executa da instalacao (o NSIS caiu de 3/71 para 1/71 sozinho com isso).
+
+**Assinatura de codigo (Authenticode) foi avaliada e descartada** a pedido do dono. Ela resolveria o aviso do SmartScreen ("Fornecedor desconhecido"), que **continua aparecendo** por reputacao zero — isso nao tem a ver com virus. O SignPath Foundation (gratuito para open source) foi analisado: alem do certificado sair em nome da fundacao e nao do dono, a clausula *"no hacking tools"* provavelmente barraria o app (ele fecha o mutex de instancia unica do Roblox e falsifica MachineGuid/MAC no isolamento).
+
+**Conferir um build no VirusTotal:** `bun run vt <arquivo>` ([virustotal.ts](../scripts/virustotal.ts)) manda o arquivo e mostra quem marcou; `--rescan` forca uma analise nova com os motores de hoje, que e o jeito de separar "o binario mudou" de "o modelo do antivirus mudou". A chave da API sai de uma conta gratuita e mora **fora do repositorio**, em `%USERPROFILE%/.tauri/virustotal.key` (ou na variavel `VT_API_KEY`). Conta gratuita aceita 4 pedidos por minuto e 500 por dia. Subir um arquivo ao VirusTotal o compartilha com os antivirus parceiros — vale para instalador publicado, nao para arquivo com dado do usuario.
+
+**O que ja foi medido (28/09/2026):** comparando o build limpo de 25/09 com o marcado de 28/09 pelo `pefile`, o perfil de comportamento e **o mesmo**: as duas tem as mesmas 16 APIs que pesam em heuristica (`SendInput`, `SetForegroundWindow`, `GetAsyncKeyState`, `TerminateProcess`, `NtQuerySystemInformation`, `DuplicateHandle`, `RegSetValueExW`…), mesma entropia por secao, mesmo linker. As unicas importacoes novas sao `FlushFileBuffers`, `OpenEventW`, `RemoveDirectoryW` e `MessageBoxW`. Ou seja: **nao ha o que "consertar" no binario** — o `Trojan:Win32/Wacatac.B!ml` e um veredito de modelo de aprendizado de maquina (o sufixo `!ml`), que muda sozinho ao longo do tempo. O conserto duravel e assinatura de codigo (Authenticode); ha opcao gratuita para projetos open source (SignPath Foundation).
 
 ⚠️ Detalhe do manifesto do updater: o app procura primeiro a chave do **proprio formato** (`windows-x86_64-nsis` ou `windows-x86_64-msi`, conferido no tauri-plugin-updater 2.10) e so depois a generica `windows-x86_64`. A generica fica **sempre** no `.exe` (`updaterJsonPreferNsis: true` na variante padrao; o script da variante completa faz o mesmo): mandar para o MSI um app de formato desconhecido instalaria uma segunda copia, por maquina, ao lado da atual. Ate 28/09/2026 a generica apontava para o MSI quando ele era publicado.
 

@@ -20,7 +20,6 @@ tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-sodiumoxide = "0.2"
 reqwest = { version = "0.12", features = ["cookies", "json"] }
 tokio = { version = "1", features = ["full"] }
 urlencoding = "2"
@@ -37,6 +36,9 @@ tauri-plugin-updater = "2"
 zip = "0.6.6"
 md-5 = "0.10"
 sha2 = "0.10"
+argon2 = "0.6.0"
+crypto_secretbox = "0.1.1"
+getrandom = "0.4.3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
@@ -63,3 +65,11 @@ wiremock = "0.6"
 # Drives axum routers in-process (web server middleware tests).
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+
+# As DEPENDENCIAS saem otimizadas mesmo em debug; o nosso codigo nao (compila
+# rapido e mantem bom debug). Isto existe pela criptografia: o Argon2 em Rust
+# puro leva 5,4 s por derivacao sem otimizacao contra 0,3 s com ela (medido em
+# 28/09/2026), e `cargo test` roda em debug — era o que fazia a suite Rust do CI
+# levar 18 dos 24 minutos. O libsodium nao sofria disso por ser C pre-compilado.
+[profile.dev.package."*"]
+opt-level = 3

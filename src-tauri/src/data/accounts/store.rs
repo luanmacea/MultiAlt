@@ -111,8 +111,8 @@ struct SessionKey {
     /// SHA-512 da senha. Barato, e ainda necessário para decriptar arquivos
     /// gravados com outros salts (o próprio arquivo lido no unlock, por ex.).
     password_hash: Vec<u8>,
-    salt: sodiumoxide::crypto::pwhash::argon2i13::Salt,
-    key: sodiumoxide::crypto::secretbox::Key,
+    salt: crypto::Salt,
+    key: crypto::Key,
     secret: VaultSecret,
     /// A chave mestra de 32 bytes, só quando o segredo é a chave do aparelho.
     ///
@@ -147,10 +147,8 @@ impl SessionKey {
         secret: VaultSecret,
         master: Option<Vec<u8>>,
     ) -> Result<Self, String> {
-        use sodiumoxide::crypto::pwhash::argon2i13;
-
-        let salt = argon2i13::gen_salt();
-        let key = crypto::derive_key(&password_hash, salt.as_ref())
+        let salt = crypto::gen_salt();
+        let key = crypto::derive_key(&password_hash, &salt)
             .map_err(|e| format!("Failed to derive key: {}", e))?;
         Ok(Self {
             password_hash,
@@ -162,20 +160,18 @@ impl SessionKey {
     }
 
     fn encrypt(&self, content: &str) -> Result<Vec<u8>, String> {
-        use sodiumoxide::crypto::secretbox;
-
         if content.is_empty() {
             return Err("Failed to encrypt: Invalid encrypted data".to_string());
         }
 
-        let nonce = secretbox::gen_nonce();
-        let ciphertext = secretbox::seal(content.as_bytes(), &nonce, &self.key);
+        let nonce = crypto::gen_nonce();
+        let ciphertext = crypto::seal(content.as_bytes(), &nonce, &self.key);
 
         let mut output =
             Vec::with_capacity(crypto::RAM_HEADER.len() + 16 + 24 + ciphertext.len());
         output.extend_from_slice(crypto::RAM_HEADER);
-        output.extend_from_slice(self.salt.as_ref());
-        output.extend_from_slice(nonce.as_ref());
+        output.extend_from_slice(&self.salt);
+        output.extend_from_slice(&nonce);
         output.extend_from_slice(&ciphertext);
         Ok(output)
     }
