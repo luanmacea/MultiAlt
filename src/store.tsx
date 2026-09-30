@@ -22,6 +22,7 @@ import type {
   VaultKeyWarning,
 } from "./types";
 import { playAfkBeep } from "./utils/afkBeep";
+import type { AfkMode } from "./afkClickPoint";
 import {
   orderGroupKeys,
   parseGroupName,
@@ -197,8 +198,9 @@ export interface AfkAccountStatus {
   sends: number;
   lastError: string | null;
   /**
-   * `noWindow`, `focusDenied`, `keyRefused` ou `internal`. A tela escolhe a
-   * frase traduzida por aqui, em vez de casar o texto em inglês do backend.
+   * `noWindow`, `focusDenied`, `keyRefused`, `clickRefused` ou `internal`. A
+   * tela escolhe a frase traduzida por aqui, em vez de casar o texto em inglês
+   * do backend.
    */
   lastErrorCode: string | null;
 }
@@ -208,14 +210,29 @@ export interface AfkStatus {
   startedAtMs: number | null;
   intervalMinutes: number;
   key: string;
+  mode: AfkMode;
+  /** Ponto padrão do modo clique, em % da janela. */
+  clickX: number;
+  clickY: number;
   accounts: AfkAccountStatus[];
 }
 
 export interface AfkStartConfig {
   userIds: number[];
   intervalMinutes: number;
-  /** Uma das teclas de `afkKeys`; o backend recusa qualquer outra. */
+  /** Uma das teclas de `afkKeys`; o backend recusa qualquer outra. No modo clique, ignorada. */
   key: string;
+  mode: AfkMode;
+  /** Ponto de quem não tem ponto próprio, em % da janela. */
+  clickX: number;
+  clickY: number;
+}
+
+/** O Marcar: de que conta é a janela sob o cursor e onde, em % dela. */
+export interface AfkCapturedPoint {
+  userId: number;
+  xPct: number;
+  yPct: number;
 }
 
 /** Onde uma conta está jogando agora, segundo a presença do Roblox. */
@@ -446,9 +463,16 @@ export interface StoreValue {
   refreshAfkStatus: () => Promise<void>;
   /**
    * Um ciclo agora, nas contas passadas: é assim que o usuário confere que o
-   * envio funciona sem esperar o intervalo. Devolve quantas receberam a tecla.
+   * envio funciona sem esperar o intervalo. Tecla ou clique é o da sessão
+   * ligada. Devolve quantas contas receberam.
    */
-  afkTriggerNow: (userIds: number[], key: string) => Promise<number>;
+  afkTriggerNow: (userIds: number[]) => Promise<number>;
+  /**
+   * Lê a posição do cursor uma vez (a contagem é da tela) e devolve de que conta
+   * é a janela embaixo e onde. Rejeita com um **código** (`noCursor`,
+   * `noWindow`, `notAnAccountWindow`, `outsideGameArea`) que a tela traduz.
+   */
+  captureAfkPoint: () => Promise<AfkCapturedPoint>;
   afkStatus: AfkStatus | null;
   /** A lista fechada de teclas que o backend aceita. */
   afkKeys: string[];
@@ -1808,6 +1832,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         userIds: config.userIds,
         intervalMinutes: config.intervalMinutes,
         key: config.key,
+        mode: config.mode,
+        clickX: config.clickX,
+        clickY: config.clickY,
       });
       setAfkStatus(status);
       addToast(
@@ -1832,13 +1859,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function afkTriggerNow(userIds: number[], key: string): Promise<number> {
+  async function afkTriggerNow(userIds: number[]): Promise<number> {
     try {
-      return await invoke<number>("afk_trigger_now", { userIds, key });
+      return await invoke<number>("afk_trigger_now", { userIds });
     } catch (e) {
       setError(String(e));
       throw e;
     }
+  }
+
+  // Sem `setError`: o erro é um código, e quem escreve a frase é a tela.
+  function captureAfkPoint(): Promise<AfkCapturedPoint> {
+    return invoke<AfkCapturedPoint>("afk_capture_point");
   }
 
   async function setAfkAccounts(userIds: number[]) {
@@ -2992,6 +3024,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setAfkAccounts,
     refreshAfkStatus,
     afkTriggerNow,
+    captureAfkPoint,
     afkStatus,
     afkKeys,
     afkDialogOpen,
