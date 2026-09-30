@@ -219,6 +219,90 @@ fn afk_capture_from_parts(
     })
 }
 
+/// Um passo da receita do clique. `MoveTo` é posição de tela absoluta, `Nudge`
+/// é movimento relativo em pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfkMouseStep {
+    MoveTo(i32, i32),
+    Nudge(i32, i32),
+    Wait(u64),
+    Press,
+    Release,
+}
+
+/// Tamanho do tremor, em pixels.
+const AFK_CLICK_JITTER_PX: i32 = 2;
+/// Espera depois de chegar ao ponto, para o jogo assentar o mouse lá.
+const AFK_CLICK_SETTLE_MS: u64 = 500;
+/// Espera entre o clique de foco e o clique de verdade.
+const AFK_CLICK_FOCUS_SETTLE_MS: u64 = 200;
+/// Pausa de ~1 quadro entre a posição final e o botão descer.
+const AFK_CLICK_FINAL_PAUSE_MS: u64 = 12;
+
+/// A receita do clique no ponto `point` da área interna `rect`.
+///
+/// O Roblox lê o mouse pelo caminho de entrada crua do sistema: pôr o cursor no
+/// lugar sem gerar movimento não chega ao jogo, e um clique parado cai onde o
+/// jogo acha que o mouse estava. A receita é a que funcionou no bot de Robeats
+/// do dono:
+///
+/// 1. chega ao ponto por movimento de entrada, com um micro-desvio de 1 px e
+///    volta, e espera o jogo assentar;
+/// 2. treme ±2 px em movimento relativo e reafirma a posição exata;
+/// 3. clica — e esse primeiro clique pode só focar o jogo;
+/// 4. espera, treme de novo e dá o clique de verdade.
+///
+/// Todo desvio vai para **dentro** da janela, inclusive nas bordas. `None` para
+/// janela sem área.
+fn afk_click_plan(rect: AfkClientRect, point: AfkPoint, hold_ms: u64) -> Option<Vec<AfkMouseStep>> {
+    use AfkMouseStep::*;
+    let (x, y) = afk_point_to_pixel(rect, point)?;
+    // Desvio para o lado de dentro: na última coluna, para a esquerda.
+    let inward = |at: i32, start: i32, len: i32, step: i32| {
+        if at + step <= start + len - 1 {
+            step
+        } else {
+            -step
+        }
+    };
+    let micro = inward(x, rect.left, rect.width, 1);
+    let jitter = inward(x, rect.left, rect.width, AFK_CLICK_JITTER_PX);
+    // Janela de 1 px de largura não tem para onde tremer.
+    let (micro, jitter) = if rect.width < 3 { (0, 0) } else { (micro, jitter) };
+
+    let click = |steps: &mut Vec<AfkMouseStep>, settle: bool| {
+        steps.extend([MoveTo(x, y), MoveTo(x + micro, y), MoveTo(x, y)]);
+        if settle {
+            steps.push(Wait(AFK_CLICK_SETTLE_MS));
+        }
+        steps.extend([
+            Nudge(jitter, 0),
+            Nudge(-jitter, 0),
+            MoveTo(x, y),
+            Wait(AFK_CLICK_FINAL_PAUSE_MS),
+            Press,
+            Wait(hold_ms),
+            Release,
+        ]);
+    };
+
+    let mut steps = Vec::new();
+    click(&mut steps, true);
+    steps.push(Wait(AFK_CLICK_FOCUS_SETTLE_MS));
+    click(&mut steps, false);
+    Some(steps)
+}
+
+/// Pixel de tela na escala do envio absoluto (0..65535 sobre a área de trabalho
+/// virtual, todos os monitores). Fora da área é travado.
+fn afk_absolute_input(x: i32, y: i32, desktop: AfkClientRect) -> (i32, i32) {
+    let scale = |at: i32, start: i32, len: i32| {
+        let span = f64::from((len - 1).max(1));
+        ((f64::from(at - start) * 65535.0 / span).round() as i32).clamp(0, 65535)
+    };
+    (scale(x, desktop.left, desktop.width), scale(y, desktop.top, desktop.height))
+}
+
 /// O que o ciclo faz em cada conta. No clique o ponto já vem resolvido por
 /// conta (o próprio ou o padrão), então o corpo bloqueante não lê store nenhum.
 #[derive(Debug, Clone)]
@@ -1745,6 +1829,136 @@ mod afk_command_tests {
         assert_eq!(json["xPct"], 50.0);
         assert_eq!(json["yPct"], 50.0);
     }
+
+    // ---- a receita do clique ----------------------------------------------
+    //
+    // O primeiro modo clique posicionava o cursor e clicava parado, e no Roblox
+    // de verdade nada acontecia: o jogo lê o mouse por *raw input*, então para
+    // ele o mouse nem tinha chegado lá. A receita abaixo é a que funcionou no
+    // bot de Robeats do dono: mover pelo caminho de entrada, tremer, e clicar
+    // duas vezes (a primeira pode só focar o jogo).
+
+    fn plan(point: AfkPoint) -> Vec<AfkMouseStep> {
+        afk_click_plan(RECT, point, 40).expect("janela com área tem receita")
+    }
+
+    #[test]
+    fn the_click_moves_the_mouse_through_the_input_path_before_pressing() {
+        let steps = plan(AfkPoint::clamped(50.0, 50.0));
+        let first_press = steps.iter().position(|s| *s == AfkMouseStep::Press).unwrap();
+        assert!(
+            steps[..first_press].contains(&AfkMouseStep::MoveTo(500, 500)),
+            "o botão não pode descer antes de o jogo ver o mouse no ponto: {steps:?}"
+        );
+        // O passo imediatamente antes do clique é a posição exata, e não um tremor.
+        let before: Vec<_> = steps[..first_press]
+            .iter()
+            .filter(|s| !matches!(s, AfkMouseStep::Wait(_)))
+            .collect();
+        assert_eq!(**before.last().unwrap(), AfkMouseStep::MoveTo(500, 500));
+    }
+
+    #[test]
+    fn the_click_shakes_the_mouse_and_comes_back_to_the_point() {
+        let steps = plan(AfkPoint::clamped(50.0, 50.0));
+        let nudges: Vec<(i32, i32)> = steps
+            .iter()
+            .filter_map(|s| match s {
+                AfkMouseStep::Nudge(dx, dy) => Some((*dx, *dy)),
+                _ => None,
+            })
+            .collect();
+        assert!(!nudges.is_empty(), "sem tremor o Roblox não acorda: {steps:?}");
+        let (sx, sy) = nudges.iter().fold((0, 0), |(a, b), (dx, dy)| (a + dx, b + dy));
+        assert_eq!((sx, sy), (0, 0), "o tremor tem de voltar ao ponto");
+        // Toda posição absoluta cai dentro da área do jogo, inclusive o micro-desvio.
+        for step in &steps {
+            if let AfkMouseStep::MoveTo(x, y) = step {
+                assert!(afk_pixel_to_point(RECT, *x, *y).is_some(), "{step:?} saiu da janela");
+            }
+        }
+    }
+
+    #[test]
+    fn the_micro_shake_stays_inside_at_the_edges() {
+        for point in [AfkPoint::clamped(100.0, 100.0), AfkPoint::clamped(0.0, 0.0)] {
+            let steps = plan(point);
+            let mut x = 0;
+            let mut y = 0;
+            for step in &steps {
+                match step {
+                    AfkMouseStep::MoveTo(nx, ny) => (x, y) = (*nx, *ny),
+                    AfkMouseStep::Nudge(dx, dy) => (x, y) = (x + dx, y + dy),
+                    _ => continue,
+                }
+                assert!(afk_pixel_to_point(RECT, x, y).is_some(), "({x}, {y}) saiu da janela");
+            }
+        }
+    }
+
+    #[test]
+    fn the_click_is_a_focus_click_then_the_real_one() {
+        let steps = plan(AfkPoint::clamped(30.0, 70.0));
+        let presses = steps.iter().filter(|s| **s == AfkMouseStep::Press).count();
+        let releases = steps.iter().filter(|s| **s == AfkMouseStep::Release).count();
+        assert_eq!((presses, releases), (2, 2), "{steps:?}");
+        // Todo botão que desce sobe, e na ordem.
+        let mut down = false;
+        for step in &steps {
+            match step {
+                AfkMouseStep::Press => {
+                    assert!(!down);
+                    down = true;
+                }
+                AfkMouseStep::Release => {
+                    assert!(down);
+                    down = false;
+                }
+                AfkMouseStep::MoveTo(..) | AfkMouseStep::Nudge(..) => {
+                    assert!(!down, "mexer com o botão pressionado é arrastar")
+                }
+                AfkMouseStep::Wait(_) => {}
+            }
+        }
+        assert!(!down);
+    }
+
+    #[test]
+    fn a_window_without_area_has_no_click_plan() {
+        let empty = AfkClientRect { left: 0, top: 0, width: 0, height: 10 };
+        assert_eq!(afk_click_plan(empty, AFK_DEFAULT_POINT, 40), None);
+    }
+
+    /// `SendInput` absoluto fala em 0..65535 sobre a área de trabalho virtual
+    /// (todos os monitores), não em pixels.
+    #[test]
+    fn a_screen_pixel_becomes_the_absolute_input_scale() {
+        let desktop = AfkClientRect { left: -1920, top: 0, width: 3840, height: 1080 };
+        assert_eq!(afk_absolute_input(-1920, 0, desktop), (0, 0));
+        assert_eq!(afk_absolute_input(1919, 1079, desktop), (65535, 65535));
+        assert_eq!(afk_absolute_input(0, 540, desktop), (32776, 32798));
+        // Fora da área é travado, não estoura.
+        assert_eq!(afk_absolute_input(5000, -10, desktop), (65535, 0));
+    }
+
+    /// O texto da tela diz quanto tempo o foco fica fora por conta no modo
+    /// clique. Mexeu nas esperas, mexe no texto.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_click_cycle_keeps_the_focus_about_a_second_per_account() {
+        let waits: u64 = plan(AFK_DEFAULT_POINT)
+            .iter()
+            .filter_map(|s| match s {
+                AfkMouseStep::Wait(ms) => Some(*ms),
+                _ => None,
+            })
+            .sum();
+        let per_account_ms = AFK_FOCUS_SETTLE_MS + waits + AFK_BETWEEN_WINDOWS_MS;
+        assert!(
+            (1_100..=1_300).contains(&per_account_ms),
+            "{per_account_ms} ms por conta no modo clique: atualize o texto do AfkDialog"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1782,7 +1996,7 @@ mod afk_input_safety_tests {
     //    lesse entrada faria do `windows` inteiro um leitor, e é `windows::` que
     //    o `commands/afk.rs` escreve;
     // 7. confere que só o módulo de entrada chama `SendInput`/`send_key`/
-    //    `send_mouse_button`, para o caminho único até o `SendInput` continuar
+    //    `send_mouse`, para o caminho único até o `SendInput` continuar
     //    único amanhã.
     use std::collections::{HashMap, HashSet};
     use std::path::{Path, PathBuf};
@@ -2215,7 +2429,7 @@ mod afk_input_safety_tests {
             .filter(|(_, body)| {
                 body.contains("SendInput(")
                     || body.contains("send_key(")
-                    || body.contains("send_mouse_button(")
+                    || body.contains("send_mouse(")
             })
             .map(|(path, _)| path)
             .collect();

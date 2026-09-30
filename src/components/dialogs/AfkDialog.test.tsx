@@ -774,7 +774,10 @@ describe("AfkDialog — modo clique", () => {
 
   it("avisa que o cursor pula até o ponto e volta", () => {
     renderDialog({ settings: CLICK_INI });
-    expect(screen.getByText(/the cursor also jumps to the point and comes back/i)).toBeInTheDocument();
+    const aviso = screen.getByText(/the cursor also jumps to the point and comes back/i);
+    // A receita do clique (mover, tremer, clique de foco, clique) leva ~1,2 s por
+    // conta: `a_click_cycle_keeps_the_focus_about_a_second_per_account`.
+    expect(aviso.textContent).toMatch(/about 1\.2 seconds per account/i);
   });
 
   it("explica o clique recusado de uma conta", () => {
