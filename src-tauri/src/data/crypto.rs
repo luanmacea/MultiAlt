@@ -68,12 +68,6 @@ pub fn hash_password(password: &str) -> Vec<u8> {
     Sha512::digest(password.as_bytes()).to_vec()
 }
 
-/// Deriva a chave de 32 bytes com Argon2i, **exatamente** como o libsodium
-/// (`crypto_pwhash` argon2i13, OPSLIMIT/MEMLIMIT_MODERATE): Argon2i, versao
-/// 0x13, t_cost=6, m_cost=131072 KiB (128 MiB), paralelismo 1, saida de 32
-/// bytes. Os numeros sairam das constantes do proprio libsodium-sys; mudar
-/// qualquer um torna os arquivos ja gravados ilegiveis. Travado pelo
-/// `decrypts_a_libsodium_fixture`.
 pub fn derive_key(password_hash: &[u8], salt: &[u8]) -> Result<Key, CryptoError> {
     if salt.len() != 16 {
         return Err(CryptoError::InvalidData);
