@@ -113,7 +113,7 @@ if (existente.ok && !rescan) {
   const n = mostrar(attr.last_analysis_stats, attr.last_analysis_results, quando);
   console.log(`\nhttps://www.virustotal.com/gui/file/${digest}`);
   console.log(n > 0 ? "\n(--rescan força uma análise nova com os motores de hoje)" : "");
-  process.exit(0);
+  process.exit(n > 0 ? 2 : 0);
 }
 
 // 2) Reanálise de um arquivo que o VirusTotal já conhece.
@@ -125,9 +125,9 @@ if (existente.ok && rescan) {
     process.exit(1);
   }
   const attr = await esperarAnalise(((await r.json()) as any).data.id);
-  if (attr) mostrar(attr.stats, attr.results);
+  const n = attr ? mostrar(attr.stats, attr.results) : null;
   console.log(`\nhttps://www.virustotal.com/gui/file/${digest}`);
-  process.exit(0);
+  process.exit(n === null ? 1 : n > 0 ? 2 : 0);
 }
 
 // 3) Arquivo novo: envia. Acima de 32 MB o VirusTotal exige uma URL própria.
@@ -151,5 +151,7 @@ if (!envio.ok) {
 }
 
 const attr = await esperarAnalise(((await envio.json()) as any).data.id);
-if (attr) mostrar(attr.stats, attr.results);
+const n = attr ? mostrar(attr.stats, attr.results) : null;
 console.log(`\nhttps://www.virustotal.com/gui/file/${digest}`);
+// Código de saída para o `bun run scan`: 0 limpo, 2 algum motor marcou, 1 sem resultado.
+process.exit(n === null ? 1 : n > 0 ? 2 : 0);

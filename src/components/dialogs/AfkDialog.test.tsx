@@ -39,6 +39,9 @@ function makeAfkStatus(overrides: Partial<AfkStatus> = {}): AfkStatus {
     startedAtMs: null,
     intervalMinutes: 10,
     key: "",
+    mode: "key",
+    clickX: 50,
+    clickY: 50,
     accounts: [],
     ...overrides,
   };
@@ -151,6 +154,9 @@ describe("AfkDialog — o que impede o start", () => {
       userIds: [11],
       intervalMinutes: 10,
       key: "Space",
+      mode: "key",
+      clickX: 50,
+      clickY: 50,
     });
   });
 
@@ -166,6 +172,9 @@ describe("AfkDialog — o que impede o start", () => {
       userIds: [22],
       intervalMinutes: 10,
       key: "W",
+      mode: "key",
+      clickX: 50,
+      clickY: 50,
     });
   });
 });
@@ -268,6 +277,9 @@ describe("AfkDialog — parar não esquece quem estava no modo", () => {
       userIds: [11, 22],
       intervalMinutes: 10,
       key: "Space",
+      mode: "key",
+      clickX: 50,
+      clickY: 50,
     });
   });
 
@@ -332,7 +344,7 @@ describe("AfkDialog — dá para saber que está funcionando", () => {
     const { store } = renderDialog({ afkStatus: RUNNING });
     await userEvent.click(screen.getByRole("button", { name: /Send the key now/i }));
 
-    expect(store.afkTriggerNow).toHaveBeenCalledWith([11], "Space");
+    expect(store.afkTriggerNow).toHaveBeenCalledWith([11]);
   });
 
   it("não deixa enviar agora sem tecla escolhida", async () => {
@@ -602,5 +614,181 @@ describe("AfkDialog — a tela diz a coisa certa", () => {
       expect(screen.getByText("Ligado")).toBeInTheDocument();
       expect(screen.queryByText("Enviando")).not.toBeInTheDocument();
     });
+  });
+});
+
+/**
+ * Modo clique: em vez de tecla, um clique esquerdo num ponto relativo (%) da
+ * janela de cada conta — para quem quer o personagem parado. Ponto padrão para
+ * todas, ponto próprio por conta, e o Marcar lê onde o mouse está depois de 3 s.
+ */
+describe("AfkDialog — modo clique", () => {
+  const CLICK_INI = {
+    ...defaultSettings(),
+    Afk: { IntervalMinutes: "10", Key: "", Mode: "click", ClickX: "50", ClickY: "50" },
+  };
+
+  function clickRunning(overrides: Partial<AfkStatus> = {}): AfkStatus {
+    return makeAfkStatus({
+      active: true,
+      startedAtMs: 1_000,
+      mode: "click",
+      accounts: [makeAfkAccount({ userId: 11 })],
+      ...overrides,
+    });
+  }
+
+  it("trocar para clique grava o modo no INI e esconde a tecla", async () => {
+    renderDialog();
+    await userEvent.click(screen.getByLabelText("What to send"));
+    await userEvent.click(screen.getByRole("button", { name: "Mouse click" }));
+
+    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+      section: "Afk",
+      key: "Mode",
+      value: "click",
+    });
+    expect(screen.queryByLabelText("Key to send")).not.toBeInTheDocument();
+    expect(screen.getByText("50% × 50%")).toBeInTheDocument();
+  });
+
+  /** O modo clique não usa tecla: exigir uma seria bloquear quem não quer mexer o personagem. */
+  it("liga sem tecla, com o modo e o ponto padrão", async () => {
+    const { store } = renderDialog({ settings: CLICK_INI });
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+    const start = screen.getByRole("button", { name: /Start AFK Mode/i });
+    expect(start).toBeEnabled();
+    await userEvent.click(start);
+
+    expect(store.startAfkMode).toHaveBeenCalledWith({
+      userIds: [11],
+      intervalMinutes: 10,
+      key: "",
+      mode: "click",
+      clickX: 50,
+      clickY: 50,
+    });
+  });
+
+  it("com sessão de clique ligada, o modo vem da sessão e fica travado", () => {
+    renderDialog({ afkStatus: clickRunning({ clickX: 30, clickY: 40 }) });
+    expect(screen.getByLabelText("What to send")).toBeDisabled();
+    expect(screen.getByText("30% × 40%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark the click point for all accounts" })).toBeDisabled();
+  });
+
+  it("o Marcar conta 3 segundos, lê o ponto e o grava como padrão", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { store } = renderDialog({ settings: CLICK_INI });
+      vi.mocked(store.captureAfkPoint).mockResolvedValue({ userId: 22, xPct: 52.5, yPct: 71 });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await user.click(screen.getByRole("button", { name: "Mark the click point for all accounts" }));
+      expect(screen.getByText(/Put the mouse over the spot in a game window: 3/)).toBeInTheDocument();
+      expect(store.captureAfkPoint).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_100);
+      });
+
+      expect(store.captureAfkPoint).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("52.5% × 71%")).toBeInTheDocument();
+      expect(invokeMock).toHaveBeenCalledWith("update_setting", { section: "Afk", key: "ClickX", value: "52.5" });
+      expect(invokeMock).toHaveBeenCalledWith("update_setting", { section: "Afk", key: "ClickY", value: "71" });
+      expect(store.addToast).toHaveBeenCalledWith("Point marked on bravo's window");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Marcar fora de uma janela de conta diz por quê e não muda o ponto", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { store } = renderDialog({ settings: CLICK_INI });
+      vi.mocked(store.captureAfkPoint).mockRejectedValue("notAnAccountWindow");
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      await user.click(screen.getByRole("button", { name: "Mark the click point for all accounts" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_100);
+      });
+
+      expect(store.addToast).toHaveBeenCalledWith(
+        "That window is not a Roblox client this app opened",
+        "error"
+      );
+      expect(screen.getByText("50% × 50%")).toBeInTheDocument();
+      expect(invokeMock).not.toHaveBeenCalledWith("update_setting", expect.objectContaining({ key: "ClickX" }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uma conta pode ter ponto próprio, gravado nos campos dela", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { store } = renderDialog({ settings: CLICK_INI, afkStatus: clickRunning() });
+      vi.mocked(store.captureAfkPoint).mockResolvedValue({ userId: 11, xPct: 10, yPct: 90 });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+      expect(screen.getByText("Default point")).toBeInTheDocument();
+      // O ponto de cada conta é lido a cada ciclo: muda com a sessão ligada.
+      await user.click(screen.getByRole("button", { name: "Mark the click point for alpha" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_100);
+      });
+
+      expect(store.updateAccount).toHaveBeenCalledWith(
+        expect.objectContaining({ UserID: 11, Fields: { AfkClickX: "10", AfkClickY: "90" } })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("'usar o padrão' apaga o ponto próprio da conta", async () => {
+    const own = makeAccount({ UserID: 11, Username: "alpha", Fields: { AfkClickX: "10", AfkClickY: "90", Note: "x" } });
+    const { store } = renderDialog({
+      settings: CLICK_INI,
+      accounts: [own, ACCOUNTS[1]],
+      afkStatus: clickRunning(),
+    });
+
+    expect(screen.getByText("10% × 90%")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Use the default point for alpha" }));
+
+    expect(store.updateAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ UserID: 11, Fields: { Note: "x" } })
+    );
+  });
+
+  it("clicar agora vai para as contas do modo, e o aviso fala de clique", async () => {
+    const { store } = renderDialog({ afkStatus: clickRunning() });
+    vi.mocked(store.afkTriggerNow).mockResolvedValue(1);
+    await userEvent.click(screen.getByRole("button", { name: /Click now/i }));
+
+    expect(store.afkTriggerNow).toHaveBeenCalledWith([11]);
+    expect(store.addToast).toHaveBeenCalledWith("Clicked on 1 account");
+  });
+
+  it("avisa que o cursor pula até o ponto e volta", () => {
+    renderDialog({ settings: CLICK_INI });
+    expect(screen.getByText(/the cursor also jumps to the point and comes back/i)).toBeInTheDocument();
+  });
+
+  it("explica o clique recusado de uma conta", () => {
+    renderDialog({
+      afkStatus: clickRunning({
+        accounts: [
+          makeAfkAccount({
+            userId: 11,
+            lastError: "Windows refused the synthetic click",
+            lastErrorCode: "clickRefused",
+          }),
+        ],
+      }),
+    });
+    expect(screen.getByText("alpha: Windows refused the click.")).toBeInTheDocument();
   });
 });

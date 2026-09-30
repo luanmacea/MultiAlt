@@ -3,7 +3,9 @@
 #   powershell -File scripts/defender-scan.ps1 <caminho-do-exe>
 #
 # Espelha o que o usuario ve em "Protecao contra virus e ameacas": usa o mesmo
-# motor e as mesmas definicoes. So leitura — nao instala nem altera nada.
+# motor e as mesmas definicoes. So leitura - nao instala nem altera nada.
+# So ASCII neste arquivo: o PowerShell 5.1 le .ps1 sem BOM na pagina de codigo
+# do sistema, e um travessao em UTF-8 quebra a string (scanVerdict.test.ts).
 #
 # Saida: "LIMPO" quando o Defender nao acha nada, ou a(s) ameaca(s) achada(s).
 # Codigo de saida 0 = limpo, 2 = ameaca encontrada, 1 = erro.
@@ -39,8 +41,8 @@ if ($saida -match "was not found|no threats|found no threats" -or $code -eq 0) {
     exit 0
 }
 if ($saida -match "found|Threat|Trojan|Wacatac") {
-    Write-Output "veredito: AMEACA — o Windows Defender marcou o arquivo"
+    Write-Output "veredito: AMEACA - o Windows Defender marcou o arquivo"
     exit 2
 }
-Write-Output "veredito: inconclusivo (codigo $code) — leia a saida acima"
+Write-Output "veredito: inconclusivo (codigo $code) - leia a saida acima"
 exit 1

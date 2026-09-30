@@ -386,9 +386,16 @@ impl SettingsStore {
 
         // AFK mode. `Key` nasce **vazia** de proposito: sem tecla escolhida pelo
         // usuario o modo nao liga, e chave vazia nao chega a ser gravada no INI
-        // (`IniSection::set` trata valor em branco como remocao).
-        let afk_defaults: &[(&str, &str)] =
-            &[("IntervalMinutes", "10"), ("Key", ""), ("BeepOnCycle", "false")];
+        // (`IniSection::set` trata valor em branco como remocao). `Mode` nasce
+        // `key` (o modo que ja existia) e o ponto do modo clique no meio da janela.
+        let afk_defaults: &[(&str, &str)] = &[
+            ("IntervalMinutes", "10"),
+            ("Key", ""),
+            ("BeepOnCycle", "false"),
+            ("Mode", "key"),
+            ("ClickX", "50"),
+            ("ClickY", "50"),
+        ];
 
         let afk = ini.section("Afk");
         for (key, value) in afk_defaults {
@@ -719,7 +726,13 @@ mod settings_store_tests {
         push(
             &mut out,
             "Afk",
-            &[("IntervalMinutes", "10"), ("BeepOnCycle", "false")],
+            &[
+                ("IntervalMinutes", "10"),
+                ("BeepOnCycle", "false"),
+                ("Mode", "key"),
+                ("ClickX", "50"),
+                ("ClickY", "50"),
+            ],
         );
 
         push(

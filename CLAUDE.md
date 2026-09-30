@@ -171,7 +171,7 @@ src-tauri/src/                - Backend Rust
     generators.rs             - Gerador de contas (BloxGen)
     updater.rs                - Checagem de atualização do app
   platform/
-    windows/                  - Windows-only: launch e canal (launch.rs), Multi Roblox (core.rs, singleton.rs), tracking de processo, isolation, registro, janelas, versões, otimização, SendInput do AFK (input.rs — o único ponto)
+    windows/                  - Windows-only: launch e canal (launch.rs), Multi Roblox (core.rs, singleton.rs), tracking de processo, isolation, registro, janelas, versões, otimização, SendInput do AFK — tecla e clique (input.rs — o único ponto)
     macos/                    - Implementação macOS (parcial)
   chromium/                   - Chromium via CDP: manager, commands, cdp.rs, download de binário, criação de contas (signup.rs, signup_session.rs)
   nexus/                      - Servidor WebSocket (feature `nexus`) para integração com Nexus.lua
