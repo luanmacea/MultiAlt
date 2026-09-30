@@ -16,7 +16,7 @@ Roblox Account Manager 4 é um gerenciador desktop de múltiplas contas Roblox �
 
 **Convenções:**
 - Frontend em TypeScript estrito (tsconfig strict mode); estado global em padrão Zustand-like (`src/store.tsx`).
-- Comentários/commits do projeto majoritariamente em português (ver histórico de commits), apesar do código em inglês.
+- Comentários e documentação do projeto em português, código em inglês. **Commits em inglês** desde 30/09/2026 (pedido do dono: o repositório é público e a maioria de quem chega é de fora); os anteriores ficam em português.
 - Servidores VIP/privados usam Job ID com prefixo `vip:` ou decodificação de URL para acesso.
 
 **Limitações conhecidas:** suporte macOS incompleto; funcionalidades de isolamento/registro são Windows-only.
@@ -46,7 +46,7 @@ Fluxo com agentes (é assim que se usa):
 
 Regras do harness: ele **não substitui** `bun run check`, não fala com a rede nem com o Roblox, e um cenário nunca implementa o comportamento que está sendo testado (senão o teste passa sozinho).
 
-**Git (padrão do projeto):** ao terminar uma tarefa, **commitar e dar push imediatamente**, sem perguntar — um commit por tarefa, mensagem em português descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes de commitar.
+**Git (padrão do projeto):** ao terminar uma tarefa, **commitar e dar push imediatamente**, sem perguntar — um commit por tarefa, mensagem em **inglês** descrevendo o que mudou. Não acumular várias tarefas num commit só; o usuário não revisa o código antes. Rodar `bun run check` antes de commitar; se falhar, corrigir antes de commitar.
 
 **Autoria só do dono.** Commits e PRs saem só em nome dele: **nunca** adicionar `Co-Authored-By: Claude ...` (nem outra linha de coautoria de IA) na mensagem de commit, nem o rodapé "Generated with Claude Code" em PR. Vale para subagentes também. Pedido do dono (28/09/2026) — essas linhas punham "claude" como contribuidor ao lado dele no GitHub.
 

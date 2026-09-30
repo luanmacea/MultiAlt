@@ -1,109 +1,119 @@
-Full credit to [ic3w0lf22](https://github.com/ic3w0lf22), who created the original Roblox Account Manager, and to [niccdevs](https://github.com/niccdevs), who maintained it afterwards. This project continues their work.
+**English** | [Português](README.pt-BR.md)
 
-# Roblox Account Manager
-![github-large](Images/Image5.png)
+# RAM — Roblox Account Manager
+![Roblox Account Manager](Images/Image5.png)
 
-**[Baixar a versão mais recente](https://github.com/luanmacea/roblox-account-manager/releases/latest)**
+**[⬇ Download the latest version](https://github.com/luanmacea/roblox-account-manager/releases/latest)**
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
 
-Desktop app para gerenciar múltiplas contas Roblox: adicionar contas, rodar vários clientes ao mesmo tempo, alternar entre alts sem trocar de login, e automatizar o rejoin (Auto Rejoin).
+**The Roblox Account Manager built for the best user experience.** Keep all your Roblox accounts in one place, open as many Roblox clients as you want at the same time and play on your alts without ever logging out — with Auto Rejoin, anti-AFK, server finder, friends join, encrypted storage and much more.
 
-Reporte bugs na [aba Issues](https://github.com/luanmacea/roblox-account-manager/issues).
+Fast and lightweight: rewritten from scratch in **Rust + TypeScript** with [Tauri](https://tauri.app/). No .NET, no VC++ to install.
 
-# ⚠️ Aviso
-Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link pode entrar em qualquer jogo (ou até o Roblox Studio) usando sua conta, gastar seu Robux, ou causar banimento.
+Full credit to [ic3w0lf22](https://github.com/ic3w0lf22), who created the original Roblox Account Manager, and to [niccdevs](https://github.com/niccdevs), who maintained it afterwards. This project continues their work.
 
-# Versão 0.x (Beta)
-Reescrita em Rust + TypeScript com [Tauri](https://tauri.app/). Em desenvolvimento ativo: as versões 0.x vão até a primeira versão completamente corrigida, que será a 1.0.0. Espere bugs e mudanças de comportamento entre elas. Para estabilidade máxima, use o release legado.
+Found a bug or have an idea? Open an [issue](https://github.com/luanmacea/roblox-account-manager/issues).
 
----
-
-# Desenvolvimento
-
-```bash
-# instalar dependências do frontend
-bun install
-
-# rodar o app em modo dev (hot-reload, sem gerar executável)
-bun run tauri dev
-
-# gerar o executável de produção (instalador/portable)
-bun run tauri build
-```
-
-Outros comandos úteis:
-
-```bash
-bun run dev              # só o frontend (Vite), sem a janela nativa Tauri — não tem acesso aos comandos IPC do backend
-bun run build             # type-check + bundle do frontend, sem empacotar o app
-bun run preview           # preview do build do frontend
-
-bun scripts/i18n/extract-keys.ts   # extrair chaves de tradução (i18n)
-
-cd src-tauri && cargo build                        # compilar só o backend Rust
-cd src-tauri && cargo build --features webserver,nexus   # com as features opcionais (API HTTP local + Nexus WebSocket)
-```
-
-A primeira execução de `tauri dev`/`tauri build` compila todas as crates Rust do zero e pode levar alguns minutos; builds seguintes usam cache incremental do Cargo e são bem mais rápidas.
-
-`bun run tauri build` gera o instalador em `src-tauri/target/release/bundle/nsis/` (o `tauri.conf.json` só pede `nsis`; o `.msi` sai no CI, com `PUBLISH_MSI`, ou localmente com `bun run tauri build --bundles msi`). O `.exe` solto (sem installer) fica direto em `src-tauri/target/release/`.
+# ⚠️ Warning
+Never generate an "rbx-player link" because someone asked you to — anyone holding that link can join any game (or even Roblox Studio) as you, spend your Robux or get your account banned.
 
 # Download
-Releases prontas: [GitHub Releases](https://github.com/luanmacea/roblox-account-manager/releases).
+Get it from the [GitHub Releases](https://github.com/luanmacea/roblox-account-manager/releases) page — and only from there.
 
-Baixe o **`.msi`**: é o instalador recomendado. Sai limpo no VirusTotal (0/75), instala só para o seu usuário — **sem pedir administrador** — e se atualiza sozinho. O setup `.exe` é o mesmo app, também sem admin, mas como nada aqui tem assinatura de código, um antivírus ou outro o marca por heurística (falso positivo do formato). O **portátil** é o app sem instalar nada, para quem prefere: não cria atalho nem se atualiza sozinho. Os arquivos `zz-…sig` são da atualização automática: não precisa baixá-los.
+- **`.msi` (recommended):** 0/75 on VirusTotal, installs for your user only — **no administrator prompt** — and updates itself.
+- **`-setup.exe`:** the same app, also without admin. It isn't code-signed, so an antivirus may flag the installer format (false positive). Use it if the `.msi` doesn't work for you.
+- **Portable:** the app with nothing to install. No shortcut and no auto-update.
+- The `zz-…sig` files are for the auto-updater: you don't need them.
 
-Cada formato sai em duas variantes:
-- sem `_full-nexus-ws` = **recomendado** (não abre porta nenhuma)
-- com `_full-nexus-ws` = versão full-feature (API HTTP local e Nexus)
+Each format comes in two flavors: without `_full-nexus-ws` = **recommended** (opens no network port); with `_full-nexus-ws` = full version with the local HTTP API and Nexus.
 
-Não precisa instalar .NET Framework ou VC++ manualmente. Baixe só da página oficial de releases.
+# Features
 
-# Documentação da API
-[Docs aqui](https://ic3w0lf22.gitbook.io/roblox-account-manager/).
-
-# Principais Features
-| Feature | Descrição |
+### Accounts
+| Feature | What it does |
 | :--- | :--- |
-| Add Accounts | Username/cookie, browser login, ou import de cookie/AccountData |
-| Multi Roblox | Rodar vários clientes ao mesmo tempo (ativar manualmente em Settings) |
-| Pre-launch Isolation | Limpa cache/registro/prefetch antes de cada launch (Windows) |
-| Version Manager | Instala builds do Roblox lado a lado; a versão escolhida vale para todas as contas (por conta, só editando o campo `RobloxVersion` da conta) |
-| Multi Launch | Lançar várias contas de uma vez com Place/Job/Launch Data |
-| VIP/Private Server | Entrar via Job ID com `vip:` ou link |
-| Server List | Navegar servidores, jogos, favoritos e recentes |
-| Auto Rejoin | Relança as contas alt em intervalo fixo; as contas main abrem uma vez e ficam, e dá para desconectar uma conta do ciclo |
-| Watcher | Fecha clientes por timeout, memória, ou detecção de beta |
-| Local Web API / Nexus | API HTTP local e WebSocket para scripts externos (Nexus.lua) |
-| Script Manager | Scripts JS custom com acesso a comandos Rust, HTTP/WebSocket, UI |
-| Themes + i18n | Editor de tema embutido, localização em inglês e português (alemão parcial) |
+| Many ways to add accounts | Browser login, cookie, `user:pass`, `user:pass:cookie`, drag & drop a cookie, or import the old RAM `AccountData.json` |
+| Account creator | Creates free accounts in the built-in browser: the app fills in name, password, birthday and gender, you just solve the CAPTCHA. Name prefix for whole batches |
+| Encrypted storage | Accounts are always encrypted on disk — with your password, or with a device key if you don't set one. Optional "remember password" |
+| Groups & ordering | Drag & drop, groups, manual ordering that survives restarts, aliases up to 240 characters, descriptions, custom fields |
+| Live status | See who is online, in game or in Studio, whose session expired and which accounts have been idle for 20+ days |
+| Account utilities | Display name, privacy, change password/e-mail, PIN, sign out of other sessions, blocks, outfits, avatar JSON, Quick Login code |
+| Make Friends | Friend all your accounts with each other (mesh) or with one account (star), with a configurable delay |
+| Streamer mode | Hide usernames in the list to record or stream |
+| Backups | Create, list and restore backups of accounts, settings, scripts and themes from inside the app |
+
+### Playing
+| Feature | What it does |
+| :--- | :--- |
+| Multi Roblox | Run as many Roblox clients as you want at the same time |
+| Multi Launch | Launch a whole selection of accounts into the same game or server, one at a time with a safe delay |
+| Server finder | Scans the game's servers and picks the best one for your group: *Best fit* (fullest server where everyone still fits), fullest, emptiest or random. Region filter and "no permission" check |
+| Join links | Paste any link — game, private/VIP server, share link, invite, deep link — and everyone joins |
+| Friends | See each account's online friends and send the whole group to a friend's server. Follow a player by username |
+| Favorites & recent | Save games with several VIP links each; recent games and servers |
+| Roblox version manager | Install Roblox builds side by side and choose the one to launch. Finds Bloxstrap, Fishstrap and Voidstrap installs |
+| Window grid | Arrange every Roblox window in a grid across the monitors you choose |
+| Session panel | Launch queue (cancel anytime), open clients (focus, close) and a live console explaining every launch, rejoin and watcher action |
+
+### Automation
+| Feature | What it does |
+| :--- | :--- |
+| Auto Rejoin | Keeps your alts inside a server: every N minutes each alt is closed and relaunched, while your main accounts stay open and are never restarted |
+| AFK mode (anti-AFK) | Sends a key **or a mouse click** to each account's window every few minutes so nobody gets kicked for being idle — no rejoin, no lost progress. Click point set once for all accounts or per account |
+| Watcher | Closes a client that lost connection, ran low on memory or changed title (beta detection) |
+| Optimization | FPS cap, graphics, window size, process priority, EcoQoS, CPU/memory limits and FastFlags — one profile for normal play and separate ones for Auto Rejoin mains and alts |
+| Pre-launch isolation | Clears cache, registry traces, MachineGuid and MAC before each launch so one account doesn't inherit another's session (Windows, only when no client is open) |
+| Scripts | JavaScript automation inside the manager (sandboxed, with per-script permissions) using the `ram.*` API |
+| Local Web API / Nexus | Local HTTP API and a WebSocket server for external tools and `Nexus.lua` (in the `_full-nexus-ws` build) |
+
+### App
+| Feature | What it does |
+| :--- | :--- |
+| Auto-update | Checks for new versions and updates itself |
+| Themes | Built-in theme editor: colors, button style and fonts, with exportable presets |
+| Languages | English and Portuguese (German partial) |
+| Safe video mode | If the window ever opens blank, the app recovers by itself (or hold **Shift** while opening) |
 
 # FAQ
 
-**Por que é detectado como vírus?**
-Falso positivo comum em ferramentas que automatizam launch de processos/jogos. Código é público (Rust + Tauri) e pode ser auditado/compilado por você mesmo. Baixe só do GitHub oficial.
+**Why is it flagged as a virus?**
+The app isn't code-signed, and tools that launch game processes are a common false positive for machine-learning antivirus models. Every release is scanned on VirusTotal and Windows Defender, and the `.msi` comes out clean. The code is public (Rust + Tauri) — you can audit it and build it yourself. Only download from the official GitHub releases.
 
-**Como ativo multi-roblox?**
-Settings → `General` → `Multi Roblox` (com o Roblox fechado).
+**How do I turn on Multi Roblox?**
+Settings → `General` → `Multi Roblox` (with Roblox closed).
 
-**Por que multi-roblox vem desativado?**
-A Byfron já declarou que múltiplos clientes pode ser visto como comportamento suspeito — ative por sua conta e risco.
+**Why is Multi Roblox off by default?**
+Byfron has said multiple clients may be seen as suspicious behavior — turn it on at your own risk.
 
-**Posso ser banido por usar isso?**
-Não viola o ToS do Roblox, mas alguns jogos podem proibir alts — pesquise antes.
+**Can I get banned for using this?**
+It doesn't break Roblox's Terms of Service, but some games forbid alts — check the game's rules first.
 
-**Como faço backup das minhas contas?**
-Pelo próprio app: Settings → `Misc` → `Data` → `Backups` → `Manage` cria, lista e restaura backups (detalhes em [docs/features/backups.md](docs/features/backups.md)). O zip leva o `AccountData.key` junto — sem ele o backup não restaura —, então, **sem senha no app, quem tiver o zip consegue abrir as contas**. Se você guarda backup em nuvem, ponha senha antes (Settings → `Misc` → `Security` → `Change Encryption Method` → `Open` → `Pass Lock`). Não use o RAMDecrypt para "descriptografar e salvar": ele é do app antigo, não conhece o `AccountData.key`, e o que ele entregaria é um arquivo com os cookies em texto puro.
+**How do I back up my accounts?**
+In the app: Settings → `Misc` → `Data` → `Backups` → `Manage` ([details](docs/features/backups.md)). The zip includes `AccountData.key` — the backup can't be restored without it — so **if you have no password in the app, anyone with the zip can open your accounts**. If you keep backups in the cloud, set a password first (Settings → `Misc` → `Security` → `Change Encryption Method` → `Open` → `Pass Lock`).
 
-**O app abriu com a janela em branco (ou preta). E agora?**
-A interface é desenhada pelo Microsoft Edge WebView2 Runtime, então reinstalar o app não resolve. O app tenta se recuperar sozinho: se a interface não aparecer em 25 s, ele avisa e reabre com a aceleração de vídeo desligada. Para forçar esse modo, **segure Shift** enquanto o app abre (ou acrescente `--safe-mode` ao campo *Destino* do atalho). Se continuar em branco, repare o **Microsoft Edge WebView2 Runtime** em Configurações do Windows → Aplicativos → Aplicativos instalados → Modificar → Reparar, reinicie o Windows e atualize o driver de vídeo. Detalhes em [docs/features/webview-recovery.md](docs/features/webview-recovery.md).
+**The app opened with a blank (or black) window. What now?**
+The UI is drawn by Microsoft Edge WebView2 Runtime, so reinstalling the app doesn't help. The app tries to recover: if the UI doesn't show up in 25 s it reopens with video acceleration off. To force that mode, **hold Shift** while the app opens (or add `--safe-mode` to the shortcut's *Target*). If it's still blank, repair **Microsoft Edge WebView2 Runtime** in Windows Settings → Apps → Installed apps → Modify → Repair, restart Windows and update your graphics driver. [Details](docs/features/webview-recovery.md).
 
-**O app está no "modo de vídeo seguro". Como volto ao normal?**
-Quando o modo está ligado aparece uma faixa amarela no topo do app com o botão **Voltar ao modo normal** — ele apaga o marcador e reabre o app com a aceleração de vídeo de volta. Se a faixa não aparecer, ou o botão falhar, apague na mão o arquivo `webview.safemode` que fica junto do `RAMSettings.ini` (por padrão em `%LOCALAPPDATA%\Roblox Account Manager`) e abra o app de novo. Se você estiver segurando Shift, solte antes de abrir: Shift força o modo por essa sessão.
+**How do I leave safe video mode?**
+A yellow bar at the top of the app has a **Back to normal mode** button. If it doesn't show up, delete the `webview.safemode` file next to `RAMSettings.ini` (by default in `%LOCALAPPDATA%\Roblox Account Manager`) and open the app again.
 
-**Funciona no Mac?**
-Ainda não — o suporte a macOS é parcial.
+**Does it work on Mac?**
+Not yet — macOS support is partial.
+
+# Version 0.x (Beta)
+Under active development: 0.x versions lead up to the first fully fixed release, which will be 1.0.0. Expect bugs and behavior changes between them.
+
+# Development
+
+```bash
+bun install              # frontend dependencies
+bun run tauri dev        # run the app in dev mode (hot reload)
+bun run tauri build      # production build (installer)
+bun run check            # typecheck + all tests (vitest + cargo test)
+```
+
+The first `tauri dev`/`tauri build` compiles every Rust crate from scratch and can take a few minutes; later builds are incremental. Developer documentation (in Portuguese) lives in [docs/](docs/README.md).
 
 # Preview
-![github-large](Images/Image5.png)
+![Roblox Account Manager](Images/Image5.png)
