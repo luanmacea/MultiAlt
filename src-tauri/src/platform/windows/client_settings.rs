@@ -1,4 +1,4 @@
-use crate::GraphicsQuality;
+use crate::{AccountSourced, GraphicsQuality};
 
 fn load_client_app_settings(settings_file: &std::path::Path) -> serde_json::Value {
     if settings_file.exists() {
@@ -218,12 +218,251 @@ fn rewrite_global_basic_settings(
     Some(out)
 }
 
+// ── exceção de uma conta não vaza para a próxima ─────────────────────────
+//
+// `GlobalBasicSettings_13.xml` e `ClientAppSettings.json` são globais: a
+// exceção de uma conta é gravada neles logo antes de ela abrir. A conta
+// seguinte, sem exceção, só reescreve o que o perfil global define — e o que o
+// global não define (qualidade, volume, FPS, janela) ficava com o valor da
+// exceção. O registro abaixo guarda, por propriedade, o valor que estava lá
+// **antes** da exceção e o que a exceção escreveu. Na próxima abertura sem
+// exceção: se o arquivo ainda tem o valor da exceção, o antigo volta; se não
+// tem, o jogador mudou dentro do jogo, e o valor dele fica.
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct LedgerEntry {
+    /// O elemento como estava antes da primeira exceção. `None` = não existia.
+    original: Option<String>,
+    /// O que a última exceção escreveu.
+    written: String,
+}
+
+/// O registro das exceções gravadas nos arquivos globais do Roblox. Persistido
+/// em `ClientOverrideLedger.json`, na pasta de dados: sobrevive a fechar o app
+/// entre a conta principal e as outras.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct OverrideLedger {
+    entries: std::collections::BTreeMap<String, LedgerEntry>,
+}
+
+impl OverrideLedger {
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Uma propriedade depois de uma abertura. `from_account`: a exceção da
+    /// conta escreveu o grupo dela; `from_global`: o perfil global escreveu.
+    fn settle(
+        &mut self,
+        key: String,
+        before: Option<String>,
+        after: Option<String>,
+        from_account: bool,
+        from_global: bool,
+    ) -> Restore {
+        if from_account {
+            // Grupo da exceção sem esta propriedade (qualidade automática não
+            // mexe no nível manual): o registro anterior continua valendo.
+            if let Some(written) = after {
+                self.entries
+                    .entry(key)
+                    .and_modify(|e| e.written = written.clone())
+                    .or_insert(LedgerEntry { original: before, written });
+            }
+            return Restore::Keep;
+        }
+        if from_global {
+            // O perfil global escreveu o valor dele: é o certo para quem não
+            // tem exceção, e o antigo não precisa mais voltar.
+            self.entries.remove(&key);
+            return Restore::Keep;
+        }
+        match self.entries.remove(&key) {
+            Some(entry) if after.as_deref() == Some(entry.written.as_str()) => {
+                Restore::To(entry.original)
+            }
+            // O valor mudou desde a exceção: foi o jogador, e fica.
+            _ => Restore::Keep,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Restore {
+    Keep,
+    To(Option<String>),
+}
+
+const FPS_PROPS: &[&str] = &["FramerateCap"];
+const VOLUME_PROPS: &[&str] = &["MasterVolume"];
+const GRAPHICS_PROPS: &[&str] = &[
+    "GraphicsQualityLevel",
+    "SavedQualityLevel",
+    "QualityResetLevel",
+    "MaxQualityEnabled",
+];
+const WINDOW_PROPS: &[&str] = &["Fullscreen", "StartMaximized", "StartScreenSize"];
+
+/// Início e fim do elemento `<tag name="…">…</tag>` de uma propriedade.
+fn property_range(props: &str, name: &str) -> Option<(usize, usize)> {
+    let needle = format!(" name=\"{}\">", name);
+    let at = props.find(&needle)?;
+    let start = props[..at].rfind('<')?;
+    let tag = &props[start + 1..at];
+    if tag.is_empty() || tag.contains(|c: char| c.is_whitespace() || c == '>' || c == '/') {
+        return None;
+    }
+    let close = format!("</{}>", tag);
+    let end_rel = props[at..].find(&close)?;
+    Some((start, at + end_rel + close.len()))
+}
+
+fn property_element(props: &str, name: &str) -> Option<String> {
+    property_range(props, name).map(|(s, e)| props[s..e].to_string())
+}
+
+/// Põe o elemento de volta como era — ou o tira, se antes ele não existia.
+fn restore_property(props: &mut String, name: &str, element: Option<&str>) {
+    match (property_range(props, name), element) {
+        (Some((s, e)), Some(el)) => props.replace_range(s..e, el),
+        (Some((s, e)), None) => {
+            // Leva junto a indentação e a quebra de linha da linha dele.
+            let line_start = props[..s].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let start = if props[line_start..s].trim().is_empty() { line_start } else { s };
+            let end = if props[e..].starts_with('\n') { e + 1 } else { e };
+            props.replace_range(start..end, "");
+        }
+        (None, Some(el)) => {
+            if !props.ends_with('\n') {
+                props.push('\n');
+            }
+            props.push_str("\t\t\t");
+            props.push_str(el);
+            props.push('\n');
+        }
+        (None, None) => {}
+    }
+}
+
+/// `rewrite_global_basic_settings` com o registro: grava o que a abertura pede
+/// e desfaz o que uma exceção anterior deixou nas propriedades que ninguém
+/// pediu desta vez.
+#[allow(clippy::too_many_arguments)]
+fn rewrite_global_basic_settings_guarded(
+    xml: &str,
+    max_fps: Option<u32>,
+    master_volume: Option<f32>,
+    graphics: Option<GraphicsQuality>,
+    fullscreen: Option<bool>,
+    window_size: Option<(u32, u32)>,
+    from_account: AccountSourced,
+    ledger: &mut OverrideLedger,
+) -> Option<String> {
+    let (start, end) = find_user_game_settings_properties_range(xml)?;
+    let before = xml[start..end].to_string();
+    let written = rewrite_global_basic_settings(
+        xml,
+        max_fps,
+        master_volume,
+        graphics,
+        fullscreen,
+        window_size,
+    )?;
+    let (w_start, w_end) = find_user_game_settings_properties_range(&written)?;
+    let mut props = written[w_start..w_end].to_string();
+
+    let window_written = fullscreen.is_some() || window_size.is_some();
+    let groups: [(&[&str], bool, bool); 4] = [
+        (FPS_PROPS, from_account.fps, max_fps.is_some()),
+        (VOLUME_PROPS, from_account.volume, master_volume.is_some()),
+        (GRAPHICS_PROPS, from_account.graphics, graphics.is_some()),
+        (WINDOW_PROPS, from_account.window, window_written),
+    ];
+    for (names, account, any_written) in groups {
+        for name in names {
+            let restore = ledger.settle(
+                format!("xml:{}", name),
+                property_element(&before, name),
+                property_element(&props, name),
+                account,
+                any_written && !account,
+            );
+            if let Restore::To(original) = restore {
+                restore_property(&mut props, name, original.as_deref());
+            }
+        }
+    }
+
+    let mut out = written[..w_start].to_string();
+    out.push_str(&props);
+    out.push_str(&written[w_end..]);
+    Some(out)
+}
+
+/// `merge_client_app_settings` com o registro, para o FPS de uma exceção não
+/// ficar no `ClientAppSettings.json` da versão. `file_key` separa as pastas de
+/// versão, que têm um arquivo cada.
+fn merge_client_app_settings_guarded(
+    settings: &mut serde_json::Value,
+    max_fps: Option<u32>,
+    fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
+    fps_from_account: bool,
+    file_key: &str,
+    ledger: &mut OverrideLedger,
+) {
+    const FPS_KEY: &str = "DFIntTaskSchedulerTargetFps";
+    let read = |v: &serde_json::Value| v.get(FPS_KEY).map(|x| x.to_string());
+    let before = read(settings);
+    merge_client_app_settings(settings, max_fps, fast_flags);
+    let restore = ledger.settle(
+        format!("json:{}:{}", file_key, FPS_KEY),
+        before,
+        read(settings),
+        fps_from_account,
+        max_fps.is_some() && !fps_from_account,
+    );
+    if let Restore::To(original) = restore {
+        if let Some(obj) = settings.as_object_mut() {
+            match original.and_then(|raw| serde_json::from_str(&raw).ok()) {
+                Some(value) => {
+                    obj.insert(FPS_KEY.to_string(), value);
+                }
+                None => {
+                    obj.remove(FPS_KEY);
+                }
+            }
+        }
+    }
+}
+
+fn override_ledger_file() -> PathBuf {
+    crate::data::settings::get_runtime_data_dir().join("ClientOverrideLedger.json")
+}
+
+fn load_override_ledger() -> OverrideLedger {
+    std::fs::read_to_string(override_ledger_file())
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn save_override_ledger(ledger: &OverrideLedger) {
+    let path = override_ledger_file();
+    if ledger.is_empty() {
+        let _ = std::fs::remove_file(path);
+    } else if let Ok(raw) = serde_json::to_string_pretty(ledger) {
+        let _ = std::fs::write(path, raw);
+    }
+}
+
 fn apply_global_basic_settings_overrides(
     max_fps: Option<u32>,
     master_volume: Option<f32>,
     graphics: Option<GraphicsQuality>,
     fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
+    from_account: AccountSourced,
+    ledger: &mut OverrideLedger,
 ) -> Result<(), String> {
     let Some(path) = get_global_basic_settings_file() else {
         return Ok(());
@@ -235,21 +474,30 @@ fn apply_global_basic_settings_overrides(
     let xml = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read GlobalBasicSettings_13.xml: {}", e))?;
 
-    let Some(patched) = rewrite_global_basic_settings(
+    let Some(patched) = rewrite_global_basic_settings_guarded(
         &xml,
         max_fps,
         master_volume,
         graphics,
         fullscreen,
         window_size,
+        from_account,
+        ledger,
     ) else {
         return Ok(());
     };
+    if patched == xml {
+        return Ok(());
+    }
 
     std::fs::write(&path, patched)
         .map_err(|e| format!("Failed to write GlobalBasicSettings_13.xml: {}", e))
 }
 
+/// Grava as opções desta abertura nos arquivos do Roblox. `from_account` diz o
+/// que veio da exceção da conta — é o que o registro guarda para desfazer na
+/// próxima conta sem exceção.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_runtime_client_settings(
     base_path: Option<&str>,
     max_fps: Option<u32>,
@@ -258,9 +506,29 @@ pub fn apply_runtime_client_settings(
     fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
+    from_account: AccountSourced,
 ) -> Result<(), String> {
-    if max_fps.is_some() || fast_flags.is_some() {
-        apply_client_app_settings_overrides(base_path, max_fps, fast_flags)?;
+    let mut ledger = load_override_ledger();
+    let pending = !ledger.is_empty();
+
+    if max_fps.is_some() || fast_flags.is_some() || pending {
+        let settings_file = match base_path {
+            Some(base) => get_client_settings_file_in(base)?,
+            None => get_client_settings_file()?,
+        };
+        let mut settings = load_client_app_settings(&settings_file);
+        let before = settings.clone();
+        merge_client_app_settings_guarded(
+            &mut settings,
+            max_fps,
+            fast_flags,
+            from_account.fps,
+            &settings_file.to_string_lossy(),
+            &mut ledger,
+        );
+        if settings != before || max_fps.is_some() || fast_flags.is_some() {
+            write_client_app_settings(&settings_file, &settings)?;
+        }
     }
 
     if max_fps.is_some()
@@ -268,6 +536,7 @@ pub fn apply_runtime_client_settings(
         || graphics.is_some()
         || fullscreen.is_some()
         || window_size.is_some()
+        || pending
     {
         apply_global_basic_settings_overrides(
             max_fps,
@@ -275,9 +544,12 @@ pub fn apply_runtime_client_settings(
             graphics,
             fullscreen,
             window_size,
+            from_account,
+            &mut ledger,
         )?;
     }
 
+    save_override_ledger(&ledger);
     Ok(())
 }
 
@@ -547,6 +819,128 @@ mod win_client_settings_tests {
         "</roblox>\n"
     );
 
+
+    // ── exceção de uma conta não vaza para a próxima ─────────────────────
+    //
+    // O `GlobalBasicSettings_13.xml` é um arquivo só. A conta principal com
+    // exceção de qualidade gravava a dela, e a conta seguinte, sem exceção e sem
+    // qualidade no perfil global, não reescrevia nada: abria com a qualidade da
+    // principal. Relatado pelo dono em 30/09/2026.
+
+    const USER_XML: &str = concat!(
+        "<roblox>\n",
+        "\t<Item class=\"UserGameSettings\" referent=\"RBX1\">\n",
+        "\t\t<Properties>\n",
+        "\t\t\t<int name=\"GraphicsQualityLevel\">3</int>\n",
+        "\t\t\t<token name=\"SavedQualityLevel\">3</token>\n",
+        "\t\t\t<int name=\"FramerateCap\">60</int>\n",
+        "\t\t</Properties>\n",
+        "\t</Item>\n",
+        "</roblox>\n"
+    );
+
+    const FROM_ACCOUNT_GRAPHICS: AccountSourced = AccountSourced {
+        fps: false,
+        volume: false,
+        graphics: true,
+        window: false,
+    };
+
+    /// Uma abertura: o que a conta pede, e o que veio da exceção dela.
+    fn open(
+        xml: &str,
+        graphics: Option<GraphicsQuality>,
+        volume: Option<f32>,
+        sourced: AccountSourced,
+        ledger: &mut OverrideLedger,
+    ) -> String {
+        rewrite_global_basic_settings_guarded(xml, None, volume, graphics, None, None, sourced, ledger)
+            .expect("bloco UserGameSettings")
+    }
+
+    #[test]
+    fn an_account_exception_does_not_leak_into_the_next_account() {
+        let mut ledger = OverrideLedger::default();
+        let main = open(USER_XML, Some(GraphicsQuality::Level(10)), None, FROM_ACCOUNT_GRAPHICS, &mut ledger);
+        assert!(main.contains("<token name=\"SavedQualityLevel\">10</token>"));
+
+        // A alt não tem exceção e o perfil global não fala de qualidade.
+        let alt = open(&main, None, None, AccountSourced::default(), &mut ledger);
+        assert!(alt.contains("<token name=\"SavedQualityLevel\">3</token>"), "{alt}");
+        assert!(alt.contains("<int name=\"GraphicsQualityLevel\">3</int>"), "{alt}");
+        // Propriedade que a exceção criou do nada some de novo.
+        assert!(!alt.contains("QualityResetLevel"), "{alt}");
+        assert!(!alt.contains("MaxQualityEnabled"), "{alt}");
+        // O resto do arquivo fica como estava.
+        assert!(alt.contains("<int name=\"FramerateCap\">60</int>"));
+    }
+
+    #[test]
+    fn a_setting_the_player_changed_in_game_is_kept() {
+        let mut ledger = OverrideLedger::default();
+        let main = open(USER_XML, Some(GraphicsQuality::Level(10)), None, FROM_ACCOUNT_GRAPHICS, &mut ledger);
+        // Depois do launch o jogador mudou a qualidade dentro do jogo: o Roblox
+        // reescreveu o arquivo, e esse valor é dele, não da exceção.
+        let changed = main.replace(
+            "<token name=\"SavedQualityLevel\">10</token>",
+            "<token name=\"SavedQualityLevel\">6</token>",
+        );
+        let alt = open(&changed, None, None, AccountSourced::default(), &mut ledger);
+        assert!(alt.contains("<token name=\"SavedQualityLevel\">6</token>"), "{alt}");
+    }
+
+    #[test]
+    fn the_global_profile_wins_over_a_leftover_exception() {
+        let mut ledger = OverrideLedger::default();
+        let main = open(USER_XML, Some(GraphicsQuality::Level(10)), None, FROM_ACCOUNT_GRAPHICS, &mut ledger);
+        let alt = open(&main, Some(GraphicsQuality::Level(2)), None, AccountSourced::default(), &mut ledger);
+        assert!(alt.contains("<token name=\"SavedQualityLevel\">2</token>"), "{alt}");
+        // E a próxima sem nada fica com o global, não volta ao antigo.
+        let next = open(&alt, None, None, AccountSourced::default(), &mut ledger);
+        assert!(next.contains("<token name=\"SavedQualityLevel\">2</token>"), "{next}");
+    }
+
+    #[test]
+    fn two_exceptions_in_a_row_still_restore_the_players_own_value() {
+        let mut ledger = OverrideLedger::default();
+        let a = open(USER_XML, Some(GraphicsQuality::Level(10)), None, FROM_ACCOUNT_GRAPHICS, &mut ledger);
+        let b = open(&a, Some(GraphicsQuality::Level(5)), None, FROM_ACCOUNT_GRAPHICS, &mut ledger);
+        let alt = open(&b, None, None, AccountSourced::default(), &mut ledger);
+        assert!(alt.contains("<token name=\"SavedQualityLevel\">3</token>"), "{alt}");
+    }
+
+    #[test]
+    fn a_volume_exception_that_created_the_property_removes_it_again() {
+        let mut ledger = OverrideLedger::default();
+        let volume = AccountSourced { volume: true, ..Default::default() };
+        let main = open(USER_XML, None, Some(0.2), volume, &mut ledger);
+        assert!(main.contains("MasterVolume"));
+        let alt = open(&main, None, None, AccountSourced::default(), &mut ledger);
+        assert!(!alt.contains("MasterVolume"), "{alt}");
+        assert!(ledger.is_empty());
+    }
+
+    #[test]
+    fn the_fps_exception_in_client_app_settings_does_not_leak_either() {
+        let mut ledger = OverrideLedger::default();
+        let mut main = serde_json::json!({ "Keep": "me" });
+        merge_client_app_settings_guarded(&mut main, Some(240), None, true, "C:/v1", &mut ledger);
+        assert_eq!(main["DFIntTaskSchedulerTargetFps"], 240);
+
+        let mut alt = main.clone();
+        merge_client_app_settings_guarded(&mut alt, None, None, false, "C:/v1", &mut ledger);
+        assert!(alt.get("DFIntTaskSchedulerTargetFps").is_none(), "{alt}");
+        assert_eq!(alt["Keep"], "me");
+    }
+
+    #[test]
+    fn the_override_ledger_survives_a_restart() {
+        let mut ledger = OverrideLedger::default();
+        open(USER_XML, Some(GraphicsQuality::Level(10)), None, FROM_ACCOUNT_GRAPHICS, &mut ledger);
+        let json = serde_json::to_string(&ledger).unwrap();
+        let back: OverrideLedger = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, ledger);
+    }
 
     // ── rewrite_global_basic_settings: tela cheia e qualidade automática ────
 

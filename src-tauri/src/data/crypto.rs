@@ -74,7 +74,17 @@ pub fn hash_password(password: &str) -> Vec<u8> {
 /// bytes. Os numeros sairam das constantes do proprio libsodium-sys; mudar
 /// qualquer um torna os arquivos ja gravados ilegiveis. Travado pelo
 /// `decrypts_a_libsodium_fixture`.
+#[cfg(test)]
+thread_local! {
+    /// Quantas derivações esta thread fez. Só existe em teste: é como o
+    /// `saving_many_times_never_derives_the_key_again` prova que gravar não paga
+    /// argon2, sem medir tempo (disco contra CPU pisca na CI).
+    pub(crate) static DERIVE_KEY_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 pub fn derive_key(password_hash: &[u8], salt: &[u8]) -> Result<Key, CryptoError> {
+    #[cfg(test)]
+    DERIVE_KEY_CALLS.with(|calls| calls.set(calls.get() + 1));
     if salt.len() != 16 {
         return Err(CryptoError::InvalidData);
     }

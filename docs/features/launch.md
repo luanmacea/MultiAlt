@@ -185,7 +185,7 @@ Mensagem de erro: `http_client::describe_error` transforma timeout em frase ("Ro
 - **Eventos `launch-log`:** payload `{userId, level: info|success|warn|error, step, message}`; steps usados: `start`, `isolation`, `auth`, `moderated`, `target`, `spawn`, `pid`, `wait`. O frontend guarda no máximo 500 entradas.
 - **Close All Roblox** (`cmd_kill_all_roblox`) mata todos os `RobloxPlayerBeta.exe`, chama `cancel_launch()` e remove tudo do tracker.
 - **Fechar o cliente de uma conta** (`kill_for_user` / `kill_for_user_graceful`, usados por `AutoCloseLastProcess`, `cmd_kill_roblox` e botting): só mata se o PID rastreado ainda for um processo Roblox (`is_roblox_pid_alive`); caso contrário apenas remove do tracker e retorna sucesso (proteção contra reuso de PID pelo Windows).
-- **Ao sair do app** com `EnableMultiRbx`: se houver mais de 1 cliente, mata todos; limpa o tracker e libera o mutex.
+- **Ao sair do app** o app **não fecha** cliente nenhum: só solta o mutex do Multi Roblox e limpa o rastreamento (`exit_cleanup_tests`, ver CLAUDE.md).
 
 ## Configurações relacionadas
 
@@ -225,7 +225,14 @@ Campo vazio quer dizer "herda o global", não "zero": um FPS apagado não é FPS
 
 Aplicado em: launch de uma conta, fila de várias contas (dentro do laço, por conta) e Auto Rejoin. O servidor HTTP local não tem contexto de conta nesse ponto e usa só o perfil global.
 
-**Ressalva importante.** `ClientAppSettings.json` é por pasta de versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows — os dois são **globais**. "Por conta" funciona porque a fila é sequencial e o patch roda imediatamente antes de cada spawn; não é isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o Roblox reescreve o XML e o valor pode vazar para a próxima conta que abrir sem exceção própria.
+**Ressalva importante.** `ClientAppSettings.json` é por pasta de versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows — os dois são **globais**. "Por conta" funciona porque a fila é sequencial e o patch roda imediatamente antes de cada spawn; não é isolamento de verdade.
+
+**A exceção não vaza para a próxima conta** (`OverrideLedger`, [client_settings.rs](../../src-tauri/src/platform/windows/client_settings.rs)). Até 30/09/2026 vazava: a conta principal gravava a qualidade dela no XML, e a conta seguinte, sem exceção e sem qualidade no perfil global, não reescrevia nada — abria com a qualidade da principal (relatado pelo dono). Agora cada propriedade que uma exceção escreve (qualidade, volume, FPS no XML e no `ClientAppSettings.json`, tela cheia/janela) fica registrada com o valor que estava lá **antes** e o que a exceção escreveu, em `ClientOverrideLedger.json` na pasta de dados (sobrevive a fechar o app). Na próxima abertura sem exceção para aquela propriedade:
+- o perfil global define o valor → vale o global, e o registro é descartado;
+- o arquivo ainda tem o valor da exceção → volta o valor de antes (ou a propriedade some, se a exceção a criou);
+- o arquivo tem outro valor → foi o jogador que mudou dentro do jogo, e o valor dele fica.
+
+Quem diz o que veio da conta é o `from_account` (`AccountSourced`) que o `windows_client_overrides` monta. Testes: `win_client_settings_tests` (`an_account_exception_does_not_leak_into_the_next_account` e vizinhos). Limite que continua: um cliente aberto pode reescrever o XML por conta própria (quando o jogador muda a configuração dentro dele) entre o patch e o spawn da conta seguinte.
 
 ## Onde o `ClientAppSettings.json` é gravado
 

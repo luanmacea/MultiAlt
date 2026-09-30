@@ -68,6 +68,18 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
     }
 }
 
+/// Quais grupos de campos de uma abertura vieram da exceção da conta (e não do
+/// perfil global). É o que o registro de exceções do lado Windows guarda para
+/// desfazer na próxima conta sem exceção (`OverrideLedger`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AccountSourced {
+    pub fps: bool,
+    pub volume: bool,
+    pub graphics: bool,
+    /// Tela cheia e/ou tamanho de janela.
+    pub window: bool,
+}
+
 #[derive(Clone, Default)]
 struct WindowsClientOverrides {
     max_fps: Option<u32>,
@@ -78,6 +90,8 @@ struct WindowsClientOverrides {
     fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
     fast_flags: Option<serde_json::Map<String, serde_json::Value>>,
+    /// O que veio da exceção da conta.
+    from_account: AccountSourced,
 }
 
 /// Nível de qualidade gráfica pedido ao cliente. Existe como enum porque
@@ -393,20 +407,25 @@ fn windows_client_overrides(
         fullscreen: None,
         window_size,
         fast_flags,
+        from_account: AccountSourced::default(),
     };
 
     if let Some(acc) = account {
         if allow_fps_override {
             if let Some(fps) = acc.max_fps {
                 resolved.max_fps = Some(fps);
+                resolved.from_account.fps = true;
             }
         }
         if let Some(volume) = acc.master_volume {
             resolved.master_volume = Some(volume);
+            resolved.from_account.volume = true;
         }
         if let Some(graphics) = acc.graphics {
             resolved.graphics = Some(graphics);
+            resolved.from_account.graphics = true;
         }
+        resolved.from_account.window = acc.fullscreen.is_some() || acc.window_size.is_some();
         if let Some(fullscreen) = acc.fullscreen {
             resolved.fullscreen = Some(fullscreen);
             // Tela cheia com um tamanho de janela ao lado é contraditório: o XML
@@ -465,6 +484,7 @@ pub(crate) fn patch_client_settings_for_launch(
         overrides.fullscreen,
         overrides.window_size,
         overrides.fast_flags.as_ref(),
+        overrides.from_account,
     );
 }
 
@@ -1654,6 +1674,14 @@ mod launch_shared_helper_tests {
         assert_eq!(o.max_fps, Some(60));
         assert_eq!(o.graphics, Some(GraphicsQuality::Level(1)));
         assert_eq!(o.master_volume, Some(0.2));
+        // Só o volume veio da conta: é só ele que o registro de exceções guarda
+        // para desfazer na próxima conta sem exceção.
+        assert_eq!(
+            o.from_account,
+            AccountSourced { volume: true, ..Default::default() }
+        );
+        let sem_conta = windows_client_overrides(&settings, true, LaunchClientProfile::Normal, None);
+        assert_eq!(sem_conta.from_account, AccountSourced::default());
     }
 
     #[cfg(target_os = "windows")]

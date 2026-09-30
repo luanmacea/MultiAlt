@@ -2537,40 +2537,29 @@ mod account_store_tests {
     }
 
     #[test]
-    fn saving_many_times_costs_far_less_than_one_key_derivation() {
+    fn saving_many_times_never_derives_the_key_again() {
         // Guarda de regressão para a UI travada: a invariante é que **uma
-        // gravação não paga argon2**. Dez gravações que pagassem custariam ~10
-        // derivações; o teto abaixo é 3, então a regressão continua sendo pega com
-        // folga de mais de 3x.
+        // gravação não paga argon2** — a chave derivada no unlock é reaproveitada.
         //
-        // O teto era "menos que **uma** derivação" e passou a piscar sob carga —
-        // não por causa do argon2, mas do `sync_all()` que cada gravação passou a
-        // fazer (ver `write_all_synced`): dez `fsync` no Windows, disputando disco
-        // com a suíte inteira em paralelo, contra um argon2i que é puro CPU. Medir
-        // disco contra CPU num limite apertado era o defeito do teste, não do
-        // código — o fsync é justamente a correção que se quis.
-        const MAX_DERIVATIONS: u32 = 3;
+        // Até 30/09/2026 isto era medido em tempo ("10 gravações custam menos que
+        // 3 derivações") e piscava na CI: cada gravação faz `sync_all()`, e o
+        // disco lento do runner contra um argon2 otimizado (dependências em
+        // opt-level 3 no perfil de teste) estourava o teto sem regressão nenhuma.
+        // Contar derivações prova a invariante sem depender de disco nem de CPU.
         let s = store("save-cost");
         s.load_with_password(SAMPLE_PASSWORD).unwrap();
         s.add(account(1, "One")).unwrap();
 
-        let derive_started = std::time::Instant::now();
-        SessionKey::derive(SAMPLE_PASSWORD).unwrap();
-        let one_derivation = derive_started.elapsed();
-
-        let saves_started = std::time::Instant::now();
+        let before = crate::data::crypto::DERIVE_KEY_CALLS.with(|calls| calls.get());
         for id in 2..=11 {
             s.add(account(id, &format!("U{id}"))).unwrap();
         }
-        let ten_saves = saves_started.elapsed();
+        let derivations = crate::data::crypto::DERIVE_KEY_CALLS.with(|calls| calls.get()) - before;
 
         assert_eq!(ids(&s).len(), 11);
-        assert!(
-            ten_saves < one_derivation * MAX_DERIVATIONS,
-            "10 gravações ({ten_saves:?}) não podem custar mais que {MAX_DERIVATIONS} derivações \
-             ({:?}); se cada gravação estivesse pagando argon2 isto seria ~10 derivações \
-             ({one_derivation:?} cada)",
-            one_derivation * MAX_DERIVATIONS
+        assert_eq!(
+            derivations, 0,
+            "10 gravações fizeram {derivations} derivações argon2: cada gravação voltou a pagar o unlock"
         );
     }
 }
