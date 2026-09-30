@@ -1719,7 +1719,7 @@
   "Clicked on 1 account": "Clique enviado para 1 conta",
   "Could not read where the mouse is": "Não deu para ler onde o mouse está",
   "Default point": "Ponto padrão",
-  "In click mode the cursor also jumps to the point and comes back.": "No modo clique, o cursor também pula até o ponto e volta.",
+  "In click mode the cursor also jumps to the point and comes back, and the cycle takes about 1.2 seconds per account: the game has to see the mouse move and get a focus click before the real one.": "No modo clique, o cursor também pula até o ponto e volta, e o ciclo leva cerca de 1,2 segundo por conta: o jogo precisa ver o mouse se mexer e receber um clique de foco antes do clique de verdade.",
   "Key press": "Tecla",
   "Mark": "Marcar",
   "Mark gives you 3 seconds to rest the mouse on the spot inside the Roblox window of any account in the list. The point is a percentage of the window, so it lands in the same place in windows of any size. An account can have its own point below.": "O Marcar dá 3 segundos para você parar o mouse em cima do ponto, dentro da janela do Roblox de qualquer conta da lista. O ponto é uma porcentagem da janela, então cai no mesmo lugar em janelas de qualquer tamanho. Cada conta pode ter o próprio ponto, logo abaixo.",
