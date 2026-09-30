@@ -1719,7 +1719,7 @@
   "Clicked on 1 account": "Clicked on 1 account",
   "Could not read where the mouse is": "Could not read where the mouse is",
   "Default point": "Default point",
-  "In click mode the cursor also jumps to the point and comes back.": "In click mode the cursor also jumps to the point and comes back.",
+  "In click mode the cursor also jumps to the point and comes back, and the cycle takes about 1.2 seconds per account: the game has to see the mouse move and get a focus click before the real one.": "In click mode the cursor also jumps to the point and comes back, and the cycle takes about 1.2 seconds per account: the game has to see the mouse move and get a focus click before the real one.",
   "Key press": "Key press",
   "Mark": "Mark",
   "Mark gives you 3 seconds to rest the mouse on the spot inside the Roblox window of any account in the list. The point is a percentage of the window, so it lands in the same place in windows of any size. An account can have its own point below.": "Mark gives you 3 seconds to rest the mouse on the spot inside the Roblox window of any account in the list. The point is a percentage of the window, so it lands in the same place in windows of any size. An account can have its own point below.",

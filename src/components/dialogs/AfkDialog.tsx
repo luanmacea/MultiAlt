@@ -485,7 +485,7 @@ export function AfkDialog({ open, onClose }: { open: boolean; onClose: () => voi
               )}{" "}
               {t("Meanwhile, what you type goes to the Roblox window, not to the program you were using.")}{" "}
               {clickMode ? (
-                <>{t("In click mode the cursor also jumps to the point and comes back.")} </>
+                <>{t("In click mode the cursor also jumps to the point and comes back, and the cycle takes about 1.2 seconds per account: the game has to see the mouse move and get a focus click before the real one.")} </>
               ) : null}
               {t(
                 "And when Windows keeps the window in the background — which is what it usually does while this app is not the one you are using — nothing is sent at all, and the account below says so."

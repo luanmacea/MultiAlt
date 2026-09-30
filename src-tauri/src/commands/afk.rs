@@ -219,6 +219,90 @@ fn afk_capture_from_parts(
     })
 }
 
+/// Um passo da receita do clique. `MoveTo` é posição de tela absoluta, `Nudge`
+/// é movimento relativo em pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfkMouseStep {
+    MoveTo(i32, i32),
+    Nudge(i32, i32),
+    Wait(u64),
+    Press,
+    Release,
+}
+
+/// Tamanho do tremor, em pixels.
+const AFK_CLICK_JITTER_PX: i32 = 2;
+/// Espera depois de chegar ao ponto, para o jogo assentar o mouse lá.
+const AFK_CLICK_SETTLE_MS: u64 = 500;
+/// Espera entre o clique de foco e o clique de verdade.
+const AFK_CLICK_FOCUS_SETTLE_MS: u64 = 200;
+/// Pausa de ~1 quadro entre a posição final e o botão descer.
+const AFK_CLICK_FINAL_PAUSE_MS: u64 = 12;
+
+/// A receita do clique no ponto `point` da área interna `rect`.
+///
+/// O Roblox lê o mouse pelo caminho de entrada crua do sistema: pôr o cursor no
+/// lugar sem gerar movimento não chega ao jogo, e um clique parado cai onde o
+/// jogo acha que o mouse estava. A receita é a que funcionou no bot de Robeats
+/// do dono:
+///
+/// 1. chega ao ponto por movimento de entrada, com um micro-desvio de 1 px e
+///    volta, e espera o jogo assentar;
+/// 2. treme ±2 px em movimento relativo e reafirma a posição exata;
+/// 3. clica — e esse primeiro clique pode só focar o jogo;
+/// 4. espera, treme de novo e dá o clique de verdade.
+///
+/// Todo desvio vai para **dentro** da janela, inclusive nas bordas. `None` para
+/// janela sem área.
+fn afk_click_plan(rect: AfkClientRect, point: AfkPoint, hold_ms: u64) -> Option<Vec<AfkMouseStep>> {
+    use AfkMouseStep::*;
+    let (x, y) = afk_point_to_pixel(rect, point)?;
+    // Desvio para o lado de dentro: na última coluna, para a esquerda.
+    let inward = |at: i32, start: i32, len: i32, step: i32| {
+        if at + step <= start + len - 1 {
+            step
+        } else {
+            -step
+        }
+    };
+    let micro = inward(x, rect.left, rect.width, 1);
+    let jitter = inward(x, rect.left, rect.width, AFK_CLICK_JITTER_PX);
+    // Janela de 1 px de largura não tem para onde tremer.
+    let (micro, jitter) = if rect.width < 3 { (0, 0) } else { (micro, jitter) };
+
+    let click = |steps: &mut Vec<AfkMouseStep>, settle: bool| {
+        steps.extend([MoveTo(x, y), MoveTo(x + micro, y), MoveTo(x, y)]);
+        if settle {
+            steps.push(Wait(AFK_CLICK_SETTLE_MS));
+        }
+        steps.extend([
+            Nudge(jitter, 0),
+            Nudge(-jitter, 0),
+            MoveTo(x, y),
+            Wait(AFK_CLICK_FINAL_PAUSE_MS),
+            Press,
+            Wait(hold_ms),
+            Release,
+        ]);
+    };
+
+    let mut steps = Vec::new();
+    click(&mut steps, true);
+    steps.push(Wait(AFK_CLICK_FOCUS_SETTLE_MS));
+    click(&mut steps, false);
+    Some(steps)
+}
+
+/// Pixel de tela na escala do envio absoluto (0..65535 sobre a área de trabalho
+/// virtual, todos os monitores). Fora da área é travado.
+fn afk_absolute_input(x: i32, y: i32, desktop: AfkClientRect) -> (i32, i32) {
+    let scale = |at: i32, start: i32, len: i32| {
+        let span = f64::from((len - 1).max(1));
+        ((f64::from(at - start) * 65535.0 / span).round() as i32).clamp(0, 65535)
+    };
+    (scale(x, desktop.left, desktop.width), scale(y, desktop.top, desktop.height))
+}
+
 /// O que o ciclo faz em cada conta. No clique o ponto já vem resolvido por
 /// conta (o próprio ou o padrão), então o corpo bloqueante não lê store nenhum.
 #[derive(Debug, Clone)]
