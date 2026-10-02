@@ -16,3 +16,4 @@ include!("roblox/server_pick.rs");
 include!("roblox/username_check.rs");
 include!("roblox/thumbnails.rs");
 include!("roblox/economy.rs");
+include!("roblox/avatar_catalog.rs");
