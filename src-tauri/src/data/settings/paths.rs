@@ -19,6 +19,7 @@ pub const DATA_FILES: &[&str] = &[
     "RAMTheme.ini",
     "RAMThemePresets.json",
     "RAMScripts.json",
+    "RAMAvatars.json",
     "AccountControlData.json",
 ];
 pub const DATA_DIRS: &[&str] = &["RAMThemeFonts"];
@@ -158,6 +159,11 @@ pub fn get_theme_presets_path() -> PathBuf {
 /// pode referenciar outros módulos do crate.
 pub fn get_scripts_path() -> PathBuf {
     get_runtime_data_dir().join("RAMScripts.json")
+}
+
+/// Avatares salvos da aba de avatares gratuitos.
+pub fn get_avatars_path() -> PathBuf {
+    get_runtime_data_dir().join("RAMAvatars.json")
 }
 
 pub fn get_theme_fonts_dir() -> PathBuf {
