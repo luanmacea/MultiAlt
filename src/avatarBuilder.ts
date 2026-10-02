@@ -124,13 +124,27 @@ function sameItem(a: FreeCatalogItem, b: FreeCatalogItem): boolean {
 }
 
 /**
+ * Números já usados nas OUTRAS categorias. O backend recusa dois itens com o mesmo
+ * `id` mesmo que um seja asset e o outro bundle, então a seleção nunca os junta.
+ */
+function idsOutside(sel: Selection, category: AvatarCategory): Set<number> {
+  const ids = new Set<number>();
+  for (const other of AVATAR_CATEGORIES) {
+    if (other !== category) for (const item of sel[other]) ids.add(item.id);
+  }
+  return ids;
+}
+
+/**
  * Liga/desliga um item. Slot único: outro item substitui, o mesmo tira.
  * Acessório: liga até `MAX_ACCESSORIES` (cheio, o clique é ignorado) e desliga.
+ * Item cujo número já está em outra categoria é ignorado.
  */
 export function toggleItem(sel: Selection, item: FreeCatalogItem): Selection {
   const category = categoryOf(item);
   if (!category) return sel;
   const current = sel[category];
+  if (idsOutside(sel, category).has(item.id)) return sel;
   const present = current.some((c) => sameItem(c, item));
   if (category === "accessory") {
     if (present) return { ...sel, accessory: current.filter((c) => !sameItem(c, item)) };
@@ -147,9 +161,11 @@ function pick<T>(list: readonly T[], rand: () => number): T {
 /** Sorteia uma categoria. Sempre consome `rand` da mesma forma para a mesma entrada. */
 function rollCategory(
   category: AvatarCategory,
-  pool: readonly FreeCatalogItem[],
+  allItems: readonly FreeCatalogItem[],
+  taken: ReadonlySet<number>,
   rand: () => number,
 ): FreeCatalogItem[] {
+  const pool = allItems.filter((item) => !taken.has(item.id));
   if (pool.length === 0) return [];
   if (category === "accessory") {
     const wanted = Math.min(Math.floor(rand() * (MAX_RANDOM_ACCESSORIES + 1)), pool.length);
@@ -174,10 +190,11 @@ export function randomizeSelection(
   only?: AvatarCategory,
   base?: Selection,
 ): Selection {
-  const next: Selection = base ? { ...base } : emptySelection();
+  // Sem `only` tudo é sorteado de novo, então a base não entra.
+  const next: Selection = only && base ? { ...base } : emptySelection();
   for (const category of AVATAR_CATEGORIES) {
     if (only && category !== only) continue;
-    next[category] = rollCategory(category, catalog[category] ?? [], rand);
+    next[category] = rollCategory(category, catalog[category] ?? [], idsOutside(next, category), rand);
   }
   return next;
 }
@@ -197,6 +214,7 @@ export function selectionFromAvatar(avatar: SavedAvatar): Selection {
   for (const item of avatar.items) {
     const category = categoryOf(item);
     if (!category) continue;
+    if (idsOutside(sel, category).has(item.id)) continue;
     if (category === "accessory") {
       if (sel.accessory.length < MAX_ACCESSORIES && !sel.accessory.some((c) => sameItem(c, item))) {
         sel.accessory.push(item);
@@ -210,10 +228,13 @@ export function selectionFromAvatar(avatar: SavedAvatar): Selection {
 
 /** Chave i18n do primeiro problema que o backend recusaria ao salvar, ou `null` se está ok. */
 export function validateAvatarDraft(name: string, sel: Selection): string | null {
-  const trimmed = name.trim();
-  if (trimmed.length < 1 || trimmed.length > MAX_NAME_LENGTH) return "avatars.errors.name";
+  // Em pontos de código, como o `chars().count()` do backend (emoji vale 1, não 2).
+  const nameLength = [...name.trim()].length;
+  if (nameLength < 1 || nameLength > MAX_NAME_LENGTH) return "avatars.errors.name";
   if (REQUIRED_CATEGORIES.some((category) => sel[category].length === 0)) return "avatars.errors.required";
-  if (selectionItems(sel).length > MAX_ITEMS) return "avatars.errors.tooMany";
+  const items = selectionItems(sel);
+  if (items.length > MAX_ITEMS) return "avatars.errors.tooMany";
+  if (new Set(items.map((i) => i.id)).size !== items.length) return "avatars.errors.duplicate";
   return null;
 }
 

@@ -21,8 +21,8 @@ import {
 } from "./avatarBuilder";
 
 let nextId = 1;
-function item(kind: CatalogItemKind, typeId: number, name = `item${nextId}`): FreeCatalogItem {
-  const id = nextId++;
+function item(kind: CatalogItemKind, typeId: number, name = `item${nextId}`, fixedId?: number): FreeCatalogItem {
+  const id = fixedId ?? nextId++;
   return { id, kind, typeId, name, collectibleItemId: "" };
 }
 
@@ -219,6 +219,61 @@ describe("sorteio", () => {
   });
 });
 
+describe("id numérico repetido entre asset e bundle", () => {
+  // O backend recusa dois itens com o mesmo `id`, seja qual for o `kind`.
+  it("a validação recusa camisa e corpo com o mesmo número", () => {
+    const sel: Selection = {
+      ...emptySelection(),
+      shirt: [item("Asset", 11, "camisa", 5)],
+      pants: [item("Asset", 12)],
+      body: [item("Bundle", 1, "corpo", 5)],
+    };
+    expect(validateAvatarDraft("x", sel)).toBe("avatars.errors.duplicate");
+  });
+
+  it("toggleItem não adiciona o segundo item com o mesmo número em outra categoria", () => {
+    const shirt = item("Asset", 11, "camisa", 5);
+    const body = item("Bundle", 1, "corpo", 5);
+    const sel = toggleItem(emptySelection(), shirt);
+    expect(toggleItem(sel, body)).toEqual(sel);
+    // trocar a camisa por outra de mesmo número que o próprio slot continua valendo
+    const otherShirt = item("Asset", 11, "outra", 6);
+    expect(toggleItem(sel, otherShirt).shirt).toEqual([otherShirt]);
+  });
+
+  it("o sorteio nunca devolve os dois", () => {
+    const catalog = groupByCategory([
+      item("Asset", 11, "camisa", 5),
+      item("Asset", 12),
+      item("Bundle", 1, "corpo", 5),
+      item("Bundle", 1, "corpo 2"),
+    ]);
+    for (let seed = 1; seed <= 100; seed++) {
+      const sel = randomizeSelection(catalog, seeded(seed));
+      const ids = selectionItems(sel).map((i) => i.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(sel.body).toHaveLength(1);
+    }
+  });
+
+  it("o sorteio de uma categoria só respeita o número das outras da base", () => {
+    const catalog = groupByCategory([item("Asset", 11, "camisa", 5), item("Bundle", 1, "corpo", 5), item("Bundle", 1)]);
+    const base: Selection = { ...emptySelection(), shirt: catalog.shirt };
+    for (let seed = 1; seed <= 50; seed++) {
+      const next = randomizeSelection(catalog, seeded(seed), "body", base);
+      expect(next.body.map((i) => i.id)).not.toContain(5);
+    }
+  });
+
+  it("o avatar salvo com número repetido não leva o segundo item", () => {
+    const shirt = item("Asset", 11, "camisa", 5);
+    const body = item("Bundle", 1, "corpo", 5);
+    const sel = selectionFromAvatar({ id: "av_1", name: "x", items: [shirt, body], skinColor: null });
+    expect(sel.shirt).toEqual([shirt]);
+    expect(sel.body).toEqual([]);
+  });
+});
+
 describe("validação do rascunho", () => {
   function required(): Selection {
     let sel = emptySelection();
@@ -241,6 +296,11 @@ describe("validação do rascunho", () => {
     expect(validateAvatarDraft("x", emptySelection())).toBe("avatars.errors.required");
     const sel = required();
     expect(validateAvatarDraft("x", { ...sel, pants: [] })).toBe("avatars.errors.required");
+  });
+
+  it("conta o tamanho do nome em caracteres, como o backend", () => {
+    expect(validateAvatarDraft("😀".repeat(60), required())).toBeNull();
+    expect(validateAvatarDraft("😀".repeat(61), required())).toBe("avatars.errors.name");
   });
 
   it("recusa mais de 12 itens", () => {
