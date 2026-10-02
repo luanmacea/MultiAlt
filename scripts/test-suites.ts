@@ -164,7 +164,7 @@ export const SUITES: Record<string, TestSuite> = {
       "avatar_batch_tests",
       "avatar_cache_invalidation_tests",
     ],
-    front: [],
+    front: ["src/avatarBuilder.test.ts"],
   },
   webserver: {
     description: "Servidor HTTP local: rotas, senha e bloqueio anti-CSRF",
