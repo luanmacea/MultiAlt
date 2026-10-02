@@ -652,6 +652,7 @@ const RELOADLESS_FILES: &[(&str, &str)] = &[
     ("RAMTheme.ini", "o tema"),
     ("RAMThemePresets.json", "os presets de tema"),
     ("RAMScripts.json", "os scripts"),
+    ("RAMAvatars.json", "os avatares salvos"),
     ("RAMVersions.json", "o catálogo de versões"),
 ];
 

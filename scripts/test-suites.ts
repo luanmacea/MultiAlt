@@ -158,7 +158,7 @@ export const SUITES: Record<string, TestSuite> = {
   },
   avatars: {
     description: "Avatares gratuitos: catálogo oficial gratuito, resgate de itens, distribuição entre contas",
-    rust: ["avatar_catalog_tests"],
+    rust: ["avatar_catalog_tests", "avatar_store_tests"],
     front: [],
   },
   webserver: {
