@@ -2,8 +2,6 @@
 //!
 //! Persistência em `RAMAvatars.json`, no mesmo molde do `ScriptStore`: arquivo
 //! ilegível trava a gravação em vez de ser sobrescrito por uma lista vazia.
-// O store só é registrado no Tauri na tarefa seguinte; até lá nada o usa.
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::fs;

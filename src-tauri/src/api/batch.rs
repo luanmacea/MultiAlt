@@ -133,6 +133,13 @@ where
         self.insertion_order.clear();
     }
 
+    /// Remove as entradas cuja chave satisfaz `matches`.
+    fn remove_matching(&mut self, matches: impl Fn(&K) -> bool) {
+        self.entries.retain(|key, _| !matches(key));
+        let entries = &self.entries;
+        self.insertion_order.retain(|key| entries.contains_key(key));
+    }
+
     fn len(&self) -> usize {
         self.entries.len()
     }
@@ -524,6 +531,18 @@ impl ImageCache {
                 }
             })
             .collect()
+    }
+
+    /// Esquece as miniaturas de um tipo para os alvos dados, em qualquer
+    /// tamanho (a chave é `alvo:tipo:tamanho`). Usado quando a conta troca de
+    /// avatar e o headshot em cache deixa de valer.
+    pub async fn invalidate_targets(&self, thumbnail_type: &str, target_ids: &[i64]) {
+        let prefixes: Vec<String> = target_ids
+            .iter()
+            .map(|id| format!("{}:{}:", id, thumbnail_type))
+            .collect();
+        let mut cache = self.cache.lock().await;
+        cache.remove_matching(|key: &String| prefixes.iter().any(|p| key.starts_with(p.as_str())));
     }
 
     pub async fn clear_cache(&self) {
@@ -1267,5 +1286,43 @@ mod image_cache_tests {
 
         let err = get_asset_image_fallback(88_006, None).await.unwrap_err();
         assert!(err.starts_with("Parse failed: "), "unexpected: {}", err);
+    }
+}
+
+#[cfg(test)]
+mod avatar_cache_invalidation_tests {
+    use super::*;
+
+    async fn seed(cache: &ImageCache, id: i64, kind: &str, size: &str) {
+        cache
+            .cache
+            .lock()
+            .await
+            .insert(ImageCache::cache_key(id, kind, size), format!("https://cdn/{id}"));
+    }
+
+    async fn has(cache: &ImageCache, id: i64, kind: &str, size: &str) -> bool {
+        cache.get_cached_url(id, kind, size).await.is_some()
+    }
+
+    /// Trocar o avatar invalida só o headshot da conta (qualquer tamanho),
+    /// sem tocar em outros tipos nem em outras contas.
+    #[tokio::test]
+    async fn invalidating_targets_drops_every_size_of_that_type_for_those_ids_only() {
+        let cache = ImageCache::new();
+        seed(&cache, 1, "AvatarHeadShot", "48x48").await;
+        seed(&cache, 1, "AvatarHeadShot", "150x150").await;
+        seed(&cache, 1, "Avatar", "150x150").await;
+        seed(&cache, 2, "AvatarHeadShot", "48x48").await;
+        seed(&cache, 11, "AvatarHeadShot", "48x48").await;
+
+        cache.invalidate_targets("AvatarHeadShot", &[1, 2]).await;
+
+        assert!(!has(&cache, 1, "AvatarHeadShot", "48x48").await);
+        assert!(!has(&cache, 1, "AvatarHeadShot", "150x150").await);
+        assert!(!has(&cache, 2, "AvatarHeadShot", "48x48").await);
+        assert!(has(&cache, 1, "Avatar", "150x150").await);
+        // "11:" não pode ser confundido com o prefixo "1:".
+        assert!(has(&cache, 11, "AvatarHeadShot", "48x48").await);
     }
 }
