@@ -44,6 +44,9 @@ export const SUITES: Record<string, TestSuite> = {
       "win_process_tests",
       "win_tracker_tests",
       "win_client_settings_tests",
+      "client_window_plan_tests",
+      "client_window_order_tests",
+      "win_client_window_tests",
     ],
     front: [
       "src/store.test.ts",
@@ -304,6 +307,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "diagnostics_tests",
       "win_windowing_tests",
+      "win_grid_slot_tests",
       "win_optimization_tests",
       "generator_command_tests",
       "generator_http_tests",

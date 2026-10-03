@@ -632,6 +632,28 @@ describe("OptimizationTab", () => {
     Optimization: { NormalEnableFastFlags: "true" },
   } as Record<string, Record<string, string>>;
 
+  /** A grade automática fica junto do tamanho de janela global, que é o da célula. */
+  it("turns the automatic window grid off next to the window size", async () => {
+    renderOptimization({ General: { AutoArrangeGrid: "true" } });
+    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    await userEvent.click(toggle);
+    await expectSaved("General", "AutoArrangeGrid", "false");
+  });
+
+  it("shows the automatic window grid on when it was never saved", async () => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("hides the automatic window grid outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(screen.queryByRole("switch", { name: /Arrange in grid on launch/ })).not.toBeInTheDocument();
+  });
+
   it("rejects a fast flag key that is not on the backend allowlist", async () => {
     renderOptimization({
       Optimization: {

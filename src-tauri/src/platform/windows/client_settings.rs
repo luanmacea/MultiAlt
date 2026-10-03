@@ -933,6 +933,107 @@ mod win_client_settings_tests {
         assert_eq!(alt["Keep"], "me");
     }
 
+    // ── grupo da janela (Fullscreen, StartMaximized, StartScreenSize) ──────
+    //
+    // O cenário do dono (03/10/2026): perfil global 520x420, exceção da conta
+    // principal 1000x1000. O XML é um arquivo só.
+
+    const WINDOW_XML: &str = concat!(
+        "<roblox>\n",
+        "\t<Item class=\"UserGameSettings\" referent=\"RBX1\">\n",
+        "\t\t<Properties>\n",
+        "\t\t\t<int name=\"FramerateCap\">60</int>\n",
+        "\t\t\t<Vector2 name=\"StartScreenSize\">\n\t\t\t\t<X>640</X>\n\t\t\t\t<Y>480</Y>\n\t\t\t</Vector2>\n",
+        "\t\t</Properties>\n",
+        "\t</Item>\n",
+        "</roblox>\n"
+    );
+
+    const FROM_ACCOUNT_WINDOW: AccountSourced = AccountSourced {
+        fps: false,
+        volume: false,
+        graphics: false,
+        window: true,
+    };
+
+    fn open_window(
+        xml: &str,
+        size: Option<(u32, u32)>,
+        sourced: AccountSourced,
+        ledger: &mut OverrideLedger,
+    ) -> String {
+        rewrite_global_basic_settings_guarded(xml, None, None, None, None, size, sourced, ledger)
+            .expect("bloco UserGameSettings")
+    }
+
+    fn screen_size(xml: &str) -> (u32, u32) {
+        let (start, end) = property_range(xml, "StartScreenSize").expect("StartScreenSize");
+        let block = &xml[start..end];
+        let read = |tag: &str| -> u32 {
+            let open = format!("<{tag}>");
+            let at = block.find(&open).expect("eixo") + open.len();
+            let close = block[at..].find('<').expect("fim do eixo");
+            block[at..at + close].parse().expect("número")
+        };
+        (read("X"), read("Y"))
+    }
+
+    #[test]
+    fn the_global_window_size_replaces_the_main_accounts_exception() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_window(WINDOW_XML, Some((1000, 1000)), FROM_ACCOUNT_WINDOW, &mut ledger);
+        assert_eq!(screen_size(&main), (1000, 1000));
+
+        let alt = open_window(&main, Some((520, 420)), AccountSourced::default(), &mut ledger);
+        assert_eq!(screen_size(&alt), (520, 420));
+        // O global escreveu o valor dele: o da exceção não precisa mais voltar.
+        assert!(ledger.is_empty(), "{ledger:?}");
+    }
+
+    #[test]
+    fn a_window_size_exception_does_not_leak_into_an_account_without_a_size() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_window(WINDOW_XML, Some((1000, 1000)), FROM_ACCOUNT_WINDOW, &mut ledger);
+
+        let alt = open_window(&main, None, AccountSourced::default(), &mut ledger);
+        assert_eq!(screen_size(&alt), (640, 480), "{alt}");
+        // `Fullscreen`/`StartMaximized` foram criados pela exceção e saem junto.
+        assert!(!alt.contains("Fullscreen"), "{alt}");
+        assert!(!alt.contains("StartMaximized"), "{alt}");
+        assert!(ledger.is_empty(), "{ledger:?}");
+    }
+
+    #[test]
+    fn a_window_the_player_resized_in_game_keeps_its_size() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_window(WINDOW_XML, Some((1000, 1000)), FROM_ACCOUNT_WINDOW, &mut ledger);
+        // O cliente da principal regravou o XML com o tamanho que o jogador deu
+        // à janela: é dele, não da exceção.
+        let resized = main.replace("<X>1000</X>", "<X>1200</X>");
+
+        let alt = open_window(&resized, None, AccountSourced::default(), &mut ledger);
+        assert_eq!(screen_size(&alt), (1200, 1000), "{alt}");
+    }
+
+    #[test]
+    fn two_window_exceptions_in_a_row_still_restore_the_original_size() {
+        let mut ledger = OverrideLedger::default();
+        let a = open_window(WINDOW_XML, Some((1000, 1000)), FROM_ACCOUNT_WINDOW, &mut ledger);
+        let b = open_window(&a, Some((800, 600)), FROM_ACCOUNT_WINDOW, &mut ledger);
+        assert_eq!(screen_size(&b), (800, 600));
+
+        let alt = open_window(&b, None, AccountSourced::default(), &mut ledger);
+        assert_eq!(screen_size(&alt), (640, 480), "{alt}");
+    }
+
+    #[test]
+    fn a_window_exception_leaves_the_other_groups_alone() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_window(WINDOW_XML, Some((1000, 1000)), FROM_ACCOUNT_WINDOW, &mut ledger);
+        assert!(main.contains("<int name=\"FramerateCap\">60</int>"));
+        assert!(ledger.entries.keys().all(|k| WINDOW_PROPS.iter().any(|p| k == &format!("xml:{p}"))));
+    }
+
     #[test]
     fn the_override_ledger_survives_a_restart() {
         let mut ledger = OverrideLedger::default();

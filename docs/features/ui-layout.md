@@ -87,11 +87,21 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 | Recent | jogos recentes. |
 | Follow | Campo de join link ([join-links.md](join-links.md)) e o card "Follow a Player": `lookup_user` + `get_presence` resolvem o servidor do alvo **uma vez** e `launchAll` manda todas as contas selecionadas para lá (`launch_multiple` com várias contas, com o piso anti-captcha). Alvo fora de jogo (`presence < 2`) vira toast e nada é lançado; em jogo mas com o servidor escondido pela privacidade, pede confirmação para cair num servidor público do mesmo jogo. (Isto já foi um laço de `launch_roblox` com `followUser: true` e 3 s entre contas, que furava o piso de 8 s.) Atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
 | Console | **histórico geral das ações** (evento `launch-log`, auto-scroll, limpar): launch, Auto Rejoin e Watcher, cada linha com a origem (`step`) numa coluna de largura fixa — sem ela, `[watcher]` e `[rejoin-retry]` empurram o nome da conta para colunas diferentes. Linha de sessão (início/fim do Auto Rejoin) vem com `userId` nulo e aparece como `—`. O Painel de Sessão fica acima do log. |
-| Windows | controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)` — organiza nos monitores as janelas do Roblox que já estão abertas. |
+| Windows | controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)` — organiza nos monitores as janelas do Roblox que já estão abertas — e o interruptor **Arrange in grid on launch** (`General.AutoArrangeGrid`). Ver [Grade de janelas](#grade-de-janelas). |
 
 `launchAll` (hook `useLauncher`): confirma contas online, muda para a aba Console, grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
 
 Controles de grade (aba **Windows**): o campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior.
+
+### Grade de janelas
+
+A grade é feita de **células fixas** ([windowing.rs](../../src-tauri/src/platform/windows/windowing.rs), `grid_slots`): todas as células do tamanho da janela que cabem na área de trabalho dos monitores escolhidos (`GridMonitors`, vazio = todos), com `GridGap` entre elas, da esquerda para a direita e de cima para baixo, monitor por monitor. Tamanho da célula: o tamanho global (`OverrideClientWindowSize` + `ClientWindowWidth/Height`) quando ligado; senão, na grade automática, o tamanho com que a janela nova abriu, e no botão manual o tamanho mais comum entre as janelas.
+
+- **Automática no launch** (`General.AutoArrangeGrid`, ligada por padrão): quando a janela de um cliente aparece depois do launch de uma conta, da fila ou do Auto Rejoin, a mesma task que confere o tamanho pelo PID ([launch.md](launch.md#tamanho-da-janela-conferido-pelo-pid)) a põe na **primeira célula livre** (`pick_grid_slot`). Uma célula está ocupada quando o centro de uma janela da grade está dentro dela. **Janelas já abertas não se mexem** — o usuário pode estar jogando nelas. **Grade cheia: dá a volta** — a janela vai para a célula menos ocupada, empate na de menor índice, ou seja, sobrepõe a partir da célula 0. Uma janela por vez (`GRID_PLACEMENT`), para duas janelas da fila não escolherem a mesma célula. Na conta do launch de uma conta, a grade vence a posição salva pelo Watcher.
+- **Botão Arrange in grid** (`arrange_windows_grid`): as mesmas células, a i-ésima janela (ordem de cima para baixo, esquerda para direita) na célula i, dando a volta quando há mais janelas que células.
+- **Fora da grade, nos dois**: contas com janela própria — exceção de launch com tamanho (`ClientOverrideWindowWidth/Height`) ou tela cheia (`account_keeps_own_window`). Elas não são movidas nem encolhidas e não contam como ocupando célula; os PIDs saem do rastreamento de processos (`grid_excluded_pids`). Também ficam de fora: conta que começa minimizada (não é desminimizada), janela em tela cheia ou maximizada (na automática) e janela minimizada.
+
+Testes: `win_grid_slot_tests` (células, primeira livre, volta), `client_window_plan_tests` (quem entra na grade). Interruptores: `ChooseGameScreen.test.tsx` e `settingsTabs.test.tsx` (aba Optimization, junto do tamanho de janela global).
 
 ### Tela "Choose Game" — chips e abas
 
@@ -166,6 +176,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 | `General.ThemeWindowsNavbar` | Barra nativa segue o tema. |
 | `General.RestrictedBackgroundStyle` | Fundo da tela de senha. |
 | `General.GridGap`, `GridMonitors` | Arranjo em grade (aba Windows da Choose Game). |
+| `General.AutoArrangeGrid` | Grade automática no launch (aba Windows e Settings > Optimization). |
 | `General.FirstRunWalkthroughState` | Exibição do walkthrough inicial. |
 
 ## Armadilhas / cuidados

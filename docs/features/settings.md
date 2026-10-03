@@ -102,6 +102,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `FirstRunWalkthroughState` | `pending` (novo) / `completed` (INI existente) | Walkthrough; vira `skipped`/`completed`. |
 | `SavedPlaceId` / `SavedJobId` / `SavedLaunchData` | — | Últimos valores de launch. |
 | `GridGap` / `GridMonitors` | — (20 / vazio) | Arranjo de janelas em grade (Choose Game). |
+| `AutoArrangeGrid` | `true` | Grade automática no launch: cada janela nova do Roblox (launch, fila, Auto Rejoin) vai para a primeira célula livre da grade de `GridMonitors`/`GridGap`. Contas com tamanho de janela próprio ficam de fora. Só `"false"` desliga (chave ausente = ligada). Interruptor na aba Windows da Choose Game e em Settings > Optimization. Ver [ui-layout.md](ui-layout.md#grade-de-janelas). |
 
 ### `[Developer]`
 

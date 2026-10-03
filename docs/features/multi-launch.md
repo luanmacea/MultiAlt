@@ -29,12 +29,13 @@ Lançar várias contas, **uma por vez e em sequência**, no mesmo place/Job ID, 
    4. Guarda de versão (`version_guard_blocks`, com o toggle `Versions.AllowLaunchOnOpenVersion` lido a cada conta — ver [launch.md](launch.md)): se houver cliente/pendente em outra versão → `launch-progress` com `error: "version-conflict"`, próxima conta (sem espera). O código fica no evento; a entrada da fila é marcada `Failed` com a **frase** de `version_conflict_message` (com as versões que impedem aquela conta), porque o painel de sessão desenha `entry.error` cru.
    5. Emite `launch-progress {userId, index, total}`.
    5.1. `shuffleJob` ligado e Job ID vazio: **esta conta** busca a lista de servidores públicos do place e sorteia o seu (`pick_shuffled_public_job`), logando `launch-log` `target` com o Job ID escolhido. Cada conta sorteia o seu — o lote se espalha em vez de entrar todo no mesmo servidor.
-   6. Multi Roblox + `refresh_production_version().await` + patch do `ClientAppSettings.json` **na pasta da versão desta conta** (`Some(&acct_base_path)`, resolvida no passo 3 — ver [launch.md](launch.md#onde-o-clientappsettingsjson-é-gravado)).
+   6. Multi Roblox + `refresh_production_version().await` + resolução da pasta de onde o cliente vai abrir (`client_dir`, ver [launch.md](launch.md#onde-o-clientappsettingsjson-é-gravado)).
    7. `AutoCloseLastProcess`: se não conseguir fechar o cliente anterior, espera 2 s e pula.
    8. Auth ticket; erro → loga, marca moderada se for o caso, espera 2 s, pula.
    9. `resolve_private_join`; erro → espera 2 s, pula.
    10. Se `is_launch_cancelled()` → sai do loop (checagem logo antes do spawn: "Close All Roblox" clicado durante o auth/resolução não abre mais um cliente).
-   11. Spawn (old join — pasta do catálogo ou `default_player_dir` quando sem versão do catálogo — ou protocolo), espera PID (12 s ou 180 s), rastreia, aplica perfil pós-launch e minimização.
+   10.1. Patch do `ClientAppSettings.json` (na pasta do passo 6) e do `GlobalBasicSettings_13.xml` — **o último passo antes do spawn**. Até 03/10/2026 ele vinha no passo 6, e os clientes que o lote já tinha aberto reescreviam o XML durante o fechamento/ticket: a alt abria com o tamanho de janela da conta principal. Ver [launch.md](launch.md#tamanho-da-janela-conferido-pelo-pid).
+   11. Spawn (old join — pasta do catálogo ou `default_player_dir` quando sem versão do catálogo — ou protocolo), espera PID (12 s ou 180 s), rastreia, aplica perfil pós-launch, dispara a conferência da janela pelo PID (`spawn_client_window_enforcement`, numa task à parte — a fila não espera; com `AutoArrangeGrid`, ela também põe a janela na grade) e a minimização.
    12. Se não é a última conta: espera (ver regras de espaçamento).
 6. Ao fim (ou cancelamento) emite `launch-complete`.
 
@@ -129,6 +130,7 @@ Duas sequências ao mesmo tempo (dois cliques no botão, ou um launch de uma con
 | General | `AutoCloseLastProcess` | `false` | Fecha cliente anterior da conta antes de relançar |
 | General | `AutoCloseRobloxForMultiRbx` | `false` | Mata clientes se o mutex não puder ser adquirido |
 | General | `StartRobloxMinimized` | `false` | Minimiza janelas novas |
+| General | `AutoArrangeGrid` | `true` | Cada janela nova vai para a primeira célula livre da grade (lido a cada conta) — ver [ui-layout.md](ui-layout.md#grade-de-janelas) |
 | Developer | `UseOldJoin`, `IsTeleport` | `false` | Iguais ao launch único |
 | Isolation | `Mode` | `Off` | Roda uma vez antes da fila |
 
@@ -136,7 +138,7 @@ Duas sequências ao mesmo tempo (dois cliques no botão, ou um launch de uma con
 
 - O que a conta em voo pode demorar é **limitado** desde que as chamadas HTTP do launch ganharam teto (ver [launch.md](launch.md#teto-de-tempo-das-chamadas-http-do-launch)); antes um endpoint do Roblox pendurado segurava a reserva por tempo indeterminado e todo launch novo era recusado.
 - O cancelamento **interrompe** a espera de espaçamento (ela é fatiada em 250 ms e olha a fila e o flag do tracker), mas **não** interrompe a espera de PID de um cliente já spawnado nem o trabalho da conta em voo; a conta em andamento não abre cliente se o cancelamento chegar antes do spawn (checagem após auth ticket/private join). Ou seja: depois de parar a fila, o usuário espera no máximo o que falta da conta em voo — não mais o `AccountJoinDelay` inteiro.
-- `launch_multiple` não restaura posição de janela salva (só o launch único faz isso).
+- `launch_multiple` não restaura posição de janela salva (só o launch único faz isso); com `AutoArrangeGrid` ligado, as contas sem janela própria vão para a grade, uma célula livre por janela, sem mexer nas que já estão abertas.
 - Diminuir o piso de 8 s / residual de 5 s volta a provocar captcha — o histórico de commits ("diminuindo delay", "ajuste de tempo no join") mostra que esse valor foi calibrado.
 - Isolamento só é aplicado se nenhum Roblox estiver aberto quando a fila começa; com clientes abertos ele é pulado (`skipped`) e nada é fechado.
 - No macOS o delay é `max(AccountJoinDelay, 12)` só quando `EnableMultiRbx`; não há jitter nem piso de 8 s (a sanitização de valor negativo vale nos dois, via `configured_join_delay_seconds`).

@@ -10,7 +10,7 @@ vi.mock("../hooks/usePrompt", async () => (await import("../test-utils/promptMoc
 
 import { ChooseGameScreen } from "./ChooseGameScreen";
 import { saveRecentGames } from "./server-list/types";
-import { makeAccount, setStore } from "../test-utils/renderWithStore";
+import { defaultSettings, makeAccount, setStore } from "../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
 import { promptAnswers, resetPromptMocks } from "../test-utils/promptMocks";
 import type { JoinTarget } from "../types";
@@ -924,6 +924,44 @@ describe("ChooseGameScreen — descoberta", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Windows" }));
     expect(await screen.findByText("Window layout")).toBeInTheDocument();
+  });
+
+  /**
+   * A grade automática (cada janela nova entra na primeira célula livre) mora
+   * ao lado dos controles da grade, que são os mesmos monitores e o mesmo gap.
+   * Vem ligada: quem nunca salvou a opção vê o interruptor ligado.
+   */
+  it("liga a grade automática por padrão e a desliga ao lado dos controles da grade", async () => {
+    renderScreen();
+
+    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
+    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    await userEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+      section: "General",
+      key: "AutoArrangeGrid",
+      value: "false",
+    });
+  });
+
+  it("mostra a grade automática desligada quando o usuário a desligou", async () => {
+    const base = defaultSettings();
+    renderScreen({ settings: { ...base, General: { ...base.General, AutoArrangeGrid: "false" } } });
+
+    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
+    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+      section: "General",
+      key: "AutoArrangeGrid",
+      value: "true",
+    });
   });
 
   /**
