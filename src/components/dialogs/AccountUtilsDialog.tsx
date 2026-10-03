@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
+import { accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useModalClose } from "../../hooks/useModalClose";
 import { SectionHeader } from "../ui/SectionHeader";
 import { UtilInput } from "../ui/UtilInput";
@@ -174,9 +175,11 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
 
   if (!visible || !account) return null;
 
-  const avatarUrl = store.avatarUrls.get(account.UserID);
-  // Nome que aparece nas confirmações: o mesmo rótulo do cabeçalho do diálogo.
-  const accountLabel = account.Alias || account.Username;
+  // Com os nomes ocultos a foto some junto, como na lista de contas.
+  const avatarUrl = hideAccountAvatar(store) ? undefined : store.avatarUrls.get(account.UserID);
+  // Nome que aparece nas confirmações: o mesmo rótulo do cabeçalho do diálogo
+  // (mascarado com "Names hidden").
+  const accountName = accountLabel(account, store);
 
   async function handleSetDisplayName() {
     if (!displayName.trim()) return;
@@ -222,7 +225,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
     const confirmed = await confirm(
       t(
         'Change the Roblox password for "{{account}}"? This changes the password on the real Roblox account, not just in this app, and cannot be undone from here.',
-        { account: accountLabel }
+        { account: accountName }
       ),
       true
     );
@@ -251,7 +254,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
     const confirmed = await confirm(
       t(
         'Change the Roblox email for "{{account}}" to {{email}}? This changes the email on the real Roblox account, not just in this app, and future account recovery goes to the new address.',
-        { account: accountLabel, email: emailInput }
+        { account: accountName, email: emailInput }
       ),
       true
     );
@@ -526,7 +529,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
             )}
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-zinc-100 truncate">
-                {account.Alias || account.Username}
+                {accountName}
               </div>
               <div className="flex items-center gap-3 text-[12px] text-zinc-500">
                 <span className="font-mono">{account.UserID}</span>
@@ -606,7 +609,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
             <p className="text-[12px] text-red-400/80">
               {t(
                 'These change the real Roblox account "{{account}}", not just this app.',
-                { account: accountLabel }
+                { account: accountName }
               )}
             </p>
             <UtilInput
@@ -711,6 +714,9 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
                   value={outfitUsername}
                   onChange={setOutfitUsername}
                   placeholder="Username"
+                  // Abre com o username da própria conta: com os nomes ocultos
+                  // ele fica em bolinhas (outro nome digitado aparece normal).
+                  masked={store.hideUsernames && outfitUsername === account.Username}
                 />
               </div>
               <UtilButton onClick={handleLoadOutfits} disabled={loading === "outfits"}>

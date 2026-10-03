@@ -241,7 +241,7 @@ function AccountsCard({ ctl }: { ctl: ClicksController }) {
           {candidates.map((account) => {
             const picked = inAfk.includes(account.UserID);
             const row = statusByUserId.get(account.UserID);
-            const name = account.Alias || account.Username;
+            const name = ctl.accountName(account.UserID);
             const ownPoint = readAfkPoint(account.Fields);
             return (
               <div

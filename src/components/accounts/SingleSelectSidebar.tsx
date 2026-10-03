@@ -2,6 +2,7 @@ import { useState, useEffect, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
+import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
 import { AccountLaunchOverrides } from "./AccountLaunchOverrides";
@@ -9,13 +10,6 @@ import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
 import { MAX_ALIAS_LENGTH } from "../../types";
 import { User, Package } from "lucide-react";
-
-function chipMaskName(name: string, previewLetters: number): string {
-  if (previewLetters > 0 && previewLetters < name.length) {
-    return name.slice(0, previewLetters) + "********";
-  }
-  return "************";
-}
 
 export function SingleSelectSidebar() {
   const t = useTr();
@@ -77,9 +71,8 @@ export function SingleSelectSidebar() {
   }
 
   const avatarUrl = store.avatarUrls.get(account.UserID);
-  const rawName = account.Alias || account.Username;
-  const displayName = store.hideUsernames ? chipMaskName(rawName, store.hiddenNameLetters) : rawName;
-  const hideAvatar = store.hideUsernames && !store.showAvatarsWhenHidden;
+  const displayName = accountLabel(account, store);
+  const hideAvatar = hideAccountAvatar(store);
   const presenceType = store.presenceByUserId.get(account.UserID) ?? 0;
 
   const presenceMeta =
@@ -104,7 +97,7 @@ export function SingleSelectSidebar() {
             <img src={avatarUrl} alt="" className="theme-avatar w-10 h-10 rounded-full bg-[var(--panel-soft)]" />
           ) : (
             <div className="theme-avatar w-10 h-10 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-base font-medium">
-              {(account.Username || "?").charAt(0).toUpperCase()}
+              {accountInitial(account, store)}
             </div>
           )}
           <div className="min-w-0">

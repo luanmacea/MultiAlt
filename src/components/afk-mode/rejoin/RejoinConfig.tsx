@@ -150,16 +150,17 @@ export function TargetsCard({ ctl }: { ctl: RejoinController }) {
         ) : null}
         {targetAccounts.map((a) => {
           const isPlayer = playerUserIds.includes(a.UserID) || !!statusMap.get(a.UserID)?.isPlayer;
+          const name = ctl.accountLabel(a);
           return (
             <span
               key={a.UserID}
-              title={a.Alias || a.Username}
+              title={name}
               className={[
                 "px-2 py-1 rounded-md text-[12px] border theme-soft max-w-[160px] truncate",
                 isPlayer ? "theme-accent-bg theme-accent-border theme-accent" : "theme-border text-[var(--panel-fg)]",
               ].join(" ")}
             >
-              {a.Alias || a.Username}
+              {name}
             </span>
           );
         })}
@@ -204,6 +205,7 @@ export function TargetsCard({ ctl }: { ctl: RejoinController }) {
             <div className="h-px theme-border border-t" />
             {targetAccounts.map((a) => {
               const active = playerUserIds.includes(a.UserID);
+              const name = ctl.accountLabel(a);
               return (
                 <button
                   key={a.UserID}
@@ -218,8 +220,8 @@ export function TargetsCard({ ctl }: { ctl: RejoinController }) {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate" title={a.Alias || a.Username}>
-                      {a.Alias || a.Username}
+                    <span className="truncate" title={name}>
+                      {name}
                     </span>
                     {active ? <span className="text-[12px] opacity-80">{t("Selected")}</span> : null}
                   </div>

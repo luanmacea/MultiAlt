@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { tr } from "../i18n/text";
 import { useStore } from "../store";
+import { accountLabel } from "../utils/accountName";
 import { useConfirmWithOptOut } from "./usePrompt";
 
 interface PresenceEntry {
@@ -57,7 +58,8 @@ export function useJoinOnlineWarning() {
         if (type < 1) return null;
         const account = accountById.get(id);
         return {
-          name: account ? account.Alias || account.Username : tr("User {{id}}", { id }),
+          // O aviso é tela: com "Names hidden" o nome sai mascarado.
+          name: accountLabel(account, store, tr("User {{id}}", { id })),
           type,
         };
       })
