@@ -1,19 +1,21 @@
 **English** | [Português](README.pt-BR.md)
 
-# RAM — Roblox Account Manager
-![Roblox Account Manager](Images/Image5.png)
+# MultiAlt — Roblox Account Manager
+![MultiAlt](Images/Image5.png)
 
 <p align="center">
-  <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/Roblox-Account-Manager-Setup.msi"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
+  <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">other downloads (portable, full version)</a> · <a href="https://roblox-account-manager-app.pages.dev/">🌐 website</a></sub>
+  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">other downloads (portable, full version)</a> · <a href="https://multialt.pages.dev/">🌐 website</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
 
-**The Roblox Account Manager built for the best user experience.** Keep all your Roblox accounts in one place, open as many Roblox clients as you want at the same time and play on your alts without ever logging out — with Auto Rejoin, anti-AFK, server finder, friends join, encrypted storage and much more.
+**The multi Roblox account manager built for the best user experience.** Keep all your Roblox accounts in one place, open as many Roblox clients as you want at the same time and play on your alts without ever logging out — with Auto Rejoin, anti-AFK, server finder, friends join, encrypted storage and much more.
 
 Fast and lightweight: rewritten from scratch in **Rust + TypeScript** with [Tauri](https://tauri.app/). No .NET, no VC++ to install.
+
+*MultiAlt was called **RAM — Roblox Account Manager** until v0.1.8: same app, same data, it updates itself to the new name.*
 
 Full credit to [ic3w0lf22](https://github.com/ic3w0lf22), who created the original Roblox Account Manager, and to [niccdevs](https://github.com/niccdevs), who maintained it afterwards. This project continues their work.
 
@@ -23,7 +25,7 @@ Found a bug or have an idea? Open an [issue](https://github.com/luanmacea/roblox
 Never generate an "rbx-player link" because someone asked you to — anyone holding that link can join any game (or even Roblox Studio) as you, spend your Robux or get your account banned.
 
 # Download
-**[⬇ Download the installer (.msi)](https://github.com/luanmacea/roblox-account-manager/releases/latest/download/Roblox-Account-Manager-Setup.msi)** — that's all most people need. It comes out 0/75 on VirusTotal, installs for your user only (**no administrator prompt**) and updates itself.
+**[⬇ Download the installer (.msi)](https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi)** — that's all most people need. It comes out 0/75 on VirusTotal, installs for your user only (**no administrator prompt**) and updates itself.
 
 Only download from this repository. The [releases page](https://github.com/luanmacea/roblox-account-manager/releases/latest) also has:
 
@@ -121,4 +123,4 @@ bun run check            # typecheck + all tests (vitest + cargo test)
 The first `tauri dev`/`tauri build` compiles every Rust crate from scratch and can take a few minutes; later builds are incremental. Developer documentation (in Portuguese) lives in [docs/](docs/README.md).
 
 # Preview
-![Roblox Account Manager](Images/Image5.png)
+![MultiAlt](Images/Image5.png)

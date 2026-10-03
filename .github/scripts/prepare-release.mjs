@@ -57,7 +57,7 @@ const { version: coreVersion, previousTag } = nextReleaseVersion({
 const fullVersion = channel === "beta" ? `${coreVersion}-beta` : coreVersion;
 const appVersion = coreVersion;
 const tag = `v${fullVersion}`;
-const releaseTitle = `Roblox Account Manager ${tag}`;
+const releaseTitle = `MultiAlt (Roblox Account Manager) ${tag}`;
 const updaterEndpoint = `https://raw.githubusercontent.com/${repository}/update-manifests/${channel}/latest.json`;
 
 packageJson.version = appVersion;

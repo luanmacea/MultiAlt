@@ -146,7 +146,7 @@ function OptimizationProfileSection({
       </div>
 
       <div className="mt-1 text-[12px] text-zinc-500">
-        {t("These settings apply only to Roblox processes launched by RAM")}
+        {t("These settings apply only to Roblox processes launched by MultiAlt")}
       </div>
 
       <Divider />
@@ -602,7 +602,7 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
         </div>
         <div className="mt-3 text-[12px] leading-5 text-zinc-500">
           {isWindows
-            ? t("These settings apply only to Roblox processes launched by RAM")
+            ? t("These settings apply only to Roblox processes launched by MultiAlt")
             : t("Windows-only process policies are unavailable on this platform")}
         </div>
         {bottingEnabled ? (

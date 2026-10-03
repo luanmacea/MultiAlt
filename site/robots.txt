@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://roblox-account-manager-app.pages.dev/sitemap.xml
+Sitemap: https://multialt.pages.dev/sitemap.xml

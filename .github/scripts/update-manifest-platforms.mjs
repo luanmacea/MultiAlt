@@ -12,7 +12,7 @@
  */
 
 /** Nome fixo do MSI na release: o botao de download do README aponta para ele. */
-export const STABLE_MSI_NAME = "Roblox-Account-Manager-Setup.msi";
+export const STABLE_MSI_NAME = "MultiAlt-Setup.msi";
 
 export function msiOnlyPlatforms(platforms) {
   // Com um formato so, o tauri-action pode escrever apenas a chave generica;
