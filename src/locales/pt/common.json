@@ -1810,5 +1810,11 @@
   "{{count}} of {{total}}": "{{count}} de {{total}}",
   "Check the accounts that should get an avatar.": "Marque as contas que devem receber um avatar.",
   "No accounts yet — add accounts first.": "Nenhuma conta ainda — adicione contas primeiro.",
-  "Select none": "Desmarcar tudo"
+  "Select none": "Desmarcar tudo",
+  "Installing v{{version}}": "Instalando a v{{version}}",
+  "RAM will close and open again by itself in a few seconds.": "O RAM vai fechar e abrir de novo sozinho em alguns segundos.",
+  "The update to v{{version}} didn't finish. Check for updates to try again.": "A atualização para a v{{version}} não terminou. Procure atualizações para tentar de novo.",
+  "Updated to v{{version}} ✨": "Atualizado para a v{{version}} ✨",
+  "Updating RAM": "Atualizando o RAM",
+  "Your accounts and settings stay where they are.": "Suas contas e configurações continuam onde estão."
 }

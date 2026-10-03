@@ -45,6 +45,10 @@
 
         <InstallExecuteSequence>
             <RemoveShortcuts>Installed AND NOT UPGRADINGPRODUCTCODE</RemoveShortcuts>
+            <!-- Na atualizacao os atalhos ja existem e apontam para o mesmo exe: nao
+                 reescrever. Reescrito, o .lnk vira outro arquivo e o Windows tira o
+                 icone da posicao em que o usuario o deixou na area de trabalho. -->
+            <CreateShortcuts>NOT WIX_UPGRADE_DETECTED</CreateShortcuts>
         </InstallExecuteSequence>
 
         <Media Id="1" Cabinet="app.cab" EmbedCab="yes" />

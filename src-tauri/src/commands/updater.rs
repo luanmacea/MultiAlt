@@ -145,6 +145,10 @@ async fn check_update_for_channel(
         .updater_builder()
         .endpoints(vec![endpoint])
         .map_err(|e| format!("Failed to configure updater endpoint: {}", e))?
+        .installer_args(update_installer_args(
+            tauri::utils::platform::bundle_type(),
+            &update_install_log_path(),
+        ))
         .build()
         .map_err(|e| format!("Failed to initialize updater: {}", e))?;
 
@@ -227,8 +231,64 @@ async fn check_for_updates_with_channels(
     }))
 }
 
+/// De quanto em quanto tempo o download avisa a tela. O plugin chama o callback
+/// a cada pedaco recebido (centenas por segundo); a barra so precisa de alguns.
+const DOWNLOAD_PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
+#[derive(Default)]
+struct DownloadProgressThrottle {
+    last_emit: Option<std::time::Instant>,
+}
+
+impl DownloadProgressThrottle {
+    /// O primeiro pedaco e o ultimo sempre passam; no meio, um a cada intervalo.
+    fn should_emit(&mut self, now: std::time::Instant, finished: bool) -> bool {
+        let due = match self.last_emit {
+            None => true,
+            Some(last) => now.duration_since(last) >= DOWNLOAD_PROGRESS_INTERVAL,
+        };
+        if due || finished {
+            self.last_emit = Some(now);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateDownloadProgress {
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+/// Argumentos extras do instalador da atualizacao.
+///
+/// A instalacao roda em silencio (`installMode: quiet` no tauri.conf.json): sem a
+/// janela nativa do MSI, que parecia "baixar de novo" depois do download do app.
+/// Sem janela, um erro tambem nao aparece — por isso o MSI grava um log detalhado
+/// na pasta de dados. O NSIS nao entende `/l*v`, entao so o MSI o recebe.
+fn update_installer_args(
+    bundle: Option<tauri::utils::config::BundleType>,
+    log_path: &std::path::Path,
+) -> Vec<String> {
+    match bundle {
+        Some(tauri::utils::config::BundleType::Msi) => vec![
+            "/l*v".to_string(),
+            format!("\"{}\"", log_path.display()),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn update_install_log_path() -> std::path::PathBuf {
+    crate::data::settings::get_runtime_data_dir().join("RAMUpdateInstall.log")
+}
+
 #[tauri::command]
 async fn download_selected_update(
+    app: tauri::AppHandle,
     updater_state: tauri::State<'_, UpdaterRuntimeState>,
 ) -> Result<(), String> {
     let pending_update = {
@@ -245,8 +305,25 @@ async fn download_selected_update(
     let payload_key =
         update_payload_key(Some(&pending_update)).ok_or_else(|| "No pending update selected".to_string())?;
 
+    let mut downloaded_so_far: u64 = 0;
+    let mut throttle = DownloadProgressThrottle::default();
     let bytes = update
-        .download(|_, _| {}, || {})
+        .download(
+            |chunk, total| {
+                downloaded_so_far += chunk as u64;
+                let finished = total.is_some_and(|t| downloaded_so_far >= t);
+                if throttle.should_emit(std::time::Instant::now(), finished) {
+                    let _ = app.emit(
+                        "update-download-progress",
+                        UpdateDownloadProgress {
+                            downloaded: downloaded_so_far,
+                            total,
+                        },
+                    );
+                }
+            },
+            || {},
+        )
         .await
         .map_err(|e| format!("Failed to download update: {}", e))?;
 
@@ -464,5 +541,46 @@ mod updater_tests {
     #[test]
     fn update_payload_key_is_none_without_a_pending_update() {
         assert_eq!(update_payload_key(None), None);
+    }
+
+    // ---- progresso do download ----------------------------------------------
+
+    #[test]
+    fn download_progress_emits_the_first_chunk_then_waits_for_the_interval() {
+        let start = std::time::Instant::now();
+        let mut throttle = DownloadProgressThrottle::default();
+        assert!(throttle.should_emit(start, false));
+        assert!(!throttle.should_emit(start + std::time::Duration::from_millis(50), false));
+        assert!(throttle.should_emit(start + DOWNLOAD_PROGRESS_INTERVAL, false));
+    }
+
+    #[test]
+    fn download_progress_always_emits_the_last_chunk() {
+        let start = std::time::Instant::now();
+        let mut throttle = DownloadProgressThrottle::default();
+        assert!(throttle.should_emit(start, false));
+        assert!(throttle.should_emit(start + std::time::Duration::from_millis(1), true));
+    }
+
+    // ---- instalacao silenciosa ----------------------------------------------
+
+    #[test]
+    fn the_msi_install_writes_a_verbose_log_to_the_given_path() {
+        let path = std::path::Path::new(r"C:\Users\a b\RAM\RAMUpdateInstall.log");
+        let args = update_installer_args(Some(tauri::utils::config::BundleType::Msi), path);
+        assert_eq!(
+            args,
+            vec![
+                "/l*v".to_string(),
+                r#""C:\Users\a b\RAM\RAMUpdateInstall.log""#.to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn only_the_msi_install_gets_the_log_arguments() {
+        let path = std::path::Path::new(r"C:\log.txt");
+        assert!(update_installer_args(Some(tauri::utils::config::BundleType::Nsis), path).is_empty());
+        assert!(update_installer_args(None, path).is_empty());
     }
 }
