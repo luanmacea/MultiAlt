@@ -1836,6 +1836,39 @@ describe("backend events", () => {
   });
 
   /**
+   * Os toasts que nomeiam uma conta saíam com o nome real com "Names hidden"
+   * ligado — inclusive o deste listener, montado uma vez só no boot.
+   */
+  it("masks the account name in toasts while names are hidden", async () => {
+    accountsData = [account({ UserID: 1, Alias: "Alpha" })];
+    settingsData = { General: { HideUsernames: "true", HiddenNameLetters: "0" } };
+    results.set("validate_cookie", { user_id: 7, name: "SecretCookie" });
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.hideUsernames).toBe(true));
+    await waitFor(() => expect(listenHandlers.has("account-moderated")).toBe(true));
+
+    await act(async () => {
+      emit("account-moderated", { userId: 1 });
+    });
+    await act(async () => {
+      await result.current.addAccountByCookie("_|WARNING:-token");
+    });
+    const shown = result.current.toasts.map((toast) => toast.message).join(" | ");
+    expect(shown).toContain("************ is moderated");
+    expect(shown).toContain("Added ************");
+    expect(shown).not.toMatch(/Alpha|SecretCookie/);
+
+    // A linha "Launching <conta>..." do rodapé, com o launch ainda em curso.
+    results.set("launch_roblox", new Promise(() => {}));
+    act(() => {
+      void result.current.joinServer(1);
+    });
+    await waitFor(() => expect(result.current.actionStatus?.message).toBe("Launching ************..."));
+    // O backend continua recebendo o nome de verdade.
+    expect(lastArgs("add_account")).toMatchObject({ username: "SecretCookie" });
+  });
+
+  /**
    * O login pelo navegador termina sem cookie quando o Roblox não devolveu a
    * sessão — é falha, e a frase antiga não tinha marcador nenhum: o toast saía
    * cinza de `info`, igual a um "Iniciando o jogo...".

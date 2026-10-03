@@ -72,6 +72,24 @@ describe("ServerListDialog — cabe na janela", () => {
   });
 });
 
+describe("ServerListDialog — nomes ocultos", () => {
+  /** O selo ao lado do título mostrava o nome real com "Names hidden" ligado. */
+  it("o selo da conta sai mascarado", () => {
+    const secret = makeAccount({ UserID: 1001, Username: "secretalpha" });
+    setStore({
+      accounts: [secret],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [secret],
+      selectedAccount: secret,
+      hideUsernames: true,
+      hiddenNameLetters: 0,
+    });
+    render(<ServerListDialog open onClose={vi.fn()} />);
+    expect(within(quadro()).getByText("************")).toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain("secretalpha");
+  });
+});
+
 describe("ServerListDialog — menu do jogo completo, como na Choose Game", () => {
   /**
    * O Server List e a Choose Game ficaram espelhados pela metade: o Server List

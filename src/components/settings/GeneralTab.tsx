@@ -358,7 +358,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
       <Divider />
       <SectionLabel>Hidden Names</SectionLabel>
 
-      {/* `maskName` (accounts/AccountRow.tsx) so preserva este prefixo; 0 troca
+      {/* `maskAccountName` (utils/accountName.ts) so preserva este prefixo; 0 troca
           o nome inteiro por asteriscos. "Preview Letters" sozinho nao dizia
           nem de que nome se trata. */}
       <NumberField

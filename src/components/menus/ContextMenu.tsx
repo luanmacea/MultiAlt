@@ -9,6 +9,7 @@ import {
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 import { MAX_ALIAS_LENGTH } from "../../types";
+import { accountLabel, maskAccountName } from "../../utils/accountName";
 import { MenuItemView } from "./MenuItemView";
 import type { MenuItem } from "./MenuItemView";
 
@@ -132,12 +133,12 @@ export function ContextMenu() {
           if (!single) return;
           // O link não é só texto: montá-lo pede um auth ticket novo à Roblox, e
           // quem abrir o link entra como esta conta.
-          const accountLabel = single.Alias || single.Username;
+          const name = accountLabel(single, store);
           if (
             !(await confirm(
               t(
                 "Copy a roblox-player launch link for {{name}}? The app asks Roblox for a new auth ticket to build it, and whoever opens the link joins as {{name}}.",
-                { name: accountLabel }
+                { name }
               )
             ))
           ) {
@@ -160,12 +161,12 @@ export function ContextMenu() {
         devOnly: true,
         action: async () => {
           if (!single) return;
-          const accountLabel = single.Alias || single.Username;
+          const name = accountLabel(single, store);
           if (
             !(await confirm(
               t(
                 "Copy an app launch link for {{name}}? The app asks Roblox for a new auth ticket to build it, and whoever opens the link signs in as {{name}}.",
-                { name: accountLabel }
+                { name }
               )
             ))
           ) {
@@ -210,6 +211,8 @@ export function ContextMenu() {
         // caracteres, gravava 240 e avisava só "Alias updated".
         const alias = await prompt(t("Alias:"), single?.Alias || "", {
           maxLength: MAX_ALIAS_LENGTH,
+          // Com os nomes ocultos o alias atual não aparece no campo.
+          ...(store.hideUsernames ? { masked: true } : {}),
         });
         if (alias === null) return;
         const cortado = alias.length > MAX_ALIAS_LENGTH;
@@ -304,12 +307,12 @@ export function ContextMenu() {
           if (!single) return;
           // O ticket cru vale o mesmo que os dois links: quem o tiver entra como
           // esta conta enquanto ele durar.
-          const accountLabel = single.Alias || single.Username;
+          const name = accountLabel(single, store);
           if (
             !(await confirm(
               t(
                 "Copy the raw auth ticket of {{name}}? The app asks Roblox for a new one, and whoever holds it signs in as {{name}} until it expires.",
-                { name: accountLabel }
+                { name }
               ),
               true
             ))
@@ -345,7 +348,7 @@ export function ContextMenu() {
       action: async () => {
         const msg =
           accounts.length === 1
-            ? t("Remove {{name}}?", { name: single?.Alias || single?.Username || "" })
+            ? t("Remove {{name}}?", { name: accountLabel(single, store) })
             : t("Remove {{count}} accounts?", { count: accounts.length });
         if (await confirm(msg, true)) {
           store.removeAccounts(userIds);
@@ -379,10 +382,13 @@ export function ContextMenu() {
       label: t("Show Details"),
       action: () => {
         if (!single) return;
+        // Com "Names hidden" ligado os nomes saem mascarados aqui também: o
+        // modal de detalhes é tela como qualquer outra.
+        const hide = (value: string) => maskAccountName(value, store.hideUsernames, store.hiddenNameLetters);
         const details = {
-          Username: single.Username,
+          Username: hide(single.Username),
           UserID: single.UserID,
-          Alias: single.Alias,
+          Alias: single.Alias ? hide(single.Alias) : single.Alias,
           Description: single.Description,
           Group: single.Group,
           Valid: single.Valid,
@@ -393,10 +399,7 @@ export function ContextMenu() {
           HasPassword: !!single.Password,
           HasCookie: !!single.SecurityToken,
         };
-        store.showModal(
-          single.Alias || single.Username,
-          JSON.stringify(details, null, 2)
-        );
+        store.showModal(accountLabel(single, store), JSON.stringify(details, null, 2));
       },
     },
     {
@@ -404,7 +407,7 @@ export function ContextMenu() {
       action: async () => {
         if (!single) return;
         // Nome que aparece no prompt/toast: o mesmo rótulo da linha da conta.
-        const accountLabel = single.Alias || single.Username;
+        const name = accountLabel(single, store);
         let code = "";
         // O código já copiado é usado sem perguntar nada — e era isso que
         // acontecia em silêncio. Guardamos de onde ele veio para o toast dizer.
@@ -424,7 +427,7 @@ export function ContextMenu() {
           const input = await prompt(
             t(
               'Enter the 6-digit code that roblox.com/login shows on the device you want to sign in (the "log in with a code" option). This app sends it using {{account}}\'s session, so that device signs in as {{account}}:',
-              { account: accountLabel }
+              { account: name }
             )
           );
           if (!input) return;
@@ -442,9 +445,9 @@ export function ContextMenu() {
           store.addToast(
             fromClipboard
               ? t("Quick login code from your clipboard entered as {{account}}", {
-                  account: accountLabel,
+                  account: name,
                 })
-              : t("Quick login code entered as {{account}}", { account: accountLabel })
+              : t("Quick login code entered as {{account}}", { account: name })
           );
         } catch (e) {
           store.addToast(t("Quick login failed: {{error}}", { error: String(e) }));

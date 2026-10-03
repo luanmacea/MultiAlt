@@ -434,6 +434,59 @@ describe("ContextMenu — quick login", () => {
   });
 });
 
+/**
+ * Com "Names hidden" o menu ainda punha o nome real nas confirmações, nos
+ * prompts, nos toasts, no título e no corpo do "Show Details" e no campo do
+ * "Set Alias".
+ */
+describe("ContextMenu — nomes ocultos", () => {
+  const SECRET = makeAccount({ UserID: 1, Username: "secretann", Alias: "AliasAnn" });
+  const HIDDEN = { accounts: [SECRET, B], hideUsernames: true, hiddenNameLetters: 0 };
+  const realName = /secretann|AliasAnn/;
+
+  it("a confirmação de remover não diz o nome", async () => {
+    promptAnswers.confirm = false;
+    renderMenu(HIDDEN, [SECRET]);
+    await userEvent.click(item(/Remove Account/));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    expect(confirmMock.mock.calls[0][0]).toBe("Remove ************?");
+  });
+
+  it("o Quick Login não diz o nome no prompt nem no toast", async () => {
+    promptAnswers.prompt = "123456";
+    const store = renderMenu(HIDDEN, [SECRET]);
+    await userEvent.click(item("Quick Login"));
+    await waitFor(() => expect(store.addToast).toHaveBeenCalled());
+    expect(promptMock.mock.calls[0][0]).not.toMatch(realName);
+    expect(promptMock.mock.calls[0][0]).toContain("************");
+    expect(String(vi.mocked(store.addToast).mock.calls[0][0])).not.toMatch(realName);
+  });
+
+  it("as confirmações de link e ticket não dizem o nome", async () => {
+    setInvokeMap({ get_auth_ticket: "ticket-123" });
+    renderMenu({ ...HIDDEN, devMode: true }, [SECRET]);
+    await userEvent.click(item("Get Auth Ticket"));
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    expect(confirmMock.mock.calls[0][0]).not.toMatch(realName);
+  });
+
+  it("o Show Details mascara título e nomes", async () => {
+    const store = renderMenu(HIDDEN, [SECRET]);
+    await userEvent.click(item("Show Details"));
+    expect(store.showModal).toHaveBeenCalledTimes(1);
+    const [title, body] = vi.mocked(store.showModal).mock.calls[0];
+    expect(title).toBe("************");
+    expect(String(body)).not.toMatch(realName);
+  });
+
+  it("o Set Alias abre o campo em bolinhas", async () => {
+    renderMenu(HIDDEN, [SECRET]);
+    await userEvent.click(item("Set Alias"));
+    await waitFor(() => expect(promptMock).toHaveBeenCalled());
+    expect(promptMock.mock.calls[0][2]).toEqual({ maxLength: 240, masked: true });
+  });
+});
+
 describe("MenuItemView", () => {
   it("runs the action and closes the menu", async () => {
     const action = vi.fn();

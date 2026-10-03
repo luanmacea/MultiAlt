@@ -187,6 +187,27 @@ describe("useJoinOnlineWarning", () => {
 
     await waitFor(() => expect(screen.getByText(/user2 is currently Online/)).toBeTruthy());
     await user.click(screen.getByText("Cancel"));
+    await waitFor(() => expect(allowed).toBe(false));
+  });
+
+  /** O aviso punha o alias real na tela mesmo com "Names hidden" ligado. */
+  it("masks the account name while names are hidden", async () => {
+    const user = userEvent.setup();
+    settingsData = { General: { HideUsernames: "true", HiddenNameLetters: "0" } };
+    presenceRows = [{ user_id: 1, user_presence_type: 2 }];
+    const { result } = await renderWarning();
+    await waitFor(() => expect(result.current.store.hideUsernames).toBe(true));
+
+    let allowed: boolean | undefined;
+    act(() => {
+      void result.current.confirmJoin([1]).then((v) => {
+        allowed = v;
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText(/\*{12} is currently In Game/)).toBeTruthy());
+    expect(screen.queryByText(/Main/)).toBeNull();
+    await user.click(screen.getByText("Cancel"));
 
     await waitFor(() => expect(allowed).toBe(false));
   });

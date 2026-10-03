@@ -124,6 +124,17 @@ describe("FriendsTab — grouping", () => {
     expect(within(block).getByText("Buddy")).toBeInTheDocument();
   });
 
+  it("hides the user's own account photo with the names, unless avatars are kept", async () => {
+    setFriends([group(1002, [friend({ userId: 7002, displayName: "Buddy" })])]);
+    renderTab([ACCOUNT_B], {
+      hideUsernames: true,
+      showAvatarsWhenHidden: false,
+      avatarUrls: new Map([[1002, "https://avatar.test/1002.png"]]),
+    });
+    const block = await screen.findByTestId("friends-group-1002");
+    expect(block.innerHTML).not.toContain("avatar.test/1002.png");
+  });
+
   it("loads the friends' avatars through the batched thumbnail command", async () => {
     setFriends(
       [group(1001, [friend({ userId: 7001 }), friend({ userId: 7002 })])],

@@ -110,6 +110,7 @@ import { REPO_URL } from "./repo";
 import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
+import { accountLabel, maskAccountName } from "./utils/accountName";
 import {
   type UpdaterReleaseChannel,
   type UpdaterFeatureChannel,
@@ -842,6 +843,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const hiddenNameLetters = parseInt(settings?.General?.HiddenNameLetters || "0") || 0;
   const showAvatarsWhenHidden = settings?.General?.ShowAvatarsWhenHidden === "true";
   const hideRobuxWhenHidden = settings?.General?.HideRobuxWhenHidden === "true";
+  /**
+   * O "Names hidden" de agora, para os toasts que nomeiam uma conta — inclusive
+   * os dos listeners montados uma vez só, que veriam o valor do primeiro render.
+   */
+  const nameMaskingRef = useRef({ hideUsernames, hiddenNameLetters });
+  nameMaskingRef.current = { hideUsernames, hiddenNameLetters };
 
   const filteredAccounts = useMemo(() => {
     if (!searchQuery) return accounts;
@@ -1269,7 +1276,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...(password ? { password } : {}),
       });
       await loadAccounts();
-      addToast(tr(alreadyExists ? "Updated {{name}}" : "Added {{name}}", { name: info.name }));
+      const { hideUsernames: hidden, hiddenNameLetters: letters } = nameMaskingRef.current;
+      addToast(
+        tr(alreadyExists ? "Updated {{name}}" : "Added {{name}}", {
+          name: maskAccountName(info.name, hidden, letters),
+        })
+      );
     } catch (e) {
       setError(String(e));
     }
@@ -1476,7 +1488,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       userId,
     });
     const launchAccount = accounts.find((a) => a.UserID === userId);
-    const accountName = launchAccount?.Alias || launchAccount?.Username || String(userId);
+    const accountName = accountLabel(launchAccount, nameMaskingRef.current, userId);
     const launchingLine = tr("Launching {{name}}...", { name: accountName });
     setActionStatusMessage(launchingLine, "info", 5000);
 
@@ -2564,7 +2576,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // persisted it — reload so the list reflects the new grouping right away.
         void loadAccounts().catch(() => {});
         const acct = accountsRef.current.find((a) => a.UserID === userId);
-        const name = acct?.Alias || acct?.Username || String(userId);
+        const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(tr("{{name}} is moderated — moved to 'moderadas'", { name }));
       }),
       listen<{ userId: number; index: number; total: number }>("launch-progress", (e) => {

@@ -73,6 +73,18 @@ Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, A
 
 Só na página de contas, e só com o que age na lista: busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator e Roblox Versions.
 
+### Nomes ocultos (`Names hidden`)
+
+O botão da toolbar existe para gravar ou compartilhar a tela sem expor as contas, então vale para **o app inteiro**, não só para a lista. Regra:
+
+- **Toda tela que mostra o nome de uma conta do usuário passa pelo helper compartilhado** [utils/accountName.ts](../../src/utils/accountName.ts) — `accountLabel(account, store, fallback)` fora de componente, ou o hook `useAccountLabel()` ([hooks/useAccountLabel.ts](../../src/hooks/useAccountLabel.ts)). Vale para texto, `title`, `aria-label`, placeholder, prompt, confirmação e toast. Nada de `account.Alias || account.Username` direto na tela: até 03/10/2026 a máscara estava copiada em sete arquivos, e o AFK Mode, o Avatars, diálogos, o menu de contexto e os toasts mostravam o nome real com o modo ligado.
+- A máscara: as primeiras `HiddenNameLetters` letras e `********`; com `0` (ou prévia que mostraria tudo) vira `************`. O fallback (ex.: "User ID: 123") também é mascarado — identifica a conta tanto quanto o nome.
+- **Foto:** some junto com o nome (`hideAccountAvatar`: `hideUsernames && !showAvatarsWhenHidden`). A letra do círculo sem foto (`accountInitial`) só aparece se a prévia já a mostraria.
+- Campo que nasce com o nome da conta (alias na sidebar, "Set Alias" do menu, username do Outfits) fica em bolinhas (`masked-input`).
+- **Só o que aparece é mascarado.** O que vai para o backend (`add_account`, `set_avatar`...) e o que é copiado para a área de transferência continua com o nome real.
+- **Não mascara:** nomes de terceiros (amigos, jogador procurado no Server List — ver [friends.md](friends.md)); o stream de log do backend no Console da Choose Game (o nome da conta na coluna é mascarado, mas o texto da linha vem pronto do backend); o painel de criação de contas, que mostra usuário **e senha** da conta que está sendo cadastrada; os dados entregues aos scripts do usuário.
+- Teste: suíte `hidden-names` (`bun run t hidden-names`) — cada tela tem um caso "com nomes ocultos o nome real não está no documento".
+
 ### Lista de contas
 
 - Contas agrupadas por `Group` (ver regras em [accounts.md](accounts.md)); grupos podem ser colapsados e têm menu (ordenar alfabeticamente, copiar, alternar visibilidade).
@@ -196,7 +208,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 
 | Seção.Chave | Efeito na UI |
 |---|---|
-| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden` | Mascaramento de nomes (Choose Game e lista usam `maskName`). |
+| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden` | Mascaramento de nomes e fotos em todas as telas (ver "Nomes ocultos" acima; helper `utils/accountName.ts`). |
 | `General.ShowPresence`, `PresenceUpdateRate` | Pontos de presença e contagem na status bar. |
 | `General.DisableAgingAlert`, `DisableImages` | Indicador de idade / avatares. |
 | `General.MinimizeToTray` | Botão fechar da TitleBar esconde na bandeja. |

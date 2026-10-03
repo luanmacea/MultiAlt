@@ -32,7 +32,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 |---|---|
 | `Filter accounts...` | Filtra a lista. Atenção: contas escondidas pelo filtro **continuam selecionadas** e sujeitas às ações em lote. |
 | ícone de checkbox | `Select all` / `Deselect all`. |
-| `Names shown` / `Names hidden` | Mascara os nomes de usuário na lista (para gravar tela). Quantas letras ficam visíveis: Settings › General › `Preview Letters`. |
+| `Names shown` / `Names hidden` | Mascara os nomes das contas em todas as telas, inclusive toasts e confirmações (para gravar tela). Quantas letras ficam visíveis: Settings › General › `Preview Letters`. |
 | ícone de painel | Mostra/esconde o painel de detalhes. Fica desabilitado quando não há exatamente uma conta selecionada. |
 | `Add ▾` | Todas as formas de trazer conta para dentro (abaixo). |
 | ícone de gamepad | `Session`: fila de lançamento e clientes abertos. |

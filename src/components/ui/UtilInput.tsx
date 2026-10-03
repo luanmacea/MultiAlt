@@ -7,6 +7,7 @@ export function UtilInput({
   type = "text",
   maxLength,
   onKeyDown,
+  masked = false,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -14,6 +15,8 @@ export function UtilInput({
   type?: string;
   maxLength?: number;
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  /** Valor em bolinhas, como senha (nome de conta com "Names hidden" ligado). */
+  masked?: boolean;
 }) {
   const t = useTr();
   return (
@@ -32,7 +35,7 @@ export function UtilInput({
       placeholder={placeholder ? t(placeholder) : undefined}
       spellCheck={false}
       autoComplete="off"
-      className="w-full px-2.5 py-1.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-xs text-zinc-300 focus:outline-none focus:border-zinc-600 transition-colors"
+      className={`w-full px-2.5 py-1.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-xs text-zinc-300 focus:outline-none focus:border-zinc-600 transition-colors${masked ? " masked-input" : ""}`}
     />
   );
 }

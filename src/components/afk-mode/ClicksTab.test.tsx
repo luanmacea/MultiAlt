@@ -12,6 +12,7 @@ import type { AfkStatus, StoreValue } from "../../store";
 import { defaultSettings, makeAccount, setStore, storeRef } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
 import i18n from "../../i18n";
+import { writeAfkPoint } from "../../afkClickPoint";
 
 const ACCOUNTS = [
   makeAccount({ UserID: 11, Username: "alpha" }),
@@ -840,5 +841,69 @@ describe("ClicksTab — contas de quem abriu", () => {
     });
     render(<ClicksTab />);
     expect(screen.getByTestId("clicks-status")).toHaveTextContent("AFK clicks are off");
+  });
+});
+
+/**
+ * Com "Names hidden" na toolbar, o modo AFK mostrava os nomes reais na lista de
+ * contas, no rótulo do "Use default" e nos avisos — quem grava a tela com o modo
+ * ligado espera não ver nome nenhum.
+ */
+describe("ClicksTab — nomes ocultos", () => {
+  const SECRET = [
+    makeAccount({
+      UserID: 11,
+      Username: "secretalpha",
+      Alias: "AliasAlpha",
+      Fields: writeAfkPoint({}, { x: 20, y: 30 }),
+    }),
+    makeAccount({ UserID: 22, Username: "secretbravo" }),
+  ];
+  const HIDDEN = { hideUsernames: true, hiddenNameLetters: 0, showAvatarsWhenHidden: false };
+  const CLICK_INI = {
+    ...defaultSettings(),
+    Afk: { IntervalMinutes: "10", Key: "", Mode: "click", ClickX: "50", ClickY: "50" },
+  };
+
+  function expectNoRealName() {
+    const html = document.body.innerHTML;
+    for (const name of ["secretalpha", "AliasAlpha", "secretbravo"]) expect(html).not.toContain(name);
+  }
+
+  it("a lista de contas, o rótulo do ponto próprio e os avisos não mostram o nome", () => {
+    renderDialog({
+      ...HIDDEN,
+      accounts: SECRET,
+      settings: CLICK_INI,
+      afkStatus: makeAfkStatus({
+        active: true,
+        startedAtMs: 1_000,
+        mode: "click",
+        accounts: [
+          makeAfkAccount({ userId: 11, lastError: "x", lastErrorCode: "noWindow" }),
+          makeAfkAccount({ userId: 22, lastError: "x", lastErrorCode: "clickRefused" }),
+        ],
+      }),
+    });
+    expect(screen.getAllByRole("button", { name: "************" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Use the default point for ************" })).toBeInTheDocument();
+    expect(screen.getByText(/has no Roblox client open/i)).toBeInTheDocument();
+    expectNoRealName();
+  });
+
+  it("o toast do Marcar não diz de quem é a janela", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { store } = renderDialog({ ...HIDDEN, accounts: SECRET, settings: CLICK_INI });
+      vi.mocked(store.captureAfkPoint).mockResolvedValue({ userId: 22, xPct: 52.5, yPct: 71 });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      await user.click(screen.getByRole("button", { name: "Mark the click point for all accounts" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_100);
+      });
+      expect(store.addToast).toHaveBeenCalledWith("Point marked on ************'s window");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
