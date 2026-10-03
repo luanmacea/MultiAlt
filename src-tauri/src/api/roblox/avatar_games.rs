@@ -35,13 +35,16 @@ pub async fn set_avatar(security_token: &str, avatar_json: serde_json::Value) ->
             .json(&serde_json::json!({ "assets": assets }));
         let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
-        if response.status().is_success() {
-            if let Ok(body) = response.json::<serde_json::Value>().await {
-                if let Some(ids) = body.get("invalidAssetIds").and_then(|v| v.as_array()) {
-                    for id in ids {
-                        if let Some(n) = id.as_i64() {
-                            invalid_assets.push(n);
-                        }
+        // Recusa do Roblox é erro: devolver lista vazia fazia quem chamou
+        // anunciar "aplicado" com o avatar intacto.
+        if !response.status().is_success() {
+            return Err(format!("Failed to wear assets (status {})", response.status().as_u16()));
+        }
+        if let Ok(body) = response.json::<serde_json::Value>().await {
+            if let Some(ids) = body.get("invalidAssetIds").and_then(|v| v.as_array()) {
+                for id in ids {
+                    if let Some(n) = id.as_i64() {
+                        invalid_assets.push(n);
                     }
                 }
             }
