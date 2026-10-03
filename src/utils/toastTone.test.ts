@@ -15,7 +15,7 @@ describe("toneFromMessage", () => {
   it("reconhece sucesso em inglês e em português", () => {
     expect(toneFromMessage("Accounts saved")).toBe("success");
     expect(toneFromMessage("Alias updated")).toBe("success");
-    expect(toneFromMessage("Launched by Roblox Account Manager")).toBe("success");
+    expect(toneFromMessage("Launched by MultiAlt")).toBe("success");
     expect(toneFromMessage("Contas salvas")).toBe("success");
     expect(toneFromMessage("Apelido atualizado")).toBe("success");
     expect(toneFromMessage("Auto Rejoin iniciado (3 contas)")).toBe("success");

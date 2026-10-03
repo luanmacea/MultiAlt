@@ -219,7 +219,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
           checked={s.getBool("General", "ThemeWindowsNavbar")}
           onChange={(v) => s.setBool("General", "ThemeWindowsNavbar", v)}
           label="Theme Windows window navbar"
-          description="Makes the top window navbar follow your active RAM theme"
+          description="Makes the top window navbar follow your active MultiAlt theme"
         />
       )}
 

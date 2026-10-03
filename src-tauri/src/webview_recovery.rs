@@ -292,9 +292,9 @@ fn message_box(title: &str, text: &str, icon: u32) {
 /// errado — e a pasta sem escrita vai derrubar as contas e as settings também.
 fn warn_data_folder_not_writable(folder: &str) {
     message_box(
-        "Roblox Account Manager",
+        "MultiAlt",
         &format!(
-            "Roblox Account Manager could not draw its interface, and it could not write to its data folder to remember that:\n\n{folder}\n\nThat folder has to be writable — the account file and the settings file live there too. Check the folder's permissions and free disk space, or run RAM from a folder you own.\n\nMeanwhile you can start RAM with graphics safe mode by holding Shift while it opens, or by adding --safe-mode to the shortcut's Target field."
+            "MultiAlt could not draw its interface, and it could not write to its data folder to remember that:\n\n{folder}\n\nThat folder has to be writable — the account file and the settings file live there too. Check the folder's permissions and free disk space, or run MultiAlt from a folder you own.\n\nMeanwhile you can start MultiAlt with graphics safe mode by holding Shift while it opens, or by adding --safe-mode to the shortcut's Target field."
         ),
         MB_ICONERROR,
     );
@@ -302,16 +302,16 @@ fn warn_data_folder_not_writable(folder: &str) {
 
 fn warn_restarting_in_safe_mode() {
     message_box(
-        "Roblox Account Manager",
-        "Roblox Account Manager could not draw its interface, so it will reopen with graphics safe mode (GPU acceleration off).\n\nIf the window works after the restart, keep using it: safe mode stays on until the Microsoft Edge WebView2 Runtime changes.\n\nYou can force this mode at any time by holding Shift while RAM starts, or by adding --safe-mode to the shortcut's Target field.",
+        "MultiAlt",
+        "MultiAlt could not draw its interface, so it will reopen with graphics safe mode (GPU acceleration off).\n\nIf the window works after the restart, keep using it: safe mode stays on until the Microsoft Edge WebView2 Runtime changes.\n\nYou can force this mode at any time by holding Shift while MultiAlt starts, or by adding --safe-mode to the shortcut's Target field.",
         MB_ICONWARNING,
     );
 }
 
 fn warn_repair_runtime() {
     message_box(
-        "Roblox Account Manager",
-        "Roblox Account Manager could not draw its interface, not even with graphics safe mode.\n\nThe interface is drawn by the Microsoft Edge WebView2 Runtime, so the fix is on that side:\n\n1. Windows Settings > Apps > Installed apps > Microsoft Edge WebView2 Runtime > Modify > Repair, then restart Windows.\n2. If it is missing, install Microsoft's WebView2 Evergreen Standalone Installer.\n3. Update the graphics driver.\n\nYour accounts and settings are untouched.",
+        "MultiAlt",
+        "MultiAlt could not draw its interface, not even with graphics safe mode.\n\nThe interface is drawn by the Microsoft Edge WebView2 Runtime, so the fix is on that side:\n\n1. Windows Settings > Apps > Installed apps > Microsoft Edge WebView2 Runtime > Modify > Repair, then restart Windows.\n2. If it is missing, install Microsoft's WebView2 Evergreen Standalone Installer.\n3. Update the graphics driver.\n\nYour accounts and settings are untouched.",
         MB_ICONERROR,
     );
 }

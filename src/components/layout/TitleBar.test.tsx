@@ -23,6 +23,12 @@ afterEach(cleanup);
 describe("TitleBar", () => {
   it("shows the app name", () => {
     render(<TitleBar />);
+    expect(screen.getByText("MultiAlt")).toBeInTheDocument();
+  });
+
+  it("keeps the old name as a subtitle so people still recognize the app", () => {
+    // Até a v0.1.8 o app se chamava Roblox Account Manager (docs/rebrand-multialt.md).
+    render(<TitleBar />);
     expect(screen.getByText("Roblox Account Manager")).toBeInTheDocument();
   });
 

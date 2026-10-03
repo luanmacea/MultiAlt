@@ -3036,7 +3036,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
           <div className="min-w-0">
             <div className="text-[15px] font-semibold text-zinc-100">{t("Scripts")}</div>
             <div className="text-[12px] text-zinc-400">
-              {t("JavaScript automation that runs inside RAM, not a Roblox executor or injector")}
+              {t("JavaScript automation that runs inside MultiAlt, not a Roblox executor or injector")}
             </div>
             <div className="mt-0.5 text-[12px] leading-snug text-zinc-500">
               {t(

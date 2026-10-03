@@ -49,7 +49,7 @@ describe("SafeModeBanner", () => {
   it("avisa quando só a próxima abertura vem em safe mode", async () => {
     renderBanner({ active: false, sticky: true });
     expect(
-      await screen.findByText("The next time RAM opens it will use graphics safe mode")
+      await screen.findByText("The next time MultiAlt opens it will use graphics safe mode")
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back to normal mode" })).toBeInTheDocument();
   });

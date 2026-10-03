@@ -27,7 +27,6 @@ use std::sync::{Arc, LazyLock, Mutex};
 use tauri::menu::{MenuBuilder, MenuEvent, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_autostart::MacosLauncher;
 
 include!("commands/account_api.rs");
 include!("commands/image_cache.rs");
@@ -194,6 +193,14 @@ fn leave_webview_safe_mode(app: AppHandle<Wry>) -> Result<(), String> {
     }
 }
 
+/// Autostart com o nome de entrada antigo (ver o comentário em `run`).
+fn autostart_plugin() -> tauri::plugin::TauriPlugin<Wry> {
+    // No macOS o padrão do builder já é o LaunchAgent, o mesmo de antes.
+    tauri_plugin_autostart::Builder::new()
+        .app_name("Roblox Account Manager")
+        .build()
+}
+
 pub fn run() {
     // Antes de tudo: é a última hora de mexer nos argumentos que o WebView2 vai
     // receber (ver webview_recovery.rs).
@@ -235,10 +242,10 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            None,
-        ))
+        // O nome da entrada de iniciar com o Windows fica o antigo: o plugin
+        // usaria o nome do produto (MultiAlt desde 03/10/2026) e quem tem a opção
+        // ligada ficaria com duas entradas. Ver docs/rebrand-multialt.md.
+        .plugin(autostart_plugin())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(account_store)
@@ -276,7 +283,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Roblox Account Manager")
+                .tooltip("MultiAlt")
                 .menu(&menu)
                 .on_menu_event(
                     |app: &AppHandle<Wry>, event: MenuEvent| match event.id().as_ref() {

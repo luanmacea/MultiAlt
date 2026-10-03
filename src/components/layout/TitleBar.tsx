@@ -36,6 +36,11 @@ export function TitleBar({ controlsHidden = false }: { controlsHidden?: boolean 
     <div className="theme-titlebar theme-border flex items-center h-9 shrink-0 select-none border-b">
       <div className="flex items-center gap-2.5 pl-3.5 pr-3 shrink-0">
         <span className="text-[12px] font-medium tracking-tight">
+          {t("MultiAlt")}
+        </span>
+        {/* O nome antigo como subtítulo: até a v0.1.8 o app era o "Roblox Account
+            Manager" (docs/rebrand-multialt.md), e é por ele que muita gente o conhece. */}
+        <span className="text-[11px] theme-muted tracking-tight">
           {t("Roblox Account Manager")}
         </span>
       </div>

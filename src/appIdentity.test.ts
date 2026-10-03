@@ -35,3 +35,27 @@ describe("identidade do app no instalador", () => {
     expect(config.identifier).toBe("com.luanmacea.roblox-account-manager");
   });
 });
+
+/**
+ * Troca de nome para MultiAlt (03/10/2026, docs/rebrand-multialt.md). O nome do
+ * produto mudou, mas duas coisas que o Tauri deriva dele **não** podem mudar,
+ * senão quem já instalou ganha uma segunda cópia em vez de uma atualização.
+ */
+describe("troca de nome sem quebrar quem já instalou", () => {
+  it("o produto se chama MultiAlt", () => {
+    expect(config.productName).toBe("MultiAlt");
+  });
+
+  it("o MSI mantém o código de atualização das versões Roblox Account Manager", () => {
+    // Sem fixar, o Tauri calcula o código a partir do nome do produto — e um
+    // código novo faz o MSI instalar ao lado da versão antiga.
+    expect(config.bundle?.windows?.wix?.upgradeCode).toBe("ea97e4e5-4634-554b-8c91-822b0b369761");
+  });
+
+  it("a entrada de iniciar com o Windows mantém o nome antigo", () => {
+    // O plugin de autostart usa o nome do produto como nome da entrada no
+    // registro; com o nome novo, quem tem a opção ligada ficaria com duas.
+    const lib = readFileSync(path.resolve(__dirname, "..", "src-tauri", "src", "lib.rs"), "utf8");
+    expect(lib).toMatch(/\.app_name\("Roblox Account Manager"\)/);
+  });
+});

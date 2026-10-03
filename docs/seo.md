@@ -1,6 +1,8 @@
 # Aparecer no Google para "roblox account manager"
 
-Plano montado em 03/10/2026. Site: **https://roblox-account-manager-app.pages.dev/** (código em `site/`, ver [site/README.md](../site/README.md)).
+Plano montado em 03/10/2026. Site: **https://multialt.pages.dev/** (código em `site/`, ver [site/README.md](../site/README.md)).
+
+> **Troca de nome (03/10/2026):** o app passou a se chamar **MultiAlt** ([rebrand-multialt.md](rebrand-multialt.md)), justamente porque "roblox account manager" é disputado demais. Um nome próprio pega a primeira página para si mesmo; o termo genérico segue na descrição ("MultiAlt – Multi Roblox & account manager") para disputar as buscas genéricas. O endereço antigo, `roblox-account-manager-app.pages.dev`, continua no ar com o canônico apontando para o novo. O Search Console precisa de uma propriedade para o endereço novo (passo 1 abaixo, repetido para `https://multialt.pages.dev/`).
 
 ## Onde estamos
 

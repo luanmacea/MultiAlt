@@ -34,6 +34,7 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "OK",
   "Nexus",
   "ID: {{id}}",
+  "MultiAlt",
   "Roblox Account Manager",
   "_|WARNING:-DO-NOT-SHARE...",
   "auth ticket",

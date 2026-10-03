@@ -25,9 +25,9 @@ O workflow [site.yml](../.github/workflows/site.yml) copia esta pasta para a bra
 
 Ativar uma vez: no GitHub, **Settings → Pages → Build and deployment → Source: Deploy from a branch → `gh-pages` / `(root)` → Save**.
 
-O endereço principal é **https://roblox-account-manager-app.pages.dev/** (Cloudflare Pages, grátis). O projeto `roblox-account-manager-app` do Cloudflare está ligado a este repositório: branch de produção `main`, sem comando de build, pasta de saída `site`. Ele publica sozinho a cada push em `main`, sem passar pelo workflow (um push em `develop` vira no máximo uma prévia, num endereço próprio, nunca o site principal) — o `site.yml` só alimenta o endereço do GitHub Pages.
+O endereço principal é **https://multialt.pages.dev/** (Cloudflare Pages, grátis), desde a troca de nome para MultiAlt (03/10/2026). O projeto `multialt` do Cloudflare está ligado a este repositório: branch de produção `main`, sem comando de build, pasta de saída `site`. Ele publica sozinho a cada push em `main`, sem passar pelo workflow (um push em `develop` vira no máximo uma prévia, num endereço próprio, nunca o site principal) — o `site.yml` só alimenta o endereço do GitHub Pages.
 
-Os dois endereços servem o mesmo site; o `<link rel="canonical">` aponta para o do Cloudflare, para o buscador juntar os dois num resultado só. Todos os caminhos do site são relativos para funcionar nos dois.
+O projeto antigo, `roblox-account-manager-app` (https://roblox-account-manager-app.pages.dev/), continua ligado ao repositório com a mesma configuração e serve o mesmo site, para links antigos não quebrarem. Os três endereços servem o mesmo site; o `<link rel="canonical">` aponta para o do Cloudflare, para o buscador juntar os dois num resultado só. Todos os caminhos do site são relativos para funcionar nos dois.
 
 ## Buscadores (SEO)
 

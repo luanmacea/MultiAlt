@@ -81,7 +81,9 @@
       if (/^zz-/.test(n) || /\.sig$/.test(n)) return;
       var isFull = /_full-nexus-ws/.test(n);
       if (isFull !== full) return;
-      if (n === "Roblox-Account-Manager-Setup.msi") stableMsi = a;
+      // MultiAlt-Setup.msi desde a troca de nome; o nome antigo vale para as
+      // releases de antes dela.
+      if (n === "MultiAlt-Setup.msi" || n === "Roblox-Account-Manager-Setup.msi") stableMsi = a;
       else if (/\.msi$/.test(n)) by.msi = a;
       else if (/_portable(_full-nexus-ws)?\.exe$/.test(n)) by.portable = a;
     });
