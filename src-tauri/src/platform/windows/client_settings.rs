@@ -252,6 +252,12 @@ impl OverrideLedger {
 
     /// Uma propriedade depois de uma abertura. `from_account`: a exceção da
     /// conta escreveu o grupo dela; `from_global`: o perfil global escreveu.
+    ///
+    /// `sticky`: há cliente do Roblox aberto — o da exceção pode estar entre
+    /// eles, e ele **regrava** o XML com o valor dela (a tela cheia da conta
+    /// principal, 03/10/2026). Então o registro não é consumido ao desfazer:
+    /// fica para a próxima conta sem exceção desfazer de novo. Só sai quando o
+    /// valor no arquivo não é nem o da exceção nem o antigo (foi o jogador).
     fn settle(
         &mut self,
         key: String,
@@ -259,6 +265,7 @@ impl OverrideLedger {
         after: Option<String>,
         from_account: bool,
         from_global: bool,
+        sticky: bool,
     ) -> Restore {
         if from_account {
             // Grupo da exceção sem esta propriedade (qualidade automática não
@@ -274,6 +281,20 @@ impl OverrideLedger {
         if from_global {
             // O perfil global escreveu o valor dele: é o certo para quem não
             // tem exceção, e o antigo não precisa mais voltar.
+            self.entries.remove(&key);
+            return Restore::Keep;
+        }
+        if sticky {
+            let Some(entry) = self.entries.get(&key) else {
+                return Restore::Keep;
+            };
+            if after.as_deref() == Some(entry.written.as_str()) {
+                return Restore::To(entry.original.clone());
+            }
+            // Ainda com o valor que uma conta anterior pôs de volta.
+            if after == entry.original {
+                return Restore::Keep;
+            }
             self.entries.remove(&key);
             return Restore::Keep;
         }
@@ -344,9 +365,38 @@ fn restore_property(props: &mut String, name: &str, element: Option<&str>) {
     }
 }
 
+/// O valor de uma propriedade `<bool>`; `None` se ela não existe ou não é
+/// `true`/`false`.
+fn bool_property(props: &str, name: &str) -> Option<bool> {
+    let element = property_element(props, name)?;
+    let open = format!("<bool name=\"{}\">", name);
+    let inner = element.strip_prefix(&open)?.strip_suffix("</bool>")?.trim();
+    match inner {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// O XML reescrito e o que o registro decidiu sobre a tela cheia desta conta.
+#[derive(Debug)]
+struct GuardedRewrite {
+    xml: String,
+    /// Uma exceção de outra conta mexeu no `Fullscreen` e esta conta não
+    /// pediu nada para a janela: o valor que ficou no arquivo é o do jogador
+    /// (posto de volta pelo registro). `None` = nenhuma exceção no caminho, ou
+    /// a conta/o perfil global já decidiram a janela.
+    ///
+    /// O launch usa isso como a tela cheia resolvida para esta conta: o cliente
+    /// da exceção pode regravar `Fullscreen=true` antes de o cliente novo ler o
+    /// arquivo, e é a conferência pelo PID que tira a tela cheia herdada.
+    fullscreen_from_ledger: Option<bool>,
+}
+
 /// `rewrite_global_basic_settings` com o registro: grava o que a abertura pede
 /// e desfaz o que uma exceção anterior deixou nas propriedades que ninguém
-/// pediu desta vez.
+/// pediu desta vez. `clients_open`: há cliente do Roblox aberto (ver
+/// `OverrideLedger::settle`).
 #[allow(clippy::too_many_arguments)]
 fn rewrite_global_basic_settings_guarded(
     xml: &str,
@@ -356,10 +406,13 @@ fn rewrite_global_basic_settings_guarded(
     fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
     from_account: AccountSourced,
+    clients_open: bool,
     ledger: &mut OverrideLedger,
-) -> Option<String> {
+) -> Option<GuardedRewrite> {
     let (start, end) = find_user_game_settings_properties_range(xml)?;
     let before = xml[start..end].to_string();
+    let fullscreen_key = "xml:Fullscreen".to_string();
+    let exception_touched_fullscreen = ledger.entries.contains_key(&fullscreen_key);
     let written = rewrite_global_basic_settings(
         xml,
         max_fps,
@@ -386,6 +439,7 @@ fn rewrite_global_basic_settings_guarded(
                 property_element(&props, name),
                 account,
                 any_written && !account,
+                clients_open,
             );
             if let Restore::To(original) = restore {
                 restore_property(&mut props, name, original.as_deref());
@@ -393,10 +447,20 @@ fn rewrite_global_basic_settings_guarded(
         }
     }
 
+    let window_decided = from_account.window || window_written;
+    let fullscreen_from_ledger = if exception_touched_fullscreen && !window_decided {
+        bool_property(&props, "Fullscreen")
+    } else {
+        None
+    };
+
     let mut out = written[..w_start].to_string();
     out.push_str(&props);
     out.push_str(&written[w_end..]);
-    Some(out)
+    Some(GuardedRewrite {
+        xml: out,
+        fullscreen_from_ledger,
+    })
 }
 
 /// `merge_client_app_settings` com o registro, para o FPS de uma exceção não
@@ -420,6 +484,8 @@ fn merge_client_app_settings_guarded(
         read(settings),
         fps_from_account,
         max_fps.is_some() && !fps_from_account,
+        // Cliente aberto não reescreve o `ClientAppSettings.json`.
+        false,
     );
     if let Restore::To(original) = restore {
         if let Some(obj) = settings.as_object_mut() {
@@ -463,12 +529,12 @@ fn apply_global_basic_settings_overrides(
     window_size: Option<(u32, u32)>,
     from_account: AccountSourced,
     ledger: &mut OverrideLedger,
-) -> Result<(), String> {
+) -> Result<Option<bool>, String> {
     let Some(path) = get_global_basic_settings_file() else {
-        return Ok(());
+        return Ok(None);
     };
     if !path.exists() {
-        return Ok(());
+        return Ok(None);
     }
 
     let xml = std::fs::read_to_string(&path)
@@ -482,21 +548,24 @@ fn apply_global_basic_settings_overrides(
         fullscreen,
         window_size,
         from_account,
+        !get_roblox_pids().is_empty(),
         ledger,
     ) else {
-        return Ok(());
+        return Ok(None);
     };
-    if patched == xml {
-        return Ok(());
+    if patched.xml != xml {
+        std::fs::write(&path, &patched.xml)
+            .map_err(|e| format!("Failed to write GlobalBasicSettings_13.xml: {}", e))?;
     }
-
-    std::fs::write(&path, patched)
-        .map_err(|e| format!("Failed to write GlobalBasicSettings_13.xml: {}", e))
+    Ok(patched.fullscreen_from_ledger)
 }
 
 /// Grava as opções desta abertura nos arquivos do Roblox. `from_account` diz o
 /// que veio da exceção da conta — é o que o registro guarda para desfazer na
 /// próxima conta sem exceção.
+///
+/// Devolve a tela cheia que o registro pôs de volta para esta conta (ver
+/// `GuardedRewrite::fullscreen_from_ledger`).
 #[allow(clippy::too_many_arguments)]
 pub fn apply_runtime_client_settings(
     base_path: Option<&str>,
@@ -507,7 +576,7 @@ pub fn apply_runtime_client_settings(
     window_size: Option<(u32, u32)>,
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
     from_account: AccountSourced,
-) -> Result<(), String> {
+) -> Result<Option<bool>, String> {
     let mut ledger = load_override_ledger();
     let pending = !ledger.is_empty();
 
@@ -531,6 +600,7 @@ pub fn apply_runtime_client_settings(
         }
     }
 
+    let mut fullscreen_from_ledger = None;
     if max_fps.is_some()
         || master_volume.is_some()
         || graphics.is_some()
@@ -538,7 +608,7 @@ pub fn apply_runtime_client_settings(
         || window_size.is_some()
         || pending
     {
-        apply_global_basic_settings_overrides(
+        fullscreen_from_ledger = apply_global_basic_settings_overrides(
             max_fps,
             master_volume,
             graphics,
@@ -550,7 +620,7 @@ pub fn apply_runtime_client_settings(
     }
 
     save_override_ledger(&ledger);
-    Ok(())
+    Ok(fullscreen_from_ledger)
 }
 
 pub fn copy_custom_client_settings(
@@ -854,8 +924,9 @@ mod win_client_settings_tests {
         sourced: AccountSourced,
         ledger: &mut OverrideLedger,
     ) -> String {
-        rewrite_global_basic_settings_guarded(xml, None, volume, graphics, None, None, sourced, ledger)
+        rewrite_global_basic_settings_guarded(xml, None, volume, graphics, None, None, sourced, false, ledger)
             .expect("bloco UserGameSettings")
+            .xml
     }
 
     #[test]
@@ -962,8 +1033,9 @@ mod win_client_settings_tests {
         sourced: AccountSourced,
         ledger: &mut OverrideLedger,
     ) -> String {
-        rewrite_global_basic_settings_guarded(xml, None, None, None, None, size, sourced, ledger)
+        rewrite_global_basic_settings_guarded(xml, None, None, None, None, size, sourced, false, ledger)
             .expect("bloco UserGameSettings")
+            .xml
     }
 
     fn screen_size(xml: &str) -> (u32, u32) {
@@ -1032,6 +1104,140 @@ mod win_client_settings_tests {
         let main = open_window(WINDOW_XML, Some((1000, 1000)), FROM_ACCOUNT_WINDOW, &mut ledger);
         assert!(main.contains("<int name=\"FramerateCap\">60</int>"));
         assert!(ledger.entries.keys().all(|k| WINDOW_PROPS.iter().any(|p| k == &format!("xml:{p}"))));
+    }
+
+    // ── tela cheia de uma exceção (03/10/2026) ─────────────────────────────
+    //
+    // A principal com "Tela: cheia" grava `Fullscreen=true`. A alt sem exceção
+    // (e sem tamanho no perfil global) tem o valor do jogador de volta — mas o
+    // cliente da principal, aberto, regrava `Fullscreen=true` no arquivo, e a
+    // segunda alt não tinha mais registro para desfazer: abria em tela cheia.
+
+    const FULLSCREEN_XML: &str = concat!(
+        "<roblox>\n",
+        "\t<Item class=\"UserGameSettings\" referent=\"RBX1\">\n",
+        "\t\t<Properties>\n",
+        "\t\t\t<bool name=\"Fullscreen\">false</bool>\n",
+        "\t\t\t<bool name=\"StartMaximized\">false</bool>\n",
+        "\t\t\t<Vector2 name=\"StartScreenSize\">\n\t\t\t\t<X>640</X>\n\t\t\t\t<Y>480</Y>\n\t\t\t</Vector2>\n",
+        "\t\t</Properties>\n",
+        "\t</Item>\n",
+        "</roblox>\n"
+    );
+
+    fn open_fullscreen(
+        xml: &str,
+        fullscreen: Option<bool>,
+        size: Option<(u32, u32)>,
+        sourced: AccountSourced,
+        clients_open: bool,
+        ledger: &mut OverrideLedger,
+    ) -> GuardedRewrite {
+        rewrite_global_basic_settings_guarded(
+            xml, None, None, None, fullscreen, size, sourced, clients_open, ledger,
+        )
+        .expect("bloco UserGameSettings")
+    }
+
+    /// O cliente da principal regravou o arquivo com a tela cheia dele.
+    fn main_client_saves_fullscreen(xml: &str) -> String {
+        xml.replace(
+            "<bool name=\"Fullscreen\">false</bool>",
+            "<bool name=\"Fullscreen\">true</bool>",
+        )
+    }
+
+    #[test]
+    fn a_fullscreen_exception_does_not_leak_into_the_next_account() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_fullscreen(FULLSCREEN_XML, Some(true), None, FROM_ACCOUNT_WINDOW, true, &mut ledger);
+        assert!(main.xml.contains("<bool name=\"Fullscreen\">true</bool>"));
+
+        let alt = open_fullscreen(&main.xml, None, None, AccountSourced::default(), true, &mut ledger);
+        assert!(alt.xml.contains("<bool name=\"Fullscreen\">false</bool>"), "{}", alt.xml);
+        // O launch fica sabendo que esta conta é "em janela" — é o que manda a
+        // conferência pelo PID tirar a tela cheia que o arquivo ainda der.
+        assert_eq!(alt.fullscreen_from_ledger, Some(false));
+    }
+
+    #[test]
+    fn while_the_fullscreen_account_is_open_every_alt_gets_the_windowed_value_back() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_fullscreen(FULLSCREEN_XML, Some(true), None, FROM_ACCOUNT_WINDOW, true, &mut ledger);
+        let alt1 = open_fullscreen(&main.xml, None, None, AccountSourced::default(), true, &mut ledger);
+
+        let resaved = main_client_saves_fullscreen(&alt1.xml);
+        let alt2 = open_fullscreen(&resaved, None, None, AccountSourced::default(), true, &mut ledger);
+        assert!(alt2.xml.contains("<bool name=\"Fullscreen\">false</bool>"), "{}", alt2.xml);
+        assert_eq!(alt2.fullscreen_from_ledger, Some(false));
+    }
+
+    /// O arquivo ainda está com o valor que a alt anterior pôs de volta: nada a
+    /// reescrever, mas o cliente da principal pode regravar antes de esta alt
+    /// ler — o launch continua sabendo que ela é "em janela".
+    #[test]
+    fn a_value_already_put_back_still_reports_the_account_as_windowed() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_fullscreen(FULLSCREEN_XML, Some(true), None, FROM_ACCOUNT_WINDOW, true, &mut ledger);
+        let alt1 = open_fullscreen(&main.xml, None, None, AccountSourced::default(), true, &mut ledger);
+        let alt2 = open_fullscreen(&alt1.xml, None, None, AccountSourced::default(), true, &mut ledger);
+        assert_eq!(alt2.xml, alt1.xml);
+        assert_eq!(alt2.fullscreen_from_ledger, Some(false));
+        assert!(!ledger.is_empty());
+    }
+
+    /// Com nenhum cliente aberto, o cliente da exceção já fechou: o registro é
+    /// consumido como antes, e o que o arquivo tiver depois é do jogador.
+    #[test]
+    fn with_no_client_open_the_fullscreen_entry_is_consumed_as_before() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_fullscreen(FULLSCREEN_XML, Some(true), None, FROM_ACCOUNT_WINDOW, true, &mut ledger);
+        let alt1 = open_fullscreen(&main.xml, None, None, AccountSourced::default(), false, &mut ledger);
+        assert!(alt1.xml.contains("<bool name=\"Fullscreen\">false</bool>"));
+        assert!(ledger.is_empty(), "{ledger:?}");
+
+        // O jogador pôs tela cheia dentro do jogo, sem exceção nenhuma: fica.
+        let own = main_client_saves_fullscreen(&alt1.xml);
+        let later = open_fullscreen(&own, None, None, AccountSourced::default(), false, &mut ledger);
+        assert!(later.xml.contains("<bool name=\"Fullscreen\">true</bool>"));
+        assert_eq!(later.fullscreen_from_ledger, None);
+    }
+
+    /// O jogador já jogava em tela cheia: o valor dele volta, e é tela cheia.
+    #[test]
+    fn a_players_own_fullscreen_comes_back_as_fullscreen() {
+        let mut ledger = OverrideLedger::default();
+        let own = main_client_saves_fullscreen(FULLSCREEN_XML);
+        let main = open_fullscreen(&own, Some(true), None, FROM_ACCOUNT_WINDOW, true, &mut ledger);
+        let alt = open_fullscreen(&main.xml, None, None, AccountSourced::default(), true, &mut ledger);
+        assert!(alt.xml.contains("<bool name=\"Fullscreen\">true</bool>"));
+        assert_eq!(alt.fullscreen_from_ledger, Some(true));
+    }
+
+    /// Sem exceção nenhuma no caminho, o app não fala nada sobre tela cheia.
+    #[test]
+    fn without_an_exception_the_ledger_reports_nothing() {
+        let mut ledger = OverrideLedger::default();
+        let own = main_client_saves_fullscreen(FULLSCREEN_XML);
+        let alt = open_fullscreen(&own, None, None, AccountSourced::default(), true, &mut ledger);
+        assert_eq!(alt.xml, own);
+        assert_eq!(alt.fullscreen_from_ledger, None);
+    }
+
+    /// O cenário do dono: perfil global 520x420. O global escreve
+    /// `Fullscreen=false` para a alt a cada abertura, mesmo com a principal
+    /// regravando `true` no meio.
+    #[test]
+    fn the_global_window_size_writes_windowed_for_every_alt() {
+        let mut ledger = OverrideLedger::default();
+        let main = open_fullscreen(FULLSCREEN_XML, Some(true), None, FROM_ACCOUNT_WINDOW, true, &mut ledger);
+        let alt1 = open_fullscreen(&main.xml, None, Some((520, 420)), AccountSourced::default(), true, &mut ledger);
+        assert!(alt1.xml.contains("<bool name=\"Fullscreen\">false</bool>"));
+
+        let resaved = main_client_saves_fullscreen(&alt1.xml);
+        let alt2 = open_fullscreen(&resaved, None, Some((520, 420)), AccountSourced::default(), true, &mut ledger);
+        assert!(alt2.xml.contains("<bool name=\"Fullscreen\">false</bool>"), "{}", alt2.xml);
+        assert_eq!(screen_size(&alt2.xml), (520, 420));
     }
 
     #[test]
