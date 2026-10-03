@@ -153,13 +153,11 @@ export function AfkModeView({
     <div
       data-testid="afk-mode-view"
       data-variant={variant}
-      className={`flex h-full min-h-0 flex-col ${page ? "gap-4 p-5 lg:p-6" : "gap-3 px-5 pb-5 pt-4"}`}
+      className={`flex h-full min-h-0 flex-col ${page ? "gap-4 px-6 pb-5 pt-4" : "gap-3 px-5 pb-5 pt-4"}`}
     >
       {page ? (
-        <>
-          <header className="shrink-0">{title}</header>
-          {tabList}
-        </>
+        // Na página o título e a descrição são do PageShell (AfkPage): aqui só as abas.
+        tabList
       ) : (
         // No modal, título, abas e o X dividem uma linha: a altura vai para a
         // lista ao vivo, não para cabeçalho.

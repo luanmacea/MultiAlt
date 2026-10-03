@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useStore } from "../../store";
-import { useModalClose } from "../../hooks/useModalClose";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
+import { PageShell } from "./PageShell";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import type { ThemeData } from "../../types";
 import { useTr } from "../../i18n/text";
@@ -47,25 +48,27 @@ function cleanPresetLabel(label: string) {
   return label.replace(/\s+\(Custom\)$/, "");
 }
 
-export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * Página Theme. Era um modal de 560 px com uma categoria por vez (duas a quatro
+ * cores cada); na página todas as categorias ficam à vista, em cartões, e uma
+ * prévia fixa ao lado mostra as superfícies do app com as cores atuais.
+ *
+ * A pré-visualização é do app inteiro (`applyThemePreview`), como no modal.
+ * Sair da página sem salvar — pela barra lateral, pelo Escape ou por qualquer
+ * outro caminho que troque `activePage` — devolve o tema salvo, que é o que o
+ * Escape e o Cancel do modal faziam.
+ */
+export function ThemePage({ active, onLeave }: { active: boolean; onLeave: () => void }) {
   const t = useTr();
   const store = useStore();
   const prompt = usePrompt();
   const confirm = useConfirm();
-  const closeRef = useRef<() => void>(() => {});
 
-  // O Escape deste diálogo reverte a pré-visualização antes de fechar; por isso
-  // ele passa a própria ação para o `useModalClose`, em vez de escutar `window`
-  // por conta própria (o que fazia o Escape chegar duas vezes).
-  const { visible, closing, handleClose } = useModalClose(open, onClose, 100, () => {
-    store.applyThemePreview(openThemeRef.current);
-    closeRef.current();
-  });
-  // A ref existe porque o callback acima e montado antes de `handleClose` existir.
-  closeRef.current = handleClose;
-  const [category, setCategory] = useState<Category>("Accounts");
   const [theme, setThemeLocal] = useState<ThemeData>({ ...DEFAULT_THEME });
   const [savedTheme, setSavedTheme] = useState<ThemeData>({ ...DEFAULT_THEME });
+  const savedThemeRef = useRef<ThemeData | null>(null);
+  savedThemeRef.current = savedTheme;
+  const wasActiveRef = useRef(false);
   const [customPresets, setCustomPresets] = useState<CustomThemePreset[]>([]);
   const [presetId, setPresetId] = useState(`${BUILTIN_PREFIX}${THEME_PRESETS[0].id}`);
   const [presetMenuOpen, setPresetMenuOpen] = useState(false);
@@ -106,7 +109,15 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
   );
 
   useEffect(() => {
-    if (!open) return;
+    if (!active) {
+      // Saiu da página: o que não foi salvo some, e o app volta ao tema salvo.
+      if (wasActiveRef.current && savedThemeRef.current) {
+        store.applyThemePreview(savedThemeRef.current);
+      }
+      wasActiveRef.current = false;
+      return;
+    }
+    wasActiveRef.current = true;
     let cancelled = false;
     const nextTheme = normalizeTheme(store.theme ?? DEFAULT_THEME);
     openThemeRef.current = nextTheme;
@@ -126,12 +137,16 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
     return () => {
       cancelled = true;
     };
-  }, [open]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!active) return;
     setPresetMenuOpen(false);
-  }, [open]);
+  }, [active]);
+
+  // Com a lista de presets aberta, o Escape fecha a lista — e não a página.
+  useEscapeStack(active && presetMenuOpen, () => setPresetMenuOpen(false));
 
   useEffect(() => {
     if (!presetMenuOpen) return;
@@ -163,7 +178,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
     [store.applyThemePreview]
   );
 
-  if (!visible) return null;
+  if (!active) return null;
 
   function update(partial: Partial<ThemeData>) {
     setThemeLocal((prev) => {
@@ -242,9 +257,11 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
     }
   }
 
-  function handleCancel() {
-    store.applyThemePreview(savedTheme ?? openThemeRef.current);
-    handleClose();
+  /** Volta ao tema salvo sem sair da página. */
+  function handleDiscard() {
+    const saved = savedTheme ?? openThemeRef.current;
+    setThemeLocal(saved);
+    store.applyThemePreview(saved);
   }
 
   async function handleSave() {
@@ -252,8 +269,8 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
       const normalized = normalizeTheme(theme);
       await store.saveTheme(normalized);
       setSavedTheme(normalized);
+      setThemeLocal(normalized);
       store.addToast(t("Theme saved"));
-      handleClose();
     } catch (e) {
       store.addToast(t("Error: {{error}}", { error: String(e) }));
     }
@@ -360,7 +377,7 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
     update({ button_style: next });
   }
 
-  function renderControls() {
+  function renderControls(category: Category) {
     switch (category) {
       case "Accounts":
         return (
@@ -498,91 +515,108 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
     }
   }
 
-  return (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={handleCancel}
-    >
-      <div
-        className={`theme-modal-scope theme-panel theme-border rounded-2xl shadow-2xl w-[560px] h-[560px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0">
-          <h2 className="text-sm font-semibold text-[var(--panel-fg)]">{t("Theme Editor")}</h2>
-          <button onClick={handleCancel} className="theme-muted hover:opacity-100 transition-opacity">
-            <X size={16} strokeWidth={2} />
-          </button>
-        </div>
+  const dirty = JSON.stringify(normalizeTheme(theme)) !== JSON.stringify(normalizeTheme(savedTheme));
 
-        <div className="px-5 pb-3 border-b theme-border shrink-0">
-          <div className="grid grid-cols-1 gap-2">
-            <div ref={presetMenuRef} className="relative">
-              <button
-                onClick={() => setPresetMenuOpen((prev) => !prev)}
-                className="theme-input w-full px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-all duration-150 hover:brightness-110"
-                aria-haspopup="listbox"
-                aria-expanded={presetMenuOpen}
-              >
-                <span className="truncate text-[var(--panel-fg)]">
-                  {cleanPresetLabel(selectedPreset?.label ?? t("Select preset"))}
-                </span>
-                <ChevronDown size={12} strokeWidth={2} className={`theme-muted transition-transform duration-150 ${presetMenuOpen ? "rotate-180" : ""}`} />
-              </button>
-              <div
-                className={`absolute left-0 right-0 top-full mt-2 z-30 transition-all duration-150 origin-top ${
-                  presetMenuOpen
-                    ? "opacity-100 scale-100 pointer-events-auto"
-                    : "opacity-0 scale-95 pointer-events-none"
-                }`}
-              >
-                <div className="theme-panel theme-border border rounded-xl shadow-2xl max-h-56 overflow-y-auto p-1.5">
-                  <div className="px-2 py-1 text-[11px] uppercase tracking-wide theme-muted font-semibold">{t("Built-in")}</div>
-                  {builtInPresetOptions.map((preset) => {
-                    const active = preset.key === presetId;
-                    return (
-                      <button
-                        key={preset.key}
-                        onClick={() => handlePresetSelection(preset.key)}
-                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs border transition-all duration-150 ${
-                          active
-                            ? "theme-accent theme-accent-bg theme-accent-border"
-                            : "border-transparent text-[var(--panel-fg)] hover:bg-[var(--panel-soft)]"
-                        }`}
-                      >
-                        {t(preset.label)}
-                      </button>
-                    );
-                  })}
-                  <div className="mx-2 my-1 border-t theme-border" />
-                  <div className="px-2 py-1 text-[11px] uppercase tracking-wide theme-muted font-semibold">{t("Custom")}</div>
-                  {customPresetOptions.length > 0 ? (
-                    customPresetOptions.map((preset) => {
-                      const active = preset.key === presetId;
+  return (
+    <PageShell
+      title={t("Theme")}
+      description={t(
+        "Colors and fonts apply to the whole app while you edit. Save to keep them; leaving the page without saving puts the saved theme back."
+      )}
+      onLeave={onLeave}
+      dataTour="theme-page"
+      bodyClassName="overflow-y-auto"
+      actions={
+        <>
+          <button onClick={handleReset} className="theme-btn-ghost px-3 py-1.5 text-xs">
+            {t("Reset to Defaults")}
+          </button>
+          <button
+            onClick={handleDiscard}
+            disabled={!dirty}
+            className="theme-btn px-3 py-1.5 text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {t("Discard changes")}
+          </button>
+          <button
+            onClick={handleSave}
+            className="theme-btn theme-accent theme-accent-bg theme-accent-border px-4 py-1.5 text-xs font-semibold"
+          >
+            {t("Save")}
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_272px] lg:items-start">
+        <div className="min-w-0 space-y-5">
+          <section aria-labelledby="theme-presets-heading">
+            <h2 id="theme-presets-heading" className="mb-2 text-[12.5px] font-semibold text-[var(--panel-fg)]">
+              {t("Presets")}
+            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <div ref={presetMenuRef} className="relative w-full sm:w-64">
+                <button
+                  onClick={() => setPresetMenuOpen((prev) => !prev)}
+                  className="theme-input w-full px-3 py-1.5 rounded-lg text-xs flex items-center justify-between transition-all duration-150 hover:brightness-110"
+                  aria-haspopup="listbox"
+                  aria-expanded={presetMenuOpen}
+                >
+                  <span className="truncate text-[var(--panel-fg)]">
+                    {cleanPresetLabel(selectedPreset?.label ?? t("Select preset"))}
+                  </span>
+                  <ChevronDown size={12} strokeWidth={2} className={`theme-muted transition-transform duration-150 ${presetMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+                <div
+                  className={`absolute left-0 right-0 top-full mt-2 z-30 transition-all duration-150 origin-top ${
+                    presetMenuOpen
+                      ? "opacity-100 scale-100 pointer-events-auto"
+                      : "opacity-0 scale-95 pointer-events-none"
+                  }`}
+                >
+                  <div className="theme-panel theme-border border rounded-xl shadow-2xl max-h-72 overflow-y-auto p-1.5">
+                    <div className="px-2 py-1 text-[11px] theme-muted font-semibold">{t("Built-in")}</div>
+                    {builtInPresetOptions.map((preset) => {
+                      const selected = preset.key === presetId;
                       return (
                         <button
                           key={preset.key}
                           onClick={() => handlePresetSelection(preset.key)}
                           className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs border transition-all duration-150 ${
-                            active
+                            selected
                               ? "theme-accent theme-accent-bg theme-accent-border"
                               : "border-transparent text-[var(--panel-fg)] hover:bg-[var(--panel-soft)]"
                           }`}
                         >
-                          {t(cleanPresetLabel(preset.label))}
+                          {t(preset.label)}
                         </button>
                       );
-                    })
-                  ) : (
-                    <div className="px-2.5 py-2 text-[12px] theme-muted">{t("No custom presets yet")}</div>
-                  )}
+                    })}
+                    <div className="mx-2 my-1 border-t theme-border" />
+                    <div className="px-2 py-1 text-[11px] theme-muted font-semibold">{t("Custom")}</div>
+                    {customPresetOptions.length > 0 ? (
+                      customPresetOptions.map((preset) => {
+                        const selected = preset.key === presetId;
+                        return (
+                          <button
+                            key={preset.key}
+                            onClick={() => handlePresetSelection(preset.key)}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs border transition-all duration-150 ${
+                              selected
+                                ? "theme-accent theme-accent-bg theme-accent-border"
+                                : "border-transparent text-[var(--panel-fg)] hover:bg-[var(--panel-soft)]"
+                            }`}
+                          >
+                            {t(cleanPresetLabel(preset.label))}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="px-2.5 py-2 text-[12px] theme-muted">{t("No custom presets yet")}</div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={handleSavePreset}
-                className="theme-btn px-3 py-1.5 text-xs font-medium"
-              >
+              <button onClick={handleSavePreset} className="theme-btn px-3 py-1.5 text-xs font-medium">
                 {t("Save Preset")}
               </button>
               <input
@@ -593,16 +627,10 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
                 data-testid="import-preset-file-input"
                 onChange={handlePresetFileSelected}
               />
-              <button
-                onClick={handleImportPresetFile}
-                className="theme-btn px-3 py-1.5 text-xs font-medium"
-              >
+              <button onClick={handleImportPresetFile} className="theme-btn px-3 py-1.5 text-xs font-medium">
                 {t("Import File")}
               </button>
-              <button
-                onClick={handleExportPresetFile}
-                className="theme-btn px-3 py-1.5 text-xs font-medium"
-              >
+              <button onClick={handleExportPresetFile} className="theme-btn px-3 py-1.5 text-xs font-medium">
                 {t("Export File")}
               </button>
               <button
@@ -613,57 +641,81 @@ export function ThemeEditorDialog({ open, onClose }: { open: boolean; onClose: (
                 {t("Delete Preset")}
               </button>
             </div>
-          </div>
-        </div>
+          </section>
 
-        <div className="flex flex-1 min-h-0">
-          <div className="w-[170px] shrink-0 border-r theme-border py-1 px-2">
+          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
             {CATEGORIES.map((cat) => (
-              <button
+              <section
                 key={cat}
-                onClick={() => setCategory(cat)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-colors ${
-                  category === cat
-                    ? "theme-btn"
-                    : "theme-muted hover:opacity-100 hover:bg-[var(--panel-soft)]"
-                }`}
+                aria-labelledby={`theme-cat-${cat}`}
+                className={`rounded-xl border theme-border px-4 pt-3 pb-2 ${cat === "Fonts" ? "xl:col-span-2" : ""}`}
               >
-                {t(cat)}
-              </button>
+                <h2 id={`theme-cat-${cat}`} className="mb-1 text-[12.5px] font-semibold text-[var(--panel-fg)]">
+                  {t(cat)}
+                </h2>
+                {renderControls(cat)}
+              </section>
             ))}
           </div>
-
-          <div className="flex-1 px-5 py-3 overflow-y-auto">
-            <div className="text-[11px] font-semibold uppercase tracking-wider theme-muted mb-3">
-              {t(category)}
-            </div>
-            {renderControls()}
-          </div>
         </div>
 
-        <div className="flex items-center justify-between px-5 py-3 border-t theme-border shrink-0">
-          <button
-            onClick={handleReset}
-            className="theme-btn px-3 py-1.5 text-xs"
-          >
-            {t("Reset to Defaults")}
-          </button>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCancel}
-              className="theme-btn px-4 py-1.5 text-xs font-medium"
+        <ThemePreview />
+      </div>
+    </PageShell>
+  );
+}
+
+/**
+ * Amostra das superfícies que o tema pinta — barra de título, lista de contas,
+ * formulário com campo, botão e toggle — usando as mesmas classes do app. É só
+ * para olhar: nada aqui recebe foco nem clique.
+ */
+function ThemePreview() {
+  const t = useTr();
+  const rows = ["Builderman_01", "NightOwl", "Pixelmancer"];
+  return (
+    <aside aria-label={t("Preview")} className="lg:sticky lg:top-0">
+      <h2 className="mb-2 text-[12.5px] font-semibold text-[var(--panel-fg)]">{t("Preview")}</h2>
+      <div aria-hidden="true" className="rounded-xl border theme-border overflow-hidden shadow-xl select-none">
+        <div className="theme-titlebar flex items-center justify-between h-7 px-3 text-[11px]">
+          <span className="font-semibold">MultiAlt</span>
+          <span className="flex items-center gap-2 opacity-60">
+            <span className="w-2 h-px bg-current" />
+            <span className="w-2 h-2 border border-current" />
+          </span>
+        </div>
+        <div className="theme-panel py-1">
+          {rows.map((name, index) => (
+            <div
+              key={name}
+              className={`flex items-center gap-2.5 px-3 py-1.5 ${index === 1 ? "theme-row-selected" : ""}`}
             >
-              {t("Cancel")}
-            </button>
-            <button
-              onClick={handleSave}
-              className="theme-btn px-4 py-1.5 text-xs font-medium"
-            >
-              {t("Save")}
-            </button>
+              <span className="theme-avatar w-6 h-6 rounded-full border theme-border bg-[var(--panel-soft)] flex items-center justify-center text-[11px] text-[var(--panel-fg)]">
+                {name[0]}
+              </span>
+              <span className="text-[12px] font-medium text-[var(--panel-fg)] truncate">{name}</span>
+            </div>
+          ))}
+        </div>
+        <div className="theme-surface border-t theme-border p-3 space-y-2.5">
+          <div>
+            <span className="theme-label theme-label-bg text-[11px]">{t("Place ID")}</span>
+            <div className="theme-input mt-1 rounded-md px-2 py-1 text-[12px] font-mono">606849621</div>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="theme-btn px-3 py-1 text-[12px]">{t("Join")}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-8 h-[18px] rounded-full relative border bg-[var(--toggle-off-bg)] border-[var(--toggle-off-bg)]">
+                <span className="w-3.5 h-3.5 rounded-full bg-[var(--toggle-knob-bg)] absolute top-[1px] left-[1px]" />
+              </span>
+              <span className="w-8 h-[18px] rounded-full relative border bg-[var(--toggle-on-bg)] border-[var(--toggle-on-bg)]">
+                <span className="w-3.5 h-3.5 rounded-full bg-[var(--toggle-knob-bg)] absolute top-[1px] left-[15px]" />
+              </span>
+            </span>
           </div>
         </div>
       </div>
-    </div>
+    </aside>
   );
 }
+
