@@ -1880,5 +1880,15 @@
   "PID {{pid}}": "PID {{pid}}",
   "Show window": "Show window",
   "Tell the app which account is playing in this client": "Tell the app which account is playing in this client",
-  "Unidentified client": "Unidentified client"
+  "Unidentified client": "Unidentified client",
+  "Couldn't load the update history. Check your internet connection and try again.": "Couldn't load the update history. Check your internet connection and try again.",
+  "GitHub is limiting how often the update history can be loaded. Try again in a few minutes.": "GitHub is limiting how often the update history can be loaded. Try again in a few minutes.",
+  "Loading the update history…": "Loading the update history…",
+  "No updates to show yet.": "No updates to show yet.",
+  "Not installed yet": "Not installed yet",
+  "See every version on GitHub": "See every version on GitHub",
+  "Update available": "Update available",
+  "What changed in each update of MultiAlt, newest first.": "What changed in each update of MultiAlt, newest first.",
+  "What's new": "What's new",
+  "Your version": "Your version"
 }
