@@ -5,6 +5,7 @@ import { Shirt, Users } from "lucide-react";
 import { useStore } from "../../store";
 import { PageShell } from "./PageShell";
 import { useConfirm } from "../../hooks/usePrompt";
+import { useAccountLabel, useHideAccountAvatar } from "../../hooks/useAccountLabel";
 import { useTr } from "../../i18n/text";
 import {
   groupByCategory,
@@ -32,9 +33,14 @@ type Tab = "build" | "distribute";
  * evento `avatar-batch-state` — a tela pode fechar e reabrir no meio que retoma
  * de onde está (`get_avatar_batch_state`).
  */
+/** Mapa vazio estável: as fotos das contas quando os nomes estão ocultos. */
+const NO_AVATARS: Map<number, string> = new Map();
+
 export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () => void }) {
   const t = useTr();
   const store = useStore();
+  const accountLabel = useAccountLabel();
+  const hideAvatars = useHideAccountAvatar();
   const confirm = useConfirm();
   // A página fica montada o tempo todo (o ouvinte do lote precisa disso);
   // `active` é o antigo "aberto".
@@ -291,9 +297,10 @@ export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () 
     }
   }
 
+  /** Nome da conta no progresso do lote, com "Names hidden" aplicado. */
   function accountName(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
-    return account?.Alias || account?.Username || `${t("User ID")}: ${userId}`;
+    return accountLabel(account, `${t("User ID")}: ${userId}`);
   }
 
   if (!visible) return null;
@@ -377,7 +384,9 @@ export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () 
           onToggleAvatar={toggleAvatarCheck}
           onGoBuild={() => setTab("build")}
           accounts={store.accounts}
-          avatarUrls={store.avatarUrls}
+          // Com os nomes ocultos as fotos das contas somem junto (a menos que a
+          // opção de manter avatares esteja ligada) — igual à lista de contas.
+          avatarUrls={hideAvatars ? NO_AVATARS : store.avatarUrls}
           picked={picked}
           onPickedChange={setPicked}
           batch={batch}

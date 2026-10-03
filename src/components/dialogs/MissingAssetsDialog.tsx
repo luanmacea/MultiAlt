@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
+import { maskAccountName } from "../../utils/accountName";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 
@@ -131,7 +132,9 @@ export function MissingAssetsDialog() {
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-3 shrink-0">
           <h2 className="text-sm font-semibold text-zinc-100">
-            {t("Missing Assets for {{username}}", { username: data.username })}
+            {t("Missing Assets for {{username}}", {
+              username: maskAccountName(data.username, store.hideUsernames, store.hiddenNameLetters),
+            })}
           </h2>
           <button
             onClick={handleClose}

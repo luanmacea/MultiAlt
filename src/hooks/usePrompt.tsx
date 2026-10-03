@@ -7,6 +7,8 @@ interface PromptState {
   defaultValue: string;
   /** Teto de caracteres do campo; sem ele o campo aceita qualquer tamanho. */
   maxLength?: number;
+  /** Campo em bolinhas (como senha): valor inicial com nome de conta e nomes ocultos. */
+  masked?: boolean;
   resolve: (value: string | null) => void;
 }
 
@@ -17,6 +19,12 @@ export interface PromptOptions {
    * cortava depois, calado — o "Set Alias" do menu gravava 240 de 300.
    */
   maxLength?: number;
+  /**
+   * Mostra o campo em bolinhas, como senha. Para quando o valor inicial é o
+   * nome de uma conta e o modo "Names hidden" está ligado (o "Set Alias" do
+   * menu abria com o alias atual à mostra).
+   */
+  masked?: boolean;
 }
 
 interface ConfirmState {
@@ -83,7 +91,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 
   const prompt = useCallback((message: string, defaultValue = "", options: PromptOptions = {}) => {
     return new Promise<string | null>((resolve) => {
-      setPromptState({ message, defaultValue, maxLength: options.maxLength, resolve });
+      setPromptState({ message, defaultValue, maxLength: options.maxLength, masked: options.masked, resolve });
       setValue(defaultValue);
     });
   }, []);
@@ -200,7 +208,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
                     maxLength={promptState.maxLength}
                     onChange={(e) => setValue(e.target.value)}
                     onKeyDown={handlePromptKeyDown}
-                    className="w-full px-3 py-[7px] bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-[13px] text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
+                    className={`w-full px-3 py-[7px] bg-zinc-800/60 border border-zinc-700/50 rounded-lg text-[13px] text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors${promptState.masked ? " masked-input" : ""}`}
                   />
                   {promptState.maxLength ? (
                     <div className="mt-1 text-right text-[11px] text-zinc-500 tabular-nums">

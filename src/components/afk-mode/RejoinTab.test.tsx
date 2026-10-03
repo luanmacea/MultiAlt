@@ -743,3 +743,64 @@ describe("RejoinTab — adotando as contas em jogo", () => {
     expect(store.startBottingMode).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Com "Names hidden" na toolbar, o Auto Rejoin mostrava os nomes reais nos
+ * chips de Targets, no menu e no botão de Main Accounts e na lista ao vivo (com
+ * a foto da conta) — confirmado no app de verdade.
+ */
+describe("RejoinTab — nomes ocultos", () => {
+  const SA = makeAccount({ UserID: 1, Username: "secretann", Alias: "AliasAnn" });
+  const SB = makeAccount({ UserID: 2, Username: "secretbob" });
+  const HIDDEN = {
+    accounts: [SA, SB],
+    hideUsernames: true,
+    hiddenNameLetters: 0,
+    showAvatarsWhenHidden: false,
+    avatarUrls: new Map([
+      [1, "https://avatar.test/one.png"],
+      [2, "https://avatar.test/two.png"],
+    ]),
+  };
+
+  function expectNoRealName() {
+    const html = document.body.innerHTML;
+    for (const leak of ["secretann", "AliasAnn", "secretbob", "avatar.test"]) expect(html).not.toContain(leak);
+  }
+
+  it("New View: chips, menu e botão de Main Accounts e lista ao vivo", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlayerAccountIds: "1" } } : undefined
+    );
+    renderDialog({ ...HIDDEN, bottingStatus: activeSession() }, [SA, SB]);
+    const botao = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent("************"));
+    expect(screen.getByText("Live Auto Rejoin List")).toBeInTheDocument();
+    expectNoRealName();
+  });
+
+  it("o title do botão de Main Accounts com várias contas", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlayerAccountIds: "1,2" } } : undefined
+    );
+    renderDialog(HIDDEN, [SA, SB]);
+    const botao = document.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+    await waitFor(() => expect(botao).toHaveTextContent("2 selected"));
+    expectNoRealName();
+  });
+
+  it("Classic: Live Cycle", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDualPanelDialog: "false" } } : undefined
+    );
+    renderDialog({ ...HIDDEN, bottingStatus: activeSession() }, [SA, SB]);
+    await screen.findByText("Live Cycle");
+    expectNoRealName();
+  });
+
+  it("com a opção de manter avatares, a foto volta mas o nome não", () => {
+    renderDialog({ ...HIDDEN, showAvatarsWhenHidden: true, bottingStatus: activeSession() }, [SA, SB]);
+    expect(document.body.innerHTML).toContain("avatar.test/one.png");
+    expect(document.body.innerHTML).not.toContain("secretann");
+  });
+});

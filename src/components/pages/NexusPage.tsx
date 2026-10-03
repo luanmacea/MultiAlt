@@ -9,6 +9,7 @@ import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { GameBadge } from "../ui/GameBadge";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
+import { useAccountLabel } from "../../hooks/useAccountLabel";
 import { tr, useTr } from "../../i18n/text";
 import { ChevronRight } from "lucide-react";
 import { REPO_URL } from "../../repo";
@@ -535,6 +536,8 @@ function ControlPanel({
   onClearLog: () => void;
 }) {
   const t = useTr();
+  /** As contas do Nexus são as do usuário: com "Names hidden" o nome sai mascarado. */
+  const accountLabel = useAccountLabel();
   /** Que jogo é o place digitado para a conta escolhida. */
   const game = useGameIdentity(placeInput, null);
   return (
@@ -580,7 +583,9 @@ function ControlPanel({
               <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                 acc.status === "Online" ? "bg-emerald-400" : "bg-zinc-600"
               }`} />
-              <span className="text-[12px] text-zinc-300 truncate flex-1">{acc.username}</span>
+              <span className="text-[12px] text-zinc-300 truncate flex-1">
+                {accountLabel({ Username: acc.username, Alias: "" })}
+              </span>
               {acc.in_game_job_id && acc.status === "Online" && (
                 <span className="text-[11px] text-zinc-600 font-mono truncate max-w-[60px]">
                   {acc.in_game_job_id.slice(0, 8)}

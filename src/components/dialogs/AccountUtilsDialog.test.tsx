@@ -293,3 +293,32 @@ describe("AccountUtilsDialog — cabe na janela", () => {
     expect(classes).toContain("max-w-[calc(100vw-24px)]");
   });
 });
+
+/**
+ * Com "Names hidden" o cabeçalho do diálogo mostrava o alias e a foto da conta,
+ * e o campo de Outfits abria com o username dela à mostra.
+ */
+describe("AccountUtilsDialog — nomes ocultos", () => {
+  const SECRET = makeAccount({ UserID: 42, Username: "secretann", Alias: "AliasAnn" });
+
+  it("o cabeçalho não mostra nome nem foto, e o username do Outfits fica em bolinhas", () => {
+    setStore({
+      accounts: [SECRET],
+      selectedIds: new Set([SECRET.UserID]),
+      selectedAccounts: [SECRET],
+      hideUsernames: true,
+      hiddenNameLetters: 0,
+      showAvatarsWhenHidden: false,
+      avatarUrls: new Map([[42, "https://avatar.test/42.png"]]),
+    });
+    render(<AccountUtilsDialog open onClose={() => {}} />);
+    expect(screen.getByText("************")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/secretann|AliasAnn/);
+    expect(document.body.innerHTML).not.toContain("avatar.test");
+    // Há dois campos "Username" (Block e Outfits); o de Outfits nasce preenchido.
+    const outfit = (screen.getAllByPlaceholderText("Username") as HTMLInputElement[]).find(
+      (el) => el.value === "secretann"
+    );
+    expect(outfit).toHaveClass("masked-input");
+  });
+});

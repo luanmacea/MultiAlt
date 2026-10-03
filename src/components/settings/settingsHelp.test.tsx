@@ -102,7 +102,7 @@ describe("GeneralTab explains what the fields do", () => {
 
   /**
    * `HiddenNameLetters` e o prefixo que sobra visivel no mascaramento
-   * (`maskName`, components/accounts/AccountRow.tsx:8-13): `0` esconde o nome
+   * (`maskAccountName`, utils/accountName.ts): `0` esconde o nome
    * inteiro. "Preview Letters" sozinho nao diz nada disso.
    */
   it("explains the hidden-name preview length", async () => {

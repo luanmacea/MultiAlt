@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../../store";
 import type { Account } from "../../../types";
 import { useGameIdentity } from "../../../hooks/useGameIdentity";
+import { useAccountInitial, useAccountLabel, useHideAccountAvatar } from "../../../hooks/useAccountLabel";
 import { useConfirm } from "../../../hooks/usePrompt";
 import { isMultiRobloxCloseProcessError } from "../../../utils/robloxErrors";
 import { useTr } from "../../../i18n/text";
@@ -43,6 +44,10 @@ export function useRejoinController({
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
+  /** Nome na tela, com "Names hidden" aplicado — toda a aba usa este. */
+  const accountLabel = useAccountLabel();
+  const accountInitial = useAccountInitial();
+  const hideAvatar = useHideAccountAvatar();
 
   // A lista vem de fora como array novo a cada render; a chave em texto é o que
   // os efeitos podem acompanhar sem rodar em loop.
@@ -514,9 +519,7 @@ export function useRejoinController({
     playerUserIds.length === 0
       ? t("None")
       : playerUserIds.length === 1
-        ? accountById.get(playerUserIds[0])?.Alias ||
-          accountById.get(playerUserIds[0])?.Username ||
-          t("Unknown")
+        ? accountLabel(accountById.get(playerUserIds[0]), t("Unknown"))
         : t("{{count}} selected", { count: playerUserIds.length });
   /**
    * O rótulo do botão Main Accounts corta o nome (ou diz só "N selected"): o
@@ -526,7 +529,7 @@ export function useRejoinController({
     playerUserIds.length === 0
       ? undefined
       : playerUserIds
-          .map((id) => accountById.get(id)?.Alias || accountById.get(id)?.Username || t("Unknown"))
+          .map((id) => accountLabel(accountById.get(id), t("Unknown")))
           .join(", ");
   const splitPlayersCount = liveRows.filter(
     ({ userId, row }) => !!row?.isPlayer || playerUserIds.includes(userId)
@@ -720,6 +723,9 @@ export function useRejoinController({
   return {
     t,
     store,
+    accountLabel,
+    accountInitial,
+    hideAvatar,
     adopt,
     targetIds,
     targetAccounts,

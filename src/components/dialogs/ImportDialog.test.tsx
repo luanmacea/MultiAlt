@@ -101,6 +101,25 @@ describe("ImportDialog — importing cookies", () => {
     expect(store.loadAccounts).toHaveBeenCalled();
   });
 
+  /** O resultado "Added <nome>" ficava com o nome real com "Names hidden" ligado. */
+  it("masks the imported name in the results while names are hidden", async () => {
+    setInvokeMap({ validate_cookie: { user_id: 5, name: "secret_alt" } });
+    setStore({ accounts: [], hideUsernames: true, hiddenNameLetters: 0 });
+    render(<ImportDialog open onClose={vi.fn()} defaultTab="cookie" />);
+
+    await userEvent.type(screen.getByRole("textbox"), COOKIE);
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    expect(await screen.findByText("Added ************")).toBeInTheDocument();
+    // O backend continua recebendo o nome de verdade.
+    expect(invokeMock).toHaveBeenCalledWith("add_account", {
+      securityToken: COOKIE,
+      username: "secret_alt",
+      userId: 5,
+    });
+    expect(document.body.textContent).not.toContain("secret_alt");
+  });
+
   /**
    * O cookie tem `:` dentro dele (`_|WARNING:-DO-NOT-SHARE...`): um
    * `split(":")` ingênuo manda `_|WARNING` como cookie e grava credencial

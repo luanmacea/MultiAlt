@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
@@ -9,7 +9,7 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 import { GeneratorDialog } from "./GeneratorDialog";
 import type { GeneratorDialogTab } from "../../store";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
-import { resetTauriMocks } from "../../test-utils/tauriMocks";
+import { emitTauriEvent, resetTauriMocks } from "../../test-utils/tauriMocks";
 
 function renderDialog(initialTab: GeneratorDialogTab = "provider", storeOverrides: Parameters<typeof setStore>[0] = {}) {
   const store = setStore(storeOverrides);
@@ -128,5 +128,26 @@ describe("GeneratorDialog — Add To Group suggests existing groups", () => {
     const options = Array.from(datalist.options).map((o) => o.value);
     expect(options).toEqual(["10 Alts"]);
     expect(options).not.toContain("Alts");
+  });
+});
+
+/**
+ * As contas geradas entram na lista do usuário, mas o registro do gerador as
+ * mostrava com nome e foto mesmo com "Names hidden" ligado.
+ */
+describe("GeneratorDialog — nomes ocultos", () => {
+  it("o registro de contas adicionadas não mostra nome nem foto", async () => {
+    renderDialog("provider", {
+      hideUsernames: true,
+      hiddenNameLetters: 0,
+      showAvatarsWhenHidden: false,
+      avatarUrls: new Map([[9, "https://avatar.test/9.png"]]),
+    });
+    await act(async () => {
+      emitTauriEvent("generator-account-added", { userId: 9, username: "secretgen" });
+    });
+    expect(screen.getByText("************")).toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain("secretgen");
+    expect(document.body.innerHTML).not.toContain("avatar.test");
   });
 });

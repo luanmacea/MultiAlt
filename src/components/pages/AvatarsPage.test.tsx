@@ -341,3 +341,50 @@ describe("AvatarsPage — distribuir", () => {
   });
 });
 
+/**
+ * Com "Names hidden" na toolbar, a lista de contas do Distribute mostrava o
+ * alias, o username e a foto de cada conta; o progresso do lote, o nome da conta
+ * da vez.
+ */
+describe("AvatarsPage — nomes ocultos", () => {
+  const SECRET = [
+    makeAccount({ UserID: 11, Username: "secretalpha", Alias: "AliasAlpha" }),
+    makeAccount({ UserID: 22, Username: "secretbravo" }),
+  ];
+  const HIDDEN = {
+    accounts: SECRET,
+    selectedAccounts: SECRET,
+    hideUsernames: true,
+    hiddenNameLetters: 0,
+    showAvatarsWhenHidden: false,
+    avatarUrls: new Map([
+      [11, "https://avatar.test/11.png"],
+      [22, "https://avatar.test/22.png"],
+    ]),
+  };
+
+  function expectNoRealName() {
+    const html = document.body.innerHTML;
+    for (const leak of ["secretalpha", "AliasAlpha", "secretbravo", "avatar.test"]) {
+      expect(html).not.toContain(leak);
+    }
+  }
+
+  it("a lista de contas e o lote em andamento não mostram nome nem foto", async () => {
+    wire({ avatar_list_saved: [SAVED] });
+    renderDialog(HIDDEN);
+    await userEvent.click(screen.getByRole("tab", { name: "Distribute" }));
+    await screen.findByRole("checkbox", { name: "Ninja" });
+    expect(screen.getAllByRole("checkbox", { name: "************" })).toHaveLength(2);
+    expectNoRealName();
+
+    act(() => {
+      emitTauriEvent("avatar-batch-state", { running: true, total: 2, done: 1, currentUserId: 22, accounts: [
+        { userId: 11, avatarId: "av_1", status: "ok", reason: null, claimed: 1, missing: 0 },
+      ] });
+    });
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    expectNoRealName();
+  });
+});
+

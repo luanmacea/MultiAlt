@@ -1058,6 +1058,23 @@ describe("ChooseGameScreen — chips das contas", () => {
     await userEvent.click(remove);
     expect(store.setSelectedIds).not.toHaveBeenCalled();
   });
+
+  /** O nome já saía mascarado; a foto da conta continuava no chip. */
+  it("com nomes ocultos o chip não mostra nome nem foto", () => {
+    setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+      hideUsernames: true,
+      hiddenNameLetters: 0,
+      showAvatarsWhenHidden: false,
+      avatarUrls: new Map([[1001, "https://avatar.test/1001.png"]]),
+    });
+    render(<ChooseGameScreen />);
+    expect(screen.getAllByRole("button", { name: /Remove \*{12} from this launch/i })).toHaveLength(2);
+    expect(document.body.innerHTML).not.toContain("avatar.test");
+    expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+  });
 });
 
 describe("ChooseGameScreen — shell", () => {

@@ -1,16 +1,10 @@
 import { Check, ChevronDown, ChevronUp, User, GripVertical } from "lucide-react";
 import { useStore } from "../../store";
+import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import type { Account } from "../../types";
 import { timeAgo, getFreshnessColor, AGED_AFTER_DAYS } from "../../types";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
-
-function maskName(name: string, previewLetters: number): string {
-  if (previewLetters > 0 && previewLetters < name.length) {
-    return name.slice(0, previewLetters) + "********";
-  }
-  return "************";
-}
 
 export function AccountRow({ account }: { account: Account }) {
   const t = useTr();
@@ -44,11 +38,10 @@ export function AccountRow({ account }: { account: Account }) {
     store.settings?.General?.DisableAgingAlert === "true"
       ? null
       : getFreshnessColor(account.LastUse);
-  const rawName = account.Alias || account.Username;
-  const displayName = store.hideUsernames ? maskName(rawName, store.hiddenNameLetters) : rawName;
+  const displayName = accountLabel(account, store);
   const showUsername = !!account.Alias && !store.hideUsernames;
   const description = account.Description?.trim() || "";
-  const hideAvatar = store.hideUsernames && !store.showAvatarsWhenHidden;
+  const hideAvatar = hideAccountAvatar(store);
   const showPresence = store.settings?.General?.ShowPresence === "true";
   // Alias vai ate 240 caracteres (Task 10) e isso estoura a linha; sem esta
   // opcao o nome continua sendo cortado, que e o comportamento de sempre.
@@ -225,7 +218,7 @@ export function AccountRow({ account }: { account: Account }) {
           />
         ) : (
           <div className="theme-avatar w-8 h-8 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-xs font-medium">
-            {(account.Username || "?").charAt(0).toUpperCase()}
+            {accountInitial(account, store)}
           </div>
         )}
       </div>

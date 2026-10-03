@@ -1,5 +1,7 @@
 import { Check, Users } from "lucide-react";
 import { useTr } from "../../../i18n/text";
+import { useAccountLabel } from "../../../hooks/useAccountLabel";
+import { useStore } from "../../../store";
 import type { Account } from "../../../types";
 import { Headshot } from "./shared";
 
@@ -22,6 +24,8 @@ export function AccountPicker({
   disabled: boolean;
 }) {
   const t = useTr();
+  const { hideUsernames } = useStore();
+  const accountLabel = useAccountLabel();
   const count = accounts.filter((a) => picked.has(a.UserID)).length;
 
   function toggle(userId: number) {
@@ -67,7 +71,7 @@ export function AccountPicker({
           <div className="space-y-px">
             {accounts.map((account) => {
               const on = picked.has(account.UserID);
-              const name = account.Alias || account.Username;
+              const name = accountLabel(account);
               return (
                 <button
                   key={account.UserID}
@@ -92,7 +96,8 @@ export function AccountPicker({
                   <Headshot url={avatarUrls.get(account.UserID)} size={22} />
                   <span className="flex-1 min-w-0">
                     <span className="block text-[12px] text-[var(--panel-fg)] truncate">{name}</span>
-                    {account.Alias ? (
+                    {/* O username embaixo do alias some com os nomes ocultos, como na lista. */}
+                    {account.Alias && !hideUsernames ? (
                       <span className="block text-[11px] theme-muted truncate">{account.Username}</span>
                     ) : null}
                   </span>

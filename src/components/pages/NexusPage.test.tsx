@@ -178,3 +178,38 @@ describe("NexusPage — página", () => {
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("NexusPage — nomes ocultos", () => {
+  /** As contas do Nexus são as do usuário; a lista mostrava o username com "Names hidden". */
+  it("a lista de contas sai mascarada", async () => {
+    setInvokeHandler((cmd) => {
+      switch (cmd) {
+        case "get_nexus_status":
+          return nexusStatus;
+        case "get_nexus_accounts":
+          return [
+            {
+              username: "secretnexus",
+              auto_execute: "",
+              place_id: 0,
+              job_id: "",
+              relaunch_delay: 30,
+              auto_relaunch: false,
+              is_checked: false,
+              status: "",
+              in_game_job_id: "",
+            },
+          ];
+        case "get_nexus_elements":
+        case "get_nexus_log":
+          return [];
+        default:
+          return undefined;
+      }
+    });
+    setStore({ hideUsernames: true, hiddenNameLetters: 0 });
+    render(<NexusPage active onLeave={vi.fn()} />);
+    expect(await screen.findByText("************")).toBeInTheDocument();
+    expect(screen.queryByText("secretnexus")).not.toBeInTheDocument();
+  });
+});
