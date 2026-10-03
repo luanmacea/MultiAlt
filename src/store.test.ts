@@ -2914,3 +2914,63 @@ describe("refreshAvatarHeadshots", () => {
     expect(result.current.avatarUrls.get(1)).toBe("old.png");
   });
 });
+
+/**
+ * Navegação por páginas: a barra lateral troca a área principal em vez de abrir
+ * modal. Os setters antigos (`setSettingsOpen` e cia.) continuam valendo — há
+ * chamadas espalhadas (barra de ações, gerador, walkthrough, Choose Game) — e
+ * viram navegação.
+ */
+describe("activePage", () => {
+  it("starts on the account list", async () => {
+    const { result } = await renderStore();
+    expect(result.current.activePage).toBe("accounts");
+  });
+
+  it("navigates with setActivePage", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.setActivePage("avatars"));
+    expect(result.current.activePage).toBe("avatars");
+    act(() => result.current.setActivePage("accounts"));
+    expect(result.current.activePage).toBe("accounts");
+  });
+
+  it.each([
+    ["setSettingsOpen", "settings"],
+    ["setThemeEditorOpen", "theme"],
+    ["setAvatarsDialogOpen", "avatars"],
+    ["setSessionDialogOpen", "session"],
+    ["setNexusOpen", "nexus"],
+    ["setScriptsOpen", "scripts"],
+  ] as const)("maps %s(true) to the %s page", async (setter, page) => {
+    const { result } = await renderStore();
+    act(() => result.current[setter](true));
+    expect(result.current.activePage).toBe(page);
+  });
+
+  it("closing the open page goes back to the account list", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.setScriptsOpen(true));
+    act(() => result.current.setScriptsOpen(false));
+    expect(result.current.activePage).toBe("accounts");
+  });
+
+  /**
+   * O walkthrough "fecha tudo" no último passo chamando cada setter com
+   * `false`: fechar uma página que não é a aberta não pode tirar o usuário de
+   * onde ele está.
+   */
+  it("closing a page that is not open leaves the current page alone", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.setActivePage("avatars"));
+    act(() => result.current.setSettingsOpen(false));
+    expect(result.current.activePage).toBe("avatars");
+  });
+
+  it("reopening the walkthrough from Settings leaves the Settings page", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.setSettingsOpen(true));
+    act(() => result.current.openFirstRunWalkthroughFromSettings());
+    expect(result.current.activePage).toBe("accounts");
+  });
+});

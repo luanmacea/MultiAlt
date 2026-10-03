@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
-import { ThemeEditorDialog } from "./ThemeEditorDialog";
+import { ThemePage } from "./ThemePage";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import { promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
@@ -23,9 +23,9 @@ import { DEFAULT_THEME, DEFAULT_FONT_SANS } from "../../theme";
 
 function renderDialog() {
   const store = setStore({ theme: null });
-  const onClose = vi.fn();
-  render(<ThemeEditorDialog open onClose={onClose} />);
-  return { store, onClose };
+  const onLeave = vi.fn();
+  const view = render(<ThemePage active onLeave={onLeave} />);
+  return { store, onLeave, view };
 }
 
 beforeEach(() => {
@@ -36,11 +36,12 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+/** Na página as fontes já estão à vista; o passo fica para o teste dizer o que exercita. */
 async function openFontsTab() {
-  await userEvent.click(screen.getByRole("button", { name: "Fonts" }));
+  expect(screen.getByRole("heading", { name: "Fonts" })).toBeInTheDocument();
 }
 
-describe("ThemeEditorDialog — importing a local font", () => {
+describe("ThemePage — importing a local font", () => {
   it("sends the chosen sans file's bytes instead of prompting for a path", async () => {
     setInvokeMap({
       get_theme_presets: [],
@@ -126,7 +127,7 @@ describe("ThemeEditorDialog — importing a local font", () => {
   });
 });
 
-describe("ThemeEditorDialog — importing a preset file", () => {
+describe("ThemePage — importing a preset file", () => {
   it("sends the chosen file's bytes instead of prompting for a path", async () => {
     setInvokeMap({
       get_theme_presets: [],
@@ -181,19 +182,78 @@ describe("ThemeEditorDialog — importing a preset file", () => {
   });
 });
 
-describe("ThemeEditorDialog — cabe na janela", () => {
-  /**
-   * Na janela mínima do app (750x450, `tauri.conf.json`) o quadro fixo de 560 px
-   * passava 55 px para cada lado: título e X acima da tela, e Save e Cancel
-   * abaixo — não dava para salvar o tema com o mouse (medido no harness,
-   * 27/09/2026). O jsdom não mede layout: isto trava o teto de que o conserto
-   * depende; quem cede altura é o miolo (`flex-1 min-h-0`).
-   */
-  it("o quadro nunca passa do tamanho da janela", () => {
+/**
+ * O modal mostrava uma categoria por vez (duas a quatro cores cada). A página
+ * tem largura para todas, mais a prévia. E sair sem salvar continua devolvendo
+ * o tema salvo, como o Escape/Cancel do modal faziam.
+ */
+describe("ThemePage — page behaviour", () => {
+  function lastPreview(store: ReturnType<typeof setStore>) {
+    const calls = (store.applyThemePreview as ReturnType<typeof vi.fn>).mock.calls;
+    return calls[calls.length - 1][0];
+  }
+
+  it("shows every category at once, with a preview", () => {
     renderDialog();
-    const quadro = document.querySelector(".theme-modal-scope.rounded-2xl") as HTMLElement;
-    const classes = quadro.className.split(/\s+/);
-    expect(classes).toContain("max-h-[calc(100vh-24px)]");
-    expect(classes).toContain("max-w-[calc(100vw-24px)]");
+    for (const category of ["Accounts", "Buttons", "Forms", "Text Boxes", "Labels", "Fonts"]) {
+      expect(screen.getByRole("heading", { level: 2, name: category })).toBeInTheDocument();
+    }
+    expect(screen.getByRole("complementary", { name: "Preview" })).toBeInTheDocument();
+  });
+
+  it("renders nothing while another page is open", () => {
+    setStore({ theme: null });
+    render(<ThemePage active={false} onLeave={() => {}} />);
+    expect(screen.queryByRole("heading", { name: "Theme" })).not.toBeInTheDocument();
+  });
+
+  it("puts the saved theme back when the page is left unsaved", async () => {
+    const { store, view, onLeave } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Light Avatars" }));
+    expect(lastPreview(store).light_images).toBe(!DEFAULT_THEME.light_images);
+
+    view.rerender(<ThemePage active={false} onLeave={onLeave} />);
+    expect(lastPreview(store).light_images).toBe(DEFAULT_THEME.light_images);
+  });
+
+  it("discards the changes without leaving the page", async () => {
+    const { store, onLeave } = renderDialog();
+    const discard = screen.getByRole("button", { name: "Discard changes" });
+    expect(discard).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Light Avatars" }));
+    expect(discard).toBeEnabled();
+    await userEvent.click(discard);
+
+    expect(lastPreview(store).light_images).toBe(DEFAULT_THEME.light_images);
+    expect(discard).toBeDisabled();
+    expect(onLeave).not.toHaveBeenCalled();
+  });
+
+  it("saves and stays on the page", async () => {
+    const { store, onLeave } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: "Light Avatars" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(store.saveTheme).toHaveBeenCalledTimes(1));
+    expect((store.saveTheme as ReturnType<typeof vi.fn>).mock.calls[0][0].light_images).toBe(
+      !DEFAULT_THEME.light_images
+    );
+    expect(onLeave).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Discard changes" })).toBeDisabled());
+  });
+
+  it("closes the preset list on Escape before leaving the page", async () => {
+    const { onLeave } = renderDialog();
+    const presetButton = screen.getByRole("button", { expanded: false });
+    await userEvent.click(presetButton);
+    expect(presetButton).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.keyboard("{Escape}");
+    expect(presetButton).toHaveAttribute("aria-expanded", "false");
+    expect(onLeave).not.toHaveBeenCalled();
+
+    await userEvent.keyboard("{Escape}");
+    expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });

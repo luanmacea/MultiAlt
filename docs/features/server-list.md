@@ -83,12 +83,12 @@ Toda lista de jogos (Games, Favoritos, Recentes) abre um menu com **o que se pod
 | Browse servers | Vai para a aba Servers com o place preenchido | quando a tela dona passa `onBrowseServers` |
 | Favorite / Rename / Remove | Gerência do favorito | Games (favoritar) e Favoritos |
 | Auto Rejoin | Abre o Auto Rejoin **com aquele jogo** | Choose Game e Server List |
-| Scripts | Abre os Scripts com aquele place como place atual (é o que `ram.window` expõe) | Choose Game e Server List |
+| Scripts | Abre a página Scripts com aquele place como place atual (é o que `ram.window` expõe) | Choose Game e Server List |
 | Copy Place ID | Copia o número | sempre |
 
 Regras:
 
-- **Ação sem callback não aparece** — item morto é pior que item ausente. As duas telas donas passam o menu **inteiro**: o Server List já foi a metade sem Browse servers/Auto Rejoin/Scripts (e com o Favorite dos Recentes morto), enquanto a Choose Game tinha o menu e não a coluna de servidores recentes. No Server List, Auto Rejoin e Scripts abrem por cima do diálogo (z-[70]) e fechar volta a ele; Browse servers faz o mesmo que o clique no card (aba Servers com o place, Job ID limpo), sem gravar o jogo nos recentes, como na Choose Game.
+- **Ação sem callback não aparece** — item morto é pior que item ausente. As duas telas donas passam o menu **inteiro**: o Server List já foi a metade sem Browse servers/Auto Rejoin/Scripts (e com o Favorite dos Recentes morto), enquanto a Choose Game tinha o menu e não a coluna de servidores recentes. No Server List, o Auto Rejoin abre por cima do diálogo (z-[70]) e fechar volta a ele; Scripts é uma página, então o Server List fecha para ela aparecer; Browse servers faz o mesmo que o clique no card (aba Servers com o place, Job ID limpo), sem gravar o jogo nos recentes, como na Choose Game.
 - A lista de **Recentes** não tinha clique direito nenhum — ganhou o mesmo `GameContextMenu` das outras.
 - Abrir uma tela sobre o jogo **não entra no jogo**: nenhuma dessas ações lança cliente (travado por teste nas três listas).
 - Para o Auto Rejoin o place vai **explícito na abertura** (`openBottingDialog(placeId)`), e não só por `store.placeId`: o rascunho salvo (`General.BottingDraftPlaceId`) vence a store, então sem isso o usuário escolhia um jogo e via outro. Abrir o Auto Rejoin **sem** jogo (barra de ações, toolbar) limpa o jogo da abertura anterior.

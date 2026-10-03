@@ -91,8 +91,10 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
 
   /**
    * Auto Rejoin e Scripts **com este jogo**, as mesmas ações do menu na Choose
-   * Game. Os dois abrem por cima deste diálogo (z-[70]); fechar volta aqui. O
-   * place vai explícito ao Auto Rejoin porque o rascunho salvo vence a store.
+   * Game. O Auto Rejoin abre por cima deste diálogo (z-[70]); fechar volta
+   * aqui. O place vai explícito ao Auto Rejoin porque o rascunho salvo vence a
+   * store. Scripts é uma página: este diálogo fecha para ela aparecer (aberto,
+   * ele a cobriria e ficaria com o Escape).
    */
   function handleBottingForGame(placeId: number) {
     store.setPlaceId(String(placeId));
@@ -101,6 +103,7 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
 
   function handleScriptsForGame(placeId: number) {
     store.setPlaceId(String(placeId));
+    store.setServerListOpen(false);
     store.setScriptsOpen(true);
   }
 

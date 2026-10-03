@@ -141,6 +141,7 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "WhatExpsAre.Online",
   "Auth ticket",
   "PIN",
+  "Presets",
   "{{n}} backups",
   "Backups",
   "{{count}} online",

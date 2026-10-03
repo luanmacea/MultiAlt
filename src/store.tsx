@@ -81,6 +81,12 @@ export interface AdoptBottingOptions {
   playerGraceMinutes?: number;
   playerUserIds?: number[];
 }
+/**
+ * Páginas da área principal, escolhidas pela barra lateral (NavSidebar). Cada
+ * uma ocupa a janela inteira à direita da barra; `accounts` é a lista de contas
+ * (com a Choose Game por cima quando aberta). Ver docs/features/ui-layout.md.
+ */
+export type AppPage = "accounts" | "session" | "afk" | "avatars" | "scripts" | "theme" | "nexus" | "settings";
 
 export function normalizeServerPreference(value: string | undefined): ServerPreference {
   switch ((value || "").trim().toLowerCase()) {
@@ -569,7 +575,15 @@ export interface StoreValue {
   skipFirstRunWalkthrough: () => Promise<void>;
   initialized: boolean;
 
-  settingsOpen: boolean;
+  /** Página aberta na área principal. Ver `AppPage`. */
+  activePage: AppPage;
+  setActivePage: (page: AppPage) => void;
+
+  /**
+   * Os `set<Algo>Open` das telas que viraram página são adaptadores: `true`
+   * navega para a página, `false` volta para a lista de contas **só se** aquela
+   * página for a aberta (fechar o que não está aberto não tira ninguém do lugar).
+   */
   setSettingsOpen: (open: boolean) => void;
   reloadSettings: () => Promise<void>;
 
@@ -584,7 +598,6 @@ export interface StoreValue {
   setImportDialogOpen: (open: boolean) => void;
   importDialogTab: "cookie" | "userpass" | "legacy";
   setImportDialogTab: (tab: "cookie" | "userpass" | "legacy") => void;
-  themeEditorOpen: boolean;
   setThemeEditorOpen: (open: boolean) => void;
   /**
    * Janela do Modo AFK (Auto Rejoin + cliques AFK). Uma só: antes eram dois
@@ -613,19 +626,15 @@ export interface StoreValue {
   setVersionsDialogOpen: (open: boolean) => void;
   /** Abre (ou fecha) o Modo AFK na aba de cliques AFK — o atalho da barra. */
   setAfkDialogOpen: (open: boolean) => void;
-  avatarsDialogOpen: boolean;
   setAvatarsDialogOpen: (open: boolean) => void;
   /** Invalida e busca de novo o headshot das contas cujo avatar mudou. */
   refreshAvatarHeadshots: (userIds: number[]) => Promise<void>;
-  sessionDialogOpen: boolean;
   setSessionDialogOpen: (open: boolean) => void;
   setDefaultVersion: (versionId: string | null) => void;
   missingAssets: { userId: number; username: string; assetIds: number[] } | null;
   setMissingAssets: (v: { userId: number; username: string; assetIds: number[] } | null) => void;
 
-  nexusOpen: boolean;
   setNexusOpen: (open: boolean) => void;
-  scriptsOpen: boolean;
   setScriptsOpen: (open: boolean) => void;
 
   updateInfo: {
@@ -756,13 +765,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(0);
   const [modal, setModal] = useState<{ title: string; content: string } | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activePage, setActivePageState] = useState<AppPage>("accounts");
+  const setActivePage = useCallback((page: AppPage) => setActivePageState(page), []);
+  /** Adaptador de `set<Algo>Open` para página — ver o comentário em `StoreValue`. */
+  const togglePage = useCallback((page: AppPage, open: boolean) => {
+    setActivePageState((current) => (open ? page : current === page ? "accounts" : current));
+  }, []);
+  const setSettingsOpen = useCallback((open: boolean) => togglePage("settings", open), [togglePage]);
+  const setThemeEditorOpen = useCallback((open: boolean) => togglePage("theme", open), [togglePage]);
+  const setAvatarsDialogOpen = useCallback((open: boolean) => togglePage("avatars", open), [togglePage]);
+  const setSessionDialogOpen = useCallback((open: boolean) => togglePage("session", open), [togglePage]);
+  const setNexusOpen = useCallback((open: boolean) => togglePage("nexus", open), [togglePage]);
+  const setScriptsOpen = useCallback((open: boolean) => togglePage("scripts", open), [togglePage]);
   const [serverListOpen, setServerListOpen] = useState(false);
   const [accountUtilsOpen, setAccountUtilsOpen] = useState(false);
   const [accountFieldsOpen, setAccountFieldsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importDialogTab, setImportDialogTab] = useState<"cookie" | "userpass" | "legacy">("cookie");
-  const [themeEditorOpen, setThemeEditorOpen] = useState(false);
   const [afkModeDialog, setAfkModeDialog] = useState<AfkModeDialogState | null>(null);
   const openAfkMode = useCallback((opts?: Partial<AfkModeDialogState>) => {
     setAfkModeDialog({ ...opts, tab: opts?.tab ?? "rejoin" });
@@ -781,7 +800,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
   const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
   const [afkKeys, setAfkKeys] = useState<string[]>([]);
-  const [avatarsDialogOpen, setAvatarsDialogOpen] = useState(false);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
 
@@ -791,12 +809,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
-  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
   const [friendLinkState, setFriendLinkState] = useState<FriendLinkState | null>(null);
   const [missingAssets, setMissingAssets] = useState<{ userId: number; username: string; assetIds: number[] } | null>(null);
-  const [nexusOpen, setNexusOpen] = useState(false);
-  const [scriptsOpen, setScriptsOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
     currentVersion: string;
@@ -2077,7 +2092,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(walkthroughOpenTimeoutRef.current);
       walkthroughOpenTimeoutRef.current = null;
     }
-    setSettingsOpen(false);
+    // O tour começa na lista de contas (é lá que ficam o Add e a lista), de
+    // qualquer página que a Ajuda tenha sido clicada.
+    setActivePageState("accounts");
     setFirstRunWalkthroughMode("manual");
     setFirstRunWalkthroughOpen(false);
     walkthroughOpenTimeoutRef.current = window.setTimeout(() => {
@@ -3124,7 +3141,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     afkStatus,
     afkKeys,
     setAfkDialogOpen,
-    avatarsDialogOpen,
     setAvatarsDialogOpen,
     refreshAvatarHeadshots,
     startGenerator,
@@ -3170,7 +3186,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     completeFirstRunWalkthrough,
     skipFirstRunWalkthrough,
     initialized,
-    settingsOpen,
+    activePage,
+    setActivePage,
     setSettingsOpen,
     reloadSettings,
     serverListOpen,
@@ -3183,7 +3200,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setImportDialogOpen,
     importDialogTab,
     setImportDialogTab,
-    themeEditorOpen,
     setThemeEditorOpen,
     afkModeDialog,
     openAfkMode,
@@ -3197,14 +3213,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     generatorStatus,
     versionsDialogOpen,
     setVersionsDialogOpen,
-    sessionDialogOpen,
     setSessionDialogOpen,
     setDefaultVersion,
     missingAssets,
     setMissingAssets,
-    nexusOpen,
     setNexusOpen,
-    scriptsOpen,
     setScriptsOpen,
     updateInfo,
     updateDialogOpen,

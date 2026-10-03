@@ -291,7 +291,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     skipFirstRunWalkthrough: vi.fn(async () => {}),
     initialized: true,
 
-    settingsOpen: false,
+    activePage: "accounts" as const,
+    setActivePage: vi.fn(),
     setSettingsOpen: vi.fn(),
     reloadSettings: vi.fn(async () => {}),
 
@@ -306,7 +307,6 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     setImportDialogOpen: vi.fn(),
     importDialogTab: "cookie",
     setImportDialogTab: vi.fn(),
-    themeEditorOpen: false,
     setThemeEditorOpen: vi.fn(),
     afkModeDialog: null,
     openAfkMode: vi.fn(),
@@ -321,18 +321,14 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     versionsDialogOpen: false,
     setVersionsDialogOpen: vi.fn(),
     setAfkDialogOpen: vi.fn(),
-    avatarsDialogOpen: false,
     setAvatarsDialogOpen: vi.fn(),
     refreshAvatarHeadshots: vi.fn(async () => {}),
-    sessionDialogOpen: false,
     setSessionDialogOpen: vi.fn(),
     setDefaultVersion: vi.fn(),
     missingAssets: null,
     setMissingAssets: vi.fn(),
 
-    nexusOpen: false,
     setNexusOpen: vi.fn(),
-    scriptsOpen: false,
     setScriptsOpen: vi.fn(),
 
     updateInfo: null,

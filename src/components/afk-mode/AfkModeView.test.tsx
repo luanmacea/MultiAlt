@@ -100,6 +100,8 @@ describe("AfkModeView — as duas abas", () => {
     base();
     render(<AfkModeView variant="page" />);
     expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+    // O título da página é do PageShell (AfkPage): o view não repete o seu.
+    expect(screen.queryByRole("heading", { name: "AFK Mode" })).not.toBeInTheDocument();
     cleanup();
 
     base();

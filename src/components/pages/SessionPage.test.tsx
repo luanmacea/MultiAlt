@@ -8,8 +8,8 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
-import { SessionDialog, SessionToolbarButton } from "./SessionDialog";
-import { makeAccount, renderWithStore, setStore } from "../../test-utils/renderWithStore";
+import { SessionPage } from "./SessionPage";
+import { makeAccount, makeBottingStatus, renderWithStore, setStore } from "../../test-utils/renderWithStore";
 import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type { LaunchQueuePayload } from "../../types";
@@ -64,22 +64,22 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("SessionDialog", () => {
-  it("renders nothing while closed", () => {
+describe("SessionPage", () => {
+  it("renders nothing while another page is open", () => {
     setStore({});
-    const { container } = render(<SessionDialog open={false} onClose={vi.fn()} />);
+    const { container } = render(<SessionPage active={false} onLeave={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("shows the queue and the running clients when open", () => {
-    renderWithStore(<SessionDialog open onClose={vi.fn()} />, {
+  it("shows the queue and the running clients", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
       accounts: ACCOUNTS,
       launchQueue: QUEUE,
       launchedByProgram: new Set([10]),
       ...storeActions(),
     });
 
-    expect(screen.getByRole("dialog", { name: "Session" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Session" })).toBeInTheDocument();
     expect(screen.getByTestId("session-queue-10")).toBeInTheDocument();
     expect(screen.getByTestId("session-queue-20")).toBeInTheDocument();
     expect(screen.getByTestId("session-running-10")).toBeInTheDocument();
@@ -88,7 +88,7 @@ describe("SessionDialog", () => {
 
   it("drives the same actions as the Console panel", async () => {
     const user = userEvent.setup();
-    renderWithStore(<SessionDialog open onClose={vi.fn()} />, {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
       accounts: ACCOUNTS,
       launchQueue: QUEUE,
       launchedByProgram: new Set([10, 20]),
@@ -107,7 +107,7 @@ describe("SessionDialog", () => {
   it("closes every selected client after one confirmation", async () => {
     const user = userEvent.setup();
     promptAnswers.confirm = true;
-    renderWithStore(<SessionDialog open onClose={vi.fn()} />, {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
       accounts: ACCOUNTS,
       launchQueue: null,
       launchedByProgram: new Set([10, 20]),
@@ -120,42 +120,49 @@ describe("SessionDialog", () => {
     await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(2));
   });
 
-  it("closes on the X button and on Escape", async () => {
+  it("leaves the page on Escape", async () => {
     const user = userEvent.setup();
-    const onClose = vi.fn();
-    renderWithStore(<SessionDialog open onClose={onClose} />, {
+    const onLeave = vi.fn();
+    renderWithStore(<SessionPage active onLeave={onLeave} />, {
       accounts: ACCOUNTS,
       launchQueue: null,
       launchedByProgram: new Set<number>(),
       ...storeActions(),
     });
 
-    await user.click(screen.getByRole("button", { name: "Close" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-
     await user.keyboard("{Escape}");
-    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("SessionToolbarButton", () => {
-  it("opens the dialog through the store", async () => {
-    const user = userEvent.setup();
-    const { store } = renderWithStore(<SessionToolbarButton />, {
-      launchedByProgram: new Set<number>(),
+/**
+ * A página tem largura para um resumo ao lado do painel: quantos clientes
+ * abertos, quantos entrando, e quem mantém as contas no jogo.
+ */
+describe("SessionPage — summary", () => {
+  it("counts open clients and accounts still joining", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: QUEUE,
+      launchedByProgram: new Set([10]),
+      ...storeActions(),
     });
-
-    await user.click(screen.getByRole("button", { name: "Session" }));
-    expect(store.setSessionDialogOpen).toHaveBeenCalledWith(true);
+    const summary = screen.getByRole("complementary", { name: "Summary" });
+    expect(within(summary).getByText("Clients open").nextElementSibling).toHaveTextContent("1");
+    expect(within(summary).getByText("Joining").nextElementSibling).toHaveTextContent("2");
   });
 
-  it("hides the badge with no client running", () => {
-    renderWithStore(<SessionToolbarButton />, { launchedByProgram: new Set<number>() });
-    expect(screen.queryByTestId("session-button-count")).not.toBeInTheDocument();
-  });
-
-  it("counts the clients that are in game", () => {
-    renderWithStore(<SessionToolbarButton />, { launchedByProgram: new Set([1, 2, 3, 4]) });
-    expect(screen.getByTestId("session-button-count")).toHaveTextContent("4");
+  it("says when Auto Rejoin keeps accounts in game and links to AFK Mode", async () => {
+    const user = userEvent.setup();
+    const { store } = renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      bottingStatus: makeBottingStatus({ active: true, userIds: [10, 20] }),
+      ...storeActions(),
+    });
+    expect(screen.getByText("Auto Rejoin is running for 2 accounts.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open AFK Mode" }));
+    expect(store.setActivePage).toHaveBeenCalledWith("afk");
   });
 });

@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
-import { AvatarsDialog } from "./AvatarsDialog";
+import { AvatarsPage } from "./AvatarsPage";
 import i18n, { DEFAULT_LANGUAGE } from "../../i18n/index";
 import type { StoreValue } from "../../store";
 import type { FreeCatalogItem, SavedAvatar } from "../../avatarBuilder";
@@ -63,7 +63,7 @@ function wire(overrides: Record<string, unknown | ((args: InvokeArgs) => unknown
 
 function renderDialog(overrides: Partial<StoreValue> = {}) {
   const store = setStore({ accounts: ACCOUNTS, ...overrides });
-  render(<AvatarsDialog open onClose={() => {}} />);
+  render(<AvatarsPage active onLeave={() => {}} />);
   return store;
 }
 
@@ -74,7 +74,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("AvatarsDialog — montar", () => {
+describe("AvatarsPage — montar", () => {
   it("mostra as categorias do catálogo com a contagem de cada uma", async () => {
     wire();
     renderDialog();
@@ -164,7 +164,7 @@ describe("AvatarsDialog — montar", () => {
   });
 });
 
-describe("AvatarsDialog — distribuir", () => {
+describe("AvatarsPage — distribuir", () => {
   it("Apply avatars fica desligado sem conta marcada", async () => {
     wire({ avatar_list_saved: [SAVED] });
     renderDialog({ selectedAccounts: [] });
@@ -246,6 +246,32 @@ describe("AvatarsDialog — distribuir", () => {
     expect(screen.getByText(/verification required/i)).toBeInTheDocument();
     expect(screen.getByText("3 claimed")).toBeInTheDocument();
     expect(store.refreshAvatarHeadshots).toHaveBeenCalledWith([11, 22]);
+  });
+
+  /**
+   * Virou página, mas continua montada com outra página aberta: o lote pode
+   * acabar com o usuário na lista de contas, e as fotos ainda têm que ser
+   * atualizadas.
+   */
+  it("atualiza as fotos no fim do lote mesmo com outra página aberta", () => {
+    wire({ avatar_list_saved: [SAVED] });
+    const store = setStore({ accounts: ACCOUNTS });
+    render(<AvatarsPage active={false} onLeave={() => {}} />);
+    expect(screen.queryByRole("heading", { name: "Avatars" })).not.toBeInTheDocument();
+
+    act(() => {
+      emitTauriEvent("avatar-batch-state", { running: true, total: 1, done: 0, currentUserId: 11, accounts: [] });
+    });
+    act(() => {
+      emitTauriEvent("avatar-batch-state", {
+        running: false,
+        total: 1,
+        done: 1,
+        currentUserId: null,
+        accounts: [{ userId: 11, avatarId: "av_1", status: "ok", reason: null, claimed: 1, missing: 0 }],
+      });
+    });
+    expect(store.refreshAvatarHeadshots).toHaveBeenCalledWith([11]);
   });
 
   it("retoma um lote que já estava rodando ao abrir", async () => {

@@ -15,7 +15,7 @@ Servidor WebSocket local ao qual o script `Nexus.lua` (rodando dentro do cliente
 | [nexus/websocket/connection.rs](../../src-tauri/src/nexus/websocket/connection.rs) | Handshake, validação de query, auto-execute, loop de leitura/escrita |
 | [commands/services.rs](../../src-tauri/src/commands/services.rs) | Comandos Tauri (`start_nexus_server`, `stop_nexus_server`, `get_nexus_status`, `get_nexus_accounts`, `add_nexus_account`, `remove_nexus_accounts`, `update_nexus_account`, `nexus_send_command`, `nexus_send_to_all`, `get_nexus_log`, `clear_nexus_log`, `get_nexus_elements`, `set_nexus_element_value`, `export_nexus_lua`) |
 | [assets/Nexus.lua](../../src-tauri/assets/Nexus.lua) | Script cliente, embutido no binário com `include_str!` |
-| [NexusDialog.tsx](../../src/components/dialogs/NexusDialog.tsx) | UI; [featureFlags.ts](../../src/featureFlags.ts) `ENABLE_NEXUS` (env `VITE_ENABLE_NEXUS`, default `true`) |
+| [NexusPage.tsx](../../src/components/pages/NexusPage.tsx) | UI; [featureFlags.ts](../../src/featureFlags.ts) `ENABLE_NEXUS` (env `VITE_ENABLE_NEXUS`, default `true`) |
 
 > **Nota:** a "geração" do Nexus.lua **não** fica em `commands/generators.rs` (esse arquivo é o gerador de contas via provedor externo). `export_nexus_lua` apenas grava o conteúdo embutido de `assets/Nexus.lua` em `<diretório atual>\Nexus.lua` e retorna o caminho.
 
@@ -33,7 +33,7 @@ Servidor WebSocket local ao qual o script `Nexus.lua` (rodando dentro do cliente
 sequenceDiagram
     participant Lua as Nexus.lua (cliente Roblox)
     participant WS as NexusServer
-    participant UI as NexusDialog
+    participant UI as NexusPage
     Lua->>WS: WS /Nexus?name=&id=&jobId=
     WS->>WS: header Origin? → 403
     WS->>WS: name na lista de controle?

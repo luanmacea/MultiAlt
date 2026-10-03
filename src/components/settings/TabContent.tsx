@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { UseSettingsReturn } from "../../hooks/useSettings";
-import type { TabId } from "./SettingsDialog";
-import { TAB_ORDER } from "./SettingsDialog";
+import type { TabId } from "./tabs";
+import { TAB_ORDER } from "./tabs";
 import { GeneralTab } from "./GeneralTab";
 import { DeveloperTab } from "./DeveloperTab";
 import { OptimizationTab } from "./OptimizationTab";

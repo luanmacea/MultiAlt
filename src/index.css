@@ -1127,14 +1127,16 @@ body {
   transform: scale(0.96);
 }
 
+/* As abas das Settings viraram uma lista vertical (página Settings): "right"
+   é a aba de baixo, e o conteúdo entra de baixo; "left", de cima. */
 @keyframes settings-enter-right {
-  from { opacity: 0; transform: translateX(12px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes settings-enter-left {
-  from { opacity: 0; transform: translateX(-12px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes settings-exit {
@@ -1152,4 +1154,37 @@ body {
 
 .settings-slide-out {
   animation: settings-exit 80ms ease-out both;
+}
+
+/* Troca de página pela barra lateral: um fade curto, para o olho registrar
+   que a área principal mudou — nada de deslizar a janela inteira. */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.page-enter {
+  animation: page-enter 160ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Item ativo da barra lateral: um filete na cor de destaque, encostado na
+   borda esquerda do item. É o que diz "você está aqui" sem depender de cor de
+   fundo, que alguns temas deixam quase igual ao painel. */
+.nav-item-active::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent-color);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .settings-slide-in-right,
+  .settings-slide-in-left {
+    animation: none;
+  }
 }
