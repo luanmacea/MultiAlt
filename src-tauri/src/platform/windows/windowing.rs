@@ -624,14 +624,24 @@ fn grid_slots(monitors: &[MonitorInfoDto], cell_w: i32, cell_h: i32, gap: i32) -
     compute_grid(monitors, cell_w, cell_h, MAX_GRID_SLOTS, gap.max(0))
 }
 
+/// A célula da grade cruza o retângulo `(x, y, w, h)`?
+fn slot_overlaps(slot: &GridCell, cell: (i32, i32), rect: (i32, i32, i32, i32)) -> bool {
+    let (x, y, w, h) = rect;
+    slot.x < x + w && x < slot.x + cell.0 && slot.y < y + h && y < slot.y + cell.1
+}
+
 /// A célula para a janela nova: a menos ocupada, empate na de menor índice —
 /// ou seja, a primeira livre; com a grade cheia, dá a volta a partir da 0.
 /// `occupants`: retângulos `(x, y, w, h)` das janelas da grade já abertas; uma
 /// janela ocupa a célula em que está o centro dela.
+/// `blockers`: janelas fora da grade (contas com tamanho próprio, como a
+/// principal). Elas não se mexem, então toda célula que elas cobrem conta como
+/// ocupada — senão a alt nasce por cima da principal.
 fn pick_grid_slot(
     slots: &[GridCell],
     cell: (i32, i32),
     occupants: &[(i32, i32, i32, i32)],
+    blockers: &[(i32, i32, i32, i32)],
 ) -> Option<usize> {
     let mut counts = vec![0usize; slots.len()];
     for &(x, y, w, h) in occupants {
@@ -643,11 +653,38 @@ fn pick_grid_slot(
             counts[i] += 1;
         }
     }
+    for (i, slot) in slots.iter().enumerate() {
+        if blockers.iter().any(|&b| slot_overlaps(slot, cell, b)) {
+            counts[i] += 1;
+        }
+    }
     counts
         .iter()
         .enumerate()
         .min_by_key(|(i, c)| (**c, *i))
         .map(|(i, _)| i)
+}
+
+/// Células que nenhuma janela fora da grade cobre (o botão manual usa só
+/// estas). Se todas estiverem cobertas, devolve a grade inteira.
+fn unblocked_slots(slots: &[GridCell], cell: (i32, i32), blockers: &[(i32, i32, i32, i32)]) -> Vec<GridCell> {
+    let free: Vec<GridCell> = slots
+        .iter()
+        .copied()
+        .filter(|s| !blockers.iter().any(|&b| slot_overlaps(s, cell, b)))
+        .collect();
+    if free.is_empty() {
+        slots.to_vec()
+    } else {
+        free
+    }
+}
+
+/// O tamanho da célula: o pedido, ou o que a janela de fato ficou se ela não
+/// encolheu até lá. O Roblox tem tamanho mínimo (~800x600 de área útil): um
+/// 520x420 na configuração vira 816x638, e células de 520 sobrepõem as janelas.
+fn grid_cell_size(requested: (i32, i32), actual: (i32, i32)) -> (i32, i32) {
+    (requested.0.max(actual.0), requested.1.max(actual.1))
 }
 
 /// O botão manual põe a i-ésima janela na célula i, dando a volta.
@@ -695,7 +732,7 @@ pub fn place_in_grid(
         return WindowEnforcement::Skipped;
     };
     learn_size_semantics(size, current, client);
-    let (cell_w, cell_h) = match size {
+    let requested = match size {
         Some((tw, th)) => outer_size_for_target(
             (tw as i32, th as i32),
             learned_size_semantics(),
@@ -704,18 +741,30 @@ pub fn place_in_grid(
         ),
         None => (current.2, current.3),
     };
+    let (cell_w, cell_h) = grid_cell_size(requested, accepted_size(hwnd, current, requested));
     let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
     let slots = grid_slots(&monitors, cell_w, cell_h, request.gap);
-    let occupants: Vec<(i32, i32, i32, i32)> = list_roblox_windows()
-        .into_iter()
-        .filter(|w| w.pid != pid && !request.excluded_pids.contains(&w.pid))
-        .map(|w| (w.x, w.y, w.w, w.h))
-        .collect();
-    let target = match pick_grid_slot(&slots, (cell_w, cell_h), &occupants) {
+    let others: Vec<RobloxWin> = list_roblox_windows().into_iter().filter(|w| w.pid != pid).collect();
+    let (blockers, occupants): (Vec<RobloxWin>, Vec<RobloxWin>) =
+        others.into_iter().partition(|w| request.excluded_pids.contains(&w.pid));
+    let rect = |w: &RobloxWin| (w.x, w.y, w.w, w.h);
+    let occupants: Vec<(i32, i32, i32, i32)> = occupants.iter().map(rect).collect();
+    let blockers: Vec<(i32, i32, i32, i32)> = blockers.iter().map(rect).collect();
+    let target = match pick_grid_slot(&slots, (cell_w, cell_h), &occupants, &blockers) {
         Some(i) => (slots[i].x, slots[i].y, cell_w, cell_h),
         None => (current.0, current.1, cell_w, cell_h),
     };
     move_to(hwnd, current, target)
+}
+
+/// O tamanho que a janela aceita de verdade: pede `requested` no lugar onde ela
+/// está e lê de volta. O mínimo do Roblox é aplicado na hora (WM_GETMINMAXINFO),
+/// então a leitura já vem com o tamanho final.
+fn accepted_size(hwnd: HWND, current: (i32, i32, i32, i32), requested: (i32, i32)) -> (i32, i32) {
+    if (current.2, current.3) != requested {
+        place_window(hwnd, (current.0, current.1, requested.0, requested.1));
+    }
+    get_window_position(hwnd).map(|r| (r.2, r.3)).unwrap_or(requested)
 }
 
 /// Arrange the open Roblox windows into the grid across the selected monitors
@@ -730,10 +779,10 @@ pub fn arrange_roblox_grid(
     excluded_pids: &std::collections::HashSet<u32>,
 ) -> Result<(usize, usize), String> {
     let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
-    let wins: Vec<RobloxWin> = list_roblox_windows()
+    let (excluded, wins): (Vec<RobloxWin>, Vec<RobloxWin>) = list_roblox_windows()
         .into_iter()
-        .filter(|w| !excluded_pids.contains(&w.pid))
-        .collect();
+        .partition(|w| excluded_pids.contains(&w.pid));
+    let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
     if wins.is_empty() {
         return Err("Nenhuma janela de Roblox aberta foi encontrada.".to_string());
     }
@@ -758,7 +807,12 @@ pub fn arrange_roblox_grid(
         }
         None => most_common_size(&wins),
     };
-    let slots = grid_slots(&monitors, cell_w, cell_h, gap);
+    let first = wins[0];
+    let (cell_w, cell_h) = grid_cell_size(
+        (cell_w, cell_h),
+        accepted_size(first.hwnd as HWND, (first.x, first.y, first.w, first.h), (cell_w, cell_h)),
+    );
+    let slots = unblocked_slots(&grid_slots(&monitors, cell_w, cell_h, gap), (cell_w, cell_h), &blockers);
     if slots.is_empty() {
         return Err("Nenhuma célula coube nos monitores (janelas grandes demais para o gap?).".to_string());
     }
@@ -1076,13 +1130,13 @@ mod win_grid_slot_tests {
 
     #[test]
     fn the_first_window_takes_the_first_slot() {
-        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &[]), Some(0));
+        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &[], &[]), Some(0));
     }
 
     #[test]
     fn the_next_window_takes_the_first_free_slot() {
         let occupants = [(10, 10, 400, 400), (10, 420, 400, 400)];
-        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &occupants), Some(1));
+        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &occupants, &[]), Some(1));
     }
 
     /// A janela que o usuário arrastou um pouco continua ocupando a célula
@@ -1090,13 +1144,13 @@ mod win_grid_slot_tests {
     #[test]
     fn a_window_nudged_inside_its_slot_still_occupies_it() {
         let occupants = [(60, 35, 400, 400)];
-        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &occupants), Some(1));
+        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &occupants, &[]), Some(1));
     }
 
     #[test]
     fn a_window_outside_every_slot_occupies_none() {
         let occupants = [(5000, 5000, 400, 400)];
-        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &occupants), Some(0));
+        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &occupants, &[]), Some(0));
     }
 
     /// Grade cheia: dá a volta e sobrepõe a partir da célula 0.
@@ -1108,16 +1162,53 @@ mod win_grid_slot_tests {
             (10, 420, 400, 400),
             (420, 420, 400, 400),
         ];
-        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &full), Some(0));
+        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &full, &[]), Some(0));
 
         let mut fuller = full.to_vec();
         fuller.push((10, 10, 400, 400));
-        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &fuller), Some(1));
+        assert_eq!(pick_grid_slot(&slots_1000(), (400, 400), &fuller, &[]), Some(1));
     }
 
     #[test]
     fn no_slots_means_no_placement() {
-        assert_eq!(pick_grid_slot(&[], (400, 400), &[]), None);
+        assert_eq!(pick_grid_slot(&[], (400, 400), &[], &[]), None);
+    }
+
+    /// Teste real (03/10/2026): a principal de 1000x1000 fica fora da grade em
+    /// (0,0); as alts de 816x638 não podem cair por cima dela.
+    #[test]
+    fn a_window_kept_out_of_the_grid_blocks_the_slots_under_it() {
+        let slots = grid_slots(&[monitor(1, 0, 0, 2560, 1392)], 816, 638, 20);
+        let main = [(0, 0, 1000, 1000)];
+        let picked = pick_grid_slot(&slots, (816, 638), &[], &main).unwrap();
+        assert_eq!((slots[picked].x, slots[picked].y), (1692, 20));
+    }
+
+    #[test]
+    fn with_every_slot_blocked_the_grid_still_wraps_from_the_first() {
+        let slots = slots_1000();
+        let everything = [(0, 0, 1000, 1000)];
+        assert_eq!(pick_grid_slot(&slots, (400, 400), &[], &everything), Some(0));
+    }
+
+    /// O Roblox não deixa a janela menor que ~800x600: com 520x420 na
+    /// configuração, a célula tem de ser do tamanho que a janela ficou, senão as
+    /// janelas se sobrepõem.
+    #[test]
+    fn the_cell_grows_to_the_size_the_window_really_took() {
+        assert_eq!(grid_cell_size((536, 459), (816, 638)), (816, 638));
+        assert_eq!(grid_cell_size((1296, 759), (816, 638)), (1296, 759));
+        assert_eq!(grid_cell_size((900, 500), (816, 638)), (900, 638));
+    }
+
+    #[test]
+    fn manual_arrangement_skips_slots_under_windows_kept_out_of_the_grid() {
+        let slots = slots_1000();
+        let free = unblocked_slots(&slots, (400, 400), &[(0, 0, 410, 410)]);
+        let xy: Vec<(i32, i32)> = free.iter().map(|c| (c.x, c.y)).collect();
+        assert_eq!(xy, vec![(420, 10), (10, 420), (420, 420)]);
+        // Tudo bloqueado: usa a grade inteira em vez de não arrumar nada.
+        assert_eq!(unblocked_slots(&slots, (400, 400), &[(0, 0, 1000, 1000)]).len(), 4);
     }
 
     #[test]
