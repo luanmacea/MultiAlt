@@ -27,6 +27,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 - [architecture.md](architecture.md) — arquitetura geral, persistência, feature flags, eventos backend→frontend, fluxo de inicialização.
 - [development.md](development.md) — setup, comandos, features do Cargo, i18n, convenções, passo a passo para novo comando Tauri.
+- [seo.md](seo.md) — como fazer o site aparecer no Google para "roblox account manager": diagnóstico, o que já foi feito e próximos passos.
 - [mapa-da-interface.md](mapa-da-interface.md) — onde fica cada funcionalidade na tela e para que serve, em português.
 - [ux-checkup.md](ux-checkup.md) — revisão de usabilidade de setembro/2026: 131 achados triados por prioridade.
 - [../site/README.md](../site/README.md) — site de divulgação (HTML estático no GitHub Pages): como roda, como publica e de onde vêm os links de download.
@@ -91,7 +92,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ## Registro de mudanças (2026-09-26)
 
-1. **O updater aponta para este repositório**, com chave de assinatura própria (com senha); a release publica só o instalador `.exe`, com MSI e portátil atrás de interruptor — [development.md](development.md#atualizacoes-este-repositorio-com-chave-propria).
+1. **O updater aponta para este repositório**, com chave de assinatura própria (com senha); a release publica só o MSI (o setup `.exe` saiu em 03/10/2026) e o portátil, atrás de interruptor — [development.md](development.md#atualizacoes-este-repositorio-com-chave-propria).
 2. **O trabalho vive na `develop`**; a `main` só recebe release (cada push nela publica uma versão) — [CLAUDE.md](../CLAUDE.md).
 3. **Exceções de launch por conta**: a conta principal pode abrir com FPS, volume, qualidade, tela e janela próprios — [launch.md](features/launch.md#exceções-de-launch-por-conta).
 4. **Auto Rejoin adota conta que já está em jogo**, sem relançar — [botting.md](features/botting.md#regras-de-negócio).
