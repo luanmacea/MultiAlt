@@ -5,6 +5,7 @@ import { accountLabel } from "../../utils/accountName";
 import { usePrompt } from "../../hooks/usePrompt";
 import { useJoinOnlineWarning } from "../../hooks/useJoinOnlineWarning";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useTr } from "../../i18n/text";
 import type { TabId, GameEntry } from "./types";
 import { recordRecentGame, loadFavorites, saveFavorites } from "./types";
@@ -26,6 +27,7 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
   const prompt = usePrompt();
   const confirmJoinOnline = useJoinOnlineWarning();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const backdropClose = useBackdropClose(handleClose);
   const [activeTab, setActiveTab] = useState<TabId>("servers");
   const [localPlaceId, setLocalPlaceId] = useState(store.placeId);
   const [refreshOnOpenSignal, setRefreshOnOpenSignal] = useState(0);
@@ -154,7 +156,7 @@ export function ServerListDialog({ open, onClose }: ServerListDialogProps) {
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       {/* O teto é o mesmo dos outros diálogos grandes. Sem ele, na janela
           mínima do app (750x450) os 560 px fixos transbordavam 55 px para cada

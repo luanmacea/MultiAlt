@@ -38,6 +38,7 @@ import { NexusPage } from "./components/pages/NexusPage";
 import { SettingsPage } from "./components/pages/SettingsPage";
 import { useTr } from "./i18n/text";
 import { useUpdateHandoffToast } from "./hooks/useUpdateHandoffToast";
+import { useBackdropClose } from "./hooks/useBackdropClose";
 import { TONE_STYLES } from "./utils/toastTone";
 import { isMultiRobloxCloseProcessError } from "./utils/robloxErrors";
 import { ENABLE_NEXUS } from "./featureFlags";
@@ -71,6 +72,7 @@ function AppContent() {
   const page = store.activePage;
   const onAccounts = page === "accounts";
   const leavePage = () => store.setActivePage("accounts");
+  const modalBackdropClose = useBackdropClose(store.closeModal);
 
   // Volta de uma atualização silenciosa: "Atualizado para vX" (ou o aviso de
   // que a instalação não terminou). Ver updateHandoff.ts.
@@ -293,7 +295,7 @@ function AppContent() {
       {store.modal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
-          onClick={store.closeModal}
+          {...modalBackdropClose}
         >
           <div
             className="theme-panel theme-border rounded-xl p-5 max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col shadow-2xl animate-scale-in"

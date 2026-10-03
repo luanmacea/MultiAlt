@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { maskAccountName } from "../../utils/accountName";
 import { useConfirm } from "../../hooks/usePrompt";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useTr } from "../../i18n/text";
 
 interface AssetInfo {
@@ -33,6 +34,7 @@ export function MissingAssetsDialog() {
       store.setMissingAssets(null);
     }, 100);
   }, [store]);
+  const backdropClose = useBackdropClose(handleClose);
 
   useEffect(() => {
     if (!data) return;
@@ -124,7 +126,7 @@ export function MissingAssetsDialog() {
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[440px] max-h-[400px] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}

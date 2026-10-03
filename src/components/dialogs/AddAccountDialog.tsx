@@ -1,6 +1,7 @@
 import { File, FileText, Globe, KeyRound, Package, Plus, Sparkles, UserPlus, X } from "lucide-react";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { tr, useTr } from "../../i18n/text";
 import { quickAddAccount } from "../../utils/quickAdd";
 
@@ -13,6 +14,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
   const t = useTr();
   const store = useStore();
   const prompt = usePrompt();
+  const backdropClose = useBackdropClose(onClose);
 
   if (!open) return null;
 
@@ -73,7 +75,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
-      onClick={onClose}
+      {...backdropClose}
     >
       <div
         className="theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[420px] max-w-[calc(100vw-2rem)] overflow-hidden animate-scale-in"
