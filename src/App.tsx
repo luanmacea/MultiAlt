@@ -36,6 +36,7 @@ import { ScriptsPage } from "./components/pages/ScriptsPage";
 import { ThemePage } from "./components/pages/ThemePage";
 import { NexusPage } from "./components/pages/NexusPage";
 import { SettingsPage } from "./components/pages/SettingsPage";
+import { ChangelogPage } from "./components/pages/ChangelogPage";
 import { useTr } from "./i18n/text";
 import { useUpdateHandoffToast } from "./hooks/useUpdateHandoffToast";
 import { TONE_STYLES } from "./utils/toastTone";
@@ -221,6 +222,8 @@ function AppContent() {
             onRequestEncryptionSetup={store.openEncryptionSetupFromSettings}
             onRequestBackups={() => setBackupsOpen(true)}
           />
+          {/* Só pede as versões ao GitHub quando aberta (ver ChangelogPage). */}
+          <ChangelogPage active={page === "changelog"} onLeave={leavePage} />
         </main>
       </div>
 
