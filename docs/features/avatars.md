@@ -17,10 +17,10 @@ Especificação: [docs/superpowers/specs/2026-10-02-free-avatars-design.md](../s
 | [commands/avatars.rs](../../src-tauri/src/commands/avatars.rs) | Comandos, o lote (`avatar_apply_batch`, `apply_avatar_to_account`, `assign_avatars`), evento `avatar-batch-state`, cancelamento, guarda de execução única |
 | [api/batch.rs](../../src-tauri/src/api/batch.rs) | `ImageCache::invalidate_targets`: esquece o headshot em cache das contas que trocaram de avatar |
 | [avatarBuilder.ts](../../src/avatarBuilder.ts) | Lógica pura do construtor: categorias, seleção, sorteio, paleta de pele, validação do rascunho |
-| [dialogs/AvatarsDialog.tsx](../../src/components/dialogs/AvatarsDialog.tsx) | A casca da tela: catálogo, avatares salvos, ouvinte do `avatar-batch-state`, comandos |
-| [dialogs/avatars/](../../src/components/dialogs/avatars) | `BuildTab` (Montar), `DistributeTab` (Distribuir), `AccountPicker` (contas dentro do diálogo), `BatchPanel` (progresso e resumo), `useAvatarDraft`, `useAvatarThumbs` (miniaturas com retentativa), `shared.tsx` |
+| [pages/AvatarsPage.tsx](../../src/components/pages/AvatarsPage.tsx) | A casca da tela: catálogo, avatares salvos, ouvinte do `avatar-batch-state`, comandos |
+| [pages/avatars/](../../src/components/pages/avatars) | `BuildTab` (Montar), `DistributeTab` (Distribuir), `AccountPicker` (contas dentro do diálogo), `BatchPanel` (progresso e resumo), `useAvatarDraft`, `useAvatarThumbs` (miniaturas com retentativa), `shared.tsx` |
 | [store.tsx](../../src/store.tsx) | `refreshAvatarHeadshots` e `avatarsDialogOpen` |
-| [layout/Toolbar.tsx](../../src/components/layout/Toolbar.tsx) | Botão da camiseta (`Avatars`) que abre o diálogo |
+| [layout/NavSidebar.tsx](../../src/components/layout/NavSidebar.tsx) | Item **Avatars** da barra lateral, que abre a página |
 | [dev/harness/scenarios.ts](../../src/dev/harness/scenarios.ts) | Cenário `avatars` do harness (`bun run dev:ui`, `?scenario=avatars&accounts=6`) |
 
 ## Endpoints usados
@@ -136,7 +136,7 @@ Suíte `avatars` (`bun run t avatars`):
 - `avatar_batch_tests` — `assign_avatars` espalha sem repetir, JSON de vestir, a conta pula peça já possuída, nunca chama `purchase-item` para item com preço ≠ 0, para no desafio sem vestir nada, expande bundles em assets, cabeça vence corpo na mesma parte, `invalidAssetIds` vira `missing` (todos recusados = `failed`), wearing recusado = `failed`, e respeita o cancelamento (inclusive o que chega logo antes de um resgate).
 - `avatar_games_extra_tests` (suíte `api`) — `set_avatar` com `set-wearing-assets` recusado devolve erro.
 - `avatar_cache_invalidation_tests` — `invalidate_targets` esquece só o tipo e o alvo certos (`11:` não é `1:`).
-- `avatarBuilder.test.ts`, `AvatarsDialog.test.tsx` e `dialogs/avatars/` (incluindo `useAvatarThumbs.test.tsx`) — sorteio respeitando categorias obrigatórias, validação do rascunho, as duas abas, o seletor de contas, o painel do lote, a retentativa das miniaturas, a recusa do backend traduzida e o início recusado que não repete o aviso de fim do lote anterior.
+- `avatarBuilder.test.ts`, `AvatarsPage.test.tsx` e `pages/avatars/` (incluindo `useAvatarThumbs.test.tsx`) — sorteio respeitando categorias obrigatórias, validação do rascunho, as duas abas, o seletor de contas, o painel do lote, a retentativa das miniaturas, a recusa do backend traduzida e o início recusado que não repete o aviso de fim do lote anterior.
 - `store.test.ts` (bloco `refreshAvatarHeadshots`) — a foto da conta depois do lote.
 
 Resgate e vestimenta de verdade ficam fora de teste automático: precisam de uma conta real. No navegador, `?scenario=avatars&accounts=6` entrega o catálogo, dois avatares salvos e um lote em que a 1ª conta resgata 3 peças, a 2ª esbarra na verificação e as demais vestem sem resgatar nada. O teste real é do dono, numa alt, com o `.exe` gerado.
