@@ -784,7 +784,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [importDialogTab, setImportDialogTab] = useState<"cookie" | "userpass" | "legacy">("cookie");
   const [afkModeDialog, setAfkModeDialog] = useState<AfkModeDialogState | null>(null);
   const openAfkMode = useCallback((opts?: Partial<AfkModeDialogState>) => {
-    setAfkModeDialog({ ...opts, tab: opts?.tab ?? "rejoin" });
+    // Sem aba pedida, os cliques AFK (a aba padrão do Modo AFK).
+    setAfkModeDialog({ ...opts, tab: opts?.tab ?? "clicks" });
   }, []);
   const closeAfkMode = useCallback(() => setAfkModeDialog(null), []);
   /**

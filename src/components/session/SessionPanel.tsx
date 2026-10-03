@@ -186,14 +186,15 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
    * nenhum cliente** — e antes dele a pessoa vê e ajusta o tempo do ciclo e as
    * contas main. Ligar direto daqui escondia onde configurar e onde parar.
    *
-   * Abre no Auto Rejoin, a não ser que só os cliques AFK estejam ligados.
+   * Abre nos cliques AFK (a aba padrão), a não ser que só o Auto Rejoin esteja
+   * ligado.
    */
   function handleOpenAfkMode() {
     const alvo = selected.length > 0 ? selected : runningIds;
     if (alvo.length === 0) return;
-    const onlyClicksActive = !!store.afkStatus?.active && !store.bottingStatus?.active;
+    const onlyRejoinActive = !!store.bottingStatus?.active && !store.afkStatus?.active;
     store.openAfkMode({
-      tab: onlyClicksActive ? "clicks" : "rejoin",
+      tab: onlyRejoinActive ? "rejoin" : "clicks",
       targetUserIds: alvo,
       adoptRunning: true,
     });
