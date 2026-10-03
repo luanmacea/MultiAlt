@@ -3,7 +3,7 @@
 Página pública do app (recursos, download, segurança, dúvidas). HTML, CSS e JS puros — sem build, sem dependência, sem nada do app Tauri.
 
 - `index.html` — conteúdo em inglês (o que buscador e quem está sem JS veem).
-- `i18n.js` — português e os textos montados na hora. Chave `data-i18n` nova no HTML precisa da tradução aqui.
+- `i18n.js` — português, espanhol e os textos montados na hora. Chave `data-i18n` nova no HTML precisa da tradução nos dois. O idioma vem de `?lang=`, depois da escolha salva no navegador, depois do idioma do navegador (pt e es; o resto cai no inglês).
 - `main.js` — troca de idioma, links de download e a animação do hero.
 - `styles.css` — paleta do próprio app: degradê do ícone e as cores da legenda de status.
 
