@@ -623,6 +623,10 @@ export function useStore() {
   return ctx;
 }
 
+/** Tentativas de buscar o headshot novo depois de mudar o avatar, e a pausa entre elas. */
+const HEADSHOT_REFRESH_ATTEMPTS = 3;
+const HEADSHOT_REFRESH_RETRY_MS = 3000;
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -1062,26 +1066,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /**
    * Busca o headshot das contas que ainda não têm foto. Com `force`, busca de
    * novo mesmo quem já tem — é o caso do avatar que acabou de mudar.
+   *
+   * Devolve quem ficou **sem** foto nova: o Roblox respondeu sem `imageUrl`
+   * ("Pending"), a chamada falhou ou (com `force`) a conta já estava sendo
+   * buscada por outra chamada, que pode ter saído antes da mudança.
    */
-  async function loadAvatarIds(userIds: number[], force = false) {
+  async function loadAvatarIds(userIds: number[], force = false): Promise<number[]> {
+    const busy = userIds.filter((id) => avatarLoadingRef.current.has(id));
     const ids = userIds.filter(
       (id) => (force || !avatarUrls.has(id)) && !avatarLoadingRef.current.has(id)
     );
-    if (ids.length === 0) return;
+    if (ids.length === 0) return force ? busy : [];
     ids.forEach((id) => avatarLoadingRef.current.add(id));
     try {
       const results = await invoke<ThumbnailData[]>("batched_get_avatar_headshots", {
         userIds: ids,
         size: "48x48",
       });
+      const fresh = (Array.isArray(results) ? results : []).filter((r) => r.imageUrl);
       setAvatarUrls((prev) => {
         const next = new Map(prev);
-        for (const r of results) {
-          if (r.imageUrl) next.set(r.targetId, r.imageUrl);
-        }
+        for (const r of fresh) next.set(r.targetId, r.imageUrl as string);
         return next;
       });
+      const got = new Set(fresh.map((r) => r.targetId));
+      return [...ids.filter((id) => !got.has(id)), ...(force ? busy : [])];
     } catch {
+      return [...ids, ...(force ? busy : [])];
     } finally {
       ids.forEach((id) => avatarLoadingRef.current.delete(id));
     }
@@ -1089,20 +1100,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /**
    * O avatar dessas contas mudou (lote de avatares): o headshot em cache no
-   * backend e o da tela estão velhos. Invalida os dois e busca de novo.
+   * backend está velho. Invalida o cache e busca de novo.
+   *
+   * A foto antiga **nunca** é apagada antes: logo depois de vestir, o Roblox
+   * costuma responder "Pending" (sem `imageUrl`), e apagar deixava a conta sem
+   * foto até recarregar o app. A busca forçada só sobrescreve quando chega a
+   * imagem nova; quem volta sem ela é tentado de novo algumas vezes.
    */
   async function refreshAvatarHeadshots(userIds: number[]) {
-    const ids = [...new Set(userIds)].filter((id) => id > 0);
-    if (ids.length === 0) return;
-    try {
-      await invoke("invalidate_avatar_headshots", { userIds: ids });
-    } catch {}
-    setAvatarUrls((prev) => {
-      const next = new Map(prev);
-      for (const id of ids) next.delete(id);
-      return next;
-    });
-    await loadAvatarIds(ids, true);
+    let pending = [...new Set(userIds)].filter((id) => id > 0);
+    for (let attempt = 0; attempt < HEADSHOT_REFRESH_ATTEMPTS && pending.length > 0; attempt++) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, HEADSHOT_REFRESH_RETRY_MS));
+      // A cada tentativa: um "Pending" que tenha ido para o cache não pode responder a próxima.
+      try {
+        await invoke("invalidate_avatar_headshots", { userIds: pending });
+      } catch {}
+      pending = await loadAvatarIds(pending, true);
+    }
   }
 
   /**
