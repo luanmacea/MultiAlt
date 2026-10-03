@@ -45,6 +45,8 @@ Permitir que o usuário encontre um jogo (busca/descoberta), veja os servidores 
 3. Busca ícones com `batched_get_game_icon` para os 20 primeiros.
 4. Selecionar um jogo → vira o Place atual e volta para a aba Servers; "Join Game" chama `launch_roblox` direto (sem Job ID); "Favorite" pede um nome e adiciona aos favoritos.
 
+A aba Games guarda a última lista e a busca que a produziu num cache de memória da sessão (`gamesCache`, compartilhado com a aba Games do Server List): voltar à aba mostra a lista na hora, com a busca no campo, e consulta de novo por trás (*Updating...* ao lado da busca). Ícone que já veio é carregado para a lista nova e não é pedido de novo.
+
 ### Favoritos e VIPs
 
 1. Guardados em `localStorage["ram_favorite_games"]` como `FavoriteGame { placeId, name, iconUrl, addedAt, vipServers[] }`.

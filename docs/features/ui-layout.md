@@ -130,6 +130,17 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 
 `launchAll` (hook `useLauncher`): confirma contas online, muda para a aba Console, grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
 
+**Trocar de aba não perde o que foi carregado.** Cada aba é desmontada ao sair, então o que ela buscou vive num cache de memória da sessão ([utils/sessionCache.ts](../../src/utils/sessionCache.ts)) — nunca em disco nem no `localStorage`, e some ao fechar o app. Ao voltar (para a aba ou para a Choose Game), a aba mostra o que tinha no primeiro desenho e atualiza por trás, com um indicador discreto, trocando os dados quando a resposta chega:
+
+| Aba | Chave do cache | Indicador |
+|---|---|---|
+| Games | última busca (uma só) | *Updating...* ao lado da busca |
+| Servers | place + ordem + lote + páginas; só varredura terminada | *Updating...* ao lado do Refresh; a lista só troca no fim da varredura nova ([server-choice.md](server-choice.md#voltar-à-aba-cache-da-varredura)) |
+| Friends | ids das contas selecionadas | spinner por conta; cada conta troca quando a dela volta ([friends.md](friends.md#carga-progressiva-e-cache-da-aba)) |
+| Windows | último `list_display_monitors` | — (chamada local) |
+
+Favorites e Recent já nasciam prontos (vêm do `localStorage`); Follow, Console e Windows não buscam nada da rede. A volta **não** faz requisição a mais que antes — ela já recarregava; a aba Friends até economiza, juntando-se a uma rodada que ainda esteja em curso. Os testes zeram esses caches pelo `resetTauriMocks()`.
+
 Controles de grade (aba **Windows**): o campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior.
 
 ### Grade de janelas
