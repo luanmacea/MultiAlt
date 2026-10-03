@@ -67,17 +67,23 @@
   // ---------- release mais recente ----------
   // As releases saem como pre-release (série 0.x), então /releases/latest do
   // GitHub não as enxerga: a lista vem da API e a primeira publicada vale.
+  // Desde a 0.1.8 a release só traz MSI e portátil (o setup .exe saiu). O MSI
+  // padrão vem duas vezes: com a versão no nome e como
+  // `Roblox-Account-Manager-Setup.msi` (nome fixo do botão do README) — o da
+  // versão ganha, para o arquivo baixado dizer qual versão é.
   function pickAssets(r, full) {
-    var by = { msi: null, setup: null, portable: null };
+    var by = { msi: null, portable: null };
+    var stableMsi = null;
     (r.assets || []).forEach(function (a) {
       var n = a.name;
       if (/^zz-/.test(n) || /\.sig$/.test(n)) return;
       var isFull = /_full-nexus-ws/.test(n);
       if (isFull !== full) return;
-      if (/\.msi$/.test(n)) by.msi = a;
+      if (n === "Roblox-Account-Manager-Setup.msi") stableMsi = a;
+      else if (/\.msi$/.test(n)) by.msi = a;
       else if (/_portable(_full-nexus-ws)?\.exe$/.test(n)) by.portable = a;
-      else if (/-setup(_full-nexus-ws)?\.exe$/.test(n)) by.setup = a;
     });
+    if (!by.msi) by.msi = stableMsi;
     return by;
   }
 
