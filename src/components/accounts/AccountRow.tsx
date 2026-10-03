@@ -104,7 +104,7 @@ export function AccountRow({ account }: { account: Account }) {
     });
   }
   if (launchedLocally) {
-    statusDots.push({ color: "#f59e0b", title: t("Launched by Roblox Account Manager") });
+    statusDots.push({ color: "#f59e0b", title: t("Launched by MultiAlt") });
   }
   if (showPresence && presenceType >= 1) {
     const presenceColor =

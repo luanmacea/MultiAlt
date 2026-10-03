@@ -65,7 +65,7 @@ describe("UpdateDialog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Install & Restart" }));
 
     expect(screen.getByText("Installing v0.1.7")).toBeInTheDocument();
-    expect(screen.getByText("RAM will close and open again by itself in a few seconds.")).toBeInTheDocument();
+    expect(screen.getByText("MultiAlt will close and open again by itself in a few seconds.")).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem(UPDATE_HANDOFF_KEY) ?? "{}")).toMatchObject({
       from: "0.1.6",
       to: "0.1.7",

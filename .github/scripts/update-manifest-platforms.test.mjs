@@ -39,6 +39,6 @@ describe("msiOnlyPlatforms", () => {
 
 describe("STABLE_MSI_NAME", () => {
   it("is the fixed name the README download button links to", () => {
-    expect(STABLE_MSI_NAME).toBe("Roblox-Account-Manager-Setup.msi");
+    expect(STABLE_MSI_NAME).toBe("MultiAlt-Setup.msi");
   });
 });

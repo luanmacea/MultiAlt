@@ -44,8 +44,11 @@ const OBJECT_NAME_INFORMATION: u32 = 1;
 /// `STATUS_INFO_LENGTH_MISMATCH` — buffer curto, tentar de novo maior.
 const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC000_0004u32 as i32;
 /// Teto do buffer da tabela de handles; acima disso desistimos em vez de
-/// arriscar uma alocação absurda.
-const HANDLE_SNAPSHOT_MAX_BYTES: usize = 64 * 1024 * 1024;
+/// arriscar uma alocação absurda. Era 64 MB até 03/10/2026, quando um programa
+/// de periférico vazando handles (NGenuity2Helper, 1,77 milhão) levou a tabela de
+/// uma máquina real a ~77 MB e o singleton do Roblox deixou de ser fechado. A
+/// alocação é passageira (só durante a leitura), então 256 MB é folga, não custo.
+const HANDLE_SNAPSHOT_MAX_BYTES: usize = 256 * 1024 * 1024;
 /// Buffer de 4 KiB (em `u64`, para garantir alinhamento) para o nome do objeto.
 const OBJECT_NAME_BUFFER_WORDS: usize = 512;
 
@@ -395,6 +398,15 @@ mod singleton_event_tests {
         let next = next_handle_snapshot_size(38 * mb, 38 * mb).expect("38 MB cabe no teto");
         assert!(next >= 38 * mb, "precisa caber o que foi pedido");
         assert!(next <= HANDLE_SNAPSHOT_MAX_BYTES);
+    }
+
+    #[test]
+    fn a_machine_with_two_million_handles_still_gets_a_snapshot() {
+        // Medido em 03/10/2026: um programa de periférico vazando handles
+        // (NGenuity2Helper, 1,77 milhão) levou a tabela a ~77 MB, acima do teto
+        // de 64 MB de então — o singleton do Roblox deixava de ser fechado.
+        let mb = 1024 * 1024;
+        assert!(next_handle_snapshot_size(80 * mb, 80 * mb).is_some());
     }
 
     #[test]

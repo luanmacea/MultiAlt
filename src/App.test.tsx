@@ -55,7 +55,7 @@ describe("App — blocking screens", () => {
   it("waits while the store initialises", () => {
     renderApp({ initialized: false });
     expect(screen.getByText("Loading...")).toBeInTheDocument();
-    expect(screen.queryByText("Roblox Account Manager")).not.toBeInTheDocument();
+    expect(screen.queryByText("MultiAlt")).not.toBeInTheDocument();
   });
 
   it("asks for the password before anything else", () => {
@@ -116,7 +116,7 @@ describe("App — blocking screens", () => {
 describe("App — main layout", () => {
   it("renders the window chrome, account list and status bar", () => {
     renderApp();
-    expect(screen.getByText("Roblox Account Manager")).toBeInTheDocument();
+    expect(screen.getByText("MultiAlt")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Filter accounts...")).toBeInTheDocument();
     expect(screen.getByText("ann")).toBeInTheDocument();
     expect(screen.getByText("Legend:")).toBeInTheDocument();

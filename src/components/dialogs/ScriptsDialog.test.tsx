@@ -122,7 +122,7 @@ describe("ScriptsDialog — what the feature is", () => {
     renderDialog();
 
     expect(
-      screen.getByText("JavaScript automation that runs inside RAM, not a Roblox executor or injector")
+      screen.getByText("JavaScript automation that runs inside MultiAlt, not a Roblox executor or injector")
     ).toBeInTheDocument();
   });
 
@@ -144,7 +144,7 @@ describe("ScriptsDialog — what the feature is", () => {
     // não pode sumir junto com o estado vazio.
     expect(await screen.findByText("Auto rejoin")).toBeInTheDocument();
     expect(
-      screen.getByText("JavaScript automation that runs inside RAM, not a Roblox executor or injector")
+      screen.getByText("JavaScript automation that runs inside MultiAlt, not a Roblox executor or injector")
     ).toBeInTheDocument();
   });
 });

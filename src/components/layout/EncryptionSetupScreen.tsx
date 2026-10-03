@@ -112,7 +112,7 @@ export function EncryptionSetupScreen() {
                     "text-[12px] theme-muted mt-0.5 transition-all duration-300 ease-out overflow-hidden",
                     method === "password" ? "max-h-24 opacity-100" : "max-h-10 opacity-90",
                   ].join(" ")}>
-                    {t("Use a password to encrypt AccountData.json. You'll enter it when RAM starts.")}
+                    {t("Use a password to encrypt AccountData.json. You'll enter it when MultiAlt starts.")}
                   </div>
                 </div>
                 <div className={[

@@ -56,7 +56,7 @@ jobs:
       # instalar o MSI uma vez. O manifesto do updater so tem a chave
       # `windows-x86_64-msi` (.github/scripts/update-manifest-platforms.mjs).
       #
-      # O MSI padrao sai tambem com um nome fixo, `Roblox-Account-Manager-Setup.msi`:
+      # O MSI padrao sai tambem com um nome fixo, `MultiAlt-Setup.msi`:
       # e para ele que o botao de download do README aponta, por
       # `/releases/latest/download/` — e por isso a release **nao** e marcada
       # como pre-lancamento (o GitHub ignora pre-lancamento no "latest").
@@ -221,7 +221,7 @@ jobs:
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
           if (-not $msi) { throw "Standard MSI not found" }
-          Copy-Item $msi.FullName "src-tauri/target/release/Roblox-Account-Manager-Setup.msi" -Force
+          Copy-Item $msi.FullName "src-tauri/target/release/MultiAlt-Setup.msi" -Force
 
       - name: Wait for release to become available
         shell: pwsh
@@ -324,9 +324,9 @@ jobs:
           }
 
           $v = $env:RELEASE_VERSION
-          $fullMsiName = "Roblox.Account.Manager_${v}_x64_en-US_full-nexus-ws.msi"
-          $standardPortableName = "Roblox.Account.Manager_${v}_x64_portable.exe"
-          $fullPortableName = "Roblox.Account.Manager_${v}_x64_portable_full-nexus-ws.exe"
+          $fullMsiName = "MultiAlt_${v}_x64_en-US_full-nexus-ws.msi"
+          $standardPortableName = "MultiAlt_${v}_x64_portable.exe"
+          $fullPortableName = "MultiAlt_${v}_x64_portable_full-nexus-ws.exe"
 
           Copy-Item $fullMsiSrc.FullName (Join-Path $stageDir $fullMsiName) -Force
           Copy-Item $fullMsiSigSrc (Join-Path $stageDir "$fullMsiName.sig") -Force
@@ -373,7 +373,7 @@ jobs:
           $repo = "${{ github.repository }}"
           $fullMsiPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_MSI_NAME
           gh release upload $tag "$fullMsiPath" --repo $repo --clobber
-          gh release upload $tag "src-tauri/target/release/Roblox-Account-Manager-Setup.msi" --repo $repo --clobber
+          gh release upload $tag "src-tauri/target/release/MultiAlt-Setup.msi" --repo $repo --clobber
 
       - name: Upload portable binaries
         if: env.PUBLISH_PORTABLE == 'true'
@@ -540,7 +540,7 @@ jobs:
             const publishPortable = process.env.PUBLISH_PORTABLE === "true";
             const downloadGuide = [
               "### Which file to download",
-              "**Start here: `Roblox-Account-Manager-Setup.msi`.** It installs for your user only (no admin prompt), updates itself, and comes out clean on VirusTotal. For most people this is the only file you need (`..._x64_en-US.msi` is the same installer with the version in the name).",
+              "**Start here: `MultiAlt-Setup.msi`.** It installs for your user only (no admin prompt), updates itself, and comes out clean on VirusTotal. For most people this is the only file you need (`..._x64_en-US.msi` is the same installer with the version in the name).",
               "",
               "- **Installed with the old setup `.exe`?** It is no longer published, so it won't update anymore. Uninstall it (Windows Settings → Apps) and install the `.msi` once — your accounts and settings are kept."
             ];
