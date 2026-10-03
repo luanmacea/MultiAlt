@@ -18,6 +18,21 @@ type Phase = "available" | "downloading" | "ready" | "installing" | "error";
  */
 export const INSTALL_HANDOFF_DELAY_MS = 1500;
 
+/**
+ * A página da release abre com "## Download" (o botão do instalador para quem
+ * chega pelo GitHub — ver o passo "Finalize release notes" do release-v4.yml).
+ * Na janela de atualização isso não serve: o app já baixa e instala sozinho.
+ * Tira a seção inteira, até o próximo título "## ".
+ */
+export function notesForUpdateDialog(body: string): string {
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^##\s+Download\b/i.test(l));
+  if (start < 0) return body;
+  const next = lines.findIndex((l, i) => i > start && /^##\s+\S/.test(l));
+  const kept = [...lines.slice(0, start), ...(next < 0 ? [] : lines.slice(next))];
+  return kept.join("\n").trim();
+}
+
 function renderMarkdown(src: string): React.ReactNode[] {
   const lines = src.split(/\r?\n/);
   const htmlTag = /<[a-z][^>]*>/i;
@@ -508,7 +523,7 @@ export function UpdateDialog() {
       return;
     }
 
-    const nextNotes = info?.body?.trim() ? info.body : null;
+    const nextNotes = info?.body?.trim() ? notesForUpdateDialog(info.body) : null;
     setReleaseNotes(nextNotes);
 
     if (!info?.version || !info?.currentVersion) return;
@@ -581,7 +596,7 @@ export function UpdateDialog() {
       }
 
       if (!controller.signal.aborted) {
-        const finalNotes = resolvedNotes.trim();
+        const finalNotes = notesForUpdateDialog(resolvedNotes).trim();
         if (finalNotes) {
           setReleaseNotes(finalNotes);
         }

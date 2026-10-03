@@ -480,24 +480,7 @@ jobs:
             const repo = context.repo.repo;
             const tag = process.env.RELEASE_TAG;
             const channel = String(process.env.RELEASE_CHANNEL || "beta").toLowerCase();
-            const appVersion = process.env.RELEASE_APP_VERSION;
             const previousTag = process.env.RELEASE_PREVIOUS_TAG;
-            const releaseCommitSha = (context.payload.head_commit?.id || context.sha || "").slice(0, 7);
-
-            let releaseCommitMessage = String(context.payload.head_commit?.message || "").trim();
-            if (!releaseCommitMessage) {
-              try {
-                const commit = await github.rest.repos.getCommit({
-                  owner,
-                  repo,
-                  ref: context.sha
-                });
-                releaseCommitMessage = String(commit.data.commit.message || "").trim();
-              } catch (error) {
-                core.warning(`Could not resolve release commit message from commit API: ${error.message}`);
-              }
-            }
-            releaseCommitMessage = (releaseCommitMessage.split(/\r?\n/)[0] || "N/A").trim();
 
             const generatedNotes = await github.rest.repos.generateReleaseNotes({
               owner,
@@ -539,42 +522,43 @@ jobs:
               contributorsBlock = `## Contributors\n${avatars}\n\n${names}`;
             }
 
-            const channelLabel = channel === "beta" ? "Beta" : "Stable";
-            const warningLine = channel === "beta"
-              ? "This is a beta release. Missing features, bugs and crashes are possible. Run at your own risk."
-              : "This is a stable release intended for general use.";
-            const calloutType = channel === "beta" ? "WARNING" : "NOTE";
-
-            // Guia de download: cita so os arquivos que este job publica. O
-            // texto fixo que havia aqui anunciou MSI e portatil numa release que
-            // nao tinha nenhum dos dois (4.0.5).
+            // Texto pensado para quem nao e tecnico (pedido do dono, 03/10/2026):
+            // primeiro o botao do instalador e tres frases curtas; o resto fica
+            // num bloco recolhido. Sem commit, canal ou versao antiga no topo.
+            // Os titulos "## What's Changed" e "## Contributors" ficam: o
+            // UpdateDialog do app procura os dois.
+            const msiUrl = `https://github.com/${owner}/${repo}/releases/download/${tag}/MultiAlt-Setup.msi`;
             const publishPortable = process.env.PUBLISH_PORTABLE === "true";
-            const downloadGuide = [
-              "### Which file to download",
-              "**Start here: `MultiAlt-Setup.msi`.** It installs for your user only (no admin prompt), updates itself, and comes out clean on VirusTotal. For most people this is the only file you need (`..._x64_en-US.msi` is the same installer with the version in the name).",
+            const otherFiles = [
+              "<details>",
+              "<summary>Other files (you can ignore these)</summary>",
               "",
-              "- **Installed with the old setup `.exe`?** It is no longer published, so it won't update anymore. Uninstall it (Windows Settings → Apps) and install the `.msi` once — your accounts and settings are kept."
+              "- `MultiAlt_..._x64_en-US.msi`: the same installer, with the version in the name.",
+              "- Files with `full-nexus-ws` in the name: only for people who use external scripts (Nexus or the local API).",
+              "- `.sig` files: used by the automatic update."
             ];
             if (publishPortable) {
-              downloadGuide.push(
-                "- **If you would rather not install anything**, use **the portable `.exe`** (`..._x64_portable.exe`): it runs as-is. In exchange it does not update itself and creates no Start Menu shortcut."
-              );
+              otherFiles.push("- `..._x64_portable.exe`: runs without installing, but does not update itself.");
             }
-            downloadGuide.push(
-              "- **Files with `_full-nexus-ws` in the name**: the same app plus the local HTTP API and the Nexus WebSocket used by external scripts (they open local ports). Only if you need them.",
-              "- **`zz-...sig`**: signatures for the in-app auto-update. No need to download them."
-            );
+            otherFiles.push("", "</details>");
+
+            const betaLine = channel === "beta"
+              ? ["", "> [!NOTE]", "> This is a beta version: some things may still change."]
+              : [];
 
             const topNote = [
-              `> [!${calloutType}]`,
-              `> ${warningLine}`,
+              "## Download",
               "",
-              `Channel: ${channelLabel}`,
-              `Release commit: ${releaseCommitSha}`,
-              `Release commit message: ${releaseCommitMessage}`,
-              `App version: ${appVersion}`,
+              `### [⬇ Download MultiAlt-Setup.msi](${msiUrl})`,
               "",
-              ...downloadGuide
+              "Open the file and follow the installer. That's it.",
+              "",
+              "- Windows 10 or 11",
+              "- No administrator password needed",
+              "- Updates itself when a new version comes out",
+              ...betaLine,
+              "",
+              ...otherFiles
             ].join("\n");
 
             const finalBody = [
