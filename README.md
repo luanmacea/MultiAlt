@@ -6,6 +6,7 @@ Página pública do app (recursos, download, segurança, dúvidas). HTML, CSS e 
 - `i18n.js` — português, espanhol e os textos montados na hora. Chave `data-i18n` nova no HTML precisa da tradução nos dois. O idioma vem de `?lang=`, depois da escolha salva no navegador, depois do idioma do navegador (pt e es; o resto cai no inglês).
 - `main.js` — troca de idioma, links de download e a animação do hero.
 - `styles.css` — paleta do próprio app: degradê do ícone e as cores da legenda de status.
+- `assets/screens/` — fotos reais do app (em inglês, **com os nomes das contas ocultos**), usadas pela seção "Screens" e pela galeria do README. A seção é uma lista de abas no estilo da barra lateral do app: só a tela escolhida mostra a frase dela, e as setas do teclado trocam de tela. Tela nova: foto em `assets/screens/<nome>.png` (mesmo tamanho, 1586x993), um `<button class="tour-tab" data-shot="<nome>">` no `index.html` e as frases em `i18n.js`. O `assets/screenshot.png` (prévia do link no Discord/X) é a foto da tela Choose Game.
 
 ## Download sempre na versão nova
 
