@@ -96,10 +96,13 @@ não sabe de quem é.
 
 - **Nada aqui fecha nem mexe no cliente.** Só lê a lista de processos, as
   threads e os logs (abertos só para leitura). Adotar é só registrar o PID.
-- Depois de adotado, o cliente é igual a um lançado pelo app: Fechar/Focar da
-  Sessão, cliques AFK, adoção do Auto Rejoin e as opções do Watcher que fecham
-  cliente (memória, título, sem conexão — todas opt-in) passam a valer para
-  ele. Fechar continua sendo ação explícita do usuário.
+- Depois de adotado, o cliente vale como um lançado pelo app para Fechar/Focar
+  da Sessão, cliques AFK e adoção do Auto Rejoin — fechar continua sendo ação
+  explícita do usuário. **O Watcher não mexe nele** (`only_launched_by_app` em
+  [watcher.rs](../../src-tauri/src/commands/watcher.rs), teste
+  `the_watcher_leaves_clients_opened_outside_the_app_alone`): a tela do Watcher
+  promete ignorar os clientes abertos fora do app, e uma regra de memória ou de
+  desconexão fecharia a conta que o usuário está jogando pelo site.
 - **Limites:** o formato do log é do Roblox e pode mudar numa atualização
   (o parser falha fechado: sem cabeçalho ou sem `userid:` o cliente cai em
   "não identificado", com o caminho manual). O `userid:` só aparece depois

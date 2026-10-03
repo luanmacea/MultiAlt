@@ -63,6 +63,16 @@ fn load_windows_watcher_config(settings: &SettingsStore) -> WindowsWatcherConfig
 }
 
 #[cfg(target_os = "windows")]
+/// O Watcher só mexe nos clientes que o app abriu: a promessa da tela é que
+/// ele ignora os clientes abertos fora do app. Um cliente aberto pelo site e
+/// reconhecido pelo log (`external_clients.rs`) entra no rastreamento para a
+/// Sessão e o Modo AFK, mas as regras que fecham cliente não valem para ele —
+/// senão uma regra de memória ou de desconexão fecharia a conta que o usuário
+/// está jogando pelo site.
+fn only_launched_by_app<T>(instances: Vec<T>, adopted: impl Fn(&T) -> bool) -> Vec<T> {
+    instances.into_iter().filter(|inst| !adopted(inst)).collect()
+}
+
 fn windows_title_indicates_disconnect(title_lower: &str) -> bool {
     title_lower.contains("disconnected")
         || title_lower.contains("connection error")
@@ -120,7 +130,7 @@ async fn start_watcher(
                     emit_launch_log(&app_handle, *uid, "warn", "watcher", String::from("Cliente do Roblox fechou (o processo morreu)"));
                 }
 
-                let instances = tracker.get_all();
+                let instances = only_launched_by_app(tracker.get_all(), |inst| inst.adopted);
                 let active_user_ids: HashSet<i64> = instances.iter().map(|inst| inst.user_id).collect();
                 disconnected_since.retain(|uid, _| active_user_ids.contains(uid));
                 startup_seen.retain(|uid, _| active_user_ids.contains(uid));
@@ -558,6 +568,13 @@ fn stop_watcher() -> Result<(), String> {
 #[cfg(test)]
 mod watcher_tests {
     use super::*;
+
+    #[test]
+    fn the_watcher_leaves_clients_opened_outside_the_app_alone() {
+        let all = vec![(1, false), (2, true), (3, false)];
+        let watched = only_launched_by_app(all, |(_, adopted)| *adopted);
+        assert_eq!(watched, vec![(1, false), (3, false)]);
+    }
     use std::path::PathBuf;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
