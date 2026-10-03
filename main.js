@@ -1,0 +1,254 @@
+/*
+  Comportamento do site: idioma, links de download resolvidos pela release
+  mais recente do GitHub e a animação do hero (as contas abrindo uma a uma).
+*/
+(function () {
+  "use strict";
+
+  var REPO = "luanmacea/roblox-account-manager";
+  var RELEASES_PAGE = "https://github.com/" + REPO + "/releases";
+  var dict = window.RAM_I18N || { en: {}, pt: {} };
+  var lang = "en";
+  var release = null;
+
+  // ---------- idioma ----------
+  // O inglês original de cada trecho é guardado antes da primeira troca, para
+  // voltar do português sem precisar duplicar o HTML no dicionário.
+  var originals = new Map();
+  var attrOriginals = new Map();
+
+  function t(key, vars) {
+    var s = (dict[lang] && dict[lang][key]) || (dict.en && dict.en[key]) || key;
+    if (vars) Object.keys(vars).forEach(function (k) { s = s.replace("{" + k + "}", vars[k]); });
+    return s;
+  }
+
+  function applyLang(next) {
+    lang = next === "pt" ? "pt" : "en";
+    document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
+    document.querySelectorAll("[data-i18n]").forEach(function (el) {
+      if (!originals.has(el)) originals.set(el, el.innerHTML);
+      var key = el.getAttribute("data-i18n");
+      var tr = lang === "en" ? null : dict[lang][key];
+      el.innerHTML = tr != null ? tr : originals.get(el);
+    });
+    document.querySelectorAll("[data-i18n-attr]").forEach(function (el) {
+      var parts = el.getAttribute("data-i18n-attr").split(":");
+      var attr = parts[0], key = parts[1];
+      if (!attrOriginals.has(el)) attrOriginals.set(el, el.getAttribute(attr));
+      var tr = lang === "en" ? null : dict[lang][key];
+      el.setAttribute(attr, tr != null ? tr : attrOriginals.get(el));
+    });
+    document.querySelectorAll(".lang button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === lang));
+    });
+    renderRelease();
+    renderMock();
+  }
+
+  function initialLang() {
+    var fromUrl = new URLSearchParams(location.search).get("lang");
+    if (fromUrl) return fromUrl.slice(0, 2);
+    try {
+      var saved = localStorage.getItem("ram-site-lang");
+      if (saved) return saved;
+    } catch (e) { /* sem storage: segue pelo idioma do navegador */ }
+    return (navigator.language || "en").toLowerCase().indexOf("pt") === 0 ? "pt" : "en";
+  }
+
+  document.querySelectorAll(".lang button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var next = b.getAttribute("data-lang");
+      try { localStorage.setItem("ram-site-lang", next); } catch (e) { /* ok */ }
+      applyLang(next);
+    });
+  });
+
+  // ---------- release mais recente ----------
+  // As releases saem como pre-release (série 0.x), então /releases/latest do
+  // GitHub não as enxerga: a lista vem da API e a primeira publicada vale.
+  function pickAssets(r, full) {
+    var by = { msi: null, setup: null, portable: null };
+    (r.assets || []).forEach(function (a) {
+      var n = a.name;
+      if (/^zz-/.test(n) || /\.sig$/.test(n)) return;
+      var isFull = /_full-nexus-ws/.test(n);
+      if (isFull !== full) return;
+      if (/\.msi$/.test(n)) by.msi = a;
+      else if (/_portable(_full-nexus-ws)?\.exe$/.test(n)) by.portable = a;
+      else if (/-setup(_full-nexus-ws)?\.exe$/.test(n)) by.setup = a;
+    });
+    return by;
+  }
+
+  function fmtSize(bytes) {
+    return (bytes / 1048576).toFixed(1).replace(".", lang === "pt" ? "," : ".") + " MB";
+  }
+
+  function versionLabel(r) {
+    var v = r.tag_name.replace(/-beta$/, "");
+    return r.prerelease ? v + " " + t("dyn.beta") : v;
+  }
+
+  function renderRelease() {
+    var full = document.getElementById("full-toggle").checked;
+    if (!release) {
+      document.querySelectorAll(".js-dl-meta").forEach(function (el) { el.textContent = t("dl.metaFallback"); });
+      return;
+    }
+    var std = pickAssets(release, false);
+    var picked = pickAssets(release, full);
+
+    document.querySelectorAll(".js-dl-msi").forEach(function (a) {
+      a.href = std.msi ? std.msi.browser_download_url : RELEASES_PAGE;
+    });
+    document.querySelectorAll(".js-dl-meta").forEach(function (el) {
+      el.textContent = std.msi
+        ? t("dyn.meta", { version: versionLabel(release), size: fmtSize(std.msi.size) })
+        : t("dl.metaFallback");
+    });
+    document.querySelectorAll(".js-dl").forEach(function (a) {
+      var asset = picked[a.getAttribute("data-kind")];
+      a.href = asset ? asset.browser_download_url : RELEASES_PAGE;
+    });
+    document.querySelectorAll(".js-size").forEach(function (td) {
+      var asset = picked[td.getAttribute("data-kind")];
+      td.textContent = asset ? fmtSize(asset.size) : "–";
+    });
+    var date = new Date(release.published_at).toLocaleDateString(lang === "pt" ? "pt-BR" : "en-US", {
+      year: "numeric", month: "long", day: "numeric",
+    });
+    document.querySelectorAll(".js-release-line").forEach(function (el) {
+      el.textContent = t("dyn.released", { version: versionLabel(release), date: date });
+    });
+  }
+
+  function loadRelease() {
+    var cacheKey = "ram-site-release";
+    try {
+      var cached = JSON.parse(sessionStorage.getItem(cacheKey) || "null");
+      if (cached && Date.now() - cached.at < 10 * 60 * 1000) {
+        release = cached.release;
+        renderRelease();
+        return;
+      }
+    } catch (e) { /* sem cache: busca */ }
+
+    fetch("https://api.github.com/repos/" + REPO + "/releases?per_page=10", {
+      headers: { Accept: "application/vnd.github+json" },
+    })
+      .then(function (res) { if (!res.ok) throw new Error(res.status); return res.json(); })
+      .then(function (list) {
+        var r = list.filter(function (x) { return !x.draft && x.assets && x.assets.length; })[0];
+        if (!r) return;
+        // Só o que a página usa, para o cache caber folgado.
+        release = {
+          tag_name: r.tag_name,
+          prerelease: r.prerelease,
+          published_at: r.published_at,
+          assets: r.assets.map(function (a) { return { name: a.name, size: a.size, browser_download_url: a.browser_download_url }; }),
+        };
+        try { sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), release: release })); } catch (e) { /* ok */ }
+        renderRelease();
+      })
+      .catch(function () { /* fica o link para a página de releases */ });
+  }
+
+  document.getElementById("full-toggle").addEventListener("change", renderRelease);
+
+  // ---------- hero: contas abrindo uma a uma ----------
+  var ACCOUNTS = [
+    { name: "Nebula_Main", initials: "NM", c1: "#38bdf8", c2: "#4f46e5" },
+    { name: "Nebula_Alt1", initials: "N1", c1: "#22d3ee", c2: "#0e7490" },
+    { name: "PetGrinder22", initials: "PG", c1: "#f472b6", c2: "#9d174d" },
+    { name: "ObbyRunner_7", initials: "OR", c1: "#facc15", c2: "#b45309" },
+    { name: "TradeAlt", initials: "TA", c1: "#4ade80", c2: "#166534" },
+    { name: "AfkFarmer09", initials: "AF", c1: "#a78bfa", c2: "#5b21b6" },
+  ];
+  var SCENES = [
+    ["#2b6cb0", "#6aa8de", "#3f8f4a", "#2f6d39"],
+    ["#7c3aed", "#c084fc", "#a16207", "#713f12"],
+    ["#0f766e", "#5eead4", "#475569", "#334155"],
+    ["#b45309", "#fcd34d", "#15803d", "#14532d"],
+    ["#1e3a8a", "#60a5fa", "#e2e8f0", "#94a3b8"],
+    ["#9d174d", "#f9a8d4", "#4d7c0f", "#365314"],
+  ];
+  var state = ACCOUNTS.map(function () { return "offline"; });
+  var list = document.getElementById("mock-list");
+  var clients = document.getElementById("clients");
+
+  function renderMock() {
+    if (!list) return;
+    list.innerHTML = "";
+    ACCOUNTS.forEach(function (a, i) {
+      var li = document.createElement("li");
+      if (i === 0) li.className = "sel";
+      var st = state[i];
+      var dot = st === "launching" ? "var(--st-orange)" : st === "ingame" ? "var(--st-green)" : "transparent";
+      li.innerHTML =
+        '<span class="av" style="background:linear-gradient(135deg,' + a.c1 + "," + a.c2 + ')">' + a.initials +
+        '<span class="st" style="background:' + dot + '"></span></span>' +
+        '<span class="acc-name">' + a.name + "</span>" +
+        '<span class="acc-state ' + st + '">' + (st === "offline" ? "16d" : t("dyn." + st)) + "</span>";
+      list.appendChild(li);
+    });
+    document.getElementById("mock-launched").textContent = state.filter(function (s) { return s === "launching"; }).length;
+    document.getElementById("mock-ingame").textContent = state.filter(function (s) { return s === "ingame"; }).length;
+  }
+
+  function addClient(i, instant) {
+    var a = ACCOUNTS[i], s = SCENES[i % SCENES.length];
+    var el = document.createElement("div");
+    el.className = "client";
+    el.style.setProperty("--x", i * -12 + "px");
+    el.style.setProperty("--y", i * 16 + "px");
+    el.style.zIndex = String(i);
+    el.innerHTML =
+      '<div class="client-bar"><img src="assets/icon.svg" alt="">Roblox — ' + a.name + "</div>" +
+      '<div class="client-scene" style="--sky-a:' + s[0] + ";--sky-b:" + s[1] + ";--ground:" + s[2] + ";--ground-2:" + s[3] + '"></div>';
+    clients.appendChild(el);
+    if (instant) el.classList.add("on");
+    else requestAnimationFrame(function () { requestAnimationFrame(function () { el.classList.add("on"); }); });
+  }
+
+  function runHero() {
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      state = state.map(function () { return "ingame"; });
+      ACCOUNTS.forEach(function (_, i) { addClient(i, true); });
+      renderMock();
+      return;
+    }
+    var join = document.getElementById("mock-join");
+    var step = 0;
+    setTimeout(function () {
+      join.classList.add("press");
+      setTimeout(function () { join.classList.remove("press"); }, 380);
+      (function next() {
+        if (step >= ACCOUNTS.length) return;
+        var i = step++;
+        state[i] = "launching";
+        renderMock();
+        setTimeout(function () {
+          state[i] = "ingame";
+          renderMock();
+          addClient(i, false);
+        }, 650);
+        setTimeout(next, 520);
+      })();
+    }, 900);
+  }
+
+  // ---------- cofre: texto encriptado de enfeite ----------
+  var cipher = document.getElementById("cipher");
+  if (cipher) {
+    var abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    var out = "";
+    for (var k = 0; k < 520; k++) out += abc[(k * 7919 + (k % 13) * 104729) % abc.length];
+    cipher.textContent = out;
+  }
+
+  applyLang(initialLang());
+  loadRelease();
+  runHero();
+})();
