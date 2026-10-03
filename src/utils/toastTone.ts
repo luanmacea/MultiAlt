@@ -23,6 +23,10 @@ const ERROR = [
   "fehler",
   "fehlgeschlagen",
   "konnte nicht",
+  // espanhol ("error" já vem do inglês)
+  "falló",
+  "fallid",
+  "no se pudo",
 ];
 const SUCCESS = [
   "saved",
@@ -35,8 +39,12 @@ const SUCCESS = [
   "gespeichert",
   "aktualisiert",
   "gestartet",
+  // espanhol ("iniciad" já vem do português)
+  "guardad",
+  "actualizad",
 ];
-const WARN = ["warning", "aviso", "warnung"];
+// "aviso" serve ao português e ao espanhol.
+const WARN = ["warning", "aviso", "warnung", "advertencia"];
 
 export function toneFromMessage(message: string): ToastTone {
   const lower = message.toLowerCase();
