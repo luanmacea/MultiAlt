@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Sparkles, X } from "lucide-react";
 import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useTr } from "../../i18n/text";
 import { getUpdaterSkipVersionKey } from "../../updaterChannels";
 import { REPO_API_URL, REPO_URL } from "../../repo";
@@ -250,6 +251,11 @@ export function UpdateDialog() {
     handleClose();
   }, [info, handleClose]);
 
+  // Baixando ou instalando, o fundo não fecha o diálogo.
+  const backdropClose = useBackdropClose(
+    phase === "downloading" || phase === "installing" ? undefined : handleClose
+  );
+
   if (!visible || !info) return null;
 
   const pct = progress.total ? Math.round((progress.downloaded / progress.total) * 100) : 0;
@@ -257,7 +263,7 @@ export function UpdateDialog() {
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={phase === "downloading" || phase === "installing" ? undefined : handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-panel theme-border rounded-xl w-full max-w-lg mx-4 shadow-2xl flex flex-col ${closing ? "animate-scale-out" : "animate-scale-in"}`}

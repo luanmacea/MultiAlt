@@ -11,6 +11,7 @@ import { GeneratorTab } from "./GeneratorTab";
 import { IsolationTab } from "./IsolationTab";
 import { VersionsTab } from "./VersionsTab";
 import { MiscellaneousTab } from "./MiscellaneousTab";
+import { BackupsTab } from "./BackupsTab";
 import { useTr } from "../../i18n/text";
 
 export function TabContent({
@@ -18,13 +19,11 @@ export function TabContent({
   s,
   loaded,
   onRequestEncryptionSetup,
-  onRequestBackups,
 }: {
   activeTab: TabId;
   s: UseSettingsReturn;
   loaded: boolean;
   onRequestEncryptionSetup?: () => void;
-  onRequestBackups?: () => void;
 }) {
   const t = useTr();
   const prevTab = useRef(activeTab);
@@ -67,6 +66,7 @@ export function TabContent({
             }}
           >
             {tab === "general" && <GeneralTab s={s} />}
+            {tab === "backups" && <BackupsTab active={active} />}
             {tab === "developer" && <DeveloperTab s={s} />}
             {tab === "webserver" && <WebServerTab s={s} />}
             {tab === "watcher" && <WatcherTab s={s} />}
@@ -78,7 +78,6 @@ export function TabContent({
               <MiscellaneousTab
                 s={s}
                 onRequestEncryptionSetup={onRequestEncryptionSetup}
-                onRequestBackups={onRequestBackups}
               />
             )}
           </div>

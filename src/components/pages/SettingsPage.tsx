@@ -10,13 +10,12 @@ interface SettingsPageProps {
   onLeave: () => void;
   onSettingsChanged?: () => void;
   onRequestEncryptionSetup?: () => void;
-  onRequestBackups?: () => void;
 }
 
 const VISIBLE_TABS = SETTINGS_TABS.filter((tab) => !tab.hidden);
 
 /**
- * Página Settings. As nove abas do antigo modal (que mal cabiam numa linha de
+ * Página Settings. As abas do antigo modal (que mal cabiam numa linha de
  * 780 px) viraram uma lista vertical à esquerda do conteúdo; o conteúdo tem
  * teto de largura para as linhas de ajuda não esticarem até a borda da janela.
  *
@@ -29,7 +28,6 @@ export function SettingsPage({
   onLeave,
   onSettingsChanged,
   onRequestEncryptionSetup,
-  onRequestBackups,
 }: SettingsPageProps) {
   const t = useTr();
   const s = useSettings();
@@ -113,7 +111,6 @@ export function SettingsPage({
             s={s}
             loaded={s.loaded}
             onRequestEncryptionSetup={onRequestEncryptionSetup}
-            onRequestBackups={onRequestBackups}
           />
         </div>
       </div>

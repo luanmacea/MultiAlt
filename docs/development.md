@@ -346,6 +346,7 @@ Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das p
 
 - **`Esc` passa por uma pilha LIFO** ([useEscapeStack.ts](../src/hooks/useEscapeStack.ts)): existe **um** listener em `window`, e só o topo da pilha recebe a tecla. Quem monta depois fica no topo — popover sobre diálogo sobre tela —, então a ordem de registro não importa mais. Antes eram 26 handlers em 23 arquivos, nenhum interrompendo a propagação: um `Esc` fechava o diálogo **e** a tela de trás.
 - **Diálogo não escreve handler de `Esc`:** use [useModalClose](../src/hooks/useModalClose.ts), que já resolve isso. Se precisar agir antes de fechar (o editor de temas reverte a pré-visualização), passe `onEscape` no 4º parâmetro.
+- **Fundo de modal não usa `onClick` cru:** use [useBackdropClose](../src/hooks/useBackdropClose.ts) (`<div {...backdropClose}>`), que só fecha quando o botão desce **e** sobe no fundo. Com `onClick`, selecionar texto num campo arrastando para fora fechava o modal. A guarda em `useBackdropClose.test.tsx` varre `src/`.
 - **Handler de campo que trata `Esc` chama `preventDefault()`** — é o sinal de "já tratei" que a pilha respeita. Sem isso, reverter um campo numérico fechava o diálogo junto.
 - **Controle customizado precisa de semântica**: `role` + `aria-*` + `tabIndex` + teclado. O `Toggle` é o exemplo — um `<div onClick>` ali deixava as 9 telas de Settings inoperáveis por teclado. E todo controle novo precisa de foco visível; o anel usa `var(--input-focus)`.
 

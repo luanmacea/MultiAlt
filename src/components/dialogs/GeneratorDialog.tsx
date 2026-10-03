@@ -6,11 +6,13 @@ import type { GeneratorDialogTab } from "../../store";
 import { collectGroupNames } from "../../types";
 import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { X, Eye, EyeOff, Wallet, Info } from "lucide-react";
 import { SignupPanel } from "../signup/SignupPanel";
+import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 
 interface GeneratorDialogProps {
   open: boolean;
@@ -91,6 +93,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
   const t = useTr();
   const store = useStore();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const backdropClose = useBackdropClose(handleClose);
   const status = store.generatorStatus;
   const running = status?.active === true;
 
@@ -114,6 +117,14 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
    * pelo usuário.
    */
   const [mode, setMode] = useState<GeneratorDialogTab>(initialTab);
+  /**
+   * O gerador pago está desligado por padrão (`ENABLE_ACCOUNT_GENERATOR`): o
+   * diálogo vira só a criação grátis, sem seletor de abas. Exceção: um gerador
+   * pago que já está rodando (ligado pela API de scripts) — o painel aparece
+   * para dar para pará-lo, senão ele gastaria o saldo sem botão de parar.
+   */
+  const providerAvailable = ENABLE_ACCOUNT_GENERATOR || (running && !!status?.provider);
+  const activeMode: GeneratorDialogTab = providerAvailable ? mode : "signup";
 
   // Sugestão para o campo "Add To Group": os grupos que já existem entre as
   // contas, em texto cru (ver `collectGroupNames` — não passa por
@@ -234,7 +245,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
       className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm ${
         closing ? "animate-fade-out" : "animate-fade-in"
       }`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-panel theme-border rounded-2xl border w-[900px] max-w-[calc(100vw-24px)] h-[640px] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden shadow-2xl ${
@@ -274,6 +285,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
           AddAccountDialog, palavra por palavra: eram quatro nomes para duas
           funções. Mexeu aqui, mexa lá.
         */}
+        {providerAvailable && (
         <div className="px-5 pt-3 flex flex-wrap items-stretch gap-1.5">
           {([
             {
@@ -291,7 +303,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
               key={tab.id}
               onClick={() => setMode(tab.id)}
               className={`px-2.5 py-1.5 text-[12px] rounded-md border text-left transition-colors ${
-                mode === tab.id
+                activeMode === tab.id
                   ? "border-[var(--accent-color)] text-[var(--panel-fg)] theme-soft"
                   : "theme-border theme-muted theme-btn-ghost"
               }`}
@@ -301,8 +313,9 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
             </button>
           ))}
         </div>
+        )}
 
-        {mode === "signup" && (
+        {activeMode === "signup" && (
           <div className="p-4 md:p-5 flex-1 min-h-0">
             <SignupPanel
               onOpenLoginSettings={() => {
@@ -315,9 +328,10 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
           </div>
         )}
 
+        {providerAvailable && (
         <div
           className={`p-4 md:p-5 flex-1 min-h-0 grid-cols-1 lg:grid-cols-12 gap-4 ${
-            mode === "provider" ? "grid" : "hidden"
+            activeMode === "provider" ? "grid" : "hidden"
           }`}
         >
           <div className="lg:col-span-5 min-h-0 animate-slide-left">
@@ -598,6 +612,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
             </section>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

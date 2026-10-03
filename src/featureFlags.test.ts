@@ -40,6 +40,15 @@ describe("feature flags", () => {
     expect(flags.ENABLE_WEBSERVER).toBe(true);
   });
 
+  it("keeps the paid account generator off unless the build turns it on", async () => {
+    let flags = await loadFlags({ VITE_ENABLE_ACCOUNT_GENERATOR: undefined });
+    expect(flags.ENABLE_ACCOUNT_GENERATOR).toBe(false);
+    flags = await loadFlags({ VITE_ENABLE_ACCOUNT_GENERATOR: "maybe" });
+    expect(flags.ENABLE_ACCOUNT_GENERATOR).toBe(false);
+    flags = await loadFlags({ VITE_ENABLE_ACCOUNT_GENERATOR: "true" });
+    expect(flags.ENABLE_ACCOUNT_GENERATOR).toBe(true);
+  });
+
   it("reads the two flags independently", async () => {
     const flags = await loadFlags({ VITE_ENABLE_NEXUS: "false", VITE_ENABLE_WEBSERVER: "true" });
     expect(flags.ENABLE_NEXUS).toBe(false);

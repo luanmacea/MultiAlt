@@ -227,7 +227,7 @@ export const SUITES: Record<string, TestSuite> = {
   backups: {
     description: "Backup e restauração dos dados, e onde a pasta de dados fica",
     rust: ["backups_tests", "settings_paths_tests"],
-    front: ["src/components/dialogs/BackupsDialog.test.tsx"],
+    front: ["src/components/settings/BackupsTab.test.tsx"],
   },
   friends: {
     description: "Amigos online por conta e entrada no servidor do amigo",
@@ -293,7 +293,11 @@ export const SUITES: Record<string, TestSuite> = {
       "username_check_http_tests",
       "generator_failure_budget_tests",
     ],
-    front: ["src/components/signup", "src/components/dialogs/GeneratorDialog.test.tsx"],
+    front: [
+      "src/components/signup",
+      "src/components/dialogs/GeneratorDialog.test.tsx",
+      "src/components/dialogs/accountGeneratorHidden.test.tsx",
+    ],
   },
   ui: {
     description: "Casca da UI: layout, menus, componentes genéricos, i18n, hooks",

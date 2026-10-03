@@ -22,7 +22,7 @@ Descrever como a janela principal é montada, como temas e fontes são aplicados
 | Diálogos | [src/components/dialogs/](../../src/components/dialogs), [ServerListDialog.tsx](../../src/components/server-list/ServerListDialog.tsx) |
 | Tema | [theme.ts](../../src/theme.ts), [themeFonts.ts](../../src/themeFonts.ts), [fontPresets.ts](../../src/fontPresets.ts), [ThemePage.tsx](../../src/components/pages/ThemePage.tsx), backend [theme.rs](../../src-tauri/src/data/settings/theme.rs) e [presets.rs](../../src-tauri/src/data/settings/presets.rs) |
 | Componentes genéricos | [src/components/ui/](../../src/components/ui) |
-| Hooks de UI | [usePrompt.tsx](../../src/hooks/usePrompt.tsx) (`prompt`/`confirm` assíncronos), [useModalClose.ts](../../src/hooks/useModalClose.ts) (animação de fechar), [useJoinOnlineWarning.ts](../../src/hooks/useJoinOnlineWarning.ts) |
+| Hooks de UI | [usePrompt.tsx](../../src/hooks/usePrompt.tsx) (`prompt`/`confirm` assíncronos), [useModalClose.ts](../../src/hooks/useModalClose.ts) (animação de fechar), [useBackdropClose.ts](../../src/hooks/useBackdropClose.ts) (clique no fundo fecha o modal), [useJoinOnlineWarning.ts](../../src/hooks/useJoinOnlineWarning.ts) |
 
 ## Fluxo
 
@@ -58,7 +58,7 @@ Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, A
 | **Scripts** | `ScriptsPage` (lista + editor) | |
 | **Theme** | `ThemePage`: presets, todas as categorias em cartões, prévia fixa ao lado | |
 | **Nexus** | `NexusPage` (só com `ENABLE_NEXUS`) | Start/Stop no cabeçalho |
-| **Settings** | `SettingsPage`: seções numa lista vertical à esquerda, conteúdo com teto de largura | |
+| **Settings** | `SettingsPage`: seções numa lista vertical à esquerda, conteúdo com teto de largura; **Backups** é uma seção própria, logo depois de General (era um diálogo até 03/10/2026) | |
 | **What's new** (rodapé; pt "Novidades", es "Novedades") | `ChangelogPage`: o que cada versão mudou, da mais nova para a mais antiga (ver abaixo) | fica junto do Help: os dois falam do app, não do trabalho com as contas |
 | **Help** (rodapé) | reabre o walkthrough, que leva de volta à lista de contas | |
 
@@ -85,7 +85,7 @@ Pedido do dono (03/10/2026): uma página que diga, para quem não é técnico, o
 
 ### Toolbar
 
-Só na página de contas, e só com o que age na lista: busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator e Roblox Versions.
+Só na página de contas, e só com o que age na lista: busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator (só com `ENABLE_ACCOUNT_GENERATOR`, desligado por padrão) e Roblox Versions.
 
 ### Nomes ocultos (`Names hidden`)
 
@@ -217,6 +217,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 - Presença é atualizada a cada `max(1, PresenceUpdateRate)` minutos (mínimo 30 s), em lotes de 100 IDs; `0` = offline, `1` = online, `2` = em jogo, `3` = no Studio. O comando `get_presence` manda o cookie de uma conta como "viewer" (a primeira válida, `pick_viewer_cookie`) e cai para a chamada sem cookie se a autenticada falhar — ver [friends.md](friends.md#armadilhas--cuidados).
 - Toasts ficam empilhados no canto inferior direito, cada um pintado com o tom da própria mensagem; erros persistentes vão para a faixa vermelha até o usuário fechar.
 - Diálogos fecham com Esc (Server List, Choose Game); nas páginas da barra lateral o Esc volta para a lista de contas.
+- **Clicar no fundo escurecido fecha o modal só se o botão desceu e subiu no fundo** ([useBackdropClose.ts](../../src/hooks/useBackdropClose.ts)). Com `onClick` cru, apertar dentro de um campo (selecionando o texto) e soltar fora do painel fechava o modal: o navegador dispara o `click` no ancestral comum, que é o fundo. Vale para todos os modais (prompt/confirm, modal genérico, Add Account, Import, Contas novas, Versions, Server List, Account Utils, Account Fields, Missing Assets, Update, AFK Mode). Fundo novo usa `<div {...useBackdropClose(fechar)}>`; uma guarda em `useBackdropClose.test.tsx` falha se um fundo `fixed inset-0 ... bg-black/NN` voltar a ter `onClick`.
 - Export de tema grava `<nome>.ram-theme.json` na **pasta de dados do usuário** (`get_runtime_data_dir()` — a do exe só no modo portátil); se o tema usa fontes locais, grava `<nome>.ram-theme.zip` incluindo os arquivos das fontes.
 - Fontes importadas aceitam só `.ttf`, `.otf`, `.woff`, `.woff2` e são deduplicadas pelo SHA-256 do conteúdo.
 

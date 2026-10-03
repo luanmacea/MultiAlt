@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import { useTr } from "../i18n/text";
+import { useBackdropClose } from "./useBackdropClose";
 
 interface PromptState {
   message: string;
@@ -181,6 +182,12 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 
   const active = promptState || confirmState || confirmWithOptOutState;
 
+  const backdropClose = useBackdropClose(() => {
+    if (promptState) finishPrompt(null);
+    else if (confirmState) finishConfirm(false);
+    else finishConfirmWithOptOut(false);
+  });
+
   return (
     <Ctx.Provider value={{ prompt, confirm, confirmWithOptOut }}>
       {children}
@@ -188,11 +195,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
       {active && (
         <div
           className={`fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-          onClick={() => {
-            if (promptState) finishPrompt(null);
-            else if (confirmState) finishConfirm(false);
-            else finishConfirmWithOptOut(false);
-          }}
+          {...backdropClose}
         >
           <div
             className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-xl shadow-2xl w-80 overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}

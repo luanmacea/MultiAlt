@@ -13,8 +13,8 @@ Anda junto com a mudança de pasta: os dados saíram de "ao lado do executável"
 | Comandos, formato do zip, retenção, restauração | [commands/backups.rs](../../src-tauri/src/commands/backups.rs) |
 | Resolução da pasta de dados + migração | [data/settings/paths.rs](../../src-tauri/src/data/settings/paths.rs) (`get_runtime_data_dir`, `decide_data_dir`, `migrate_data_files`) |
 | Registro dos comandos | [lib.rs](../../src-tauri/src/lib.rs) |
-| Diálogo | [BackupsDialog.tsx](../../src/components/dialogs/BackupsDialog.tsx) |
-| Entrada na UI | [MiscellaneousTab.tsx](../../src/components/settings/MiscellaneousTab.tsx) → seção "Data" → "Manage" |
+| Tela | [BackupsTab.tsx](../../src/components/settings/BackupsTab.tsx) — seção **Backups** da página Settings (até 03/10/2026 era o diálogo `BackupsDialog`, aberto por "Manage" em Misc > Data) |
+| Entrada na UI | Settings › **Backups** (logo abaixo de General, [tabs.tsx](../../src/components/settings/tabs.tsx)). A seção só lê a pasta quando aparece (`active`), e relê a cada vez que volta a aparecer |
 | Tipos no frontend | [types.ts](../../src/types.ts) (`BackupEntry`, `RestoreReport`, `BackupsInfo`) |
 
 ## Fluxo

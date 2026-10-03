@@ -5,6 +5,12 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
+// O gerador pago (BloxGen) vem desligado (`ENABLE_ACCOUNT_GENERATOR`); estes
+// testes cobrem o gerador ligado. Desligado: accountGeneratorHidden.test.tsx.
+vi.mock("../../featureFlags", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../featureFlags")>()),
+  ENABLE_ACCOUNT_GENERATOR: true,
+}));
 
 import { AccountList } from "./AccountList";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";

@@ -154,8 +154,27 @@ describe("prompt", () => {
       });
     });
 
+    fireEvent.mouseDown(overlay());
     fireEvent.click(overlay());
     await waitFor(() => expect(resolved).toBeNull());
+  });
+
+  it("stays open when a drag starts in the field and ends on the backdrop", async () => {
+    const { result } = renderDialogs();
+
+    let resolved: string | null | undefined;
+    act(() => {
+      void result.current.prompt("Enter a name", "v").then((v) => {
+        resolved = v;
+      });
+    });
+
+    fireEvent.mouseDown(screen.getByRole("textbox"));
+    fireEvent.mouseUp(overlay());
+    fireEvent.click(overlay());
+    await new Promise((r) => setTimeout(r, 150));
+    expect(resolved).toBeUndefined();
+    expect(document.querySelector(".fixed.inset-0")).not.toBeNull();
   });
 
   it("ignores clicks inside the dialog body", async () => {
