@@ -330,6 +330,34 @@ describe("App — pages", () => {
     expect(screen.getByRole("button", { name: new RegExp(`^${title}`) })).toHaveAttribute("aria-current", "page");
   });
 
+  /**
+   * A página de novidades lê as releases do GitHub (60 pedidos/hora sem login).
+   * Só quando é aberta: abrir o app não gasta pedido nenhum.
+   */
+  it("does not ask GitHub for the update history on start", () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      renderApp();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("renders the What's new page with its own header", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      renderApp({ activePage: "changelog" });
+      expect(screen.getByRole("heading", { level: 1, name: "What's new" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^What's new/ })).toHaveAttribute("aria-current", "page");
+      expect(await screen.findByText("No updates to show yet.")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("goes back to the account list on Escape", async () => {
     const store = renderApp({ activePage: "settings" });
     await userEvent.keyboard("{Escape}");

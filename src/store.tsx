@@ -87,7 +87,16 @@ export interface AdoptBottingOptions {
  * uma ocupa a janela inteira à direita da barra; `accounts` é a lista de contas
  * (com a Choose Game por cima quando aberta). Ver docs/features/ui-layout.md.
  */
-export type AppPage = "accounts" | "session" | "afk" | "avatars" | "scripts" | "theme" | "nexus" | "settings";
+export type AppPage =
+  | "accounts"
+  | "session"
+  | "afk"
+  | "avatars"
+  | "scripts"
+  | "theme"
+  | "nexus"
+  | "settings"
+  | "changelog";
 
 export function normalizeServerPreference(value: string | undefined): ServerPreference {
   switch ((value || "").trim().toLowerCase()) {

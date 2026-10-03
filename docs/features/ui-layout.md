@@ -11,7 +11,8 @@ Descrever como a janela principal é montada, como temas e fontes são aplicados
 | Raiz e roteamento de telas/diálogos | [App.tsx](../../src/App.tsx) |
 | Estado global | [store.tsx](../../src/store.tsx) |
 | Chrome da janela | [TitleBar.tsx](../../src/components/layout/TitleBar.tsx), [ModalWindowControls.tsx](../../src/components/layout/ModalWindowControls.tsx), [UpdateBanner.tsx](../../src/components/layout/UpdateBanner.tsx), [NavSidebar.tsx](../../src/components/layout/NavSidebar.tsx) (barra lateral), [Toolbar.tsx](../../src/components/layout/Toolbar.tsx), [StatusBar.tsx](../../src/components/layout/StatusBar.tsx) |
-| Páginas | [src/components/pages/](../../src/components/pages): `PageShell` (casca comum), `SessionPage`, `AfkPage`, `AvatarsPage` (+ `pages/avatars/`), `ScriptsPage`, `ThemePage`, `NexusPage`, `SettingsPage` |
+| Páginas | [src/components/pages/](../../src/components/pages): `PageShell` (casca comum), `SessionPage`, `AfkPage`, `AvatarsPage` (+ `pages/avatars/`), `ScriptsPage`, `ThemePage`, `NexusPage`, `SettingsPage`, `ChangelogPage` |
+| Notas de release (janela de atualização e "What's new") | [releaseNotes.ts](../../src/releaseNotes.ts) (limpeza do texto, versões, leitura das releases), [ReleaseNotesMarkdown.tsx](../../src/components/ReleaseNotesMarkdown.tsx) (desenho do markdown) |
 | Telas bloqueantes | [PasswordScreen.tsx](../../src/components/layout/PasswordScreen.tsx), [EncryptionSetupScreen.tsx](../../src/components/layout/EncryptionSetupScreen.tsx), [FirstRunWalkthrough.tsx](../../src/components/layout/FirstRunWalkthrough.tsx) |
 | Lista de contas | [AccountList.tsx](../../src/components/accounts/AccountList.tsx), [GroupSection.tsx](../../src/components/accounts/GroupSection.tsx), [AccountRow.tsx](../../src/components/accounts/AccountRow.tsx), [AccountChip.tsx](../../src/components/accounts/AccountChip.tsx) |
 | Sidebar (conta única) | [DetailSidebar.tsx](../../src/components/accounts/DetailSidebar.tsx) → [SingleSelectSidebar.tsx](../../src/components/accounts/SingleSelectSidebar.tsx), [SidebarSection.tsx](../../src/components/accounts/SidebarSection.tsx) |
@@ -58,6 +59,7 @@ Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, A
 | **Theme** | `ThemePage`: presets, todas as categorias em cartões, prévia fixa ao lado | |
 | **Nexus** | `NexusPage` (só com `ENABLE_NEXUS`) | Start/Stop no cabeçalho |
 | **Settings** | `SettingsPage`: seções numa lista vertical à esquerda, conteúdo com teto de largura | |
+| **What's new** (rodapé; pt "Novidades", es "Novedades") | `ChangelogPage`: o que cada versão mudou, da mais nova para a mais antiga (ver abaixo) | fica junto do Help: os dois falam do app, não do trabalho com as contas |
 | **Help** (rodapé) | reabre o walkthrough, que leva de volta à lista de contas | |
 
 - **Estado:** `store.activePage` (`AppPage`) + `setActivePage`. Não há roteador. Os setters antigos (`setSettingsOpen`, `setThemeEditorOpen`, `setAvatarsDialogOpen`, `setSessionDialogOpen`, `setNexusOpen`, `setScriptsOpen`) continuam e viram navegação: `true` abre a página; `false` volta para Accounts **só se** aquela página for a aberta. Os booleanos `settingsOpen`/`scriptsOpen`/... saíram — quem quer saber lê `activePage`.
@@ -68,6 +70,18 @@ Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, A
 - **Barra de título:** página não é modal — não entra no `anyModalOpen`, e os botões de janela continuam na `TitleBar`.
 - **Recolher:** o botão no rodapé deixa só os ícones (tooltip à direita, só nesse modo). A escolha fica em `localStorage` (`ram_nav_collapsed`, com `try/catch`); abaixo de 900 px de largura a barra recolhe sozinha e o botão some.
 - **Walkthrough:** os passos apontam `data-tour="nav-session"`/`"nav-settings"` (ou a página, se aberta: `session-page`/`settings-page`); os passos da lista de contas trazem a página de contas de volta.
+
+### Página "What's new" (`ChangelogPage`)
+
+Pedido do dono (03/10/2026): uma página que diga, para quem não é técnico, o que cada atualização mudou.
+
+- **De onde vem:** as releases do repositório (`GET <REPO_API_URL>/releases?per_page=30`, [releaseNotes.ts](../../src/releaseNotes.ts)) — a mesma exceção "frontend lê `api.github.com`" que a janela de atualização já tinha ([architecture.md](../architecture.md#exceções-à-regra-frontend-não-acessa-rede)).
+- **Quando pede:** só ao abrir a página. Abrir o app não faz pedido nenhum (o GitHub dá 60 pedidos/hora sem login). A lista fica em memória pela sessão: voltar à página não pede de novo. Falha não fica guardada — "Try again" pede outra vez.
+- **O que mostra de cada versão:** só a seção `## What's Changed` (`changelogNotes`). Da v0.1.10 em diante ela já é a lista em linguagem simples (a lista técnica, recolhida em `<details>`, sai). Até a v0.1.9 era a lista automática de títulos de PR: sai o " by @autor in …/pull/N", a linha "Full Changelog" e os itens `[skip release]` (PR que não publica versão — README, site —, logo não mudou o app). Release sem a seção, ou que ficou vazia, não aparece; rascunho também não.
+- **Marcas:** a versão instalada (`getVersion`) leva ponto cheio na cor de destaque e "Your version"; versões mais novas, ponto vazado e "Not installed yet". A mais nova delas tem o botão para o fluxo de atualização que já existe: **"Update available"** abre a `UpdateDialog` quando o updater já achou a versão (`store.updateInfo`); sem isso, **"Check for Updates"** roda a checagem manual (`checkForUpdates(true)`), que diz "No updates available" se o canal do usuário (stable/beta) não tem aquela versão. Versão comparada sem o `v` e sem o canal (`v0.1.10-beta` = `0.1.10`).
+- **Estados:** esqueleto enquanto carrega; erro com "Try again" e o link para as releases no GitHub — mensagem própria quando o GitHub está limitando (403 com `x-ratelimit-remaining: 0`, ou 429); "No updates to show yet." quando a lista vem vazia.
+- **Layout:** linha do tempo — versão e data à esquerda, alinhadas ao trilho, e a lista à direita; em área estreita (contêiner abaixo de `@xl`) a versão sobe para cima da lista. Data no idioma do app (`Intl.DateTimeFormat`, `dateStyle: "long"`).
+- **Harness:** `?scenario=changelog` responde o `fetch` do GitHub com releases no formato real de cada época (`src/dev/harness/releases.ts`); `&current=`, `&update=1`, `&fail=offline|rate`, `&delay=`.
 
 ### Toolbar
 

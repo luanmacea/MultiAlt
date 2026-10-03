@@ -1880,5 +1880,15 @@
   "PID {{pid}}": "PID {{pid}}",
   "Show window": "Mostrar ventana",
   "Tell the app which account is playing in this client": "Dile a la app qué cuenta está jugando en este cliente",
-  "Unidentified client": "Cliente sin identificar"
+  "Unidentified client": "Cliente sin identificar",
+  "Couldn't load the update history. Check your internet connection and try again.": "No se pudo cargar el historial de actualizaciones. Revisa tu conexión a internet e inténtalo de nuevo.",
+  "GitHub is limiting how often the update history can be loaded. Try again in a few minutes.": "GitHub está limitando cuántas veces se puede cargar el historial de actualizaciones. Inténtalo de nuevo en unos minutos.",
+  "Loading the update history…": "Cargando el historial de actualizaciones…",
+  "No updates to show yet.": "Todavía no hay actualizaciones para mostrar.",
+  "Not installed yet": "Aún no instalada",
+  "See every version on GitHub": "Ver todas las versiones en GitHub",
+  "Update available": "Actualización disponible",
+  "What changed in each update of MultiAlt, newest first.": "Qué cambió en cada actualización de MultiAlt, de la más nueva a la más antigua.",
+  "What's new": "Novedades",
+  "Your version": "Tu versión"
 }

@@ -46,7 +46,7 @@ A regra do projeto é que o frontend fala só com o backend, mas o código tem e
 
 | Onde | O quê |
 |---|---|
-| [UpdateDialog.tsx](../src/components/dialogs/UpdateDialog.tsx) | `fetch` direto em `api.github.com` (`REPO_API_URL` de [repo.ts](../src/repo.ts)) para ler as notas da release e o comparativo entre versões. |
+| [UpdateDialog.tsx](../src/components/dialogs/UpdateDialog.tsx), [releaseNotes.ts](../src/releaseNotes.ts) | `fetch` direto em `api.github.com` (`REPO_API_URL` de [repo.ts](../src/repo.ts)), só leitura e sem login: a janela de atualização lê as notas da release e o comparativo entre versões; a página "What's new" ([ChangelogPage](../src/components/pages/ChangelogPage.tsx)) lê a lista de releases, só quando é aberta e uma vez por sessão. |
 | [ScriptsPage.tsx](../src/components/pages/ScriptsPage.tsx) | `fetch`/`WebSocket` em nome de scripts do usuário (`ram.http`, `ram.ws`), com permissão explícita. |
 | [fontPresets.ts](../src/fontPresets.ts) | Carrega fontes de `fonts.googleapis.com`. |
 | [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos, jogos recentes e servidores recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`), não no backend. A versão que o usuário mandou pular no updater também (`getUpdaterSkipVersionKey`). |

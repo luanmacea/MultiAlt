@@ -145,6 +145,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/dialogs/VersionsDialog.test.tsx",
       "src/updaterChannels.test.ts",
       "src/components/dialogs/UpdateDialog.test.tsx",
+      "src/releaseNotes.test.ts",
+      "src/components/pages/ChangelogPage.test.tsx",
       "src/updateHandoff.test.ts",
       "src/hooks/useUpdateHandoffToast.test.ts",
     ],
@@ -337,7 +339,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   navigation: {
-    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Scripts, Theme, Nexus, Settings) no lugar dos modais",
+    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais",
     rust: [],
     front: [
       "src/components/layout/NavSidebar.test.tsx",

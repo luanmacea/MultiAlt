@@ -58,12 +58,14 @@ describe("NavSidebar — items", () => {
     const expected = ["accounts", "session", "afk", "avatars", "scripts", "theme"];
     if (ENABLE_NEXUS) expected.push("nexus");
     expected.push("settings");
+    // "What's new" mora no rodapé, junto do Help: é sobre o app, não trabalho do dia.
+    expected.push("changelog");
     expect(names).toEqual(expected);
   });
 
   it("shows the labels without hovering", () => {
     renderNav();
-    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Scripts", "Theme", "Settings", "Help"]) {
+    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Scripts", "Theme", "Settings", "What's new", "Help"]) {
       expect(screen.getByText(label)).not.toHaveClass("sr-only");
     }
   });
@@ -82,6 +84,7 @@ describe("NavSidebar — items", () => {
     ["Scripts", "scripts"],
     ["Theme", "theme"],
     ["Settings", "settings"],
+    ["What's new", "changelog"],
   ] as const)("opens the %s page", async (label, page) => {
     const store = renderNav();
     await userEvent.click(item(label));
@@ -92,6 +95,22 @@ describe("NavSidebar — items", () => {
     const store = renderNav();
     await userEvent.click(item("Nexus"));
     expect(store.setActivePage).toHaveBeenCalledWith("nexus");
+  });
+
+  it("puts What's new in the footer, above Help, and marks it while open", () => {
+    renderNav({ activePage: "changelog" });
+    const whatsNew = item("What's new");
+    const help = screen.getByRole("button", { name: /^Help/ });
+    expect(whatsNew).toHaveAttribute("aria-current", "page");
+    expect(whatsNew.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(item("Settings").compareDocumentPosition(whatsNew) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps What's new named when the sidebar is collapsed", async () => {
+    renderNav();
+    await userEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.getByText("What's new")).toHaveClass("sr-only");
+    expect(item("What's new")).toBeInTheDocument();
   });
 
   it("replays the walkthrough from Help", async () => {

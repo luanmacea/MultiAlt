@@ -23,6 +23,7 @@ import {
 } from "./bus";
 import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
 import { seedTourStorage, tourHandler } from "./tour";
+import { HARNESS_RELEASES } from "./releases";
 
 const params = new URLSearchParams(window.location.search);
 const scenarioName = params.get("scenario") || "default";
@@ -1508,6 +1509,62 @@ const SCENARIOS: Record<string, () => void> = {
    */
   avatars() {
     setInvokeHandler(avatarsHandler(baseHandler));
+  },
+
+  /**
+   * Página "What's new": as releases chegam pelo mesmo `fetch` em
+   * `api.github.com` que o app usa — aqui respondido por um dublê, sem rede —,
+   * depois de 900 ms (`&delay=<ms>`), com os corpos no formato real: a de hoje
+   * (download, lista simples, detalhes técnicos recolhidos), as antigas com a
+   * lista de títulos de PR e `[skip release]`, uma sem "What's Changed" e um
+   * rascunho. O app diz que é a 0.1.9 (`&current=<versão>`).
+   *
+   * - `&update=1`: o updater acha a 0.1.10 (a janela abre na partida; feche e
+   *   use o "Atualização disponível" da página).
+   * - `&fail=offline` ou `&fail=rate`: o primeiro pedido falha (sem internet ou
+   *   limite do GitHub); o "Tentar de novo" recebe a lista.
+   */
+  changelog() {
+    const delay = Math.max(0, Number(params.get("delay") ?? 900) || 0);
+    const current = params.get("current") || "0.1.9";
+    let failuresLeft = params.get("fail") ? 1 : 0;
+    const failKind = params.get("fail");
+    const realFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://api.github.com/")) return realFetch(input, init);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      const isList = /\/releases\?/.test(url);
+      if (isList && failuresLeft > 0) {
+        failuresLeft -= 1;
+        if (failKind === "rate") {
+          return new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+            status: 403,
+            headers: { "content-type": "application/json", "x-ratelimit-remaining": "0" },
+          });
+        }
+        throw new TypeError("Failed to fetch");
+      }
+      if (!isList) return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      return new Response(JSON.stringify(HARNESS_RELEASES), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "plugin:app|version") return current;
+      if (cmd === "check_for_updates_with_channels" && params.get("update") === "1") {
+        return {
+          version: "0.1.10",
+          currentVersion: current,
+          date: "",
+          body: HARNESS_RELEASES[0].body,
+          releaseChannel: "beta",
+          featureChannel: "standard",
+        };
+      }
+      return baseHandler(cmd, args);
+    });
   },
 
   /**
