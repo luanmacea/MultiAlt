@@ -6,6 +6,7 @@ import type { GeneratorDialogTab } from "../../store";
 import { collectGroupNames } from "../../types";
 import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
@@ -91,6 +92,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
   const t = useTr();
   const store = useStore();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const backdropClose = useBackdropClose(handleClose);
   const status = store.generatorStatus;
   const running = status?.active === true;
 
@@ -234,7 +236,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
       className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm ${
         closing ? "animate-fade-out" : "animate-fade-in"
       }`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-panel theme-border rounded-2xl border w-[900px] max-w-[calc(100vw-24px)] h-[640px] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden shadow-2xl ${

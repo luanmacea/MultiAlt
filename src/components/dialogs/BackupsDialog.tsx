@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
@@ -51,6 +52,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
   const confirm = useConfirm();
   const prompt = usePrompt();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const backdropClose = useBackdropClose(handleClose);
 
   const [entries, setEntries] = useState<BackupEntry[]>([]);
   const [info, setInfo] = useState<BackupsInfo | null>(null);
@@ -179,7 +181,7 @@ export function BackupsDialog({ open, onClose }: BackupsDialogProps) {
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${
         closing ? "animate-fade-out" : "animate-fade-in"
       }`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[640px] h-[80vh] max-h-[760px] flex flex-col overflow-hidden ${

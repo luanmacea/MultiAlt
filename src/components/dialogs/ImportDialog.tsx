@@ -3,6 +3,7 @@ import { X, File as FileIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { usePrompt } from "../../hooks/usePrompt";
 import { SlidingTabBar } from "../ui/SlidingTabBar";
 import { useTr } from "../../i18n/text";
@@ -38,6 +39,7 @@ export function ImportDialog({
   const shown = (name: string) => maskAccountName(name, store.hideUsernames, store.hiddenNameLetters);
   const prompt = usePrompt();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const backdropClose = useBackdropClose(handleClose);
   const [tab, setTab] = useState<TabId>("cookie");
   const [input, setInput] = useState("");
   const [importing, setImporting] = useState(false);
@@ -296,7 +298,7 @@ export function ImportDialog({
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[560px] ${tab === "legacy" ? "max-h-[320px]" : tab === "cookie" ? "max-h-[520px]" : "max-h-[420px]"} flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
