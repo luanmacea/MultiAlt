@@ -1865,5 +1865,20 @@
   "Summary": "Resumen",
   "The Session panel opens from Session, in the sidebar": "El panel de Sesión se abre desde Sesión, en la barra lateral",
   "Turn on presence in Settings › General to count accounts in game.": "Activa la presencia en Configuración › General para contar las cuentas en juego.",
-  "Use Add above the account list for Quick Add, Browser Login, and imports": "Usa Agregar, encima de la lista de cuentas, para Adición rápida, Inicio de sesión por navegador e importaciones"
+  "Use Add above the account list for Quick Add, Browser Login, and imports": "Usa Agregar, encima de la lista de cuentas, para Adición rápida, Inicio de sesión por navegador e importaciones",
+  "{{count}} unidentified": "{{count}} sin identificar",
+  "{{name}} (already in game)": "{{name}} (ya en juego)",
+  "{{name}} already has a client open": "{{name}} ya tiene un cliente abierto",
+  "Account for this client": "Cuenta de este cliente",
+  "Identify": "Identificar",
+  "It hasn't joined a game yet, so the account is still unknown": "Todavía no entró a un juego, así que la cuenta aún es desconocida",
+  "Its account is not in your list": "Su cuenta no está en tu lista",
+  "No Roblox log matched this client": "Ningún log de Roblox coincidió con este cliente",
+  "Opened from the Roblox website and recognized by the Roblox log": "Abierto desde el sitio de Roblox y reconocido por el log de Roblox",
+  "Opened outside the app": "Abierto fuera de la app",
+  "Pick an account": "Elige una cuenta",
+  "PID {{pid}}": "PID {{pid}}",
+  "Show window": "Mostrar ventana",
+  "Tell the app which account is playing in this client": "Dile a la app qué cuenta está jugando en este cliente",
+  "Unidentified client": "Cliente sin identificar"
 }

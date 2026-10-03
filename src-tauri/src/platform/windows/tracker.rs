@@ -7,6 +7,10 @@ pub struct TrackedProcess {
     pub browser_tracker_id: String,
     #[serde(default)]
     pub version_id: Option<String>,
+    /// Cliente aberto fora do app (pelo site) e reconhecido pelo log do
+    /// Roblox ou identificado à mão — ver `external_clients.rs`.
+    #[serde(default)]
+    pub adopted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -87,16 +91,31 @@ impl ProcessTracker {
         browser_tracker_id: String,
         version_id: Option<String>,
     ) {
+        self.insert_tracked(TrackedProcess {
+            pid,
+            user_id,
+            browser_tracker_id,
+            version_id,
+            adopted: false,
+        });
+    }
+
+    /// Registra um cliente que o app não lançou (aberto pelo site). Daí em
+    /// diante ele é igual a qualquer outro: Sessão, cliques AFK e Auto Rejoin
+    /// o enxergam pelo mesmo `get_pid`.
+    pub fn track_adopted(&self, user_id: i64, pid: u32, browser_tracker_id: String) {
+        self.insert_tracked(TrackedProcess {
+            pid,
+            user_id,
+            browser_tracker_id,
+            version_id: None,
+            adopted: true,
+        });
+    }
+
+    fn insert_tracked(&self, process: TrackedProcess) {
         if let Ok(mut instances) = self.instances.lock() {
-            if let Some(previous) = instances.insert(
-                user_id,
-                TrackedProcess {
-                    pid,
-                    user_id,
-                    browser_tracker_id,
-                    version_id,
-                },
-            ) {
+            if let Some(previous) = instances.insert(process.user_id, process) {
                 self.clear_job_handle_for_pid(previous.pid);
             }
         }
