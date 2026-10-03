@@ -1,7 +1,8 @@
 use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GetWindowLongW, IsZoomed, SetWindowPos, GWL_STYLE, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
-    SWP_NOZORDER, WS_CAPTION,
+    AdjustWindowRectEx, GetWindowLongW, IsZoomed, SetWindowLongW, SetWindowPos, GWL_EXSTYLE,
+    GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER,
+    SW_SHOWNOACTIVATE, WS_CAPTION, WS_OVERLAPPEDWINDOW, WS_POPUP,
 };
 
 struct EnumWindowData {
@@ -249,23 +250,194 @@ fn outer_size_for_target(
     }
 }
 
-/// Maximizada, ou sem barra de título cobrindo o monitor inteiro (tela cheia
-/// do Roblox): o usuário pediu, e mexer desfaria.
+/// Em que estado a janela está.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowMode {
+    Normal,
+    /// Maximizada, com barra de título.
+    Maximized,
+    /// Sem barra de título cobrindo o monitor inteiro: a tela cheia do Roblox.
+    Fullscreen,
+}
+
+fn window_mode(
+    zoomed: bool,
+    style: u32,
+    rect: (i32, i32, i32, i32),
+    monitor: (i32, i32, i32, i32),
+) -> WindowMode {
+    let captionless = style & WS_CAPTION != WS_CAPTION;
+    let covers = rect.0 <= monitor.0
+        && rect.1 <= monitor.1
+        && rect.0 + rect.2 >= monitor.0 + monitor.2
+        && rect.1 + rect.3 >= monitor.1 + monitor.3;
+    if captionless && covers {
+        WindowMode::Fullscreen
+    } else if zoomed {
+        WindowMode::Maximized
+    } else {
+        WindowMode::Normal
+    }
+}
+
+/// Maximizada ou em tela cheia: sem um plano que diga o contrário, o usuário
+/// pediu, e mexer desfaria.
 fn is_fullscreen_like(
     zoomed: bool,
     style: u32,
     rect: (i32, i32, i32, i32),
     monitor: (i32, i32, i32, i32),
 ) -> bool {
-    if zoomed {
-        return true;
+    window_mode(zoomed, style, rect, monitor) != WindowMode::Normal
+}
+
+// ── sair da tela cheia herdada ─────────────────────────────────────────────
+//
+// O `Fullscreen` do XML também é um arquivo para todos: o cliente da conta
+// principal com a exceção "Tela: cheia" o regrava, e a alt sem exceção nascia
+// em tela cheia (03/10/2026). Quando o plano da alt diz "em janela"
+// (`leave_fullscreen`), a janela dela é tirada da tela cheia **sem foco e sem
+// tecla**: o estilo de janela comum volta (`WS_OVERLAPPEDWINDOW` no lugar do
+// `WS_POPUP`) e a janela recebe o tamanho do plano, centralizada na área de
+// trabalho do monitor em que estava. Mandar F11 exigiria trazer a janela para
+// frente a cada alt (o `SendInput` do `input.rs` só entrega na janela em
+// primeiro plano) — roubaria o foco de quem está jogando na principal.
+//
+// Uma tentativa só: se o Roblox voltar a janela para a tela cheia, o app não
+// briga com ele (a conferência seguinte vê a tela cheia e para).
+
+/// O plano pede "em janela", a janela está na tela cheia do Roblox e ainda não
+/// se tentou tirá-la. Maximizada não conta: não é a tela cheia herdada.
+pub fn should_leave_fullscreen(requested: bool, mode: WindowMode, already_tried: bool) -> bool {
+    requested && mode == WindowMode::Fullscreen && !already_tried
+}
+
+/// O estilo da janela comum a partir do da tela cheia: sai o `WS_POPUP`, volta
+/// a moldura inteira (barra de título, borda, botões); o resto fica.
+fn windowed_style(style: u32) -> u32 {
+    (style & !WS_POPUP) | WS_OVERLAPPEDWINDOW
+}
+
+/// O retângulo da janela ao sair da tela cheia. `work`: área de trabalho do
+/// monitor; `frame`: a moldura que o estilo comum acrescenta (largura,
+/// altura). Sem tamanho no plano, um tamanho modesto (1280x720, ou 2/3 da área
+/// de trabalho se ela for menor). Nunca maior que a área de trabalho.
+fn exit_fullscreen_rect(
+    work: (i32, i32, i32, i32),
+    size: Option<(u32, u32)>,
+    semantics: SizeSemantics,
+    frame: (i32, i32),
+) -> (i32, i32, i32, i32) {
+    let target = match size {
+        Some((w, h)) => (w as i32, h as i32),
+        None => ((work.2 * 2 / 3).min(1280), (work.3 * 2 / 3).min(720)),
+    };
+    let (w, h) = match semantics {
+        SizeSemantics::Client => (target.0 + frame.0.max(0), target.1 + frame.1.max(0)),
+        SizeSemantics::Outer => target,
+    };
+    let (w, h) = (w.min(work.2).max(1), h.min(work.3).max(1));
+    (work.0 + (work.2 - w) / 2, work.1 + (work.3 - h) / 2, w, h)
+}
+
+/// O resultado de tentar tirar a janela da tela cheia.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullscreenExit {
+    /// A janela não estava na tela cheia do Roblox: nada feito.
+    NotFullscreen,
+    /// Saiu: a janela está em modo janela, no retângulo devolvido.
+    Left((i32, i32, i32, i32)),
+    /// O Windows recusou, ou a janela continua cobrindo o monitor.
+    Refused,
+}
+
+fn monitor_info_of(hwnd: HWND) -> Option<MONITORINFO> {
+    unsafe {
+        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if hmon.is_null() {
+            return None;
+        }
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(hmon, &mut mi) == 0 {
+            return None;
+        }
+        Some(mi)
     }
-    let captionless = style & WS_CAPTION != WS_CAPTION;
-    let covers = rect.0 <= monitor.0
-        && rect.1 <= monitor.1
-        && rect.0 + rect.2 >= monitor.0 + monitor.2
-        && rect.1 + rect.3 >= monitor.1 + monitor.3;
-    captionless && covers
+}
+
+/// O estado da janela agora; `None` se ela sumiu.
+pub fn window_mode_of(hwnd: HWND) -> Option<WindowMode> {
+    if hwnd.is_null() {
+        return None;
+    }
+    current_window_mode(hwnd)
+}
+
+fn current_window_mode(hwnd: HWND) -> Option<WindowMode> {
+    let rect = get_window_position(hwnd)?;
+    let zoomed = unsafe { IsZoomed(hwnd) != 0 };
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    let monitor = monitor_rect_of(hwnd)?;
+    Some(window_mode(zoomed, style, rect, monitor))
+}
+
+/// A moldura que `style` acrescenta em volta da área cliente.
+fn frame_for_style(hwnd: HWND, style: u32) -> (i32, i32) {
+    let ex_style = unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) } as u32;
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    if unsafe { AdjustWindowRectEx(&mut rect, style, 0, ex_style) } == 0 {
+        return (0, 0);
+    }
+    (rect.right - rect.left, rect.bottom - rect.top)
+}
+
+/// Tira da tela cheia do Roblox uma janela cujo plano é "em janela", sem
+/// ativá-la nem mudar a ordem das janelas. Ver o bloco acima.
+pub fn leave_fullscreen(hwnd: HWND, size: Option<(u32, u32)>) -> FullscreenExit {
+    if hwnd.is_null() || window_is_minimized(hwnd) {
+        return FullscreenExit::NotFullscreen;
+    }
+    if current_window_mode(hwnd) != Some(WindowMode::Fullscreen) {
+        return FullscreenExit::NotFullscreen;
+    }
+    let Some(info) = monitor_info_of(hwnd) else {
+        return FullscreenExit::Refused;
+    };
+    let w = info.rcWork;
+    let work = (w.left, w.top, w.right - w.left, w.bottom - w.top);
+
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    let windowed = windowed_style(style);
+    let rect = exit_fullscreen_rect(work, size, learned_size_semantics(), frame_for_style(hwnd, windowed));
+    unsafe {
+        if IsZoomed(hwnd) != 0 {
+            // Popup maximizado: volta ao estado normal sem ativar.
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+        }
+        SetWindowLongW(hwnd, GWL_STYLE, windowed as i32);
+        let moved = SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            rect.0,
+            rect.1,
+            rect.2,
+            rect.3,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_FRAMECHANGED,
+        ) != 0;
+        if !moved {
+            return FullscreenExit::Refused;
+        }
+    }
+    match current_window_mode(hwnd) {
+        Some(WindowMode::Fullscreen) | None => FullscreenExit::Refused,
+        Some(_) => FullscreenExit::Left(get_window_position(hwnd).unwrap_or(rect)),
+    }
 }
 
 /// Para onde a janela vai: a posição salva (ou a atual) e o tamanho do plano
@@ -303,19 +475,8 @@ fn client_area_size(hwnd: HWND) -> Option<(i32, i32)> {
 }
 
 fn monitor_rect_of(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
-    unsafe {
-        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-        if hmon.is_null() {
-            return None;
-        }
-        let mut mi: MONITORINFO = std::mem::zeroed();
-        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
-        if GetMonitorInfoW(hmon, &mut mi) == 0 {
-            return None;
-        }
-        let r = mi.rcMonitor;
-        Some((r.left, r.top, r.right - r.left, r.bottom - r.top))
-    }
+    let r = monitor_info_of(hwnd)?.rcMonitor;
+    Some((r.left, r.top, r.right - r.left, r.bottom - r.top))
 }
 
 fn window_is_fullscreen_like(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
@@ -720,18 +881,23 @@ pub struct GridRequest {
 /// Põe a janela do PID na primeira célula livre da grade. A célula tem o
 /// tamanho global (`size`, no sentido do `StartScreenSize`), ou, sem ele, o
 /// tamanho com que a janela abriu. Sem célula que caiba, só o tamanho é
-/// imposto.
+/// imposto. `first_look`: ver `enforce_client_window` — falso quando o app
+/// acabou de tirar a janela da tela cheia (o tamanho dela é o do app, não o
+/// que o XML deu, e não ensina nada).
 pub fn place_in_grid(
     hwnd: HWND,
     pid: u32,
     size: Option<(u32, u32)>,
     request: &GridRequest,
+    first_look: bool,
 ) -> WindowEnforcement {
     let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
     let Some((current, client)) = movable_window(hwnd) else {
         return WindowEnforcement::Skipped;
     };
-    learn_size_semantics(size, current, client);
+    if first_look {
+        learn_size_semantics(size, current, client);
+    }
     let requested = match size {
         Some((tw, th)) => outer_size_for_target(
             (tw as i32, th as i32),

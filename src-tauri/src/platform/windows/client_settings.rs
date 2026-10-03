@@ -252,6 +252,12 @@ impl OverrideLedger {
 
     /// Uma propriedade depois de uma abertura. `from_account`: a exceção da
     /// conta escreveu o grupo dela; `from_global`: o perfil global escreveu.
+    ///
+    /// `sticky`: há cliente do Roblox aberto — o da exceção pode estar entre
+    /// eles, e ele **regrava** o XML com o valor dela (a tela cheia da conta
+    /// principal, 03/10/2026). Então o registro não é consumido ao desfazer:
+    /// fica para a próxima conta sem exceção desfazer de novo. Só sai quando o
+    /// valor no arquivo não é nem o da exceção nem o antigo (foi o jogador).
     fn settle(
         &mut self,
         key: String,
@@ -259,6 +265,7 @@ impl OverrideLedger {
         after: Option<String>,
         from_account: bool,
         from_global: bool,
+        sticky: bool,
     ) -> Restore {
         if from_account {
             // Grupo da exceção sem esta propriedade (qualidade automática não
@@ -274,6 +281,20 @@ impl OverrideLedger {
         if from_global {
             // O perfil global escreveu o valor dele: é o certo para quem não
             // tem exceção, e o antigo não precisa mais voltar.
+            self.entries.remove(&key);
+            return Restore::Keep;
+        }
+        if sticky {
+            let Some(entry) = self.entries.get(&key) else {
+                return Restore::Keep;
+            };
+            if after.as_deref() == Some(entry.written.as_str()) {
+                return Restore::To(entry.original.clone());
+            }
+            // Ainda com o valor que uma conta anterior pôs de volta.
+            if after == entry.original {
+                return Restore::Keep;
+            }
             self.entries.remove(&key);
             return Restore::Keep;
         }
@@ -344,9 +365,38 @@ fn restore_property(props: &mut String, name: &str, element: Option<&str>) {
     }
 }
 
+/// O valor de uma propriedade `<bool>`; `None` se ela não existe ou não é
+/// `true`/`false`.
+fn bool_property(props: &str, name: &str) -> Option<bool> {
+    let element = property_element(props, name)?;
+    let open = format!("<bool name=\"{}\">", name);
+    let inner = element.strip_prefix(&open)?.strip_suffix("</bool>")?.trim();
+    match inner {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+/// O XML reescrito e o que o registro decidiu sobre a tela cheia desta conta.
+#[derive(Debug)]
+struct GuardedRewrite {
+    xml: String,
+    /// Uma exceção de outra conta mexeu no `Fullscreen` e esta conta não
+    /// pediu nada para a janela: o valor que ficou no arquivo é o do jogador
+    /// (posto de volta pelo registro). `None` = nenhuma exceção no caminho, ou
+    /// a conta/o perfil global já decidiram a janela.
+    ///
+    /// O launch usa isso como a tela cheia resolvida para esta conta: o cliente
+    /// da exceção pode regravar `Fullscreen=true` antes de o cliente novo ler o
+    /// arquivo, e é a conferência pelo PID que tira a tela cheia herdada.
+    fullscreen_from_ledger: Option<bool>,
+}
+
 /// `rewrite_global_basic_settings` com o registro: grava o que a abertura pede
 /// e desfaz o que uma exceção anterior deixou nas propriedades que ninguém
-/// pediu desta vez.
+/// pediu desta vez. `clients_open`: há cliente do Roblox aberto (ver
+/// `OverrideLedger::settle`).
 #[allow(clippy::too_many_arguments)]
 fn rewrite_global_basic_settings_guarded(
     xml: &str,
@@ -356,10 +406,13 @@ fn rewrite_global_basic_settings_guarded(
     fullscreen: Option<bool>,
     window_size: Option<(u32, u32)>,
     from_account: AccountSourced,
+    clients_open: bool,
     ledger: &mut OverrideLedger,
-) -> Option<String> {
+) -> Option<GuardedRewrite> {
     let (start, end) = find_user_game_settings_properties_range(xml)?;
     let before = xml[start..end].to_string();
+    let fullscreen_key = "xml:Fullscreen".to_string();
+    let exception_touched_fullscreen = ledger.entries.contains_key(&fullscreen_key);
     let written = rewrite_global_basic_settings(
         xml,
         max_fps,
@@ -386,6 +439,7 @@ fn rewrite_global_basic_settings_guarded(
                 property_element(&props, name),
                 account,
                 any_written && !account,
+                clients_open,
             );
             if let Restore::To(original) = restore {
                 restore_property(&mut props, name, original.as_deref());
@@ -393,10 +447,20 @@ fn rewrite_global_basic_settings_guarded(
         }
     }
 
+    let window_decided = from_account.window || window_written;
+    let fullscreen_from_ledger = if exception_touched_fullscreen && !window_decided {
+        bool_property(&props, "Fullscreen")
+    } else {
+        None
+    };
+
     let mut out = written[..w_start].to_string();
     out.push_str(&props);
     out.push_str(&written[w_end..]);
-    Some(out)
+    Some(GuardedRewrite {
+        xml: out,
+        fullscreen_from_ledger,
+    })
 }
 
 /// `merge_client_app_settings` com o registro, para o FPS de uma exceção não
@@ -420,6 +484,8 @@ fn merge_client_app_settings_guarded(
         read(settings),
         fps_from_account,
         max_fps.is_some() && !fps_from_account,
+        // Cliente aberto não reescreve o `ClientAppSettings.json`.
+        false,
     );
     if let Restore::To(original) = restore {
         if let Some(obj) = settings.as_object_mut() {
@@ -463,12 +529,12 @@ fn apply_global_basic_settings_overrides(
     window_size: Option<(u32, u32)>,
     from_account: AccountSourced,
     ledger: &mut OverrideLedger,
-) -> Result<(), String> {
+) -> Result<Option<bool>, String> {
     let Some(path) = get_global_basic_settings_file() else {
-        return Ok(());
+        return Ok(None);
     };
     if !path.exists() {
-        return Ok(());
+        return Ok(None);
     }
 
     let xml = std::fs::read_to_string(&path)
@@ -482,21 +548,24 @@ fn apply_global_basic_settings_overrides(
         fullscreen,
         window_size,
         from_account,
+        !get_roblox_pids().is_empty(),
         ledger,
     ) else {
-        return Ok(());
+        return Ok(None);
     };
-    if patched == xml {
-        return Ok(());
+    if patched.xml != xml {
+        std::fs::write(&path, &patched.xml)
+            .map_err(|e| format!("Failed to write GlobalBasicSettings_13.xml: {}", e))?;
     }
-
-    std::fs::write(&path, patched)
-        .map_err(|e| format!("Failed to write GlobalBasicSettings_13.xml: {}", e))
+    Ok(patched.fullscreen_from_ledger)
 }
 
 /// Grava as opções desta abertura nos arquivos do Roblox. `from_account` diz o
 /// que veio da exceção da conta — é o que o registro guarda para desfazer na
 /// próxima conta sem exceção.
+///
+/// Devolve a tela cheia que o registro pôs de volta para esta conta (ver
+/// `GuardedRewrite::fullscreen_from_ledger`).
 #[allow(clippy::too_many_arguments)]
 pub fn apply_runtime_client_settings(
     base_path: Option<&str>,
@@ -507,7 +576,7 @@ pub fn apply_runtime_client_settings(
     window_size: Option<(u32, u32)>,
     fast_flags: Option<&serde_json::Map<String, serde_json::Value>>,
     from_account: AccountSourced,
-) -> Result<(), String> {
+) -> Result<Option<bool>, String> {
     let mut ledger = load_override_ledger();
     let pending = !ledger.is_empty();
 
@@ -531,6 +600,7 @@ pub fn apply_runtime_client_settings(
         }
     }
 
+    let mut fullscreen_from_ledger = None;
     if max_fps.is_some()
         || master_volume.is_some()
         || graphics.is_some()
@@ -538,7 +608,7 @@ pub fn apply_runtime_client_settings(
         || window_size.is_some()
         || pending
     {
-        apply_global_basic_settings_overrides(
+        fullscreen_from_ledger = apply_global_basic_settings_overrides(
             max_fps,
             master_volume,
             graphics,
@@ -550,7 +620,7 @@ pub fn apply_runtime_client_settings(
     }
 
     save_override_ledger(&ledger);
-    Ok(())
+    Ok(fullscreen_from_ledger)
 }
 
 pub fn copy_custom_client_settings(
