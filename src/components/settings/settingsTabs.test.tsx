@@ -371,6 +371,13 @@ describe("GeneralTab", () => {
     await expectSaved("General", "Language", "pt");
   });
 
+  it("offers Spanish and saves it as es", async () => {
+    renderGeneral();
+    await userEvent.click(await screen.findByText("English"));
+    await userEvent.click(await screen.findByText("Spanish"));
+    await expectSaved("General", "Language", "es");
+  });
+
   it("saves the updater release channel", async () => {
     renderGeneral();
     await userEvent.click(await screen.findByText("Beta"));

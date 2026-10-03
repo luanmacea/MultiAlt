@@ -79,7 +79,7 @@ Baixe só deste repositório. A [página da release](https://github.com/luanmace
 | :--- | :--- |
 | Atualização automática | Procura versões novas e se atualiza sozinho |
 | Temas | Editor de tema embutido: cores, estilo de botão e fontes, com presets exportáveis |
-| Idiomas | Inglês e português (alemão parcial) |
+| Idiomas | Inglês, português e espanhol (alemão parcial) |
 | Modo de vídeo seguro | Se a janela abrir em branco, o app se recupera sozinho (ou segure **Shift** ao abrir) |
 
 # FAQ
