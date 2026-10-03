@@ -53,6 +53,35 @@ export function normalizeServerScanPages(value: number | undefined): number {
 /** Abas do diálogo do gerador de contas. */
 export type GeneratorDialogTab = "provider" | "signup";
 
+/** Abas do Modo AFK: Auto Rejoin (ciclo de rejoin) e cliques AFK (tecla/clique). */
+export type AfkModeTab = "rejoin" | "clicks";
+
+/**
+ * O que está aberto no Modo AFK — `null` com a janela fechada.
+ *
+ * `targetUserIds` + `adoptRunning` vêm do "Em jogo" do Painel de Sessão: as
+ * contas que já estão jogando, que o Auto Rejoin **adota** sem fechar nem
+ * relançar. Sem `targetUserIds` o Auto Rejoin trabalha com as contas
+ * selecionadas na lista, como sempre.
+ */
+export interface AfkModeDialogState {
+  tab: AfkModeTab;
+  targetUserIds?: number[];
+  adoptRunning?: boolean;
+  /** Jogo escolhido na abertura (clique direito num jogo). Vence o rascunho. */
+  placeId?: string | null;
+}
+
+/** O que a tela do Modo AFK escolheu antes de adotar as contas em jogo. */
+export interface AdoptBottingOptions {
+  /** Place mostrado na tela (detectado ou digitado); sem ele, pergunta a presença. */
+  placeId?: number;
+  intervalMinutes?: number;
+  launchDelaySeconds?: number;
+  playerGraceMinutes?: number;
+  playerUserIds?: number[];
+}
+
 export function normalizeServerPreference(value: string | undefined): ServerPreference {
   switch ((value || "").trim().toLowerCase()) {
     case "none":
@@ -440,7 +469,12 @@ export interface StoreValue {
    * da conta — usar o place da tela mandaria a conta para outro jogo no
    * primeiro reinício do ciclo.
    */
-  adoptRunningIntoBotting: (userIds: number[]) => Promise<void>;
+  adoptRunningIntoBotting: (userIds: number[], options?: AdoptBottingOptions) => Promise<void>;
+  /**
+   * O place em que as contas estão jogando agora, pela presença de cada uma (a
+   * primeira que responder em jogo). `null` quando nenhuma diz.
+   */
+  detectRunningGamePlace: (userIds: number[]) => Promise<number | null>;
   stopBottingMode: (closeBotAccounts: boolean) => Promise<void>;
   addBottingAccounts: (userIds: number[]) => Promise<void>;
   setBottingPlayerAccounts: (userIds: number[]) => Promise<void>;
@@ -552,16 +586,18 @@ export interface StoreValue {
   setImportDialogTab: (tab: "cookie" | "userpass" | "legacy") => void;
   themeEditorOpen: boolean;
   setThemeEditorOpen: (open: boolean) => void;
-  bottingDialogOpen: boolean;
-  setBottingDialogOpen: (open: boolean) => void;
   /**
-   * Place com que o Auto Rejoin deve abrir quando a abertura partiu de um jogo
-   * (clique direito numa lista de jogos). **Vence o rascunho salvo**: quem
-   * acabou de escolher o jogo quer aquele jogo, não o da vez passada.
-   * `null` quando a abertura não trouxe jogo nenhum.
+   * Janela do Modo AFK (Auto Rejoin + cliques AFK). Uma só: antes eram dois
+   * diálogos, e quem ligava o Auto Rejoin pelo "Em jogo" não achava onde
+   * configurá-lo nem pará-lo.
    */
-  bottingDialogPlaceId: string | null;
-  /** Abre o Auto Rejoin, opcionalmente já com um jogo escolhido. */
+  afkModeDialog: AfkModeDialogState | null;
+  openAfkMode: (opts?: Partial<AfkModeDialogState>) => void;
+  closeAfkMode: () => void;
+  /**
+   * Abre o Modo AFK na aba Auto Rejoin, opcionalmente já com um jogo escolhido
+   * (clique direito numa lista de jogos). O jogo **vence o rascunho salvo**.
+   */
   openBottingDialog: (placeId?: string) => void;
   bottingStatus: BottingStatus | null;
   generatorDialogOpen: boolean;
@@ -575,7 +611,7 @@ export interface StoreValue {
   generatorStatus: GeneratorStatus | null;
   versionsDialogOpen: boolean;
   setVersionsDialogOpen: (open: boolean) => void;
-  afkDialogOpen: boolean;
+  /** Abre (ou fecha) o Modo AFK na aba de cliques AFK — o atalho da barra. */
   setAfkDialogOpen: (open: boolean) => void;
   avatarsDialogOpen: boolean;
   setAvatarsDialogOpen: (open: boolean) => void;
@@ -727,20 +763,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importDialogTab, setImportDialogTab] = useState<"cookie" | "userpass" | "legacy">("cookie");
   const [themeEditorOpen, setThemeEditorOpen] = useState(false);
-  const [bottingDialogOpen, setBottingDialogOpen] = useState(false);
-  const [bottingDialogPlaceId, setBottingDialogPlaceId] = useState<string | null>(null);
+  const [afkModeDialog, setAfkModeDialog] = useState<AfkModeDialogState | null>(null);
+  const openAfkMode = useCallback((opts?: Partial<AfkModeDialogState>) => {
+    setAfkModeDialog({ ...opts, tab: opts?.tab ?? "rejoin" });
+  }, []);
+  const closeAfkMode = useCallback(() => setAfkModeDialog(null), []);
   /**
    * Abrir sem jogo **limpa** o jogo da abertura anterior: senão o place escolhido
-   * num clique direito continuaria carimbando o diálogo aberto pela barra.
+   * num clique direito continuaria carimbando a tela aberta pela barra.
    */
   const openBottingDialog = useCallback((placeId?: string) => {
-    setBottingDialogPlaceId(placeId?.trim() ? placeId.trim() : null);
-    setBottingDialogOpen(true);
+    setAfkModeDialog({ tab: "rejoin", placeId: placeId?.trim() ? placeId.trim() : null });
+  }, []);
+  const setAfkDialogOpen = useCallback((open: boolean) => {
+    setAfkModeDialog(open ? { tab: "clicks" } : null);
   }, []);
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
   const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
   const [afkKeys, setAfkKeys] = useState<string[]>([]);
-  const [afkDialogOpen, setAfkDialogOpen] = useState(false);
   const [avatarsDialogOpen, setAvatarsDialogOpen] = useState(false);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
@@ -1739,7 +1779,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * Start **fecha e relança** todo mundo, tirando as contas do servidor em que
    * já estavam. Aqui nada é fechado.
    */
-  async function adoptRunningIntoBotting(userIds: number[]) {
+  async function detectRunningGamePlace(userIds: number[]): Promise<number | null> {
+    for (const id of [...new Set(userIds)].filter((it) => it > 0)) {
+      try {
+        const found = await invoke<AccountGameLocation>("get_account_game_location", {
+          userId: id,
+        });
+        if (found?.inGame && found.placeId) return found.placeId;
+      } catch {
+        // Presença indisponível para esta conta; tenta a próxima.
+      }
+    }
+    return null;
+  }
+
+  async function adoptRunningIntoBotting(userIds: number[], options: AdoptBottingOptions = {}) {
     const ids = [...new Set(userIds)].filter((id) => id > 0);
     if (ids.length === 0) return;
 
@@ -1757,24 +1811,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       throw new Error(message);
     }
 
-    // O place vem de onde a conta ESTÁ, não do campo da tela: com o place
-    // errado, o primeiro reinício do ciclo a jogaria em outro jogo.
-    let location: AccountGameLocation | null = null;
-    for (const id of ids) {
-      try {
-        const found = await invoke<AccountGameLocation>("get_account_game_location", {
-          userId: id,
-        });
-        if (found?.inGame && found.placeId) {
-          location = found;
-          break;
-        }
-      } catch {
-        // Presença indisponível para esta conta; tenta a próxima.
-      }
-    }
+    // O place vem de onde a conta ESTÁ, não do campo da tela principal: com o
+    // place errado, o primeiro reinício do ciclo a jogaria em outro jogo. Quem
+    // passa `placeId` é a tela do Modo AFK, que mostrou esse place (detectado
+    // pela mesma presença, ou digitado) antes do Start.
+    const placeId =
+      options.placeId && options.placeId > 0 ? options.placeId : await detectRunningGamePlace(ids);
 
-    if (!location?.placeId) {
+    if (!placeId) {
       const message = tr(
         "Could not tell which game these accounts are in. Open the Auto Rejoin dialog and set the Place ID."
       );
@@ -1785,16 +1829,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const general = settings?.General || {};
     await startBottingMode({
       userIds: ids,
-      placeId: location.placeId,
+      placeId,
       // O job fica de fora de propósito: o ciclo relança no place, e fixar o
       // servidor atual mandaria todo reinício para um servidor que pode não
       // existir mais.
       jobId: "",
       launchData: "",
-      playerUserIds: [],
-      intervalMinutes: parseInt(general.BottingDefaultIntervalMinutes || "19", 10) || 19,
-      launchDelaySeconds: parseInt(general.BottingLaunchDelaySeconds || "20", 10) || 20,
-      playerGraceMinutes: parseInt(general.BottingPlayerGraceMinutes || "15", 10) || 15,
+      playerUserIds: (options.playerUserIds ?? []).filter((id) => ids.includes(id)),
+      intervalMinutes:
+        options.intervalMinutes ??
+        (parseInt(general.BottingDefaultIntervalMinutes || "19", 10) || 19),
+      launchDelaySeconds:
+        options.launchDelaySeconds ??
+        (parseInt(general.BottingLaunchDelaySeconds || "20", 10) || 20),
+      playerGraceMinutes:
+        options.playerGraceMinutes ??
+        (parseInt(general.BottingPlayerGraceMinutes || "15", 10) || 15),
       adoptRunning: true,
     });
   }
@@ -3059,6 +3109,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     stopLaunchQueue,
     startBottingMode,
     adoptRunningIntoBotting,
+    detectRunningGamePlace,
     stopBottingMode,
     addBottingAccounts,
     setBottingPlayerAccounts,
@@ -3072,7 +3123,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     captureAfkPoint,
     afkStatus,
     afkKeys,
-    afkDialogOpen,
     setAfkDialogOpen,
     avatarsDialogOpen,
     setAvatarsDialogOpen,
@@ -3135,9 +3185,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setImportDialogTab,
     themeEditorOpen,
     setThemeEditorOpen,
-    bottingDialogOpen,
-    setBottingDialogOpen,
-    bottingDialogPlaceId,
+    afkModeDialog,
+    openAfkMode,
+    closeAfkMode,
     openBottingDialog,
     bottingStatus,
     generatorDialogOpen,

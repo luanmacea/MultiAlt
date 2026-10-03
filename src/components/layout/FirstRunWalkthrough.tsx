@@ -241,7 +241,7 @@ export function FirstRunWalkthrough() {
     store.setAccountFieldsOpen(false);
     store.setAccountUtilsOpen(false);
     store.setThemeEditorOpen(false);
-    store.setBottingDialogOpen(false);
+    store.closeAfkMode();
     // Fecha também o painel que o passo anterior pode ter aberto.
     store.setSessionDialogOpen(false);
     store.setNexusOpen(false);
@@ -255,7 +255,7 @@ export function FirstRunWalkthrough() {
     store.closeModal,
     store.setAccountFieldsOpen,
     store.setAccountUtilsOpen,
-    store.setBottingDialogOpen,
+    store.closeAfkMode,
     store.setImportDialogOpen,
     store.setMissingAssets,
     store.setNexusOpen,

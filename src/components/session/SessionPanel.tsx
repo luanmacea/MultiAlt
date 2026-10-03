@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Crosshair, Gamepad2, ListX, PowerOff, Repeat, SquareStop, UserPlus, X } from "lucide-react";
+import { Coffee, Crosshair, Gamepad2, ListX, PowerOff, SquareStop, UserPlus, X } from "lucide-react";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
@@ -181,26 +181,28 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   }
 
   /**
-   * Liga o Auto Rejoin nas contas em jogo **sem fechar nada**.
+   * Abre o Modo AFK com as contas em jogo (as marcadas, ou todas). Não liga
+   * nada: o Start de lá é que adota as contas no Auto Rejoin **sem fechar
+   * nenhum cliente** — e antes dele a pessoa vê e ajusta o tempo do ciclo e as
+   * contas main. Ligar direto daqui escondia onde configurar e onde parar.
    *
-   * Sem marcação vale para todas as que estão rodando: é o gesto que o usuário
-   * espera depois de lançar um lote e ver que quer manter o ciclo.
+   * Abre no Auto Rejoin, a não ser que só os cliques AFK estejam ligados.
    */
-  async function handleAdoptBotting() {
+  function handleOpenAfkMode() {
     const alvo = selected.length > 0 ? selected : runningIds;
     if (alvo.length === 0) return;
-    setError(null);
-    setBusy(true);
-    try {
-      await store.adoptRunningIntoBotting(alvo);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
+    const onlyClicksActive = !!store.afkStatus?.active && !store.bottingStatus?.active;
+    store.openAfkMode({
+      tab: onlyClicksActive ? "clicks" : "rejoin",
+      targetUserIds: alvo,
+      adoptRunning: true,
+    });
   }
 
-  /** Uma confirmação só para o lote inteiro; fechar uma conta é imediato. */
+  /**
+   * Uma confirmação só para o lote inteiro; fechar uma conta é imediato. Fecha
+   * só as contas da lista (`closeRobloxClients`), nunca cliente de fora dela.
+   */
   async function handleClose(userIds: number[]) {
     if (userIds.length === 0) return;
     setError(null);
@@ -372,29 +374,34 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {runningIds.length > 0 && (
-              <button
-                onClick={() => void handleAdoptBotting()}
-                disabled={busy}
-                title={t(
-                  "Keeps these accounts in the cycle without closing the clients that are already open."
-                )}
-                className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Repeat size={13} strokeWidth={1.5} />
-                {selected.length > 0
-                  ? t("Auto Rejoin ({{count}})", { count: selected.length })
-                  : t("Auto Rejoin")}
-              </button>
-            )}
-            {selected.length > 0 && (
-              <button
-                onClick={() => void handleClose(selected)}
-                disabled={busy}
-                className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <PowerOff size={13} strokeWidth={1.5} />
-                {t("Close selected ({{count}})", { count: selected.length })}
-              </button>
+              <>
+                <button
+                  onClick={handleOpenAfkMode}
+                  title={t(
+                    "Opens AFK Mode with these accounts: Auto Rejoin keeps them in the cycle without closing the clients that are already open."
+                  )}
+                  className="sidebar-btn-sm flex items-center gap-1.5 shrink-0"
+                >
+                  <Coffee size={13} strokeWidth={1.5} />
+                  {t("AFK Mode")}
+                </button>
+                {/* Sem marcação vale para todas as da lista; mais de uma pergunta. */}
+                <button
+                  onClick={() => void handleClose(selected.length > 0 ? selected : runningIds)}
+                  disabled={busy}
+                  title={
+                    selected.length > 0
+                      ? undefined
+                      : t("Closes the Roblox client of every account in this list")
+                  }
+                  className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <PowerOff size={13} strokeWidth={1.5} />
+                  {selected.length > 0
+                    ? t("Close accounts ({{count}})", { count: selected.length })
+                    : t("Close accounts")}
+                </button>
+              </>
             )}
           </div>
         </header>
