@@ -264,6 +264,16 @@ function OptimizationProfileSection({
         label="Start Roblox Minimized"
         description="Launches Roblox and minimizes the client window right after startup"
       />
+      {isWindows ? (
+        // Uma chave só para todos os perfis (launch e Auto Rejoin): a grade é
+        // uma só. Ligada por padrão — só o "false" gravado a desliga.
+        <Toggle
+          checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
+          label="Arrange in grid on launch"
+          description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
+        />
+      ) : null}
 
       {isWindows ? (
         <>

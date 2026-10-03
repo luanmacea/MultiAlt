@@ -81,6 +81,11 @@ impl SettingsStore {
             ("ClientWindowWidth", "1280", None),
             ("ClientWindowHeight", "720", None),
             ("StartRobloxMinimized", "false", None),
+            (
+                "AutoArrangeGrid",
+                "true",
+                Some("New Roblox windows take the first free cell of the window grid (GridMonitors, GridGap)"),
+            ),
             ("StartOnPCStartup", "false", None),
             ("MinimizeToTray", "false", None),
             ("ThemeWindowsNavbar", "true", None),

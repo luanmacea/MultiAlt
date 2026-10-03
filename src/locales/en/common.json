@@ -865,6 +865,8 @@
   "Applied {{action}} to {{count}} accounts": "Applied {{action}} to {{count}} accounts",
   "Applied {{action}}: {{success}} succeeded, {{failed}} failed": "Applied {{action}}: {{success}} succeeded, {{failed}} failed",
   "Arrange in grid": "Arrange in grid",
+  "Arrange in grid on launch": "Arrange in grid on launch",
+  "Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it.": "Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it.",
   "Arranging...": "Arranging...",
   "Auto start when app launches": "Auto start when app launches",
   "Auto-share launch fields with Sidebar": "Auto-share launch fields with Sidebar",
