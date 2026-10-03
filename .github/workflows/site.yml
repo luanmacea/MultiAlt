@@ -4,12 +4,14 @@ name: Site
 # `gh-pages`, de onde o GitHub Pages serve o site de graça em
 # https://luanmacea.github.io/roblox-account-manager/.
 #
-# Roda a cada push em `develop` que mexe no site — o site não espera release.
+# Roda a cada push em `main` que mexe no site — o site acompanha o que está
+# publicado, não o trabalho em andamento na `develop` (desde 03/10/2026). Não
+# espera release: mudança só em `site/` não dispara o release-v4.yml.
 # A `gh-pages` é gerada: não edite nada nela à mão.
 on:
   push:
     branches:
-      - develop
+      - main
     paths:
       - "site/**"
       - ".github/workflows/site.yml"
