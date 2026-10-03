@@ -419,12 +419,18 @@ async fn launch_account_for_cycle(
         return Err("Roblox authentication failed (429) while joining".into());
     }
 
+    let auto_arrange_grid = auto_arrange_grid_enabled(&app.state::<SettingsStore>());
     spawn_client_window_enforcement(
+        app,
         pid,
         client_window_plan(ClientWindowInputs {
             fullscreen: resolved_window.fullscreen,
             window_size: resolved_window.window_size,
+            keeps_own_window: account_overrides
+                .as_ref()
+                .is_some_and(|o| o.keeps_own_window()),
             start_minimized,
+            auto_arrange_grid,
             saved_rect: None,
         }),
     );
