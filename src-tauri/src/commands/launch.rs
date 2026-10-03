@@ -1051,11 +1051,16 @@ async fn launch_roblox_windows(
             .find(|a| a.user_id == user_id)
             .and_then(|a| window_rect_from_fields(&a.fields));
         spawn_client_window_enforcement(
+            &app,
             pid,
             client_window_plan(ClientWindowInputs {
                 fullscreen: resolved_window.fullscreen,
                 window_size: resolved_window.window_size,
+                keeps_own_window: account_overrides
+                    .as_ref()
+                    .is_some_and(|o| o.keeps_own_window()),
                 start_minimized,
+                auto_arrange_grid: auto_arrange_grid_enabled(&settings),
                 saved_rect,
             }),
         );
@@ -1639,11 +1644,17 @@ async fn launch_multiple(
             )
             .await;
             spawn_client_window_enforcement(
+                &app,
                 pid,
                 client_window_plan(ClientWindowInputs {
                     fullscreen: acct_window.fullscreen,
                     window_size: acct_window.window_size,
+                    keeps_own_window: acct_overrides
+                        .as_ref()
+                        .is_some_and(|o| o.keeps_own_window()),
                     start_minimized: acct_start_minimized,
+                    // Lido a cada conta: desligar no meio da fila já vale.
+                    auto_arrange_grid: auto_arrange_grid_enabled(&settings),
                     saved_rect: None,
                 }),
             );
@@ -2053,18 +2064,28 @@ fn list_display_monitors() -> Result<serde_json::Value, String> {
     }
 }
 
-/// Arrange every open Roblox window into a grid across the selected monitors
-/// (1-based indices; empty = all monitors).
+/// Arrange the open Roblox windows into the grid across the selected monitors
+/// (1-based indices; empty = all monitors) — the same slots the automatic grid
+/// uses. Accounts with their own window size (launch exception) are left
+/// alone, and the cell is the global window size when it is on.
 #[tauri::command]
-fn arrange_windows_grid(monitor_indices: Vec<usize>, gap: i32) -> Result<GridArrangeResult, String> {
+fn arrange_windows_grid(
+    state: tauri::State<'_, AccountStore>,
+    settings: tauri::State<'_, SettingsStore>,
+    monitor_indices: Vec<usize>,
+    gap: i32,
+) -> Result<GridArrangeResult, String> {
     #[cfg(target_os = "windows")]
     {
-        let (arranged, total) = platform::windows::arrange_roblox_grid(&monitor_indices, gap)?;
+        let size = global_window_size(&settings, LaunchClientProfile::Normal);
+        let excluded = grid_excluded_pids(state.inner());
+        let (arranged, total) =
+            platform::windows::arrange_roblox_grid(&monitor_indices, gap, size, &excluded)?;
         return Ok(GridArrangeResult { arranged, total });
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (monitor_indices, gap);
+        let _ = (state, settings, monitor_indices, gap);
         Err("Grid de janelas só é suportado no Windows.".to_string())
     }
 }

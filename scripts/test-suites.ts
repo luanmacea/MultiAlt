@@ -307,6 +307,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "diagnostics_tests",
       "win_windowing_tests",
+      "win_grid_slot_tests",
       "win_optimization_tests",
       "generator_command_tests",
       "generator_http_tests",

@@ -199,6 +199,7 @@ Arquivo `RAMSettings.ini`.
 | General | `AutoCloseRobloxForMultiRbx` | `false` | Mata clientes abertos se o mutex não puder ser adquirido |
 | General | `AutoCloseLastProcess` | `false` | Fecha o cliente anterior da mesma conta antes de relançar |
 | General | `StartRobloxMinimized` | `false` | Minimiza janelas novas por até 14 s após o launch |
+| General | `AutoArrangeGrid` | `true` | Põe a janela nova na primeira célula livre da grade ([ui-layout.md](ui-layout.md#grade-de-janelas)) |
 | General | `UnlockFPS`/`MaxFPSValue`, `OverrideClientVolume`/`ClientVolume`, `OverrideClientGraphics`/`ClientGraphicsLevel`, `OverrideClientWindowSize`/`ClientWindowWidth`/`ClientWindowHeight`, `CustomClientSettings` | ver store | Aplicados em `ClientAppSettings.json` antes do launch (arquivo custom tem precedência e desativa o FPS/fast flags) |
 | Developer | `UseOldJoin` | `false` | Força `RobloxPlayerBeta.exe --app -t -j` |
 | Developer | `IsTeleport` | `false` | Adiciona `isTeleport=true` na URL do PlaceLauncher |
@@ -246,6 +247,8 @@ O registro não resolve tudo: um cliente aberto reescreve o XML por conta própr
 **Área cliente ou janela inteira?** O Roblox não documenta o que o `StartScreenSize` mede. Não é chutado: na primeira olhada em cada janela, o tamanho dela ainda é o que o XML deu — se a área cliente bate com o pedido, o sentido é área cliente; se o retângulo inteiro bate, é janela inteira. O aprendido vale para as janelas seguintes (inclusive as que nasceram com o tamanho de outra conta, que não ensinam nada). Antes de aprender, o padrão é área cliente. A borda é medida na própria janela (`GetWindowRect` − `GetClientRect`), então DPI e estilo entram sozinhos. Testes: `win_client_window_tests`. **Não verificado com cliente real** — se o Roblox aplicar escala de DPI ao `StartScreenSize`, nenhum dos dois bate e fica o padrão.
 
 A restauração da posição salva pelo Watcher (`Window_Position_*`, launch de uma conta) passou para a mesma task: a posição vem do salvo e o tamanho do plano (ou o salvo, se não houver tamanho). Conta que começa minimizada não é mais movida.
+
+**Grade automática** (`General.AutoArrangeGrid`, ligada por padrão): a mesma task põe a janela na primeira célula livre da grade da aba Windows, com o tamanho imposto acima como tamanho da célula — ver [ui-layout.md](ui-layout.md#grade-de-janelas). Conta com janela própria (exceção com tamanho ou tela cheia) fica fora da grade e mantém tamanho e posição (inclusive a salva pelo Watcher); para as outras, a grade vence a posição salva. Depois de posta, a janela é devolvida à mesma célula nas duas conferências seguintes (a célula não é escolhida de novo).
 
 ## Onde o `ClientAppSettings.json` é gravado
 

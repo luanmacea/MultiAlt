@@ -17,6 +17,7 @@ import type { LaunchLogLevel, LaunchTarget } from "../store";
 import { TONE_STYLES, type ToneStyle } from "../utils/toastTone";
 import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
+import { Toggle } from "./ui/Toggle";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
 
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
@@ -446,6 +447,20 @@ function GridControls() {
   // Raw text while typing so the field can be cleared; clamped/saved on blur.
   const [gapText, setGapText] = useState<string>(() => String(gap));
   const [busy, setBusy] = useState(false);
+  // Grade automática no launch (`General.AutoArrangeGrid`): ligada por padrão,
+  // então só o "false" gravado a desliga.
+  const [autoArrange, setAutoArrange] = useState<boolean>(
+    () => store.settings?.General?.AutoArrangeGrid !== "false"
+  );
+
+  function toggleAutoArrange(next: boolean) {
+    setAutoArrange(next);
+    invoke("update_setting", {
+      section: "General",
+      key: "AutoArrangeGrid",
+      value: String(next),
+    }).catch(() => {});
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -598,6 +613,15 @@ function GridControls() {
           />
           <span className="text-[11px] theme-muted">px</span>
         </div>
+      </div>
+
+      <div className="mt-2">
+        <Toggle
+          checked={autoArrange}
+          onChange={toggleAutoArrange}
+          label="Arrange in grid on launch"
+          description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
+        />
       </div>
     </div>
   );

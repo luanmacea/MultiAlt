@@ -865,6 +865,8 @@
   "Applied {{action}} to {{count}} accounts": "{{action}} aplicado a {{count}} contas",
   "Applied {{action}}: {{success}} succeeded, {{failed}} failed": "{{action}} aplicado: {{success}} deram certo, {{failed}} falharam",
   "Arrange in grid": "Organizar em grade",
+  "Arrange in grid on launch": "Organizar em grade ao abrir",
+  "Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it.": "Cada janela nova do Roblox ocupa a primeira célula livre da grade (Escolher jogo > Janelas). Contas com tamanho de janela próprio ficam com o delas.",
   "Arranging...": "Organizando...",
   "Auto start when app launches": "Iniciar sozinho quando o app abrir",
   "Auto-share launch fields with Sidebar": "Compartilhar os campos de lançamento com a barra lateral",
