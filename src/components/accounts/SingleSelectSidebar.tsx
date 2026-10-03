@@ -143,8 +143,10 @@ export function SingleSelectSidebar() {
               value={alias}
               onChange={(e) => setAlias(e.target.value)}
               maxLength={MAX_ALIAS_LENGTH}
-              placeholder={account.Username}
-              className="sidebar-input flex-1"
+              // Com os nomes ocultos, nem o exemplo (o nome de usuário) nem o
+              // apelido digitado aparecem: o campo vira bolinhas, como senha.
+              placeholder={store.hideUsernames ? t("Alias") : account.Username}
+              className={`sidebar-input flex-1${store.hideUsernames ? " masked-input" : ""}`}
               onKeyDown={(e) => e.key === "Enter" && handleSetAlias()}
             />
             <button onClick={handleSetAlias} className="sidebar-btn-sm">
