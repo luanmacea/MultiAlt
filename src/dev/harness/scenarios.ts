@@ -82,6 +82,8 @@ const baseHandler: InvokeHandler = (cmd, args) => {
       return { entries: [], active: false, placeId: 0, jobId: "" };
     case "get_running_instances":
       return [];
+    case "get_unidentified_clients":
+      return [];
     case "batched_get_avatar_headshots":
       return [];
     case "update_setting": {
@@ -1388,6 +1390,62 @@ const SCENARIOS: Record<string, () => void> = {
         return [{ userId: accounts[0].UserID, pid: 4242, placeId: 606849621, jobId: "job-1" }];
       }
       return baseHandler(cmd, args);
+    });
+  },
+
+  /**
+   * Clientes abertos pelo site (Painel de Sessão → Em jogo). A 1ª conta foi
+   * lançada pelo app; a 2ª foi aberta pelo site e reconhecida pelo log do
+   * Roblox (`adopted`). O PID 9100 ainda não entrou num jogo, então o backend
+   * não sabe de quem é: ele aparece como "não identificado", com Mostrar
+   * janela e Identificar. Identificar move o PID para a conta escolhida, como o
+   * `identify_external_client` faz (se a conta já tinha cliente, o antigo vira
+   * não identificado).
+   */
+  "external-clients"() {
+    const running = new Map<number, { pid: number; adopted: boolean }>([
+      [accounts[0].UserID, { pid: 8120, adopted: false }],
+    ]);
+    if (accounts[1]) running.set(accounts[1].UserID, { pid: 8124, adopted: true });
+    let unidentified: { pid: number; reason: string; userId: number | null }[] = [
+      { pid: 9100, reason: "waitingForGame", userId: null },
+    ];
+    setInvokeHandler((cmd, args) => {
+      switch (cmd) {
+        case "get_running_instances":
+          return [...running].map(([userId, row]) => ({
+            pid: row.pid,
+            user_id: userId,
+            browser_tracker_id: `${userId}0001`,
+            adopted: row.adopted,
+          }));
+        case "get_unidentified_clients":
+          return unidentified.map((c) => ({
+            ...c,
+            placeId: null,
+            jobId: null,
+            startedAtMs: Date.now() - 120_000,
+          }));
+        case "focus_client_window":
+          return unidentified.some((c) => c.pid === Number(args?.pid));
+        case "identify_external_client": {
+          const pid = Number(args?.pid);
+          const userId = Number(args?.userId);
+          if (!unidentified.some((c) => c.pid === pid)) {
+            return Promise.reject("That Roblox client is no longer running.");
+          }
+          if (!accounts.some((a) => a.UserID === userId)) {
+            return Promise.reject("That account is not in your account list.");
+          }
+          unidentified = unidentified.filter((c) => c.pid !== pid);
+          const previous = running.get(userId);
+          if (previous) unidentified.push({ pid: previous.pid, reason: "accountBusy", userId });
+          running.set(userId, { pid, adopted: true });
+          return true;
+        }
+        default:
+          return baseHandler(cmd, args);
+      }
     });
   },
 

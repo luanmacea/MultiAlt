@@ -7,6 +7,10 @@ pub struct TrackedProcess {
     pub browser_tracker_id: String,
     #[serde(default)]
     pub version_id: Option<String>,
+    /// Cliente aberto fora do app (pelo site) e reconhecido pelo log do
+    /// Roblox ou identificado à mão — ver `external_clients.rs`.
+    #[serde(default)]
+    pub adopted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -87,16 +91,31 @@ impl ProcessTracker {
         browser_tracker_id: String,
         version_id: Option<String>,
     ) {
+        self.insert_tracked(TrackedProcess {
+            pid,
+            user_id,
+            browser_tracker_id,
+            version_id,
+            adopted: false,
+        });
+    }
+
+    /// Registra um cliente que o app não lançou (aberto pelo site). Daí em
+    /// diante ele é igual a qualquer outro: Sessão, cliques AFK e Auto Rejoin
+    /// o enxergam pelo mesmo `get_pid`.
+    pub fn track_adopted(&self, user_id: i64, pid: u32, browser_tracker_id: String) {
+        self.insert_tracked(TrackedProcess {
+            pid,
+            user_id,
+            browser_tracker_id,
+            version_id: None,
+            adopted: true,
+        });
+    }
+
+    fn insert_tracked(&self, process: TrackedProcess) {
         if let Ok(mut instances) = self.instances.lock() {
-            if let Some(previous) = instances.insert(
-                user_id,
-                TrackedProcess {
-                    pid,
-                    user_id,
-                    browser_tracker_id,
-                    version_id,
-                },
-            ) {
+            if let Some(previous) = instances.insert(process.user_id, process) {
                 self.clear_job_handle_for_pid(previous.pid);
             }
         }
@@ -434,6 +453,24 @@ mod win_tracker_tests {
         assert_eq!(json["user_id"], 11);
         assert_eq!(json["browser_tracker_id"], "bt");
         assert_eq!(json["version_id"], "LIVE:v1");
+    }
+
+    #[test]
+    fn a_client_adopted_from_outside_is_tracked_and_marked() {
+        let tracker = tracker_for_test();
+        tracker.track(11, FAKE_PID_A, "a".into());
+        tracker.track_adopted(22, FAKE_PID_B, "b".into());
+
+        assert_eq!(tracker.get_pid(22), Some(FAKE_PID_B));
+        let mut all = tracker.get_all();
+        all.sort_by_key(|p| p.user_id);
+        assert!(!all[0].adopted, "a client the app launched is not adopted");
+        assert!(all[1].adopted);
+        assert_eq!(all[1].version_id, None);
+
+        // Um launch do app depois troca o registro e tira a marca.
+        tracker.track(22, FAKE_PID_A, "b".into());
+        assert!(!tracker.get_all().iter().any(|p| p.adopted));
     }
 
     // ── pending launches ───────────────────────────────────────────────────

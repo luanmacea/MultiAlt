@@ -151,6 +151,8 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "Intel(R) Wi-Fi 6 AX201",
   "Realtek PCIe GbE Family Controller",
   "ws://localhost:{{port}}/Nexus",
+  // Identificador do processo do Windows, igual em qualquer idioma.
+  "PID {{pid}}",
 ]);
 
 /** Mesma regra para o espanhol: marcas, fontes, jargão e exemplos de formato. */
@@ -259,6 +261,8 @@ const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   "Intel(R) Wi-Fi 6 AX201",
   "Realtek PCIe GbE Family Controller",
   "ws://localhost:{{port}}/Nexus",
+  // Identificador do processo do Windows, igual em qualquer idioma.
+  "PID {{pid}}",
   "Auto Rejoin ({{count}})",
   "Roblox Account Manager",
 ]);

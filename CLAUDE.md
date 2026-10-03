@@ -166,6 +166,7 @@ src-tauri/src/                - Backend Rust
     account_api.rs            - Comandos de API por conta (leitura: read_without_refresh; ação: run_with_session_retry)
     account_helpers.rs        - get_cookie e helpers de conta
     backups.rs                - Backups dos dados (criar, listar, restaurar, apagar)
+    external_clients.rs       - Clientes abertos pelo site: varredura do log do Roblox que os adota no tracker, identificação manual (ver docs/features/external-clients.md)
     image_cache.rs            - Avatares e ícones em lote (cache)
     platform_info.rs          - get_platform_capabilities
     services.rs               - Liga/desliga web server e Nexus (com stub sem a feature); exporta o Nexus.lua embutido (`export_nexus_lua`)

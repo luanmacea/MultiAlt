@@ -17,6 +17,8 @@ import type {
   LaunchQueueEntry,
   LaunchQueuePayload,
   LaunchQueueState,
+  UnidentifiedClient,
+  UnidentifiedReason,
 } from "../../types";
 import type { StoreValue } from "../../store";
 
@@ -49,6 +51,13 @@ function storeActions(): Partial<StoreValue> {
     focusRobloxClient: vi.fn(
       async (userId: number) => (await invokeMock("focus_roblox_window", { userId })) as boolean
     ),
+    identifyExternalClient: vi.fn(
+      async (pid: number, userId: number) =>
+        (await invokeMock("identify_external_client", { pid, userId })) as boolean
+    ),
+    focusClientWindow: vi.fn(
+      async (pid: number) => (await invokeMock("focus_client_window", { pid })) as boolean
+    ),
     closeRobloxClients: vi.fn(async (userIds: number[]) => {
       let closed = 0;
       for (const userId of userIds) {
@@ -80,8 +89,18 @@ beforeEach(() => {
     stop_launch_queue: 3,
     focus_roblox_window: true,
     cmd_kill_roblox: true,
+    identify_external_client: true,
+    focus_client_window: true,
   });
 });
+
+function unidentified(
+  pid: number,
+  reason: UnidentifiedReason,
+  userId: number | null = null
+): UnidentifiedClient {
+  return { pid, reason, userId, placeId: null, jobId: null, startedAtMs: 1_700_000_000_000 };
+}
 
 afterEach(cleanup);
 
@@ -540,5 +559,128 @@ describe("SessionPanel — Make Friends", () => {
       hiddenNameLetters: 2,
     });
     expect(within(screen.getByTestId("friend-link-2")).getByText("Br********")).toBeInTheDocument();
+  });
+});
+
+describe("SessionPanel — clientes abertos fora do app", () => {
+  it("marks a running client that was opened from the website", () => {
+    renderPanel({
+      launchedByProgram: new Set([1, 3]),
+      adoptedClients: new Set([3]),
+    });
+    expect(within(screen.getByTestId("session-running-3")).getByText("Opened outside the app")).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-running-1")).queryByText("Opened outside the app")).not.toBeInTheDocument();
+  });
+
+  it("lists unidentified clients apart from the running accounts, with why", () => {
+    renderPanel({
+      launchedByProgram: new Set([1]),
+      unidentifiedClients: [
+        unidentified(4100, "waitingForGame"),
+        unidentified(4200, "noLog"),
+        unidentified(4300, "unknownAccount", 999),
+        unidentified(4400, "accountBusy", 1),
+      ],
+    });
+
+    const waiting = screen.getByTestId("session-unidentified-4100");
+    expect(within(waiting).getByText("Unidentified client")).toBeInTheDocument();
+    expect(within(waiting).getByText(/PID 4100/)).toBeInTheDocument();
+    expect(within(waiting).getByText(/hasn't joined a game yet/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-unidentified-4200")).getByText(/No Roblox log matched/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-unidentified-4300")).getByText(/not in your list/)).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-unidentified-4400")).getByText(/alpha already has a client open/)).toBeInTheDocument();
+
+    // Não entram na contagem nem no lote de fechar: só as contas.
+    expect(screen.getByText("1 running")).toBeInTheDocument();
+    expect(screen.getByText("4 unidentified")).toBeInTheDocument();
+    // Cliente não identificado nunca ganha botão de fechar.
+    expect(within(waiting).queryByRole("button", { name: /Close/ })).not.toBeInTheDocument();
+  });
+
+  it("does not show the empty state when only unidentified clients are open", () => {
+    renderPanel({ unidentifiedClients: [unidentified(4100, "noLog")] });
+    expect(
+      screen.queryByText("No Roblox client is running. Accounts you launch show up here.")
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-unidentified-4100")).toBeInTheDocument();
+  });
+
+  it("Show window focuses the client by its pid", async () => {
+    const user = userEvent.setup();
+    renderPanel({ unidentifiedClients: [unidentified(4100, "noLog")] });
+
+    await user.click(
+      within(screen.getByTestId("session-unidentified-4100")).getByRole("button", { name: /Show window/ })
+    );
+    expect(callsFor("focus_client_window")).toEqual([["focus_client_window", { pid: 4100 }]]);
+  });
+
+  it("explains when the window could not be shown", async () => {
+    const user = userEvent.setup();
+    setInvokeMap({ focus_client_window: false });
+    renderPanel({ unidentifiedClients: [unidentified(4100, "noLog")] });
+
+    await user.click(screen.getByRole("button", { name: /Show window/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not bring that Roblox window to the front."
+    );
+  });
+
+  it("Identify assigns the picked account to that pid, marking accounts already in game", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      launchedByProgram: new Set([1]),
+      unidentifiedClients: [unidentified(4100, "waitingForGame")],
+    });
+    const row = screen.getByTestId("session-unidentified-4100");
+
+    await user.click(within(row).getByRole("button", { name: /Identify/ }));
+    const picker = within(row).getByRole("combobox", { name: "Account for this client" });
+    expect(within(picker).getByRole("option", { name: "alpha (already in game)" })).toBeInTheDocument();
+    expect(within(picker).getByRole("option", { name: "Bravo Alt" })).toBeInTheDocument();
+
+    // Sem escolher, confirmar não faz nada.
+    expect(within(row).getByRole("button", { name: /Confirm/ })).toBeDisabled();
+    await user.selectOptions(picker, "2");
+    await user.click(within(row).getByRole("button", { name: /Confirm/ }));
+
+    expect(callsFor("identify_external_client")).toEqual([
+      ["identify_external_client", { pid: 4100, userId: 2 }],
+    ]);
+  });
+
+  it("starts the picker on the account the log named", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      launchedByProgram: new Set([1]),
+      unidentifiedClients: [unidentified(4400, "accountBusy", 1)],
+    });
+    await user.click(screen.getByRole("button", { name: /Identify/ }));
+    expect(screen.getByRole("combobox", { name: "Account for this client" })).toHaveValue("1");
+  });
+
+  it("surfaces the backend refusal when identifying fails", async () => {
+    const user = userEvent.setup();
+    setInvokeMap({ identify_external_client: () => Promise.reject("That Roblox client is no longer running.") });
+    renderPanel({ unidentifiedClients: [unidentified(4100, "noLog")] });
+
+    await user.click(screen.getByRole("button", { name: /Identify/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Account for this client" }), "3");
+    await user.click(screen.getByRole("button", { name: /Confirm/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("That Roblox client is no longer running.");
+  });
+
+  it("masks account names in the picker when names are hidden", async () => {
+    const user = userEvent.setup();
+    renderPanel({
+      unidentifiedClients: [unidentified(4100, "noLog")],
+      hideUsernames: true,
+      hiddenNameLetters: 2,
+    });
+    await user.click(screen.getByRole("button", { name: /Identify/ }));
+    const picker = screen.getByRole("combobox", { name: "Account for this client" });
+    expect(within(picker).queryByRole("option", { name: "Bravo Alt" })).not.toBeInTheDocument();
+    expect(within(picker).getByRole("option", { name: "Br********" })).toBeInTheDocument();
   });
 });

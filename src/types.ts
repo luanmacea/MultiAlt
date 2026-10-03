@@ -359,6 +359,27 @@ export interface LaunchQueueEntry {
   updatedAtMs: number;
 }
 
+/**
+ * Cliente do Roblox aberto fora do app (pelo site) que o backend não conseguiu
+ * reconhecer pelo log do Roblox (`get_unidentified_clients`). Os reconhecidos
+ * já entram direto em `launchedByProgram`. Ver docs/features/external-clients.md.
+ *
+ * - `noLog`: nenhum log casou com o processo;
+ * - `waitingForGame`: log achado, mas o cliente ainda não entrou num jogo;
+ * - `unknownAccount`: a conta do log (`userId`) não está entre as salvas;
+ * - `accountBusy`: a conta do log já tem outro cliente aberto pelo app.
+ */
+export type UnidentifiedReason = "noLog" | "waitingForGame" | "unknownAccount" | "accountBusy";
+
+export interface UnidentifiedClient {
+  pid: number;
+  reason: UnidentifiedReason;
+  userId: number | null;
+  placeId: number | null;
+  jobId: string | null;
+  startedAtMs: number | null;
+}
+
 export interface LaunchQueuePayload {
   entries: LaunchQueueEntry[];
   /** `true` enquanto a fila está processando contas. */

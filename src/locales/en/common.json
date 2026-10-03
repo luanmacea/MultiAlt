@@ -1865,5 +1865,20 @@
   "Summary": "Summary",
   "The Session panel opens from Session, in the sidebar": "The Session panel opens from Session, in the sidebar",
   "Turn on presence in Settings › General to count accounts in game.": "Turn on presence in Settings › General to count accounts in game.",
-  "Use Add above the account list for Quick Add, Browser Login, and imports": "Use Add above the account list for Quick Add, Browser Login, and imports"
+  "Use Add above the account list for Quick Add, Browser Login, and imports": "Use Add above the account list for Quick Add, Browser Login, and imports",
+  "{{count}} unidentified": "{{count}} unidentified",
+  "{{name}} (already in game)": "{{name}} (already in game)",
+  "{{name}} already has a client open": "{{name}} already has a client open",
+  "Account for this client": "Account for this client",
+  "Identify": "Identify",
+  "It hasn't joined a game yet, so the account is still unknown": "It hasn't joined a game yet, so the account is still unknown",
+  "Its account is not in your list": "Its account is not in your list",
+  "No Roblox log matched this client": "No Roblox log matched this client",
+  "Opened from the Roblox website and recognized by the Roblox log": "Opened from the Roblox website and recognized by the Roblox log",
+  "Opened outside the app": "Opened outside the app",
+  "Pick an account": "Pick an account",
+  "PID {{pid}}": "PID {{pid}}",
+  "Show window": "Show window",
+  "Tell the app which account is playing in this client": "Tell the app which account is playing in this client",
+  "Unidentified client": "Unidentified client"
 }
