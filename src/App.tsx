@@ -17,24 +17,25 @@ import { DetailSidebar } from "./components/accounts/DetailSidebar";
 import { BottomActionBar } from "./components/layout/BottomActionBar";
 import { ChooseGameScreen } from "./components/ChooseGameScreen";
 import { StatusBar } from "./components/layout/StatusBar";
-import { SettingsDialog } from "./components/settings/SettingsDialog";
+import { NavSidebar } from "./components/layout/NavSidebar";
 import { ServerListDialog } from "./components/server-list/ServerListDialog";
 import { ImportDialog } from "./components/dialogs/ImportDialog";
 import { AccountFieldsDialog } from "./components/dialogs/AccountFieldsDialog";
 import { AccountUtilsDialog } from "./components/dialogs/AccountUtilsDialog";
 import { MissingAssetsDialog } from "./components/dialogs/MissingAssetsDialog";
-import { ThemeEditorDialog } from "./components/dialogs/ThemeEditorDialog";
 import { UpdateDialog } from "./components/dialogs/UpdateDialog";
-import { NexusDialog } from "./components/dialogs/NexusDialog";
-import { BottingDialog } from "./components/dialogs/BottingDialog";
-import { AfkDialog } from "./components/dialogs/AfkDialog";
-import { AvatarsDialog } from "./components/dialogs/AvatarsDialog";
+import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
 import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
 import { BackupsDialog } from "./components/dialogs/BackupsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
-import { ScriptsDialog } from "./components/dialogs/ScriptsDialog";
-import { SessionDialog } from "./components/dialogs/SessionDialog";
+import { SessionPage } from "./components/pages/SessionPage";
+import { AfkPage } from "./components/pages/AfkPage";
+import { AvatarsPage } from "./components/pages/AvatarsPage";
+import { ScriptsPage } from "./components/pages/ScriptsPage";
+import { ThemePage } from "./components/pages/ThemePage";
+import { NexusPage } from "./components/pages/NexusPage";
+import { SettingsPage } from "./components/pages/SettingsPage";
 import { useTr } from "./i18n/text";
 import { useUpdateHandoffToast } from "./hooks/useUpdateHandoffToast";
 import { TONE_STYLES } from "./utils/toastTone";
@@ -53,25 +54,23 @@ function AppContent() {
   // mora na aba Console da Choose Game. Só vale apontar para lá quando existe
   // log: fora do launch, a faixa mandaria o usuário para uma tela vazia.
   const hasLaunchLog = store.launchLogs.length > 0;
+  // Páginas (Settings, Theme, Scripts...) não entram aqui: não cobrem a janela,
+  // então os botões da barra de título continuam onde estão.
   const anyModalOpen =
-    store.settingsOpen ||
     store.serverListOpen ||
     store.importDialogOpen ||
     store.accountFieldsOpen ||
     store.accountUtilsOpen ||
     !!store.missingAssets ||
-    store.themeEditorOpen ||
-    store.bottingDialogOpen ||
-    store.afkDialogOpen ||
-    store.avatarsDialogOpen ||
+    !!store.afkModeDialog ||
     store.generatorDialogOpen ||
-    (ENABLE_NEXUS && store.nexusOpen) ||
-    store.scriptsOpen ||
     store.updateDialogOpen ||
-    store.sessionDialogOpen ||
     backupsOpen ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
+  const page = store.activePage;
+  const onAccounts = page === "accounts";
+  const leavePage = () => store.setActivePage("accounts");
 
   // Volta de uma atualização silenciosa: "Atualizado para vX" (ou o aviso de
   // que a instalação não terminou). Ver updateHandoff.ts.
@@ -132,66 +131,97 @@ function AppContent() {
       <UpdateBanner />
       <SafeModeBanner />
       <VaultKeyBanner />
-      <Toolbar />
 
-      {store.error && (
-        <div className="mx-4 mt-2 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400 flex flex-wrap items-start justify-between gap-y-1 animate-fade-in">
-          {/* O `truncate` cortava justamente o fim da mensagem, que é onde o
-              backend explica o erro. Agora ela quebra linha; o teto de altura
-              com rolagem impede que um erro enorme vire painel. */}
-          <span className="min-w-0 flex-1 whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
-            {store.error}
-          </span>
-          <div className="ml-2 flex items-center gap-2 shrink-0">
-            {showCloseRobloxAction && (
-              <button
-                onClick={() => store.killAllRobloxProcesses()}
-                className="px-2 py-1 rounded-md bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 transition-colors animate-pulse"
-              >
-                {t("Close Roblox")}
-              </button>
-            )}
-            {/* O detalhe do que falhou no launch só existe no log, em outra
-                tela. Enquanto houver log, a faixa diz onde ele está e abre a
-                Choose Game — a aba Console é escolhida lá dentro. */}
-            {hasLaunchLog && !store.chooseGameOpen && (
-              <button
-                onClick={() => store.setChooseGameOpen(true)}
-                className="px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-colors"
-              >
-                {t("Open launch log")}
-              </button>
-            )}
-            <button
-              onClick={() => store.setError(null)}
-              className="text-red-500/60 hover:text-red-400 transition-colors"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          {hasLaunchLog && (
-            <p className="basis-full text-xs text-red-400/70">
-              {t("Step-by-step details of the last launch are in Choose Game › Console.")}
-            </p>
+      {/* Barra lateral + área principal. A barra lateral escolhe a página
+          (`activePage`); a página de contas é a de sempre — Toolbar, lista,
+          painel da conta, barra de ações e a Choose Game por cima. As outras
+          ficam montadas o tempo todo (como os modais ficavam) e só aparecem
+          quando ativas: Scripts mantém os workers em execução, Avatars o
+          ouvinte do lote. Ver docs/features/ui-layout.md. */}
+      <div className="flex flex-1 min-h-0">
+        <NavSidebar />
+        <main className="flex flex-1 min-w-0 min-h-0 flex-col">
+          {onAccounts && <Toolbar />}
+
+          {store.error && (
+            <div className="mx-4 mt-2 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400 flex flex-wrap items-start justify-between gap-y-1 animate-fade-in">
+              {/* O `truncate` cortava justamente o fim da mensagem, que é onde o
+                  backend explica o erro. Agora ela quebra linha; o teto de altura
+                  com rolagem impede que um erro enorme vire painel. */}
+              <span className="min-w-0 flex-1 whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
+                {store.error}
+              </span>
+              <div className="ml-2 flex items-center gap-2 shrink-0">
+                {showCloseRobloxAction && (
+                  <button
+                    onClick={() => store.killAllRobloxProcesses()}
+                    className="px-2 py-1 rounded-md bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 transition-colors animate-pulse"
+                  >
+                    {t("Close Roblox")}
+                  </button>
+                )}
+                {/* O detalhe do que falhou no launch só existe no log, em outra
+                    tela. Enquanto houver log, a faixa diz onde ele está e abre a
+                    Choose Game — a aba Console é escolhida lá dentro. */}
+                {hasLaunchLog && !(onAccounts && store.chooseGameOpen) && (
+                  <button
+                    onClick={() => {
+                      store.setActivePage("accounts");
+                      store.setChooseGameOpen(true);
+                    }}
+                    className="px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-colors"
+                  >
+                    {t("Open launch log")}
+                  </button>
+                )}
+                <button
+                  onClick={() => store.setError(null)}
+                  className="text-red-500/60 hover:text-red-400 transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {hasLaunchLog && (
+                <p className="basis-full text-xs text-red-400/70">
+                  {t("Step-by-step details of the last launch are in Choose Game › Console.")}
+                </p>
+              )}
+            </div>
           )}
-        </div>
-      )}
 
-      <div className="flex flex-col flex-1 min-h-0">
-        {store.chooseGameOpen ? (
-          <ChooseGameScreen />
-        ) : (
-          <div className="flex flex-1 min-h-0">
-            <AccountList />
-            {/* O painel é de uma conta só. Quem garante que o botão da Toolbar
-                não promete um painel que não vem é o `disabled` de lá, que usa
-                exatamente esta condição — mudou aqui, muda lá. */}
-            {store.sidebarOpen && store.selectedAccounts.length === 1 && <DetailSidebar />}
-          </div>
-        )}
-        {!store.chooseGameOpen && store.selectedIds.size > 0 && <BottomActionBar />}
+          {onAccounts && (
+            <div className="flex flex-col flex-1 min-h-0">
+              {store.chooseGameOpen ? (
+                <ChooseGameScreen />
+              ) : (
+                <div className="flex flex-1 min-h-0">
+                  <AccountList />
+                  {/* O painel é de uma conta só. Quem garante que o botão da Toolbar
+                      não promete um painel que não vem é o `disabled` de lá, que usa
+                      exatamente esta condição — mudou aqui, muda lá. */}
+                  {store.sidebarOpen && store.selectedAccounts.length === 1 && <DetailSidebar />}
+                </div>
+              )}
+              {!store.chooseGameOpen && store.selectedIds.size > 0 && <BottomActionBar />}
+            </div>
+          )}
+
+          <SessionPage active={page === "session"} onLeave={leavePage} />
+          <AfkPage active={page === "afk"} onLeave={leavePage} />
+          <AvatarsPage active={page === "avatars"} onLeave={leavePage} />
+          <ScriptsPage active={page === "scripts"} onLeave={leavePage} />
+          <ThemePage active={page === "theme"} onLeave={leavePage} />
+          {ENABLE_NEXUS && <NexusPage active={page === "nexus"} onLeave={leavePage} />}
+          <SettingsPage
+            active={page === "settings"}
+            onLeave={leavePage}
+            onSettingsChanged={store.reloadSettings}
+            onRequestEncryptionSetup={store.openEncryptionSetupFromSettings}
+            onRequestBackups={() => setBackupsOpen(true)}
+          />
+        </main>
       </div>
 
       <StatusBar />
@@ -216,20 +246,6 @@ function AppContent() {
         </div>
       )}
 
-      <SettingsDialog
-        open={store.settingsOpen}
-        onClose={() => store.setSettingsOpen(false)}
-        onSettingsChanged={store.reloadSettings}
-        onRequestEncryptionSetup={() => {
-          store.setSettingsOpen(false);
-          store.openEncryptionSetupFromSettings();
-        }}
-        onRequestBackups={() => {
-          store.setSettingsOpen(false);
-          setBackupsOpen(true);
-        }}
-      />
-
       <ServerListDialog
         open={store.serverListOpen}
         onClose={() => store.setServerListOpen(false)}
@@ -253,20 +269,7 @@ function AppContent() {
 
       <MissingAssetsDialog />
 
-      <ThemeEditorDialog
-        open={store.themeEditorOpen}
-        onClose={() => store.setThemeEditorOpen(false)}
-      />
-
-      <BottingDialog
-        open={store.bottingDialogOpen}
-        onClose={() => store.setBottingDialogOpen(false)}
-        initialPlaceId={store.bottingDialogPlaceId}
-      />
-
-      <AfkDialog open={store.afkDialogOpen} onClose={() => store.setAfkDialogOpen(false)} />
-
-      <AvatarsDialog open={store.avatarsDialogOpen} onClose={() => store.setAvatarsDialogOpen(false)} />
+      <AfkModeDialog />
 
       <GeneratorDialog
         open={store.generatorDialogOpen}
@@ -281,24 +284,7 @@ function AppContent() {
 
       <BackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
 
-      <SessionDialog
-        open={store.sessionDialogOpen}
-        onClose={() => store.setSessionDialogOpen(false)}
-      />
-
       <IsolationProgressOverlay />
-
-      {ENABLE_NEXUS && (
-        <NexusDialog
-          open={store.nexusOpen}
-          onClose={() => store.setNexusOpen(false)}
-        />
-      )}
-
-      <ScriptsDialog
-        open={store.scriptsOpen}
-        onClose={() => store.setScriptsOpen(false)}
-      />
 
       <UpdateDialog />
 

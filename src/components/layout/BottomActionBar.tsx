@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
-import { collectGroupNames, maskAccountName, parseGroupName } from "../../types";
+import { collectGroupNames, parseGroupName } from "../../types";
+import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
 import { ChevronDown, Gamepad2, Settings2, Users } from "lucide-react";
 
@@ -221,11 +222,7 @@ export function BottomActionBar() {
    * Com o modo "Hidden" ligado a barra tem que esconder o nome igual à lista —
    * ela era o único lugar onde o nome real continuava aparecendo na tela.
    */
-  const maskIfHidden = (name: string) =>
-    maskAccountName(name, store.hideUsernames, store.hiddenNameLetters);
-  const displayName = singleAccount
-    ? maskIfHidden(singleAccount.Alias || singleAccount.Username)
-    : null;
+  const displayName = singleAccount ? accountLabel(singleAccount, store) : null;
 
   /**
    * Progresso do Make Friends vindo da store (evento `friend-link-state`).
@@ -418,7 +415,7 @@ export function BottomActionBar() {
                         onClick={() => handleMakeFriends("star", a.UserID)}
                         className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] truncate"
                       >
-                        ⭐ {maskIfHidden(a.Alias || a.Username)}
+                        ⭐ {accountLabel(a, store)}
                       </button>
                     ))}
                   </div>

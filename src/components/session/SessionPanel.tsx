@@ -1,12 +1,27 @@
 import { useMemo, useState } from "react";
-import { Crosshair, Gamepad2, ListX, PowerOff, Repeat, SquareStop, UserPlus, X } from "lucide-react";
+import {
+  AppWindow,
+  Check,
+  Coffee,
+  Crosshair,
+  Gamepad2,
+  Globe,
+  ListX,
+  PowerOff,
+  SquareStop,
+  UserCheck,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
+import { accountLabel } from "../../utils/accountName";
 import type {
   FriendLinkAccountState,
   LaunchQueueEntry,
   LaunchQueueState,
+  UnidentifiedClient,
 } from "../../types";
 
 /**
@@ -21,12 +36,6 @@ import type {
  * já aberto**. Cancelar só tira a conta da fila; fechar é uma ação separada,
  * explícita, na seção "In game".
  */
-
-/** Mesmo mascaramento da lista de contas / Choose Game. */
-function maskName(name: string, previewLetters: number): string {
-  if (previewLetters > 0 && previewLetters < name.length) return name.slice(0, previewLetters) + "********";
-  return "************";
-}
 
 type Translate = ReturnType<typeof useTr>;
 
@@ -97,6 +106,25 @@ function friendPhaseLabel(phase: string, t: Translate): string {
   }
 }
 
+/**
+ * Por que o cliente aberto fora do app não foi reconhecido sozinho. `name` é o
+ * nome (já mascarado) da conta que o log citou, quando citou.
+ */
+function unidentifiedReasonLabel(client: UnidentifiedClient, name: string, t: Translate): string {
+  switch (client.reason) {
+    case "waitingForGame":
+      return t("It hasn't joined a game yet, so the account is still unknown");
+    case "noLog":
+      return t("No Roblox log matched this client");
+    case "unknownAccount":
+      return t("Its account is not in your list");
+    case "accountBusy":
+      return t("{{name}} already has a client open", { name });
+    default:
+      return "";
+  }
+}
+
 /** Estados em que a conta ainda pode sair da fila. */
 function isPending(entry: LaunchQueueEntry): boolean {
   return entry.state === "queued" || entry.state === "launching";
@@ -113,6 +141,8 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checked, setChecked] = useState<Set<number>>(new Set());
+  // Cliente não identificado com o seletor de conta aberto, e a conta escolhida.
+  const [identifying, setIdentifying] = useState<{ pid: number; userId: string } | null>(null);
 
   const entries = store.launchQueue?.entries ?? [];
   const pending = entries.filter(isPending);
@@ -130,13 +160,17 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     return [...known, ...extras];
   }, [store.accounts, store.launchedByProgram]);
 
+  // Clientes abertos fora do app que o backend não reconheceu (ver
+  // docs/features/external-clients.md). Ficam fora da contagem e do lote de
+  // fechar: não têm conta, e o app nunca fecha cliente que não sabe de quem é.
+  const unidentified = store.unidentifiedClients;
+
   // A seleção é derivada: contas que fecharam sozinhas somem do lote.
   const selected = runningIds.filter((id) => checked.has(id));
 
   function nameFor(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
-    const raw = account ? account.Alias || account.Username : String(userId);
-    return store.hideUsernames ? maskName(raw, store.hiddenNameLetters) : raw;
+    return accountLabel(account, store, userId);
   }
 
   function toggleChecked(userId: number) {
@@ -180,19 +214,33 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     }
   }
 
-  /**
-   * Liga o Auto Rejoin nas contas em jogo **sem fechar nada**.
-   *
-   * Sem marcação vale para todas as que estão rodando: é o gesto que o usuário
-   * espera depois de lançar um lote e ver que quer manter o ciclo.
-   */
-  async function handleAdoptBotting() {
-    const alvo = selected.length > 0 ? selected : runningIds;
-    if (alvo.length === 0) return;
+  async function handleShowWindow(pid: number) {
+    setError(null);
+    try {
+      const ok = await store.focusClientWindow(pid);
+      if (!ok) setError(t("Could not bring that Roblox window to the front."));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  function startIdentify(client: UnidentifiedClient) {
+    setError(null);
+    // Se o log citou uma conta salva (ocupada), ela já vem escolhida.
+    const named =
+      client.userId !== null && store.accounts.some((a) => a.UserID === client.userId)
+        ? String(client.userId)
+        : "";
+    setIdentifying({ pid: client.pid, userId: named });
+  }
+
+  async function confirmIdentify() {
+    if (!identifying || !identifying.userId) return;
     setError(null);
     setBusy(true);
     try {
-      await store.adoptRunningIntoBotting(alvo);
+      await store.identifyExternalClient(identifying.pid, Number(identifying.userId));
+      setIdentifying(null);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -200,7 +248,30 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     }
   }
 
-  /** Uma confirmação só para o lote inteiro; fechar uma conta é imediato. */
+  /**
+   * Abre o Modo AFK com as contas em jogo (as marcadas, ou todas). Não liga
+   * nada: o Start de lá é que adota as contas no Auto Rejoin **sem fechar
+   * nenhum cliente** — e antes dele a pessoa vê e ajusta o tempo do ciclo e as
+   * contas main. Ligar direto daqui escondia onde configurar e onde parar.
+   *
+   * Abre nos cliques AFK (a aba padrão), a não ser que só o Auto Rejoin esteja
+   * ligado.
+   */
+  function handleOpenAfkMode() {
+    const alvo = selected.length > 0 ? selected : runningIds;
+    if (alvo.length === 0) return;
+    const onlyRejoinActive = !!store.bottingStatus?.active && !store.afkStatus?.active;
+    store.openAfkMode({
+      tab: onlyRejoinActive ? "rejoin" : "clicks",
+      targetUserIds: alvo,
+      adoptRunning: true,
+    });
+  }
+
+  /**
+   * Uma confirmação só para o lote inteiro; fechar uma conta é imediato. Fecha
+   * só as contas da lista (`closeRobloxClients`), nunca cliente de fora dela.
+   */
   async function handleClose(userIds: number[]) {
     if (userIds.length === 0) return;
     setError(null);
@@ -369,37 +440,47 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
             <span className="text-[12px] theme-muted truncate">
               {t("{{count}} running", { count: runningIds.length })}
             </span>
+            {unidentified.length > 0 && (
+              <span className="text-[12px] text-amber-400 truncate">
+                {t("{{count}} unidentified", { count: unidentified.length })}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {runningIds.length > 0 && (
-              <button
-                onClick={() => void handleAdoptBotting()}
-                disabled={busy}
-                title={t(
-                  "Keeps these accounts in the cycle without closing the clients that are already open."
-                )}
-                className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <Repeat size={13} strokeWidth={1.5} />
-                {selected.length > 0
-                  ? t("Auto Rejoin ({{count}})", { count: selected.length })
-                  : t("Auto Rejoin")}
-              </button>
-            )}
-            {selected.length > 0 && (
-              <button
-                onClick={() => void handleClose(selected)}
-                disabled={busy}
-                className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <PowerOff size={13} strokeWidth={1.5} />
-                {t("Close selected ({{count}})", { count: selected.length })}
-              </button>
+              <>
+                <button
+                  onClick={handleOpenAfkMode}
+                  title={t(
+                    "Opens AFK Mode with these accounts: Auto Rejoin keeps them in the cycle without closing the clients that are already open."
+                  )}
+                  className="sidebar-btn-sm flex items-center gap-1.5 shrink-0"
+                >
+                  <Coffee size={13} strokeWidth={1.5} />
+                  {t("AFK Mode")}
+                </button>
+                {/* Sem marcação vale para todas as da lista; mais de uma pergunta. */}
+                <button
+                  onClick={() => void handleClose(selected.length > 0 ? selected : runningIds)}
+                  disabled={busy}
+                  title={
+                    selected.length > 0
+                      ? undefined
+                      : t("Closes the Roblox client of every account in this list")
+                  }
+                  className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <PowerOff size={13} strokeWidth={1.5} />
+                  {selected.length > 0
+                    ? t("Close accounts ({{count}})", { count: selected.length })
+                    : t("Close accounts")}
+                </button>
+              </>
             )}
           </div>
         </header>
 
-        {runningIds.length === 0 ? (
+        {runningIds.length === 0 && unidentified.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
             <Gamepad2 size={20} strokeWidth={1.5} />
             <p className="text-[12px] text-center">
@@ -424,6 +505,15 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                     className="accent-[var(--accent-color)]"
                   />
                   <span className="text-[var(--panel-fg)] truncate">{name}</span>
+                  {store.adoptedClients.has(userId) && (
+                    <span
+                      className="shrink-0 flex items-center gap-1 theme-muted"
+                      title={t("Opened from the Roblox website and recognized by the Roblox log")}
+                    >
+                      <Globe size={11} strokeWidth={1.5} />
+                      {t("Opened outside the app")}
+                    </span>
+                  )}
                   <span className="ml-auto flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={() => void handleFocus(userId)}
@@ -442,6 +532,88 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                       {t("Close")}
                     </button>
                   </span>
+                </li>
+              );
+            })}
+            {unidentified.map((client) => {
+              const namedAccount =
+                client.userId !== null
+                  ? store.accounts.find((a) => a.UserID === client.userId)
+                  : undefined;
+              const namedLabel =
+                client.userId !== null ? accountLabel(namedAccount, store, client.userId) : "";
+              const picking = identifying?.pid === client.pid ? identifying : null;
+              return (
+                <li
+                  key={`pid-${client.pid}`}
+                  data-testid={`session-unidentified-${client.pid}`}
+                  className="flex flex-col gap-1.5 px-3 py-1.5 text-[12px]"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span className="text-[var(--panel-fg)] shrink-0">{t("Unidentified client")}</span>
+                    <span className="theme-muted shrink-0">{t("PID {{pid}}", { pid: client.pid })}</span>
+                    <span className="theme-muted truncate" title={unidentifiedReasonLabel(client, namedLabel, t)}>
+                      {unidentifiedReasonLabel(client, namedLabel, t)}
+                    </span>
+                    <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => void handleShowWindow(client.pid)}
+                        title={t("Bring this client's window to the front")}
+                        className="sidebar-btn-sm flex items-center gap-1.5"
+                      >
+                        <AppWindow size={12} strokeWidth={1.5} />
+                        {t("Show window")}
+                      </button>
+                      {!picking && (
+                        <button
+                          onClick={() => startIdentify(client)}
+                          title={t("Tell the app which account is playing in this client")}
+                          className="sidebar-btn-sm flex items-center gap-1.5"
+                        >
+                          <UserCheck size={12} strokeWidth={1.5} />
+                          {t("Identify")}
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                  {picking && (
+                    <div className="flex items-center gap-1.5 pl-3.5">
+                      <select
+                        aria-label={t("Account for this client")}
+                        value={picking.userId}
+                        onChange={(e) => setIdentifying({ pid: client.pid, userId: e.target.value })}
+                        className="min-w-0 flex-1 rounded-md border theme-border bg-[var(--panel-bg)] px-2 py-1 text-[12px] text-[var(--panel-fg)]"
+                      >
+                        <option value="">{t("Pick an account")}</option>
+                        {store.accounts.map((a) => {
+                          const label = accountLabel(a, store, a.UserID);
+                          return (
+                            <option key={a.UserID} value={String(a.UserID)}>
+                              {store.launchedByProgram.has(a.UserID)
+                                ? t("{{name}} (already in game)", { name: label })
+                                : label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <button
+                        onClick={() => void confirmIdentify()}
+                        disabled={busy || !picking.userId}
+                        className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Check size={12} strokeWidth={1.5} />
+                        {t("Confirm")}
+                      </button>
+                      <button
+                        onClick={() => setIdentifying(null)}
+                        aria-label={t("Cancel")}
+                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] transition-colors shrink-0"
+                      >
+                        <X size={13} strokeWidth={2} />
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}

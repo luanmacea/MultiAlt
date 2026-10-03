@@ -18,6 +18,35 @@ type Phase = "available" | "downloading" | "ready" | "installing" | "error";
  */
 export const INSTALL_HANDOFF_DELAY_MS = 1500;
 
+/**
+ * A página da release abre com "## Download" (o botão do instalador para quem
+ * chega pelo GitHub — ver o passo "Finalize release notes" do release-v4.yml)
+ * e guarda a lista técnica de PRs num bloco recolhido (<details>). Na janela de
+ * atualização nenhum dos dois serve: o app já baixa e instala sozinho, e quem
+ * atualiza quer a lista simples. Tira a seção de download inteira (até o
+ * próximo título "## ") e os blocos <details>.
+ */
+export function notesForUpdateDialog(body: string): string {
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^##\s+Download\b/i.test(l));
+  const withoutDownload =
+    start < 0
+      ? lines
+      : (() => {
+          const next = lines.findIndex((l, i) => i > start && /^##\s+\S/.test(l));
+          return [...lines.slice(0, start), ...(next < 0 ? [] : lines.slice(next))];
+        })();
+  const kept: string[] = [];
+  let inDetails = false;
+  for (const line of withoutDownload) {
+    if (/^\s*<details>/i.test(line)) inDetails = true;
+    if (!inDetails) kept.push(line);
+    if (/<\/details>\s*$/i.test(line)) inDetails = false;
+  }
+  const out = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return start < 0 && kept.length === lines.length ? body : out;
+}
+
 function renderMarkdown(src: string): React.ReactNode[] {
   const lines = src.split(/\r?\n/);
   const htmlTag = /<[a-z][^>]*>/i;
@@ -508,7 +537,7 @@ export function UpdateDialog() {
       return;
     }
 
-    const nextNotes = info?.body?.trim() ? info.body : null;
+    const nextNotes = info?.body?.trim() ? notesForUpdateDialog(info.body) : null;
     setReleaseNotes(nextNotes);
 
     if (!info?.version || !info?.currentVersion) return;
@@ -581,7 +610,7 @@ export function UpdateDialog() {
       }
 
       if (!controller.signal.aborted) {
-        const finalNotes = resolvedNotes.trim();
+        const finalNotes = notesForUpdateDialog(resolvedNotes).trim();
         if (finalNotes) {
           setReleaseNotes(finalNotes);
         }

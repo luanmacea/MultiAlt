@@ -1,12 +1,12 @@
 [English](README.md) | **Português**
 
 # MultiAlt — Roblox Account Manager
-![MultiAlt](Images/Image5.png)
+![MultiAlt: escolha um jogo e entre com todas as contas selecionadas](site/assets/screens/choose-game.png)
 
 <p align="center">
   <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">outros downloads (portátil, versão completa)</a> · <a href="https://multialt.pages.dev/">🌐 site</a></sub>
+  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">outros downloads (versão completa)</a> · <a href="https://multialt.pages.dev/">🌐 site</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
@@ -29,9 +29,10 @@ Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link p
 
 Baixe só deste repositório. A [página da release](https://github.com/luanmacea/roblox-account-manager/releases/latest) também tem:
 
-- **Portátil:** o app sem instalar nada. Não cria atalho nem se atualiza sozinho.
 - **Arquivos com `_full-nexus-ws`:** a versão completa, com a API HTTP local e o Nexus (abre portas de rede locais). Só se você precisar.
 - Os arquivos `zz-…sig` são da atualização automática: não precisa baixá-los.
+
+> Procurando o `.exe` portátil? Ele não está sendo publicado por enquanto (um antivírus o marcou 1/75); o `.msi` também não pede administrador.
 
 > Instalou pelo antigo `-setup.exe`? Ele não é mais publicado, então não se atualiza mais. Desinstale em Configurações do Windows → Aplicativos e instale o `.msi` uma vez — suas contas e configurações continuam.
 
@@ -79,7 +80,7 @@ Baixe só deste repositório. A [página da release](https://github.com/luanmace
 | :--- | :--- |
 | Atualização automática | Procura versões novas e se atualiza sozinho |
 | Temas | Editor de tema embutido: cores, estilo de botão e fontes, com presets exportáveis |
-| Idiomas | Inglês e português (alemão parcial) |
+| Idiomas | Inglês, português e espanhol (alemão parcial) |
 | Modo de vídeo seguro | Se a janela abrir em branco, o app se recupera sozinho (ou segure **Shift** ao abrir) |
 
 # FAQ
@@ -123,4 +124,11 @@ bun run check            # typecheck + todos os testes (vitest + cargo test)
 O primeiro `tauri dev`/`tauri build` compila todas as crates Rust do zero e pode levar alguns minutos; os seguintes são incrementais. A documentação de desenvolvimento fica em [docs/](docs/README.md).
 
 # Preview
-![MultiAlt](Images/Image5.png)
+Fotos reais, com os nomes das contas ocultos (o app tem um botão para isso). Clique numa para ver em tamanho real.
+
+<table>
+  <tr><td width="50%"><a href="site/assets/screens/accounts.png"><img src="site/assets/screens/accounts.png" alt="Contas"></a><br><sub><b>Contas</b></sub></td><td width="50%"><a href="site/assets/screens/choose-game.png"><img src="site/assets/screens/choose-game.png" alt="Escolher jogo"></a><br><sub><b>Escolher jogo</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/session.png"><img src="site/assets/screens/session.png" alt="Sessão"></a><br><sub><b>Sessão</b></sub></td><td width="50%"><a href="site/assets/screens/afk-clicks.png"><img src="site/assets/screens/afk-clicks.png" alt="Cliques AFK"></a><br><sub><b>Cliques AFK</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/auto-rejoin.png"><img src="site/assets/screens/auto-rejoin.png" alt="Auto Rejoin"></a><br><sub><b>Auto Rejoin</b></sub></td><td width="50%"><a href="site/assets/screens/avatars.png"><img src="site/assets/screens/avatars.png" alt="Avatares"></a><br><sub><b>Avatares</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/theme.png"><img src="site/assets/screens/theme.png" alt="Tema"></a><br><sub><b>Tema</b></sub></td><td width="50%"><a href="site/assets/screens/settings.png"><img src="site/assets/screens/settings.png" alt="Configurações"></a><br><sub><b>Configurações</b></sub></td></tr>
+</table>

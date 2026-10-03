@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
 import type { GeneratorDialogTab } from "../../store";
 import { collectGroupNames } from "../../types";
+import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useTr } from "../../i18n/text";
 import { Select } from "../ui/Select";
@@ -555,7 +556,10 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                   </div>
                 ) : (
                   log.map((entry, index) => {
-                    const avatarUrl = store.avatarUrls.get(entry.userId);
+                    // As contas geradas já entram na lista do usuário: com "Names
+                    // hidden" nome e foto somem aqui como lá.
+                    const avatarUrl = hideAccountAvatar(store) ? undefined : store.avatarUrls.get(entry.userId);
+                    const named = { Username: entry.username, Alias: "" };
                     return (
                       <div
                         key={`${entry.userId}-${entry.at}`}
@@ -571,11 +575,11 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                           />
                         ) : (
                           <div className="w-7 h-7 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-[11px] font-medium shrink-0">
-                            {(entry.username || "?").charAt(0).toUpperCase()}
+                            {accountInitial(named, store)}
                           </div>
                         )}
                         <div className="min-w-0 flex-1">
-                          <div className="text-[12px] text-[var(--panel-fg)] truncate">{entry.username}</div>
+                          <div className="text-[12px] text-[var(--panel-fg)] truncate">{accountLabel(named, store)}</div>
                           <div className="text-[11px] theme-muted font-mono">{entry.userId}</div>
                         </div>
                         <div className="text-[11px] theme-muted shrink-0">

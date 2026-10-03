@@ -114,9 +114,9 @@ pub(crate) enum GraphicsQuality {
 /// versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows —
 /// os dois são **globais**. "Por conta" funciona porque a fila de launch é
 /// sequencial e o patch roda imediatamente antes de cada spawn; não é
-/// isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o
-/// Roblox reescreve o XML e o valor vaza para a próxima conta que abrir sem
-/// exceção própria.
+/// isolamento de verdade. Um cliente aberto ainda pode reescrever o XML antes
+/// de o novo o ler — por isso o tamanho da janela é conferido pelo PID depois
+/// do spawn (`spawn_client_window_enforcement`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct AccountClientOverrides {
     pub max_fps: Option<u32>,
@@ -199,6 +199,266 @@ pub(crate) fn account_client_overrides(
         return None;
     }
     Some(overrides)
+}
+
+// ── a janela do cliente, conferida pelo PID ──────────────────────────────
+//
+// O `StartScreenSize` do `GlobalBasicSettings_13.xml` é **um arquivo para todos
+// os clientes**. O patch roda logo antes do spawn, mas um cliente já aberto
+// (a conta principal com a exceção dela, por exemplo) pode reescrever o XML
+// entre o patch e o instante em que o cliente novo o lê — e a alt abria com o
+// tamanho da principal (03/10/2026). O XML continua sendo gravado (é o que faz
+// o cliente já nascer no tamanho certo na maioria das vezes), mas quem garante
+// é a conferência depois do spawn: achada a janela do PID novo, ela recebe o
+// tamanho resolvido para ESTA conta.
+
+/// O que o launch resolveu para a janela desta conta — a mesma coisa que foi
+/// gravada no XML.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ClientWindowInputs {
+    /// `Some(true)` = tela cheia (exceção da conta).
+    pub fullscreen: Option<bool>,
+    /// O tamanho gravado no `StartScreenSize` (exceção da conta, senão o
+    /// perfil global com `OverrideClientWindowSize`).
+    pub window_size: Option<(u32, u32)>,
+    /// A conta tem janela própria (exceção com tamanho ou tela cheia) — fica
+    /// fora da grade (`account_keeps_own_window`).
+    pub keeps_own_window: bool,
+    pub start_minimized: bool,
+    /// `General.AutoArrangeGrid`.
+    pub auto_arrange_grid: bool,
+    /// O retângulo que o Watcher salvou (`SaveWindowPositions`); só o launch
+    /// avulso o restaura.
+    pub saved_rect: Option<(i32, i32, i32, i32)>,
+}
+
+/// O que fazer com a janela quando ela aparecer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ClientWindowPlan {
+    /// Tamanho a impor, no mesmo sentido do `StartScreenSize`.
+    pub size: Option<(u32, u32)>,
+    /// Pôr a janela na primeira célula livre da grade.
+    pub grid: bool,
+    /// Posição (e tamanho, se `size` não vier) a restaurar.
+    pub saved_rect: Option<(i32, i32, i32, i32)>,
+}
+
+impl ClientWindowPlan {
+    pub fn is_noop(&self) -> bool {
+        self.size.is_none() && !self.grid && self.saved_rect.is_none()
+    }
+}
+
+/// O piso que `rewrite_global_basic_settings` aplica ao `StartScreenSize`: o
+/// tamanho imposto na janela é o mesmo que o XML recebeu.
+const MIN_CLIENT_WINDOW: (u32, u32) = (320, 240);
+
+pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan {
+    // Tela cheia e começar minimizado são pedidos do usuário que mexer na
+    // janela desfaria.
+    if inputs.start_minimized || inputs.fullscreen == Some(true) {
+        return ClientWindowPlan::default();
+    }
+    // Conta com janela própria fica fora da grade, com o tamanho e a posição
+    // dela; para as outras, a grade vence a posição salva pelo Watcher.
+    let grid = inputs.auto_arrange_grid && !inputs.keeps_own_window;
+    ClientWindowPlan {
+        size: inputs
+            .window_size
+            .map(|(w, h)| (w.max(MIN_CLIENT_WINDOW.0), h.max(MIN_CLIENT_WINDOW.1))),
+        grid,
+        saved_rect: if grid { None } else { inputs.saved_rect },
+    }
+}
+
+/// A conta tem uma janela que é dela: exceção de launch com tamanho próprio
+/// ou com tela cheia. Essas ficam fora da grade (automática e manual) — a
+/// grade encolheria a conta principal ao tamanho das alts.
+pub(crate) fn account_keeps_own_window(fields: &HashMap<String, String>) -> bool {
+    account_client_overrides(fields)
+        .map(|o| o.keeps_own_window())
+        .unwrap_or(false)
+}
+
+impl AccountClientOverrides {
+    /// Ver `account_keeps_own_window`.
+    pub(crate) fn keeps_own_window(&self) -> bool {
+        self.window_size.is_some() || self.fullscreen == Some(true)
+    }
+}
+
+/// Os PIDs rastreados cujas contas têm janela própria. `tracked` são pares
+/// `(user_id, pid)`; conta que não está mais na lista entra na grade.
+pub(crate) fn pids_keeping_own_window(
+    tracked: &[(i64, u32)],
+    fields_by_user: &HashMap<i64, HashMap<String, String>>,
+) -> HashSet<u32> {
+    tracked
+        .iter()
+        .filter(|(user_id, _)| {
+            fields_by_user
+                .get(user_id)
+                .map(account_keeps_own_window)
+                .unwrap_or(false)
+        })
+        .map(|(_, pid)| *pid)
+        .collect()
+}
+
+/// `General.AutoArrangeGrid`, ligado por padrão (também quando a chave sumiu
+/// do INI).
+pub(crate) fn auto_arrange_grid_enabled(settings: &SettingsStore) -> bool {
+    settings
+        .get("General", "AutoArrangeGrid")
+        .ok()
+        .flatten()
+        .map(|v| v != "false")
+        .unwrap_or(true)
+}
+
+/// Monitores (índices de 1 em diante; vazio = todos) e gap da grade — os
+/// mesmos da aba Windows da Choose Game (`GridMonitors`, `GridGap`).
+pub(crate) fn grid_layout_settings(settings: &SettingsStore) -> (Vec<usize>, i32) {
+    let monitors = settings
+        .get_string("General", "GridMonitors")
+        .split(',')
+        .filter_map(|s| s.trim().parse::<usize>().ok())
+        .filter(|i| *i > 0)
+        .collect();
+    let gap = settings
+        .get_int("General", "GridGap")
+        .unwrap_or(20)
+        .clamp(0, 200) as i32;
+    (monitors, gap)
+}
+
+/// O tamanho de janela do perfil global (`OverrideClientWindowSize`), ou
+/// `None` com ele desligado.
+pub(crate) fn global_window_size(
+    settings: &SettingsStore,
+    profile: LaunchClientProfile,
+) -> Option<(u32, u32)> {
+    let override_window_key = profile_key(
+        profile,
+        "OverrideClientWindowSize",
+        "BottingPlayerOverrideClientWindowSize",
+        "BottingBotOverrideClientWindowSize",
+    );
+    let window_width_key = profile_key(
+        profile,
+        "ClientWindowWidth",
+        "BottingPlayerClientWindowWidth",
+        "BottingBotClientWindowWidth",
+    );
+    let window_height_key = profile_key(
+        profile,
+        "ClientWindowHeight",
+        "BottingPlayerClientWindowHeight",
+        "BottingBotClientWindowHeight",
+    );
+
+    if !settings.get_bool("General", override_window_key) {
+        return None;
+    }
+    let w = settings.get_int("General", window_width_key).unwrap_or(1280);
+    let h = settings.get_int("General", window_height_key).unwrap_or(720);
+    (w > 0 && h > 0).then_some((w as u32, h as u32))
+}
+
+/// Os PIDs dos clientes rastreados cujas contas têm janela própria — os que a
+/// grade não pode mexer nem contar como ocupando célula.
+#[cfg(target_os = "windows")]
+pub(crate) fn grid_excluded_pids(accounts: &AccountStore) -> HashSet<u32> {
+    let tracked: Vec<(i64, u32)> = platform::windows::tracker()
+        .get_all()
+        .into_iter()
+        .map(|p| (p.user_id, p.pid))
+        .collect();
+    let fields_by_user: HashMap<i64, HashMap<String, String>> = accounts
+        .get_all()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| (a.user_id, a.fields))
+        .collect();
+    pids_keeping_own_window(&tracked, &fields_by_user)
+}
+
+/// O que o patch resolveu para a janela, devolvido para a conferência depois
+/// do spawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ResolvedClientWindow {
+    pub fullscreen: Option<bool>,
+    pub window_size: Option<(u32, u32)>,
+}
+
+/// Espera a janela principal do PID aparecer e aplica o plano, sem prender o
+/// launch (roda numa task à parte). A janela é procurada por até 45 s — o
+/// mesmo teto da restauração de posição do Watcher.
+///
+/// Com `plan.grid`, a janela vai para a primeira célula livre da grade
+/// (monitores, gap e as janelas fora da grade são lidos na hora de pôr, não no
+/// launch: a fila pode levar minutos).
+#[cfg(target_os = "windows")]
+pub(crate) fn spawn_client_window_enforcement(
+    app: &tauri::AppHandle,
+    pid: u32,
+    plan: ClientWindowPlan,
+) {
+    if plan.is_noop() {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        use platform::windows;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+        let found = loop {
+            if windows::find_main_window(pid).is_some() {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline || !windows::is_roblox_pid_running(pid) {
+                break false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        };
+        if !found {
+            return;
+        }
+        // O cliente ainda se dimensiona logo depois de mostrar a janela; medir
+        // antes disso confunde a borda com o tamanho.
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        // Uma aplicação e duas conferências: se o cliente redimensionar a
+        // janela por conta própria logo depois, ela volta ao lugar escolhido
+        // (a célula não é escolhida de novo).
+        let mut chosen: Option<(i32, i32, i32, i32)> = None;
+        for attempt in 0..3 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+            }
+            let Some(hwnd) = windows::find_main_window(pid) else {
+                return;
+            };
+            let outcome = match chosen {
+                Some(rect) => windows::hold_window_rect(hwnd, rect),
+                None if plan.grid => {
+                    let request = {
+                        let settings = app.state::<SettingsStore>();
+                        let (monitor_indices, gap) = grid_layout_settings(&settings);
+                        windows::GridRequest {
+                            monitor_indices,
+                            gap,
+                            excluded_pids: grid_excluded_pids(app.state::<AccountStore>().inner()),
+                        }
+                    };
+                    windows::place_in_grid(hwnd, pid, plan.size, &request)
+                }
+                None => windows::enforce_client_window(hwnd, plan.size, plan.saved_rect, true),
+            };
+            match outcome {
+                windows::WindowEnforcement::Skipped => return,
+                windows::WindowEnforcement::Placed(rect) => chosen = Some(rect),
+            }
+        }
+    });
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -346,40 +606,7 @@ fn windows_client_overrides(
         None
     };
 
-    let override_window_key = profile_key(
-        profile,
-        "OverrideClientWindowSize",
-        "BottingPlayerOverrideClientWindowSize",
-        "BottingBotOverrideClientWindowSize",
-    );
-    let window_width_key = profile_key(
-        profile,
-        "ClientWindowWidth",
-        "BottingPlayerClientWindowWidth",
-        "BottingBotClientWindowWidth",
-    );
-    let window_height_key = profile_key(
-        profile,
-        "ClientWindowHeight",
-        "BottingPlayerClientWindowHeight",
-        "BottingBotClientWindowHeight",
-    );
-
-    let window_size = if settings.get_bool("General", override_window_key) {
-        let w = settings
-            .get_int("General", window_width_key)
-            .unwrap_or(1280);
-        let h = settings
-            .get_int("General", window_height_key)
-            .unwrap_or(720);
-        if w > 0 && h > 0 {
-            Some((w as u32, h as u32))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let window_size = global_window_size(settings, profile);
 
     let optimization_profile = platform::windows::load_optimization_profile(settings, profile);
     let fast_flags = if optimization_profile.experimental.enable_fast_flags {
@@ -455,7 +682,7 @@ pub(crate) fn patch_client_settings_for_launch(
     profile: LaunchClientProfile,
     account: Option<&AccountClientOverrides>,
     base_path: Option<&str>,
-) {
+) -> ResolvedClientWindow {
     use platform::windows;
 
     let effective_profile = effective_launch_profile(settings, profile);
@@ -486,6 +713,10 @@ pub(crate) fn patch_client_settings_for_launch(
         overrides.fast_flags.as_ref(),
         overrides.from_account,
     );
+    ResolvedClientWindow {
+        fullscreen: overrides.fullscreen,
+        window_size: overrides.window_size,
+    }
 }
 
 #[cfg(target_os = "macos")]
