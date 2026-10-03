@@ -28,3 +28,15 @@ Ativar uma vez: no GitHub, **Settings → Pages → Build and deployment → Sou
 O endereço principal é **https://roblox-account-manager-app.pages.dev/** (Cloudflare Pages, grátis). O projeto `roblox-account-manager-app` do Cloudflare está ligado a este repositório: branch de produção `main`, sem comando de build, pasta de saída `site`. Ele publica sozinho a cada push em `main`, sem passar pelo workflow (um push em `develop` vira no máximo uma prévia, num endereço próprio, nunca o site principal) — o `site.yml` só alimenta o endereço do GitHub Pages.
 
 Os dois endereços servem o mesmo site; o `<link rel="canonical">` aponta para o do Cloudflare, para o buscador juntar os dois num resultado só. Todos os caminhos do site são relativos para funcionar nos dois.
+
+## Buscadores (SEO)
+
+O objetivo é aparecer para quem pesquisa "roblox account manager". O que o site já faz por isso:
+
+- `<title>` e um trecho do `<h1>` com o nome exato ("Roblox Account Manager"), mais a descrição em `meta description`.
+- Dados estruturados (`application/ld+json`, tipo `SoftwareApplication`) no `index.html`: nome, sistema, grátis, licença e link de download. Ao mudar o link do MSI ou a licença, atualize ali também.
+- `robots.txt` e `sitemap.xml` reais. Sem eles, o Cloudflare respondia a página inicial no lugar dos dois (qualquer endereço inexistente caía no `index.html`), e o Google não recebia o mapa do site. Pelo mesmo motivo existe o `404.html`: endereço que não existe responde 404 de verdade.
+- `og:image` com a captura do app, para o link ficar com prévia grande no Discord, no Reddit e no X.
+- Uma página só, com o idioma trocado por JavaScript: o Google indexa a versão em inglês. Versões em português e espanhol com endereço próprio (`/pt/`, `/es/`) são o próximo passo, se quisermos aparecer para "gerenciador de contas roblox".
+
+Fora do código, o que mais pesa é o Google descobrir o site e outros lugares apontarem para ele — o plano está em [docs/seo.md](../docs/seo.md).
