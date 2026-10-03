@@ -27,9 +27,11 @@ Plano montado em 03/10/2026. Site: **https://roblox-account-manager-app.pages.de
 
 ### 1. Fazer o Google e o Bing descobrirem o site (dias)
 
+> **Feito em 03/10/2026 (Google):** propriedade `https://roblox-account-manager-app.pages.dev/` criada na conta `luanmacea@gmail.com` e verificada pelo arquivo `site/google0cd4d252e2824c86.html` (**não apague esse arquivo**: sem ele a verificação cai); `sitemap.xml` enviado; indexação da página inicial solicitada. Falta o Bing.
+
 1. **Google Search Console** (https://search.google.com/search-console), com a conta Google do dono:
    1. adicionar a propriedade do tipo **prefixo de URL** com `https://roblox-account-manager-app.pages.dev/`;
-   2. verificar por **tag HTML**: o Google dá uma `<meta name="google-site-verification" ...>`, que entra no `<head>` do `site/index.html` e é publicada pela `main`;
+   2. verificar (aqui foi pelo **arquivo HTML** em `site/`, publicado pela `main`; o Cloudflare redireciona `.html` para o endereço sem extensão e mesmo assim o Google aceitou);
    3. em **Sitemaps**, enviar `sitemap.xml`;
    4. em **Inspeção de URL**, colar a página inicial e pedir **Solicitar indexação**.
 2. **Bing Webmaster Tools** (https://www.bing.com/webmasters). Dá para importar a propriedade direto do Search Console, sem verificar de novo. O Bing também alimenta o DuckDuckGo e o Yahoo.
@@ -38,7 +40,7 @@ Plano montado em 03/10/2026. Site: **https://roblox-account-manager-app.pages.de
 
 Cada lugar abaixo é um link de domínio forte. Nada de comprar link ou spam: o Google pune.
 
-- [ ] **GitHub, campo "Website" do repositório** (About → engrenagem → Website): o link mais valioso e o mais fácil.
+- [x] **GitHub, campo "Website" do repositório**: aponta para o site desde 03/10/2026 (antes apontava para as releases).
 - [x] README do repositório (botão e link do site, 03/10/2026).
 - [ ] **Artigo no dev.to**: acrescentar o link do site no fim, ao lado do repositório.
 - [ ] **AlternativeTo**: preencher o site oficial na página do RAM.
