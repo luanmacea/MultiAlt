@@ -59,3 +59,26 @@ describe("troca de nome sem quebrar quem já instalou", () => {
     expect(lib).toMatch(/\.app_name\("Roblox Account Manager"\)/);
   });
 });
+
+/**
+ * Ícone em branco na barra de tarefas depois da atualização 0.1.9 → 0.1.10
+ * (03/10/2026): o atalho do Menu Iniciar apontava para o `ProductIcon`, que o
+ * Windows Installer guarda numa pasta com o código do produto — e o código
+ * muda a cada versão. Como a atualização mantém os atalhos (para o ícone da
+ * área de trabalho não mudar de lugar), o atalho ficava apontando para um
+ * ícone apagado, e a barra de tarefas (que usa o atalho com o mesmo AppUserModel.ID)
+ * mostrava o ícone genérico. O atalho tem de tirar o ícone do próprio executável.
+ */
+describe("atalho do Menu Iniciar sobrevive à atualização", () => {
+  const wxs = readFileSync(path.resolve(__dirname, "..", "src-tauri", "wix-peruser.wxs"), "utf8");
+  const startMenu = wxs.slice(wxs.indexOf('<Shortcut Id="ApplicationStartMenuShortcut"'));
+  const shortcutTag = startMenu.slice(0, startMenu.indexOf(">"));
+
+  it("não usa o ícone guardado por versão do instalador", () => {
+    expect(shortcutTag).not.toMatch(/Icon="ProductIcon"/);
+  });
+
+  it("continua com o AppUserModel.ID do app", () => {
+    expect(startMenu.slice(0, startMenu.indexOf("</Shortcut>"))).toMatch(/System\.AppUserModel\.ID/);
+  });
+});
