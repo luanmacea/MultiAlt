@@ -135,8 +135,6 @@ window.RAM_I18N = {
     "fm.msi": "Instalador (.msi)",
     "fm.rec": "Recomendado",
     "fm.msi2": "A maioria das pessoas. Limpo no VirusTotal, sem administrador, se atualiza sozinho.",
-    "fm.exe": "Setup (.exe)",
-    "fm.exe2": "Se o .msi não funcionar para você. Alguns antivírus marcam esse formato de instalador por engano.",
     "fm.port": "Portátil (.exe)",
     "fm.port2": "Rodar de uma pasta ou pendrive. Nada para instalar, sem atalho, sem atualização automática.",
     "fm.get": "Baixar",

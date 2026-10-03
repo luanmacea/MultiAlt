@@ -25,4 +25,6 @@ O workflow [site.yml](../.github/workflows/site.yml) copia esta pasta para a bra
 
 Ativar uma vez: no GitHub, **Settings → Pages → Build and deployment → Source: Deploy from a branch → `gh-pages` / `(root)` → Save**.
 
-Endereço com nome próprio, ainda de graça: criar um projeto no Cloudflare Pages ligado a este repositório (sem comando de build, pasta de saída `site`) dá `<nome-escolhido>.pages.dev`. Todos os caminhos do site são relativos justamente para funcionar em qualquer um desses endereços.
+O endereço principal é **https://roblox-account-manager-app.pages.dev/** (Cloudflare Pages, grátis). O projeto `roblox-account-manager-app` do Cloudflare está ligado a este repositório: branch de produção `develop`, sem comando de build, pasta de saída `site`. Ele publica sozinho a cada push em `develop`, sem passar pelo workflow — o `site.yml` só alimenta o endereço do GitHub Pages.
+
+Os dois endereços servem o mesmo site; o `<link rel="canonical">` aponta para o do Cloudflare, para o buscador juntar os dois num resultado só. Todos os caminhos do site são relativos para funcionar nos dois.
