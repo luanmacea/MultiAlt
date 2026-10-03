@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -125,13 +125,11 @@ describe("AfkModeView — as duas abas", () => {
     base({ detectRunningGamePlace: vi.fn(async () => 606849621) });
     render(<AfkModeView variant="modal" targetUserIds={[1, 3]} adoptRunning />);
 
-    const targets = screen.getByText("Targets").closest("section") as HTMLElement;
-    await waitFor(() =>
-      expect(Array.from(targets.querySelectorAll("span.theme-soft")).map((el) => el.textContent)).toEqual([
-        "ann",
-        "cid",
-      ])
-    );
+    await userEvent.click(screen.getByRole("tab", { name: /Auto Rejoin/ }));
+    // Auto Rejoin: as mesmas contas marcadas, na lista das que têm cliente.
+    expect(screen.getByRole("button", { name: "ann" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "cid" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("radio", { name: /The game they are playing now/ })).toBeChecked();
 
     await userEvent.click(screen.getByRole("tab", { name: /AFK clicks/ }));
     expect(screen.getByRole("button", { name: "ann" })).toHaveAttribute("aria-pressed", "true");
@@ -161,6 +159,7 @@ describe("AfkModeDialog", () => {
   it("o jogo da abertura chega ao Auto Rejoin", async () => {
     base({ afkModeDialog: { tab: "rejoin", placeId: "606849621" } });
     render(<AfkModeDialog />);
-    await waitFor(() => expect(screen.getByPlaceholderText("Place ID")).toHaveValue("606849621"));
+    expect(screen.getByRole("radio", { name: /A game I pick/ })).toBeChecked();
+    expect(screen.getByPlaceholderText("Place ID")).toHaveValue("606849621");
   });
 });

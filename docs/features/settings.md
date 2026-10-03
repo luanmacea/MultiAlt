@@ -91,13 +91,13 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `RestrictedBackgroundStyle` | `warp` | Fundo animado da tela de senha: `bubbles`, `warp`, `warpLegacy`, `waves`. |
 | `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
 | `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
-| `BottingAutoShareLaunchFields` | `true` | Sincroniza Place/Job/Data entre sidebar e Auto Rejoin. |
-| `BottingDualPanelDialog` | `true` | Layout em dois painéis (New View) na aba Auto Rejoin do Modo AFK; `false` = Classic. |
+| `BottingAutoShareLaunchFields` | `true` | **Ignorada desde 03/10/2026**: o Auto Rejoin não tem mais os campos Place/Job/Data para sincronizar com a sidebar (o servidor é onde as contas estão ou um jogo dos Favoritos). Saiu da aba Miscellaneous; a chave fica no INI sem efeito. |
+| `BottingDualPanelDialog` | `true` | **Ignorada desde 03/10/2026**: a visão Classic saiu, a aba Auto Rejoin tem uma visão só. Saiu da aba Miscellaneous; a chave fica no INI sem efeito. |
 | `BottingDefaultIntervalMinutes` | `19` | Intervalo de ciclo. |
 | `BottingLaunchDelaySeconds` | `20` | Espaço entre launches. |
 | `BottingRetryMax` / `BottingRetryBaseSeconds` | `6` / `8` | Backoff de retry. |
-| `BottingPlayerGraceMinutes` | `15` | Carência para contas main (papel `player` no INI). |
-| `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do formulário de Auto Rejoin. |
+| `BottingPlayerGraceMinutes` | `15` | Carência para contas main (papel `player` no INI). Sem campo na tela desde 03/10/2026 (a tela não tem mais conta main); vai no Start com o valor do INI. |
+| `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do Auto Rejoin. Desde 03/10/2026 só `PlaceId`/`JobId` são gravados e lidos (o último jogo escolhido, gravado no Start com "um jogo que eu escolher"); `LaunchData`, `PlayerAccountId(s)` e `SelectedUserIds` ficam sem efeito. |
 | `EncryptionMethod` | `default` | `default` ou `password` (ver [accounts.md](accounts.md)). |
 | `EncryptionOnboardingState` | `pending` (novo) / `completed` (INI existente) | Onboarding de criptografia. |
 | `FirstRunWalkthroughState` | `pending` (novo) / `completed` (INI existente) | Walkthrough; vira `skipped`/`completed`. |

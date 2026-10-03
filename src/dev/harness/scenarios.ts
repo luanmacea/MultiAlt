@@ -612,6 +612,8 @@ function afkHandler(
 
 /** Place em que as contas com cliente aberto estão jogando (presença). */
 const BOTTING_WORLD_PLACE = 606849621;
+/** O outro jogo de `&games=mixed`. */
+const BOTTING_OTHER_PLACE = 920587237;
 
 /**
  * Auto Rejoin do lado do backend (`commands/botting.rs`), só o que a tela lê:
@@ -706,7 +708,10 @@ function bottingHandler(fallback: InvokeHandler, world: AfkWorld, active: boolea
       case "get_account_game_location": {
         const userId = Number(args?.userId);
         const inGame = world.withClient.has(userId);
-        return { userId, inGame, placeId: inGame ? BOTTING_WORLD_PLACE : null, jobId: null };
+        // `&games=mixed`: a 2ª conta com cliente está em outro jogo (Adopt Me!).
+        const elsewhere = params.get("games") === "mixed" && [...world.withClient][1] === userId;
+        const placeId = inGame ? (elsewhere ? BOTTING_OTHER_PLACE : BOTTING_WORLD_PLACE) : null;
+        return { userId, inGame, placeId, jobId: null };
       }
       case "start_botting_mode": {
         // `start_botting_mode`: Multi Roblox ligado e duas contas no mínimo.
@@ -1484,7 +1489,8 @@ const SCENARIOS: Record<string, () => void> = {
    * sem esperar 10 min, ligue com 1 min. O Marcar do modo clique acha a janela
    * da 1ª conta, no ponto 37,5% × 62,5%. Multi Roblox ligado: o Auto Rejoin do
    * Modo AFK liga, e a presença diz que as contas com cliente estão no place
-   * 606849621 (é o que o "Em jogo" → Modo AFK detecta).
+   * 606849621 (é o que o "Em jogo" → Modo AFK detecta; com `&games=mixed`, a 2ª conta com cliente está em outro
+   * jogo). Os favoritos são os do tour, um deles com servidor VIP salvo.
    */
   "afk-mode"() {
     settings.Afk = {
@@ -1495,6 +1501,8 @@ const SCENARIOS: Record<string, () => void> = {
       ClickY: "50",
     };
     settings.General = { ...settings.General, EnableMultiRbx: "true", BottingEnabled: "true" };
+    // Favoritos (um com servidor VIP salvo) para o "um jogo que eu escolher".
+    seedTourStorage();
     const world = afkWorld();
     setInvokeHandler(afkHandler(bottingHandler(baseHandler, world, false), world, null));
   },
