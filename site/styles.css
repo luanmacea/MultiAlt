@@ -325,6 +325,10 @@ th { text-align: left; font-weight: 600; color: var(--faint); font-size: 13.5px;
 td { padding: 16px 12px 16px 0; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--muted); }
 td b { color: var(--text); }
 tr:last-child td { border-bottom: 0; }
+/* Linha de formato sem arquivo na release (o portátil, enquanto o interruptor
+   PUBLISH_PORTABLE estiver desligado) fica escondida; a de cima vira a última. */
+.formats tr[hidden] { display: none; }
+tr:has(+ tr[hidden]:last-child) td { border-bottom: 0; }
 td.js-size { white-space: nowrap; font-variant-numeric: tabular-nums; }
 td:last-child { text-align: right; padding-right: 0; }
 .badge { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: 600; color: var(--st-green); background: rgba(16, 185, 129, .12); vertical-align: 1px; }
@@ -450,7 +454,7 @@ td:last-child { text-align: right; padding-right: 0; }
   .formats table, .formats tbody, .formats tr, .formats td { display: block; }
   .formats thead { display: none; }
   .formats tr { padding: 16px 0; border-bottom: 1px solid var(--line); }
-  .formats tr:last-child { border-bottom: 0; }
+  .formats tr:last-child, .formats tr:has(+ tr[hidden]:last-child) { border-bottom: 0; }
   .formats td { border: 0; padding: 2px 0; text-align: left !important; }
   .acc-state { min-width: 0; }
 }
