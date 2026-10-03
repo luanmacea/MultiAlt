@@ -3,7 +3,11 @@
 # RAM — Roblox Account Manager
 ![Roblox Account Manager](Images/Image5.png)
 
-**[⬇ Download the latest version](https://github.com/luanmacea/roblox-account-manager/releases/latest)**
+<p align="center">
+  <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/Roblox-Account-Manager-Setup.msi"><img src="Images/download-windows.svg" alt="Download for Windows (.msi installer)" width="420"></a>
+  <br>
+  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">other downloads (portable, full version)</a></sub>
+</p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
 
@@ -19,14 +23,15 @@ Found a bug or have an idea? Open an [issue](https://github.com/luanmacea/roblox
 Never generate an "rbx-player link" because someone asked you to — anyone holding that link can join any game (or even Roblox Studio) as you, spend your Robux or get your account banned.
 
 # Download
-Get it from the [GitHub Releases](https://github.com/luanmacea/roblox-account-manager/releases) page — and only from there.
+**[⬇ Download the installer (.msi)](https://github.com/luanmacea/roblox-account-manager/releases/latest/download/Roblox-Account-Manager-Setup.msi)** — that's all most people need. It comes out 0/75 on VirusTotal, installs for your user only (**no administrator prompt**) and updates itself.
 
-- **`.msi` (recommended):** 0/75 on VirusTotal, installs for your user only — **no administrator prompt** — and updates itself.
-- **`-setup.exe`:** the same app, also without admin. It isn't code-signed, so an antivirus may flag the installer format (false positive). Use it if the `.msi` doesn't work for you.
+Only download from this repository. The [releases page](https://github.com/luanmacea/roblox-account-manager/releases/latest) also has:
+
 - **Portable:** the app with nothing to install. No shortcut and no auto-update.
+- **Files with `_full-nexus-ws`:** the full version, with the local HTTP API and Nexus (opens local network ports). Only if you need them.
 - The `zz-…sig` files are for the auto-updater: you don't need them.
 
-Each format comes in two flavors: without `_full-nexus-ws` = **recommended** (opens no network port); with `_full-nexus-ws` = full version with the local HTTP API and Nexus.
+> Installed with the old `-setup.exe`? It is no longer published, so it won't update anymore. Uninstall it from Windows Settings → Apps and install the `.msi` once — your accounts and settings are kept.
 
 # Features
 

@@ -314,7 +314,11 @@ export const SUITES: Record<string, TestSuite> = {
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json)",
     rust: [],
-    front: [".github/scripts/release-version.test.mjs", "src/appIdentity.test.ts"],
+    front: [
+      ".github/scripts/release-version.test.mjs",
+      ".github/scripts/update-manifest-platforms.test.mjs",
+      "src/appIdentity.test.ts",
+    ],
   },
   scan: {
     description: "bun run scan: veredito do Defender e do VirusTotal por arquivo",
