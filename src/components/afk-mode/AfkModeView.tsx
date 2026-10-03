@@ -33,7 +33,8 @@ export interface AfkModeViewProps {
  */
 export function AfkModeView({
   variant,
-  initialTab = "rejoin",
+  // Os cliques AFK são o padrão e a primeira aba (pedido do dono, 03/10/2026).
+  initialTab = "clicks",
   targetUserIds,
   adoptRunning,
   initialPlaceId = null,
@@ -53,18 +54,18 @@ export function AfkModeView({
     running: boolean;
   }[] = [
     {
-      id: "rejoin",
-      label: t("Auto Rejoin"),
-      hint: t("Closes and reopens alt clients on a timer"),
-      Icon: Repeat,
-      running: !!store.bottingStatus?.active,
-    },
-    {
       id: "clicks",
       label: t("AFK clicks"),
       hint: t("Sends a key or a click so accounts do not go idle"),
       Icon: MousePointerClick,
       running: store.afkStatus?.active === true,
+    },
+    {
+      id: "rejoin",
+      label: t("Auto Rejoin"),
+      hint: t("Closes and reopens alt clients on a timer"),
+      Icon: Repeat,
+      running: !!store.bottingStatus?.active,
     },
   ];
 

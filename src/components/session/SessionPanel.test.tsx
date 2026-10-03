@@ -9,7 +9,7 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { SessionPanel } from "./SessionPanel";
-import { makeAccount, renderWithStore, setStore } from "../../test-utils/renderWithStore";
+import { makeAccount, makeBottingStatus, renderWithStore, setStore } from "../../test-utils/renderWithStore";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type {
@@ -404,7 +404,7 @@ describe("SessionPanel — Modo AFK com as contas em jogo", () => {
     await userEvent.click(screen.getByRole("button", { name: /AFK Mode/ }));
 
     expect(store.openAfkMode).toHaveBeenCalledWith({
-      tab: "rejoin",
+      tab: "clicks",
       targetUserIds: [1, 3],
       adoptRunning: true,
     });
@@ -419,7 +419,7 @@ describe("SessionPanel — Modo AFK com as contas em jogo", () => {
     await userEvent.click(screen.getByRole("button", { name: /AFK Mode/ }));
 
     expect(store.openAfkMode).toHaveBeenCalledWith({
-      tab: "rejoin",
+      tab: "clicks",
       targetUserIds: [1, 2],
       adoptRunning: true,
     });
@@ -442,6 +442,16 @@ describe("SessionPanel — Modo AFK com as contas em jogo", () => {
     await userEvent.click(screen.getByRole("button", { name: /AFK Mode/ }));
 
     expect(store.openAfkMode).toHaveBeenCalledWith(expect.objectContaining({ tab: "clicks" }));
+  });
+
+  /** Os cliques AFK são o padrão (pedido do dono, 03/10/2026); o Auto Rejoin só
+   * abre direto quando é ele que está rodando. */
+  it("com só o Auto Rejoin ligado, abre na aba dele", async () => {
+    const { store } = comRodando({ bottingStatus: makeBottingStatus({ active: true, userIds: [1, 2] }) });
+
+    await userEvent.click(screen.getByRole("button", { name: /AFK Mode/ }));
+
+    expect(store.openAfkMode).toHaveBeenCalledWith(expect.objectContaining({ tab: "rejoin" }));
   });
 
   it("não oferece o botão quando não há cliente rodando", () => {

@@ -1572,6 +1572,10 @@ describe("toasts and action status", () => {
       targetUserIds: [1, 2],
       adoptRunning: true,
     });
+
+    // Sem aba pedida, abre nos cliques AFK (a aba padrão).
+    act(() => result.current.openAfkMode({ targetUserIds: [1] }));
+    expect(result.current.afkModeDialog).toEqual({ tab: "clicks", targetUserIds: [1] });
   });
 });
 

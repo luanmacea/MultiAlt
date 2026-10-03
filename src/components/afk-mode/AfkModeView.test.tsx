@@ -74,6 +74,15 @@ describe("AfkModeView — as duas abas", () => {
     expect(screen.queryByRole("button", { name: "Start AFK Mode" })).not.toBeInTheDocument();
   });
 
+  /** Os cliques AFK vêm primeiro e são a aba padrão (pedido do dono, 03/10/2026). */
+  it("abre nos cliques AFK, que são a primeira aba", () => {
+    base();
+    render(<AfkModeView variant="page" />);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveAccessibleName(/AFK clicks/);
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+  });
+
   it("as setas do teclado trocam de aba", async () => {
     base();
     render(<AfkModeView variant="modal" initialTab="rejoin" />);

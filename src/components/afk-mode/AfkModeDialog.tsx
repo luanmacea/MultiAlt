@@ -18,7 +18,7 @@ export function AfkModeDialog() {
   const store = useStore();
   const state = store.afkModeDialog;
   const open = state !== null;
-  const lastRef = useRef<AfkModeDialogState>({ tab: "rejoin" });
+  const lastRef = useRef<AfkModeDialogState>({ tab: "clicks" });
   if (state) lastRef.current = state;
   const shown = lastRef.current;
   const { visible, closing, handleClose } = useModalClose(open, store.closeAfkMode);
