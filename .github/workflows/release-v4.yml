@@ -20,6 +20,9 @@ on:
     paths-ignore:
       - "**/*.md"
       - "**/*.MD"
+      # O site de divulgação sai pelo site.yml, sem release.
+      - "site/**"
+      - ".github/workflows/site.yml"
   workflow_dispatch:
     inputs:
       bump:

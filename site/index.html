@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="meta.title">Roblox Account Manager: every account in one window</title>
+  <meta name="description" data-i18n-attr="content:meta.description" content="Free, open-source Roblox account manager for Windows. Keep all your accounts signed in, run many Roblox clients at once, find the best server for your group and stay in game with Auto Rejoin and anti-AFK.">
+  <meta name="theme-color" content="#070b18">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="assets/icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Roblox Account Manager">
+  <meta property="og:description" content="Every Roblox account in one window. Free, open source, made for Windows.">
+  <meta property="og:image" content="https://luanmacea.github.io/roblox-account-manager/assets/icon.png">
+  <meta property="og:url" content="https://luanmacea.github.io/roblox-account-manager/">
+  <meta name="twitter:card" content="summary">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main" data-i18n="nav.skip">Skip to content</a>
+
+  <header class="nav" id="top">
+    <div class="wrap nav-row">
+      <a class="brand" href="#top" aria-label="Roblox Account Manager">
+        <img src="assets/icon.svg" alt="" width="30" height="30">
+        <span>Roblox Account Manager</span>
+      </a>
+      <nav class="nav-links" aria-label="Sections">
+        <a href="#features" data-i18n="nav.features">Features</a>
+        <a href="#download" data-i18n="nav.download">Download</a>
+        <a href="#safety" data-i18n="nav.safety">Safety</a>
+        <a href="#faq" data-i18n="nav.faq">FAQ</a>
+      </nav>
+      <div class="nav-tools">
+        <div class="lang" role="group" aria-label="Language">
+          <button type="button" data-lang="en" aria-pressed="true">EN</button>
+          <button type="button" data-lang="pt" aria-pressed="false">PT</button>
+        </div>
+        <a class="icon-link" href="https://github.com/luanmacea/roblox-account-manager" aria-label="GitHub">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.39-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+        </a>
+        <a class="btn btn-small" href="#download" data-i18n="nav.cta">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero: o app desenhado em HTML, abrindo as contas uma a uma -->
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="hero-tag"><span class="dot dot-green" aria-hidden="true"></span><span data-i18n="hero.tag">Free and open source for Windows</span></p>
+          <h1 data-i18n="hero.title">Every Roblox account in one window.</h1>
+          <p class="lede" data-i18n="hero.lede">Keep your main and all your alts signed in, open as many Roblox clients as you want at the same time, and keep them in the game while you’re away. No more logging out to switch accounts.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/roblox-account-manager/releases">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 5.5 10.4 4.5v7H3Zm0 13 7.4 1v-7H3Zm8.3 1.1L21 21V12.5h-9.7Zm0-15.2V11.5H21V3Z"/></svg>
+              <span class="btn-stack">
+                <span data-i18n="hero.cta">Download for Windows</span>
+                <small class="js-dl-meta" data-i18n="dl.metaFallback">Latest release on GitHub</small>
+              </span>
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/luanmacea/roblox-account-manager" data-i18n="hero.source">View the source</a>
+          </div>
+          <ul class="trust">
+            <li><span class="dot dot-blue" aria-hidden="true"></span><span data-i18n="hero.trust1">No administrator prompt</span></li>
+            <li><span class="dot dot-green" aria-hidden="true"></span><span data-i18n="hero.trust2">0/75 on VirusTotal (.msi)</span></li>
+            <li><span class="dot dot-purple" aria-hidden="true"></span><span data-i18n="hero.trust3">Updates itself</span></li>
+          </ul>
+        </div>
+
+        <div class="stage" aria-hidden="true">
+          <div class="clients" id="clients"></div>
+          <div class="app">
+            <div class="app-title">
+              <span>Roblox Account Manager</span>
+              <span class="app-winbtns"><i></i><i></i><i></i></span>
+            </div>
+            <div class="app-toolbar">
+              <span class="app-search">Filter accounts…</span>
+              <span class="app-chip">+ Add</span>
+            </div>
+            <div class="app-group">Main and alts <b id="mock-count">6</b></div>
+            <ul class="app-list" id="mock-list"></ul>
+            <div class="app-actions">
+              <span class="app-place">Place <b>7711635737</b></span>
+              <span class="app-join" id="mock-join">Join Server</span>
+            </div>
+            <div class="app-status">
+              <span><b id="mock-selected">6</b> selected</span>
+              <span><span class="dot dot-orange"></span> <b id="mock-launched">0</b> launched</span>
+              <span><span class="dot dot-green"></span> <b id="mock-ingame">0</b> in game</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Destaques -->
+    <section class="features" id="features">
+      <div class="wrap">
+        <header class="section-head">
+          <h2 data-i18n="feat.title">Made for people who play on more than one account</h2>
+          <p data-i18n="feat.lede">Launching, joining, staying in the server and keeping accounts safe: the parts that used to take a dozen clicks per account now take one.</p>
+        </header>
+
+        <article class="spot">
+          <div class="spot-copy">
+            <h3 data-i18n="s1.title">Run them all at once</h3>
+            <p data-i18n="s1.body">Turn on Multi Roblox and open as many clients as your PC can handle. Select a group of accounts and Multi Launch sends them into the same game, one at a time with a safe delay, while the session panel shows each launch as it happens.</p>
+            <ul class="ticks">
+              <li data-i18n="s1.t1">Launch queue you can cancel at any time</li>
+              <li data-i18n="s1.t2">Arrange every Roblox window in a grid across the monitors you choose</li>
+              <li data-i18n="s1.t3">Install Roblox builds side by side; finds Bloxstrap, Fishstrap and Voidstrap</li>
+            </ul>
+          </div>
+          <figure class="spot-visual grid-visual" aria-hidden="true">
+            <div class="monitor">
+              <div class="win"><span>Nebula_Main</span></div>
+              <div class="win"><span>FruitFarm_01</span></div>
+              <div class="win"><span>FruitFarm_02</span></div>
+              <div class="win"><span>FruitFarm_03</span></div>
+            </div>
+            <div class="monitor">
+              <div class="win"><span>FruitFarm_04</span></div>
+              <div class="win"><span>FruitFarm_05</span></div>
+              <div class="win"><span>TradeAlt</span></div>
+              <div class="win win-empty"></div>
+            </div>
+            <figcaption data-i18n="s1.cap">Window grid across two monitors</figcaption>
+          </figure>
+        </article>
+
+        <article class="spot spot-flip">
+          <div class="spot-copy">
+            <h3 data-i18n="s2.title">Land everyone in the same server</h3>
+            <p data-i18n="s2.body">The server finder scans the game’s servers and picks the one that suits your group. Best fit chooses the fullest server where everyone still fits, so nobody gets left in another lobby. Prefer it emptier, fuller, random or in a specific region? That’s one setting.</p>
+            <ul class="ticks">
+              <li data-i18n="s2.t1">Paste any link: game, private server, share link, invite or deep link</li>
+              <li data-i18n="s2.t2">See each account’s online friends and send the group to a friend’s server</li>
+              <li data-i18n="s2.t3">Favorite games with several private server links each</li>
+            </ul>
+          </div>
+          <figure class="spot-visual servers" aria-hidden="true">
+            <p class="servers-need"><span data-i18n="s2.need">Group of 4 accounts</span><span class="pips"><i></i><i></i><i></i><i></i></span></p>
+            <ol class="srv">
+              <li><span class="srv-name">Server A</span><span class="bar" style="--fill:95%"></span><span class="srv-n">19/20</span><span class="srv-tag no" data-i18n="s2.full">doesn’t fit</span></li>
+              <li><span class="srv-name">Server B</span><span class="bar" style="--fill:85%"></span><span class="srv-n">17/20</span><span class="srv-tag no" data-i18n="s2.full">doesn’t fit</span></li>
+              <li class="pick"><span class="srv-name">Server C</span><span class="bar" style="--fill:80%"><b style="--add:20%"></b></span><span class="srv-n">16/20</span><span class="srv-tag yes" data-i18n="s2.best">best fit</span></li>
+              <li><span class="srv-name">Server D</span><span class="bar" style="--fill:45%"></span><span class="srv-n">9/20</span><span class="srv-tag"></span></li>
+              <li><span class="srv-name">Server E</span><span class="bar" style="--fill:10%"></span><span class="srv-n">2/20</span><span class="srv-tag"></span></li>
+            </ol>
+          </figure>
+        </article>
+
+        <article class="spot">
+          <div class="spot-copy">
+            <h3 data-i18n="s3.title">Stay in the game while you’re away</h3>
+            <p data-i18n="s3.body">Two ways to keep accounts from being kicked for idling. AFK mode taps a key or clicks in each window every few minutes, so nobody leaves the spot they’re in. Auto Rejoin closes and relaunches your alts on a timer, and never touches your main accounts.</p>
+            <ul class="ticks">
+              <li data-i18n="s3.t1">The watcher closes a client that lost connection or ran low on memory</li>
+              <li data-i18n="s3.t2">FPS cap, graphics, priority and FastFlags, with separate profiles for mains and alts</li>
+              <li data-i18n="s3.t3">A live console explains every launch, rejoin and watcher action</li>
+            </ul>
+          </div>
+          <figure class="spot-visual lanes" aria-hidden="true">
+            <div class="lane">
+              <span class="lane-name" data-i18n="s3.main">Main account</span>
+              <span class="track"><span class="seg seg-main" style="left:0;width:100%"></span></span>
+            </div>
+            <div class="lane">
+              <span class="lane-name" data-i18n="s3.afk">AFK mode</span>
+              <span class="track"><span class="seg seg-main" style="left:0;width:100%"></span><i class="tick" style="left:12%"></i><i class="tick" style="left:32%"></i><i class="tick" style="left:52%"></i><i class="tick" style="left:72%"></i><i class="tick" style="left:92%"></i></span>
+            </div>
+            <div class="lane">
+              <span class="lane-name" data-i18n="s3.alt">Alt with Auto Rejoin</span>
+              <span class="track"><span class="seg seg-alt" style="left:0;width:30%"></span><span class="seg seg-alt" style="left:34%;width:30%"></span><span class="seg seg-alt" style="left:68%;width:32%"></span></span>
+            </div>
+            <div class="lane-legend">
+              <span><span class="dot dot-green"></span> <span data-i18n="s3.lg1">in game</span></span>
+              <span><i class="tick tick-key"></i> <span data-i18n="s3.lg2">key or click</span></span>
+              <span><span class="gap-key"></span> <span data-i18n="s3.lg3">rejoin</span></span>
+            </div>
+          </figure>
+        </article>
+
+        <article class="spot spot-flip">
+          <div class="spot-copy">
+            <h3 data-i18n="s4.title">Your accounts stay yours</h3>
+            <p data-i18n="s4.body">Accounts are always encrypted on disk, with your password or with a key tied to this PC. Before a launch, isolation clears cache and registry traces so one account doesn’t inherit another’s session. Backups of accounts, settings, scripts and themes are one click away.</p>
+            <ul class="ticks">
+              <li data-i18n="s4.t1">Add accounts by browser login, cookie, user:pass or the old RAM file</li>
+              <li data-i18n="s4.t2">Live status: online, in game, in Studio, expired session or idle for 20+ days</li>
+              <li data-i18n="s4.t3">Streamer mode hides usernames while you record</li>
+            </ul>
+          </div>
+          <figure class="spot-visual vault" aria-hidden="true">
+            <div class="file">
+              <div class="file-head"><span>AccountData.json</span><span class="lock"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3"/></svg><span data-i18n="s4.enc">encrypted</span></span></div>
+              <code class="cipher" id="cipher">x9QeL0v2…</code>
+            </div>
+            <ul class="legend">
+              <li><span class="dot dot-red"></span><span data-i18n="lg.invalid">invalid</span></li>
+              <li><span class="dot dot-amber"></span><span data-i18n="lg.idle">idle 20d+</span></li>
+              <li><span class="dot dot-orange"></span><span data-i18n="lg.launched">launched</span></li>
+              <li><span class="dot dot-blue"></span><span data-i18n="lg.online">online</span></li>
+              <li><span class="dot dot-green"></span><span data-i18n="lg.ingame">in game</span></li>
+              <li><span class="dot dot-purple"></span><span data-i18n="lg.studio">studio</span></li>
+            </ul>
+          </figure>
+        </article>
+      </div>
+    </section>
+
+    <!-- Lista completa -->
+    <section class="all" id="all-features">
+      <div class="wrap">
+        <header class="section-head">
+          <h2 data-i18n="all.title">Everything else that comes with it</h2>
+        </header>
+        <div class="groups">
+          <section class="group">
+            <h3><span class="dot dot-blue" aria-hidden="true"></span><span data-i18n="g1.title">Accounts</span></h3>
+            <dl>
+              <div><dt data-i18n="g1.a">Account creator</dt><dd data-i18n="g1.a2">Creates free accounts in the built-in browser. The app fills in the form, you solve the CAPTCHA.</dd></div>
+              <div><dt data-i18n="g1.b">Groups and ordering</dt><dd data-i18n="g1.b2">Drag and drop, groups, aliases, descriptions and custom fields that survive restarts.</dd></div>
+              <div><dt data-i18n="g1.c">Account utilities</dt><dd data-i18n="g1.c2">Display name, privacy, password and e-mail, PIN, outfits, sign out of other sessions, Quick Login.</dd></div>
+              <div><dt data-i18n="g1.d">Make Friends</dt><dd data-i18n="g1.d2">Friend all your accounts with each other, or all of them with one account.</dd></div>
+              <div><dt data-i18n="g1.e">Free avatars</dt><dd data-i18n="g1.e2">Build outfits from the free catalog and dress your accounts in them. It never spends Robux.</dd></div>
+            </dl>
+          </section>
+          <section class="group">
+            <h3><span class="dot dot-green" aria-hidden="true"></span><span data-i18n="g2.title">Playing</span></h3>
+            <dl>
+              <div><dt data-i18n="g2.a">Follow a player</dt><dd data-i18n="g2.a2">Type a username and the group joins whatever server that player is in.</dd></div>
+              <div><dt data-i18n="g2.b">Recent games and servers</dt><dd data-i18n="g2.b2">Jump back into what you played last without looking up the place ID again.</dd></div>
+              <div><dt data-i18n="g2.c">Session panel</dt><dd data-i18n="g2.c2">Open clients in one place: focus a window, close it, or cancel launches still in line.</dd></div>
+              <div><dt data-i18n="g2.d">Region filter</dt><dd data-i18n="g2.d2">Only join servers in the region you pick, and skip the ones you can’t enter.</dd></div>
+            </dl>
+          </section>
+          <section class="group">
+            <h3><span class="dot dot-orange" aria-hidden="true"></span><span data-i18n="g3.title">Automation</span></h3>
+            <dl>
+              <div><dt data-i18n="g3.a">Scripts</dt><dd data-i18n="g3.a2">JavaScript automation inside the manager, sandboxed, with permissions per script.</dd></div>
+              <div><dt data-i18n="g3.b">Local Web API and Nexus</dt><dd data-i18n="g3.b2">An HTTP API and a WebSocket server for external tools and Nexus.lua, in the full version.</dd></div>
+              <div><dt data-i18n="g3.c">Optimization</dt><dd data-i18n="g3.c2">EcoQoS, CPU and memory limits and window size, so twenty clients don’t melt your PC.</dd></div>
+            </dl>
+          </section>
+          <section class="group">
+            <h3><span class="dot dot-purple" aria-hidden="true"></span><span data-i18n="g4.title">The app</span></h3>
+            <dl>
+              <div><dt data-i18n="g4.a">Themes</dt><dd data-i18n="g4.a2">A theme editor for colors, buttons and fonts, with presets you can export.</dd></div>
+              <div><dt data-i18n="g4.b">Languages</dt><dd data-i18n="g4.b2">English and Portuguese, with German partly done.</dd></div>
+              <div><dt data-i18n="g4.c">Light on your PC</dt><dd data-i18n="g4.c2">Rewritten in Rust and TypeScript with Tauri. No .NET and no VC++ to install.</dd></div>
+              <div><dt data-i18n="g4.d">Safe video mode</dt><dd data-i18n="g4.d2">If the window ever opens blank, the app recovers on its own. Hold Shift while opening to force it.</dd></div>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- Download -->
+    <section class="download" id="download">
+      <div class="wrap">
+        <header class="section-head">
+          <h2 data-i18n="dl.title">Up and running in three steps</h2>
+          <p><span data-i18n="dl.lede">Every file comes straight from the project’s GitHub releases.</span> <span class="js-release-line"></span></p>
+        </header>
+
+        <ol class="steps">
+          <li>
+            <h3 data-i18n="st1.title">Download the installer</h3>
+            <p data-i18n="st1.body">The .msi is the one to pick. It installs for your Windows user only and updates itself when a new version comes out.</p>
+            <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/roblox-account-manager/releases">
+              <span class="btn-stack"><span data-i18n="st1.cta">Download .msi</span><small class="js-dl-meta" data-i18n="dl.metaFallback">Latest release on GitHub</small></span>
+            </a>
+          </li>
+          <li>
+            <h3 data-i18n="st2.title">Open it</h3>
+            <p data-i18n="st2.body">No administrator prompt. The app isn’t code-signed yet, so if Windows SmartScreen shows “Windows protected your PC”, choose More info and then Run anyway.</p>
+          </li>
+          <li>
+            <h3 data-i18n="st3.title">Add your accounts</h3>
+            <p data-i18n="st3.body">Click Add and sign in through the browser, or paste a cookie. To run several clients at once, turn on Multi Roblox in Settings, General, with Roblox closed.</p>
+          </li>
+        </ol>
+
+        <div class="formats">
+          <div class="formats-head">
+            <h3 data-i18n="fm.title">All download options</h3>
+            <label class="switch">
+              <input type="checkbox" id="full-toggle">
+              <span class="switch-ui" aria-hidden="true"></span>
+              <span data-i18n="fm.full">Full version with local Web API and Nexus</span>
+            </label>
+          </div>
+          <p class="formats-note" id="full-note" data-i18n="fm.note">The standard version opens no network port on your PC. Pick the full version only if you use Nexus.lua or the local HTTP API.</p>
+          <table>
+            <thead>
+              <tr><th data-i18n="fm.c1">Format</th><th data-i18n="fm.c2">Best for</th><th data-i18n="fm.c3">Size</th><th><span class="sr" data-i18n="fm.c4">Link</span></th></tr>
+            </thead>
+            <tbody>
+              <tr class="rec">
+                <td><b data-i18n="fm.msi">Installer (.msi)</b> <span class="badge" data-i18n="fm.rec">Recommended</span></td>
+                <td data-i18n="fm.msi2">Most people. Clean on VirusTotal, no admin, auto-update.</td>
+                <td class="js-size" data-kind="msi">–</td>
+                <td><a class="dl-link js-dl" data-kind="msi" href="https://github.com/luanmacea/roblox-account-manager/releases" data-i18n="fm.get">Download</a></td>
+              </tr>
+              <tr>
+                <td><b data-i18n="fm.exe">Setup (.exe)</b></td>
+                <td data-i18n="fm.exe2">If the .msi doesn’t work for you. Some antivirus apps flag this installer format by mistake.</td>
+                <td class="js-size" data-kind="setup">–</td>
+                <td><a class="dl-link js-dl" data-kind="setup" href="https://github.com/luanmacea/roblox-account-manager/releases" data-i18n="fm.get">Download</a></td>
+              </tr>
+              <tr>
+                <td><b data-i18n="fm.port">Portable (.exe)</b></td>
+                <td data-i18n="fm.port2">Running from a folder or USB stick. Nothing to install, no shortcut, no auto-update.</td>
+                <td class="js-size" data-kind="portable">–</td>
+                <td><a class="dl-link js-dl" data-kind="portable" href="https://github.com/luanmacea/roblox-account-manager/releases" data-i18n="fm.get">Download</a></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="req" data-i18n="fm.req">Needs Windows 10 or 11, 64-bit. macOS support isn’t ready yet. The files that start with zz- are for the auto-updater, you don’t need them.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Segurança -->
+    <section class="safety" id="safety">
+      <div class="wrap safety-grid">
+        <header class="section-head">
+          <h2 data-i18n="sf.title">Play it safe</h2>
+          <p data-i18n="sf.lede">A tool that holds your accounts should be one you can check. Here’s what to know.</p>
+        </header>
+        <div class="safety-items">
+          <div class="alert">
+            <h3 data-i18n="sf.a">Never make an rbx-player link because someone asked</h3>
+            <p data-i18n="sf.a2">Anyone holding that link can join any game, or even Roblox Studio, as you. They can spend your Robux or get your account banned.</p>
+          </div>
+          <div>
+            <h3 data-i18n="sf.b">Download only from GitHub</h3>
+            <p data-i18n="sf.b2">Every button on this page points to the official GitHub releases. Copies posted anywhere else may be modified.</p>
+          </div>
+          <div>
+            <h3 data-i18n="sf.c">The code is public</h3>
+            <p data-i18n="sf.c2">Anyone can read it, audit it and build it themselves. Every release is scanned on VirusTotal and Windows Defender before it goes out.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="faq" id="faq">
+      <div class="wrap faq-grid">
+        <header class="section-head">
+          <h2 data-i18n="fq.title">Questions</h2>
+          <p><span data-i18n="fq.lede">Something not covered here?</span> <a href="https://github.com/luanmacea/roblox-account-manager/issues" data-i18n="fq.issue">Open an issue on GitHub</a></p>
+        </header>
+        <div class="faq-list">
+          <details>
+            <summary data-i18n="q1">Why does my antivirus flag it?</summary>
+            <p data-i18n="a1">The app isn’t code-signed, and tools that launch game processes are a common false positive for antivirus models that learn from patterns. The .msi comes out clean on VirusTotal. If you’re unsure, read the code or build it yourself.</p>
+          </details>
+          <details>
+            <summary data-i18n="q2">How do I turn on Multi Roblox?</summary>
+            <p data-i18n="a2">Close Roblox, then go to Settings, General and turn on Multi Roblox.</p>
+          </details>
+          <details>
+            <summary data-i18n="q3">Why is Multi Roblox off by default?</summary>
+            <p data-i18n="a3">Roblox’s anti-cheat team has said running several clients may be seen as suspicious behavior. Turn it on at your own risk.</p>
+          </details>
+          <details>
+            <summary data-i18n="q4">Can I get banned for using it?</summary>
+            <p data-i18n="a4">The manager doesn’t break Roblox’s Terms of Service, but some games forbid alt accounts. Check the rules of the game you play.</p>
+          </details>
+          <details>
+            <summary data-i18n="q5">How do I back up my accounts?</summary>
+            <p data-i18n="a5">Settings, Misc, Data, Backups, Manage. The backup includes the device key, so if you don’t set a password in the app, anyone with the file can open your accounts. Set a password before keeping backups in the cloud.</p>
+          </details>
+          <details>
+            <summary data-i18n="q6">The window opened blank. What now?</summary>
+            <p data-i18n="a6">The app reopens itself without video acceleration after 25 seconds. You can force that by holding Shift while it opens. If it’s still blank, repair Microsoft Edge WebView2 Runtime in Windows Settings, Apps, restart and update your graphics driver.</p>
+          </details>
+          <details>
+            <summary data-i18n="q7">Does it work on Mac?</summary>
+            <p data-i18n="a7">Not yet. macOS support is partial and there’s no Mac download for now.</p>
+          </details>
+          <details>
+            <summary data-i18n="q8">Is it really free?</summary>
+            <p data-i18n="a8">Yes. No paid tier, no ads, no account to create. It’s licensed under GPL-3.0.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="closer">
+      <div class="wrap closer-row">
+        <img src="assets/icon.svg" alt="" width="64" height="64">
+        <h2 data-i18n="cl.title">Ready when you are.</h2>
+        <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/roblox-account-manager/releases">
+          <span class="btn-stack"><span data-i18n="hero.cta">Download for Windows</span><small class="js-dl-meta" data-i18n="dl.metaFallback">Latest release on GitHub</small></span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-row">
+      <p data-i18n="ft.credits">Built on the work of <a href="https://github.com/ic3w0lf22">ic3w0lf22</a>, who created the original Roblox Account Manager, and <a href="https://github.com/niccdevs">niccdevs</a>, who maintained it afterwards.</p>
+      <p data-i18n="ft.legal">Not affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.</p>
+      <p class="foot-links">
+        <a href="https://github.com/luanmacea/roblox-account-manager">GitHub</a>
+        <a href="https://github.com/luanmacea/roblox-account-manager/releases" data-i18n="ft.releases">Releases</a>
+        <a href="https://github.com/luanmacea/roblox-account-manager/issues" data-i18n="ft.issues">Report a bug</a>
+        <a href="https://github.com/luanmacea/roblox-account-manager/blob/main/LICENSE">GPL-3.0</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="i18n.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
