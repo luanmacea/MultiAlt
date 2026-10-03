@@ -290,16 +290,7 @@ async fn launch_account_for_cycle(
     )
     .await;
 
-    {
-        let settings = app.state::<SettingsStore>();
-        windows::refresh_production_version().await;
-        patch_client_settings_for_launch(
-            &settings,
-            launch_profile,
-            account_overrides.as_ref(),
-            Some(&client_dir),
-        );
-    }
+    windows::refresh_production_version().await;
 
     let tracker = windows::tracker();
     if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -346,6 +337,19 @@ async fn launch_account_for_cycle(
             async move { resolve_private_join(&cookie, place_id, &resolved_launch).await }
         })
         .await?
+    };
+
+    // Último passo antes do spawn: os clientes do Auto Rejoin (a conta
+    // principal inclusive) reescrevem o XML compartilhado enquanto esta conta
+    // espera o ticket — que aqui pode levar 4 tentativas com espera de 429.
+    let resolved_window = {
+        let settings = app.state::<SettingsStore>();
+        patch_client_settings_for_launch(
+            &settings,
+            launch_profile,
+            account_overrides.as_ref(),
+            Some(&client_dir),
+        )
     };
 
     let pids_before = windows::get_roblox_pids();
@@ -414,6 +418,16 @@ async fn launch_account_for_cycle(
         let _ = tracker.kill_for_user_async(user_id).await;
         return Err("Roblox authentication failed (429) while joining".into());
     }
+
+    spawn_client_window_enforcement(
+        pid,
+        client_window_plan(ClientWindowInputs {
+            fullscreen: resolved_window.fullscreen,
+            window_size: resolved_window.window_size,
+            start_minimized,
+            saved_rect: None,
+        }),
+    );
 
     if start_minimized {
         let baseline = pids_before.clone();

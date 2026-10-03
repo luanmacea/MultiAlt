@@ -114,9 +114,9 @@ pub(crate) enum GraphicsQuality {
 /// versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows —
 /// os dois são **globais**. "Por conta" funciona porque a fila de launch é
 /// sequencial e o patch roda imediatamente antes de cada spawn; não é
-/// isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o
-/// Roblox reescreve o XML e o valor vaza para a próxima conta que abrir sem
-/// exceção própria.
+/// isolamento de verdade. Um cliente aberto ainda pode reescrever o XML antes
+/// de o novo o ler — por isso o tamanho da janela é conferido pelo PID depois
+/// do spawn (`spawn_client_window_enforcement`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct AccountClientOverrides {
     pub max_fps: Option<u32>,
@@ -199,6 +199,118 @@ pub(crate) fn account_client_overrides(
         return None;
     }
     Some(overrides)
+}
+
+// ── a janela do cliente, conferida pelo PID ──────────────────────────────
+//
+// O `StartScreenSize` do `GlobalBasicSettings_13.xml` é **um arquivo para todos
+// os clientes**. O patch roda logo antes do spawn, mas um cliente já aberto
+// (a conta principal com a exceção dela, por exemplo) pode reescrever o XML
+// entre o patch e o instante em que o cliente novo o lê — e a alt abria com o
+// tamanho da principal (03/10/2026). O XML continua sendo gravado (é o que faz
+// o cliente já nascer no tamanho certo na maioria das vezes), mas quem garante
+// é a conferência depois do spawn: achada a janela do PID novo, ela recebe o
+// tamanho resolvido para ESTA conta.
+
+/// O que o launch resolveu para a janela desta conta — a mesma coisa que foi
+/// gravada no XML.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ClientWindowInputs {
+    /// `Some(true)` = tela cheia (exceção da conta).
+    pub fullscreen: Option<bool>,
+    /// O tamanho gravado no `StartScreenSize` (exceção da conta, senão o
+    /// perfil global com `OverrideClientWindowSize`).
+    pub window_size: Option<(u32, u32)>,
+    pub start_minimized: bool,
+    /// O retângulo que o Watcher salvou (`SaveWindowPositions`); só o launch
+    /// avulso o restaura.
+    pub saved_rect: Option<(i32, i32, i32, i32)>,
+}
+
+/// O que fazer com a janela quando ela aparecer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ClientWindowPlan {
+    /// Tamanho a impor, no mesmo sentido do `StartScreenSize`.
+    pub size: Option<(u32, u32)>,
+    /// Posição (e tamanho, se `size` não vier) a restaurar.
+    pub saved_rect: Option<(i32, i32, i32, i32)>,
+}
+
+impl ClientWindowPlan {
+    pub fn is_noop(&self) -> bool {
+        self.size.is_none() && self.saved_rect.is_none()
+    }
+}
+
+/// O piso que `rewrite_global_basic_settings` aplica ao `StartScreenSize`: o
+/// tamanho imposto na janela é o mesmo que o XML recebeu.
+const MIN_CLIENT_WINDOW: (u32, u32) = (320, 240);
+
+pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan {
+    // Tela cheia e começar minimizado são pedidos do usuário que mexer na
+    // janela desfaria.
+    if inputs.start_minimized || inputs.fullscreen == Some(true) {
+        return ClientWindowPlan::default();
+    }
+    ClientWindowPlan {
+        size: inputs
+            .window_size
+            .map(|(w, h)| (w.max(MIN_CLIENT_WINDOW.0), h.max(MIN_CLIENT_WINDOW.1))),
+        saved_rect: inputs.saved_rect,
+    }
+}
+
+/// O que o patch resolveu para a janela, devolvido para a conferência depois
+/// do spawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ResolvedClientWindow {
+    pub fullscreen: Option<bool>,
+    pub window_size: Option<(u32, u32)>,
+}
+
+/// Espera a janela principal do PID aparecer e aplica o plano, sem prender o
+/// launch (roda numa task à parte). A janela é procurada por até 45 s — o
+/// mesmo teto da restauração de posição do Watcher.
+#[cfg(target_os = "windows")]
+pub(crate) fn spawn_client_window_enforcement(pid: u32, plan: ClientWindowPlan) {
+    if plan.is_noop() {
+        return;
+    }
+    tokio::spawn(async move {
+        use platform::windows;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+        let found = loop {
+            if windows::find_main_window(pid).is_some() {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline || !windows::is_roblox_pid_running(pid) {
+                break false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        };
+        if !found {
+            return;
+        }
+        // O cliente ainda se dimensiona logo depois de mostrar a janela; medir
+        // antes disso confunde a borda com o tamanho.
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        // Uma aplicação e duas conferências: se o cliente redimensionar a
+        // janela por conta própria logo depois, ela volta ao plano.
+        for attempt in 0..3 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+            }
+            let Some(hwnd) = windows::find_main_window(pid) else {
+                return;
+            };
+            let first_look = attempt == 0;
+            if windows::enforce_client_window(hwnd, plan.size, plan.saved_rect, first_look)
+                == windows::WindowEnforcement::Skipped
+            {
+                return;
+            }
+        }
+    });
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -455,7 +567,7 @@ pub(crate) fn patch_client_settings_for_launch(
     profile: LaunchClientProfile,
     account: Option<&AccountClientOverrides>,
     base_path: Option<&str>,
-) {
+) -> ResolvedClientWindow {
     use platform::windows;
 
     let effective_profile = effective_launch_profile(settings, profile);
@@ -486,6 +598,10 @@ pub(crate) fn patch_client_settings_for_launch(
         overrides.fast_flags.as_ref(),
         overrides.from_account,
     );
+    ResolvedClientWindow {
+        fullscreen: overrides.fullscreen,
+        window_size: overrides.window_size,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -2389,5 +2505,160 @@ mod launch_shared_helper_tests {
         assert_eq!(payload.started_at_ms, None);
         assert!(payload.accounts.is_empty());
         assert!(payload.user_ids.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod client_window_plan_tests {
+    use super::*;
+
+    fn inputs() -> ClientWindowInputs {
+        ClientWindowInputs::default()
+    }
+
+    /// O bug de 03/10/2026: a alt abria com o tamanho da conta principal porque
+    /// o XML é compartilhado e o cliente da principal o reescrevia antes de a
+    /// alt ler. O tamanho resolvido para ESTA conta passa a ser imposto na
+    /// janela dela, pelo PID.
+    #[test]
+    fn the_size_resolved_for_this_account_is_enforced_on_its_window() {
+        let plan = client_window_plan(ClientWindowInputs {
+            window_size: Some((520, 420)),
+            ..inputs()
+        });
+        assert_eq!(plan.size, Some((520, 420)));
+        assert!(!plan.is_noop());
+    }
+
+    #[test]
+    fn the_enforced_size_has_the_same_floor_the_xml_gets() {
+        let plan = client_window_plan(ClientWindowInputs {
+            window_size: Some((100, 50)),
+            ..inputs()
+        });
+        assert_eq!(plan.size, Some((320, 240)));
+    }
+
+    #[test]
+    fn without_a_size_nothing_is_enforced() {
+        let plan = client_window_plan(inputs());
+        assert_eq!(plan.size, None);
+        assert!(plan.is_noop());
+    }
+
+    #[test]
+    fn a_fullscreen_launch_is_left_alone() {
+        let plan = client_window_plan(ClientWindowInputs {
+            fullscreen: Some(true),
+            window_size: Some((1920, 1080)),
+            saved_rect: Some((0, 0, 800, 600)),
+            ..inputs()
+        });
+        assert!(plan.is_noop(), "{plan:?}");
+    }
+
+    #[test]
+    fn an_explicitly_windowed_launch_still_gets_its_size() {
+        let plan = client_window_plan(ClientWindowInputs {
+            fullscreen: Some(false),
+            window_size: Some((800, 600)),
+            ..inputs()
+        });
+        assert_eq!(plan.size, Some((800, 600)));
+    }
+
+    /// Começar minimizado é pedido do usuário: mexer na janela a traria de
+    /// volta, ou brigaria com o `minimize_new_roblox_windows`.
+    #[test]
+    fn a_start_minimized_launch_is_left_alone() {
+        let plan = client_window_plan(ClientWindowInputs {
+            window_size: Some((520, 420)),
+            start_minimized: true,
+            saved_rect: Some((10, 10, 520, 420)),
+            ..inputs()
+        });
+        assert!(plan.is_noop(), "{plan:?}");
+    }
+
+    #[test]
+    fn the_saved_window_rectangle_is_carried_into_the_plan() {
+        let plan = client_window_plan(ClientWindowInputs {
+            saved_rect: Some((-1910, 20, 800, 600)),
+            ..inputs()
+        });
+        assert_eq!(plan.saved_rect, Some((-1910, 20, 800, 600)));
+        assert!(!plan.is_noop());
+    }
+}
+
+/// A ordem dentro dos três caminhos de launch do Windows. Não dá para rodar o
+/// launch num teste (precisa de Roblox, de rede e de conta), então o teste lê o
+/// próprio código: o patch do XML compartilhado tem de ser o último passo
+/// antes do spawn — depois do fechamento gracioso e das idas à rede, que são
+/// justamente o intervalo em que um cliente já aberto reescrevia o arquivo — e
+/// a janela tem de ser conferida pelo PID depois que ele aparece.
+#[cfg(test)]
+mod client_window_order_tests {
+    /// Só o código de produção, sem os módulos de teste do fim do arquivo.
+    fn producao(tudo: &'static str) -> &'static str {
+        let fim = tudo.find("\n#[cfg(test)]").unwrap_or(tudo.len());
+        &tudo[..fim]
+    }
+
+    /// Da assinatura até a `}` de coluna zero que fecha a função (`\n` ou
+    /// `\r\n`: a CI faz checkout com CRLF).
+    fn corpo(fonte: &'static str, assinatura: &str) -> &'static str {
+        let inicio = fonte
+            .find(assinatura)
+            .unwrap_or_else(|| panic!("não achei `{assinatura}`"));
+        let resto = &fonte[inicio..];
+        let fim = resto
+            .match_indices("\n}")
+            .map(|(i, _)| i)
+            .find(|&i| matches!(resto.as_bytes().get(i + 2), Some(b'\n' | b'\r')))
+            .unwrap_or(resto.len());
+        &resto[..fim]
+    }
+
+    fn pos(corpo: &str, trecho: &str, onde: &str) -> usize {
+        corpo
+            .find(trecho)
+            .unwrap_or_else(|| panic!("`{trecho}` não aparece em {onde}"))
+    }
+
+    fn caminhos() -> [(&'static str, &'static str); 3] {
+        let launch = producao(include_str!("launch.rs"));
+        let botting = producao(include_str!("botting.rs"));
+        [
+            ("launch_roblox_windows", corpo(launch, "async fn launch_roblox_windows(")),
+            ("launch_multiple", corpo(launch, "async fn launch_multiple(")),
+            ("launch_account_for_cycle", corpo(botting, "async fn launch_account_for_cycle(")),
+        ]
+    }
+
+    #[test]
+    fn the_shared_xml_is_patched_right_before_the_spawn() {
+        for (nome, corpo) in caminhos() {
+            let patch = pos(corpo, "patch_client_settings_for_launch(", nome);
+            for antes in ["kill_for_user_graceful_async", "get_auth_ticket", "resolve_private_join("] {
+                assert!(
+                    pos(corpo, antes, nome) < patch,
+                    "{nome}: o patch do XML vem antes de `{antes}` — um cliente aberto reescreve o arquivo nesse intervalo"
+                );
+            }
+            assert!(
+                patch < pos(corpo, "let pids_before", nome),
+                "{nome}: o patch do XML tem de vir antes do spawn"
+            );
+        }
+    }
+
+    #[test]
+    fn the_window_is_enforced_by_pid_after_it_shows_up() {
+        for (nome, corpo) in caminhos() {
+            let pid = pos(corpo, "wait_for_new_roblox_pid(", nome);
+            let enforce = pos(corpo, "spawn_client_window_enforcement(", nome);
+            assert!(pid < enforce, "{nome}: a janela só é conferida depois do PID");
+        }
     }
 }

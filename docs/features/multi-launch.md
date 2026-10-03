@@ -29,12 +29,13 @@ Lançar várias contas, **uma por vez e em sequência**, no mesmo place/Job ID, 
    4. Guarda de versão (`version_guard_blocks`, com o toggle `Versions.AllowLaunchOnOpenVersion` lido a cada conta — ver [launch.md](launch.md)): se houver cliente/pendente em outra versão → `launch-progress` com `error: "version-conflict"`, próxima conta (sem espera). O código fica no evento; a entrada da fila é marcada `Failed` com a **frase** de `version_conflict_message` (com as versões que impedem aquela conta), porque o painel de sessão desenha `entry.error` cru.
    5. Emite `launch-progress {userId, index, total}`.
    5.1. `shuffleJob` ligado e Job ID vazio: **esta conta** busca a lista de servidores públicos do place e sorteia o seu (`pick_shuffled_public_job`), logando `launch-log` `target` com o Job ID escolhido. Cada conta sorteia o seu — o lote se espalha em vez de entrar todo no mesmo servidor.
-   6. Multi Roblox + `refresh_production_version().await` + patch do `ClientAppSettings.json` **na pasta da versão desta conta** (`Some(&acct_base_path)`, resolvida no passo 3 — ver [launch.md](launch.md#onde-o-clientappsettingsjson-é-gravado)).
+   6. Multi Roblox + `refresh_production_version().await` + resolução da pasta de onde o cliente vai abrir (`client_dir`, ver [launch.md](launch.md#onde-o-clientappsettingsjson-é-gravado)).
    7. `AutoCloseLastProcess`: se não conseguir fechar o cliente anterior, espera 2 s e pula.
    8. Auth ticket; erro → loga, marca moderada se for o caso, espera 2 s, pula.
    9. `resolve_private_join`; erro → espera 2 s, pula.
    10. Se `is_launch_cancelled()` → sai do loop (checagem logo antes do spawn: "Close All Roblox" clicado durante o auth/resolução não abre mais um cliente).
-   11. Spawn (old join — pasta do catálogo ou `default_player_dir` quando sem versão do catálogo — ou protocolo), espera PID (12 s ou 180 s), rastreia, aplica perfil pós-launch e minimização.
+   10.1. Patch do `ClientAppSettings.json` (na pasta do passo 6) e do `GlobalBasicSettings_13.xml` — **o último passo antes do spawn**. Até 03/10/2026 ele vinha no passo 6, e os clientes que o lote já tinha aberto reescreviam o XML durante o fechamento/ticket: a alt abria com o tamanho de janela da conta principal. Ver [launch.md](launch.md#tamanho-da-janela-conferido-pelo-pid).
+   11. Spawn (old join — pasta do catálogo ou `default_player_dir` quando sem versão do catálogo — ou protocolo), espera PID (12 s ou 180 s), rastreia, aplica perfil pós-launch, dispara a conferência da janela pelo PID (`spawn_client_window_enforcement`, numa task à parte — a fila não espera) e a minimização.
    12. Se não é a última conta: espera (ver regras de espaçamento).
 6. Ao fim (ou cancelamento) emite `launch-complete`.
 
