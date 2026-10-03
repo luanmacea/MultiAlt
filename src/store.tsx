@@ -19,6 +19,7 @@ import type {
   FriendLinkState,
   LaunchQueuePayload,
   ServerPreference,
+  UnidentifiedClient,
   VaultKeyWarning,
 } from "./types";
 import { playAfkBeep } from "./utils/afkBeep";
@@ -131,6 +132,8 @@ interface RunningInstanceEntry {
   userId?: number;
   user_id?: number;
   pid?: number;
+  /** Aberto fora do app (pelo site) e reconhecido depois. */
+  adopted?: boolean;
 }
 
 interface OptimizationWarningPayload {
@@ -444,6 +447,14 @@ export interface StoreValue {
   avatarUrls: Map<number, string>;
   presenceByUserId: Map<number, number>;
   launchedByProgram: Set<number>;
+  /** Contas de `launchedByProgram` cujo cliente foi aberto fora do app (pelo site). */
+  adoptedClients: Set<number>;
+  /** Clientes abertos fora do app que o backend não reconheceu sozinho. */
+  unidentifiedClients: UnidentifiedClient[];
+  /** Diz ao app de quem é um cliente não identificado (não fecha nada). */
+  identifyExternalClient: (pid: number, userId: number) => Promise<boolean>;
+  /** Traz para a frente a janela de um cliente pelo PID. */
+  focusClientWindow: (pid: number) => Promise<boolean>;
 
   joinServer: (userId: number, target?: LaunchTarget) => Promise<LaunchAttempt>;
   launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
@@ -749,6 +760,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [avatarUrls, setAvatarUrls] = useState<Map<number, string>>(new Map());
   const [presenceByUserId, setPresenceByUserId] = useState<Map<number, number>>(new Map());
   const [launchedByProgram, setLaunchedByProgram] = useState<Set<number>>(new Set());
+  const [adoptedClients, setAdoptedClients] = useState<Set<number>>(new Set());
+  const [unidentifiedClients, setUnidentifiedClients] = useState<UnidentifiedClient[]>([]);
+  // O efeito do polling registra aqui o seu refresh, para identificar um
+  // cliente refletir na hora em vez de esperar o próximo tique.
+  const refreshRunningRef = useRef<() => Promise<void>>(async () => {});
   const [error, setError] = useState<string | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -1665,6 +1681,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setError(String(e));
       setActionStatusMessage(tr("Failed to close Roblox: {{error}}", { error: String(e) }), "error", 5000);
     }
+  }
+
+  async function identifyExternalClient(pid: number, userId: number): Promise<boolean> {
+    const ok = await invoke<boolean>("identify_external_client", { pid, userId });
+    await refreshRunningRef.current();
+    return ok;
+  }
+
+  async function focusClientWindow(pid: number): Promise<boolean> {
+    return await invoke<boolean>("focus_client_window", { pid });
   }
 
   async function focusRobloxClient(userId: number): Promise<boolean> {
@@ -2798,19 +2824,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const rows = await invoke<RunningInstanceEntry[]>("get_running_instances");
         const next = new Set<number>();
+        const adopted = new Set<number>();
         for (const row of rows) {
           const userId = row.userId ?? row.user_id;
           if (typeof userId === "number") {
             next.add(userId);
+            if (row.adopted) adopted.add(userId);
           }
         }
         if (!cancelled) {
           setLaunchedByProgram(next);
+          setAdoptedClients(adopted);
         }
       } catch {
       }
+      // Separado: um backend sem o comando não pode apagar a lista acima.
+      try {
+        const unidentified = await invoke<UnidentifiedClient[]>("get_unidentified_clients");
+        if (!cancelled) setUnidentifiedClients(Array.isArray(unidentified) ? unidentified : []);
+      } catch {
+        if (!cancelled) setUnidentifiedClients([]);
+      }
     };
 
+    refreshRunningRef.current = refreshRunningInstances;
     refreshRunningInstances();
     const timer = window.setInterval(refreshRunningInstances, 2500);
     return () => {
@@ -3126,6 +3163,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     avatarUrls,
     presenceByUserId,
     launchedByProgram,
+    adoptedClients,
+    unidentifiedClients,
+    identifyExternalClient,
+    focusClientWindow,
     joinServer,
     launchMultiple,
     restartRobloxClients,

@@ -2125,6 +2125,8 @@ struct RunningInstance {
     pid: u32,
     user_id: i64,
     browser_tracker_id: String,
+    /// Aberto fora do app (pelo site) e reconhecido depois — ver external_clients.rs.
+    adopted: bool,
 }
 
 #[tauri::command]
@@ -2138,6 +2140,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 pid: p.pid,
                 user_id: p.user_id,
                 browser_tracker_id: p.browser_tracker_id,
+                adopted: p.adopted,
             })
             .collect());
     }
@@ -2150,6 +2153,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 pid: p.pid,
                 user_id: p.user_id,
                 browser_tracker_id: p.browser_tracker_id,
+                adopted: false,
             })
             .collect());
     }
