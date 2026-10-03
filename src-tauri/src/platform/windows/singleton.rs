@@ -111,6 +111,24 @@ fn singleton_name_matches(name: &str, suffix: &str) -> bool {
 }
 
 /// Copia a tabela de handles do sistema. Devolve vazio em qualquer falha.
+/// Próximo tamanho do buffer depois de um `STATUS_INFO_LENGTH_MISMATCH`.
+///
+/// Cresce para o que o sistema pediu, com uma folga de 1/8 (a tabela cresce
+/// entre uma chamada e outra) — não para o dobro. Dobrar passava do teto numa
+/// máquina com ~1 milhão de handles (~38 MB pedidos → 76 MB) e o snapshot
+/// voltava vazio, mesmo cabendo. Sem dica de tamanho, aí sim dobra.
+fn next_handle_snapshot_size(needed: usize, capacity: usize) -> Option<usize> {
+    let grown = if needed > 0 {
+        needed
+            .saturating_add(needed / 8)
+            .min(HANDLE_SNAPSHOT_MAX_BYTES)
+            .max(needed)
+    } else {
+        capacity.saturating_mul(2)
+    };
+    (grown <= HANDLE_SNAPSHOT_MAX_BYTES).then_some(grown)
+}
+
 fn system_handle_snapshot() -> Vec<SystemHandleEntryEx> {
     let mut bytes: usize = 1 << 20;
     // O tamanho da tabela muda entre a consulta do tamanho e a leitura, então
@@ -138,12 +156,13 @@ fn system_handle_snapshot() -> Vec<SystemHandleEntryEx> {
         };
 
         if status == STATUS_INFO_LENGTH_MISMATCH {
-            let grown = (needed as usize).max(capacity.saturating_mul(2));
-            if grown > HANDLE_SNAPSHOT_MAX_BYTES {
-                return Vec::new();
+            match next_handle_snapshot_size(needed as usize, capacity) {
+                Some(grown) => {
+                    bytes = grown;
+                    continue;
+                }
+                None => return Vec::new(),
             }
-            bytes = grown;
-            continue;
         }
         if status != 0 {
             return Vec::new();
@@ -367,6 +386,26 @@ fn named_event_exists(name: &str) -> bool {
 mod singleton_event_tests {
     use super::*;
     use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+
+    #[test]
+    fn a_large_handle_table_grows_to_what_was_asked_not_to_double() {
+        // Medido numa maquina com ~1 milhao de handles: a tabela pede ~38 MB.
+        // Dobrar 38 MB passava do teto de 64 MB e o snapshot desistia vazio.
+        let mb = 1024 * 1024;
+        let next = next_handle_snapshot_size(38 * mb, 38 * mb).expect("38 MB cabe no teto");
+        assert!(next >= 38 * mb, "precisa caber o que foi pedido");
+        assert!(next <= HANDLE_SNAPSHOT_MAX_BYTES);
+    }
+
+    #[test]
+    fn the_snapshot_still_gives_up_past_the_ceiling() {
+        assert_eq!(next_handle_snapshot_size(HANDLE_SNAPSHOT_MAX_BYTES + 1, 1024), None);
+    }
+
+    #[test]
+    fn without_a_size_hint_the_snapshot_doubles() {
+        assert_eq!(next_handle_snapshot_size(0, 1024 * 1024), Some(2 * 1024 * 1024));
+    }
 
     struct OwnedEvent(HANDLE);
 
