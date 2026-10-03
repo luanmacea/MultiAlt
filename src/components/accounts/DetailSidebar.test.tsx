@@ -79,6 +79,19 @@ describe("DetailSidebar", () => {
     expect(screen.queryByText("ID: 1")).not.toBeInTheDocument();
   });
 
+  /**
+   * Achado ao tirar as fotos do README (03/10/2026): com os nomes ocultos, o
+   * campo de apelido ainda mostrava o nome de usuário como texto de exemplo (e
+   * o apelido salvo, como valor) — o nome vazava na tela que devia escondê-lo.
+   */
+  it("does not leak the username or the alias through the alias field when names are hidden", () => {
+    const withAlias = makeAccount({ UserID: 5, Username: "ann", Alias: "Main" });
+    renderSidebar({ accounts: [withAlias], hideUsernames: true, hiddenNameLetters: 1 }, [withAlias]);
+    expect(screen.queryByPlaceholderText("ann")).not.toBeInTheDocument();
+    const field = screen.getByPlaceholderText("Alias");
+    expect(field).toHaveClass("masked-input");
+  });
+
   it("saves an alias from the Set button and from Enter", async () => {
     const store = renderSidebar();
     const aliasField = screen.getByPlaceholderText("ann");
