@@ -607,6 +607,150 @@ function afkHandler(
   };
 }
 
+/** Place em que as contas com cliente aberto estão jogando (presença). */
+const BOTTING_WORLD_PLACE = 606849621;
+
+/**
+ * Auto Rejoin do lado do backend (`commands/botting.rs`), só o que a tela lê:
+ * status, start (com `adoptRunning`), add, stop, mains e ações por conta. A
+ * presença (`get_account_game_location`) diz que as contas com cliente aberto
+ * estão no place {@link BOTTING_WORLD_PLACE}; as outras, fora de jogo.
+ *
+ * `active` liga uma sessão que já rodava quando a tela carregou, com as duas
+ * primeiras contas com cliente.
+ */
+function bottingHandler(fallback: InvokeHandler, world: AfkWorld, active: boolean): InvokeHandler {
+  type Row = {
+    userId: number;
+    isPlayer: boolean;
+    disconnected: boolean;
+    phase: string;
+    retryCount: number;
+    nextRestartAtMs: number | null;
+    playerGraceUntilMs: number | null;
+    lastError: string | null;
+  };
+  let session: {
+    startedAtMs: number;
+    placeId: number;
+    jobId: string;
+    launchData: string;
+    intervalMinutes: number;
+    launchDelaySeconds: number;
+    playerGraceMinutes: number;
+    playerUserIds: number[];
+    userIds: number[];
+  } | null = null;
+
+  const rowFor = (userId: number, index: number): Row => {
+    const s = session!;
+    const isPlayer = s.playerUserIds.includes(userId);
+    return {
+      userId,
+      isPlayer,
+      disconnected: false,
+      phase: isPlayer ? "player" : "waiting-rejoin",
+      retryCount: 0,
+      nextRestartAtMs: isPlayer
+        ? null
+        : s.startedAtMs + s.intervalMinutes * 60_000 + index * s.launchDelaySeconds * 1000,
+      playerGraceUntilMs: null,
+      lastError: null,
+    };
+  };
+
+  const status = () =>
+    session
+      ? { active: true, ...session, accounts: session.userIds.map(rowFor) }
+      : {
+          active: false,
+          startedAtMs: null,
+          placeId: 0,
+          jobId: "",
+          launchData: "",
+          intervalMinutes: 19,
+          launchDelaySeconds: 20,
+          playerGraceMinutes: 15,
+          playerUserIds: [],
+          userIds: [],
+          accounts: [],
+        };
+
+  const publish = () => harnessEmit("botting-status", status());
+  const ids = (raw: unknown): number[] => [...new Set(((raw as unknown[]) ?? []).map(Number))];
+
+  if (active) {
+    const running = [...world.withClient].slice(0, 2);
+    if (running.length >= 2) {
+      session = {
+        startedAtMs: Date.now() - 7 * 60_000,
+        placeId: BOTTING_WORLD_PLACE,
+        jobId: "",
+        launchData: "",
+        intervalMinutes: 19,
+        launchDelaySeconds: 20,
+        playerGraceMinutes: 15,
+        playerUserIds: [],
+        userIds: running,
+      };
+    }
+  }
+
+  return (cmd, args) => {
+    switch (cmd) {
+      case "get_botting_mode_status":
+        return status();
+      case "get_account_game_location": {
+        const userId = Number(args?.userId);
+        const inGame = world.withClient.has(userId);
+        return { userId, inGame, placeId: inGame ? BOTTING_WORLD_PLACE : null, jobId: null };
+      }
+      case "start_botting_mode": {
+        // `start_botting_mode`: Multi Roblox ligado e duas contas no mínimo.
+        if (settings.General?.EnableMultiRbx !== "true") {
+          return Promise.reject("Auto Rejoin currently requires Multi Roblox to be enabled");
+        }
+        const userIds = ids(args.userIds);
+        if (userIds.length < 2) return Promise.reject("Select at least 2 accounts");
+        session = {
+          startedAtMs: Date.now(),
+          placeId: Number(args.placeId),
+          jobId: String(args.jobId ?? ""),
+          launchData: String(args.launchData ?? ""),
+          intervalMinutes: Number(args.intervalMinutes) || 19,
+          launchDelaySeconds: Number(args.launchDelaySeconds) || 20,
+          playerGraceMinutes: Number(args.playerGraceMinutes) || 15,
+          playerUserIds: ids(args.playerUserIds),
+          userIds,
+        };
+        publish();
+        return status();
+      }
+      case "add_botting_accounts": {
+        if (!session) return Promise.reject("Auto Rejoin is not running");
+        session.userIds = [...new Set([...session.userIds, ...ids(args.userIds)])];
+        publish();
+        return status();
+      }
+      case "set_botting_player_accounts": {
+        if (!session) return status();
+        session.playerUserIds = ids(args.userIds);
+        publish();
+        return status();
+      }
+      case "botting_account_action":
+        return status();
+      case "stop_botting_mode":
+        session = null;
+        harnessEmit("botting-stopped", null);
+        publish();
+        return null;
+      default:
+        return fallback(cmd, args);
+    }
+  };
+}
+
 /** Item do catálogo grátis como o backend serializa (`FreeCatalogItem`). */
 interface HarnessCatalogItem {
   id: number;
@@ -1254,7 +1398,9 @@ const SCENARIOS: Record<string, () => void> = {
    * a janela da 2ª atrás e ela volta com `focusDenied`; o "Enviar a tecla agora",
    * que vem de um clique no app, passa para todas. Para ver um ciclo automático
    * sem esperar 10 min, ligue com 1 min. O Marcar do modo clique acha a janela
-   * da 1ª conta, no ponto 37,5% × 62,5%.
+   * da 1ª conta, no ponto 37,5% × 62,5%. Multi Roblox ligado: o Auto Rejoin do
+   * Modo AFK liga, e a presença diz que as contas com cliente estão no place
+   * 606849621 (é o que o "Em jogo" → Modo AFK detecta).
    */
   "afk-mode"() {
     settings.Afk = {
@@ -1264,7 +1410,9 @@ const SCENARIOS: Record<string, () => void> = {
       ClickX: "50",
       ClickY: "50",
     };
-    setInvokeHandler(afkHandler(baseHandler, afkWorld(), null));
+    settings.General = { ...settings.General, EnableMultiRbx: "true", BottingEnabled: "true" };
+    const world = afkWorld();
+    setInvokeHandler(afkHandler(bottingHandler(baseHandler, world, false), world, null));
   },
 
   /**
@@ -1283,9 +1431,12 @@ const SCENARIOS: Record<string, () => void> = {
     };
     const since = Number(params.get("afkSince") ?? 65);
     const world = afkWorld();
+    settings.General = { ...settings.General, EnableMultiRbx: "true", BottingEnabled: "true" };
+    // `&rejoin=1`: o Auto Rejoin também já rodava (duas contas com cliente).
+    const rejoinRunning = params.get("rejoin") === "1";
     setInvokeHandler(
       afkHandler(
-        baseHandler,
+        bottingHandler(baseHandler, world, rejoinRunning),
         world,
         afkRunningSession(world, Number.isFinite(since) ? Math.max(0, Math.min(since, 24 * 60)) : 65)
       )

@@ -91,7 +91,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
 | `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
 | `BottingAutoShareLaunchFields` | `true` | Sincroniza Place/Job/Data entre sidebar e Auto Rejoin. |
-| `BottingDualPanelDialog` | `true` | Layout em dois painéis no diálogo de Auto Rejoin. |
+| `BottingDualPanelDialog` | `true` | Layout em dois painéis (New View) na aba Auto Rejoin do Modo AFK; `false` = Classic. |
 | `BottingDefaultIntervalMinutes` | `19` | Intervalo de ciclo. |
 | `BottingLaunchDelaySeconds` | `20` | Espaço entre launches. |
 | `BottingRetryMax` / `BottingRetryBaseSeconds` | `6` / `8` | Backoff de retry. |

@@ -26,8 +26,7 @@ import { MissingAssetsDialog } from "./components/dialogs/MissingAssetsDialog";
 import { ThemeEditorDialog } from "./components/dialogs/ThemeEditorDialog";
 import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { NexusDialog } from "./components/dialogs/NexusDialog";
-import { BottingDialog } from "./components/dialogs/BottingDialog";
-import { AfkDialog } from "./components/dialogs/AfkDialog";
+import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
 import { AvatarsDialog } from "./components/dialogs/AvatarsDialog";
 import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
@@ -61,8 +60,7 @@ function AppContent() {
     store.accountUtilsOpen ||
     !!store.missingAssets ||
     store.themeEditorOpen ||
-    store.bottingDialogOpen ||
-    store.afkDialogOpen ||
+    !!store.afkModeDialog ||
     store.avatarsDialogOpen ||
     store.generatorDialogOpen ||
     (ENABLE_NEXUS && store.nexusOpen) ||
@@ -258,13 +256,7 @@ function AppContent() {
         onClose={() => store.setThemeEditorOpen(false)}
       />
 
-      <BottingDialog
-        open={store.bottingDialogOpen}
-        onClose={() => store.setBottingDialogOpen(false)}
-        initialPlaceId={store.bottingDialogPlaceId}
-      />
-
-      <AfkDialog open={store.afkDialogOpen} onClose={() => store.setAfkDialogOpen(false)} />
+      <AfkModeDialog />
 
       <AvatarsDialog open={store.avatarsDialogOpen} onClose={() => store.setAvatarsDialogOpen(false)} />
 

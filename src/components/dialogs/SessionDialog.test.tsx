@@ -115,7 +115,7 @@ describe("SessionDialog", () => {
     });
 
     await user.click(screen.getByRole("checkbox", { name: "Select all running clients" }));
-    await user.click(screen.getByRole("button", { name: /Close selected \(2\)/ }));
+    await user.click(screen.getByRole("button", { name: /Close accounts \(2\)/ }));
 
     await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(2));
   });

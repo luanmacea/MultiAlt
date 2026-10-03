@@ -1533,23 +1533,45 @@ describe("toasts and action status", () => {
    * barra. Abrir pela barra tem que **limpar** o jogo da abertura anterior,
    * senão o place escolhido num clique direito continuaria carimbando a tela.
    */
-  it("carrega o jogo escolhido ao abrir o Botting, e o limpa quando não há jogo", async () => {
+  it("carrega o jogo escolhido ao abrir o Auto Rejoin, e o limpa quando não há jogo", async () => {
     const { result } = await renderStore();
 
     act(() => result.current.openBottingDialog("606849621"));
-    expect(result.current.bottingDialogOpen).toBe(true);
-    expect(result.current.bottingDialogPlaceId).toBe("606849621");
+    expect(result.current.afkModeDialog).toEqual({ tab: "rejoin", placeId: "606849621" });
 
-    act(() => result.current.setBottingDialogOpen(false));
+    act(() => result.current.closeAfkMode());
+    expect(result.current.afkModeDialog).toBeNull();
     act(() => result.current.openBottingDialog());
-    expect(result.current.bottingDialogOpen).toBe(true);
-    expect(result.current.bottingDialogPlaceId).toBeNull();
+    expect(result.current.afkModeDialog).toEqual({ tab: "rejoin", placeId: null });
   });
 
   it("place em branco na abertura conta como sem jogo", async () => {
     const { result } = await renderStore();
     act(() => result.current.openBottingDialog("   "));
-    expect(result.current.bottingDialogPlaceId).toBeNull();
+    expect(result.current.afkModeDialog?.placeId).toBeNull();
+  });
+
+  /**
+   * Auto Rejoin e cliques AFK moram na mesma janela (Modo AFK). Quem abre pela
+   * barra (o atalho de AFK) cai na aba de cliques; quem abre pelo "Em jogo" leva
+   * as contas e o caminho de adoção junto.
+   */
+  it("o Modo AFK abre na aba pedida e com as contas de quem abriu", async () => {
+    const { result } = await renderStore();
+
+    act(() => result.current.setAfkDialogOpen(true));
+    expect(result.current.afkModeDialog).toEqual({ tab: "clicks" });
+    act(() => result.current.setAfkDialogOpen(false));
+    expect(result.current.afkModeDialog).toBeNull();
+
+    act(() =>
+      result.current.openAfkMode({ tab: "rejoin", targetUserIds: [1, 2], adoptRunning: true })
+    );
+    expect(result.current.afkModeDialog).toEqual({
+      tab: "rejoin",
+      targetUserIds: [1, 2],
+      adoptRunning: true,
+    });
   });
 });
 
@@ -1634,6 +1656,55 @@ describe("adotar contas em jogo no Botting", () => {
       })
     ).rejects.toThrow(/which game/i);
     expect(invokeCalls("start_botting_mode")).toHaveLength(0);
+  });
+
+  /**
+   * Pelo Modo AFK, quem adota vê e ajusta o tempo do ciclo e as contas main
+   * antes do Start: o que foi escolhido na tela vale, e o place que a tela
+   * mostrou (detectado da presença ou digitado) também.
+   */
+  it("com a configuracao da tela, usa o tempo, as mains e o place escolhidos", async () => {
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.adoptRunningIntoBotting([1, 2], {
+        placeId: 1818,
+        intervalMinutes: 25,
+        launchDelaySeconds: 12,
+        playerGraceMinutes: 7,
+        playerUserIds: [1],
+      });
+    });
+
+    const [, args] = invokeCalls("start_botting_mode")[0];
+    expect(args).toMatchObject({
+      userIds: [1, 2],
+      placeId: 1818,
+      intervalMinutes: 25,
+      launchDelaySeconds: 12,
+      playerGraceMinutes: 7,
+      playerUserIds: [1],
+      adoptRunning: true,
+      jobId: "",
+    });
+    // O place veio da tela: não pergunta a presença de novo.
+    expect(invokeCalls("get_account_game_location")).toHaveLength(0);
+  });
+
+  it("detecta o jogo das contas em jogo pela presença", async () => {
+    results.set("get_account_game_location", {
+      userId: 1,
+      inGame: true,
+      placeId: 606849621,
+      jobId: null,
+    });
+    const { result } = await renderStore();
+
+    let place: number | null = null;
+    await act(async () => {
+      place = await result.current.detectRunningGamePlace([1, 2]);
+    });
+    expect(place).toBe(606849621);
   });
 
   it("uma conta so, sem sessao, explica o minimo em vez de falhar no backend", async () => {

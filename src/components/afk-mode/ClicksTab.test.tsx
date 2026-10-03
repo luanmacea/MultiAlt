@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
-import { AfkDialog, formatAfkElapsed } from "./AfkDialog";
+import { ClicksTab, formatAfkElapsed } from "./ClicksTab";
 import type { AfkStatus, StoreValue } from "../../store";
 import { defaultSettings, makeAccount, setStore, storeRef } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
@@ -55,9 +55,8 @@ function renderDialog(overrides: Partial<StoreValue> = {}) {
     afkStatus: makeAfkStatus(),
     ...overrides,
   });
-  const onClose = vi.fn();
-  render(<AfkDialog open onClose={onClose} />);
-  return { store, onClose };
+  render(<ClicksTab />);
+  return { store };
 }
 
 beforeEach(() => {
@@ -74,7 +73,7 @@ afterEach(cleanup);
  * o PC, e é a primeira coisa que a tela tem de dizer — com os números de
  * verdade: "meio segundo e depois devolve" só valia com uma conta no modo.
  */
-describe("AfkDialog — o preço do envio está na tela", () => {
+describe("ClicksTab — o preço do envio está na tela", () => {
   it("diz que o foco só volta depois da última conta do ciclo, e quanto tempo isso leva", () => {
     renderDialog();
     const aviso = screen.getByText(/takes the focus away from the window you are using/i);
@@ -96,7 +95,7 @@ describe("AfkDialog — o preço do envio está na tela", () => {
  * A lista de teclas é **fechada** e vem do backend (`get_afk_keys`): a tela não
  * pode oferecer tecla que o backend recusa, nem deixar digitar tecla arbitrária.
  */
-describe("AfkDialog — só as teclas da lista", () => {
+describe("ClicksTab — só as teclas da lista", () => {
   it("oferece exatamente as teclas que o backend entregou", async () => {
     renderDialog();
     await userEvent.click(screen.getByLabelText("Key to send"));
@@ -123,7 +122,7 @@ describe("AfkDialog — só as teclas da lista", () => {
  * Sem tecla escolhida o modo não liga: inventar uma tecla padrão mexeria no
  * personagem sem o usuário ter pedido.
  */
-describe("AfkDialog — o que impede o start", () => {
+describe("ClicksTab — o que impede o start", () => {
   it("não liga sem tecla escolhida", async () => {
     const { store } = renderDialog();
     await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
@@ -179,7 +178,7 @@ describe("AfkDialog — o que impede o start", () => {
   });
 });
 
-describe("AfkDialog — sessão em andamento", () => {
+describe("ClicksTab — sessão em andamento", () => {
   const RUNNING = makeAfkStatus({
     active: true,
     startedAtMs: 1_000,
@@ -233,7 +232,7 @@ describe("AfkDialog — sessão em andamento", () => {
  * voltava à de antes do start, e uma conta acrescentada com a sessão ligada
  * ficava de fora do próximo start sem aviso — e podia cair por inatividade.
  */
-describe("AfkDialog — parar não esquece quem estava no modo", () => {
+describe("ClicksTab — parar não esquece quem estava no modo", () => {
   const INI_WITH_KEY = { ...defaultSettings(), Afk: { IntervalMinutes: "10", Key: "Space" } };
 
   function runningWith(userIds: number[]): AfkStatus {
@@ -311,7 +310,7 @@ describe("AfkDialog — parar não esquece quem estava no modo", () => {
  * intervalo de 10 minutos. Duas respostas na tela: o tempo decorrido da sessão e
  * o botão de enviar agora.
  */
-describe("AfkDialog — dá para saber que está funcionando", () => {
+describe("ClicksTab — dá para saber que está funcionando", () => {
   const RUNNING = makeAfkStatus({
     active: true,
     startedAtMs: 1_000,
@@ -379,7 +378,7 @@ describe("AfkDialog — dá para saber que está funcionando", () => {
  * é o caso normal do AFK mode. Quando isso acontece o ciclo não manda nada, e a
  * tela tem de dizer as duas coisas: que não mandou, e por quê.
  */
-describe("AfkDialog — quando o Windows não deixa a janela vir para frente", () => {
+describe("ClicksTab — quando o Windows não deixa a janela vir para frente", () => {
   const DENIED = makeAfkStatus({
     active: true,
     startedAtMs: 1_000,
@@ -443,7 +442,7 @@ describe("AfkDialog — quando o Windows não deixa a janela vir para frente", (
  * mexer em cliente de conta que não está no modo: sem sessão, não há a quem
  * enviar.
  */
-describe("AfkDialog — envio manual exige sessão", () => {
+describe("ClicksTab — envio manual exige sessão", () => {
   it("com o modo desligado, enviar agora fica indisponível mesmo com tecla e conta escolhidas", async () => {
     const { store } = renderDialog();
     await userEvent.click(screen.getByLabelText("Key to send"));
@@ -461,7 +460,7 @@ describe("AfkDialog — envio manual exige sessão", () => {
  * O AFK mode só alcança cliente que **este app** abriu (é o tracker que liga
  * conta a PID). Conta sem cliente aberto não tem o que receber tecla.
  */
-describe("AfkDialog — contas que podem entrar no modo", () => {
+describe("ClicksTab — contas que podem entrar no modo", () => {
   it("lista as contas com cliente aberto", () => {
     renderDialog();
     expect(screen.getByRole("button", { name: ACCOUNTS[0].Username })).toBeInTheDocument();
@@ -486,7 +485,7 @@ describe("AfkDialog — contas que podem entrar no modo", () => {
  * dizer uma coisa que não é verdade — relógio acima do intervalo, "Enviando"
  * com nada saindo, "1 contas", o modo desligando calado, "Chave" onde é tecla.
  */
-describe("AfkDialog — a tela diz a coisa certa", () => {
+describe("ClicksTab — a tela diz a coisa certa", () => {
   const ONE_RUNNING = makeAfkStatus({
     active: true,
     startedAtMs: 1_000,
@@ -503,9 +502,8 @@ describe("AfkDialog — a tela diz a coisa certa", () => {
   it("a contagem nunca começa maior que o intervalo", () => {
     vi.useFakeTimers({ now: 10_000_000 });
     try {
-      const onClose = vi.fn();
       setStore({ accounts: ACCOUNTS, launchedByProgram: new Set([11, 22]), afkKeys: KEYS, afkStatus: makeAfkStatus() });
-      const view = render(<AfkDialog open onClose={onClose} />);
+      const view = render(<ClicksTab />);
 
       // 900 ms depois do último tique da tela, o start volta com o prazo do
       // primeiro envio.
@@ -525,7 +523,7 @@ describe("AfkDialog — a tela diz a coisa certa", () => {
           ],
         }),
       };
-      view.rerender(<AfkDialog open onClose={onClose} />);
+      view.rerender(<ClicksTab />);
 
       const linha = screen.getByRole("button", { name: ACCOUNTS[0].Username });
       expect(linha.textContent).toContain("10:00");
@@ -622,7 +620,7 @@ describe("AfkDialog — a tela diz a coisa certa", () => {
  * janela de cada conta — para quem quer o personagem parado. Ponto padrão para
  * todas, ponto próprio por conta, e o Marcar lê onde o mouse está depois de 3 s.
  */
-describe("AfkDialog — modo clique", () => {
+describe("ClicksTab — modo clique", () => {
   const CLICK_INI = {
     ...defaultSettings(),
     Afk: { IntervalMinutes: "10", Key: "", Mode: "click", ClickX: "50", ClickY: "50" },
@@ -793,5 +791,54 @@ describe("AfkDialog — modo clique", () => {
       }),
     });
     expect(screen.getByText("alpha: Windows refused the click.")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Aberto pelo "Em jogo" do Painel de Sessão, a aba já chega com as contas que
+ * estão em jogo marcadas — com o modo parado. Com sessão ligada, quem manda é a
+ * sessão.
+ */
+describe("ClicksTab — contas de quem abriu", () => {
+  it("chega com as contas do Em jogo marcadas", () => {
+    setStore({
+      accounts: ACCOUNTS,
+      launchedByProgram: new Set([11, 22]),
+      afkKeys: KEYS,
+      afkStatus: makeAfkStatus(),
+    });
+    render(<ClicksTab targetUserIds={[22]} />);
+
+    expect(screen.getByRole("button", { name: ACCOUNTS[0].Username })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: ACCOUNTS[1].Username })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("com sessão ligada, as contas da sessão vencem as de quem abriu", () => {
+    setStore({
+      accounts: ACCOUNTS,
+      launchedByProgram: new Set([11, 22]),
+      afkKeys: KEYS,
+      afkStatus: makeAfkStatus({
+        active: true,
+        startedAtMs: 1_000,
+        key: "Space",
+        accounts: [makeAfkAccount({ userId: 11 })],
+      }),
+    });
+    render(<ClicksTab targetUserIds={[22]} />);
+
+    expect(screen.getByRole("button", { name: ACCOUNTS[0].Username })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: ACCOUNTS[1].Username })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("a barra de estado diz se o modo está ligado", () => {
+    setStore({
+      accounts: ACCOUNTS,
+      launchedByProgram: new Set([11, 22]),
+      afkKeys: KEYS,
+      afkStatus: makeAfkStatus(),
+    });
+    render(<ClicksTab />);
+    expect(screen.getByTestId("clicks-status")).toHaveTextContent("AFK clicks are off");
   });
 });

@@ -497,7 +497,7 @@ describe("BottomActionBar — Botting Mode discovery", () => {
     await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/ }));
     expect(store.setSettingsOpen).toHaveBeenCalledWith(true);
     expect(store.openBottingDialog).not.toHaveBeenCalled();
-    expect(store.setBottingDialogOpen).not.toHaveBeenCalled();
+    expect(store.openAfkMode).not.toHaveBeenCalled();
   });
 });
 
