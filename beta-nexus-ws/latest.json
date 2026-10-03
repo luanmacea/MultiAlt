@@ -1,19 +1,19 @@
 {
-  "version": "0.1.5-beta",
-  "notes": "> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: 7baf79b\nApp version: 0.1.5\n\n## What's Changed\n* README in English with an updated feature list by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/6\n* AFK click that Roblox registers, and per-account exceptions that don't leak by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/7\n\n\n**Full Changelog**: https://github.com/luanmacea/roblox-account-manager/compare/v0.1.4-beta...v0.1.5-beta",
-  "pub_date": "2026-09-30T04:19:29.4167311Z",
+  "version": "0.1.6-beta",
+  "notes": "> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: 5996f0c\nApp version: 0.1.6\n\n## What's Changed\n* Free avatars: build avatars from free official Roblox items and distribute them across accounts by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/8\n\n\n**Full Changelog**: https://github.com/luanmacea/roblox-account-manager/compare/v0.1.5-beta...v0.1.6-beta",
+  "pub_date": "2026-10-03T03:49:36.6054650Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclcyR2J6MUV2RVlZUC96VXIyckl4eWRNcTN6dGhPUFQ5bjJIVnE0K0tWdXc0TFV4OHp4TFZVbk50Zit4QkxhRDFqSkZlQ1doekV2NFlzTHg2SXdrdEFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNzQxOTY4CWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuNV94NjQtc2V0dXAuZXhlClh4bUdldFM0YWt2N0FpVXZMQ1k5Sy9qbE5rLzRHMk9NT0ZWSmRxZndTRVhrU1dQVTcxaXVxVWZKdThzeTlQU2ErMCtFMk1jOURncjBjemg5bEEzTUFnPT0K",
-      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.5-beta/Roblox.Account.Manager_0.1.5_x64-setup_full-nexus-ws.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmF0M3pWbGJNZmFVS0ZFWncwT2cvTWJDemd0Z0xyeUxmTVBZUU1xYWF1WEtSVEdYYldpalg1RmMxc2c3c3o0VTZuRVRyaEpoa1dkYVBIVk5hRml6WUFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwOTk5Mzc1CWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuNl94NjQtc2V0dXAuZXhlCmZHK0lnajZObnlUOGYvWHlGWDBnL3dvbzg5alF0V0l2VW1EWDJUemo0TjE2em9PYzQyT0lwV2tjRnltbnk3UkhjSEFmTDFGclorcFF3eVJORkhIdEJBPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.6-beta/Roblox.Account.Manager_0.1.6_x64-setup_full-nexus-ws.exe"
     },
     "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclcyR2J6MUV2RVlZUC96VXIyckl4eWRNcTN6dGhPUFQ5bjJIVnE0K0tWdXc0TFV4OHp4TFZVbk50Zit4QkxhRDFqSkZlQ1doekV2NFlzTHg2SXdrdEFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNzQxOTY4CWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuNV94NjQtc2V0dXAuZXhlClh4bUdldFM0YWt2N0FpVXZMQ1k5Sy9qbE5rLzRHMk9NT0ZWSmRxZndTRVhrU1dQVTcxaXVxVWZKdThzeTlQU2ErMCtFMk1jOURncjBjemg5bEEzTUFnPT0K",
-      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.5-beta/Roblox.Account.Manager_0.1.5_x64-setup_full-nexus-ws.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmF0M3pWbGJNZmFVS0ZFWncwT2cvTWJDemd0Z0xyeUxmTVBZUU1xYWF1WEtSVEdYYldpalg1RmMxc2c3c3o0VTZuRVRyaEpoa1dkYVBIVk5hRml6WUFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwOTk5Mzc1CWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuNl94NjQtc2V0dXAuZXhlCmZHK0lnajZObnlUOGYvWHlGWDBnL3dvbzg5alF0V0l2VW1EWDJUemo0TjE2em9PYzQyT0lwV2tjRnltbnk3UkhjSEFmTDFGclorcFF3eVJORkhIdEJBPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.6-beta/Roblox.Account.Manager_0.1.6_x64-setup_full-nexus-ws.exe"
     },
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclRaRC91cWFxOCs3MUhGaktvQitUSmpxcC90UmlhWEN4VzRtRCtpMjhmL09uV2k2NURJMnFBVm9hTyt0V3RFR3plVUFTa3Qwa2N4TFFhTWRoczhIeVFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNzQxOTY4CWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuNV94NjRfZW4tVVMubXNpCjJ3MlpXc0xJSFAwMVk0eUFEUS9MUXgwOGtTY0tDcmFkekhPbXJnR1pJemE1YndsTmREclRJYWI3NkVydlV1OHJ6V2dWRnlHcVR4b2J4Z3BrSi9BWkJRPT0K",
-      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.5-beta/Roblox.Account.Manager_0.1.5_x64_en-US_full-nexus-ws.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmRnayt4a2gycndTcEl4NWcvQmZ3bW04dEtwelkwVzFoMzFUNFNLZDl0dUFIejl5cUk0bEQyN25kb3g4M0hwdHl4OVMvL3NsUjJiQXRCV3o2UG5TUndnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwOTk5Mzc1CWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuNl94NjRfZW4tVVMubXNpCk5qWUlOTzJEakg2Rkc2Y0NhdXlmdzZiZEx3ZU9zd0NJZjVWbi9aRWtXWXJMZzBBV25sRlU3WDFRSExFTmg2M05NaVFicWpQWWRYK1BOK0xtTEVuUkRBPT0K",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.6-beta/Roblox.Account.Manager_0.1.6_x64_en-US_full-nexus-ws.msi"
     }
   }
 }
