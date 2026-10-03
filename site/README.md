@@ -21,10 +21,10 @@ Ou `preview_start` com `site` (está no `.claude/launch.json`).
 
 ## Publicação
 
-O workflow [site.yml](../.github/workflows/site.yml) copia esta pasta para a branch `gh-pages` a cada push em `develop` que mexe aqui. O GitHub Pages serve essa branch em **https://luanmacea.github.io/roblox-account-manager/** — grátis, sem servidor e sem domínio pago. Mudança só no site não dispara release (o `release-v4.yml` ignora `site/**`).
+O workflow [site.yml](../.github/workflows/site.yml) copia esta pasta para a branch `gh-pages` a cada push em `main` que mexe aqui (até 03/10/2026 era a `develop`; o site passou a acompanhar só o que já foi publicado). O GitHub Pages serve essa branch em **https://luanmacea.github.io/roblox-account-manager/** — grátis, sem servidor e sem domínio pago. Mudança só no site não dispara release (o `release-v4.yml` ignora `site/**`).
 
 Ativar uma vez: no GitHub, **Settings → Pages → Build and deployment → Source: Deploy from a branch → `gh-pages` / `(root)` → Save**.
 
-O endereço principal é **https://roblox-account-manager-app.pages.dev/** (Cloudflare Pages, grátis). O projeto `roblox-account-manager-app` do Cloudflare está ligado a este repositório: branch de produção `develop`, sem comando de build, pasta de saída `site`. Ele publica sozinho a cada push em `develop`, sem passar pelo workflow — o `site.yml` só alimenta o endereço do GitHub Pages.
+O endereço principal é **https://roblox-account-manager-app.pages.dev/** (Cloudflare Pages, grátis). O projeto `roblox-account-manager-app` do Cloudflare está ligado a este repositório: branch de produção `main`, sem comando de build, pasta de saída `site`. Ele publica sozinho a cada push em `main`, sem passar pelo workflow (um push em `develop` vira no máximo uma prévia, num endereço próprio, nunca o site principal) — o `site.yml` só alimenta o endereço do GitHub Pages.
 
 Os dois endereços servem o mesmo site; o `<link rel="canonical">` aponta para o do Cloudflare, para o buscador juntar os dois num resultado só. Todos os caminhos do site são relativos para funcionar nos dois.
