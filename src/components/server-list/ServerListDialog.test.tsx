@@ -124,6 +124,17 @@ describe("ServerListDialog — menu do jogo completo, como na Choose Game", () =
     expect(store.setScriptsOpen).toHaveBeenCalledWith(true);
   });
 
+  /**
+   * Scripts virou página: com este diálogo aberto por cima, a página abria
+   * escondida atrás dele (e o Escape iria para a página, não para o diálogo).
+   */
+  it("Scripts fecha a Server List para a página aparecer", async () => {
+    const store = renderDialog();
+    const menu = await menuDoJogo("Games", "Jailbreak");
+    await userEvent.click(menu.getByRole("button", { name: "Scripts" }));
+    expect(store.setServerListOpen).toHaveBeenCalledWith(false);
+  });
+
   it("Browse servers leva à aba Servers com o place do jogo", async () => {
     renderDialog();
     const menu = await menuDoJogo("Games", "Jailbreak");

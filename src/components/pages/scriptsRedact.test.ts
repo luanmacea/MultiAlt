@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-// ScriptsDialog pulls in the global store, which talks to Tauri at import time.
+// ScriptsPage pulls in the global store, which talks to Tauri at import time.
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(async () => null),
   convertFileSrc: (p: string) => p,
@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(async () => {}),
 }));
 
-import { isSecretSettingKey, redactSecretSettings } from "./ScriptsDialog";
+import { isSecretSettingKey, redactSecretSettings } from "./ScriptsPage";
 
 describe("isSecretSettingKey", () => {
   it.each(["Password", "password", "ApiKey", "apikey", "Api_Key", "Secret", "Token", "AuthToken"])(

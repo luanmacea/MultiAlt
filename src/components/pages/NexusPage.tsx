@@ -3,14 +3,14 @@ import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
-import { useModalClose } from "../../hooks/useModalClose";
+import { PageShell } from "./PageShell";
 import { SlidingTabBar } from "../ui/SlidingTabBar";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { GameBadge } from "../ui/GameBadge";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { tr, useTr } from "../../i18n/text";
-import { X, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { REPO_URL } from "../../repo";
 
 interface NexusAccount {
@@ -45,9 +45,14 @@ interface NexusStatus {
 
 type TabId = "control" | "settings" | "help";
 
-export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * Página Nexus. Montada o tempo todo, como o modal ficava; `active` faz o papel
+ * do antigo `open` (é ele que liga as consultas e os ouvintes).
+ */
+export function NexusPage({ active, onLeave }: { active: boolean; onLeave: () => void }) {
   const store = useStore();
-  const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const open = active;
+  const visible = active;
   const [tab, setTab] = useState<TabId>("control");
   const [status, setStatus] = useState<NexusStatus>({ running: false, port: null, connected_count: 0 });
   const [accounts, setAccounts] = useState<NexusAccount[]>([]);
@@ -306,53 +311,40 @@ export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => v
   ];
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={handleClose}
+    <PageShell
+      // O item da barra lateral diz "Nexus": a página se identifica igual, e
+      // "Account Control" (o nome antigo, que descreve o que ela faz) fica como
+      // subtítulo.
+      title={tr("Nexus")}
+      description={tr("Account Control")}
+      onLeave={onLeave}
+      dataTour="nexus-page"
+      bodyClassName="flex flex-col"
+      actions={
+        <>
+          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-zinc-800 text-[11px] text-zinc-500 font-mono">
+            <span className={`w-1.5 h-1.5 rounded-full ${status.running ? "bg-emerald-400" : "bg-zinc-600"}`} />
+            {status.running
+              ? tr("Port {{port}} - {{count}} connected", { port: status.port, count: status.connected_count })
+              : tr("Offline")}
+          </span>
+          <button
+            onClick={handleStartStop}
+            className={`px-3.5 py-1.5 rounded-lg text-[12px] font-medium transition-all ${
+              status.running
+                ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
+                : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
+            }`}
+          >
+            {status.running ? tr("Stop") : tr("Start")}
+          </button>
+        </>
+      }
     >
-      <div
-        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[780px] h-[580px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          setContextMenu(null);
-        }}
-      >
-        <div className="flex items-center justify-between px-5 pt-4 pb-2 shrink-0">
-          <div className="flex items-center gap-3">
-            {/* O ícone da toolbar diz "Nexus": o diálogo se identifica igual, e
-                "Account Control" (o nome antigo, que descreve o que ele faz)
-                fica como subtítulo. */}
-            <div className="flex items-baseline gap-2">
-              <h2 className="text-[15px] font-semibold text-zinc-100 tracking-tight">{tr("Nexus")}</h2>
-              <span className="text-[12px] text-zinc-500">{tr("Account Control")}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className={`w-1.5 h-1.5 rounded-full ${status.running ? "bg-emerald-400" : "bg-zinc-600"}`} />
-              <span className="text-[11px] text-zinc-500 font-mono">
-                {status.running
-                  ? tr("Port {{port}} - {{count}} connected", { port: status.port, count: status.connected_count })
-                  : tr("Offline")}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleStartStop}
-              className={`px-3 py-1 rounded-lg text-[12px] font-medium transition-all ${
-                status.running
-                  ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
-                  : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20"
-              }`}
-            >
-              {status.running ? tr("Stop") : tr("Start")}
-            </button>
-            <button onClick={handleClose} className="p-1 rounded-md text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800 transition-colors">
-              <X size={16} strokeWidth={2} />
-            </button>
-          </div>
+      <div className="flex-1 min-h-0 flex flex-col" onClick={() => setContextMenu(null)}>
+        <div className="pt-2.5">
+          <SlidingTabBar tabs={tabs} activeTab={tab} onTabChange={setTab} />
         </div>
-
-        <SlidingTabBar tabs={tabs} activeTab={tab} onTabChange={setTab} />
 
         <div className="h-px bg-zinc-800/60 mx-5 mt-2" />
 
@@ -455,7 +447,7 @@ export function NexusDialog({ open, onClose }: { open: boolean; onClose: () => v
           {tab === "help" && <HelpPanel port={status.port ?? sPort} />}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
 
@@ -547,7 +539,7 @@ function ControlPanel({
   const game = useGameIdentity(placeInput, null);
   return (
     <div className="flex h-full">
-      <div className="w-[240px] border-r border-zinc-800/60 flex flex-col shrink-0">
+      <div className="w-[260px] border-r border-zinc-800/60 flex flex-col shrink-0">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800/40">
           <input
             type="checkbox"
@@ -609,11 +601,11 @@ function ControlPanel({
             onChange={(e) => setAddInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && onAdd()}
             placeholder={t("Username")}
-            className="flex-1 px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded-md text-[12px] text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+            className="flex-1 min-w-0 px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded-md text-[12px] text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
           />
           <button
             onClick={onAdd}
-            className="px-2 py-1 bg-zinc-800 border border-zinc-700/50 rounded-md text-[11px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+            className="shrink-0 px-2 py-1 bg-zinc-800 border border-zinc-700/50 rounded-md text-[11px] text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
           >
             {t("Add")}
           </button>

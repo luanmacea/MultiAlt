@@ -11,9 +11,9 @@ vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/pro
 import {
   SCRIPT_INVOKE_COMMANDS,
   SCRIPT_INVOKE_COMMAND_LIST,
-  ScriptsDialog,
+  ScriptsPage,
   loadPrivateNetworkGrants,
-} from "./ScriptsDialog";
+} from "./ScriptsPage";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
@@ -119,7 +119,7 @@ describe("private-network grant persistence", () => {
     scripts = [makeScript({ trusted: true })];
     settings = { ScriptPrivateNetwork: { s1: "true" } };
     setStore({});
-    render(<ScriptsDialog open onClose={vi.fn()} />);
+    render(<ScriptsPage active onLeave={vi.fn()} />);
 
     const toggle = await screen.findByRole("button", {
       name: /Private Network \(localhost\/LAN\)/,
@@ -130,7 +130,7 @@ describe("private-network grant persistence", () => {
   it("leaves the permission off when there is no grant", async () => {
     scripts = [makeScript({ trusted: true })];
     setStore({});
-    render(<ScriptsDialog open onClose={vi.fn()} />);
+    render(<ScriptsPage active onLeave={vi.fn()} />);
 
     const toggle = await screen.findByRole("button", {
       name: /Private Network \(localhost\/LAN\)/,
@@ -142,7 +142,7 @@ describe("private-network grant persistence", () => {
   it("writes the grant to the INI when the script is saved", async () => {
     scripts = [makeScript({ trusted: true })];
     setStore({});
-    render(<ScriptsDialog open onClose={vi.fn()} />);
+    render(<ScriptsPage active onLeave={vi.fn()} />);
 
     const toggle = await screen.findByRole("button", {
       name: /Private Network \(localhost\/LAN\)/,
@@ -167,7 +167,7 @@ describe("private-network grant persistence", () => {
     settings = { ScriptPrivateNetwork: { s1: "true" } };
     promptAnswers.confirm = true;
     setStore({});
-    render(<ScriptsDialog open onClose={vi.fn()} />);
+    render(<ScriptsPage active onLeave={vi.fn()} />);
 
     await screen.findByText("Auto rejoin");
     await userEvent.click(await screen.findByRole("button", { name: "Delete" }));

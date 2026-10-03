@@ -11,7 +11,6 @@ import { Toolbar } from "./Toolbar";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import { promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
-import { ENABLE_NEXUS } from "../../featureFlags";
 import type { StoreValue } from "../../store";
 
 const COOKIE =
@@ -37,12 +36,6 @@ const ICON_BUTTONS = {
   clear: /clear search/i,
   selectAll: /select all/i,
   panel: /panel/i,
-  session: /session/i,
-  theme: /theme/i,
-  nexus: /nexus/i,
-  scripts: /scripts/i,
-  settings: /settings/i,
-  help: /help/i,
 } as const;
 
 function iconButton(name: keyof typeof ICON_BUTTONS): HTMLElement {
@@ -105,35 +98,11 @@ describe("Toolbar — search and toggles", () => {
   });
 });
 
-/**
- * O tour achava o botão de Sessão pelo `aria-label` traduzido e se perdia em
- * outro idioma; o resto do walkthrough já usa `data-tour`.
- */
-describe("Toolbar — walkthrough anchors", () => {
-  it("anchors the session step to a data-tour attribute", () => {
-    renderToolbar();
-    const anchor = document.querySelector("[data-tour='toolbar-session']");
-    expect(anchor).not.toBeNull();
-    expect(anchor).toContainElement(iconButton("session"));
-  });
-});
-
 describe("Toolbar — accessible names", () => {
   it("names every icon-only button", () => {
     renderToolbar({ searchQuery: "ann", selectedIds: new Set([1]) });
 
-    const expected: (keyof typeof ICON_BUTTONS)[] = [
-      "clear",
-      "selectAll",
-      "panel",
-      "session",
-      "theme",
-      "scripts",
-      "settings",
-      "help",
-    ];
-    if (ENABLE_NEXUS) expected.push("nexus");
-
+    const expected: (keyof typeof ICON_BUTTONS)[] = ["clear", "selectAll", "panel"];
     for (const name of expected) {
       expect(iconButton(name)).toBeInTheDocument();
     }
@@ -141,15 +110,16 @@ describe("Toolbar — accessible names", () => {
 });
 
 /**
- * A ajuda não existia em lugar nenhum: nem barra de título, nem toolbar. O
- * botão reabre o walkthrough de primeira execução — conteúdo que já existe e
- * já é mantido — em vez de inventar texto novo dentro do app.
+ * Sessão, AFK Mode, Avatars, Scripts, Theme, Nexus, Settings e Ajuda eram
+ * ícones aqui que só se explicavam com o mouse parado em cima. Viraram itens
+ * com nome na barra lateral; a barra de cima ficou só com o que age na lista.
  */
-describe("Toolbar — help", () => {
-  it("reopens the first-run walkthrough", async () => {
-    const store = renderToolbar();
-    await userEvent.click(iconButton("help"));
-    expect(store.openFirstRunWalkthroughFromSettings).toHaveBeenCalledTimes(1);
+describe("Toolbar — only list actions", () => {
+  it("has no page buttons anymore", () => {
+    renderToolbar();
+    for (const name of [/session/i, /theme/i, /nexus/i, /scripts/i, /settings/i, /help/i, /afk/i, /avatars/i]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
   });
 });
 
@@ -358,19 +328,7 @@ describe("Toolbar — Quick Add", () => {
   });
 });
 
-describe("Toolbar — dialog shortcuts", () => {
-  it("opens the theme editor, scripts and settings dialogs", async () => {
-    const store = renderToolbar();
-    await userEvent.click(iconButton("theme"));
-    expect(store.setThemeEditorOpen).toHaveBeenCalledWith(true);
-
-    await userEvent.click(iconButton("scripts"));
-    expect(store.setScriptsOpen).toHaveBeenCalledWith(true);
-
-    await userEvent.click(iconButton("settings"));
-    expect(store.setSettingsOpen).toHaveBeenCalledWith(true);
-  });
-
+describe("Toolbar — detail panel", () => {
   it("toggles the detail sidebar", async () => {
     const store = renderToolbar({ sidebarOpen: false, selectedIds: new Set([1]) });
     await userEvent.click(iconButton("panel"));

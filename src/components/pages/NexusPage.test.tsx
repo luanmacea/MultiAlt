@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
-import { NexusDialog } from "./NexusDialog";
+import { NexusPage } from "./NexusPage";
 import { setStore } from "../../test-utils/renderWithStore";
 import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 
@@ -16,9 +16,9 @@ let nexusStatus = { running: false, port: null as number | null, connected_count
 
 function renderDialog() {
   const store = setStore({});
-  const onClose = vi.fn();
-  render(<NexusDialog open onClose={onClose} />);
-  return { store, onClose };
+  const onLeave = vi.fn();
+  render(<NexusPage active onLeave={onLeave} />);
+  return { store, onLeave };
 }
 
 /** Abre a aba Help, onde mora o texto explicativo. */
@@ -45,14 +45,14 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("NexusDialog — identidade", () => {
-  it("renders nothing while closed", () => {
+describe("NexusPage — identidade", () => {
+  it("renders nothing while another page is open", () => {
     setStore({});
-    const { container } = render(<NexusDialog open={false} onClose={vi.fn()} />);
+    const { container } = render(<NexusPage active={false} onLeave={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("names itself Nexus in the header, matching the toolbar icon", () => {
+  it("names itself Nexus in the header, matching the sidebar item", () => {
     renderDialog();
     expect(screen.getByRole("heading", { name: "Nexus" })).toBeInTheDocument();
   });
@@ -61,11 +61,11 @@ describe("NexusDialog — identidade", () => {
     renderDialog();
     const subtitle = screen.getByText("Account Control");
     expect(subtitle).toBeInTheDocument();
-    expect(subtitle.tagName).not.toBe("H2");
+    expect(subtitle.tagName).not.toMatch(/^H[12]$/);
   });
 });
 
-describe("NexusDialog — Help explica o pré-requisito", () => {
+describe("NexusPage — Help explica o pré-requisito", () => {
   it("states that a third-party script executor is required", async () => {
     renderDialog();
     await openHelp();
@@ -165,17 +165,16 @@ describe("NexusDialog — Help explica o pré-requisito", () => {
   });
 });
 
-describe("NexusDialog — cabe na janela", () => {
-  /**
-   * 780x580 fixos: na janela mínima do app (750x450) o cabeçalho — com o Start
-   * e o X — ficava acima da tela (medido no harness, 27/09/2026). O jsdom não
-   * mede layout: isto trava o teto de que o conserto depende.
-   */
-  it("o quadro nunca passa do tamanho da janela", () => {
+describe("NexusPage — página", () => {
+  it("keeps Start/Stop in the page header", () => {
     renderDialog();
-    const quadro = document.querySelector(".theme-modal-scope.rounded-2xl") as HTMLElement;
-    const classes = quadro.className.split(/\s+/);
-    expect(classes).toContain("max-h-[calc(100vh-24px)]");
-    expect(classes).toContain("max-w-[calc(100vw-24px)]");
+    const header = screen.getByRole("heading", { level: 1, name: "Nexus" }).closest("header") as HTMLElement;
+    expect(header).toContainElement(screen.getByRole("button", { name: "Start" }));
+  });
+
+  it("volta para a lista de contas com Escape", async () => {
+    const { onLeave } = renderDialog();
+    await userEvent.keyboard("{Escape}");
+    expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });

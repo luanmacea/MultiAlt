@@ -49,7 +49,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/store.test.ts",
       "src/components/ChooseGameScreen.test.tsx",
       "src/components/session",
-      "src/components/dialogs/SessionDialog.test.tsx",
+      "src/components/pages/SessionPage.test.tsx",
       "src/accountLaunchOverrides.test.ts",
       "src/components/accounts/AccountLaunchOverrides.test.tsx",
     ],
@@ -172,8 +172,8 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: [
       "src/avatarBuilder.test.ts",
-      "src/components/dialogs/AvatarsDialog.test.tsx",
-      "src/components/dialogs/avatars",
+      "src/components/pages/AvatarsPage.test.tsx",
+      "src/components/pages/avatars",
       // `store.test.ts` entra pelo bloco `refreshAvatarHeadshots` (foto da conta depois do lote).
       "src/store.test.ts",
     ],
@@ -197,7 +197,7 @@ export const SUITES: Record<string, TestSuite> = {
   nexus: {
     description: "Servidor WebSocket do Nexus",
     rust: ["nexus_query_tests"],
-    front: ["src/components/dialogs/NexusDialog.test.tsx"],
+    front: ["src/components/pages/NexusPage.test.tsx"],
   },
   scripts: {
     description: "Scripts do usuário: store, sandbox e redação de segredos",
@@ -205,9 +205,9 @@ export const SUITES: Record<string, TestSuite> = {
     rustIntegration: ["security_regression_scripts_store"],
     front: [
       "src/scripting",
-      "src/components/dialogs/scriptsRedact.test.ts",
-      "src/components/dialogs/scriptsInvokeSecurity.test.tsx",
-      "src/components/dialogs/ScriptsDialog.test.tsx",
+      "src/components/pages/scriptsRedact.test.ts",
+      "src/components/pages/scriptsInvokeSecurity.test.tsx",
+      "src/components/pages/ScriptsPage.test.tsx",
     ],
   },
   backups: {
@@ -252,7 +252,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: [
       "src/components/settings",
-      "src/components/dialogs/ThemeEditorDialog.test.tsx",
+      "src/components/pages/ThemePage.test.tsx",
       "src/theme.test.ts",
       "src/themeFonts.test.ts",
       "src/fontPresets.test.ts",
@@ -297,6 +297,19 @@ export const SUITES: Record<string, TestSuite> = {
       "src/repoOwnership.test.ts",
       "src/utils",
       "src/featureFlags.test.ts",
+    ],
+  },
+  navigation: {
+    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Scripts, Theme, Nexus, Settings) no lugar dos modais",
+    rust: [],
+    front: [
+      "src/components/layout/NavSidebar.test.tsx",
+      "src/components/layout/Toolbar.test.tsx",
+      "src/components/layout/FirstRunWalkthrough.test.tsx",
+      "src/components/pages",
+      "src/components/settings/settingsTabs.test.tsx",
+      "src/App.test.tsx",
+      "src/store.test.ts",
     ],
   },
   diagnostics: {

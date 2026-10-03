@@ -278,7 +278,7 @@ describe("App — error banner, toasts and the generic modal", () => {
 describe("App — dialog routing", () => {
   it("keeps every dialog closed by default", () => {
     renderApp();
-    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByText("Roblox Versions")).not.toBeInTheDocument();
   });
 
@@ -291,5 +291,71 @@ describe("App — dialog routing", () => {
     renderApp({ firstRunWalkthroughOpen: true });
     // The walkthrough owns the screen, so the update check is skipped.
     expect(screen.queryByText("Loading...")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A barra de ícones do topo virou barra lateral com rótulo, e cada item abre
+ * uma página na área principal em vez de modal. A barra de cima ficou só com o
+ * que é da lista de contas — e só aparece na página de contas.
+ */
+describe("App — pages", () => {
+  it("shows the side navigation with the account list as the current page", () => {
+    renderApp();
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(nav).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Accounts/ })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps the account top bar on the account page only", () => {
+    renderApp();
+    expect(screen.getByPlaceholderText("Filter accounts...")).toBeInTheDocument();
+
+    cleanup();
+    renderApp({ activePage: "session" });
+    expect(screen.queryByPlaceholderText("Filter accounts...")).not.toBeInTheDocument();
+    expect(screen.queryByText("ann")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["session", "Session"],
+    ["avatars", "Avatars"],
+    ["scripts", "Scripts"],
+    ["theme", "Theme"],
+    ["settings", "Settings"],
+    ["afk", "AFK Mode"],
+  ] as const)("renders the %s page with its own header", (page, title) => {
+    renderApp({ activePage: page });
+    expect(screen.getByRole("heading", { level: 1, name: title })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: new RegExp(`^${title}`) })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("goes back to the account list on Escape", async () => {
+    const store = renderApp({ activePage: "settings" });
+    await userEvent.keyboard("{Escape}");
+    expect(store.setActivePage).toHaveBeenCalledWith("accounts");
+  });
+
+  /**
+   * Página não é modal: os botões da janela (minimizar, fechar) continuam na
+   * barra de título. Escondê-los era o que o `anyModalOpen` fazia com os modais.
+   */
+  it("keeps the window controls in the title bar on a page", () => {
+    renderApp({ activePage: "scripts" });
+    // A pílula de controles dos modais fica escondida, e a barra de título não
+    // recolhe os seus.
+    const pill = screen.getByRole("button", { name: "Move window" }).parentElement as HTMLElement;
+    expect(pill.className).toContain("pointer-events-none");
+    const titleBarControls = screen
+      .getAllByRole("button", { name: "Minimize" })
+      .map((b) => b.closest("div") as HTMLElement)
+      .filter((div) => div !== pill);
+    expect(titleBarControls).toHaveLength(1);
+    expect(titleBarControls[0].className).not.toContain("max-w-0");
+  });
+
+  it("hides the batch action bar outside the account page", () => {
+    renderApp({ activePage: "avatars", ...selecting([1]) });
+    expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
   });
 });

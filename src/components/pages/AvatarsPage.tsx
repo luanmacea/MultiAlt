@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Shirt, Users, X } from "lucide-react";
+import { Shirt, Users } from "lucide-react";
 import { useStore } from "../../store";
-import { useModalClose } from "../../hooks/useModalClose";
+import { PageShell } from "./PageShell";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import {
@@ -32,11 +32,13 @@ type Tab = "build" | "distribute";
  * evento `avatar-batch-state` — a tela pode fechar e reabrir no meio que retoma
  * de onde está (`get_avatar_batch_state`).
  */
-export function AvatarsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () => void }) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
-  const { visible, closing, handleClose } = useModalClose(open, onClose);
+  // A página fica montada o tempo todo (o ouvinte do lote precisa disso);
+  // `active` é o antigo "aberto".
+  const visible = active;
 
   const storeRef = useRef(store);
   storeRef.current = store;
@@ -298,123 +300,97 @@ export function AvatarsDialog({ open, onClose }: { open: boolean; onClose: () =>
 
   const showBatch = batch !== null && (batch.running || batch.accounts.length > 0) && !dismissed;
 
-  return (
-    <div
-      className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm ${
-        closing ? "animate-fade-out" : "animate-fade-in"
-      }`}
-      onClick={handleClose}
-    >
-      <div
-        role="dialog"
-        aria-label={t("Avatars")}
-        className={`theme-panel theme-border rounded-2xl border w-[1000px] max-w-[calc(100vw-24px)] h-[640px] max-h-[calc(100vh-24px)] flex flex-col overflow-hidden shadow-2xl ${
-          closing ? "animate-scale-out" : "animate-scale-in"
-        }`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-5 py-3.5 border-b theme-border flex items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="w-9 h-9 shrink-0 rounded-xl border theme-accent-border theme-accent-bg theme-accent flex items-center justify-center">
-              <Shirt size={18} strokeWidth={1.75} />
-            </span>
-            <div className="min-w-0">
-              <div className="text-[15px] font-semibold text-[var(--panel-fg)]">{t("Avatars")}</div>
-              <div className="text-[11.5px] theme-muted truncate">
-                {t("Free official Roblox items only — never spends Robux")}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {running ? (
-              <span className="px-2 py-1 rounded-full text-[11px] border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 animate-pulse">
-                {t("Applying {{done}}/{{total}}", { done: batch?.done ?? 0, total: batch?.total ?? 0 })}
+  const tabs = (
+    <div role="tablist" aria-label={t("Avatars")} className="flex items-center gap-1 -mb-px">
+      {[
+        { id: "build" as const, label: t("Build"), icon: <Shirt size={14} strokeWidth={1.75} /> },
+        { id: "distribute" as const, label: t("Distribute"), icon: <Users size={14} strokeWidth={1.75} /> },
+      ].map((item) => {
+        const selected = tab === item.id;
+        return (
+          <button
+            key={item.id}
+            role="tab"
+            aria-selected={selected}
+            onClick={() => setTab(item.id)}
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-[12.5px] font-medium border-b-2 transition-colors outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--input-focus)] ${
+              selected
+                ? "border-[var(--accent-color)] text-[var(--panel-fg)]"
+                : "border-transparent text-[var(--panel-muted)] hover:text-[var(--panel-fg)]"
+            }`}
+          >
+            <span className={selected ? "theme-accent" : undefined}>{item.icon}</span>
+            {item.label}
+            {item.id === "distribute" && saved.length > 0 ? (
+              <span
+                aria-hidden="true"
+                className="ml-0.5 px-1.5 rounded-full text-[11px] tabular-nums bg-[var(--panel-soft)] text-[var(--panel-muted)]"
+              >
+                {saved.length}
               </span>
             ) : null}
-            <button
-              onClick={handleClose}
-              aria-label={t("Close")}
-              className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] transition-colors"
-            >
-              <X size={16} strokeWidth={2} />
-            </button>
-          </div>
-        </div>
-
-        <div role="tablist" aria-label={t("Avatars")} className="px-5 pt-3 flex items-center gap-1.5 shrink-0">
-          {[
-            { id: "build" as const, label: t("Build"), icon: <Shirt size={13} strokeWidth={1.75} /> },
-            { id: "distribute" as const, label: t("Distribute"), icon: <Users size={13} strokeWidth={1.75} /> },
-          ].map((item) => {
-            const active = tab === item.id;
-            return (
-              <button
-                key={item.id}
-                role="tab"
-                aria-selected={active}
-                onClick={() => setTab(item.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg border transition-colors ${
-                  active ? "theme-accent-border theme-accent-bg text-[var(--panel-fg)]" : "theme-border theme-muted theme-btn-ghost"
-                }`}
-              >
-                <span className={active ? "theme-accent" : undefined}>{item.icon}</span>
-                {item.label}
-                {item.id === "distribute" && saved.length > 0 ? (
-                  <span
-                    aria-hidden="true"
-                    className="ml-0.5 px-1.5 rounded-full text-[11px] tabular-nums bg-[var(--panel-soft)] theme-muted"
-                  >
-                    {saved.length}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex-1 min-h-0 p-4 pt-3">
-          {tab === "build" ? (
-            <BuildTab
-              catalog={catalog}
-              catalogLoading={catalogLoading}
-              catalogError={catalogError}
-              onRetryCatalog={() => void loadCatalog()}
-              grouped={grouped}
-              thumbs={thumbs}
-              draft={draft}
-              saved={saved}
-              savedLoading={savedLoading}
-              saving={saving}
-              onSave={() => void handleSave()}
-              onDelete={(avatar) => void handleDelete(avatar)}
-            />
-          ) : (
-            <DistributeTab
-              saved={saved}
-              savedLoading={savedLoading}
-              thumbs={thumbs}
-              useAll={useAll}
-              chosenIds={chosenIds}
-              onSetUseAll={setUseAllAvatars}
-              onToggleAvatar={toggleAvatarCheck}
-              onGoBuild={() => setTab("build")}
-              accounts={store.accounts}
-              avatarUrls={store.avatarUrls}
-              picked={picked}
-              onPickedChange={setPicked}
-              batch={batch}
-              showBatch={showBatch}
-              starting={starting}
-              cancelling={cancelling}
-              canApply={canApply}
-              onApply={() => void handleApply()}
-              onCancel={() => void handleCancel()}
-              onDismiss={() => setDismissed(true)}
-              accountName={accountName}
-            />
-          )}
-        </div>
-      </div>
+          </button>
+        );
+      })}
     </div>
+  );
+
+  return (
+    <PageShell
+      title={t("Avatars")}
+      description={t("Free official Roblox items only — never spends Robux")}
+      onLeave={onLeave}
+      dataTour="avatars-page"
+      toolbar={tabs}
+      bodyClassName="p-5"
+      actions={
+        running ? (
+          <span className="px-2.5 py-1 rounded-full text-[11.5px] border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 animate-pulse">
+            {t("Applying {{done}}/{{total}}", { done: batch?.done ?? 0, total: batch?.total ?? 0 })}
+          </span>
+        ) : null
+      }
+    >
+      {tab === "build" ? (
+        <BuildTab
+          catalog={catalog}
+          catalogLoading={catalogLoading}
+          catalogError={catalogError}
+          onRetryCatalog={() => void loadCatalog()}
+          grouped={grouped}
+          thumbs={thumbs}
+          draft={draft}
+          saved={saved}
+          savedLoading={savedLoading}
+          saving={saving}
+          onSave={() => void handleSave()}
+          onDelete={(avatar) => void handleDelete(avatar)}
+        />
+      ) : (
+        <DistributeTab
+          saved={saved}
+          savedLoading={savedLoading}
+          thumbs={thumbs}
+          useAll={useAll}
+          chosenIds={chosenIds}
+          onSetUseAll={setUseAllAvatars}
+          onToggleAvatar={toggleAvatarCheck}
+          onGoBuild={() => setTab("build")}
+          accounts={store.accounts}
+          avatarUrls={store.avatarUrls}
+          picked={picked}
+          onPickedChange={setPicked}
+          batch={batch}
+          showBatch={showBatch}
+          starting={starting}
+          cancelling={cancelling}
+          canApply={canApply}
+          onApply={() => void handleApply()}
+          onCancel={() => void handleCancel()}
+          onDismiss={() => setDismissed(true)}
+          accountName={accountName}
+        />
+      )}
+    </PageShell>
   );
 }

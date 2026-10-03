@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
-import { ScriptsDialog } from "./ScriptsDialog";
+import { ScriptsPage } from "./ScriptsPage";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 import { resetPromptMocks } from "../../test-utils/promptMocks";
@@ -41,11 +41,11 @@ function makeScript(overrides: Partial<ManagedScript> = {}): ManagedScript {
 
 let scripts: ManagedScript[] = [];
 
-function renderDialog(open = true) {
+function renderDialog(active = true) {
   const store = setStore({});
-  const onClose = vi.fn();
-  render(<ScriptsDialog open={open} onClose={onClose} />);
-  return { store, onClose };
+  const onLeave = vi.fn();
+  render(<ScriptsPage active={active} onLeave={onLeave} />);
+  return { store, onLeave };
 }
 
 beforeEach(() => {
@@ -68,16 +68,16 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("ScriptsDialog — shell", () => {
-  it("renders nothing while closed", () => {
+describe("ScriptsPage — shell", () => {
+  it("renders nothing while another page is open", () => {
     setStore({});
-    const { container } = render(<ScriptsDialog open={false} onClose={vi.fn()} />);
+    const { container } = render(<ScriptsPage active={false} onLeave={vi.fn()} />);
     expect(container).toBeEmptyDOMElement();
   });
 
   it("shows the header and the script search once open", async () => {
     renderDialog();
-    expect(screen.getByText("Scripts")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Scripts" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search scripts")).toBeInTheDocument();
     await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("get_scripts"));
   });
@@ -109,15 +109,25 @@ describe("ScriptsDialog — shell", () => {
     expect(screen.getByText("Discord Bridge Template")).toBeInTheDocument();
   });
 
-  it("closes from the header button", async () => {
-    const { onClose } = renderDialog();
-    // The header's X is the first button inside the dialog.
-    await userEvent.click(screen.getAllByRole("button")[0]);
-    expect(onClose).toHaveBeenCalledTimes(1);
+  it("leaves the page on Escape", async () => {
+    const { onLeave } = renderDialog();
+    await userEvent.keyboard("{Escape}");
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+
+  /** Com o menu New aberto, o primeiro Escape fecha o menu e a página fica. */
+  it("closes the New menu on Escape before leaving the page", async () => {
+    const { onLeave } = renderDialog();
+    await userEvent.click(screen.getByRole("button", { name: /New/ }));
+    expect(screen.getByText("New Script")).toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByText("New Script")).not.toBeInTheDocument();
+    expect(onLeave).not.toHaveBeenCalled();
   });
 });
 
-describe("ScriptsDialog — what the feature is", () => {
+describe("ScriptsPage — what the feature is", () => {
   it("says in the header that this is JavaScript inside RAM, not a Roblox executor", () => {
     renderDialog();
 
@@ -149,7 +159,7 @@ describe("ScriptsDialog — what the feature is", () => {
   });
 });
 
-describe("ScriptsDialog — permission descriptions", () => {
+describe("ScriptsPage — permission descriptions", () => {
   const PERMISSION_DESCRIPTIONS: Array<[string, string]> = [
     [
       "Invoke Rust Commands",
