@@ -1,7 +1,7 @@
 **English** | [Português](README.pt-BR.md)
 
 # MultiAlt — Roblox Account Manager
-![MultiAlt](Images/Image5.png)
+![MultiAlt: choose a game and join with every selected account](site/assets/screens/choose-game.png)
 
 <p align="center">
   <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
@@ -123,4 +123,11 @@ bun run check            # typecheck + all tests (vitest + cargo test)
 The first `tauri dev`/`tauri build` compiles every Rust crate from scratch and can take a few minutes; later builds are incremental. Developer documentation (in Portuguese) lives in [docs/](docs/README.md).
 
 # Preview
-![MultiAlt](Images/Image5.png)
+Real screenshots, with account names hidden (the app has a button for that). Click one to see it full size.
+
+<table>
+  <tr><td width="50%"><a href="site/assets/screens/accounts.png"><img src="site/assets/screens/accounts.png" alt="Accounts"></a><br><sub><b>Accounts</b></sub></td><td width="50%"><a href="site/assets/screens/choose-game.png"><img src="site/assets/screens/choose-game.png" alt="Choose game"></a><br><sub><b>Choose game</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/session.png"><img src="site/assets/screens/session.png" alt="Session"></a><br><sub><b>Session</b></sub></td><td width="50%"><a href="site/assets/screens/afk-clicks.png"><img src="site/assets/screens/afk-clicks.png" alt="AFK clicks"></a><br><sub><b>AFK clicks</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/auto-rejoin.png"><img src="site/assets/screens/auto-rejoin.png" alt="Auto Rejoin"></a><br><sub><b>Auto Rejoin</b></sub></td><td width="50%"><a href="site/assets/screens/avatars.png"><img src="site/assets/screens/avatars.png" alt="Avatars"></a><br><sub><b>Avatars</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/theme.png"><img src="site/assets/screens/theme.png" alt="Theme"></a><br><sub><b>Theme</b></sub></td><td width="50%"><a href="site/assets/screens/settings.png"><img src="site/assets/screens/settings.png" alt="Settings"></a><br><sub><b>Settings</b></sub></td></tr>
+</table>
