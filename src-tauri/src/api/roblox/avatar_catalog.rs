@@ -161,9 +161,17 @@ pub async fn collectible_details(ids: &[String]) -> Result<Vec<CollectibleDetail
     Ok(out)
 }
 
-/// Ids dos assets de um bundle. O `UserOutfit` (a roupa montada) não é um
-/// asset e fica de fora.
-pub async fn bundle_asset_ids(bundle_id: i64) -> Result<Vec<i64>, String> {
+/// Uma peça de um bundle, com o tipo de asset dela (17 cabeça, 27 tronco,
+/// 28/29 braços, 30/31 pernas...). Sem `assetType` na resposta, o tipo é 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BundleAsset {
+    pub id: i64,
+    pub asset_type: i64,
+}
+
+/// Os assets de um bundle, com o tipo de cada um. O `UserOutfit` (a roupa
+/// montada) não é um asset e fica de fora.
+pub async fn bundle_asset_ids(bundle_id: i64) -> Result<Vec<BundleAsset>, String> {
     let client = http_client::client();
     let url = format!("{}/v1/bundles/{}/details", endpoints::host("catalog"), bundle_id);
 
@@ -183,7 +191,12 @@ pub async fn bundle_asset_ids(bundle_id: i64) -> Result<Vec<i64>, String> {
             items
                 .iter()
                 .filter(|i| i.get("type").and_then(|t| t.as_str()) == Some("Asset"))
-                .filter_map(|i| i.get("id").and_then(|id| id.as_i64()))
+                .filter_map(|i| {
+                    Some(BundleAsset {
+                        id: i.get("id").and_then(|id| id.as_i64())?,
+                        asset_type: i.get("assetType").and_then(|t| t.as_i64()).unwrap_or(0),
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default())
@@ -403,15 +416,24 @@ mod avatar_catalog_tests {
             .and(path(mock_path("catalog", "/v1/bundles/192/details")))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "items": [
-                    { "id": 1, "type": "Asset" },
+                    { "id": 1, "type": "Asset", "assetType": 28 },
                     { "id": 2, "type": "UserOutfit" },
-                    { "id": 3, "type": "Asset" }
+                    { "id": 3, "type": "Asset", "assetType": 17 },
+                    { "id": 4, "type": "Asset" }
                 ]
             })))
             .mount(server)
             .await;
 
-        assert_eq!(bundle_asset_ids(192).await.expect("bundle"), vec![1, 3]);
+        assert_eq!(
+            bundle_asset_ids(192).await.expect("bundle"),
+            vec![
+                BundleAsset { id: 1, asset_type: 28 },
+                BundleAsset { id: 3, asset_type: 17 },
+                // Sem `assetType` a peça continua; só não entra no conflito de tipos.
+                BundleAsset { id: 4, asset_type: 0 },
+            ]
+        );
     }
 
     #[tokio::test]

@@ -157,6 +157,11 @@ async fn apply_avatar_to_account(
         if attempted_claim && !pacing.claim_pause.is_zero() {
             tokio::time::sleep(pacing.claim_pause).await;
         }
+        // O Cancel pode ter chegado na pausa (ou na consulta de detalhes): nenhum
+        // resgate sai depois dele.
+        if cancel.load(Ordering::SeqCst) {
+            return account_result(user_id, avatar, "skipped", Some("cancelled".into()), claimed, missing);
+        }
         let outcome = api::roblox::claim_free_item(cookie, user_id, &details).await;
         attempted_claim = true;
         match outcome {
@@ -172,27 +177,71 @@ async fn apply_avatar_to_account(
         }
     }
 
-    let mut asset_ids: Vec<i64> = Vec::new();
+    // Bundles viram os assets deles. Asset avulso entra com tipo 0 (fora do conflito).
+    let mut pieces: Vec<(Option<i64>, api::roblox::BundleAsset)> = Vec::new();
     for item in wearable {
         match item.kind {
-            CatalogItemKind::Asset => asset_ids.push(item.id),
+            CatalogItemKind::Asset => {
+                pieces.push((None, api::roblox::BundleAsset { id: item.id, asset_type: 0 }))
+            }
             CatalogItemKind::Bundle => match api::roblox::bundle_asset_ids(item.id).await {
-                Ok(ids) if !ids.is_empty() => asset_ids.extend(ids),
+                Ok(assets) if !assets.is_empty() => {
+                    pieces.extend(assets.into_iter().map(|a| (Some(item.type_id), a)))
+                }
                 _ => missing += 1,
             },
         }
     }
-    let mut seen = std::collections::HashSet::new();
-    asset_ids.retain(|id| seen.insert(*id));
+    let asset_ids = head_bundle_wins(pieces);
 
     if asset_ids.is_empty() {
         return account_result(user_id, avatar, "failed", Some("nothing to wear".into()), claimed, missing);
     }
 
     match api::roblox::set_avatar(cookie, build_wear_json(&asset_ids, avatar.skin_color)).await {
-        Ok(_) => account_result(user_id, avatar, "ok", None, claimed, missing),
+        Ok(invalid) => {
+            // Asset que o Roblox recusou não foi vestido.
+            let refused = asset_ids.iter().filter(|id| invalid.contains(id)).count();
+            missing += refused;
+            if refused == asset_ids.len() {
+                account_result(
+                    user_id,
+                    avatar,
+                    "failed",
+                    Some("Roblox refused every asset".into()),
+                    claimed,
+                    missing,
+                )
+            } else {
+                account_result(user_id, avatar, "ok", None, claimed, missing)
+            }
+        }
         Err(e) => account_result(user_id, avatar, "failed", Some(e), claimed, missing),
     }
+}
+
+/// Tipo do bundle de cabeça dinâmica (o de corpo é 1).
+const HEAD_BUNDLE_TYPE: i64 = 4;
+
+/// Ids a vestir, sem repetidos. Pacote de corpo e de cabeça trazem, os dois,
+/// peças da mesma parte (a cabeça, asset type 17): para o mesmo tipo de asset,
+/// vale a do pacote de cabeça e a do pacote de corpo sai.
+fn head_bundle_wins(pieces: Vec<(Option<i64>, api::roblox::BundleAsset)>) -> Vec<i64> {
+    let head_types: std::collections::HashSet<i64> = pieces
+        .iter()
+        .filter(|(bundle_type, a)| *bundle_type == Some(HEAD_BUNDLE_TYPE) && a.asset_type != 0)
+        .map(|(_, a)| a.asset_type)
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    pieces
+        .into_iter()
+        .filter(|(bundle_type, a)| {
+            let from_other_bundle = matches!(bundle_type, Some(t) if *t != HEAD_BUNDLE_TYPE);
+            !(from_other_bundle && head_types.contains(&a.asset_type))
+        })
+        .map(|(_, a)| a.id)
+        .filter(|id| seen.insert(*id))
+        .collect()
 }
 
 // ---- Catálogo gratuito (cache de 6 h em memória) -------------------------
@@ -259,7 +308,7 @@ impl Drop for AvatarBatchRunGuard {
 
 fn try_begin_avatar_batch() -> Result<AvatarBatchRunGuard, String> {
     if AVATAR_BATCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return Err("Já existe um lote de avatares em andamento.".to_string());
+        return Err("An avatar batch is already running".to_string());
     }
     Ok(AvatarBatchRunGuard)
 }
@@ -322,10 +371,10 @@ async fn avatar_apply_batch(
         .filter_map(|id| saved.iter().find(|a| &a.id == id).cloned())
         .collect();
     if user_ids.is_empty() {
-        return Err("Nenhuma conta selecionada.".to_string());
+        return Err("No account selected".to_string());
     }
     if avatars.is_empty() {
-        return Err("Nenhum avatar salvo selecionado.".to_string());
+        return Err("No saved avatar selected".to_string());
     }
 
     let known_ids: Vec<String> = avatars.iter().map(|a| a.id.clone()).collect();
@@ -519,6 +568,19 @@ mod avatar_batch_tests {
 
     /// `expected = None` => o wearing não pode ser chamado.
     async fn mount_wearing(token: &str, expected: Option<Vec<i64>>) -> MockGuard {
+        mount_wearing_replying(
+            token,
+            expected,
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({})),
+        )
+        .await
+    }
+
+    async fn mount_wearing_replying(
+        token: &str,
+        expected: Option<Vec<i64>>,
+        response: ResponseTemplate,
+    ) -> MockGuard {
         let wanted = expected.clone();
         Mock::given(method("POST"))
             .and(path(mock_path("avatar", "/v2/avatar/set-wearing-assets")))
@@ -533,7 +595,7 @@ mod avatar_batch_tests {
                     body["assets"] == serde_json::Value::Array(want)
                 }
             })
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .respond_with(response)
             .expect(if expected.is_some() { 1 } else { 0 })
             .mount_as_scoped(mock_server().await)
             .await
@@ -740,5 +802,185 @@ mod avatar_batch_tests {
         assert_eq!(result.status, "skipped", "{result:?}");
         assert_eq!(result.reason.as_deref(), Some("cancelled"));
         drop(wearing);
+    }
+
+    async fn apply_owned_assets(token: &str, user: i64, assets: &[i64]) -> AvatarAccountResult {
+        apply_avatar_to_account(
+            token,
+            user,
+            &avatar(assets.iter().map(|id| item(*id, CatalogItemKind::Asset)).collect(), None),
+            &no_pause(),
+            &AtomicBool::new(false),
+        )
+        .await
+    }
+
+    /// Asset que o Roblox recusou no `set-wearing-assets` não foi vestido: conta
+    /// em `missing`, e o resto da conta segue "ok".
+    #[tokio::test]
+    async fn apply_counts_assets_roblox_refused_as_missing() {
+        let token = "avb-invalid-some";
+        mock_server().await;
+        mount_csrf(token, "csrf-avb-invalid-some").await;
+        mount_wear_side_endpoints(token).await;
+        mount_owned(token, 608, "Asset", 910_071, true).await;
+        mount_owned(token, 608, "Asset", 910_072, true).await;
+        let wearing = mount_wearing_replying(
+            token,
+            Some(vec![910_071, 910_072]),
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({ "invalidAssetIds": [910_072] })),
+        )
+        .await;
+
+        let result = apply_owned_assets(token, 608, &[910_071, 910_072]).await;
+
+        assert_eq!(result.status, "ok", "{result:?}");
+        assert_eq!((result.claimed, result.missing), (0, 1));
+        drop(wearing);
+    }
+
+    /// Nenhum asset vestido = a conta não mudou: "failed", não "ok".
+    #[tokio::test]
+    async fn apply_fails_when_roblox_refuses_every_asset() {
+        let token = "avb-invalid-all";
+        mock_server().await;
+        mount_csrf(token, "csrf-avb-invalid-all").await;
+        mount_wear_side_endpoints(token).await;
+        mount_owned(token, 609, "Asset", 910_081, true).await;
+        let wearing = mount_wearing_replying(
+            token,
+            Some(vec![910_081]),
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({ "invalidAssetIds": [910_081] })),
+        )
+        .await;
+
+        let result = apply_owned_assets(token, 609, &[910_081]).await;
+
+        assert_eq!(result.status, "failed", "{result:?}");
+        assert_eq!(result.reason.as_deref(), Some("Roblox refused every asset"));
+        assert_eq!(result.missing, 1);
+        drop(wearing);
+    }
+
+    /// `set-wearing-assets` respondendo erro não pode virar "Applied".
+    #[tokio::test]
+    async fn apply_fails_when_the_wearing_call_is_refused() {
+        let token = "avb-wear-refused";
+        mock_server().await;
+        mount_csrf(token, "csrf-avb-wear-refused").await;
+        mount_wear_side_endpoints(token).await;
+        mount_owned(token, 610, "Asset", 910_091, true).await;
+        let wearing =
+            mount_wearing_replying(token, Some(vec![910_091]), ResponseTemplate::new(400)).await;
+
+        let result = apply_owned_assets(token, 610, &[910_091]).await;
+
+        assert_eq!(result.status, "failed", "{result:?}");
+        assert_eq!(result.reason.as_deref(), Some("Failed to wear assets (status 400)"));
+        drop(wearing);
+    }
+
+    fn bundle_item(id: i64, bundle_type: i64) -> AvatarItemRef {
+        AvatarItemRef { type_id: bundle_type, ..item(id, CatalogItemKind::Bundle) }
+    }
+
+    async fn mount_bundle(id: i64, assets: serde_json::Value) {
+        Mock::given(method("GET"))
+            .and(path(mock_path("catalog", &format!("/v1/bundles/{id}/details"))))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({ "items": assets })))
+            .mount(mock_server().await)
+            .await;
+    }
+
+    /// Pacote de corpo e cabeça dinâmica trazem, os dois, uma cabeça (asset
+    /// type 17). Para a mesma parte, vale a do pacote de cabeça; o resto do
+    /// corpo (tronco) fica.
+    #[tokio::test]
+    async fn apply_prefers_the_head_bundle_over_the_body_bundle_for_the_same_part() {
+        let token = "avb-head-wins";
+        mock_server().await;
+        mount_csrf(token, "csrf-avb-head-wins").await;
+        mount_wear_side_endpoints(token).await;
+        mount_owned(token, 611, "Bundle", 920_011, true).await;
+        mount_owned(token, 611, "Bundle", 920_012, true).await;
+        mount_bundle(
+            920_011,
+            serde_json::json!([
+                { "id": 920_111, "type": "Asset", "assetType": 17 },
+                { "id": 920_112, "type": "Asset", "assetType": 27 },
+                { "id": 920_113, "type": "UserOutfit" }
+            ]),
+        )
+        .await;
+        mount_bundle(
+            920_012,
+            serde_json::json!([
+                { "id": 920_121, "type": "Asset", "assetType": 17 },
+                { "id": 920_122, "type": "Asset", "assetType": 79 }
+            ]),
+        )
+        .await;
+        let wearing = mount_wearing(token, Some(vec![920_112, 920_121, 920_122])).await;
+
+        let result = apply_avatar_to_account(
+            token,
+            611,
+            &avatar(vec![bundle_item(920_011, 1), bundle_item(920_012, 4)], None),
+            &no_pause(),
+            &AtomicBool::new(false),
+        )
+        .await;
+
+        assert_eq!(result.status, "ok", "{result:?}");
+        drop(wearing);
+    }
+
+    /// Cancelar enquanto o resgate se prepara (pausa de 7 s, detalhes) não
+    /// deixa o pedido sair: a flag é olhada de novo logo antes do resgate. Aqui
+    /// o Cancel chega durante a consulta de detalhes, com pausa zero.
+    #[tokio::test]
+    async fn apply_rechecks_cancel_right_before_a_claim() {
+        let token = "avb-cancel-claim";
+        mock_server().await;
+        mount_csrf(token, "csrf-avb-cancel-claim").await;
+        mount_wear_side_endpoints(token).await;
+        mount_owned(token, 612, "Asset", 910_111, false).await;
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = cancel.clone();
+        Mock::given(method("POST"))
+            .and(path(mock_path("apis", "/marketplace-items/v1/items/details")))
+            .and(body_partial_json(serde_json::json!({ "itemIds": ["col-910111"] })))
+            .respond_with(move |_: &Request| {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                ResponseTemplate::new(200).set_body_json(serde_json::json!([{
+                    "collectibleItemId": "col-910111",
+                    "collectibleProductId": "prod-col-910111",
+                    "price": 0,
+                    "creatorId": 1
+                }]))
+            })
+            .mount(mock_server().await)
+            .await;
+        let purchase = mount_purchase(
+            token,
+            "col-910111",
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({ "purchased": true })),
+            0,
+        )
+        .await;
+        let wearing = mount_wearing(token, None).await;
+
+        let result = apply_avatar_to_account(
+            token,
+            612,
+            &avatar(vec![item(910_111, CatalogItemKind::Asset)], None),
+            &no_pause(),
+            &cancel,
+        )
+        .await;
+
+        assert_eq!(result.status, "skipped", "{result:?}");
+        assert_eq!(result.reason.as_deref(), Some("cancelled"));
+        drop((purchase, wearing));
     }
 }

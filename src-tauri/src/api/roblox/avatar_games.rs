@@ -35,13 +35,16 @@ pub async fn set_avatar(security_token: &str, avatar_json: serde_json::Value) ->
             .json(&serde_json::json!({ "assets": assets }));
         let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
 
-        if response.status().is_success() {
-            if let Ok(body) = response.json::<serde_json::Value>().await {
-                if let Some(ids) = body.get("invalidAssetIds").and_then(|v| v.as_array()) {
-                    for id in ids {
-                        if let Some(n) = id.as_i64() {
-                            invalid_assets.push(n);
-                        }
+        // Recusa do Roblox é erro: devolver lista vazia fazia quem chamou
+        // anunciar "aplicado" com o avatar intacto.
+        if !response.status().is_success() {
+            return Err(format!("Failed to wear assets (status {})", response.status().as_u16()));
+        }
+        if let Ok(body) = response.json::<serde_json::Value>().await {
+            if let Some(ids) = body.get("invalidAssetIds").and_then(|v| v.as_array()) {
+                for id in ids {
+                    if let Some(n) = id.as_i64() {
+                        invalid_assets.push(n);
                     }
                 }
             }
@@ -532,6 +535,32 @@ mod avatar_games_extra_tests {
             .await
             .expect("set avatar");
         assert!(invalid.is_empty());
+    }
+
+    /// Wearing refused by Roblox is an error, not an empty list of invalid
+    /// assets: the caller would report "applied" for an avatar that never changed.
+    #[tokio::test]
+    async fn set_avatar_reports_a_refused_wearing_call() {
+        let server = mock_server().await;
+        mount_csrf("avatar-wear-refused", "csrf-avatar-wear-refused").await;
+
+        Mock::given(method("POST"))
+            .and(path(mock_path("avatar", "/v2/avatar/set-wearing-assets")))
+            .and(header("cookie", cookie_of("avatar-wear-refused")))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "errors": [{ "code": 0, "message": "BadRequest" }]
+            })))
+            .expect(1)
+            .mount(server)
+            .await;
+
+        let error = set_avatar(
+            "avatar-wear-refused",
+            serde_json::json!({ "assets": [{ "id": 1234 }] }),
+        )
+        .await
+        .expect_err("a refused wearing call must be an error");
+        assert_eq!(error, "Failed to wear assets (status 400)");
     }
 
     /// The older payloads spell the scales key `scale`.
