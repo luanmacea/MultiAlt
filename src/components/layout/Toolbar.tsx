@@ -4,6 +4,7 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { quickAddAccount } from "../../utils/quickAdd";
+import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus } from "lucide-react";
 
 /**
@@ -262,18 +263,21 @@ export function Toolbar() {
                   </span>
                 </span>
               </button>
-              <button
-                onClick={handleOpenGenerator}
-                className="flex items-start gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
-              >
-                <Sparkles size={14} strokeWidth={1.5} className="theme-muted mt-0.5 shrink-0" />
-                <span className="min-w-0">
-                  {t("Account Generator")}
-                  <span className="block text-[12px] theme-muted leading-snug">
-                    {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+              {/* O gerador pago está desligado por padrão — ver ENABLE_ACCOUNT_GENERATOR. */}
+              {ENABLE_ACCOUNT_GENERATOR && (
+                <button
+                  onClick={handleOpenGenerator}
+                  className="flex items-start gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
+                >
+                  <Sparkles size={14} strokeWidth={1.5} className="theme-muted mt-0.5 shrink-0" />
+                  <span className="min-w-0">
+                    {t("Account Generator")}
+                    <span className="block text-[12px] theme-muted leading-snug">
+                      {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+                    </span>
                   </span>
-                </span>
-              </button>
+                </button>
+              )}
               <button
                 onClick={handleOpenVersions}
                 className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
