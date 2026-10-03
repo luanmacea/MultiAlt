@@ -185,8 +185,9 @@ function RowStats({ ctl, live }: { ctl: RejoinController; live: LiveRow }) {
   );
 }
 
-function rowName(t: ReturnType<typeof useTr>, live: LiveRow): string {
-  return live.account?.Alias || live.account?.Username || `${t("User ID")}: ${live.userId}`;
+/** Nome da linha, com "Names hidden" aplicado (sem a conta na lista, o User ID). */
+function rowName(ctl: RejoinController, live: LiveRow): string {
+  return ctl.accountLabel(live.account, `${ctl.t("User ID")}: ${live.userId}`);
 }
 
 /** New View: contadores, seleção em lote e um cartão por conta. */
@@ -308,8 +309,10 @@ export function LiveList({ ctl }: { ctl: RejoinController }) {
           liveRows.map((live) => {
             const { userId, account, row } = live;
             const isBulkSelected = ctl.bulkSelectedSet.has(userId);
-            const name = rowName(t, live);
-            const avatarUrl = ctl.store.avatarUrls.get(userId);
+            const name = rowName(ctl, live);
+            // Com os nomes ocultos a foto também some (a menos que a opção de
+            // manter avatares esteja ligada) — igual à lista de contas.
+            const avatarUrl = ctl.hideAvatar ? undefined : ctl.store.avatarUrls.get(userId);
             return (
               <div
                 key={userId}
@@ -343,7 +346,7 @@ export function LiveList({ ctl }: { ctl: RejoinController }) {
                       />
                     ) : (
                       <div className="theme-avatar w-7 h-7 rounded-full bg-[var(--panel-soft)] flex items-center justify-center theme-muted text-[11px] font-medium shrink-0">
-                        {(account?.Username || "?").charAt(0).toUpperCase()}
+                        {ctl.accountInitial(account)}
                       </div>
                     )}
                     <div className="min-w-0">
@@ -383,7 +386,7 @@ export function LiveCycleList({ ctl }: { ctl: RejoinController }) {
       <div className="space-y-1.5">
         {ctl.liveRows.map((live) => {
           const { userId, row } = live;
-          const name = rowName(t, live);
+          const name = rowName(ctl, live);
           return (
             <div
               key={userId}

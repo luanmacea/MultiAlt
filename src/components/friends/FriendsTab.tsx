@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { AlertTriangle, Gamepad2, RefreshCw, User, Users } from "lucide-react";
 import { useStore } from "../../store";
+import { accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useTr } from "../../i18n/text";
 import type {
   AccountFriends,
@@ -32,12 +33,6 @@ import type {
 
 /** Espaço entre as consultas de cada conta, para não tomar 429 da API. */
 const FRIENDS_REQUEST_DELAY_MS = 1200;
-
-/** Mesmo mascaramento da lista de contas / Choose Game / Session Panel. */
-function maskName(name: string, previewLetters: number): string {
-  if (previewLetters > 0 && previewLetters < name.length) return name.slice(0, previewLetters) + "********";
-  return "************";
-}
 
 /**
  * Assinatura de `useLauncher().launchAll`. Declarada aqui (e não importada da
@@ -192,8 +187,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
   /** Nome da CONTA do usuário (respeita o mascaramento). */
   function accountName(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
-    const raw = account ? account.Alias || account.Username : String(userId);
-    return store.hideUsernames ? maskName(raw, store.hiddenNameLetters) : raw;
+    return accountLabel(account, store, userId);
   }
 
   async function handleJoinFriend(friend: OnlineFriend, target: FriendTarget) {
@@ -273,7 +267,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
             className="rounded-lg border theme-border bg-[var(--panel-soft)]"
           >
             <header className="flex items-center gap-2 px-3 py-2 border-b theme-border">
-              {store.avatarUrls.get(row.userId) ? (
+              {!hideAccountAvatar(store) && store.avatarUrls.get(row.userId) ? (
                 <img src={store.avatarUrls.get(row.userId)} alt="" className="w-5 h-5 rounded-full" />
               ) : (
                 <div className="w-5 h-5 rounded-full bg-[var(--panel-muted)] flex items-center justify-center">

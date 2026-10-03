@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { useStore } from "../../store";
+import { accountLabel } from "../../utils/accountName";
 import { useModalClose } from "../../hooks/useModalClose";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
@@ -70,7 +71,7 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
     await saveFields(updated);
   }
 
-  const title = t("Fields - {{name}}", { name: account.Alias || account.Username });
+  const title = t("Fields - {{name}}", { name: accountLabel(account, store) });
 
   return (
     <div

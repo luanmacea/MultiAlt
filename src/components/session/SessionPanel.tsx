@@ -3,6 +3,7 @@ import { Coffee, Crosshair, Gamepad2, ListX, PowerOff, SquareStop, UserPlus, X }
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
+import { accountLabel } from "../../utils/accountName";
 import type {
   FriendLinkAccountState,
   LaunchQueueEntry,
@@ -21,12 +22,6 @@ import type {
  * já aberto**. Cancelar só tira a conta da fila; fechar é uma ação separada,
  * explícita, na seção "In game".
  */
-
-/** Mesmo mascaramento da lista de contas / Choose Game. */
-function maskName(name: string, previewLetters: number): string {
-  if (previewLetters > 0 && previewLetters < name.length) return name.slice(0, previewLetters) + "********";
-  return "************";
-}
 
 type Translate = ReturnType<typeof useTr>;
 
@@ -135,8 +130,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
 
   function nameFor(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
-    const raw = account ? account.Alias || account.Username : String(userId);
-    return store.hideUsernames ? maskName(raw, store.hiddenNameLetters) : raw;
+    return accountLabel(account, store, userId);
   }
 
   function toggleChecked(userId: number) {

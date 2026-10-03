@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Check, Copy, Globe, Loader2, RefreshCw, Search, Server, Wifi, X } from "lucide-react";
 import { MAX_SERVER_SCAN_PAGES, useStore } from "../../store";
+import { accountLabel } from "../../utils/accountName";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { GameBadge } from "../ui/GameBadge";
 import { useTr } from "../../i18n/text";
@@ -296,13 +297,6 @@ function JobIdCell({ jobId, onCopy }: { jobId: string; onCopy: (jobId: string) =
   );
 }
 
-function maskName(name: string, previewLetters: number): string {
-  if (previewLetters > 0 && previewLetters < name.length) {
-    return name.slice(0, previewLetters) + "********";
-  }
-  return "************";
-}
-
 export interface ServersTabProps {
   /** Contas selecionadas — todas entram no servidor clicado. */
   userIds: number[];
@@ -529,8 +523,7 @@ export function ServersTab({
   /** Nome da conta como a tela mostra — com a máscara de "Nomes visíveis". */
   const accountName = (userId: number): string => {
     const account = store.accounts.find((a) => a.UserID === userId);
-    const raw = account ? account.Alias || account.Username : String(userId);
-    return store.hideUsernames ? maskName(raw, store.hiddenNameLetters) : raw;
+    return accountLabel(account, store, userId);
   };
   const accessAnswers = userIds
     .map((id) => access.get(id))

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type UIEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
+import { accountLabel, hideAccountAvatar } from "../utils/accountName";
 import { useConfirm, usePrompt } from "../hooks/usePrompt";
 import { useJoinOnlineWarning } from "../hooks/useJoinOnlineWarning";
 import { useEscapeStack } from "../hooks/useEscapeStack";
@@ -21,11 +22,6 @@ import { Toggle } from "./ui/Toggle";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
 
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
-
-function maskName(name: string, previewLetters: number) {
-  if (previewLetters > 0 && previewLetters < name.length) return name.slice(0, previewLetters) + "********";
-  return "************";
-}
 
 /** Extra launch parameters for targets that were already resolved (join links). */
 type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode">;
@@ -646,9 +642,7 @@ function ConsoleTab() {
   const nameFor = (userId: number | null): string => {
     if (userId === null) return "—";
     const a = store.accounts.find((acc) => acc.UserID === userId);
-    if (!a) return String(userId);
-    const raw = a.Alias || a.Username;
-    return store.hideUsernames ? maskName(raw, store.hiddenNameLetters) : raw;
+    return accountLabel(a, store, userId);
   };
 
   const fmtTime = (ts: number) =>
@@ -930,9 +924,8 @@ export function ChooseGameScreen() {
         {/* Account chips */}
         <div className="flex flex-wrap gap-1.5 pb-3 max-h-[52px] overflow-hidden">
           {accounts.slice(0, 8).map((a) => {
-            const rawName = a.Alias || a.Username;
-            const name = store.hideUsernames ? maskName(rawName, store.hiddenNameLetters) : rawName;
-            const avatarUrl = store.avatarUrls.get(a.UserID);
+            const name = accountLabel(a, store);
+            const avatarUrl = hideAccountAvatar(store) ? undefined : store.avatarUrls.get(a.UserID);
             return (
               <div
                 key={a.UserID}

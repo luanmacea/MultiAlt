@@ -9,6 +9,7 @@ import {
   type AfkPoint,
 } from "../../../afkClickPoint";
 import { useTr } from "../../../i18n/text";
+import { useAccountLabel } from "../../../hooks/useAccountLabel";
 
 /**
  * Tempo até o próximo envio, no formato `m:ss` — nunca acima do intervalo.
@@ -58,6 +59,7 @@ export interface ClicksTabOptions {
 export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   const t = useTr();
   const store = useStore();
+  const accountLabel = useAccountLabel();
 
   const status = store.afkStatus;
   const running = status?.active === true;
@@ -187,9 +189,10 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     }
   }
 
+  /** Nome da conta na tela e nos avisos, com "Names hidden" aplicado. */
   function accountName(userId: number): string {
     const account = store.accounts.find((it) => it.UserID === userId);
-    return account?.Alias || account?.Username || `${t("User ID")}: ${userId}`;
+    return accountLabel(account, `${t("User ID")}: ${userId}`);
   }
 
   function persist(settingKey: string, value: string) {
