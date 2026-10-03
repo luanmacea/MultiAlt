@@ -9,6 +9,7 @@ import {
   PanelLeftOpen,
   Settings,
   Shirt,
+  Sparkles,
   TerminalSquare,
   Users,
   type LucideIcon,
@@ -84,6 +85,13 @@ const NAV_GROUPS: NavItemDef[][] = [
     { page: "settings", label: "Settings", icon: Settings, tour: "nav-settings" },
   ],
 ];
+
+/**
+ * "What's new" (Novidades) fica no rodapé, junto do Help: os dois falam do
+ * próprio app, não do trabalho com as contas, e quem procura um deles olha ali.
+ * É página como as de cima (marca `aria-current`), não ação como o Help.
+ */
+const FOOTER_ITEMS: NavItemDef[] = [{ page: "changelog", label: "What's new", icon: Sparkles }];
 
 export function NavSidebar() {
   const t = useTr();
@@ -243,21 +251,24 @@ export function NavSidebar() {
         ))}
       </div>
 
-      <div className={`shrink-0 border-t theme-border py-2 px-2.5 ${collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}`}>
-        {collapsed ? (
-          <Tooltip content={helpLabel} side="right" delayMs={200}>
-            {helpButton}
-          </Tooltip>
-        ) : (
-          <div className="flex-1 min-w-0">{helpButton}</div>
-        )}
-        {narrow ? null : collapsed ? (
-          <Tooltip content={collapseLabel} side="right" delayMs={200}>
-            {collapseButton}
-          </Tooltip>
-        ) : (
-          collapseButton
-        )}
+      <div className="shrink-0 border-t theme-border py-2 px-2.5">
+        <ul className="mb-0.5 space-y-0.5">{FOOTER_ITEMS.map(renderItem)}</ul>
+        <div className={collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}>
+          {collapsed ? (
+            <Tooltip content={helpLabel} side="right" delayMs={200}>
+              {helpButton}
+            </Tooltip>
+          ) : (
+            <div className="flex-1 min-w-0">{helpButton}</div>
+          )}
+          {narrow ? null : collapsed ? (
+            <Tooltip content={collapseLabel} side="right" delayMs={200}>
+              {collapseButton}
+            </Tooltip>
+          ) : (
+            collapseButton
+          )}
+        </div>
       </div>
     </nav>
   );
