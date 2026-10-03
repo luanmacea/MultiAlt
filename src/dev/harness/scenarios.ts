@@ -1140,43 +1140,68 @@ const SCENARIOS: Record<string, () => void> = {
     });
   },
 
-  /** Amigos online de cada conta, com uma conta falhando. */
+  /**
+   * Amigos online de cada conta, com uma conta falhando.
+   *
+   * Entregue como o backend entrega: uma conta por vez, com a pausa do rate
+   * limit (`delayMs`) entre elas, um `friends-online-progress` com a entrada de
+   * cada conta e o lote inteiro só no fim. Quem tem que mostrar cada conta
+   * assim que ela chega é a UI.
+   */
   "friends-online"() {
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_online_friends_for_accounts") {
-        const ids = (args.userIds as number[]) || [];
-        return ids.map((userId, index) => ({
-          userId,
-          error: index === 1 ? "Failed to get online friends (status 429)" : null,
-          friends:
-            index === 1
-              ? []
-              : [
-                  {
-                    userId: 7000 + index,
-                    name: `friend${index}`,
-                    displayName: `Friend ${index}`,
-                    presenceType: 2,
-                    lastLocation: "Some Game",
-                    placeId: 606849621,
-                    rootPlaceId: 606849621,
-                    gameId: `job-friend-${index}`,
-                  },
-                  {
-                    userId: 8000 + index,
-                    name: `website${index}`,
-                    displayName: `On Site ${index}`,
-                    presenceType: 1,
-                    lastLocation: "Website",
-                    placeId: null,
-                    rootPlaceId: null,
-                    gameId: null,
-                  },
-                ],
-        }));
+        const ids = [...new Set(((args.userIds as number[]) || []).filter((id) => id > 0))];
+        const requestId = (args.requestId as number | undefined) ?? null;
+        const pause = Number(args.delayMs ?? 0) || 0;
+        const rows = friendsFor(ids);
+        const total = rows.length;
+        harnessEmit("friends-online-progress", { done: 0, total, requestId, entry: null });
+        return new Promise((resolve) => {
+          rows.forEach((entry, index) => {
+            // ~400 ms da consulta de cada conta + a pausa entre elas.
+            setTimeout(() => {
+              harnessEmit("friends-online-progress", { done: index + 1, total, requestId, entry });
+              if (index === total - 1) resolve(rows);
+            }, (index + 1) * 400 + index * pause);
+          });
+          if (total === 0) resolve([]);
+        });
       }
       return baseHandler(cmd, args);
     });
+
+    function friendsFor(ids: number[]) {
+      return ids.map((userId, index) => ({
+        userId,
+        error: index === 1 ? "Failed to get online friends (status 429)" : null,
+        friends:
+          index === 1
+            ? []
+            : [
+                {
+                  userId: 7000 + index,
+                  name: `friend${index}`,
+                  displayName: `Friend ${index}`,
+                  presenceType: 2,
+                  lastLocation: "Some Game",
+                  placeId: 606849621,
+                  rootPlaceId: 606849621,
+                  gameId: `job-friend-${index}`,
+                },
+                {
+                  userId: 8000 + index,
+                  name: `website${index}`,
+                  displayName: `On Site ${index}`,
+                  presenceType: 1,
+                  lastLocation: "Website",
+                  placeId: null,
+                  rootPlaceId: null,
+                  gameId: null,
+                },
+              ],
+      }));
+    }
   },
 
   /**

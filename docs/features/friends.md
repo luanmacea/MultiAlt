@@ -12,17 +12,24 @@ Mostrar os amigos **online** de cada conta selecionada e, com um clique num amig
 | Comandos Tauri | [commands/account_api.rs](../../src-tauri/src/commands/account_api.rs) (`get_online_friends`, `get_online_friends_for_accounts`, `collect_online_friends`) |
 | UI | [components/friends/FriendsTab.tsx](../../src/components/friends/FriendsTab.tsx) |
 | Tipos no frontend | [types.ts](../../src/types.ts) (`OnlineFriend`, `AccountFriends`, `FriendsOnlineProgress`) |
-| Evento | `friends-online-progress` → `{ done, total }` |
+| Evento | `friends-online-progress` → `{ done, total, requestId, entry }` |
 | Suíte de teste | `bun run t friends` |
 
 ## Fluxo
 
 1. O usuário abre a aba **Friends** da tela Choose Game com N contas selecionadas.
-2. O frontend chama `get_online_friends_for_accounts({ userIds, delayMs })`.
+2. O frontend chama `get_online_friends_for_accounts({ userIds, delayMs, requestId })`.
 3. O backend percorre as contas **em sequência**, com pausa entre elas, e faz **uma** requisição por conta: `GET friends.roblox.com/v1/users/{userId}/friends/online` com o cookie daquela conta.
 4. Como o payload dessa rota não traz mais `name`/`displayName` (mudança da Roblox em out/2024), os nomes são completados em lote por `POST users.roblox.com/v1/users` (100 ids por requisição). Quando um amigo está em jogo mas sem `gameInstanceId`, há um resgate opcional via `presence.roblox.com/v1/presence/users` **com cookie** (sem cookie a Roblox omite o `gameId`).
-5. Cada conta vira um `AccountFriends { userId, friends, error }` — o erro de uma conta **não** derruba as outras. O progresso vai para a UI pelo evento `friends-online-progress`.
+5. Cada conta vira um `AccountFriends { userId, friends, error }` — o erro de uma conta **não** derruba as outras. Assim que uma conta volta, o evento `friends-online-progress` leva a contagem **e a entrada dela** (`entry`), com o `requestId` que a tela mandou; a aba desenha aquela conta na hora, sem esperar o lote. O comando ainda devolve o lote inteiro no fim, e é essa a versão final da lista.
 6. Ao clicar num amigo entrável, a aba chama `launchAll(userIds, placeId, jobId)` (o `useLauncher` da Choose Game, que usa `launch_multiple`).
+
+### Carga progressiva e cache da aba
+
+- **Uma conta por vez na tela.** Enquanto a rodada corre, a aba mostra todas as contas da seleção, **na ordem da seleção** (a mesma do retorno final), não na ordem em que as respostas chegam (`upsertAccountFriends`). Conta que ainda não voltou aparece como pendente (`friends-pending-<id>`: cabeçalho com spinner e *Loading friends...*). Evento com outro `requestId` (sobra de uma rodada anterior) é ignorado; evento sem `requestId` só atualiza a contagem.
+- **Voltar à aba mostra o que ela tinha.** A última lista de cada seleção fica num cache de memória da sessão (`friendsCache`, ver `utils/sessionCache.ts`), assim como as miniaturas dos amigos. Ao voltar (trocando de aba ou saindo e entrando na Choose Game), a lista aparece no primeiro desenho e a consulta roda por trás: cada conta mostra um spinner no cabeçalho (`friends-updating-<id>`) até a resposta nova dela chegar e tomar o lugar.
+- **Voltar no meio de uma rodada não abre outra.** A rodada em curso fica registrada por seleção (`runningLoads`); a aba que monta de novo se junta a ela em vez de chamar o backend outra vez — duas rodadas juntas dobrariam as chamadas à API de amigos.
+- As miniaturas continuam saindo **num lote só**, no fim da rodada (como antes) — pedir por conta multiplicaria as chamadas.
 
 ## Regras de negócio
 

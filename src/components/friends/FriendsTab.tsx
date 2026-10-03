@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { AlertTriangle, Gamepad2, RefreshCw, User, Users } from "lucide-react";
+import { AlertTriangle, Gamepad2, Loader2, RefreshCw, User, Users } from "lucide-react";
 import { useStore } from "../../store";
 import { accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useTr } from "../../i18n/text";
+import { SessionCache } from "../../utils/sessionCache";
 import type {
   AccountFriends,
   FriendsOnlineProgress,
@@ -33,6 +34,75 @@ import type {
 
 /** Espaço entre as consultas de cada conta, para não tomar 429 da API. */
 const FRIENDS_REQUEST_DELAY_MS = 1200;
+
+/**
+ * Última lista de cada seleção de contas (chave: os ids na ordem da seleção).
+ *
+ * Sair da aba desmontava tudo, e a volta começava da tela vazia esperando o
+ * lote inteiro de novo. Agora a volta mostra esta lista na hora e atualiza por
+ * trás — cada conta é trocada quando a resposta dela chega.
+ */
+const friendsCache = new SessionCache<AccountFriends[]>();
+
+/** Miniatura de cada amigo já buscada (chave: userId do amigo). */
+const friendAvatarCache = new SessionCache<string>(1000);
+
+/**
+ * Uma rodada do lote no backend. Fica registrada enquanto roda para que voltar
+ * à aba no meio dela **se junte** à rodada em vez de começar outra — duas
+ * rodadas ao mesmo tempo dobrariam as chamadas à API de amigos, cujo rate
+ * limit é por IP (todas as contas saem do mesmo).
+ */
+interface FriendsRun {
+  requestId: number;
+  promise: Promise<AccountFriends[]>;
+  /** Contas que já voltaram nesta rodada (as outras ainda mostram o cache). */
+  arrived: Set<number>;
+}
+
+const runningLoads = new SessionCache<FriendsRun>();
+let nextRequestId = 1;
+
+function startOrJoinRun(key: string, ids: number[]): FriendsRun {
+  const existing = runningLoads.get(key);
+  if (existing) return existing;
+  const requestId = nextRequestId++;
+  const promise = invoke<AccountFriends[]>("get_online_friends_for_accounts", {
+    userIds: ids,
+    delayMs: FRIENDS_REQUEST_DELAY_MS,
+    requestId,
+  }).then((rows) => {
+    const list = rows || [];
+    friendsCache.set(key, list);
+    return list;
+  });
+  const run: FriendsRun = { requestId, promise, arrived: new Set() };
+  runningLoads.set(key, run);
+  const settle = () => {
+    if (runningLoads.get(key) === run) runningLoads.delete(key);
+  };
+  promise.then(settle, settle);
+  return run;
+}
+
+/**
+ * Põe a entrada de uma conta no lugar dela: troca a que já existia ou entra na
+ * posição da conta na seleção — a ordem da tela é a da seleção, não a ordem em
+ * que as respostas chegam.
+ */
+export function upsertAccountFriends(
+  rows: AccountFriends[],
+  entry: AccountFriends,
+  order: number[]
+): AccountFriends[] {
+  const next = rows.filter((row) => row.userId !== entry.userId);
+  next.push(entry);
+  const position = (userId: number) => {
+    const index = order.indexOf(userId);
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  return next.sort((a, b) => position(a.userId) - position(b.userId));
+}
 
 /**
  * Assinatura de `useLauncher().launchAll`. Declarada aqui (e não importada da
@@ -87,31 +157,43 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
   const t = useTr();
   const store = useStore();
 
-  const [groups, setGroups] = useState<AccountFriends[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<FriendsOnlineProgress | null>(null);
-  const [joining, setJoining] = useState<number | null>(null);
-  const [friendAvatars, setFriendAvatars] = useState<Map<number, string>>(new Map());
-
   // A seleção muda de identidade a cada render da Choose Game; a chave é o que
   // realmente define "outra seleção".
   const userIdsKey = userIds.join(",");
   const userIdsRef = useRef(userIds);
   userIdsRef.current = userIds;
+  const userIdsKeyRef = useRef(userIdsKey);
+  userIdsKeyRef.current = userIdsKey;
+
+  // Nasce com a última lista desta seleção, se houver: a volta à aba não
+  // começa vazia.
+  const [groups, setGroups] = useState<AccountFriends[] | null>(
+    () => friendsCache.get(userIdsKey) ?? null
+  );
+  // Toda montagem com contas consulta o backend; já nascer "carregando" evita
+  // um quadro com o estado vazio antes do efeito rodar.
+  const [loading, setLoading] = useState(userIds.length > 0);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<FriendsOnlineProgress | null>(null);
+  const [joining, setJoining] = useState<number | null>(null);
+  /** Contas que já voltaram na rodada atual (as outras mostram o cache ou "pendente"). */
+  const [arrived, setArrived] = useState<Set<number>>(new Set());
+  const [, setAvatarVersion] = useState(0);
+
+  /** A rodada que esta tela está acompanhando — eventos de outra são ignorados. */
+  const runRef = useRef<FriendsRun | null>(null);
   const avatarsLoadingRef = useRef<Set<number>>(new Set());
-  const avatarsCacheRef = useRef<Map<number, string>>(new Map());
 
   /**
    * Busca as miniaturas dos amigos ainda sem avatar, **em lote** (mesmo comando
-   * usado pela lista de contas). O cache vive num ref para sobreviver a
-   * recarregamentos sem refazer a chamada.
+   * usado pela lista de contas). O cache é da sessão: voltar à aba não refaz a
+   * chamada para quem já tem foto.
    */
   const loadFriendAvatars = useCallback(async (rows: AccountFriends[]) => {
     const wanted = new Set<number>();
     for (const row of rows) for (const friend of row.friends) wanted.add(friend.userId);
     const missing = [...wanted].filter(
-      (id) => !avatarsCacheRef.current.has(id) && !avatarsLoadingRef.current.has(id)
+      (id) => !friendAvatarCache.has(String(id)) && !avatarsLoadingRef.current.has(id)
     );
     if (missing.length === 0) return;
     missing.forEach((id) => avatarsLoadingRef.current.add(id));
@@ -121,9 +203,9 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
         size: "48x48",
       });
       for (const result of results || []) {
-        if (result.imageUrl) avatarsCacheRef.current.set(result.targetId, result.imageUrl);
+        if (result.imageUrl) friendAvatarCache.set(String(result.targetId), result.imageUrl);
       }
-      setFriendAvatars(new Map(avatarsCacheRef.current));
+      setAvatarVersion((v) => v + 1);
     } catch {
       // Avatar é enfeite: falhar aqui não pode derrubar a lista de amigos.
     } finally {
@@ -133,45 +215,72 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
 
   const load = useCallback(async () => {
     const ids = userIdsRef.current;
+    const key = userIdsKeyRef.current;
     if (ids.length === 0) {
+      runRef.current = null;
       setGroups([]);
+      setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     setProgress({ done: 0, total: ids.length });
+    // Se o backend ainda está percorrendo esta mesma seleção (a aba saiu e
+    // voltou no meio), acompanha aquela rodada em vez de abrir outra.
+    const run = startOrJoinRun(key, ids);
+    runRef.current = run;
+    setArrived(new Set(run.arrived));
     try {
-      const rows = await invoke<AccountFriends[]>("get_online_friends_for_accounts", {
-        userIds: ids,
-        delayMs: FRIENDS_REQUEST_DELAY_MS,
-      });
-      const list = rows || [];
+      const list = await run.promise;
+      if (runRef.current !== run) return;
       setGroups(list);
       void loadFriendAvatars(list);
     } catch (e) {
+      if (runRef.current !== run) return;
       // Falha global (o comando inteiro caiu) — erro por conta vem em `row.error`.
+      // O que estava na tela (do cache) fica: o erro aparece em cima dela.
       setError(String(e));
-      setGroups([]);
+      setGroups((prev) => prev ?? []);
     } finally {
-      setLoading(false);
-      setProgress(null);
+      if (runRef.current === run) {
+        setLoading(false);
+        setProgress(null);
+      }
     }
   }, [loadFriendAvatars]);
 
-  // Recarrega quando a seleção muda.
+  // Recarrega quando a seleção muda — partindo da última lista dela, se houver.
   useEffect(() => {
+    setGroups(friendsCache.get(userIdsKey) ?? null);
     void load();
   }, [userIdsKey, load]);
 
-  // Progresso do backend enquanto percorre as contas. `listen` é assíncrono:
-  // se o efeito já foi desmontado quando a promise resolver, desinscreve na hora.
+  // Progresso do backend enquanto percorre as contas: a contagem e a entrada
+  // da conta que acabou de voltar, que já vai para a tela. `listen` é
+  // assíncrono: se o efeito já foi desmontado quando a promise resolver,
+  // desinscreve na hora.
   useEffect(() => {
     let disposed = false;
     let unlisten: UnlistenFn | null = null;
     void listen<FriendsOnlineProgress>("friends-online-progress", (event) => {
       const payload = event.payload;
       if (!payload) return;
+      const run = runRef.current;
+      if (!run) return;
+      // Sem `requestId` é evento antigo do backend: vale só a contagem.
+      if (payload.requestId != null && payload.requestId !== run.requestId) return;
       setProgress({ done: payload.done, total: payload.total });
+
+      const entry = payload.entry;
+      if (!entry || payload.requestId == null) return;
+      run.arrived.add(entry.userId);
+      setArrived(new Set(run.arrived));
+      const key = userIdsKeyRef.current;
+      const order = userIdsRef.current;
+      setGroups((prev) => upsertAccountFriends(prev ?? [], entry, order));
+      // O cache também recebe a conta: sair da aba no meio da rodada e voltar
+      // mostra o que já tinha chegado.
+      friendsCache.set(key, upsertAccountFriends(friendsCache.get(key) ?? [], entry, order));
     })
       .then((fn) => {
         if (disposed) fn();
@@ -206,6 +315,36 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
   const totalFriends = rows.reduce((sum, row) => sum + row.friends.length, 0);
   const hasAccountError = rows.some((row) => row.error);
   const showEmptyState = !loading && groups !== null && totalFriends === 0 && !hasAccountError && !error;
+
+  /**
+   * O que a tela desenha, conta por conta. Enquanto a rodada corre, a ordem é
+   * a da seleção (a mesma que o backend devolve no fim) e cada conta é uma de
+   * três: já voltou nesta rodada, ainda mostra a lista anterior (com um
+   * indicador de atualização) ou ainda não tem nada (pendente). Fora da
+   * rodada, é a lista do backend como veio.
+   */
+  type Slot =
+    | { kind: "row"; row: AccountFriends; updating: boolean }
+    | { kind: "pending"; userId: number };
+  const slots: Slot[] = loading
+    ? [...new Set(userIds.filter((id) => id > 0))].map((userId): Slot => {
+        const row = rows.find((r) => r.userId === userId);
+        return row
+          ? { kind: "row", row, updating: !arrived.has(userId) }
+          : { kind: "pending", userId };
+      })
+    : rows.map((row): Slot => ({ kind: "row", row, updating: false }));
+
+  /** Foto da CONTA do usuário (respeita o mascaramento). */
+  function accountAvatar(userId: number) {
+    return !hideAccountAvatar(store) && store.avatarUrls.get(userId) ? (
+      <img src={store.avatarUrls.get(userId)} alt="" className="w-5 h-5 rounded-full" />
+    ) : (
+      <div className="w-5 h-5 rounded-full bg-[var(--panel-muted)] flex items-center justify-center">
+        <User size={10} strokeWidth={1.5} className="theme-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto p-5" data-testid="friends-tab">
@@ -260,41 +399,67 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
 
       {/* ── Um bloco por conta selecionada ─────────────────────────────── */}
       <div className="flex flex-col gap-3">
-        {rows.map((row) => (
+        {slots.map((slot) =>
+          slot.kind === "pending" ? (
+            // Conta que ainda não voltou: o cabeçalho já aparece, com um
+            // indicador discreto no lugar da contagem.
+            <section
+              key={slot.userId}
+              data-testid={`friends-pending-${slot.userId}`}
+              aria-busy="true"
+              className="rounded-lg border theme-border bg-[var(--panel-soft)]"
+            >
+              <header className="flex items-center gap-2 px-3 py-2">
+                {accountAvatar(slot.userId)}
+                <h4 className="text-[12px] font-semibold text-[var(--panel-fg)] truncate">
+                  {accountName(slot.userId)}
+                </h4>
+                <span className="ml-auto shrink-0 flex items-center gap-1.5 text-[12px] theme-muted">
+                  <Loader2 size={11} className="animate-spin" />
+                  {t("Loading friends...")}
+                </span>
+              </header>
+            </section>
+          ) : (
           <section
-            key={row.userId}
-            data-testid={`friends-group-${row.userId}`}
+            key={slot.row.userId}
+            data-testid={`friends-group-${slot.row.userId}`}
+            aria-busy={slot.updating || undefined}
             className="rounded-lg border theme-border bg-[var(--panel-soft)]"
           >
             <header className="flex items-center gap-2 px-3 py-2 border-b theme-border">
-              {!hideAccountAvatar(store) && store.avatarUrls.get(row.userId) ? (
-                <img src={store.avatarUrls.get(row.userId)} alt="" className="w-5 h-5 rounded-full" />
-              ) : (
-                <div className="w-5 h-5 rounded-full bg-[var(--panel-muted)] flex items-center justify-center">
-                  <User size={10} strokeWidth={1.5} className="theme-muted" />
-                </div>
-              )}
+              {accountAvatar(slot.row.userId)}
               <h4 className="text-[12px] font-semibold text-[var(--panel-fg)] truncate">
-                {accountName(row.userId)}
+                {accountName(slot.row.userId)}
               </h4>
-              <span className="ml-auto shrink-0 text-[12px] theme-muted">
-                {t("{{count}} online", { count: row.friends.length })}
+              <span className="ml-auto shrink-0 flex items-center gap-1.5 text-[12px] theme-muted">
+                {slot.updating && (
+                  // A lista é a da última consulta; a nova desta conta ainda
+                  // não voltou.
+                  <Loader2
+                    size={11}
+                    className="animate-spin"
+                    data-testid={`friends-updating-${slot.row.userId}`}
+                    aria-label={t("Updating...")}
+                  />
+                )}
+                {t("{{count}} online", { count: slot.row.friends.length })}
               </span>
             </header>
 
-            {row.error ? (
+            {slot.row.error ? (
               <div className="flex items-start gap-2 px-3 py-2.5 text-[12px] text-red-400">
                 <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
-                <span className="break-words">{row.error}</span>
+                <span className="break-words">{slot.row.error}</span>
               </div>
-            ) : row.friends.length === 0 ? (
+            ) : slot.row.friends.length === 0 ? (
               <p className="px-3 py-2.5 text-[12px] theme-muted">{t("No friends online")}</p>
             ) : (
               <ul className="py-1">
-                {row.friends.map((friend) => {
+                {slot.row.friends.map((friend) => {
                   const target = friendTarget(friend, t);
                   const label = friend.displayName || friend.name;
-                  const avatar = friendAvatars.get(friend.userId);
+                  const avatar = friendAvatarCache.get(String(friend.userId));
                   const busy = joining === friend.userId;
 
                   const inner = (
@@ -320,7 +485,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
                   return (
                     <li
                       key={friend.userId}
-                      data-testid={`friend-${row.userId}-${friend.userId}`}
+                      data-testid={`friend-${slot.row.userId}-${friend.userId}`}
                       className="px-1.5"
                     >
                       {target.joinable ? (
@@ -350,7 +515,8 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
               </ul>
             )}
           </section>
-        ))}
+          )
+        )}
       </div>
     </div>
   );

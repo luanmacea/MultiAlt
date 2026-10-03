@@ -20,6 +20,7 @@ import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
 import { Toggle } from "./ui/Toggle";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
+import { SessionCache } from "../utils/sessionCache";
 
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
 
@@ -428,6 +429,24 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
 type MonitorInfo = { index: number; width: number; height: number; primary: boolean };
 
 /**
+ * Últimos monitores detectados. A aba Windows voltava com "No monitors
+ * detected" piscando até a consulta responder; agora ela nasce com isto e a
+ * consulta só confirma.
+ */
+const monitorsCache = new SessionCache<MonitorInfo[]>(1);
+
+/** Monitores marcados: os salvos que ainda existem, ou todos. */
+function initialMonitorSelection(list: MonitorInfo[], saved: string | undefined): Set<number> {
+  const savedIdx = (saved || "")
+    .split(",")
+    .map((s) => parseInt(s.trim()))
+    .filter((n) => Number.isFinite(n));
+  return new Set(
+    savedIdx.length > 0 ? savedIdx.filter((i) => list.some((m) => m.index === i)) : list.map((m) => m.index)
+  );
+}
+
+/**
  * Organiza as janelas do Roblox já abertas nos monitores escolhidos.
  *
  * Morava dentro da aba Console, que é o log de lançamento: não tem relação
@@ -437,8 +456,10 @@ type MonitorInfo = { index: number; width: number; height: number; primary: bool
 function GridControls() {
   const t = useTr();
   const store = useStore();
-  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [monitors, setMonitors] = useState<MonitorInfo[]>(() => monitorsCache.get("last") ?? []);
+  const [selected, setSelected] = useState<Set<number>>(() =>
+    initialMonitorSelection(monitorsCache.get("last") ?? [], store.settings?.General?.GridMonitors)
+  );
   const [gap, setGap] = useState<number>(() => parseInt(store.settings?.General?.GridGap || "20") || 20);
   // Raw text while typing so the field can be cleared; clamped/saved on blur.
   const [gapText, setGapText] = useState<string>(() => String(gap));
@@ -469,14 +490,9 @@ function GridControls() {
           height: m.height,
           primary: !!m.primary,
         }));
+        monitorsCache.set("last", list);
         setMonitors(list);
-        const saved = (store.settings?.General?.GridMonitors || "")
-          .split(",")
-          .map((s) => parseInt(s.trim()))
-          .filter((n) => Number.isFinite(n));
-        const initial =
-          saved.length > 0 ? saved.filter((i) => list.some((m) => m.index === i)) : list.map((m) => m.index);
-        setSelected(new Set(initial));
+        setSelected(initialMonitorSelection(list, store.settings?.General?.GridMonitors));
       })
       .catch(() => {});
     return () => {

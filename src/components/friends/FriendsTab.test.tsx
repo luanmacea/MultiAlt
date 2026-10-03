@@ -322,3 +322,198 @@ describe("FriendsTab — loading, errors and reload", () => {
     expect(callsFor("get_online_friends_for_accounts")).toHaveLength(0);
   });
 });
+
+/**
+ * O backend percorre as contas uma a uma, com pausa entre elas (rate limit).
+ * Esperar o lote inteiro deixava a aba vazia por segundos com 6+ contas; agora
+ * cada conta aparece quando o evento dela chega.
+ */
+describe("FriendsTab — progressive loading", () => {
+  /** Backend pendurado: devolve o `requestId` mandado e o gatilho do fim. */
+  function hangingBackend() {
+    const control = { finish: (_rows: AccountFriends[]) => {} };
+    setInvokeHandler((cmd) => {
+      if (cmd === "get_online_friends_for_accounts") {
+        return new Promise<AccountFriends[]>((resolve) => {
+          control.finish = resolve;
+        });
+      }
+      return [];
+    });
+    return control;
+  }
+
+  function lastRequestId(): number {
+    const calls = callsFor("get_online_friends_for_accounts");
+    const args = (calls[calls.length - 1]?.[1] ?? {}) as Record<string, unknown>;
+    return args.requestId as number;
+  }
+
+  it("sends a request id so the progress events can be told apart", async () => {
+    hangingBackend();
+    renderTab();
+    await waitFor(() => expect(callsFor("get_online_friends_for_accounts")).toHaveLength(1));
+    expect(typeof lastRequestId()).toBe("number");
+  });
+
+  it("shows an account's friends as soon as its progress event arrives", async () => {
+    hangingBackend();
+    renderTab();
+    await waitFor(() => expect(callsFor("get_online_friends_for_accounts")).toHaveLength(1));
+
+    // Antes de qualquer conta voltar, as duas aparecem como pendentes.
+    expect(screen.getByTestId("friends-pending-1001")).toBeInTheDocument();
+    expect(screen.getByTestId("friends-pending-1002")).toBeInTheDocument();
+
+    act(() =>
+      emitTauriEvent("friends-online-progress", {
+        done: 1,
+        total: 2,
+        requestId: lastRequestId(),
+        entry: group(1001, [friend({ userId: 7001, displayName: "Friendo" })]),
+      })
+    );
+
+    expect(await screen.findByTestId("friend-1001-7001")).toBeInTheDocument();
+    // A segunda conta continua esperando, com o próprio indicador.
+    expect(screen.getByTestId("friends-pending-1002")).toBeInTheDocument();
+    expect(screen.queryByTestId("friends-group-1002")).not.toBeInTheDocument();
+  });
+
+  it("keeps the selection order no matter which account answers first", async () => {
+    hangingBackend();
+    renderTab();
+    await waitFor(() => expect(callsFor("get_online_friends_for_accounts")).toHaveLength(1));
+
+    act(() =>
+      emitTauriEvent("friends-online-progress", {
+        done: 1,
+        total: 2,
+        requestId: lastRequestId(),
+        entry: group(1002, [friend({ userId: 7002, displayName: "Buddy" })]),
+      })
+    );
+    await screen.findByTestId("friend-1002-7002");
+
+    const sections = [...screen.getByTestId("friends-tab").querySelectorAll("section")];
+    expect(sections.map((s) => s.getAttribute("data-testid"))).toEqual([
+      "friends-pending-1001",
+      "friends-group-1002",
+    ]);
+  });
+
+  it("ignores progress entries from another request", async () => {
+    hangingBackend();
+    renderTab();
+    await waitFor(() => expect(callsFor("get_online_friends_for_accounts")).toHaveLength(1));
+
+    act(() =>
+      emitTauriEvent("friends-online-progress", {
+        done: 1,
+        total: 2,
+        requestId: lastRequestId() + 1000,
+        entry: group(1001, [friend({ userId: 7001 })]),
+      })
+    );
+
+    expect(screen.queryByTestId("friend-1001-7001")).not.toBeInTheDocument();
+    expect(screen.getByTestId("friends-pending-1001")).toBeInTheDocument();
+  });
+
+  it("the final answer replaces what was streamed", async () => {
+    const backend = hangingBackend();
+    renderTab();
+    await waitFor(() => expect(callsFor("get_online_friends_for_accounts")).toHaveLength(1));
+
+    act(() =>
+      emitTauriEvent("friends-online-progress", {
+        done: 1,
+        total: 2,
+        requestId: lastRequestId(),
+        entry: group(1001, [friend({ userId: 7001 })]),
+      })
+    );
+    await screen.findByTestId("friend-1001-7001");
+
+    await act(async () =>
+      backend.finish([group(1001, [friend({ userId: 7009 })]), group(1002, [])])
+    );
+    expect(await screen.findByTestId("friend-1001-7009")).toBeInTheDocument();
+    expect(screen.queryByTestId("friend-1001-7001")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("friends-pending-1002")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Sair da aba e voltar não pode recomeçar do zero: a aba mostra o que já tinha
+ * na hora e atualiza por trás.
+ */
+describe("FriendsTab — cache across tab switches", () => {
+  it("coming back shows the last list at once and refreshes in the background", async () => {
+    setFriends([group(1001, [friend({ userId: 7001 })]), group(1002, [])]);
+    const first = renderTab();
+    await screen.findByTestId("friend-1001-7001");
+    first.unmount();
+
+    let finish: (rows: AccountFriends[]) => void = () => {};
+    setInvokeHandler((cmd) => {
+      if (cmd === "get_online_friends_for_accounts") {
+        return new Promise<AccountFriends[]>((resolve) => {
+          finish = resolve;
+        });
+      }
+      return [];
+    });
+    renderTab();
+
+    // Já no primeiro desenho, sem esperar o backend.
+    expect(screen.getByTestId("friend-1001-7001")).toBeInTheDocument();
+    expect(screen.queryByTestId("friends-pending-1001")).not.toBeInTheDocument();
+    // E a atualização roda por trás, com o indicador por conta.
+    await waitFor(() => expect(callsFor("get_online_friends_for_accounts")).toHaveLength(2));
+    expect(screen.getByTestId("friends-updating-1001")).toBeInTheDocument();
+
+    await act(async () => finish([group(1001, [friend({ userId: 7005 })]), group(1002, [])]));
+    expect(await screen.findByTestId("friend-1001-7005")).toBeInTheDocument();
+    expect(screen.queryByTestId("friend-1001-7001")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("friends-updating-1001")).not.toBeInTheDocument();
+  });
+
+  it("does not reuse the list of a different selection", async () => {
+    setFriends([group(1001, [friend({ userId: 7001 })]), group(1002, [])]);
+    const first = renderTab();
+    await screen.findByTestId("friend-1001-7001");
+    first.unmount();
+
+    setInvokeHandler((cmd) =>
+      cmd === "get_online_friends_for_accounts" ? new Promise(() => {}) : []
+    );
+    renderTab([ACCOUNT_A]);
+
+    expect(screen.queryByTestId("friend-1001-7001")).not.toBeInTheDocument();
+    expect(screen.getByTestId("friends-pending-1001")).toBeInTheDocument();
+  });
+
+  it("re-entering while a load is still running reuses it instead of asking again", async () => {
+    let finish: (rows: AccountFriends[]) => void = () => {};
+    setInvokeHandler((cmd) => {
+      if (cmd === "get_online_friends_for_accounts") {
+        return new Promise<AccountFriends[]>((resolve) => {
+          finish = resolve;
+        });
+      }
+      return [];
+    });
+    const first = renderTab();
+    await waitFor(() => expect(callsFor("get_online_friends_for_accounts")).toHaveLength(1));
+    first.unmount();
+
+    renderTab();
+    await act(async () => finish([group(1001, [friend({ userId: 7001 })]), group(1002, [])]));
+
+    expect(await screen.findByTestId("friend-1001-7001")).toBeInTheDocument();
+    // O backend já estava percorrendo as contas: uma segunda rodada dobraria
+    // as chamadas à API de amigos (rate limit por IP).
+    expect(callsFor("get_online_friends_for_accounts")).toHaveLength(1);
+  });
+});
