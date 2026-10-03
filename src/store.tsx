@@ -577,6 +577,10 @@ export interface StoreValue {
   setVersionsDialogOpen: (open: boolean) => void;
   afkDialogOpen: boolean;
   setAfkDialogOpen: (open: boolean) => void;
+  avatarsDialogOpen: boolean;
+  setAvatarsDialogOpen: (open: boolean) => void;
+  /** Invalida e busca de novo o headshot das contas cujo avatar mudou. */
+  refreshAvatarHeadshots: (userIds: number[]) => Promise<void>;
   sessionDialogOpen: boolean;
   setSessionDialogOpen: (open: boolean) => void;
   setDefaultVersion: (versionId: string | null) => void;
@@ -733,6 +737,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
   const [afkKeys, setAfkKeys] = useState<string[]>([]);
   const [afkDialogOpen, setAfkDialogOpen] = useState(false);
+  const [avatarsDialogOpen, setAvatarsDialogOpen] = useState(false);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
 
@@ -1051,9 +1056,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   async function loadAvatars(accts: Account[]) {
-    const ids = accts
-      .map((a) => a.UserID)
-      .filter((id) => !avatarUrls.has(id) && !avatarLoadingRef.current.has(id));
+    await loadAvatarIds(accts.map((a) => a.UserID));
+  }
+
+  /**
+   * Busca o headshot das contas que ainda não têm foto. Com `force`, busca de
+   * novo mesmo quem já tem — é o caso do avatar que acabou de mudar.
+   */
+  async function loadAvatarIds(userIds: number[], force = false) {
+    const ids = userIds.filter(
+      (id) => (force || !avatarUrls.has(id)) && !avatarLoadingRef.current.has(id)
+    );
     if (ids.length === 0) return;
     ids.forEach((id) => avatarLoadingRef.current.add(id));
     try {
@@ -1072,6 +1085,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } finally {
       ids.forEach((id) => avatarLoadingRef.current.delete(id));
     }
+  }
+
+  /**
+   * O avatar dessas contas mudou (lote de avatares): o headshot em cache no
+   * backend e o da tela estão velhos. Invalida os dois e busca de novo.
+   */
+  async function refreshAvatarHeadshots(userIds: number[]) {
+    const ids = [...new Set(userIds)].filter((id) => id > 0);
+    if (ids.length === 0) return;
+    try {
+      await invoke("invalidate_avatar_headshots", { userIds: ids });
+    } catch {}
+    setAvatarUrls((prev) => {
+      const next = new Map(prev);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    await loadAvatarIds(ids, true);
   }
 
   /**
@@ -3029,6 +3060,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     afkKeys,
     afkDialogOpen,
     setAfkDialogOpen,
+    avatarsDialogOpen,
+    setAvatarsDialogOpen,
+    refreshAvatarHeadshots,
     startGenerator,
     stopGenerator,
     refreshGeneratorStatus,

@@ -21,7 +21,7 @@ import {
   setInvokeHandler,
   type InvokeHandler,
 } from "./bus";
-import { GAME_FIXTURES, iconForGame } from "./games";
+import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
 import { seedTourStorage, tourHandler } from "./tour";
 
 const params = new URLSearchParams(window.location.search);
@@ -607,6 +607,213 @@ function afkHandler(
   };
 }
 
+/** Item do catálogo grátis como o backend serializa (`FreeCatalogItem`). */
+interface HarnessCatalogItem {
+  id: number;
+  kind: "Asset" | "Bundle";
+  typeId: number;
+  name: string;
+  collectibleItemId: string;
+}
+
+function catalogItem(id: number, kind: "Asset" | "Bundle", typeId: number, name: string): HarnessCatalogItem {
+  return { id, kind, typeId, name, collectibleItemId: `harness-${kind.toLowerCase()}-${id}` };
+}
+
+/**
+ * Catálogo grátis oficial (`avatar_free_catalog`), com nomes do catálogo do
+ * Roblox e todas as categorias: cabelo (41), chapéu (8), acessórios (42–47),
+ * camisa (11), calça (12), camiseta (2), corpo (bundle 1) e cabeça (bundle 4).
+ * Um asset e um bundle têm o mesmo número de propósito: a tela tem de separar
+ * os dois.
+ */
+const FREE_CATALOG: HarnessCatalogItem[] = [
+  catalogItem(62724852, "Asset", 41, "Chestnut Bun"),
+  catalogItem(4819740796, "Asset", 41, "Robox"),
+  catalogItem(6340213, "Asset", 41, "Brown Charmer Hair"),
+  catalogItem(376524487, "Asset", 41, "Blonde Spiked Hair"),
+  catalogItem(1374269, "Asset", 8, "Kitty Ears"),
+  catalogItem(607702162, "Asset", 8, "Roblox Baseball Cap"),
+  catalogItem(1031429, "Asset", 8, "Bucket Hat"),
+  catalogItem(4819722776, "Asset", 42, "Black Aviators"),
+  catalogItem(4819625858, "Asset", 43, "Gold Chain"),
+  catalogItem(4819743519, "Asset", 44, "Shoulder Owl"),
+  catalogItem(4819763009, "Asset", 46, "Bear Backpack"),
+  catalogItem(4819753478, "Asset", 47, "Utility Belt"),
+  catalogItem(144076358, "Asset", 11, "Blue and Black Motorcycle Shirt"),
+  catalogItem(398633584, "Asset", 11, "Guitar Tee with Black Jacket"),
+  catalogItem(382537569, "Asset", 11, "Pink Hoodie with Bear"),
+  catalogItem(144076760, "Asset", 12, "Dark Green Jeans"),
+  catalogItem(398633812, "Asset", 12, "Black Jeans with Sneakers"),
+  catalogItem(382538503, "Asset", 12, "Jean Shorts with White Sneakers"),
+  catalogItem(607785314, "Asset", 2, "ROBLOX Logo Tee"),
+  catalogItem(239, "Bundle", 1, "Rthro Boy"),
+  catalogItem(240, "Bundle", 1, "Rthro Girl"),
+  catalogItem(109, "Bundle", 1, "Robloxian 2.0"),
+  catalogItem(192, "Bundle", 1, "Woman"),
+  catalogItem(6340213, "Bundle", 4, "Classic Male v2 Head"),
+  catalogItem(4920, "Bundle", 4, "Classic Female v2 Head"),
+];
+
+/** Cor da miniatura por tipo, para a grade não virar um bloco de uma cor só. */
+const THUMB_COLORS: Record<string, string> = {
+  "Asset:41": "#92400e",
+  "Asset:8": "#be123c",
+  "Asset:11": "#1d4ed8",
+  "Asset:12": "#334155",
+  "Asset:2": "#0f766e",
+  "Bundle:1": "#7c3aed",
+  "Bundle:4": "#c2410c",
+};
+
+function catalogThumb(item: HarnessCatalogItem): string {
+  const color = THUMB_COLORS[`${item.kind}:${item.typeId}`] ?? "#15803d";
+  return fixtureIcon((item.name.trim()[0] || "?").toUpperCase(), color);
+}
+
+interface HarnessAvatarResult {
+  userId: number;
+  avatarId: string;
+  status: "ok" | "skipped" | "failed";
+  reason: string | null;
+  claimed: number;
+  missing: number;
+}
+
+interface HarnessAvatarBatch {
+  running: boolean;
+  total: number;
+  done: number;
+  currentUserId: number | null;
+  accounts: HarnessAvatarResult[];
+}
+
+/**
+ * Avatares grátis (`commands/avatars.rs`) em memória. Só entrega dados: o
+ * montador, o sorteio e a validação são da tela. O lote espelha o backend —
+ * uma conta por vez, o retrato inteiro em `avatar-batch-state` a cada passo, o
+ * `avatar_apply_batch` só responde no fim, e o cancelamento vale da próxima
+ * conta em diante. Resultado fixo: a 1ª conta resgata 3 peças, a 2ª esbarra
+ * na verificação do Roblox (`challenge`), as demais vestem sem resgatar nada.
+ */
+function avatarsHandler(fallback: InvokeHandler): InvokeHandler {
+  const byKey = new Map(FREE_CATALOG.map((item) => [`${item.kind}:${item.id}`, item]));
+  const find = (kind: "Asset" | "Bundle", id: number) => byKey.get(`${kind}:${id}`)!;
+  let saved = [
+    {
+      id: "av_harness_street",
+      name: "Street",
+      items: [
+        find("Asset", 6340213),
+        find("Asset", 607702162),
+        find("Asset", 398633584),
+        find("Asset", 398633812),
+        find("Bundle", 239),
+      ],
+      skinColor: 18,
+    },
+    {
+      id: "av_harness_classic",
+      name: "Classic",
+      items: [
+        find("Asset", 62724852),
+        find("Asset", 4819763009),
+        find("Asset", 382537569),
+        find("Asset", 382538503),
+        find("Bundle", 240),
+        find("Bundle", 4920),
+      ],
+      skinColor: 1030,
+    },
+  ];
+  let batch: HarnessAvatarBatch = { running: false, total: 0, done: 0, currentUserId: null, accounts: [] };
+  let cancel = false;
+  const publish = (change: Partial<HarnessAvatarBatch>) => {
+    batch = { ...batch, ...change };
+    harnessEmit("avatar-batch-state", batch);
+    return batch;
+  };
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  return (cmd, args) => {
+    switch (cmd) {
+      case "avatar_free_catalog":
+        return wait(400).then(() => FREE_CATALOG);
+      case "batch_thumbnails": {
+        const requests = (args?.requests as { requestId: string; type: string; targetId: number }[]) ?? [];
+        return wait(250).then(() =>
+          requests.map((r) => {
+            const item = byKey.get(`${r.type === "Asset" ? "Asset" : "Bundle"}:${r.targetId}`);
+            return {
+              targetId: r.targetId,
+              requestId: r.requestId,
+              state: "Completed",
+              errorCode: 0,
+              imageUrl: item ? catalogThumb(item) : null,
+            };
+          })
+        );
+      }
+      case "avatar_list_saved":
+        return saved;
+      case "avatar_save": {
+        const avatar = args.avatar as (typeof saved)[number];
+        saved = saved.some((a) => a.id === avatar.id)
+          ? saved.map((a) => (a.id === avatar.id ? avatar : a))
+          : [...saved, avatar];
+        return avatar;
+      }
+      case "avatar_delete": {
+        const before = saved.length;
+        saved = saved.filter((a) => a.id !== args.id);
+        return saved.length !== before;
+      }
+      case "get_avatar_batch_state":
+        return batch;
+      case "avatar_cancel_batch":
+        cancel = true;
+        return null;
+      case "invalidate_avatar_headshots":
+        return null;
+      case "avatar_apply_batch": {
+        // Mesmas recusas (e no mesmo idioma) que o backend devolve.
+        if (batch.running) return Promise.reject("Já existe um lote de avatares em andamento.");
+        const userIds = (args.userIds as number[] | undefined) ?? [];
+        const avatarIds = ((args.avatarIds as string[] | undefined) ?? []).filter((id) =>
+          saved.some((a) => a.id === id)
+        );
+        if (userIds.length === 0) return Promise.reject("Nenhuma conta selecionada.");
+        if (avatarIds.length === 0) return Promise.reject("Nenhum avatar salvo selecionado.");
+        cancel = false;
+        publish({ running: true, total: userIds.length, done: 0, currentUserId: null, accounts: [] });
+        return (async () => {
+          for (const [index, userId] of userIds.entries()) {
+            const avatarId = avatarIds[index % avatarIds.length];
+            let result: HarnessAvatarResult;
+            if (cancel) {
+              result = { userId, avatarId, status: "skipped", reason: "cancelled", claimed: 0, missing: 0 };
+            } else {
+              publish({ currentUserId: userId });
+              await wait(1400);
+              result =
+                index === 0
+                  ? { userId, avatarId, status: "ok", reason: null, claimed: 3, missing: 0 }
+                  : index === 1
+                    ? { userId, avatarId, status: "skipped", reason: "challenge", claimed: 0, missing: 0 }
+                    : { userId, avatarId, status: "ok", reason: null, claimed: 0, missing: 0 };
+            }
+            const accountsSoFar = [...batch.accounts, result];
+            publish({ accounts: accountsSoFar, done: accountsSoFar.length, currentUserId: null });
+          }
+          return publish({ running: false, currentUserId: null });
+        })();
+      }
+      default:
+        return fallback(cmd, args);
+    }
+  };
+}
+
 const SCENARIOS: Record<string, () => void> = {
   default() {
     setInvokeHandler(baseHandler);
@@ -1083,6 +1290,15 @@ const SCENARIOS: Record<string, () => void> = {
         afkRunningSession(world, Number.isFinite(since) ? Math.max(0, Math.min(since, 24 * 60)) : 65)
       )
     );
+  },
+
+  /**
+   * Avatares grátis: catálogo que chega em 400 ms, miniaturas embutidas, dois
+   * avatares já salvos e um lote em que a 2ª conta esbarra na verificação do
+   * Roblox. Selecione contas na lista principal antes de abrir Distribuir.
+   */
+  avatars() {
+    setInvokeHandler(avatarsHandler(baseHandler));
   },
 };
 
