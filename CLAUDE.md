@@ -180,6 +180,7 @@ src-tauri/src/                - Backend Rust
   chromium/                   - Chromium via CDP: manager, commands, cdp.rs, download de binário, criação de contas (signup.rs, signup_session.rs)
   nexus/                      - Servidor WebSocket (feature `nexus`) para integração com Nexus.lua
 
+site/                         - Site de divulgação (HTML/CSS/JS puros, sem build), publicado no GitHub Pages pelo site.yml — ver site/README.md
 scripts/                      - Scripts de build/teste (extração de chaves i18n, mapa de suítes test-suites.ts)
 src-tauri/tauri.conf.json     - Config do app Tauri: janela 1100x700 sem decoração, bundle targets, chave pública do updater
 src-tauri/Cargo.toml          - Dependências Rust e feature flags (nexus, webserver)
