@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/Roblox-Account-Manager-Setup.msi"><img src="Images/download-windows.svg" alt="Download for Windows (.msi installer)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">other downloads (portable, full version)</a></sub>
+  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">other downloads (portable, full version)</a> · <a href="https://roblox-account-manager-app.pages.dev/">🌐 website</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
