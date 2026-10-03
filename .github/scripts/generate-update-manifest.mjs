@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { writeFileSync, mkdirSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { msiOnlyPlatforms } from "./update-manifest-platforms.mjs";
 
 const tag = process.env.RELEASE_TAG;
 const channel = process.env.RELEASE_CHANNEL || "beta";
@@ -24,6 +25,7 @@ const manifest = manifestPath
     );
 
 manifest.version = version;
+manifest.platforms = msiOnlyPlatforms(manifest.platforms);
 
 const releaseJson = execSync(`gh release view "${tag}" --repo "${repo}" --json body,publishedAt`, {
   encoding: "utf-8",

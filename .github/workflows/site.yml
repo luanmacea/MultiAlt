@@ -1,0 +1,39 @@
+name: Site
+
+# Publica a pasta `site/` (o site de divulgação, HTML estático) na branch
+# `gh-pages`, de onde o GitHub Pages serve o site de graça em
+# https://luanmacea.github.io/roblox-account-manager/.
+#
+# Roda a cada push em `develop` que mexe no site — o site não espera release.
+# A `gh-pages` é gerada: não edite nada nela à mão.
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - "site/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish site/ to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+          commit_message: "Deploy site"
+          user_name: "github-actions[bot]"
+          user_email: "41898282+github-actions[bot]@users.noreply.github.com"

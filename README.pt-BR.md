@@ -3,7 +3,11 @@
 # RAM — Roblox Account Manager
 ![Roblox Account Manager](Images/Image5.png)
 
-**[⬇ Baixar a versão mais recente](https://github.com/luanmacea/roblox-account-manager/releases/latest)**
+<p align="center">
+  <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/Roblox-Account-Manager-Setup.msi"><img src="Images/download-windows-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
+  <br>
+  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">outros downloads (portátil, versão completa)</a></sub>
+</p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
 
@@ -19,14 +23,15 @@ Achou um bug ou tem uma ideia? Abra uma [issue](https://github.com/luanmacea/rob
 Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link pode entrar em qualquer jogo (ou até no Roblox Studio) com a sua conta, gastar seu Robux ou fazer você ser banido.
 
 # Download
-Baixe pela página de [Releases do GitHub](https://github.com/luanmacea/roblox-account-manager/releases) — e só por ela.
+**[⬇ Baixar o instalador (.msi)](https://github.com/luanmacea/roblox-account-manager/releases/latest/download/Roblox-Account-Manager-Setup.msi)** — é só isso que a maioria precisa. Sai 0/75 no VirusTotal, instala só para o seu usuário (**sem pedir administrador**) e se atualiza sozinho.
 
-- **`.msi` (recomendado):** 0/75 no VirusTotal, instala só para o seu usuário — **sem pedir administrador** — e se atualiza sozinho.
-- **`-setup.exe`:** o mesmo app, também sem admin. Como não tem assinatura de código, algum antivírus pode marcar o formato do instalador (falso positivo). Use se o `.msi` não funcionar para você.
+Baixe só deste repositório. A [página da release](https://github.com/luanmacea/roblox-account-manager/releases/latest) também tem:
+
 - **Portátil:** o app sem instalar nada. Não cria atalho nem se atualiza sozinho.
+- **Arquivos com `_full-nexus-ws`:** a versão completa, com a API HTTP local e o Nexus (abre portas de rede locais). Só se você precisar.
 - Os arquivos `zz-…sig` são da atualização automática: não precisa baixá-los.
 
-Cada formato sai em duas variantes: sem `_full-nexus-ws` = **recomendado** (não abre porta nenhuma); com `_full-nexus-ws` = versão completa, com a API HTTP local e o Nexus.
+> Instalou pelo antigo `-setup.exe`? Ele não é mais publicado, então não se atualiza mais. Desinstale em Configurações do Windows → Aplicativos e instale o `.msi` uma vez — suas contas e configurações continuam.
 
 # Funcionalidades
 
