@@ -683,7 +683,7 @@ export function UpdateDialog() {
       >
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
           <h2 className="text-sm font-semibold text-[var(--panel-fg)]">
-            {phase === "installing" ? t("Updating RAM") : t("Update Available")}
+            {phase === "installing" ? t("Updating MultiAlt") : t("Update Available")}
           </h2>
           {phase !== "downloading" && phase !== "installing" && (
             <button onClick={handleClose} className="theme-muted hover:opacity-100 transition-opacity">
@@ -704,7 +704,7 @@ export function UpdateDialog() {
               {t("Installing v{{version}}", { version: info.version })}
             </div>
             <div className="mt-1 text-xs theme-muted max-w-xs leading-relaxed">
-              {t("RAM will close and open again by itself in a few seconds.")}
+              {t("MultiAlt will close and open again by itself in a few seconds.")}
             </div>
             <div className="mt-5 w-full max-w-xs h-1.5 rounded-full bg-zinc-700/50 overflow-hidden">
               <div className="h-full w-2/5 rounded-full bg-emerald-500 animate-update-indeterminate" />

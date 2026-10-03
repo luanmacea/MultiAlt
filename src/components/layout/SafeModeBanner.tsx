@@ -52,7 +52,7 @@ export function SafeModeBanner() {
 
   const message = state.active
     ? t("Graphics safe mode is on")
-    : t("The next time RAM opens it will use graphics safe mode");
+    : t("The next time MultiAlt opens it will use graphics safe mode");
 
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-1.5 bg-amber-600/15 border-b border-amber-500/20 shrink-0">

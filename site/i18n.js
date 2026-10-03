@@ -15,7 +15,7 @@ window.RAM_I18N = {
     "dyn.offline": "offline",
   },
   pt: {
-    "meta.title": "Roblox Account Manager (RAM) – grátis, código aberto, para Windows",
+    "meta.title": "MultiAlt – Roblox Account Manager: várias contas Roblox, grátis e de código aberto",
     "meta.description": "Gerenciador de contas Roblox gratuito e de código aberto para Windows. Deixe todas as contas logadas, abra vários Roblox ao mesmo tempo, ache o melhor servidor para o grupo e continue no jogo com Auto Rejoin e anti-AFK.",
     "nav.skip": "Pular para o conteúdo",
     "nav.features": "Recursos",
@@ -183,7 +183,7 @@ window.RAM_I18N = {
     "dyn.offline": "offline",
   },
   es: {
-    "meta.title": "Roblox Account Manager (RAM) – gratis, código abierto, para Windows",
+    "meta.title": "MultiAlt – Roblox Account Manager: varias cuentas de Roblox, gratis y de código abierto",
     "meta.description": "Gestor de cuentas de Roblox gratis y de código abierto para Windows. Mantén todas tus cuentas conectadas, abre varios Roblox a la vez, encuentra el mejor servidor para tu grupo y sigue en el juego con Auto Rejoin y anti-AFK.",
     "nav.skip": "Saltar al contenido",
     "nav.features": "Funciones",

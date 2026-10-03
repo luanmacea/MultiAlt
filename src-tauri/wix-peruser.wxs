@@ -48,8 +48,18 @@
             <!-- Na atualizacao os atalhos ja existem e apontam para o mesmo exe: nao
                  reescrever. Reescrito, o .lnk vira outro arquivo e o Windows tira o
                  icone da posicao em que o usuario o deixou na area de trabalho. -->
-            <CreateShortcuts>NOT WIX_UPGRADE_DETECTED</CreateShortcuts>
+            <!-- Excecao: vindo do nome antigo (Roblox Account Manager, ate a 0.1.8) os
+                 atalhos mudam de nome, entao precisam ser criados. Os antigos saem pelo
+                 componente LegacyNameCleanup. Ver docs/rebrand-multialt.md. -->
+            <CreateShortcuts>NOT WIX_UPGRADE_DETECTED OR LEGACYNAMEINSTALLED</CreateShortcuts>
         </InstallExecuteSequence>
+
+        <!-- Instalacao do tempo em que o produto se chamava Roblox Account Manager:
+             a chave do componente RegistryEntries de la. A busca roda antes de a
+             versao antiga ser removida. -->
+        <Property Id="LEGACYNAMEINSTALLED">
+            <RegistrySearch Id="LegacyNameInstallDir" Root="HKCU" Key="Software\\{{manufacturer}}\Roblox Account Manager" Name="InstallDir" Type="raw" />
+        </Property>
 
         <Media Id="1" Cabinet="app.cab" EmbedCab="yes" />
 
@@ -127,10 +137,12 @@
             <Directory Id="LocalAppDataFolder" Name="LocalAppData">
                 <Directory Id="ProgramsFolder" Name="Programs">
                     <Directory Id="INSTALLDIR" Name="{{product_name}}"/>
+                    <Directory Id="LegacyInstallDir" Name="Roblox Account Manager"/>
                 </Directory>
             </Directory>
             <Directory Id="ProgramMenuFolder">
                 <Directory Id="ApplicationProgramsFolder" Name="{{product_name}}"/>
+                <Directory Id="LegacyProgramsMenuDir" Name="Roblox Account Manager"/>
             </Directory>
         </Directory>
 
@@ -206,6 +218,20 @@
             </Component>
         </DirectoryRef>
 
+        <!-- Troca de nome: a versao antiga sai sem apagar os proprios atalhos (o
+             RemoveShortcuts dela pula na atualizacao), entao a nova apaga os .lnk
+             e as pastas do nome antigo. RemoveFolder so remove pasta vazia. -->
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="LegacyNameCleanup" Guid="6F1F6B2E-3C1A-4E1F-9E3B-7B0C2F5E8A41">
+                <RemoveFile Id="LegacyDesktopShortcut" Directory="DesktopFolder" Name="Roblox Account Manager.lnk" On="install" />
+                <RemoveFile Id="LegacyStartMenuShortcut" Directory="LegacyProgramsMenuDir" Name="Roblox Account Manager.lnk" On="install" />
+                <RemoveFolder Id="LegacyProgramsMenuDir" Directory="LegacyProgramsMenuDir" On="install" />
+                <RemoveFile Id="LegacyUninstallShortcut" Directory="LegacyInstallDir" Name="Uninstall Roblox Account Manager.lnk" On="install" />
+                <RemoveFolder Id="LegacyInstallDir" Directory="LegacyInstallDir" On="install" />
+                <RegistryValue Root="HKCU" Key="Software\\{{manufacturer}}\\{{product_name}}" Name="Legacy Name Cleanup" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+        </DirectoryRef>
+
         <DirectoryRef Id="ApplicationProgramsFolder">
             <Component Id="ApplicationShortcut" Guid="*">
                 <Shortcut Id="ApplicationStartMenuShortcut"
@@ -242,6 +268,7 @@
                 Absent="disallow">
 
             <ComponentRef Id="RegistryEntries"/>
+            <ComponentRef Id="LegacyNameCleanup"/>
 
             {{#each resource_file_ids as |resource_file_id| ~}}
                 <ComponentRef Id="{{ resource_file_id }}"/>
