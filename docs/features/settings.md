@@ -35,7 +35,7 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 | Developer | sempre | `Developer.DevMode`, `Developer.EnableWebServer` (toggle só se `ENABLE_WEBSERVER`) |
 | WebServer | `ENABLE_WEBSERVER` (build) — a aba aparece sempre; o que destrava os ajustes é `DevMode` ou `EnableWebServer`, dentro da própria aba ([SettingsPage.tsx](../../src/components/pages/SettingsPage.tsx) só a esconde sem `ENABLE_WEBSERVER`) | `WebServer.*` — ver [webserver.md](webserver.md) |
 | Watcher | sempre | `Watcher.*` — ver [watcher.md](watcher.md) |
-| Account Generator | sempre | `Generator.*`, `BloxGen.*` |
+| Account Generator | `ENABLE_ACCOUNT_GENERATOR` (build, **desligado** por padrão desde 03/10/2026 — ver [account-creation.md](account-creation.md)) | `Generator.*`, `BloxGen.*` |
 | Isolation | sempre | `Isolation.*` — ver [isolation.md](isolation.md) |
 | Versions | sempre | `Versions.*` — ver [roblox-versions.md](roblox-versions.md) |
 | Optimization | sempre | `Optimization.*`, `General.BottingUseSharedClientProfile` |

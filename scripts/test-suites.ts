@@ -291,7 +291,11 @@ export const SUITES: Record<string, TestSuite> = {
       "username_check_http_tests",
       "generator_failure_budget_tests",
     ],
-    front: ["src/components/signup", "src/components/dialogs/GeneratorDialog.test.tsx"],
+    front: [
+      "src/components/signup",
+      "src/components/dialogs/GeneratorDialog.test.tsx",
+      "src/components/dialogs/accountGeneratorHidden.test.tsx",
+    ],
   },
   ui: {
     description: "Casca da UI: layout, menus, componentes genéricos, i18n, hooks",

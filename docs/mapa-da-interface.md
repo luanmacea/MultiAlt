@@ -54,7 +54,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 | `Import Cookie` | Cola um `.ROBLOSECURITY` por linha — ou `usuario:senha:cookie`, que guarda a senha junto. O cookie sai do navegador em que você já está logado: DevTools › Application › Cookies › roblox.com. |
 | `Import Old Account Data` | Traz o `AccountData.json` da versão antiga do RAM. |
 | `Create Accounts` | Cria contas **de graça** no navegador embutido: o app preenche nome, senha, data e gênero; **você resolve o CAPTCHA**. O campo `Name prefix` padroniza os nomes do lote: `arvore` gera `arvore_k3p9z` (prefixo + 5 caracteres sorteados). |
-| `Account Generator` | Compra contas prontas de um serviço **pago de terceiro** (BloxGen), com chave de API. |
+| `Account Generator` | Compra contas prontas de um serviço **pago de terceiro** (BloxGen), com chave de API. **Escondido** desde 03/10/2026 (`ENABLE_ACCOUNT_GENERATOR` desligado — ver [account-creation.md](features/account-creation.md)). |
 | `Roblox Versions` | Gerencia versões instaladas do cliente Roblox (mora aqui por acidente histórico). |
 
 ---
@@ -132,7 +132,7 @@ Seções numa lista vertical à esquerda. As mais úteis no dia a dia:
 | `Developer` | `Enable Developer Mode` (destrava itens do menu de contexto), web server, diagnóstico de mutex. |
 | `WebServer` | API HTTP local para ferramentas externas. A aba é sempre visível; os ajustes destravam com Developer Mode ou com o servidor ligado. A senha precisa de 6+ caracteres ou o servidor responde 401 a tudo. |
 | `Watcher` | Vigia o cliente do Roblox: fecha se cair a conexão, se a memória baixar, se o título mudar. |
-| `Account Generator` | Provedor pago de contas: endpoint, chave de API, tipo de conta, grupo de destino. |
+| `Account Generator` | Provedor pago de contas: endpoint, chave de API, tipo de conta, grupo de destino. **Escondida** com `ENABLE_ACCOUNT_GENERATOR` desligado (o padrão). |
 | `Isolation` | Limpeza de rastros antes de cada launch (cache, registro, MachineGuid, MAC). Windows. |
 | `Versions` | Versão padrão do Roblox e o baixador de versões. |
 | `Optimization` | FPS, gráficos, tamanho de janela e política de processo do Windows — um perfil por papel: `Normal`, `Auto Rejoin Main` e `Auto Rejoin Alt` (os dois últimos só aparecem com o Auto Rejoin ligado e perfis separados). |

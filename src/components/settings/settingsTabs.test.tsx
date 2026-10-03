@@ -11,6 +11,12 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
   enable: vi.fn(async () => {}),
   disable: vi.fn(async () => {}),
 }));
+// O gerador pago (BloxGen) vem desligado (`ENABLE_ACCOUNT_GENERATOR`); estes
+// testes cobrem o gerador ligado. Desligado: accountGeneratorHidden.test.tsx.
+vi.mock("../../featureFlags", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../featureFlags")>()),
+  ENABLE_ACCOUNT_GENERATOR: true,
+}));
 
 import { GeneralTab } from "./GeneralTab";
 import { DeveloperTab } from "./DeveloperTab";

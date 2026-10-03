@@ -4,6 +4,7 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { tr, useTr } from "../../i18n/text";
 import { quickAddAccount } from "../../utils/quickAdd";
+import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 
 interface AddAccountDialogProps {
   open: boolean;
@@ -168,18 +169,21 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
               </span>
             </button>
 
-            <button
-              onClick={handleOpenGenerator}
-              className="flex items-start gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
-            >
-              <Sparkles size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
-              <span className="min-w-0">
-                {t("Account Generator")}
-                <span className="block text-[12px] theme-muted leading-snug">
-                  {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+            {/* O gerador pago está desligado por padrão — ver ENABLE_ACCOUNT_GENERATOR. */}
+            {ENABLE_ACCOUNT_GENERATOR && (
+              <button
+                onClick={handleOpenGenerator}
+                className="flex items-start gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
+              >
+                <Sparkles size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
+                <span className="min-w-0">
+                  {t("Account Generator")}
+                  <span className="block text-[12px] theme-muted leading-snug">
+                    {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+                  </span>
                 </span>
-              </span>
-            </button>
+              </button>
+            )}
 
             <div className="my-1 border-t border-zinc-800/70" />
 
