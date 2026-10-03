@@ -1,7 +1,7 @@
 [English](README.md) | **Português**
 
 # MultiAlt — Roblox Account Manager
-![MultiAlt](Images/Image5.png)
+![MultiAlt: escolha um jogo e entre com todas as contas selecionadas](site/assets/screens/choose-game.png)
 
 <p align="center">
   <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
@@ -123,4 +123,11 @@ bun run check            # typecheck + todos os testes (vitest + cargo test)
 O primeiro `tauri dev`/`tauri build` compila todas as crates Rust do zero e pode levar alguns minutos; os seguintes são incrementais. A documentação de desenvolvimento fica em [docs/](docs/README.md).
 
 # Preview
-![MultiAlt](Images/Image5.png)
+Fotos reais, com os nomes das contas ocultos (o app tem um botão para isso). Clique numa para ver em tamanho real.
+
+<table>
+  <tr><td width="50%"><a href="site/assets/screens/accounts.png"><img src="site/assets/screens/accounts.png" alt="Contas"></a><br><sub><b>Contas</b></sub></td><td width="50%"><a href="site/assets/screens/choose-game.png"><img src="site/assets/screens/choose-game.png" alt="Escolher jogo"></a><br><sub><b>Escolher jogo</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/session.png"><img src="site/assets/screens/session.png" alt="Sessão"></a><br><sub><b>Sessão</b></sub></td><td width="50%"><a href="site/assets/screens/afk-clicks.png"><img src="site/assets/screens/afk-clicks.png" alt="Cliques AFK"></a><br><sub><b>Cliques AFK</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/auto-rejoin.png"><img src="site/assets/screens/auto-rejoin.png" alt="Auto Rejoin"></a><br><sub><b>Auto Rejoin</b></sub></td><td width="50%"><a href="site/assets/screens/avatars.png"><img src="site/assets/screens/avatars.png" alt="Avatares"></a><br><sub><b>Avatares</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/theme.png"><img src="site/assets/screens/theme.png" alt="Tema"></a><br><sub><b>Tema</b></sub></td><td width="50%"><a href="site/assets/screens/settings.png"><img src="site/assets/screens/settings.png" alt="Configurações"></a><br><sub><b>Configurações</b></sub></td></tr>
+</table>

@@ -45,6 +45,7 @@
     });
     renderRelease();
     renderMock();
+    if (typeof renderTour === "function") renderTour();
   }
 
   function initialLang() {
@@ -257,6 +258,67 @@
     for (var k = 0; k < 520; k++) out += abc[(k * 7919 + (k % 13) * 104729) % abc.length];
     cipher.textContent = out;
   }
+
+  // ---------- telas: abas que trocam a foto ----------
+  // Clique ou setas (cima/baixo na barra, esquerda/direita quando ela vira fileira no celular)
+  // trocam a foto. A frase da tela escolhida aparece embaixo da foto no
+  // celular, onde a barra não tem espaço para ela.
+  var tourTabs = Array.prototype.slice.call(document.querySelectorAll(".tour-tab"));
+  var tourView = document.getElementById("tour-view");
+  var tourImg = tourView && tourView.querySelector("img");
+  var tourLinks = tourView ? tourView.querySelectorAll(".tour-shot, .tour-full") : [];
+  var tourDesc = tourView && tourView.querySelector(".tour-caption-desc");
+  var tourTimer = null;
+
+  function renderTour() {
+    var tab = tourTabs.filter(function (b) { return b.getAttribute("aria-selected") === "true"; })[0];
+    if (!tab || !tourImg) return;
+    var name = tab.querySelector(".tour-name").textContent;
+    tourImg.alt = t("sc.altFor", { name: name });
+    if (tourDesc) tourDesc.textContent = tab.querySelector(".tour-desc").textContent;
+  }
+
+  function selectTour(tab, focus) {
+    if (!tourImg) return;
+    var shot = "assets/screens/" + tab.getAttribute("data-shot") + ".png";
+    tourTabs.forEach(function (b) {
+      var on = b === tab;
+      b.setAttribute("aria-selected", String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+    tourView.setAttribute("aria-labelledby", tab.id);
+    for (var i = 0; i < tourLinks.length; i++) tourLinks[i].href = shot;
+    if (focus) {
+      tab.focus();
+      tab.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    renderTour();
+    if (tourImg.getAttribute("src") === shot) return;
+    // Troca suave: some, troca a imagem, volta quando ela carregou.
+    clearTimeout(tourTimer);
+    tourImg.classList.add("is-swapping");
+    tourTimer = setTimeout(function () {
+      tourImg.onload = function () { tourImg.classList.remove("is-swapping"); };
+      tourImg.src = shot;
+      if (tourImg.complete) tourImg.classList.remove("is-swapping");
+    }, 160);
+  }
+
+  tourTabs.forEach(function (b, i) {
+    b.addEventListener("click", function () { selectTour(b, false); });
+    b.addEventListener("keydown", function (e) {
+      var step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+      var target = e.key === "Home" ? 0 : e.key === "End" ? tourTabs.length - 1 : step ? (i + step + tourTabs.length) % tourTabs.length : -1;
+      if (target < 0) return;
+      e.preventDefault();
+      selectTour(tourTabs[target], true);
+    });
+    // Adianta o download da foto quando a pessoa passa o mouse.
+    b.addEventListener("pointerenter", function () {
+      var pre = new Image();
+      pre.src = "assets/screens/" + b.getAttribute("data-shot") + ".png";
+    }, { once: true });
+  });
 
   applyLang(initialLang());
   loadRelease();
