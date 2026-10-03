@@ -29,7 +29,7 @@ flowchart LR
     Store -- "invoke(cmd, args)" --> Cmd
     Cmd -- "app.emit(evento, payload)" --> Store
     Api -- HTTPS --> Roblox[(APIs Roblox)]
-    Stores -- leitura/escrita --> Files[(AccountData.json<br/>RAMSettings.ini<br/>RAMTheme.ini<br/>RAMScripts.json<br/>RAMVersions.json)]
+    Stores -- leitura/escrita --> Files[(AccountData.json<br/>RAMSettings.ini<br/>RAMTheme.ini<br/>RAMScripts.json<br/>RAMAvatars.json<br/>RAMVersions.json)]
     Plat --> RbxProc[Processos RobloxPlayerBeta]
 ```
 
@@ -70,6 +70,7 @@ Registradas com `.manage(...)` em [lib.rs](../src-tauri/src/lib.rs) e acessadas 
 | `ThemeStore` | [data/settings/theme.rs](../src-tauri/src/data/settings/theme.rs) | tema atual | `RAMTheme.ini` |
 | `ThemePresetStore` | [data/settings/presets.rs](../src-tauri/src/data/settings/presets.rs) | `Mutex<Vec<ThemePresetData>>` | `RAMThemePresets.json` |
 | `ScriptStore` | [data/scripts.rs](../src-tauri/src/data/scripts.rs) | `Mutex<Vec<ManagedScript>>` | `RAMScripts.json` |
+| `AvatarStore` | [data/avatars.rs](../src-tauri/src/data/avatars.rs) | `Mutex<Vec<SavedAvatar>>` | `RAMAvatars.json` |
 | `VersionsCatalogStore` | [data/versions.rs](../src-tauri/src/data/versions.rs) | catálogo de versões instaladas | `RAMVersions.json` |
 | `ImageCache` | [api/batch.rs](../src-tauri/src/api/batch.rs) | `Arc<Mutex<...>>` (filas + cache de URLs) | memória |
 | `UpdaterRuntimeState` | [commands/updater.rs](../src-tauri/src/commands/updater.rs) | estado do updater | memória |
@@ -97,6 +98,7 @@ O diretório base é a **pasta de dados do usuário**, resolvida uma vez por pro
 | `RAMThemePresets.json` | pasta de dados | JSON | [paths.rs](../src-tauri/src/data/settings/paths.rs) |
 | `RAMThemeFonts/` | pasta de dados | fontes importadas, nomeadas por SHA-256 | [commands.rs](../src-tauri/src/data/settings/commands.rs) `import_theme_font_asset` |
 | `RAMScripts.json` | pasta de dados | JSON (camelCase) | [data/scripts.rs](../src-tauri/src/data/scripts.rs) `get_scripts_path` |
+| `RAMAvatars.json` | pasta de dados | JSON (camelCase), escrita atômica via `.json.tmp` | [data/avatars.rs](../src-tauri/src/data/avatars.rs) `get_avatars_path` |
 | `RAMVersions.json` | `%LOCALAPPDATA%\Roblox Account Manager\` (se `LOCALAPPDATA` não existir: pasta do exe) | JSON, escrita atômica via `.json.tmp` | [data/versions.rs](../src-tauri/src/data/versions.rs) `get_versions_catalog_path` |
 | `RobloxVersions/` | `%LOCALAPPDATA%\Roblox Account Manager\` | versões do cliente instaladas | [data/versions.rs](../src-tauri/src/data/versions.rs) `ram_managed_versions_root` |
 | `AccountControlData.json` | pasta de dados | JSON (lista de contas do Nexus) | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) `data_path` |
@@ -182,6 +184,7 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 | `launch-queue` | [launch.rs](../src-tauri/src/commands/launch.rs) `emit_launch_queue` | `LaunchQueuePayload`: `{ entries, active, placeId, jobId }` — retrato completo da fila | [store.tsx](../src/store.tsx) → Painel de Sessão ([multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento)) |
 | `roblox-build-install` | [platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs) `emit_build_install` | `{ version, stage, current, total, message }` — download silencioso da build do Roblox | [store.tsx](../src/store.tsx) (linha de `actionStatus`) |
 | `afk-status` / `afk-cycle` / `afk-stopped` | [afk.rs](../src-tauri/src/commands/afk.rs) | `AfkStatusPayload` (`{ active, startedAtMs, intervalMinutes, key, accounts }`) / `{ sent }` / `()` | [store.tsx](../src/store.tsx) ([afk-mode.md](features/afk-mode.md)) |
+| `avatar-batch-state` | [avatars.rs](../src-tauri/src/commands/avatars.rs) `update_avatar_batch` | `AvatarBatchSnapshot` completo: `{ running, total, done, currentUserId, accounts[{userId,avatarId,status,reason,claimed,missing}] }` | [AvatarsDialog.tsx](../src/components/dialogs/AvatarsDialog.tsx) ([avatars.md](features/avatars.md)) |
 | `backup-restored` | [backups.rs](../src-tauri/src/commands/backups.rs) | `RestoreReport` (`backupId`, `safetyBackupId`, `restored`, `skipped`, `accountsReloaded`, `requiresRestart`, `restartReasons`) | [BackupsDialog.tsx](../src/components/dialogs/BackupsDialog.tsx) |
 | `chromium-fallback` | [chromium/download.rs](../src-tauri/src/chromium/download.rs) | `{ browser, error }` — o download falhou e o login vai pelo navegador do sistema | [store.tsx](../src/store.tsx) |
 | `signup-progress` | [chromium/signup_session.rs](../src-tauri/src/chromium/signup_session.rs) | `SignupStatus` (retrato da sessão de criação de contas) | [SignupPanel.tsx](../src/components/signup/SignupPanel.tsx) |

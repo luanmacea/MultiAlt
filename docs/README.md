@@ -43,6 +43,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico).
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.
+- [features/avatars.md](features/avatars.md) — avatares grátis: montar avatares só com itens oficiais gratuitos do Roblox e distribuí-los entre as contas (resgata o que falta de graça, nunca gasta Robux).
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).
 - [features/roblox-versions.md](features/roblox-versions.md) — instalação e seleção de versões do cliente Roblox.
 - [features/watcher.md](features/watcher.md) — monitoramento de processos Roblox.

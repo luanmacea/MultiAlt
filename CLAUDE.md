@@ -121,7 +121,7 @@ src/                          - Frontend React/TypeScript
   components/
     ChooseGameScreen.tsx      - Tela "Choose Game": Favorites, Games, Recent, Servers, Friends, Follow, Console, Windows
     accounts/                 - Lista de contas, linhas, chips, painel de UMA conta (DetailSidebar → SingleSelectSidebar). O painel de multi-seleção foi apagado: ação em lote fica na BottomActionBar e na Choose Game
-    dialogs/                  - Modais: AddAccount, Import, Botting (Auto Rejoin), Afk, Session, Backups, Generator, Nexus, Scripts, Versions, AccountUtils, AccountFields, ThemeEditor, Update
+    dialogs/                  - Modais: AddAccount, Import, Botting (Auto Rejoin), Afk, Avatars (`AvatarsDialog` + `dialogs/avatars/`), Session, Backups, Generator, Nexus, Scripts, Versions, AccountUtils, AccountFields, ThemeEditor, Update
     settings/                 - Abas: General, Developer, WebServer, Watcher, Account Generator, Isolation, Versions, Optimization, Misc
     server-list/              - Diálogo Server List: Games, Servers, Favorites, Recent
     servers/                  - Aba Servers da Choose Game (varredura, preferência de servidor, região)
@@ -133,6 +133,7 @@ src/                          - Frontend React/TypeScript
     ui/                       - Componentes UI genéricos sem lógica de negócio
   hooks/                      - useSettings, usePrompt, useModalClose, useEscapeStack, useJoinOnlineWarning, useGameIdentity, useCopyCredentialWarning
   scripting/                  - Sandbox de execução de scripts custom (security.ts, workerSource.ts)
+  avatarBuilder.ts            - Lógica pura do construtor de avatares grátis (categorias, sorteio, validação)
   utils/                      - cookies.ts (parseImportLine), toastTone.ts, platform.ts, robloxErrors.ts, afkBeep.ts
   dev/harness/                - Dublês do Tauri para `bun run dev:ui` (cenários)
   i18n/                       - Config react-i18next
@@ -146,6 +147,7 @@ src-tauri/src/                - Backend Rust
     vault_key.rs              - Chave do aparelho (AccountData.key) — tocar com cuidado: errada, tranca o usuário fora das contas
     settings.rs, settings/    - Settings: parsing INI (RAMSettings.ini), defaults, tema, pasta de dados (paths.rs)
     scripts.rs                - Store de scripts custom do usuário
+    avatars.rs                - Store dos avatares grátis salvos (RAMAvatars.json)
     versions.rs               - Catálogo de versões Roblox instaladas
   api/
     auth.rs                   - Autenticação Roblox (login, refresh de token, cookies)
@@ -153,11 +155,13 @@ src-tauri/src/                - Backend Rust
     endpoints.rs              - Host das APIs (`endpoints::host`), o que permite mockar nos testes
     roblox.rs, roblox/*.rs    - Cliente da API Roblox (users, economy, thumbnails, private_links/VIP, etc.)
     batch.rs                  - Operações em lote + cache de imagens
+    roblox/avatar_catalog.rs  - Catálogo oficial gratuito e resgate de itens grátis (nunca gasta Robux)
     server.rs, server/        - Servidor HTTP local opcional (axum, feature `webserver`): handlers, middleware de auth, state
   commands/                   - Comandos Tauri (IPC frontend→backend), `include!`-ados em lib.rs
     launch.rs, launch_shared.rs - Lançamento do Roblox com credenciais/place/job ID, fila de launch
     botting.rs                - Auto Rejoin (nome interno botting): timers de rejoin, papéis main/alt (player/bot no código)
     afk.rs                    - AFK mode: tecla periódica na janela de cada conta
+    avatars.rs                - Avatares grátis: catálogo, avatares salvos, lote que pega as peças de graça e veste, uma conta por vez
     account_api.rs            - Comandos de API por conta (leitura: read_without_refresh; ação: run_with_session_retry)
     account_helpers.rs        - get_cookie e helpers de conta
     backups.rs                - Backups dos dados (criar, listar, restaurar, apagar)
