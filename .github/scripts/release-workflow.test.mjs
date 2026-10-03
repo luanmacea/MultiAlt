@@ -98,3 +98,35 @@ describe("interruptor do portatil no release-v4.yml", () => {
     expect(outside.filter((l) => /portable/i.test(l.replace(/PUBLISH_PORTABLE|publishPortable/g, "")))).toEqual([]);
   });
 });
+
+/**
+ * O texto da release é lido por gente que não é técnica (pedido do dono,
+ * 03/10/2026): abre com o botão do instalador, sem commit, canal ou conversa
+ * sobre o setup antigo; os outros arquivos ficam num bloco recolhido. Os
+ * títulos "## What's Changed" e "## Contributors" ficam porque o UpdateDialog
+ * do app procura os dois.
+ */
+describe("texto da release", () => {
+  const finalize = () => steps().find((s) => s.name === "Finalize release notes").lines.join("\n");
+
+  it("abre com o download do MSI", () => {
+    const body = finalize();
+    const download = body.indexOf('"## Download"');
+    expect(download).toBeGreaterThan(-1);
+    expect(body).toMatch(/releases\/download\/\$\{tag\}\/MultiAlt-Setup\.msi/);
+    // Os outros arquivos entram depois do download, recolhidos.
+    expect(body.indexOf("...otherFiles")).toBeGreaterThan(download);
+    expect(body).toMatch(/"<details>"/);
+  });
+
+  it("não mostra detalhe técnico nem o setup antigo no topo", () => {
+    const body = finalize();
+    expect(body).not.toMatch(/Release commit|Channel: |App version:|old setup/);
+  });
+
+  it("mantém os títulos que o app usa para montar as notas da atualização", () => {
+    const body = finalize();
+    expect(body).toMatch(/## What's Changed/);
+    expect(body).toMatch(/## Contributors/);
+  });
+});

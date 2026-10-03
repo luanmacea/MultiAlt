@@ -7,7 +7,7 @@ vi.mock("../../store", async () => (await import("../../test-utils/renderWithSto
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
-import { UpdateDialog } from "./UpdateDialog";
+import { UpdateDialog, notesForUpdateDialog } from "./UpdateDialog";
 import i18n, { DEFAULT_LANGUAGE } from "../../i18n/index";
 import { setStore } from "../../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
@@ -89,5 +89,45 @@ describe("UpdateDialog", () => {
 
     expect(await screen.findByText("Failed to install update: boom", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(localStorage.getItem(UPDATE_HANDOFF_KEY)).toBeNull();
+  });
+});
+
+/**
+ * A página da release abre com "## Download" (o botão do instalador, para quem
+ * chega pelo GitHub). Dentro do app isso não serve — a atualização já baixa
+ * sozinha —, então a janela de atualização tira essa seção e mostra a partir
+ * do que mudou.
+ */
+describe("notas da atualização dentro do app", () => {
+  it("tiram a seção de download da página da release", () => {
+    const body = [
+      "## Download",
+      "",
+      "### [⬇ Download MultiAlt-Setup.msi](https://example.test/MultiAlt-Setup.msi)",
+      "",
+      "Open the file and follow the installer. That's it.",
+      "",
+      "<details>",
+      "<summary>Other files (you can ignore these)</summary>",
+      "",
+      "- `.sig` files: used by the automatic update.",
+      "",
+      "</details>",
+      "",
+      "## What's Changed",
+      "* New sidebar",
+      "",
+      "## Contributors",
+      "[@luanmacea](https://github.com/luanmacea)",
+    ].join("\n");
+    const notes = notesForUpdateDialog(body);
+    expect(notes).not.toMatch(/Download MultiAlt-Setup|Other files|## Download/);
+    expect(notes.startsWith("## What's Changed")).toBe(true);
+    expect(notes).toMatch(/## Contributors/);
+  });
+
+  it("deixam como estão as notas sem seção de download (releases antigas)", () => {
+    const body = "> [!WARNING]\n> Beta.\n\n## What's Changed\n* Fix";
+    expect(notesForUpdateDialog(body)).toBe(body);
   });
 });
