@@ -79,7 +79,7 @@ Only download from this repository. The [releases page](https://github.com/luanm
 | :--- | :--- |
 | Auto-update | Checks for new versions and updates itself |
 | Themes | Built-in theme editor: colors, button style and fonts, with exportable presets |
-| Languages | English and Portuguese (German partial) |
+| Languages | English, Portuguese and Spanish (German partial) |
 | Safe video mode | If the window ever opens blank, the app recovers by itself (or hold **Shift** while opening) |
 
 # FAQ
