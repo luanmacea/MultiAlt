@@ -127,6 +127,8 @@ describe("NavSidebar — live state", () => {
     renderNav(overrides as Partial<StoreValue>);
     expect(screen.getByTestId("nav-afk-active")).toBeInTheDocument();
     expect(item("AFK Mode")).toHaveAccessibleName(/on/i);
+    // Só a luz: um "Ligado" escrito cortava o rótulo ("Modo A...") na largura da barra.
+    expect(screen.getByTestId("nav-afk-active").textContent).toBe("");
   });
 
   it("shows no AFK flag while nothing runs", () => {
