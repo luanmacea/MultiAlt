@@ -1,6 +1,6 @@
 /**
- * Peças puras da aba Auto Rejoin do Modo AFK (antes no `BottingDialog`):
- * formatação dos relógios, cor da fase e quais ações cabem em cada linha.
+ * Peças puras da aba Auto Rejoin do Modo AFK: formatação dos relógios, cor
+ * da fase e quais ações cabem em cada linha.
  */
 
 export type BottingRowAction =
@@ -9,14 +9,6 @@ export type BottingRowAction =
   | "closeDisconnect"
   | "restartClient"
   | "restartLoop";
-
-export const BOTTING_ROW_ACTIONS: BottingRowAction[] = [
-  "disconnect",
-  "close",
-  "closeDisconnect",
-  "restartClient",
-  "restartLoop",
-];
 
 export function canRunBottingActionOnRow(
   row: { disconnected?: boolean; isPlayer?: boolean } | null,
