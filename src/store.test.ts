@@ -1224,6 +1224,57 @@ describe("restartRobloxClients", () => {
   });
 });
 
+describe("clients opened outside the app", () => {
+  it("polls the unidentified clients and marks the adopted ones", async () => {
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 })];
+    runningInstances = [
+      { user_id: 1, pid: 10, adopted: false },
+      { user_id: 2, pid: 20, adopted: true },
+    ];
+    results.set("get_unidentified_clients", [
+      { pid: 30, reason: "waitingForGame", userId: null, placeId: null, jobId: null, startedAtMs: 1 },
+    ]);
+    const { result } = await renderStore();
+
+    await waitFor(() => expect(result.current.unidentifiedClients).toHaveLength(1));
+    expect(result.current.unidentifiedClients[0].pid).toBe(30);
+    expect([...result.current.adoptedClients]).toEqual([2]);
+    expect(result.current.launchedByProgram.has(2)).toBe(true);
+  });
+
+  it("an old backend without the command leaves the list empty", async () => {
+    failures.set("get_unidentified_clients", "unknown command");
+    const { result } = await renderStore();
+    await waitFor(() => expect(invokeCalls("get_unidentified_clients").length).toBeGreaterThan(0));
+    expect(result.current.unidentifiedClients).toEqual([]);
+  });
+
+  it("identifying a client sends the pid and the account, then refreshes", async () => {
+    accountsData = [account({ UserID: 1 })];
+    results.set("identify_external_client", true);
+    const { result } = await renderStore();
+    const before = invokeCalls("get_running_instances").length;
+
+    await act(async () => {
+      await result.current.identifyExternalClient(30, 1);
+    });
+
+    expect(lastArgs("identify_external_client")).toEqual({ pid: 30, userId: 1 });
+    expect(invokeCalls("get_running_instances").length).toBeGreaterThan(before);
+  });
+
+  it("showing a client's window goes by pid", async () => {
+    results.set("focus_client_window", true);
+    const { result } = await renderStore();
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.focusClientWindow(30);
+    });
+    expect(ok).toBe(true);
+    expect(lastArgs("focus_client_window")).toEqual({ pid: 30 });
+  });
+});
+
 describe("account mutations", () => {
   it("adds an account by cookie and reports whether it was new", async () => {
     results.set("validate_cookie", { user_id: 7, name: "Cookie" });

@@ -45,6 +45,7 @@ include!("commands/services.rs");
 include!("commands/updater.rs");
 include!("commands/backups.rs");
 include!("commands/avatars.rs");
+include!("commands/external_clients.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -277,6 +278,11 @@ pub fn run() {
                 app.state::<AccountStore>().inner(),
             );
 
+            // Clientes abertos pelo site (ou antes de o app abrir) entram no
+            // "Em jogo" pelo log do Roblox — ver commands/external_clients.rs.
+            #[cfg(target_os = "windows")]
+            start_external_client_scanner(app.handle().clone());
+
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&show, &quit]).build()?;
@@ -490,6 +496,9 @@ pub fn run() {
             arrange_windows_grid,
             cmd_kill_all_roblox,
             get_running_instances,
+            get_unidentified_clients,
+            identify_external_client,
+            focus_client_window,
             cmd_enable_multi_roblox,
             cmd_disable_multi_roblox,
             cmd_get_roblox_path,

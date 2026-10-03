@@ -216,6 +216,10 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     avatarUrls: new Map<number, string>(),
     presenceByUserId: new Map<number, number>(),
     launchedByProgram: new Set<number>(),
+    adoptedClients: new Set<number>(),
+    unidentifiedClients: [],
+    identifyExternalClient: vi.fn(async () => true),
+    focusClientWindow: vi.fn(async () => true),
 
     joinServer: vi.fn(async () => "started" as const),
     launchMultiple: vi.fn(async () => {}),

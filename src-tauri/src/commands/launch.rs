@@ -2125,6 +2125,8 @@ struct RunningInstance {
     pid: u32,
     user_id: i64,
     browser_tracker_id: String,
+    /// Aberto fora do app (pelo site) e reconhecido depois — ver external_clients.rs.
+    adopted: bool,
 }
 
 #[tauri::command]
@@ -2138,6 +2140,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 pid: p.pid,
                 user_id: p.user_id,
                 browser_tracker_id: p.browser_tracker_id,
+                adopted: p.adopted,
             })
             .collect());
     }
@@ -2150,6 +2153,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 pid: p.pid,
                 user_id: p.user_id,
                 browser_tracker_id: p.browser_tracker_id,
+                adopted: false,
             })
             .collect());
     }
@@ -3432,10 +3436,13 @@ mod launch_command_tests {
             pid: 42,
             user_id: 7,
             browser_tracker_id: "12345".to_string(),
+            adopted: true,
         })
         .unwrap();
         assert_eq!(json["pid"], 42);
         assert_eq!(json["user_id"], 7);
         assert_eq!(json["browser_tracker_id"], "12345");
+        // Cliente aberto pelo site e reconhecido pelo log (ver external_clients.rs).
+        assert_eq!(json["adopted"], true);
     }
 }
