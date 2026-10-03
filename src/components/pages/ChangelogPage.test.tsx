@@ -17,7 +17,7 @@ function release(tag: string, publishedAt: string, items: string[]) {
   return {
     tag_name: tag,
     published_at: publishedAt,
-    html_url: `https://github.com/luanmacea/roblox-account-manager/releases/tag/${tag}`,
+    html_url: `https://github.com/luanmacea/MultiAlt/releases/tag/${tag}`,
     draft: false,
     prerelease: false,
     body: ["## What's Changed", ...items.map((i) => `- ${i}`), "", "## Contributors", "[@a](https://github.com/a)"].join("\n"),
@@ -197,7 +197,7 @@ describe("ChangelogPage", () => {
     renderPage();
     await waitFor(() => expect(entries()).toHaveLength(3));
     await userEvent.click(screen.getByRole("button", { name: "See every version on GitHub" }));
-    expect(open).toHaveBeenCalledWith("https://github.com/luanmacea/roblox-account-manager/releases", "_blank");
+    expect(open).toHaveBeenCalledWith("https://github.com/luanmacea/MultiAlt/releases", "_blank");
     open.mockRestore();
   });
 

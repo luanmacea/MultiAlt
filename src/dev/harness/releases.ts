@@ -3,7 +3,7 @@
  * `GET /repos/<dono>/<repo>/releases` devolve. Os corpos copiam o formato real
  * de cada época (ver release-v4.yml): quem tem que limpar é o app.
  */
-const REPO = "https://github.com/luanmacea/roblox-account-manager";
+const REPO = "https://github.com/luanmacea/MultiAlt";
 
 const CONTRIBUTORS = [
   "## Contributors",

@@ -4,12 +4,12 @@
 ![MultiAlt: escolha um jogo e entre com todas as contas selecionadas](site/assets/screens/choose-game.png)
 
 <p align="center">
-  <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
+  <a href="https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">outros downloads (versão completa)</a> · <a href="https://multialt.pages.dev/">🌐 site</a></sub>
+  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/MultiAlt/releases/latest">outros downloads (versão completa)</a> · <a href="https://multialt.pages.dev/">🌐 site</a></sub>
 </p>
 
-[![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
 
 **O gerenciador de várias contas Roblox feito para a melhor experiência de uso.** Todas as suas contas Roblox num lugar só, quantos clientes do Roblox você quiser abertos ao mesmo tempo e suas alts sem nunca precisar deslogar — com Auto Rejoin, anti-AFK, busca de servidor, entrada no servidor de amigos, contas criptografadas e muito mais.
 
@@ -19,15 +19,15 @@ Rápido e leve: reescrito do zero em **Rust + TypeScript** com [Tauri](https://t
 
 Todo o crédito a [ic3w0lf22](https://github.com/ic3w0lf22), que criou o Roblox Account Manager original, e a [niccdevs](https://github.com/niccdevs), que o manteve depois. Este projeto continua o trabalho deles.
 
-Achou um bug ou tem uma ideia? Abra uma [issue](https://github.com/luanmacea/roblox-account-manager/issues).
+Achou um bug ou tem uma ideia? Abra uma [issue](https://github.com/luanmacea/MultiAlt/issues).
 
 # ⚠️ Aviso
 Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link pode entrar em qualquer jogo (ou até no Roblox Studio) com a sua conta, gastar seu Robux ou fazer você ser banido.
 
 # Download
-**[⬇ Baixar o instalador (.msi)](https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi)** — é só isso que a maioria precisa. Sai 0/75 no VirusTotal, instala só para o seu usuário (**sem pedir administrador**) e se atualiza sozinho.
+**[⬇ Baixar o instalador (.msi)](https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi)** — é só isso que a maioria precisa. Sai 0/75 no VirusTotal, instala só para o seu usuário (**sem pedir administrador**) e se atualiza sozinho.
 
-Baixe só deste repositório. A [página da release](https://github.com/luanmacea/roblox-account-manager/releases/latest) também tem:
+Baixe só deste repositório. A [página da release](https://github.com/luanmacea/MultiAlt/releases/latest) também tem:
 
 - **Arquivos com `_full-nexus-ws`:** a versão completa, com a API HTTP local e o Nexus (abre portas de rede locais). Só se você precisar.
 - Os arquivos `zz-…sig` são da atualização automática: não precisa baixá-los.

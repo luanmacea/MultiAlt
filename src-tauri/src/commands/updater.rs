@@ -11,7 +11,7 @@
 /// [`resolve_manifest_channel`] (`stable`, `beta`, `stable-nexus-ws`,
 /// `beta-nexus-ws`). Quem publica e o workflow `.github/workflows/release.yml`.
 const UPDATER_MANIFEST_BASE: &str =
-    "https://raw.githubusercontent.com/luanmacea/roblox-account-manager/update-manifests";
+    "https://raw.githubusercontent.com/luanmacea/MultiAlt/update-manifests";
 
 type PendingUpdate = (tauri_plugin_updater::Update, String, String);
 

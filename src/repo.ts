@@ -11,7 +11,7 @@
  * O lado Rust tem o seu próprio (`commands/services.rs`, `commands/updater.rs`);
  * [repoOwnership.test.ts](./repoOwnership.test.ts) varre os dois lados.
  */
-export const REPO_SLUG = "luanmacea/roblox-account-manager";
+export const REPO_SLUG = "luanmacea/MultiAlt";
 
 export const REPO_URL = `https://github.com/${REPO_SLUG}`;
 
