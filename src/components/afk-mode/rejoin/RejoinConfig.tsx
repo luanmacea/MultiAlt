@@ -1,101 +1,20 @@
-import { useState } from "react";
-import { ChevronDown, ChevronRight, Columns2, Rows3 } from "lucide-react";
+import { Check, ChevronRight, Gamepad2, KeyRound } from "lucide-react";
 import { GameBadge } from "../../ui/GameBadge";
 import { NumericInput } from "../../ui/NumericInput";
 import { useTr } from "../../../i18n/text";
-import type { RejoinController } from "./useRejoinController";
+import type { Account } from "../../../types";
+import type { RejoinController, ServerMode } from "./useRejoinController";
 
 /**
- * A configuração do Auto Rejoin: contas, servidor e tempo. Cada bloco é um
- * componente só, usado nas duas visões (New View e Classic) — antes cada um
- * existia escrito duas vezes no diálogo.
+ * A configuração do Auto Rejoin: quais contas, para onde rejogam e de quanto
+ * em quanto tempo. Três cartões, pouco texto (pedido do dono, 03/10/2026: a
+ * tela tinha conteúdo demais).
  */
 
 const CARD = "theme-surface rounded-xl border theme-border p-3";
-const CARD_TITLE = "text-[13px] font-semibold text-[var(--panel-fg)] mb-2 flex items-center gap-2";
-
-/**
- * O ciclo do backend (commands/botting.rs) fecha o cliente da conta com
- * `kill_for_user_graceful_async` e relança logo em seguida, e só age sobre as
- * contas bot da sessão. Quem tem várias contas abertas precisa ler isso ao
- * abrir a tela, não descobrir na prática.
- */
-export function CycleExplainer({ ctl }: { ctl: RejoinController }) {
-  const t = useTr();
-  // Aberto com o modo parado (é antes do Start que a regra importa); com o
-  // ciclo rodando, fechado — a lista ao vivo precisa da altura.
-  const [open, setOpen] = useState(() => !ctl.running);
-  return (
-    <section className="shrink-0 rounded-xl border theme-border theme-soft px-3 py-2">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <details
-          open={open}
-          onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
-          className="group min-w-0 flex-1"
-        >
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 py-1 text-[12px] font-medium text-[var(--panel-fg)] [&::-webkit-details-marker]:hidden">
-            <ChevronRight
-              size={14}
-              strokeWidth={2}
-              className="theme-muted transition-transform group-open:rotate-90"
-              aria-hidden
-            />
-            {t("How each cycle works")}
-          </summary>
-          <ul className="mt-0.5 mb-1 space-y-0.5 text-[11px] theme-muted list-disc pl-[34px]">
-            <li>
-              {t(
-                "Every rejoin closes that alt account's Roblox client and opens it again, so the account leaves the server and joins back."
-              )}
-            </li>
-            <li>
-              {t(
-                "Only the alt accounts in this session are closed. Main accounts keep their client, and clients of accounts outside this session are left alone."
-              )}
-            </li>
-            <li>
-              {t(
-                "Stop + Close Alt Accounts closes those same alt clients; Stop Auto Rejoin leaves every client open."
-              )}
-            </li>
-          </ul>
-        </details>
-        <LayoutToggle ctl={ctl} />
-      </div>
-    </section>
-  );
-}
-
-function LayoutToggle({ ctl }: { ctl: RejoinController }) {
-  const t = useTr();
-  const options = [
-    { value: "split" as const, label: t("New View"), Icon: Columns2 },
-    { value: "classic" as const, label: t("Classic"), Icon: Rows3 },
-  ];
-  return (
-    <div className="flex items-center rounded-lg border theme-border p-0.5 bg-[var(--panel-bg)] shrink-0">
-      {options.map(({ value, label, Icon }) => {
-        const active = ctl.bottingLayout === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={active}
-            onClick={() => ctl.handleLayoutModeChange(value)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-[12px] rounded-md transition ${
-              active
-                ? "theme-accent-bg theme-accent"
-                : "theme-muted hover:text-[var(--panel-fg)]"
-            }`}
-          >
-            <Icon size={13} strokeWidth={1.75} aria-hidden />
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+const CARD_TITLE = "text-[13px] font-semibold text-[var(--panel-fg)]";
+const SMALL_BUTTON =
+  "px-2 py-0.5 text-[12px] rounded-md border theme-border bg-[var(--buttons-bg)] text-[var(--buttons-fg)] hover:text-[var(--panel-fg)] hover:brightness-110 transition disabled:opacity-50 disabled:cursor-not-allowed";
 
 /** Faixa de "feche o Roblox" quando o Multi Roblox não consegue o mutex. */
 export function CloseRobloxAlert({ ctl }: { ctl: RejoinController }) {
@@ -128,278 +47,340 @@ export function CloseRobloxAlert({ ctl }: { ctl: RejoinController }) {
   );
 }
 
-export function TargetsCard({ ctl }: { ctl: RejoinController }) {
+/**
+ * As contas para marcar — o mesmo gesto dos cliques AFK: marca quem vai e dá
+ * Start. Com o ciclo rodando, a mesma lista mostra só quem está fora dele.
+ */
+export function AccountsCard({
+  ctl,
+  accounts,
+  title,
+}: {
+  ctl: RejoinController;
+  accounts: Pick<Account, "UserID" | "Username" | "Alias">[];
+  title: string;
+}) {
   const t = useTr();
-  const { playerUserIds, statusMap, targetAccounts, playerMenuOpen } = ctl;
+  const pickedHere = accounts.filter((a) => ctl.picked.includes(a.UserID)).length;
   return (
-    <section className={`${CARD} relative ${playerMenuOpen ? "z-30" : "z-10"}`}>
-      <div className={CARD_TITLE}>
-        {t("Targets")}
-        <span className="font-normal text-[12px] theme-muted">{targetAccounts.length}</span>
-      </div>
-      {ctl.adopt ? (
-        <p className="mb-2 text-[11px] leading-4 text-emerald-300/90">
-          {t(
-            "These accounts are already in game. Starting adopts their open clients: nothing is closed or reopened now, and each account stays in its server until its first rejoin."
-          )}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {targetAccounts.length === 0 ? (
-          <span className="text-[12px] theme-muted">{t("No selected accounts")}</span>
+    <section className={`@container ${CARD}`}>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div className={CARD_TITLE}>{title}</div>
+        {accounts.length > 0 ? (
+          <span className="text-[12px] theme-muted">
+            {pickedHere} / {accounts.length}
+          </span>
         ) : null}
-        {targetAccounts.map((a) => {
-          const isPlayer = playerUserIds.includes(a.UserID) || !!statusMap.get(a.UserID)?.isPlayer;
-          const name = ctl.accountLabel(a);
-          return (
-            <span
-              key={a.UserID}
-              title={name}
-              className={[
-                "px-2 py-1 rounded-md text-[12px] border theme-soft max-w-[160px] truncate",
-                isPlayer ? "theme-accent-bg theme-accent-border theme-accent" : "theme-border text-[var(--panel-fg)]",
-              ].join(" ")}
-            >
-              {name}
-            </span>
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-2">
-        <label className="text-[12px] theme-muted w-24 shrink-0">{t("Main Accounts")}</label>
-        <div ref={ctl.playerMenuRef} className="relative w-full min-w-0">
-          <button
-            type="button"
-            onClick={() => ctl.setPlayerMenuOpen((v) => !v)}
-            className="sidebar-input text-xs flex items-center justify-between gap-2 hover:brightness-110 transition-all"
-            aria-haspopup="listbox"
-            aria-expanded={playerMenuOpen}
-          >
-            <span className="truncate" title={ctl.playerAccountTitle}>
-              {ctl.playerAccountLabel}
-            </span>
-            <ChevronDown
-              size={14}
-              strokeWidth={2}
-              className={`theme-muted transition-transform duration-150 ${playerMenuOpen ? "rotate-180" : ""}`}
-            />
-          </button>
-          <div
-            className={`absolute left-0 right-0 top-[calc(100%+6px)] z-20 max-h-64 overflow-y-auto rounded-lg border theme-border theme-panel shadow-2xl transition-all duration-150 ${
-              playerMenuOpen
-                ? "opacity-100 translate-y-0 pointer-events-auto"
-                : "opacity-0 -translate-y-1 pointer-events-none"
-            }`}
-          >
+        {accounts.length > 0 ? (
+          <div className="ml-auto flex items-center gap-1.5">
+            <button type="button" onClick={ctl.selectAllAccounts} className={SMALL_BUTTON}>
+              {t("Select all")}
+            </button>
             <button
               type="button"
-              onClick={ctl.handleClearPlayers}
-              className={`w-full text-left px-3 py-2 text-[12px] transition-colors ${
-                playerUserIds.length === 0
-                  ? "theme-accent-bg theme-accent"
-                  : "text-[var(--panel-fg)] hover:bg-[var(--panel-soft)]"
-              }`}
+              onClick={ctl.clearAccounts}
+              disabled={pickedHere === 0}
+              className={SMALL_BUTTON}
             >
-              {t("None")}
+              {t("Clear")}
             </button>
-            <div className="h-px theme-border border-t" />
-            {targetAccounts.map((a) => {
-              const active = playerUserIds.includes(a.UserID);
-              const name = ctl.accountLabel(a);
-              return (
-                <button
-                  key={a.UserID}
-                  type="button"
-                  onClick={() => {
-                    void ctl.handleTogglePlayer(a.UserID);
-                  }}
-                  className={`w-full text-left px-3 py-2 text-[12px] transition-colors ${
-                    active
-                      ? "theme-accent-bg theme-accent"
-                      : "text-[var(--panel-fg)] hover:bg-[var(--panel-soft)]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate" title={name}>
-                      {name}
-                    </span>
-                    {active ? <span className="text-[12px] opacity-80">{t("Selected")}</span> : null}
-                  </div>
-                </button>
-              );
-            })}
           </div>
-        </div>
+        ) : null}
       </div>
-    </section>
-  );
-}
-
-/**
- * Onde o ciclo rejoga. Adotando contas em jogo, só o place: ele vem do jogo
- * em que elas estão (presença), e Job/JoinData ficam de fora — fixar o servidor
- * atual mandaria todo reinício para um servidor que pode não existir mais.
- */
-export function ServerCard({ ctl, columns }: { ctl: RejoinController; columns: 1 | 3 }) {
-  const t = useTr();
-  const { game } = ctl;
-  const fieldsGrid = columns === 3 && !ctl.adopt ? "grid grid-cols-1 @2xl:grid-cols-3 gap-2" : "grid grid-cols-1 gap-2";
-  return (
-    <section className={CARD}>
-      <div className={CARD_TITLE}>
-        {t("Server")}
-        {/* Qual jogo o ciclo vai rejogar, sem precisar sair da tela. */}
-        <GameBadge
-          name={game?.name ?? null}
-          iconUrl={game?.iconUrl ?? null}
-          placeId={game?.placeId}
-          className="font-normal"
-        />
-      </div>
-      <div className={fieldsGrid}>
-        <input
-          value={ctl.placeId}
-          onChange={(e) => ctl.updatePlaceId(e.target.value)}
-          onBlur={() => void ctl.saveCurrentDraft()}
-          placeholder={t("Place ID")}
-          aria-label={t("Place ID")}
-          className="sidebar-input text-xs font-mono"
-        />
-        {ctl.adopt ? null : (
-          <>
-            <input
-              value={ctl.jobId}
-              onChange={(e) => ctl.updateJobId(e.target.value)}
-              onBlur={() => void ctl.saveCurrentDraft()}
-              placeholder={t("Job ID (optional)")}
-              className="sidebar-input text-xs font-mono"
-            />
-            <input
-              value={ctl.launchData}
-              onChange={(e) => ctl.updateLaunchData(e.target.value)}
-              onBlur={() => void ctl.saveCurrentDraft()}
-              placeholder={t("JoinData (optional)")}
-              className="sidebar-input text-xs"
-            />
-          </>
-        )}
-      </div>
-      {ctl.adopt ? (
-        <div
-          className={`mt-2 text-[11px] leading-4 ${
-            ctl.detection === "missing" ? "text-amber-300" : "theme-muted"
-          }`}
-        >
-          {ctl.detection === "detecting"
-            ? t("Finding the game these accounts are in...")
-            : ctl.detection === "found"
-              ? t("Found from the game these accounts are in now. Each rejoin goes back to this place.")
-              : ctl.detection === "missing"
-                ? t("Could not tell which game these accounts are in. Type the Place ID of the game they are playing.")
-                : t("Each rejoin goes back to this place.")}
-        </div>
-      ) : ctl.shareLaunchFields ? (
-        <div className="mt-2 text-[11px] theme-muted">
-          {t("Launch fields are currently synced with Sidebar")}
+      {accounts.length === 0 ? (
+        <div className="text-[12px] theme-muted leading-4">
+          {t("Open the accounts first: Auto Rejoin works with the Roblox clients that are open.")}
         </div>
       ) : (
-        <div className="mt-2 flex gap-2">
-          <button onClick={ctl.applyCurrentLaunchFields} className="sidebar-btn-sm">
-            {t("Use Current Launch Fields")}
-          </button>
+        <div className="grid grid-cols-1 gap-1.5 @md:grid-cols-2 @3xl:grid-cols-3">
+          {accounts.map((account) => {
+            const on = ctl.picked.includes(account.UserID);
+            const name = ctl.accountLabel(account);
+            return (
+              <button
+                key={account.UserID}
+                type="button"
+                onClick={() => ctl.toggleAccount(account.UserID)}
+                aria-pressed={on}
+                aria-label={name}
+                className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors ${
+                  on ? "theme-accent-border bg-[var(--accent-soft)]" : "theme-border hover:bg-[var(--panel-soft)]"
+                }`}
+              >
+                <span
+                  className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center ${
+                    on ? "theme-accent-border theme-accent" : "theme-border"
+                  }`}
+                  aria-hidden
+                >
+                  {on ? <Check size={11} strokeWidth={3} /> : null}
+                </span>
+                <span className="flex-1 truncate text-[12px] text-[var(--panel-fg)]" title={name}>
+                  {name}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </section>
   );
 }
 
-/**
- * Unidade, significado e faixa de cada campo de Timing. Os limites sao os do
- * backend (`src-tauri/src/commands/botting.rs`): `clamp_botting_interval_minutes`
- * 10..480, `clamp_botting_launch_delay_seconds` 5..120 e
- * `resolve_player_grace_minutes` 1..90.
- */
-function TimingFieldHints() {
-  const t = useTr();
+function ServerOption({
+  ctl,
+  mode,
+  label,
+  children,
+}: {
+  ctl: RejoinController;
+  mode: ServerMode;
+  label: string;
+  children?: React.ReactNode;
+}) {
+  const on = ctl.serverMode === mode;
   return (
-    <ul className="mt-2 space-y-0.5 text-[11px] theme-muted list-disc pl-4">
-      <li>
-        {t(
-          "Rejoin Interval: minutes an alt account stays in the server before its client is closed and reopened (10-480)."
-        )}
-      </li>
-      <li>
-        {t(
-          "Launch Delay: seconds between two launches, so the accounts do not all start at once (5-120)."
-        )}
-      </li>
-      <li>
-        {t(
-          "Main Grace: minutes a main account keeps its client after you remove it from Main Accounts, before it joins the cycle (1-90)."
-        )}
-      </li>
-    </ul>
+    <div
+      className={`rounded-lg border transition-colors ${
+        on ? "theme-accent-border bg-[var(--accent-soft)]" : "theme-border"
+      }`}
+    >
+      <label className="flex cursor-pointer items-center gap-2.5 px-2.5 py-2">
+        <input
+          type="radio"
+          name="rejoin-server"
+          value={mode}
+          checked={on}
+          onChange={() => ctl.chooseServerMode(mode)}
+          className="peer sr-only"
+        />
+        <span
+          aria-hidden
+          className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--input-focus)] ${
+            on ? "theme-accent-border" : "theme-border"
+          }`}
+        >
+          {on ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-color)]" /> : null}
+        </span>
+        <span className="text-[12px] font-medium text-[var(--panel-fg)]">{label}</span>
+      </label>
+      {on && children ? <div className="px-2.5 pb-2.5 pl-8">{children}</div> : null}
+    </div>
   );
 }
 
-export function TimingCard({ ctl, columns }: { ctl: RejoinController; columns: 1 | 3 }) {
+/** O que a presença disse sobre o jogo das contas marcadas. */
+function CurrentGameStatus({ ctl }: { ctl: RejoinController }) {
+  const t = useTr();
+  const { detection, game } = ctl;
+  if (detection === "found") {
+    return (
+      <div className="space-y-1">
+        {game?.name || game?.iconUrl ? (
+          <GameBadge name={game?.name ?? null} iconUrl={game?.iconUrl ?? null} placeId={game?.placeId} className="text-[12px] text-[var(--panel-fg)]" />
+        ) : (
+          <div className="text-[12px] font-mono text-[var(--panel-fg)]">
+            {t("Place {{id}}", { id: ctl.detectedPlaceId ?? "" })}
+          </div>
+        )}
+        <div className="text-[11px] leading-4 theme-muted">
+          {t("Nobody is closed now. Each rejoin goes back to this game.")}
+        </div>
+      </div>
+    );
+  }
+  const tone = detection === "mixed" || detection === "missing" ? "text-amber-300" : "theme-muted";
+  const text =
+    detection === "detecting"
+      ? t("Finding the game these accounts are in...")
+      : detection === "mixed"
+        ? t("The selected accounts are in different games. Tick accounts from one game, or pick a game.")
+        : detection === "missing"
+          ? t("Could not tell which game these accounts are in. Pick a game.")
+          : t("Uses the game of the accounts you tick.");
+  return <div className={`text-[11px] leading-4 ${tone}`}>{text}</div>;
+}
+
+/** Favoritos (com os VIPs salvos neles) e, fechado, o Place ID digitado. */
+function GamePicker({ ctl }: { ctl: RejoinController }) {
+  const t = useTr();
+  const { favorites, chosenPlaceId, jobId } = ctl;
+  const chosenJob = jobId.trim();
+  const isFavorite = favorites.some((f) => f.placeId === chosenPlaceId);
+  return (
+    <div className="space-y-2">
+      {chosenPlaceId !== null && !isFavorite ? (
+        <div className="text-[12px] text-[var(--panel-fg)]">
+          {ctl.game?.name || ctl.game?.iconUrl ? (
+            <GameBadge name={ctl.game?.name ?? null} iconUrl={ctl.game?.iconUrl ?? null} placeId={chosenPlaceId} />
+          ) : (
+            <span className="font-mono">{t("Place {{id}}", { id: chosenPlaceId })}</span>
+          )}
+        </div>
+      ) : null}
+      {favorites.length === 0 ? (
+        <div className="text-[11px] leading-4 theme-muted">
+          {t("No favorite games yet. Star a game in Choose Game and it shows up here.")}
+        </div>
+      ) : (
+        <ul className="max-h-56 space-y-1 overflow-y-auto pr-0.5" aria-label={t("Favorites")}>
+          {favorites.map((fav) => {
+            const gameOn = chosenPlaceId === fav.placeId && chosenJob === "";
+            const vips = fav.vipServers ?? [];
+            return (
+              <li key={fav.placeId}>
+                <button
+                  type="button"
+                  aria-pressed={gameOn}
+                  onClick={() => ctl.pickGame(fav.placeId)}
+                  className={`flex w-full items-center gap-2 rounded-md border px-2 py-1 text-left transition-colors ${
+                    gameOn ? "theme-accent-border bg-[var(--accent-soft)]" : "border-transparent hover:bg-[var(--panel-soft)]"
+                  }`}
+                >
+                  {fav.iconUrl ? (
+                    <img src={fav.iconUrl} alt="" className="h-5 w-5 shrink-0 rounded" loading="lazy" />
+                  ) : (
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[var(--panel-soft)] theme-muted" aria-hidden>
+                      <Gamepad2 size={12} strokeWidth={1.75} />
+                    </span>
+                  )}
+                  <span className="truncate text-[12px] text-[var(--panel-fg)]" title={fav.name}>
+                    {fav.name}
+                  </span>
+                </button>
+                {vips.length > 0 ? (
+                  <div className="mt-1 flex flex-wrap gap-1 pl-7">
+                    {vips.map((vip) => {
+                      const vipOn = chosenPlaceId === fav.placeId && chosenJob === vip.link;
+                      return (
+                        <button
+                          key={vip.id}
+                          type="button"
+                          aria-pressed={vipOn}
+                          onClick={() => ctl.pickGame(fav.placeId, vip.link)}
+                          title={t("Private server")}
+                          className={`inline-flex max-w-full items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] transition-colors ${
+                            vipOn
+                              ? "border-amber-400/50 bg-amber-500/15 text-amber-100"
+                              : "theme-border text-amber-200/90 hover:bg-[var(--panel-soft)]"
+                          }`}
+                        >
+                          <KeyRound size={11} strokeWidth={1.75} aria-hidden />
+                          <span className="truncate">{vip.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <details className="group">
+        <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] theme-muted hover:text-[var(--panel-fg)] [&::-webkit-details-marker]:hidden">
+          <ChevronRight size={12} strokeWidth={2} className="transition-transform group-open:rotate-90" aria-hidden />
+          {t("Type a Place ID")}
+        </summary>
+        <div className="mt-1.5 grid grid-cols-1 gap-1.5">
+          <input
+            value={ctl.placeId}
+            onChange={(e) => ctl.updatePlaceId(e.target.value)}
+            placeholder={t("Place ID")}
+            aria-label={t("Place ID")}
+            inputMode="numeric"
+            className="sidebar-input text-xs font-mono"
+          />
+          <input
+            value={ctl.jobId}
+            onChange={(e) => ctl.updateJobId(e.target.value)}
+            placeholder={t("Job ID or private server link (optional)")}
+            aria-label={t("Job ID or private server link (optional)")}
+            className="sidebar-input text-xs font-mono"
+          />
+        </div>
+      </details>
+    </div>
+  );
+}
+
+/** Para onde o ciclo rejoga: onde as contas já estão (padrão) ou um jogo escolhido. */
+export function ServerCard({ ctl }: { ctl: RejoinController }) {
+  const t = useTr();
+  return (
+    <section className={`${CARD} space-y-2`}>
+      <div className={CARD_TITLE} id="rejoin-server-title">
+        {t("Server")}
+      </div>
+      <div role="radiogroup" aria-labelledby="rejoin-server-title" className="space-y-1.5">
+        <ServerOption ctl={ctl} mode="current" label={t("The game they are playing now")}>
+          <CurrentGameStatus ctl={ctl} />
+        </ServerOption>
+        <ServerOption ctl={ctl} mode="game" label={t("A game I pick")}>
+          <GamePicker ctl={ctl} />
+        </ServerOption>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Os limites são os do backend (`src-tauri/src/commands/botting.rs`):
+ * `clamp_botting_interval_minutes` 10..480 e
+ * `clamp_botting_launch_delay_seconds` 5..120.
+ */
+export function TimingCard({ ctl }: { ctl: RejoinController }) {
   const t = useTr();
   const fields = [
     {
-      label: t("Rejoin Interval (minutes)"),
+      label: t("Rejoin every"),
+      ariaLabel: t("Rejoin every (minutes)"),
+      unit: t("min"),
       value: ctl.intervalMinutes,
       min: 10,
       max: 480,
       onChange: ctl.setIntervalMinutes,
-      onCommit: (v: number) => void ctl.saveCurrentDraft({ interval: v }),
+      onCommit: (v: number) => void ctl.saveDraft({ interval: v }),
     },
     {
-      label: t("Launch Delay (seconds)"),
+      label: t("Time between launches"),
+      ariaLabel: t("Time between launches (seconds)"),
+      unit: t("s"),
       value: ctl.launchDelaySeconds,
       min: 5,
       max: 120,
       onChange: ctl.setLaunchDelaySeconds,
-      onCommit: (v: number) => void ctl.saveCurrentDraft({ delay: v }),
-    },
-    {
-      label: t("Main Grace (minutes)"),
-      value: ctl.playerGraceMinutes,
-      min: 1,
-      max: 90,
-      onChange: ctl.setPlayerGraceMinutes,
-      onCommit: (v: number) => void ctl.saveCurrentDraft({ grace: v }),
+      onCommit: (v: number) => void ctl.saveDraft({ delay: v }),
     },
   ];
   return (
-    <section className={CARD}>
+    <section className={`${CARD} space-y-2`}>
       <div className={CARD_TITLE}>{t("Timing")}</div>
-      <div className={columns === 3 ? "grid grid-cols-1 @2xl:grid-cols-3 gap-2" : "grid grid-cols-1 gap-2"}>
-        {fields.map((field) => (
-          <div key={field.label} className="flex items-center gap-2">
-            <label className={`text-[12px] theme-muted shrink-0 ${columns === 3 ? "w-36" : "w-32"}`}>
-              {field.label}
-            </label>
-            <NumericInput
-              ariaLabel={field.label}
-              value={field.value}
-              min={field.min}
-              max={field.max}
-              step={1}
-              integer
-              showStepper
-              onChange={field.onChange}
-              onCommit={field.onCommit}
-              className="sidebar-input text-xs pr-10"
-            />
-          </div>
-        ))}
-      </div>
-      <TimingFieldHints />
-      <div className="text-[11px] theme-muted mt-2">
-        {t("Main account demotion grace is {{minutes}} minutes before it enters normal restart cycle.", {
-          minutes: ctl.playerGraceMinutes,
-        })}
-      </div>
+      {fields.map((field) => (
+        <div key={field.ariaLabel} className="flex items-center gap-2">
+          <span className="w-36 shrink-0 text-[12px] theme-muted">{field.label}</span>
+          <NumericInput
+            ariaLabel={field.ariaLabel}
+            value={field.value}
+            min={field.min}
+            max={field.max}
+            step={1}
+            integer
+            showStepper
+            disabled={ctl.running}
+            onChange={field.onChange}
+            onCommit={field.onCommit}
+            containerClassName="relative flex-1"
+            className="sidebar-input text-xs w-full pr-10 disabled:opacity-60"
+          />
+          <span className="w-6 text-[12px] theme-muted">{field.unit}</span>
+        </div>
+      ))}
+      <p className="text-[11px] leading-4 theme-muted">
+        {t(
+          "Each rejoin closes that account's Roblox client and opens it again. Clients of other accounts are never touched."
+        )}
+      </p>
     </section>
   );
 }

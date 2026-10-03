@@ -39,20 +39,9 @@ export function MiscellaneousTab({
 
   return (
     <div className="space-y-0">
-      <Toggle
-        checked={s.getBool("General", "BottingAutoShareLaunchFields")}
-        onChange={(v) => s.setBool("General", "BottingAutoShareLaunchFields", v)}
-        label="Auto-share launch fields with Sidebar"
-        description="Keeps Place ID, Job ID, and JoinData synced between Sidebar and Auto Rejoin"
-      />
-      <Toggle
-        checked={s.get("General", "BottingDualPanelDialog", "true") === "true"}
-        onChange={(v) => s.setBool("General", "BottingDualPanelDialog", v)}
-        label="Use dual-panel Auto Rejoin dialog"
-        description="Shows setup and live cycle side-by-side with a 1/3 + 2/3 layout"
-      />
-
-      <Divider />
+      {/* As duas opções do Auto Rejoin que moravam aqui (campos compartilhados
+          com a sidebar e New View/Classic) saíram com a tela simplificada
+          (03/10/2026): o Auto Rejoin não tem mais esses campos nem duas visões. */}
       <SectionLabel>Shuffle</SectionLabel>
 
       <Toggle
