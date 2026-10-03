@@ -131,6 +131,16 @@ describe("AvatarsDialog — montar", () => {
     expect(await screen.findByRole("button", { name: "Load Ninja" })).toBeInTheDocument();
   });
 
+  it("Enter repetido no nome não salva duas vezes", async () => {
+    // O avatar_save fica pendurado: o segundo Enter chega com o primeiro em andamento.
+    wire({ avatar_save: () => new Promise(() => {}) });
+    renderDialog();
+    await screen.findByRole("navigation", { name: "Categories" });
+    await userEvent.click(screen.getByRole("button", { name: "Randomize all" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Avatar name" }), "Ninja{Enter}{Enter}");
+    expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "avatar_save")).toHaveLength(1);
+  });
+
   it("não salva sem as peças obrigatórias e diz o que falta", async () => {
     wire();
     renderDialog();
@@ -154,12 +164,49 @@ describe("AvatarsDialog — montar", () => {
 });
 
 describe("AvatarsDialog — distribuir", () => {
-  it("Apply avatars fica desligado sem conta selecionada", async () => {
+  it("Apply avatars fica desligado sem conta marcada", async () => {
     wire({ avatar_list_saved: [SAVED] });
     renderDialog({ selectedAccounts: [] });
     await userEvent.click(screen.getByRole("tab", { name: "Distribute" }));
-    expect(await screen.findByRole("button", { name: "Apply avatars" })).toBeDisabled();
-    expect(screen.getByText(/select accounts in the main list/i)).toBeInTheDocument();
+    await screen.findByRole("checkbox", { name: "Ninja" });
+    expect(screen.getByRole("button", { name: "Apply avatars" })).toBeDisabled();
+    expect(screen.getByText(/check the accounts that should get an avatar/i)).toBeInTheDocument();
+    // As contas aparecem no próprio diálogo, desmarcadas.
+    expect(screen.getByRole("checkbox", { name: "alpha" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("checkbox", { name: "bravo" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("marca as contas no próprio diálogo, a partir da seleção da lista principal", async () => {
+    wire({ avatar_list_saved: [SAVED] });
+    renderDialog({ selectedAccounts: [ACCOUNTS[1]], selectedIds: new Set([22]) });
+    await userEvent.click(screen.getByRole("tab", { name: "Distribute" }));
+    await screen.findByRole("checkbox", { name: "Ninja" });
+    expect(screen.getByRole("checkbox", { name: "bravo" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("checkbox", { name: "alpha" })).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(screen.getByRole("checkbox", { name: "alpha" }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply avatars" }));
+    expect(invokeMock).toHaveBeenCalledWith("avatar_apply_batch", { userIds: [11, 22], avatarIds: ["av_1"] });
+  });
+
+  it("Select all e Select none marcam e desmarcam todas as contas", async () => {
+    wire({ avatar_list_saved: [SAVED] });
+    renderDialog({ selectedAccounts: [] });
+    await userEvent.click(screen.getByRole("tab", { name: "Distribute" }));
+    await screen.findByRole("checkbox", { name: "Ninja" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(screen.getByRole("checkbox", { name: "alpha" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("checkbox", { name: "bravo" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("button", { name: "Apply avatars" })).toBeEnabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Select none" }));
+    expect(screen.getByRole("checkbox", { name: "alpha" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "Apply avatars" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply avatars" }));
+    expect(invokeMock).toHaveBeenCalledWith("avatar_apply_batch", { userIds: [11, 22], avatarIds: ["av_1"] });
   });
 
   it("Apply avatars manda as contas selecionadas e os avatares marcados", async () => {

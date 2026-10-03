@@ -1783,8 +1783,6 @@
   "Save avatar": "Save avatar",
   "Saved avatars ({{count}})": "Saved avatars ({{count}})",
   "Saving again updates this avatar. Start over to make a new one.": "Saving again updates this avatar. Start over to make a new one.",
-  "Select accounts in the main list first — the avatars go to the accounts selected there.": "Select accounts in the main list first — the avatars go to the accounts selected there.",
-  "Selected accounts ({{count}})": "Selected accounts ({{count}})",
   "Skin tone": "Skin tone",
   "Skin tone {{n}}": "Skin tone {{n}}",
   "Skipped": "Skipped",
@@ -1806,5 +1804,9 @@
   "avatars.errors.name": "Give the avatar a name (up to 60 characters)",
   "avatars.errors.required": "An avatar needs a shirt, pants and a body",
   "avatars.errors.tooMany": "An avatar can have at most 12 items",
-  "avatars.errors.duplicate": "The same item is picked twice"
+  "avatars.errors.duplicate": "The same item is picked twice",
+  "{{count}} of {{total}}": "{{count}} of {{total}}",
+  "Check the accounts that should get an avatar.": "Check the accounts that should get an avatar.",
+  "No accounts yet — add accounts first.": "No accounts yet — add accounts first.",
+  "Select none": "Select none"
 }

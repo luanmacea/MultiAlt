@@ -2776,3 +2776,70 @@ describe("browser helpers", () => {
     });
   });
 });
+
+/**
+ * Depois do lote de avatares o Roblox costuma responder o headshot novo como
+ * "Pending" (`imageUrl: null`) por alguns segundos. A foto velha fica na tela
+ * até a nova chegar — apagar antes deixava a conta sem foto até recarregar.
+ */
+describe("refreshAvatarHeadshots", () => {
+  it("keeps the old picture while Roblox answers Pending and swaps it when the retry returns the new one", async () => {
+    accountsData = [account({ UserID: 1 })];
+    let headshotCalls = 0;
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "batched_get_avatar_headshots") {
+        headshotCalls += 1;
+        if (headshotCalls === 1) return [{ targetId: 1, imageUrl: "old.png" }];
+        if (headshotCalls === 2) return [{ targetId: 1, imageUrl: null }];
+        return [{ targetId: 1, imageUrl: "new.png" }];
+      }
+      return defaultInvoke(cmd);
+    });
+
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.avatarUrls.get(1)).toBe("old.png"));
+
+    vi.useFakeTimers();
+    let done: Promise<void> = Promise.resolve();
+    await act(async () => {
+      done = result.current.refreshAvatarHeadshots([1]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(invokeCalls("invalidate_avatar_headshots")[0][1]).toEqual({ userIds: [1] });
+    expect(headshotCalls).toBe(2);
+    // Pending: a foto antiga continua.
+    expect(result.current.avatarUrls.get(1)).toBe("old.png");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+      await done;
+    });
+    expect(headshotCalls).toBe(3);
+    expect(result.current.avatarUrls.get(1)).toBe("new.png");
+  });
+
+  it("gives up after a few attempts and keeps the old picture", async () => {
+    accountsData = [account({ UserID: 1 })];
+    let headshotCalls = 0;
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "batched_get_avatar_headshots") {
+        headshotCalls += 1;
+        return [{ targetId: 1, imageUrl: headshotCalls === 1 ? "old.png" : null }];
+      }
+      return defaultInvoke(cmd);
+    });
+
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.avatarUrls.get(1)).toBe("old.png"));
+
+    vi.useFakeTimers();
+    await act(async () => {
+      const done = result.current.refreshAvatarHeadshots([1]);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await done;
+    });
+    // 1 carga inicial + 3 tentativas.
+    expect(headshotCalls).toBe(4);
+    expect(result.current.avatarUrls.get(1)).toBe("old.png");
+  });
+});

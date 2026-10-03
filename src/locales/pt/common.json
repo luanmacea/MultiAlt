@@ -1783,8 +1783,6 @@
   "Save avatar": "Salvar avatar",
   "Saved avatars ({{count}})": "Avatares salvos ({{count}})",
   "Saving again updates this avatar. Start over to make a new one.": "Salvar de novo substitui este avatar. Use Recomeçar para criar outro.",
-  "Select accounts in the main list first — the avatars go to the accounts selected there.": "Selecione contas na lista principal primeiro — os avatares vão para as contas selecionadas lá.",
-  "Selected accounts ({{count}})": "Contas selecionadas ({{count}})",
   "Skin tone": "Tom de pele",
   "Skin tone {{n}}": "Tom de pele {{n}}",
   "Skipped": "Pulada",
@@ -1806,5 +1804,9 @@
   "avatars.errors.name": "Dê um nome ao avatar (até 60 caracteres)",
   "avatars.errors.required": "Um avatar precisa de camisa, calça e corpo",
   "avatars.errors.tooMany": "Um avatar pode ter no máximo 12 itens",
-  "avatars.errors.duplicate": "O mesmo item foi escolhido duas vezes"
+  "avatars.errors.duplicate": "O mesmo item foi escolhido duas vezes",
+  "{{count}} of {{total}}": "{{count}} de {{total}}",
+  "Check the accounts that should get an avatar.": "Marque as contas que devem receber um avatar.",
+  "No accounts yet — add accounts first.": "Nenhuma conta ainda — adicione contas primeiro.",
+  "Select none": "Desmarcar tudo"
 }
