@@ -1793,6 +1793,8 @@
   "Use all": "Usar todos",
   "Verification required — skipped": "Verificação exigida — pulada",
   "Avatar batch finished: {{ok}} of {{total}} accounts done": "Lote de avatares concluído: {{ok}} de {{total}} contas prontas",
+  "An avatar batch is already running": "Já existe um lote de avatares em andamento",
+  "No saved avatar selected": "Nenhum avatar salvo selecionado",
   "Hair": "Cabelo",
   "Hat": "Chapéu",
   "Accessories": "Acessórios",

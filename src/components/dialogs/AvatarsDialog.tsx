@@ -262,8 +262,12 @@ export function AvatarsDialog({ open, onClose }: { open: boolean; onClose: () =>
       const final = await invoke<AvatarBatchSnapshot>("avatar_apply_batch", { userIds, avatarIds: chosenIds });
       if (mountedRef.current) receive(final);
     } catch (e) {
-      store.addToast(String(e), "error");
+      // As recusas do backend vêm em inglês, que é a chave do catálogo.
+      store.addToast(t(String(e)), "error");
       // Recusado (outro lote rodando, conta sumiu...): volta ao estado real do backend.
+      // O "rodando" acima foi otimista: sem desfazê-lo, o retrato do lote anterior
+      // (já terminado) pareceria um fim agora e repetiria o aviso e a troca de fotos.
+      prevRunningRef.current = false;
       try {
         const snapshot = await invoke<AvatarBatchSnapshot>("get_avatar_batch_state");
         receive(snapshot ?? IDLE_BATCH);

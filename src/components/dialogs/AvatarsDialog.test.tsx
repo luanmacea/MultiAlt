@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { AvatarsDialog } from "./AvatarsDialog";
+import i18n, { DEFAULT_LANGUAGE } from "../../i18n/index";
 import type { StoreValue } from "../../store";
 import type { FreeCatalogItem, SavedAvatar } from "../../avatarBuilder";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
@@ -259,4 +260,58 @@ describe("AvatarsDialog — distribuir", () => {
     expect(await screen.findByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
     expect(screen.getByRole("tab", { name: "Distribute" })).toHaveAttribute("aria-selected", "true");
   });
+
+  it("um início recusado não repete o aviso de fim do lote anterior", async () => {
+    // O lote anterior acabou; o backend recusa o novo e a tela volta ao estado real
+    // (o retrato do lote antigo). Isso não é um lote terminando agora.
+    const FINISHED = {
+      running: false,
+      total: 1,
+      done: 1,
+      currentUserId: null,
+      accounts: [{ userId: 11, avatarId: "av_1", status: "ok", reason: null, claimed: 0, missing: 0 }],
+    };
+    wire({
+      avatar_list_saved: [SAVED],
+      get_avatar_batch_state: FINISHED,
+      avatar_apply_batch: () => {
+        throw "An avatar batch is already running";
+      },
+    });
+    const store = renderDialog({ selectedAccounts: ACCOUNTS });
+    await userEvent.click(screen.getByRole("tab", { name: "Distribute" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Clear results" }));
+    await userEvent.click(screen.getByRole("button", { name: "Apply avatars" }));
+
+    // A recuperação traz o resumo antigo de volta à tela.
+    expect(await screen.findByRole("button", { name: "Clear results" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "get_avatar_batch_state")).toHaveLength(2)
+    );
+    expect(store.addToast).toHaveBeenCalledWith("An avatar batch is already running", "error");
+    expect(store.addToast).not.toHaveBeenCalledWith(expect.stringMatching(/Avatar batch finished/));
+    expect(store.refreshAvatarHeadshots).not.toHaveBeenCalled();
+  });
+
+  it("a recusa do backend chega traduzida", async () => {
+    wire({
+      avatar_list_saved: [SAVED],
+      avatar_apply_batch: () => {
+        throw "No saved avatar selected";
+      },
+    });
+    await i18n.changeLanguage("pt");
+    try {
+      const store = renderDialog({ selectedAccounts: ACCOUNTS });
+      await userEvent.click(screen.getByRole("tab", { name: "Distribuir" }));
+      await screen.findByRole("checkbox", { name: "Ninja" });
+      await userEvent.click(screen.getByRole("button", { name: "Aplicar avatares" }));
+      await waitFor(() =>
+        expect(store.addToast).toHaveBeenCalledWith("Nenhum avatar salvo selecionado", "error")
+      );
+    } finally {
+      await i18n.changeLanguage(DEFAULT_LANGUAGE);
+    }
+  });
 });
+

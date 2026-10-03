@@ -776,14 +776,14 @@ function avatarsHandler(fallback: InvokeHandler): InvokeHandler {
       case "invalidate_avatar_headshots":
         return null;
       case "avatar_apply_batch": {
-        // Mesmas recusas (e no mesmo idioma) que o backend devolve.
-        if (batch.running) return Promise.reject("Já existe um lote de avatares em andamento.");
+        // Mesmas recusas que o backend devolve (em inglês: a tela passa pelo t()).
+        if (batch.running) return Promise.reject("An avatar batch is already running");
         const userIds = (args.userIds as number[] | undefined) ?? [];
         const avatarIds = ((args.avatarIds as string[] | undefined) ?? []).filter((id) =>
           saved.some((a) => a.id === id)
         );
-        if (userIds.length === 0) return Promise.reject("Nenhuma conta selecionada.");
-        if (avatarIds.length === 0) return Promise.reject("Nenhum avatar salvo selecionado.");
+        if (userIds.length === 0) return Promise.reject("No account selected");
+        if (avatarIds.length === 0) return Promise.reject("No saved avatar selected");
         cancel = false;
         publish({ running: true, total: userIds.length, done: 0, currentUserId: null, accounts: [] });
         return (async () => {
