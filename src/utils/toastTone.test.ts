@@ -12,6 +12,22 @@ describe("toneFromMessage", () => {
     expect(toneFromMessage("Erro: {{error}}")).toBe("error");
   });
 
+  it("reconhece falha em espanhol", () => {
+    expect(toneFromMessage("No se pudo cerrar Roblox: acceso denegado")).toBe("error");
+    expect(toneFromMessage("La búsqueda falló: tiempo agotado")).toBe("error");
+    expect(toneFromMessage("Inicio de sesión fallido")).toBe("error");
+    expect(toneFromMessage("Error: {{error}}")).toBe("error");
+  });
+
+  it("reconhece sucesso e aviso em espanhol", () => {
+    expect(toneFromMessage("Cuentas guardadas")).toBe("success");
+    expect(toneFromMessage("Apodo actualizado")).toBe("success");
+    expect(toneFromMessage("Auto Rejoin iniciado (3 cuentas)")).toBe("success");
+    expect(toneFromMessage("Advertencia de optimización: poca memoria")).toBe("warn");
+    expect(toneFromMessage("Iniciando el juego...")).toBe("info");
+    expect(toneFromMessage("No se pudo guardar la configuración")).toBe("error");
+  });
+
   it("reconhece sucesso em inglês e em português", () => {
     expect(toneFromMessage("Accounts saved")).toBe("success");
     expect(toneFromMessage("Alias updated")).toBe("success");

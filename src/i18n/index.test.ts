@@ -26,13 +26,21 @@ describe("normalizeLanguage", () => {
     expect(normalizeLanguage("português")).toBe("pt");
   });
 
+  it("maps any es-* tag to Spanish", () => {
+    expect(normalizeLanguage("es")).toBe("es");
+    expect(normalizeLanguage("ES-MX")).toBe("es");
+    expect(normalizeLanguage("  es-419 ")).toBe("es");
+    expect(normalizeLanguage("español")).toBe("es");
+    expect(normalizeLanguage("Spanish")).toBe("es");
+  });
+
   it("maps everything else to English", () => {
     expect(normalizeLanguage("en-US")).toBe("en");
     expect(normalizeLanguage("klingon")).toBe("en");
   });
 
   it("exposes the supported set", () => {
-    expect([...SUPPORTED_LANGUAGES]).toEqual(["en", "de", "pt"]);
+    expect([...SUPPORTED_LANGUAGES]).toEqual(["en", "de", "pt", "es"]);
     expect(DEFAULT_LANGUAGE).toBe("en");
   });
 });
@@ -64,6 +72,13 @@ describe("i18n instance", () => {
     await i18n.changeLanguage("pt");
     expect(i18n.t("Settings")).toBe("Configurações");
     expect(i18n.t("Cancel")).toBe("Cancelar");
+  });
+
+  it("translates known keys after switching to Spanish", async () => {
+    await i18n.changeLanguage("es");
+    expect(i18n.t("Settings")).toBe("Configuración");
+    expect(i18n.t("Cancel")).toBe("Cancelar");
+    expect(i18n.t("Spanish")).toBe("Español");
   });
 
   it("reports whether a key exists", () => {

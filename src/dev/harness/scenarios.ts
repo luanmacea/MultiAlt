@@ -7,7 +7,7 @@
  *
  * Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
  * Cada agente abre a sua própria URL e olha um cenário diferente. `&lang=pt`
- * (ou `de`) sobe a tela naquele idioma, sem passar pelo seletor de Settings.
+ * (ou `de`, `es`) sobe a tela naquele idioma, sem passar pelo seletor de Settings.
  *
  * Um cenário **nunca** inventa o comportamento que está sendo testado: ele
  * entrega os mesmos dados que a API do Roblox entregaria (inclusive na ordem

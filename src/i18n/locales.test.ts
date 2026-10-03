@@ -4,11 +4,13 @@ import { describe, expect, it } from "vitest";
 import enCommon from "../locales/en/common.json";
 import deCommon from "../locales/de/common.json";
 import ptCommon from "../locales/pt/common.json";
+import esCommon from "../locales/es/common.json";
 import { toneFromMessage } from "../utils/toastTone";
 
 const en = enCommon as Record<string, string>;
 const de = deCommon as Record<string, string>;
 const pt = ptCommon as Record<string, string>;
+const es = esCommon as Record<string, string>;
 
 /** Nomes dos `{{placeholder}}` de uma frase, ordenados — é o que precisa sobreviver à tradução. */
 function placeholders(text: string): string[] {
@@ -19,8 +21,11 @@ function placeholders(text: string): string[] {
  * Chaves que ficam idênticas ao inglês de propósito: jargão do Roblox, nome de
  * funcionalidade do app e sigla que a comunidade usa em inglês. Qualquer outra
  * chave igual ao inglês é tradução esquecida, e o teste abaixo reprova.
+ *
+ * Cada idioma completo tem a sua lista: a palavra que coincide em português
+ * ("Volume", "Console") não é a mesma que coincide em espanhol.
  */
-const IDENTICAL_BY_DESIGN = new Set<string>([
+const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "WebServer",
   "Watcher",
   "online",
@@ -147,31 +152,148 @@ const IDENTICAL_BY_DESIGN = new Set<string>([
   "ws://localhost:{{port}}/Nexus",
 ]);
 
-describe("catálogo pt-BR", () => {
+/** Mesma regra para o espanhol: marcas, fontes, jargão e exemplos de formato. */
+const IDENTICAL_BY_DESIGN_ES = new Set<string>([
+  "General",
+  "WebServer",
+  "Watcher",
+  "auto rejoin",
+  "studio",
+  "Multi Roblox",
+  "Auto Rejoin",
+  "OK",
+  "Nexus",
+  "Error: {{error}}",
+  "ID: {{id}}",
+  "MultiAlt",
+  "_|WARNING:-DO-NOT-SHARE...",
+  "auth ticket",
+  "cookie",
+  "Cookie",
+  "FPS",
+  "ID: ********",
+  "username:password",
+  "Job",
+  "Job ID",
+  "Ping",
+  "Place",
+  "Place ID",
+  "Script",
+  "theme-preset",
+  "user ID",
+  "User ID",
+  "user:pass",
+  "VIP",
+  "{\"assets\":[{\"id\":12345}]}",
+  "<city>, <countryCode>",
+  "C:\\path\\ClientAppSettings.json",
+  "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "MB",
+  "min",
+  "ms",
+  "Normal",
+  "Roblox",
+  "Universe ID",
+  "Auto Rejoin Alt",
+  "Auto Rejoin Main",
+  "EcoQoS",
+  "Social",
+  "Catppuccin",
+  "Global",
+  "Graphite",
+  "Legacy v4 (Original)",
+  "Ocean",
+  "Sunset",
+  "Endpoint",
+  "Cooldown",
+  "Error",
+  "{\n  \"DFFlagTextureQualityOverrideEnabled\": true,\n  \"DFIntTextureQualityOverride\": 0\n}",
+  "ABCD-EFGH",
+  "alt",
+  "API",
+  "Beta",
+  "BLOX-XXXXXXXXXXXXXXXX",
+  "BloxGen",
+  "Bubble",
+  "DM Sans",
+  "dump",
+  "Editor",
+  "error",
+  "Fira Code",
+  "IBM Plex Mono",
+  "IBM Plex Sans",
+  "Info",
+  "Inter",
+  "Jakarta",
+  "JavaScript",
+  "JetBrains Mono",
+  "Manrope",
+  "MIT",
+  "MIT, Latte Softworks",
+  "Monitor {{n}}",
+  "Nexus + WebServer",
+  "Noto Sans",
+  "Nunito",
+  "place {{placeId}}",
+  "Plex",
+  "Plus Jakarta Sans",
+  "Poppins",
+  "Pre-Hyperion",
+  "Roboto",
+  "Roboto Mono",
+  "Rubik",
+  "Scripts",
+  "Soft",
+  "Source Code Pro",
+  "Space Grotesk",
+  "Space Mono",
+  "Studio",
+  "Terminal",
+  "UI",
+  "version-abcdef0123456789",
+  "WebSocket",
+  "WhatExpsAre.Online",
+  "Auth ticket",
+  "PIN",
+  "Intel(R) Wi-Fi 6 AX201",
+  "Realtek PCIe GbE Family Controller",
+  "ws://localhost:{{port}}/Nexus",
+  "Auto Rejoin ({{count}})",
+  "Roblox Account Manager",
+]);
+
+/** Idiomas completos: cobrem o inglês inteiro, cada um com a sua lista de jargão. */
+const COMPLETE_CATALOGS: [string, Record<string, string>, Set<string>][] = [
+  ["pt", pt, IDENTICAL_BY_DESIGN_PT],
+  ["es", es, IDENTICAL_BY_DESIGN_ES],
+];
+
+describe.each(COMPLETE_CATALOGS)("catálogo %s completo", (_name, dict, identicalByDesign) => {
   it("cobre o inglês inteiro, na mesma ordem e sem chave a mais", () => {
-    expect(Object.keys(pt)).toEqual(Object.keys(en));
+    expect(Object.keys(dict)).toEqual(Object.keys(en));
   });
 
   it("não tem valor vazio nem sobra de espaço nas pontas", () => {
-    const empty = Object.keys(pt).filter((k) => !pt[k].trim());
+    const empty = Object.keys(dict).filter((k) => !dict[k].trim());
     expect(empty).toEqual([]);
-    const padded = Object.keys(pt).filter((k) => pt[k] !== pt[k].trim());
+    const padded = Object.keys(dict).filter((k) => dict[k] !== dict[k].trim());
     expect(padded).toEqual([]);
   });
 
   it("traduziu tudo que não é jargão", () => {
-    const untranslated = Object.keys(pt).filter((k) => pt[k] === en[k] && !IDENTICAL_BY_DESIGN.has(k));
+    const untranslated = Object.keys(dict).filter((k) => dict[k] === en[k] && !identicalByDesign.has(k));
     expect(untranslated).toEqual([]);
   });
 
   it("só mantém em inglês o que está na lista de jargão", () => {
-    const stale = [...IDENTICAL_BY_DESIGN].filter((k) => !(k in en) || pt[k] !== en[k]);
+    const stale = [...identicalByDesign].filter((k) => !(k in en) || dict[k] !== en[k]);
     expect(stale).toEqual([]);
   });
 });
 
 describe.each([
   ["pt", pt],
+  ["es", es],
   ["de", de],
 ])("catálogo %s", (_name, dict) => {
   it("não inventa chave fora do inglês", () => {
@@ -261,7 +383,7 @@ describe("escape em atributo JSX", () => {
  * **apagar** um tom: "Launch failed" vira "Não foi possível iniciar", e sem
  * marcador em português o erro cairia como `info`.
  *
- * A regra é não enfraquecer: se o inglês já indica desfecho, o português tem de
+ * A regra é não enfraquecer: se o inglês já indica desfecho, a tradução tem de
  * indicar o mesmo. O contrário é permitido — o português pega "Não foi possível"
  * onde o heurístico inglês deixa passar "Could not", e isso é melhoria, não bug.
  */
@@ -276,6 +398,7 @@ const TONE_EXCEPTIONS = new Set<string>([
 
 describe.each([
   ["pt", pt],
+  ["es", es],
   ["de", de],
 ])("tom do toast sobrevive à tradução (%s)", (_name, dict) => {
   it("nenhuma tradução apaga o tom que o inglês indica", () => {
@@ -353,6 +476,7 @@ describe("o nome na tela é Auto Rejoin", () => {
   it.each([
     ["en", en],
     ["pt", pt],
+    ["es", es],
     ["de", de],
   ])("nenhuma chave nem tradução do catálogo %s diz o nome antigo", (_name, dict) => {
     const leaked = Object.keys(dict)

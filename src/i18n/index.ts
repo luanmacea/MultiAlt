@@ -3,8 +3,9 @@ import { initReactI18next } from "react-i18next";
 import enCommon from "../locales/en/common.json";
 import deCommon from "../locales/de/common.json";
 import ptCommon from "../locales/pt/common.json";
+import esCommon from "../locales/es/common.json";
 
-export const SUPPORTED_LANGUAGES = ["en", "de", "pt"] as const;
+export const SUPPORTED_LANGUAGES = ["en", "de", "pt", "es"] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 /**
@@ -17,6 +18,7 @@ export const LANGUAGE_OPTIONS: { value: SupportedLanguage; label: string }[] = [
   { value: "en", label: "English" },
   { value: "de", label: "German" },
   { value: "pt", label: "Portuguese (Brazil)" },
+  { value: "es", label: "Spanish" },
 ];
 export const DEFAULT_LANGUAGE: SupportedLanguage = "en";
 
@@ -25,6 +27,8 @@ export function normalizeLanguage(input?: string | null): SupportedLanguage {
   const candidate = input.toLowerCase().trim();
   if (candidate.startsWith("de")) return "de";
   if (candidate.startsWith("pt") || candidate.startsWith("portug")) return "pt";
+  // "es" já cobre "español"; "spanish" é o nome em inglês.
+  if (candidate.startsWith("es") || candidate.startsWith("spanish")) return "es";
   return "en";
 }
 
@@ -35,6 +39,7 @@ void i18n
       en: { translation: enCommon },
       de: { translation: deCommon },
       pt: { translation: ptCommon },
+      es: { translation: esCommon },
     },
     lng: DEFAULT_LANGUAGE,
     fallbackLng: DEFAULT_LANGUAGE,

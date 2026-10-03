@@ -283,11 +283,11 @@ O `RAM_DATA_DIR` não isola tudo: o catálogo de versões (`RAMVersions.json`, `
 
 ## i18n
 
-- Configuração em [src/i18n/index.ts](../src/i18n/index.ts): idiomas suportados `en`, `de` e `pt` (português do Brasil), fallback `en`, `keySeparator: false` e `nsSeparator: false` — **a chave é a própria frase em inglês**.
-- Arquivos: [en](../src/locales/en/common.json) (a fonte; 1695 chaves em 27/09/2026 — o número sobe a cada `i18n:extract`), [pt](../src/locales/pt/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
+- Configuração em [src/i18n/index.ts](../src/i18n/index.ts): idiomas suportados `en`, `de`, `pt` (português do Brasil) e `es` (espanhol neutro da América Latina), fallback `en`, `keySeparator: false` e `nsSeparator: false` — **a chave é a própria frase em inglês**.
+- Arquivos: [en](../src/locales/en/common.json) (a fonte; 1695 chaves em 27/09/2026 — o número sobe a cada `i18n:extract`), [pt](../src/locales/pt/common.json) (completo), [es](../src/locales/es/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
 - Helpers em [src/i18n/text.ts](../src/i18n/text.ts): `useTr()` (hook), `tr()` (fora de componentes) e `trNode()` (traduz texto dentro de fragments JSX). Ambos usam `defaultValue: text`, então uma chave ausente aparece em inglês.
-- Idioma vem de `General.Language` (normalizado: começa com `de` → `de`; `pt`/`portug` → `pt`; senão `en`). O padrão continua `en` — não há detecção de locale do sistema, de propósito: o app é usado fora do Brasil.
-- [src/i18n/locales.test.ts](../src/i18n/locales.test.ts) trava o contrato do catálogo: `pt` cobre o `en` inteiro na mesma ordem, sem chave inventada nem valor vazio, `{{placeholders}}` idênticos em `pt` e `de`, e nada igual ao inglês fora da lista de jargão (`IDENTICAL_BY_DESIGN`).
+- Idioma vem de `General.Language` (normalizado: começa com `de` → `de`; `pt`/`portug` → `pt`; `es`/`spanish` → `es`; senão `en`). O padrão continua `en` — não há detecção de locale do sistema, de propósito: o app é usado fora do Brasil.
+- [src/i18n/locales.test.ts](../src/i18n/locales.test.ts) trava o contrato do catálogo: cada idioma completo (`pt` e `es`, lista `COMPLETE_CATALOGS`) cobre o `en` inteiro na mesma ordem, sem chave inventada nem valor vazio, e nada igual ao inglês fora da sua lista de jargão (`IDENTICAL_BY_DESIGN_PT`, `IDENTICAL_BY_DESIGN_ES`); `{{placeholders}}` idênticos em `pt`, `es` e `de`. Idioma completo novo entra em `COMPLETE_CATALOGS` com a sua própria lista.
 
 ### Glossário pt-BR
 
@@ -296,11 +296,19 @@ O `RAM_DATA_DIR` não isola tudo: o catálogo de versões (`RAMVersions.json`, `
 - Termos fixos: account → conta · launch → iniciar · settings → configurações · aged/idle → sem uso · Main Accounts → Contas main · asset → item · General/Developer/Optimization/Misc/Isolation → Geral/Desenvolvedor/Otimização/Diversos/Isolamento.
 - Rótulo curto (<20 caracteres no inglês) não passa de +30% em português: trunca na tela.
 
+### Glossário es
+
+- Espanhol neutro da América Latina (o público do Roblox), tratamento **"tú"** — nunca voseo nem "vosotros"; vocabulário latino (computadora, archivo, hacer clic).
+- Mesma regra de botão/resultado do pt: "Guardar" / "Configuración guardada"; só a primeira maiúscula em rótulo.
+- **Não se traduz** o mesmo que no pt (`Auto Rejoin`, `Job ID`, `Place ID`, `Nexus`, `Watcher`, `main`, `alt`, nome de tema e de fonte...).
+- Termos fixos: account → cuenta · launch → iniciar · alias → apodo · settings → configuración · isolation → aislamiento · backup → copia de seguridad · encryption → cifrado.
+- Tom do toast: a frase de erro precisa de "error", "falló", "fallido/a" ou "no se pudo"; a de sucesso, "guardad", "actualizad" ou "iniciad"; a de aviso, "advertencia" ou "aviso" (ver [toastTone.ts](../src/utils/toastTone.ts)).
+
 ### Tradução não pode mudar comportamento
 
 O texto exibido nunca é valor de negócio: `<Select>` guarda `value` cru (`"idle"`, `"normal"`) e traduz só o `label`; nome de grupo, fase do Auto Rejoin e seção/chave do INI são comparados no literal inglês. Ao mexer em tradução, mantenha isso.
 
-O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria dos call sites entrega a frase **já traduzida** (`addToast(tr("..."))`). Por isso o heurístico vive em [src/utils/toastTone.ts](../src/utils/toastTone.ts) com marcadores dos dois idiomas completos, e um teste garante que nenhuma tradução apague o tom que o inglês indica.
+O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria dos call sites entrega a frase **já traduzida** (`addToast(tr("..."))`). Por isso o heurístico vive em [src/utils/toastTone.ts](../src/utils/toastTone.ts) com marcadores de cada idioma (`pt`, `es` e `de`), e um teste garante que nenhuma tradução apague o tom que o inglês indica.
 
 ### Extração de chaves
 
@@ -309,7 +317,7 @@ O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria
 1. Varre `src/**/*.ts(x)` (ignora pastas `locales` e `i18n`).
 2. Captura strings em `t("...")`/`tr("...")`, props `label|description|placeholder|suffix|title|tooltip|alt|aria-label="..."`, objetos `{ label: "..." }`, fragments `label={<>Texto<Badge/></>}` e filhos de `SectionLabel`, `SectionHeader`, `WarningBadge`, `UtilButton`.
 3. Descarta strings que parecem URLs, caminhos, hashes, IDs numéricos, template strings (`${`) ou sem letras.
-4. Adiciona as chaves faltantes em `en/common.json` com valor = chave. **Não remove** chaves antigas e **não mexe** em `de`/`pt`.
+4. Adiciona as chaves faltantes em `en/common.json` com valor = chave. **Não remove** chaves antigas e **não mexe** em `de`/`pt`/`es`.
 
 O extrator já reconhece, além do literal direto: componente com atributos
 (`<UtilButton onClick={...}>Texto</UtilButton>`), prop com expressão
@@ -329,7 +337,7 @@ não aparece traduzida, confira primeiro se a chave existe em
 todos os idiomas. [src/i18n/reachesTheScreen.test.tsx](../src/i18n/reachesTheScreen.test.tsx)
 renderiza em português os pontos que já falharam assim.
 
-As traduções ficam no próprio repositório: `src/locales/<idioma>/common.json`, com o inglês como fonte. O português acompanha cada mudança — o `locales.test.ts` exige o catálogo pt com todas as chaves do inglês, na mesma ordem e sem chave a mais —, e o alemão é parcial. O Crowdin que o projeto original usava (workflow `crowdin-sync.yml` e `crowdin.yml`) foi removido em 28/09/2026: este repositório não tem projeto lá, e o workflow falhava em todo push na `main`.
+As traduções ficam no próprio repositório: `src/locales/<idioma>/common.json`, com o inglês como fonte. O português e o espanhol acompanham cada mudança — o `locales.test.ts` exige os catálogos pt e es com todas as chaves do inglês, na mesma ordem e sem chave a mais —, e o alemão é parcial. O Crowdin que o projeto original usava (workflow `crowdin-sync.yml` e `crowdin.yml`) foi removido em 28/09/2026: este repositório não tem projeto lá, e o workflow falhava em todo push na `main`.
 
 Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das props reconhecidas, com interpolação no formato `{{nome}}` (nunca template string), e rode o extrator.
 

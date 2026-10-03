@@ -111,6 +111,7 @@ describe("FirstRunWalkthrough — passo de idioma", () => {
     await userEvent.click(screen.getByText("English"));
     expect(screen.getByText("German")).toBeInTheDocument();
     expect(screen.getByText("Portuguese (Brazil)")).toBeInTheDocument();
+    expect(screen.getByText("Spanish")).toBeInTheDocument();
   });
 
   it("mostra o idioma salvo em vez do codigo cru quando ele e portugues", async () => {
