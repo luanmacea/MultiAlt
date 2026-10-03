@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { X, Download, Trash2, FolderOpen, Star, StarOff, Pencil, RefreshCw } from "lucide-react";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 
@@ -65,6 +66,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
   const t = useTr();
   const store = useStore();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const backdropClose = useBackdropClose(handleClose);
   const [tab, setTab] = useState<TabId>("installed");
   const [installed, setInstalled] = useState<VersionEntry[]>([]);
   const [remote, setRemote] = useState<RemoteCatalog | null>(null);
@@ -296,7 +298,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${
         closing ? "animate-fade-out" : "animate-fade-in"
       }`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[720px] h-[85vh] max-h-[820px] flex flex-col overflow-hidden ${
