@@ -168,6 +168,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/avatarBuilder.test.ts",
       "src/components/dialogs/AvatarsDialog.test.tsx",
       "src/components/dialogs/avatars",
+      // `store.test.ts` entra pelo bloco `refreshAvatarHeadshots` (foto da conta depois do lote).
+      "src/store.test.ts",
     ],
   },
   webserver: {

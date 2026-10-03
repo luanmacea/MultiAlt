@@ -12,7 +12,7 @@ Especificação: [docs/superpowers/specs/2026-10-02-free-avatars-design.md](../s
 
 | Arquivo | Papel |
 |---|---|
-| [api/roblox/avatar_catalog.rs](../../src-tauri/src/api/roblox/avatar_catalog.rs) | Busca do catálogo gratuito (`search_free_official_items`), detalhes colecionáveis (`collectible_details`), peças de um bundle (`bundle_asset_ids`), posse (`owns_item`) e o resgate (`claim_free_item` → `ClaimOutcome`) |
+| [api/roblox/avatar_catalog.rs](../../src-tauri/src/api/roblox/avatar_catalog.rs) | Busca do catálogo gratuito (`search_free_official_items`), detalhes colecionáveis (`collectible_details`), peças de um bundle com o tipo de cada uma (`bundle_asset_ids` → `BundleAsset { id, asset_type }`), posse (`owns_item`) e o resgate (`claim_free_item` → `ClaimOutcome`) |
 | [data/avatars.rs](../../src-tauri/src/data/avatars.rs) | `AvatarStore`: avatares salvos em `RAMAvatars.json`, validação (`validate_avatar`) |
 | [commands/avatars.rs](../../src-tauri/src/commands/avatars.rs) | Comandos, o lote (`avatar_apply_batch`, `apply_avatar_to_account`, `assign_avatars`), evento `avatar-batch-state`, cancelamento, guarda de execução única |
 | [api/batch.rs](../../src-tauri/src/api/batch.rs) | `ImageCache::invalidate_targets`: esquece o headshot em cache das contas que trocaram de avatar |
@@ -34,7 +34,7 @@ Todos montados por `endpoints::host(...)` (nunca literal `https://*.roblox.com`)
 | `apis` | `POST /marketplace-items/v1/items/details` | `collectibleProductId`, preço e criador, em blocos de 50 | não |
 | `apis` | `POST /marketplace-sales/v1/item/{collectibleItemId}/purchase-item` | O resgate do item gratuito | cookie + CSRF |
 | `inventory` | `GET /v1/users/{uid}/items/{Asset\|Bundle}/{id}/is-owned` | A conta já tem o item? | cookie |
-| `avatar` | `set-player-avatar-type`, `set-body-colors`, `v2/avatar/set-wearing-assets` | Vestir (é o `set_avatar` que já existia) | cookie + CSRF |
+| `avatar` | `set-player-avatar-type`, `set-body-colors`, `v2/avatar/set-wearing-assets` | Vestir (é o `set_avatar` que já existia; resposta não 2xx do `set-wearing-assets` vira erro `Failed to wear assets (status N)`) | cookie + CSRF |
 | `thumbnails` | lote com tipos `Asset` e `BundleThumbnail` (`batch_thumbnails`) | Ícones dos itens na tela | não |
 
 Os endpoints `marketplace-*` **não são documentados** pelo Roblox. Se mudarem, o lote falha por peça com a mensagem do Roblox, sem gastar nada.
@@ -53,7 +53,7 @@ Mais regras:
 - **Desafio = conta pulada.** Resposta 403 com cabeçalho `rblx-challenge-id` (captcha ou 2 etapas) vira `ChallengeRequired` — a conta para ali, fica marcada "Verification required — skipped" e o lote segue para a próxima. **Não há tentativa de resolver** o desafio.
 - **Leituras de cookie nunca renovam a sessão.** O lote usa `get_cookie` direto (um cookie vencido só falha aquela conta) e a posse usa uma leitura simples: nada de `run_with_session_retry` / `refresh_account_session`, que derrubariam as sessões abertas da conta (regra crítica do projeto).
 - **Uma conta de cada vez**, e **7 s de pausa entre dois resgates** na mesma conta (`CLAIM_PAUSE`; o limite do Roblox é de cerca de 9 compras por minuto por usuário). Só conta tentativa de resgate: peça já possuída não paga a pausa.
-- **Um lote por vez** (`try_begin_avatar_batch` + `AvatarBatchRunGuard`): a tela pode remontar e disparar outro; o segundo é recusado.
+- **Um lote por vez** (`try_begin_avatar_batch` + `AvatarBatchRunGuard`): a tela pode remontar e disparar outro; o segundo é recusado. As recusas do `avatar_apply_batch` saem em inglês (`An avatar batch is already running`, `No account selected`, `No saved avatar selected`) e a tela passa pelo `t()` — o inglês é a chave do catálogo.
 - Nada aqui fecha, mata ou toca em cliente Roblox aberto.
 
 ## Tipos permitidos
@@ -87,9 +87,11 @@ Em 02/10/2026 a busca devolvia 238 itens em 3 páginas (sem login), 186 assets e
    1. cada peça do avatar: `owns_item`; se já possui, vai direto para o que se veste. Falha ao consultar o inventário conta como "não tem" e tenta o resgate (a trava 2 protege de qualquer jeito);
    2. peça sem `collectibleItemId`, ou sem detalhes, vira `missing` e fica de fora;
    3. `collectible_details` → pausa de 7 s se já houve resgate nesta conta → `claim_free_item`: `Claimed` (conta em `claimed`), `AlreadyOwned` (veste), `NotFree`/`Failed` (`missing`), `ChallengeRequired` (**para a conta**, `skipped` / `challenge`);
-   4. vestir: bundle vira os assets dele (`bundle_asset_ids`, sem o `UserOutfit`), repetidos saem, e `set_avatar` recebe `playerAvatarType: R15`, os assets e, se há pele, `bodyColors` com a mesma cor nas seis partes. **Peça que não foi pega fica de fora do que se veste**; sem nenhum asset, a conta falha com "nothing to wear".
+   4. vestir: bundle vira os assets dele (`bundle_asset_ids`, sem o `UserOutfit`, cada um com o `assetType`), repetidos saem, e `set_avatar` recebe `playerAvatarType: R15`, os assets e, se há pele, `bodyColors` com a mesma cor nas seis partes. **Peça que não foi pega fica de fora do que se veste**; sem nenhum asset, a conta falha com "nothing to wear".
+   5. **Cabeça vence corpo** (`head_bundle_wins`): o pacote de corpo (bundle tipo 1) e o de cabeça dinâmica (tipo 4) trazem, os dois, peças da mesma parte (a cabeça, asset type 17). Para o mesmo `assetType`, sai a peça do pacote de corpo e fica a do pacote de cabeça; o resto do corpo (tronco, braços, pernas) continua. Peça sem `assetType` (0) nunca entra no conflito.
+   6. resultado: `set-wearing-assets` recusado (não 2xx) → `failed` com `Failed to wear assets (status N)`; cada id que volta em `invalidAssetIds` soma em `missing` (não foi vestido); **todos** recusados → `failed` / `Roblox refused every asset`; senão `ok`.
 4. Erro de uma conta (cookie vencido, avatar que falha) **não para o lote**.
-5. **Cancelar** (`avatar_cancel_batch`) vale a partir do próximo passo: a conta em andamento para antes da próxima peça, e as seguintes saem como `skipped` / `cancelled`.
+5. **Cancelar** (`avatar_cancel_batch`) vale a partir do próximo passo: a conta em andamento para antes da próxima peça **e antes do próximo resgate** — a flag é olhada de novo depois da pausa de 7 s, então nenhum pedido de resgate sai depois do Cancel —, e as seguintes saem como `skipped` / `cancelled`.
 
 ### Progresso
 
@@ -121,7 +123,6 @@ Ao fim do lote a tela chama `refreshAvatarHeadshots(userIds)` no store, que **nu
 
 ## Limitações conhecidas
 
-- **"ok" pode ser otimista.** O `set_avatar` que já existia devolve `Ok` mesmo quando a resposta do `set-wearing-assets` não é 2xx (só lê `invalidAssetIds` quando dá certo). Uma conta pode aparecer como "Applied" sem ter vestido de fato. Corrigir isso mexe no `set_avatar` compartilhado com o avatar por JSON/outfits, e ficou fora desta versão.
 - Os endpoints `marketplace-*` são **sem contrato**: podem mudar sem aviso.
 - **Roblox pode exigir captcha na compra** em conta nova ou suspeita. Não há contorno: a conta é pulada e o usuário resolve pelo site, se quiser.
 - Aplicar avatar em lote é ação de conta; o ritmo (7 s entre resgates, uma conta por vez) existe para não parecer abuso.
@@ -132,8 +133,10 @@ Suíte `avatars` (`bun run t avatars`):
 
 - `avatar_catalog_tests` (Rust, wiremock) — busca paginada que filtra pago/UGC/tipos excluídos, `collectible_details`, `owns_item`, e o resgate: `Claimed`, `PriceMismatch` → `NotFree`, 403 com challenge → `ChallengeRequired`, e que preço ≠ 0 ou criador ≠ 1 nem chega a pedir.
 - `avatar_store_tests` — validação, upsert/delete, persistência e latch do arquivo ilegível.
-- `avatar_batch_tests` — `assign_avatars` espalha sem repetir, JSON de vestir, a conta pula peça já possuída, nunca chama `purchase-item` para item com preço ≠ 0, para no desafio sem vestir nada, expande bundles em assets e respeita o cancelamento.
+- `avatar_batch_tests` — `assign_avatars` espalha sem repetir, JSON de vestir, a conta pula peça já possuída, nunca chama `purchase-item` para item com preço ≠ 0, para no desafio sem vestir nada, expande bundles em assets, cabeça vence corpo na mesma parte, `invalidAssetIds` vira `missing` (todos recusados = `failed`), wearing recusado = `failed`, e respeita o cancelamento (inclusive o que chega logo antes de um resgate).
+- `avatar_games_extra_tests` (suíte `api`) — `set_avatar` com `set-wearing-assets` recusado devolve erro.
 - `avatar_cache_invalidation_tests` — `invalidate_targets` esquece só o tipo e o alvo certos (`11:` não é `1:`).
-- `avatarBuilder.test.ts`, `AvatarsDialog.test.tsx` e `dialogs/avatars/` (incluindo `useAvatarThumbs.test.tsx`) — sorteio respeitando categorias obrigatórias, validação do rascunho, as duas abas, o seletor de contas, o painel do lote e a retentativa das miniaturas.
+- `avatarBuilder.test.ts`, `AvatarsDialog.test.tsx` e `dialogs/avatars/` (incluindo `useAvatarThumbs.test.tsx`) — sorteio respeitando categorias obrigatórias, validação do rascunho, as duas abas, o seletor de contas, o painel do lote, a retentativa das miniaturas, a recusa do backend traduzida e o início recusado que não repete o aviso de fim do lote anterior.
+- `store.test.ts` (bloco `refreshAvatarHeadshots`) — a foto da conta depois do lote.
 
 Resgate e vestimenta de verdade ficam fora de teste automático: precisam de uma conta real. No navegador, `?scenario=avatars&accounts=6` entrega o catálogo, dois avatares salvos e um lote em que a 1ª conta resgata 3 peças, a 2ª esbarra na verificação e as demais vestem sem resgatar nada. O teste real é do dono, numa alt, com o `.exe` gerado.

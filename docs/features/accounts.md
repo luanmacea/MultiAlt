@@ -260,6 +260,7 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 - **Leituras** usam `read_without_refresh` (pegam o cookie e chamam a API direto; cookie vencido vira erro na tela): `get_robux`, `check_pin`, `get_blocked_users`, `get_private_server_invite_privacy`, `get_csrf_token`, `get_auth_ticket` e `resolve_join_link`, travadas por `read_only_retry_tests`. `get_account_game_location` e `get_presence` também não renovam.
 - **Ações** pedidas na conta (pedido de amizade avulso, bloqueios, privacidade, avatar, grupo, compra, troca de senha/e-mail/display name, PIN, quick login) passam por `run_with_session_retry`.
 - `make_selected_friends` nunca renova a sessão.
+- `avatar_apply_batch` ([commands/avatars.rs](../../src-tauri/src/commands/avatars.rs)) também nunca renova: lê o cookie uma vez com `get_cookie`, como o `make_selected_friends` — cookie vencido só falha aquela conta (ver [avatars.md](avatars.md)).
 
 | Comando | O que faz |
 |---|---|
