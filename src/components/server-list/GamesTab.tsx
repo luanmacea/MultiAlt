@@ -5,7 +5,24 @@ import type { GameEntry } from "./types";
 import { GameContextMenu } from "./GameContextMenu";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
-import { Search, Play, Server, Star } from "lucide-react";
+import { Search, Play, Server, Star, Loader2 } from "lucide-react";
+import { SessionCache } from "../../utils/sessionCache";
+
+/**
+ * A última lista da aba Games e a busca que a produziu.
+ *
+ * Sair da aba (ou da Choose Game) desmontava tudo e a volta começava com o
+ * spinner e a lista vazia. Agora a volta mostra isto na hora — com a mesma
+ * busca no campo — e consulta de novo por trás. É compartilhado com a aba
+ * Games do Server List, que é o mesmo componente.
+ */
+interface GamesSnapshot {
+  keyword: string;
+  games: GameEntry[];
+}
+
+const gamesCache = new SessionCache<GamesSnapshot>(1);
+const GAMES_CACHE_KEY = "last";
 
 /** Uma ação da linha de um jogo (ver servidores, favoritar, entrar). */
 export interface GameRowAction {
@@ -90,15 +107,26 @@ export function GamesTab({
   onScripts,
 }: GamesTabProps) {
   const t = useTr();
-  const [search, setSearch] = useState("");
-  const [games, setGames] = useState<GameEntry[]>([]);
+  const [cached] = useState(() => gamesCache.get(GAMES_CACHE_KEY));
+  const [search, setSearch] = useState(cached?.keyword ?? "");
+  const [games, setGames] = useState<GameEntry[]>(cached?.games ?? []);
+  /** A busca de onde veio a lista na tela — é ela que vai para o cache. */
+  const [loadedKeyword, setLoadedKeyword] = useState<string | null>(cached?.keyword ?? null);
   const [loading, setLoading] = useState(false);
+  const gamesRef = useRef(games);
+  gamesRef.current = games;
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; game: GameEntry } | null>(null);
   const store = useStore();
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const searchGames = useCallback(async (keyword: string) => {
     setLoading(true);
+    // Ícone que já está na tela continua: a lista nova não pisca sem ícone e
+    // não pede de novo o que já veio.
+    const knownIcons = new Map<number, string>();
+    for (const game of gamesRef.current) {
+      if (game.iconUrl) knownIcons.set(game.placeId, game.iconUrl);
+    }
     try {
       const searchResult: any = await invoke("search_games", {
         securityToken: store.selectedAccount?.SecurityToken || null,
@@ -122,7 +150,7 @@ export function GamesTab({
           likeRatio: game.totalUpVotes > 0
             ? Math.round((game.totalUpVotes / (game.totalUpVotes + game.totalDownVotes)) * 100)
             : null,
-          iconUrl: null,
+          iconUrl: knownIcons.get(placeId) ?? null,
           universeId,
         });
       };
@@ -144,11 +172,12 @@ export function GamesTab({
       }
 
       setGames(entries);
+      setLoadedKeyword(keyword);
 
       const placeIds = entries.filter((g) => g.placeId > 0).map((g) => g.placeId).slice(0, 20);
       if (placeIds.length > 0) {
         for (const game of entries.slice(0, 20)) {
-          if (game.placeId > 0) {
+          if (game.placeId > 0 && !game.iconUrl) {
             invoke<string | null>("batched_get_game_icon", {
               placeId: game.placeId,
               userId: store.selectedAccount?.UserID || null,
@@ -168,9 +197,16 @@ export function GamesTab({
     setLoading(false);
   }, [addToast, store.selectedAccount, t]);
 
+  // Ao montar: a última busca (ou a vitrine, sem busca), por trás da lista
+  // guardada se houver.
   useEffect(() => {
-    searchGames("");
+    searchGames(cached?.keyword ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (loadedKeyword !== null) gamesCache.set(GAMES_CACHE_KEY, { keyword: loadedKeyword, games });
+  }, [games, loadedKeyword]);
 
   function handleSearchInput(value: string) {
     setSearch(value);
@@ -190,6 +226,16 @@ export function GamesTab({
             className="w-full pl-9 pr-3 py-[6px] bg-zinc-900/60 border border-zinc-800 rounded-lg text-[13px] text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors"
           />
         </div>
+        {loading && games.length > 0 && (
+          // A lista na tela é a anterior; a nova chega e a substitui.
+          <span
+            data-testid="games-updating"
+            className="shrink-0 flex items-center gap-1.5 text-[11px] text-zinc-500"
+          >
+            <Loader2 size={11} className="animate-spin" />
+            {t("Updating...")}
+          </span>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
