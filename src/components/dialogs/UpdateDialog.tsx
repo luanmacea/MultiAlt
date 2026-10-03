@@ -1,13 +1,22 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertTriangle, Info, X } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { AlertTriangle, Info, Sparkles, X } from "lucide-react";
 import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useTr } from "../../i18n/text";
 import { getUpdaterSkipVersionKey } from "../../updaterChannels";
 import { REPO_API_URL, REPO_URL } from "../../repo";
+import { UPDATE_HANDOFF_KEY, writeUpdateHandoff } from "../../updateHandoff";
 
 type Phase = "available" | "downloading" | "ready" | "installing" | "error";
+
+/**
+ * Quanto a tela "Instalando" fica à vista antes de o app fechar. A instalação
+ * roda sem janela (`installMode: quiet`), então este é o último quadro que o
+ * usuário vê da versão antiga — curto, mas legível.
+ */
+export const INSTALL_HANDOFF_DELAY_MS = 1500;
 
 function renderMarkdown(src: string): React.ReactNode[] {
   const lines = src.split(/\r?\n/);
@@ -584,13 +593,45 @@ export function UpdateDialog() {
     };
   }, [open, info?.body, info?.currentVersion, info?.version]);
 
+  // O backend avisa o download aos poucos (`update-download-progress`). A
+  // velocidade sai da diferença entre dois avisos.
+  const lastSampleRef = useRef<{ at: number; downloaded: number } | null>(null);
+  useEffect(() => {
+    if (phase !== "downloading") return;
+    lastSampleRef.current = null;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void listen<{ downloaded: number; total: number | null }>("update-download-progress", (event) => {
+      const { downloaded, total } = event.payload;
+      const now = performance.now();
+      const last = lastSampleRef.current;
+      const elapsed = last ? (now - last.at) / 1000 : 0;
+      setProgress((prev) => ({
+        downloaded,
+        total: total ?? null,
+        speed: last && elapsed > 0 ? Math.max(0, (downloaded - last.downloaded) / elapsed) : prev.speed,
+      }));
+      lastSampleRef.current = { at: now, downloaded };
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [phase]);
+
   const startDownload = useCallback(async () => {
     setPhase("downloading");
     setProgress({ downloaded: 0, total: null, speed: 0 });
 
     try {
       await invoke("download_selected_update");
-      setProgress({ downloaded: 1, total: 1, speed: 0 });
+      setProgress((prev) => {
+        const size = prev.total ?? prev.downloaded;
+        return { downloaded: size, total: size > 0 ? size : null, speed: 0 };
+      });
       setPhase("ready");
     } catch (e) {
       setPhase("error");
@@ -599,14 +640,23 @@ export function UpdateDialog() {
   }, []);
 
   const installAndRestart = useCallback(async () => {
+    if (!info) return;
     setPhase("installing");
+    writeUpdateHandoff(localStorage, info.currentVersion, info.version, Date.now());
+    await new Promise((resolve) => setTimeout(resolve, INSTALL_HANDOFF_DELAY_MS));
     try {
+      // Daqui o app fecha: o instalador roda sem janela e abre a versão nova.
       await invoke("install_selected_update");
     } catch (e) {
+      try {
+        localStorage.removeItem(UPDATE_HANDOFF_KEY);
+      } catch {
+        // sem armazenamento, sem anotação para desfazer
+      }
       setPhase("error");
       setErrorMsg(String(e));
     }
-  }, []);
+  }, [info]);
 
   const skipVersion = useCallback(() => {
     if (info) {
@@ -632,7 +682,9 @@ export function UpdateDialog() {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <h2 className="text-sm font-semibold text-[var(--panel-fg)]">{t("Update Available")}</h2>
+          <h2 className="text-sm font-semibold text-[var(--panel-fg)]">
+            {phase === "installing" ? t("Updating RAM") : t("Update Available")}
+          </h2>
           {phase !== "downloading" && phase !== "installing" && (
             <button onClick={handleClose} className="theme-muted hover:opacity-100 transition-opacity">
               <X size={16} strokeWidth={2} />
@@ -640,14 +692,37 @@ export function UpdateDialog() {
           )}
         </div>
 
-        <div className="px-5 pb-3">
-          <div className="text-xs font-medium theme-muted mb-1.5">{t("Release Notes")}</div>
-          <div className="theme-input rounded-lg px-3.5 py-3 max-h-56 overflow-y-auto text-[12px] text-[var(--panel-fg)] leading-[1.55]">
-            {releaseNotes
-              ? renderedNotes
-              : t("Could not load release notes")}
+        {phase === "installing" ? (
+          <div className="px-5 pt-2 pb-6 flex flex-col items-center text-center animate-fade-in" role="status">
+            <div className="relative mb-4">
+              <div className="absolute inset-0 rounded-2xl bg-emerald-500/25 blur-xl animate-pulse" />
+              <div className="relative w-14 h-14 rounded-2xl theme-accent-bg theme-accent-border border flex items-center justify-center">
+                <Sparkles size={24} strokeWidth={1.8} className="text-[var(--panel-fg)]" />
+              </div>
+            </div>
+            <div className="text-[15px] font-semibold text-[var(--panel-fg)]">
+              {t("Installing v{{version}}", { version: info.version })}
+            </div>
+            <div className="mt-1 text-xs theme-muted max-w-xs leading-relaxed">
+              {t("RAM will close and open again by itself in a few seconds.")}
+            </div>
+            <div className="mt-5 w-full max-w-xs h-1.5 rounded-full bg-zinc-700/50 overflow-hidden">
+              <div className="h-full w-2/5 rounded-full bg-emerald-500 animate-update-indeterminate" />
+            </div>
+            <div className="mt-3 text-[11px] theme-muted">
+              {t("Your accounts and settings stay where they are.")}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="px-5 pb-3">
+            <div className="text-xs font-medium theme-muted mb-1.5">{t("Release Notes")}</div>
+            <div className="theme-input rounded-lg px-3.5 py-3 max-h-56 overflow-y-auto text-[12px] text-[var(--panel-fg)] leading-[1.55]">
+              {releaseNotes
+                ? renderedNotes
+                : t("Could not load release notes")}
+            </div>
+          </div>
+        )}
 
         {(phase === "downloading" || phase === "ready") && (
           <div className="px-5 pb-3">
@@ -678,6 +753,7 @@ export function UpdateDialog() {
           </div>
         )}
 
+        {phase !== "installing" && (
         <div className="flex items-center justify-between px-5 pb-5 pt-2 border-t border-[var(--border-color)]">
           <div className="flex gap-2">
             {phase === "available" && (
@@ -722,14 +798,6 @@ export function UpdateDialog() {
                 {t("Install & Restart")}
               </button>
             )}
-            {phase === "installing" && (
-              <button
-                disabled
-                className="px-4 py-1.5 rounded-md text-xs font-medium bg-emerald-600/50 text-white/60 cursor-not-allowed"
-              >
-                {t("Installing...")}
-              </button>
-            )}
             {phase === "error" && (
               <button
                 onClick={startDownload}
@@ -740,6 +808,7 @@ export function UpdateDialog() {
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

@@ -36,6 +36,7 @@ import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay"
 import { ScriptsDialog } from "./components/dialogs/ScriptsDialog";
 import { SessionDialog } from "./components/dialogs/SessionDialog";
 import { useTr } from "./i18n/text";
+import { useUpdateHandoffToast } from "./hooks/useUpdateHandoffToast";
 import { TONE_STYLES } from "./utils/toastTone";
 import { isMultiRobloxCloseProcessError } from "./utils/robloxErrors";
 import { ENABLE_NEXUS } from "./featureFlags";
@@ -71,6 +72,10 @@ function AppContent() {
     backupsOpen ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
+
+  // Volta de uma atualização silenciosa: "Atualizado para vX" (ou o aviso de
+  // que a instalação não terminou). Ver updateHandoff.ts.
+  useUpdateHandoffToast(store.initialized && !store.needsPassword, store.addToast, t);
 
   useEffect(() => {
     if (!store.initialized || store.needsPassword || store.firstRunWalkthroughOpen) return;
