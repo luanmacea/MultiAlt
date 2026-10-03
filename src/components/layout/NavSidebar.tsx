@@ -138,13 +138,12 @@ export function NavSidebar() {
           <span
             data-testid="nav-afk-active"
             aria-hidden="true"
-            className={collapsed ? "absolute top-1.5 right-1.5 flex" : "ml-auto flex items-center gap-1.5 text-[11px] font-medium text-emerald-400"}
+            className={collapsed ? "absolute top-1.5 right-1.5 flex" : "ml-auto flex items-center pr-1"}
           >
             <span className="relative flex w-1.5 h-1.5">
               <span className="absolute inset-0 rounded-full bg-emerald-400 opacity-60 animate-ping motion-reduce:animate-none" />
               <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400" />
             </span>
-            {collapsed ? null : t("On")}
           </span>
         ),
         spoken: t("On"),
