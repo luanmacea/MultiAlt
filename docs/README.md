@@ -29,6 +29,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [development.md](development.md) — setup, comandos, features do Cargo, i18n, convenções, passo a passo para novo comando Tauri.
 - [mapa-da-interface.md](mapa-da-interface.md) — onde fica cada funcionalidade na tela e para que serve, em português.
 - [ux-checkup.md](ux-checkup.md) — revisão de usabilidade de setembro/2026: 131 achados triados por prioridade.
+- [../site/README.md](../site/README.md) — site de divulgação (HTML estático no GitHub Pages): como roda, como publica e de onde vêm os links de download.
 
 ## Funcionalidades
 
