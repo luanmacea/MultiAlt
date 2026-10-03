@@ -102,14 +102,19 @@ export const SUITES: Record<string, TestSuite> = {
       "watcher_tests",
       "watcher_console_tests",
     ],
-    front: ["src/components/dialogs/BottingDialog.test.tsx"],
+    // A aba Auto Rejoin do Modo AFK e a moldura (abas, modal) que a abre.
+    front: [
+      "src/components/afk-mode/RejoinTab.test.tsx",
+      "src/components/afk-mode/AfkModeView.test.tsx",
+    ],
   },
   afk: {
     description: "AFK mode: teclas permitidas, modo clique, agendamento por conta e parada do ciclo",
     rust: ["afk_command_tests", "afk_input_safety_tests", "win_input_tests", "win_focus_tests"],
     // `store.test.ts` entra pelo bloco "AFK mode" (os toasts do start).
     front: [
-      "src/components/dialogs/AfkDialog.test.tsx",
+      "src/components/afk-mode/ClicksTab.test.tsx",
+      "src/components/afk-mode/AfkModeView.test.tsx",
       "src/utils/afkBeep.test.ts",
       "src/store.test.ts",
       "src/afkClickPoint.test.ts",

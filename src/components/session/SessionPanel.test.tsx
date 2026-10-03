@@ -264,7 +264,7 @@ describe("SessionPanel — running clients", () => {
     await user.click(screen.getByRole("checkbox", { name: "Select Bravo Alt" }));
     await user.click(screen.getByRole("checkbox", { name: "Select charlie" }));
 
-    await user.click(screen.getByRole("button", { name: /Close selected \(3\)/ }));
+    await user.click(screen.getByRole("button", { name: /Close accounts \(3\)/ }));
 
     await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(3));
     expect(confirmMock).toHaveBeenCalledTimes(1);
@@ -282,7 +282,7 @@ describe("SessionPanel — running clients", () => {
     renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
 
     await user.click(screen.getByRole("checkbox", { name: "Select all running clients" }));
-    await user.click(screen.getByRole("button", { name: /Close selected \(2\)/ }));
+    await user.click(screen.getByRole("button", { name: /Close accounts \(2\)/ }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
     expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
@@ -319,7 +319,7 @@ describe("SessionPanel — live updates", () => {
     const { rerender } = renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
 
     await user.click(screen.getByRole("checkbox", { name: "Select all running clients" }));
-    expect(screen.getByRole("button", { name: /Close selected \(2\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Close accounts \(2\)/ })).toBeInTheDocument();
 
     // O polling deixa de ver a conta 2: ela some da lista e do lote.
     setStore({
@@ -331,17 +331,63 @@ describe("SessionPanel — live updates", () => {
     rerender(<SessionPanel />);
 
     expect(screen.queryByTestId("session-running-2")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Close selected \(1\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Close accounts \(1\)/ })).toBeInTheDocument();
   });
 });
 
 /**
- * Ligar o Auto Rejoin numa conta que ja esta jogando exigia abrir o diálogo,
- * colar o Place ID e dar Start — e o Start **fecha e relança** todo mundo,
- * tirando as contas do servidor em que estavam. O botão aqui adota o cliente
- * que já está de pé.
+ * Fechar as contas em jogo: sem marcação, o botão vale para **todas as que
+ * estão na lista** — nunca para clientes fora dela (`closeRobloxClients`, não o
+ * `killAllRobloxProcesses`). Mais de uma sempre pergunta antes.
  */
-describe("SessionPanel — adotar contas em jogo no Botting", () => {
+describe("SessionPanel — fechar contas", () => {
+  it("sem marcar ninguém, fecha todas as da lista depois de uma confirmação", async () => {
+    const user = userEvent.setup();
+    promptAnswers.confirm = true;
+    const { store } = renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
+
+    await user.click(screen.getByRole("button", { name: "Close accounts" }));
+
+    await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(2));
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    expect(confirmMock.mock.calls[0][0]).toContain("2");
+    expect(store.killAllRobloxProcesses).not.toHaveBeenCalled();
+  });
+
+  it("recusada a confirmação, nada fecha", async () => {
+    const user = userEvent.setup();
+    promptAnswers.confirm = false;
+    renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
+
+    await user.click(screen.getByRole("button", { name: "Close accounts" }));
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
+  });
+
+  it("com uma conta só em jogo, fecha sem perguntar", async () => {
+    const user = userEvent.setup();
+    renderPanel({ launchQueue: null, launchedByProgram: new Set([3]) });
+
+    await user.click(screen.getByRole("button", { name: "Close accounts" }));
+
+    await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(1));
+    expect(callsFor("cmd_kill_roblox")[0][1]).toEqual({ userId: 3 });
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it("não aparece sem cliente rodando", () => {
+    renderPanel({ launchQueue: null, launchedByProgram: new Set() });
+    expect(screen.queryByRole("button", { name: /Close accounts/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * O botão de Auto Rejoin daqui ligava o ciclo na hora, sem tela: quem clicava
+ * não via o tempo do ciclo, nem as contas main, nem onde parar. Agora ele abre o
+ * Modo AFK com as contas em jogo — o Start de lá é que adota, sem fechar nada.
+ */
+describe("SessionPanel — Modo AFK com as contas em jogo", () => {
   function comRodando(overrides: Partial<StoreValue> = {}) {
     return renderPanel({
       launchedByProgram: new Set([1, 2]),
@@ -350,42 +396,57 @@ describe("SessionPanel — adotar contas em jogo no Botting", () => {
     });
   }
 
-  it("adota as contas marcadas sem fechar cliente nenhum", async () => {
-    const { store } = comRodando();
+  it("abre o Modo AFK com as contas marcadas, sem ligar nada nem fechar cliente", async () => {
+    const { store } = comRodando({ launchedByProgram: new Set([1, 2, 3]) });
 
-    await userEvent.click(screen.getByLabelText("Select all running clients"));
-    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select charlie" }));
+    await userEvent.click(screen.getByRole("button", { name: /AFK Mode/ }));
 
-    expect(store.adoptRunningIntoBotting).toHaveBeenCalledWith([1, 2]);
-    // A promessa do painel: adotar nunca fecha um cliente aberto.
-    expect(store.closeRobloxClients).not.toHaveBeenCalled();
+    expect(store.openAfkMode).toHaveBeenCalledWith({
+      tab: "rejoin",
+      targetUserIds: [1, 3],
+      adoptRunning: true,
+    });
+    expect(store.adoptRunningIntoBotting).not.toHaveBeenCalled();
+    expect(store.startBottingMode).not.toHaveBeenCalled();
     expect(invokeMock).not.toHaveBeenCalledWith("cmd_kill_roblox", expect.anything());
   });
 
-  it("sem marcar ninguém, age sobre todas as que estão em jogo", async () => {
+  it("sem marcar ninguém, leva todas as que estão em jogo", async () => {
     const { store } = comRodando();
 
-    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
+    await userEvent.click(screen.getByRole("button", { name: /AFK Mode/ }));
 
-    expect(store.adoptRunningIntoBotting).toHaveBeenCalledWith([1, 2]);
+    expect(store.openAfkMode).toHaveBeenCalledWith({
+      tab: "rejoin",
+      targetUserIds: [1, 2],
+      adoptRunning: true,
+    });
+  });
+
+  it("com só os cliques AFK ligados, abre na aba deles", async () => {
+    const { store } = comRodando({
+      afkStatus: {
+        active: true,
+        startedAtMs: 1,
+        intervalMinutes: 10,
+        key: "Space",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+        accounts: [],
+      },
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /AFK Mode/ }));
+
+    expect(store.openAfkMode).toHaveBeenCalledWith(expect.objectContaining({ tab: "clicks" }));
   });
 
   it("não oferece o botão quando não há cliente rodando", () => {
     renderPanel({ launchedByProgram: new Set(), launchQueue: queue([]) });
-    expect(screen.queryByRole("button", { name: /Auto Rejoin/i })).not.toBeInTheDocument();
-  });
-
-  it("mostra o motivo quando a adoção não dá", async () => {
-    const { store } = comRodando({
-      adoptRunningIntoBotting: vi.fn(async () => {
-        throw new Error("Auto Rejoin needs at least two accounts.");
-      }),
-    });
-
-    await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/i }));
-
-    expect(store.adoptRunningIntoBotting).toHaveBeenCalled();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/at least two accounts/i);
+    expect(screen.queryByRole("button", { name: /AFK Mode/ })).not.toBeInTheDocument();
   });
 });
 

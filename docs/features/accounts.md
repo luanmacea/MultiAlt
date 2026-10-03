@@ -33,7 +33,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | `SecurityToken` | `security_token` | string | cookie `.ROBLOSECURITY`. `null` → `""`. |
 | `Username` | `username` | string | |
 | `LastUse` | `last_use` | datetime | formato `%Y-%m-%dT%H:%M:%S%.f`; vazio/`null` → agora. |
-| `Alias` | `alias` | string | nome exibido na lista quando preenchido; até 240 caracteres (`MAX_ALIAS_LENGTH` em [types.ts](../../src/types.ts)) — a UI corta no limite ao digitar/colar em qualquer um dos três lugares que gravam alias (sidebar, menu de contexto). Os chips de "Targets" do [BottingDialog.tsx](../../src/components/dialogs/BottingDialog.tsx) truncam a exibição em `max-w-[160px]` e mostram o nome inteiro no `title` — só a linha da conta oferece a opção de quebrar em vez de truncar (`WrapLongNames`, abaixo). |
+| `Alias` | `alias` | string | nome exibido na lista quando preenchido; até 240 caracteres (`MAX_ALIAS_LENGTH` em [types.ts](../../src/types.ts)) — a UI corta no limite ao digitar/colar em qualquer um dos três lugares que gravam alias (sidebar, menu de contexto). Os chips de "Targets" do Auto Rejoin ([RejoinConfig.tsx](../../src/components/afk-mode/rejoin/RejoinConfig.tsx)) truncam a exibição em `max-w-[160px]` e mostram o nome inteiro no `title` — só a linha da conta oferece a opção de quebrar em vez de truncar (`WrapLongNames`, abaixo). |
 | `Description` | `description` | string | notas. |
 | `Password` | `password` | string | senha em texto (opcional). |
 | `Group` | `group` | string | `"Default"`; **omitido no JSON quando for `"Default"`**. |

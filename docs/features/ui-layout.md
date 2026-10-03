@@ -112,7 +112,7 @@ Aparece em dois lugares, com o mesmo estado vindo do store:
 |---|---|---|
 | **Joining** | evento `launch-queue` ([multi-launch.md](multi-launch.md#fila-observável-e-cancelamento)) | ✕ por conta (`cancel_account_launch`), "Stop queue" (`stop_launch_queue`) |
 | **Make Friends** | evento `friend-link-state` | nenhuma (só acompanhamento) — uma linha por conta com aguardando/processando/amizade feita/erro, o erro **na conta que enviou** o pedido que falhou, marca de conta principal no modo `star`, e o contador "X / Y contas processadas" |
-| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`), **Close** (`cmd_kill_roblox`), **Auto Rejoin** (adota as contas em jogo no ciclo **sem fechar nada** — ver [botting.md](botting.md)), seleção múltipla com uma confirmação só |
+| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`) e **Close** (`cmd_kill_roblox`) por linha; no cabeçalho, **AFK Mode** (abre o Modo AFK com as contas marcadas, ou todas — o Start do Auto Rejoin de lá adota **sem fechar nada**, ver [botting.md](botting.md#modo-afk-a-tela)) e **Close accounts** (fecha as marcadas, ou **todas as da lista** sem marcação — `closeRobloxClients`, nunca `killAllRobloxProcesses`; mais de uma pede uma confirmação só) |
 
 Regras: cancelar **nunca** chama `cmd_kill_roblox` (há teste de regressão para isso); os nomes respeitam o mascaramento de `hideUsernames`; linhas terminais (`done`/`failed`/`cancelled`) continuam visíveis até a próxima fila substituir.
 

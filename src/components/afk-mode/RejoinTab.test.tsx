@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
-import { BottingDialog } from "./BottingDialog";
+import { RejoinTab } from "./RejoinTab";
 import {
   defaultSettings,
   makeAccount,
@@ -44,9 +44,8 @@ function renderDialog(
     settings: settings(true),
     ...overrides,
   });
-  const onClose = vi.fn();
-  render(<BottingDialog open onClose={onClose} initialPlaceId={initialPlaceId} />);
-  return { store, onClose };
+  render(<RejoinTab initialPlaceId={initialPlaceId} />);
+  return { store };
 }
 
 const startButton = () => screen.getByRole("button", { name: "Start Auto Rejoin" });
@@ -61,13 +60,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("BottingDialog — start guards", () => {
-  it("renders nothing while closed", () => {
-    setStore({ accounts: [A, B] });
-    const { container } = render(<BottingDialog open={false} onClose={vi.fn()} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
+describe("RejoinTab — start guards", () => {
   it("keeps Start disabled without a Place ID", async () => {
     renderDialog();
     expect(startButton()).toBeDisabled();
@@ -150,7 +143,7 @@ function activeSession() {
   });
 }
 
-describe("BottingDialog — stop controls", () => {
+describe("RejoinTab — stop controls", () => {
   it("stops the loop, optionally closing the bot clients", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
@@ -168,7 +161,7 @@ describe("BottingDialog — stop controls", () => {
  * Fechar cliente é irreversível para quem está jogando: a tela tem que dizer
  * quantos clientes fecham e o que sobrevive, antes de fechar.
  */
-describe("BottingDialog — confirma antes de fechar clientes", () => {
+describe("RejoinTab — confirma antes de fechar clientes", () => {
   it("Stop + Close diz quantos clientes bot fecha e o que fica aberto", async () => {
     const { store } = renderDialog({ bottingStatus: activeSession() });
 
@@ -264,7 +257,7 @@ describe("BottingDialog — confirma antes de fechar clientes", () => {
   });
 });
 
-describe("BottingDialog — explains the cycle", () => {
+describe("RejoinTab — explains the cycle", () => {
   // O ciclo em `src-tauri/src/commands/botting.rs` fecha o cliente da conta
   // (`kill_for_user_graceful_async`) e relanca em seguida a cada intervalo. A
   // tela precisa dizer isso, e dizer que so as contas bot da sessao fecham.
@@ -306,7 +299,7 @@ describe("BottingDialog — explains the cycle", () => {
   });
 });
 
-describe("BottingDialog — timing units", () => {
+describe("RejoinTab — timing units", () => {
   const unitLabels = [
     "Rejoin Interval (minutes)",
     "Launch Delay (seconds)",
@@ -358,7 +351,7 @@ describe("BottingDialog — timing units", () => {
   });
 });
 
-describe("BottingDialog — long alias chips", () => {
+describe("RejoinTab — long alias chips", () => {
   // Task 10 subiu o alias de 30 para MAX_ALIAS_LENGTH (240) caracteres. Os
   // chips de "Targets" mostram `Alias || Username` sem limite de largura —
   // sem truncar, um alias no teto estoura o layout do diálogo.
@@ -408,7 +401,7 @@ describe("BottingDialog — long alias chips", () => {
  * — que corta até nome comum (`MyFarmAccount01` mede 109 px), e as alts
  * numeradas viravam todas "MyFarmAccou…" sem jeito de ler o resto.
  */
-describe("BottingDialog — nome cortado tem o nome inteiro no title", () => {
+describe("RejoinTab — nome cortado tem o nome inteiro no title", () => {
   const longAlias = "a".repeat(MAX_ALIAS_LENGTH);
   const longAccount = makeAccount({ UserID: 1, Username: "ann", Alias: longAlias });
 
@@ -466,9 +459,10 @@ describe("BottingDialog — nome cortado tem o nome inteiro no title", () => {
   });
 });
 
-describe("BottingDialog — New View em janela estreita", () => {
+describe("RejoinTab — New View em janela estreita", () => {
   /**
-   * Abaixo de `lg` (1024 px) o grid de duas colunas vira duas linhas, e elas
+   * Numa área estreita (o modal numa janela pequena; a decisão é pela largura do
+   * contêiner, não da janela) o grid de duas colunas vira duas linhas, e elas
    * dividiam a altura fixa do diálogo: a 900x560 a "Live Auto Rejoin List"
    * ficava com 0 px e o conteúdo (`overflow-hidden`) não rolava — nenhuma ação
    * por conta alcançável, e a 750x450 nem as ações em lote. Medido no harness
@@ -516,13 +510,22 @@ describe("BottingDialog — New View em janela estreita", () => {
     expect(limitesForaDoLg(lista)).toEqual([]);
   });
 
-  it("do conteúdo até os controles da coluna esquerda, só `lg:` limita a altura", () => {
+  /**
+   * Queixa do dono: o Auto Rejoin ligava e ele não achava onde parar. Ligar e
+   * parar ficam na barra de estado, **fora** da área que rola — à vista em
+   * qualquer altura de janela.
+   */
+  it("Start e Stop ficam fora da área que rola", () => {
     renderDialog();
-    expect(limitesForaDoLg(startButton())).toEqual([]);
+    expect(conteudoDoDialogo().contains(startButton())).toBe(false);
+    cleanup();
+    renderDialog({ bottingStatus: activeSession() });
+    const stop = screen.getByRole("button", { name: "Stop Auto Rejoin" });
+    expect(conteudoDoDialogo().contains(stop)).toBe(false);
   });
 });
 
-describe("BottingDialog — draft persistence", () => {
+describe("RejoinTab — draft persistence", () => {
   it("restores the saved draft place/job when it opens", async () => {
     setInvokeHandler((cmd) =>
       cmd === "get_all_settings"
@@ -584,3 +587,159 @@ describe("BottingDialog — draft persistence", () => {
   });
 });
 
+
+describe("RejoinTab — barra de estado", () => {
+  it("diz que o Auto Rejoin está parado, e o que falta para ligar", () => {
+    renderDialog();
+    const bar = screen.getByTestId("rejoin-status");
+    expect(bar).toHaveTextContent("Auto Rejoin is stopped");
+    expect(bar).toHaveTextContent("Place ID is required");
+    expect(within(bar).getByRole("button", { name: "Start Auto Rejoin" })).toBeInTheDocument();
+  });
+
+  /**
+   * Aberto pela barra com o ciclo rodando e nada selecionado na lista, a tela
+   * dizia "nenhuma conta" ao lado da lista ao vivo, e o menu de mains ficava
+   * vazio — não dava para trocar a main com o ciclo ligado.
+   */
+  it("sem seleção e com o ciclo rodando, os alvos são as contas do ciclo", () => {
+    renderDialog({ bottingStatus: activeSession() }, []);
+    const card = screen.getByText("Targets").closest("section") as HTMLElement;
+    expect(Array.from(card.querySelectorAll("span.theme-soft")).map((el) => el.textContent)).toEqual([
+      "ann",
+      "bob",
+    ]);
+  });
+
+  it("diz que está rodando, e só oferece parar", () => {
+    renderDialog({ bottingStatus: activeSession() });
+    const bar = screen.getByTestId("rejoin-status");
+    expect(bar).toHaveTextContent("Auto Rejoin is running");
+    expect(bar).toHaveTextContent("2 accounts in the cycle");
+    expect(within(bar).queryByRole("button", { name: "Start Auto Rejoin" })).not.toBeInTheDocument();
+    expect(within(bar).getByRole("button", { name: "Stop Auto Rejoin" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Aberto pelo "Em jogo" do Painel de Sessão: as contas são as que estão em
+ * jogo (não a seleção da lista), o place vem do jogo em que elas estão, e o
+ * Start **adota** os clientes abertos — nada fecha, nada relança. Antes o botão
+ * ligava direto, sem mostrar o tempo do ciclo nem as contas main.
+ */
+describe("RejoinTab — adotando as contas em jogo", () => {
+  const C = makeAccount({ UserID: 3, Username: "cid" });
+
+  function renderAdopt(overrides: Partial<StoreValue> = {}, targets = [1, 3]) {
+    const store = setStore({
+      accounts: [A, B, C],
+      // A seleção da lista é outra: quem manda são as contas do Em jogo.
+      selectedIds: new Set([2]),
+      selectedAccounts: [B],
+      settings: settings(true),
+      detectRunningGamePlace: vi.fn(async () => 606849621),
+      ...overrides,
+    });
+    render(<RejoinTab targetUserIds={targets} adoptRunning />);
+    return { store };
+  }
+
+  function targetChips(): string[] {
+    const titulo = screen.getByText("Targets");
+    const card = titulo.closest("section") as HTMLElement;
+    return Array.from(card.querySelectorAll("span.theme-soft")).map((el) => el.textContent ?? "");
+  }
+
+  it("os alvos são as contas em jogo, não a seleção da lista", async () => {
+    renderAdopt();
+    await waitFor(() => expect(targetChips()).toEqual(["ann", "cid"]));
+  });
+
+  it("o place vem do jogo em que as contas estão, não do rascunho", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlaceId: "1234" } } : undefined
+    );
+    const { store } = renderAdopt();
+
+    await waitFor(() => expect(placeIdField()).toHaveValue("606849621"));
+    expect(store.detectRunningGamePlace).toHaveBeenCalledWith([1, 3]);
+    // Job e JoinData não entram no ciclo adotado.
+    expect(screen.queryByPlaceholderText("Job ID (optional)")).not.toBeInTheDocument();
+  });
+
+  it("sem saber o jogo, deixa o campo vazio e pede o place em vez de usar o rascunho", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings" ? { General: { BottingDraftPlaceId: "1234" } } : undefined
+    );
+    renderAdopt({ detectRunningGamePlace: vi.fn(async () => null) });
+
+    expect(
+      await screen.findByText(/Could not tell which game these accounts are in/)
+    ).toBeInTheDocument();
+    expect(placeIdField()).toHaveValue("");
+    expect(startButton()).toBeDisabled();
+  });
+
+  it("o Start adota com o tempo e as mains escolhidos, sem relançar ninguém", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_all_settings"
+        ? { General: { BottingDefaultIntervalMinutes: "25", BottingDraftPlayerAccountIds: "1" } }
+        : undefined
+    );
+    const { store } = renderAdopt();
+    await waitFor(() => expect(placeIdField()).toHaveValue("606849621"));
+    await waitFor(() => expect(startButton()).toBeEnabled());
+
+    await userEvent.click(startButton());
+
+    await waitFor(() =>
+      expect(store.adoptRunningIntoBotting).toHaveBeenCalledWith(
+        [1, 3],
+        expect.objectContaining({ placeId: 606849621, intervalMinutes: 25, playerUserIds: [1] })
+      )
+    );
+    expect(store.startBottingMode).not.toHaveBeenCalled();
+    expect(store.closeRobloxClients).not.toHaveBeenCalled();
+  });
+
+  it("adotando, não grava place nem job no rascunho de quem usa pela lista", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_all_settings") return {};
+      if (cmd === "update_setting") saved.push(args as Record<string, unknown>);
+      return undefined;
+    });
+    renderAdopt();
+    await waitFor(() => expect(placeIdField()).toHaveValue("606849621"));
+    await waitFor(() => expect(startButton()).toBeEnabled());
+    await userEvent.click(startButton());
+
+    await waitFor(() => expect(saved.length).toBeGreaterThan(0));
+    const keys = saved.map((it) => it.key);
+    expect(keys).not.toContain("BottingDraftPlaceId");
+    expect(keys).not.toContain("BottingDraftJobId");
+    expect(keys).toContain("BottingDefaultIntervalMinutes");
+  });
+
+  it("uma conta só, sem sessão, não liga", async () => {
+    renderAdopt({}, [1]);
+    await waitFor(() => expect(placeIdField()).toHaveValue("606849621"));
+    expect(startButton()).toBeDisabled();
+    expect(screen.getByTestId("rejoin-status")).toHaveTextContent("Select at least 2 accounts");
+  });
+
+  it("com sessão ligada, oferece só acrescentar quem ainda não está nela", async () => {
+    const { store } = renderAdopt({
+      bottingStatus: makeBottingStatus({
+        active: true,
+        userIds: [1, 2],
+        accounts: [botRow({ userId: 1 }), botRow({ userId: 2 })],
+      }),
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Add to Auto Rejoin (1)" }));
+
+    expect(store.adoptRunningIntoBotting).toHaveBeenCalledWith([3]);
+    expect(store.startBottingMode).not.toHaveBeenCalled();
+  });
+});
