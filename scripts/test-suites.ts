@@ -129,7 +129,13 @@ export const SUITES: Record<string, TestSuite> = {
       "versions_atomic_tests",
       "updater_tests",
     ],
-    front: ["src/components/dialogs/VersionsDialog.test.tsx", "src/updaterChannels.test.ts"],
+    front: [
+      "src/components/dialogs/VersionsDialog.test.tsx",
+      "src/updaterChannels.test.ts",
+      "src/components/dialogs/UpdateDialog.test.tsx",
+      "src/updateHandoff.test.ts",
+      "src/hooks/useUpdateHandoffToast.test.ts",
+    ],
   },
   api: {
     description: "Cliente da API do Roblox (auth, users, thumbnails, economy, presence, batch)",

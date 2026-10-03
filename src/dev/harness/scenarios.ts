@@ -1300,6 +1300,44 @@ const SCENARIOS: Record<string, () => void> = {
   avatars() {
     setInvokeHandler(avatarsHandler(baseHandler));
   },
+
+  /**
+   * Atualização disponível: o download chega em pedaços (~3 s, 18 MB) pelo
+   * `update-download-progress`, como o backend manda. A instalação nunca
+   * responde — no app de verdade ele fecha nessa hora —, então a tela
+   * "Instalando" fica à vista para inspeção.
+   */
+  update() {
+    const total = 18 * 1024 * 1024;
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "check_for_updates_with_channels") {
+        return {
+          version: "0.1.7",
+          currentVersion: "0.1.6",
+          date: "",
+          body: "## What's new\n- Free avatars for your alts\n- Desktop shortcut stays in place on updates",
+          releaseChannel: "beta",
+          featureChannel: "standard",
+        };
+      }
+      if (cmd === "plugin:app|version") return "0.1.6";
+      if (cmd === "download_selected_update") {
+        return new Promise<void>((resolve) => {
+          let downloaded = 0;
+          const timer = setInterval(() => {
+            downloaded = Math.min(total, downloaded + total / 30);
+            harnessEmit("update-download-progress", { downloaded: Math.round(downloaded), total });
+            if (downloaded >= total) {
+              clearInterval(timer);
+              resolve();
+            }
+          }, 100);
+        });
+      }
+      if (cmd === "install_selected_update") return new Promise<void>(() => {});
+      return baseHandler(cmd, args);
+    });
+  },
 };
 
 (SCENARIOS[scenarioName] ?? SCENARIOS.default)();
