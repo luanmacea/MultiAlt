@@ -8,6 +8,7 @@
   var REPO = "luanmacea/roblox-account-manager";
   var RELEASES_PAGE = "https://github.com/" + REPO + "/releases";
   var dict = window.RAM_I18N || { en: {}, pt: {} };
+  var LANGS = { en: "en", pt: "pt-BR", es: "es" };
   var lang = "en";
   var release = null;
 
@@ -24,8 +25,8 @@
   }
 
   function applyLang(next) {
-    lang = next === "pt" ? "pt" : "en";
-    document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
+    lang = LANGS[next] ? next : "en";
+    document.documentElement.lang = LANGS[lang];
     document.querySelectorAll("[data-i18n]").forEach(function (el) {
       if (!originals.has(el)) originals.set(el, el.innerHTML);
       var key = el.getAttribute("data-i18n");
@@ -48,12 +49,13 @@
 
   function initialLang() {
     var fromUrl = new URLSearchParams(location.search).get("lang");
-    if (fromUrl) return fromUrl.slice(0, 2);
+    if (fromUrl) return fromUrl.slice(0, 2).toLowerCase();
     try {
       var saved = localStorage.getItem("ram-site-lang");
       if (saved) return saved;
     } catch (e) { /* sem storage: segue pelo idioma do navegador */ }
-    return (navigator.language || "en").toLowerCase().indexOf("pt") === 0 ? "pt" : "en";
+    var nav = (navigator.language || "en").slice(0, 2).toLowerCase();
+    return LANGS[nav] ? nav : "en";
   }
 
   document.querySelectorAll(".lang button").forEach(function (b) {
@@ -88,7 +90,7 @@
   }
 
   function fmtSize(bytes) {
-    return (bytes / 1048576).toFixed(1).replace(".", lang === "pt" ? "," : ".") + " MB";
+    return (bytes / 1048576).toFixed(1).replace(".", lang === "en" ? "." : ",") + " MB";
   }
 
   function versionLabel(r) {
@@ -121,7 +123,7 @@
       var asset = picked[td.getAttribute("data-kind")];
       td.textContent = asset ? fmtSize(asset.size) : "–";
     });
-    var date = new Date(release.published_at).toLocaleDateString(lang === "pt" ? "pt-BR" : "en-US", {
+    var date = new Date(release.published_at).toLocaleDateString(lang === "en" ? "en-US" : LANGS[lang], {
       year: "numeric", month: "long", day: "numeric",
     });
     document.querySelectorAll(".js-release-line").forEach(function (el) {
