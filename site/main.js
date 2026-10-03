@@ -70,10 +70,12 @@
   // ---------- release mais recente ----------
   // As releases saem como pre-release (série 0.x), então /releases/latest do
   // GitHub não as enxerga: a lista vem da API e a primeira publicada vale.
-  // Desde a 0.1.8 a release só traz MSI e portátil (o setup .exe saiu). O MSI
-  // padrão vem duas vezes: com a versão no nome e como
-  // `Roblox-Account-Manager-Setup.msi` (nome fixo do botão do README) — o da
-  // versão ganha, para o arquivo baixado dizer qual versão é.
+  // Desde a 0.1.8 a release traz o MSI (o setup .exe saiu); o portátil só
+  // quando o interruptor PUBLISH_PORTABLE do release-v4.yml está ligado — e
+  // desde 03/10/2026 ele está desligado. A linha do portátil na tabela só
+  // aparece se o arquivo existe (renderRelease). O MSI padrão vem duas vezes:
+  // com a versão no nome e como `MultiAlt-Setup.msi` (nome fixo do botão do
+  // README) — o da versão ganha, para o arquivo baixado dizer qual versão é.
   function pickAssets(r, full) {
     var by = { msi: null, portable: null };
     var stableMsi = null;
@@ -121,6 +123,11 @@
     document.querySelectorAll(".js-dl").forEach(function (a) {
       var asset = picked[a.getAttribute("data-kind")];
       a.href = asset ? asset.browser_download_url : RELEASES_PAGE;
+    });
+    // Formato sem arquivo nesta release (o portátil, com o interruptor
+    // desligado) some da tabela em vez de mostrar um link para nada.
+    document.querySelectorAll(".js-row").forEach(function (tr) {
+      tr.hidden = !picked[tr.getAttribute("data-kind")];
     });
     document.querySelectorAll(".js-size").forEach(function (td) {
       var asset = picked[td.getAttribute("data-kind")];
