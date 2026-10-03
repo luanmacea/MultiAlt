@@ -92,7 +92,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ## Registro de mudanças (2026-09-26)
 
-1. **O updater aponta para este repositório**, com chave de assinatura própria (com senha); a release publica só o MSI (o setup `.exe` saiu em 03/10/2026) e o portátil, atrás de interruptor — [development.md](development.md#atualizacoes-este-repositorio-com-chave-propria).
+1. **O updater aponta para este repositório**, com chave de assinatura própria (com senha); a release publica só o MSI (o setup `.exe` saiu em 03/10/2026; o portátil também, atrás do interruptor `PUBLISH_PORTABLE` desligado) — [development.md](development.md#atualizacoes-este-repositorio-com-chave-propria).
 2. **O trabalho vive na `develop`**; a `main` só recebe release (cada push nela publica uma versão) — [CLAUDE.md](../CLAUDE.md).
 3. **Exceções de launch por conta**: a conta principal pode abrir com FPS, volume, qualidade, tela e janela próprios — [launch.md](features/launch.md#exceções-de-launch-por-conta).
 4. **Auto Rejoin adota conta que já está em jogo**, sem relançar — [botting.md](features/botting.md#regras-de-negócio).

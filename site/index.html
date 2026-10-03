@@ -403,7 +403,9 @@
                 <td class="js-size" data-kind="msi">–</td>
                 <td><a class="dl-link js-dl" data-kind="msi" href="https://github.com/luanmacea/roblox-account-manager/releases" data-i18n="fm.get">Download</a></td>
               </tr>
-              <tr>
+              <!-- Só aparece quando a release tem o portátil (main.js, renderRelease):
+                   hoje ele não é publicado (PUBLISH_PORTABLE no release-v4.yml). -->
+              <tr class="js-row" data-kind="portable" hidden>
                 <td><b data-i18n="fm.port">Portable (.exe)</b></td>
                 <td data-i18n="fm.port2">Running from a folder or USB stick. Nothing to install, no shortcut, no auto-update.</td>
                 <td class="js-size" data-kind="portable">–</td>
