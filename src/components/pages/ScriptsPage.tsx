@@ -15,10 +15,9 @@ import {
   Square,
   Trash2,
   Upload,
-  X,
 } from "lucide-react";
 import { useStore } from "../../store";
-import { useModalClose } from "../../hooks/useModalClose";
+import { PageShell } from "./PageShell";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
@@ -55,9 +54,9 @@ import type {
 
 type ScriptTabId = "editor" | "ui" | "logs" | "api";
 
-interface ScriptsDialogProps {
-  open: boolean;
-  onClose: () => void;
+interface ScriptsPageProps {
+  active: boolean;
+  onLeave: () => void;
 }
 
 interface SavePickerWritable {
@@ -1289,12 +1288,16 @@ function createInitialRuntime(): ScriptRuntimeState {
   };
 }
 
-export function ScriptsDialog({ open, onClose }: ScriptsDialogProps) {
+/**
+ * Página Scripts. Fica montada o tempo todo, como o modal ficava (os workers
+ * dos scripts em execução vivem aqui); `active` só decide se ela aparece.
+ */
+export function ScriptsPage({ active, onLeave }: ScriptsPageProps) {
   const store = useStore();
   const t = useTr();
   const prompt = usePrompt();
   const confirm = useConfirm();
-  const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const visible = active;
 
   const [scripts, setScripts] = useState<ManagedScript[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -3015,46 +3018,32 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
 
   if (!visible) return null;
 
-  return (
-    <div
-      className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/65 backdrop-blur-sm ${
-        closing ? "animate-fade-out" : "animate-fade-in"
-      }`}
-      onClick={handleClose}
-    >
-      <div
-        className={`theme-modal-scope theme-panel theme-border w-[1100px] h-[720px] max-w-[calc(100vw-20px)] max-h-[calc(100vh-20px)] rounded-2xl border shadow-2xl overflow-hidden flex flex-col ${
-          closing ? "animate-scale-out" : "animate-scale-in"
-        }`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="px-5 py-3 border-b theme-border flex items-center justify-between gap-3">
-          {/* A explicação do que o recurso é fica no cabeçalho de propósito: é o
-              único lugar visível assim que o diálogo abre, com ou sem script
-              selecionado. Escondê-la numa aba é o que gerou a confusão de achar
-              que isto executa/injeta Lua no cliente do Roblox. */}
-          <div className="min-w-0">
-            <div className="text-[15px] font-semibold text-zinc-100">{t("Scripts")}</div>
-            <div className="text-[12px] text-zinc-400">
-              {t("JavaScript automation that runs inside MultiAlt, not a Roblox executor or injector")}
-            </div>
-            <div className="mt-0.5 text-[12px] leading-snug text-zinc-500">
-              {t(
-                "Scripts run in a sandboxed Web Worker and talk to the app through the ram.* API. They cannot inject code into the Roblox client and never receive account cookies or passwords."
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleClose}
-              className="p-1 rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
-            >
-              <X size={16} strokeWidth={2} />
-            </button>
-          </div>
-        </div>
+  // A explicação do que o recurso é fica no cabeçalho de propósito: é o único
+  // lugar visível assim que a página abre, com ou sem script selecionado.
+  // Escondê-la numa aba é o que gerou a confusão de achar que isto
+  // executa/injeta Lua no cliente do Roblox.
+  const intro = (
+    <>
+      <span className="block text-[var(--panel-fg)] opacity-80">
+        {t("JavaScript automation that runs inside MultiAlt, not a Roblox executor or injector")}
+      </span>
+      <span className="block mt-0.5">
+        {t(
+          "Scripts run in a sandboxed Web Worker and talk to the app through the ram.* API. They cannot inject code into the Roblox client and never receive account cookies or passwords."
+        )}
+      </span>
+    </>
+  );
 
-        <div className="flex-1 min-h-0 flex">
+  return (
+    <PageShell
+      title={t("Scripts")}
+      description={intro}
+      onLeave={onLeave}
+      dataTour="scripts-page"
+      bodyClassName="flex"
+    >
+        <div className="flex-1 min-h-0 min-w-0 flex">
           <aside className="w-[320px] border-r theme-border flex flex-col min-h-0">
             <div className="p-3 border-b theme-border flex items-center gap-2">
               <div className="relative flex-1">
@@ -3821,12 +3810,6 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
                         {t("Run latest")}
                       </span>
                     </button>
-                    <button
-                      onClick={handleClose}
-                      className="px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/45 text-[12px] text-zinc-300 hover:bg-zinc-700 transition-colors"
-                    >
-                      {t("Close")}
-                    </button>
                   </div>
                 </div>
               </>
@@ -3852,8 +3835,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </PageShell>
   );
 }
 
