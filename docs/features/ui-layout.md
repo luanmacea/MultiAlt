@@ -10,15 +10,16 @@ Descrever como a janela principal é montada, como temas e fontes são aplicados
 |---|---|
 | Raiz e roteamento de telas/diálogos | [App.tsx](../../src/App.tsx) |
 | Estado global | [store.tsx](../../src/store.tsx) |
-| Chrome da janela | [TitleBar.tsx](../../src/components/layout/TitleBar.tsx), [ModalWindowControls.tsx](../../src/components/layout/ModalWindowControls.tsx), [UpdateBanner.tsx](../../src/components/layout/UpdateBanner.tsx), [Toolbar.tsx](../../src/components/layout/Toolbar.tsx), [StatusBar.tsx](../../src/components/layout/StatusBar.tsx) |
+| Chrome da janela | [TitleBar.tsx](../../src/components/layout/TitleBar.tsx), [ModalWindowControls.tsx](../../src/components/layout/ModalWindowControls.tsx), [UpdateBanner.tsx](../../src/components/layout/UpdateBanner.tsx), [NavSidebar.tsx](../../src/components/layout/NavSidebar.tsx) (barra lateral), [Toolbar.tsx](../../src/components/layout/Toolbar.tsx), [StatusBar.tsx](../../src/components/layout/StatusBar.tsx) |
+| Páginas | [src/components/pages/](../../src/components/pages): `PageShell` (casca comum), `SessionPage`, `AfkPage`, `AvatarsPage` (+ `pages/avatars/`), `ScriptsPage`, `ThemePage`, `NexusPage`, `SettingsPage` |
 | Telas bloqueantes | [PasswordScreen.tsx](../../src/components/layout/PasswordScreen.tsx), [EncryptionSetupScreen.tsx](../../src/components/layout/EncryptionSetupScreen.tsx), [FirstRunWalkthrough.tsx](../../src/components/layout/FirstRunWalkthrough.tsx) |
 | Lista de contas | [AccountList.tsx](../../src/components/accounts/AccountList.tsx), [GroupSection.tsx](../../src/components/accounts/GroupSection.tsx), [AccountRow.tsx](../../src/components/accounts/AccountRow.tsx), [AccountChip.tsx](../../src/components/accounts/AccountChip.tsx) |
 | Sidebar (conta única) | [DetailSidebar.tsx](../../src/components/accounts/DetailSidebar.tsx) → [SingleSelectSidebar.tsx](../../src/components/accounts/SingleSelectSidebar.tsx), [SidebarSection.tsx](../../src/components/accounts/SidebarSection.tsx) |
 | Ações em lote | [BottomActionBar.tsx](../../src/components/layout/BottomActionBar.tsx) |
 | Tela de escolha de jogo / launch em lote | [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx) |
 | Menu de contexto | [ContextMenu.tsx](../../src/components/menus/ContextMenu.tsx), [MenuItemView.tsx](../../src/components/menus/MenuItemView.tsx) |
-| Diálogos | [src/components/dialogs/](../../src/components/dialogs), [SettingsDialog.tsx](../../src/components/settings/SettingsDialog.tsx), [ServerListDialog.tsx](../../src/components/server-list/ServerListDialog.tsx) |
-| Tema | [theme.ts](../../src/theme.ts), [themeFonts.ts](../../src/themeFonts.ts), [fontPresets.ts](../../src/fontPresets.ts), [ThemeEditorDialog.tsx](../../src/components/dialogs/ThemeEditorDialog.tsx), backend [theme.rs](../../src-tauri/src/data/settings/theme.rs) e [presets.rs](../../src-tauri/src/data/settings/presets.rs) |
+| Diálogos | [src/components/dialogs/](../../src/components/dialogs), [ServerListDialog.tsx](../../src/components/server-list/ServerListDialog.tsx) |
+| Tema | [theme.ts](../../src/theme.ts), [themeFonts.ts](../../src/themeFonts.ts), [fontPresets.ts](../../src/fontPresets.ts), [ThemePage.tsx](../../src/components/pages/ThemePage.tsx), backend [theme.rs](../../src-tauri/src/data/settings/theme.rs) e [presets.rs](../../src-tauri/src/data/settings/presets.rs) |
 | Componentes genéricos | [src/components/ui/](../../src/components/ui) |
 | Hooks de UI | [usePrompt.tsx](../../src/hooks/usePrompt.tsx) (`prompt`/`confirm` assíncronos), [useModalClose.ts](../../src/hooks/useModalClose.ts) (animação de fechar), [useJoinOnlineWarning.ts](../../src/hooks/useJoinOnlineWarning.ts) |
 
@@ -33,18 +34,56 @@ Ordem de decisão:
 3. `encryptionSetupOpen` → `EncryptionSetupScreen`.
 4. App principal:
    - `ModalWindowControls` (controles de janela visíveis quando há modal aberto) + `TitleBar` (a janela nativa é criada **sem decorações** em [tauri.conf.json](../../src-tauri/tauri.conf.json), 1100×700, mínimo 750×450);
-   - `UpdateBanner`, `Toolbar`;
-   - faixa de erro (`store.error`), com botão "Close Roblox" quando o erro menciona falha no multi-Roblox;
-   - corpo: `ChooseGameScreen` **ou** `AccountList` + `DetailSidebar` (só com `sidebarOpen` e exatamente 1 conta selecionada);
-   - `BottomActionBar` quando há seleção e a Choose Game não está aberta;
-   - `StatusBar`, `ContextMenu`, toasts, todos os diálogos e `IsolationProgressOverlay`;
+   - `UpdateBanner`;
+   - à esquerda a `NavSidebar` (barra lateral); à direita a área principal, que mostra a página de `store.activePage`:
+     - `accounts`: `Toolbar`, e o corpo de sempre — `ChooseGameScreen` **ou** `AccountList` + `DetailSidebar` (só com `sidebarOpen` e exatamente 1 conta selecionada), mais a `BottomActionBar` quando há seleção e a Choose Game não está aberta;
+     - as outras: a página correspondente (ver "Barra lateral e páginas");
+   - faixa de erro (`store.error`) no topo da área principal, em qualquer página, com botão "Close Roblox" quando o erro menciona falha no multi-Roblox;
+   - `StatusBar` (largura inteira), `ContextMenu`, toasts, os diálogos e `IsolationProgressOverlay`;
    - modal genérico `store.modal` (título + `<pre>`), usado para mostrar textos longos.
 
 **Todo diálogo cabe na janela mínima** (750x450, `tauri.conf.json`): o quadro leva `max-w-[calc(100vw-24px)]` e `max-h-[calc(100vh-24px)]` (ou `max-h-[min(<teto>,calc(100vh-24px))]` quando já tinha teto próprio), e quem cede altura é o miolo (`flex-1 min-h-0`, que rola por dentro) — nunca o cabeçalho com o X nem o rodapé com Save/Cancel. Tamanho fixo sem esse teto jogava título e botões para fora da tela: Server List, Theme Editor, Nexus e Account Utils (medido no harness, 26–27/09/2026). O menu **Add** da toolbar segue a mesma regra, com `max-h-[calc(100vh-96px)]` e rolagem própria.
 
+### Barra lateral e páginas
+
+Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, AFK, Avatars, Scripts, Settings, Help) que só dizia o que cada um fazia com o mouse parado em cima, e cada um abria um modal centralizado. Agora a [NavSidebar](../../src/components/layout/NavSidebar.tsx) mostra os nomes sempre, e cada item abre uma **página** na área principal:
+
+| Item | Página | Observação |
+|---|---|---|
+| **Accounts** | lista de contas (home) | contador de contas |
+| **Session** | `SessionPage`: Painel de Sessão + resumo ao lado (clientes abertos, entrando, em jogo; quem mantém as contas no jogo) | contador de clientes rodando (`launchedByProgram`) |
+| **AFK Mode** | `AfkPage` → `AfkModeView variant="page"` (Auto Rejoin + AFK) | ponto verde "On" com AFK ou Auto Rejoin ligado |
+| **Avatars** | `AvatarsPage` (abas Montar/Distribuir sob o cabeçalho) | |
+| **Scripts** | `ScriptsPage` (lista + editor) | |
+| **Theme** | `ThemePage`: presets, todas as categorias em cartões, prévia fixa ao lado | |
+| **Nexus** | `NexusPage` (só com `ENABLE_NEXUS`) | Start/Stop no cabeçalho |
+| **Settings** | `SettingsPage`: seções numa lista vertical à esquerda, conteúdo com teto de largura | |
+| **Help** (rodapé) | reabre o walkthrough, que leva de volta à lista de contas | |
+
+- **Estado:** `store.activePage` (`AppPage`) + `setActivePage`. Não há roteador. Os setters antigos (`setSettingsOpen`, `setThemeEditorOpen`, `setAvatarsDialogOpen`, `setSessionDialogOpen`, `setNexusOpen`, `setScriptsOpen`) continuam e viram navegação: `true` abre a página; `false` volta para Accounts **só se** aquela página for a aberta. Os booleanos `settingsOpen`/`scriptsOpen`/... saíram — quem quer saber lê `activePage`.
+- **Casca comum:** [PageShell](../../src/components/pages/PageShell.tsx) — cabeçalho com título (`h1`), uma frase do que a página faz e as ações dela; leva `theme-modal-scope`, que traduz as classes `zinc-*` herdadas dos modais para as variáveis do tema.
+- **Escape** volta para Accounts, pela pilha de Escape (`useEscapeStack`): popover ou diálogo aberto por cima consome antes; Escape digitado num campo não sai da página.
+- **Montagem:** as páginas que eram modais ficam montadas o tempo todo e só aparecem quando ativas, como os modais ficavam: o `ScriptsPage` mantém os workers dos scripts em execução e o auto-start, o `AvatarsPage` o ouvinte do lote (`avatar-batch-state`), o `SettingsPage` recarrega ao entrar e chama `reloadSettings` ao sair. A página de contas (e a Choose Game) desmonta ao trocar de página: a Choose Game volta aberta (`chooseGameOpen` continua valendo), mas na aba inicial.
+- **Theme:** sair da página sem salvar (barra lateral, Escape, walkthrough) devolve o tema salvo — o que o Escape/Cancel do modal faziam. "Discard changes" faz o mesmo sem sair; "Save" salva e fica.
+- **Barra de título:** página não é modal — não entra no `anyModalOpen`, e os botões de janela continuam na `TitleBar`.
+- **Recolher:** o botão no rodapé deixa só os ícones (tooltip à direita, só nesse modo). A escolha fica em `localStorage` (`ram_nav_collapsed`, com `try/catch`); abaixo de 900 px de largura a barra recolhe sozinha e o botão some.
+- **Walkthrough:** os passos apontam `data-tour="nav-session"`/`"nav-settings"` (ou a página, se aberta: `session-page`/`settings-page`); os passos da lista de contas trazem a página de contas de volta.
+
 ### Toolbar
 
-Busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator e Roblox Versions. Botões: **Session** (Painel de Sessão, com contador de clientes), Theme, Nexus (se `ENABLE_NEXUS`), **AFK Mode** ([afk-mode.md](afk-mode.md)), Scripts, Settings e **Help** (reabre o walkthrough de primeira execução).
+Só na página de contas, e só com o que age na lista: busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator e Roblox Versions.
+
+### Nomes ocultos (`Names hidden`)
+
+O botão da toolbar existe para gravar ou compartilhar a tela sem expor as contas, então vale para **o app inteiro**, não só para a lista. Regra:
+
+- **Toda tela que mostra o nome de uma conta do usuário passa pelo helper compartilhado** [utils/accountName.ts](../../src/utils/accountName.ts) — `accountLabel(account, store, fallback)` fora de componente, ou o hook `useAccountLabel()` ([hooks/useAccountLabel.ts](../../src/hooks/useAccountLabel.ts)). Vale para texto, `title`, `aria-label`, placeholder, prompt, confirmação e toast. Nada de `account.Alias || account.Username` direto na tela: até 03/10/2026 a máscara estava copiada em sete arquivos, e o AFK Mode, o Avatars, diálogos, o menu de contexto e os toasts mostravam o nome real com o modo ligado.
+- A máscara: as primeiras `HiddenNameLetters` letras e `********`; com `0` (ou prévia que mostraria tudo) vira `************`. O fallback (ex.: "User ID: 123") também é mascarado — identifica a conta tanto quanto o nome.
+- **Foto:** some junto com o nome (`hideAccountAvatar`: `hideUsernames && !showAvatarsWhenHidden`). A letra do círculo sem foto (`accountInitial`) só aparece se a prévia já a mostraria.
+- Campo que nasce com o nome da conta (alias na sidebar, "Set Alias" do menu, username do Outfits) fica em bolinhas (`masked-input`).
+- **Só o que aparece é mascarado.** O que vai para o backend (`add_account`, `set_avatar`...) e o que é copiado para a área de transferência continua com o nome real.
+- **Não mascara:** nomes de terceiros (amigos, jogador procurado no Server List — ver [friends.md](friends.md)); o stream de log do backend no Console da Choose Game (o nome da conta na coluna é mascarado, mas o texto da linha vem pronto do backend); o painel de criação de contas, que mostra usuário **e senha** da conta que está sendo cadastrada; os dados entregues aos scripts do usuário.
+- Teste: suíte `hidden-names` (`bun run t hidden-names`) — cada tela tem um caso "com nomes ocultos o nome real não está no documento".
 
 ### Lista de contas
 
@@ -87,11 +126,21 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 | Recent | jogos recentes. |
 | Follow | Campo de join link ([join-links.md](join-links.md)) e o card "Follow a Player": `lookup_user` + `get_presence` resolvem o servidor do alvo **uma vez** e `launchAll` manda todas as contas selecionadas para lá (`launch_multiple` com várias contas, com o piso anti-captcha). Alvo fora de jogo (`presence < 2`) vira toast e nada é lançado; em jogo mas com o servidor escondido pela privacidade, pede confirmação para cair num servidor público do mesmo jogo. (Isto já foi um laço de `launch_roblox` com `followUser: true` e 3 s entre contas, que furava o piso de 8 s.) Atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
 | Console | **histórico geral das ações** (evento `launch-log`, auto-scroll, limpar): launch, Auto Rejoin e Watcher, cada linha com a origem (`step`) numa coluna de largura fixa — sem ela, `[watcher]` e `[rejoin-retry]` empurram o nome da conta para colunas diferentes. Linha de sessão (início/fim do Auto Rejoin) vem com `userId` nulo e aparece como `—`. O Painel de Sessão fica acima do log. |
-| Windows | controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)` — organiza nos monitores as janelas do Roblox que já estão abertas. |
+| Windows | controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)` — organiza nos monitores as janelas do Roblox que já estão abertas — e o interruptor **Arrange in grid on launch** (`General.AutoArrangeGrid`). Ver [Grade de janelas](#grade-de-janelas). |
 
 `launchAll` (hook `useLauncher`): confirma contas online, muda para a aba Console, grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
 
 Controles de grade (aba **Windows**): o campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior.
+
+### Grade de janelas
+
+A grade é feita de **células fixas** ([windowing.rs](../../src-tauri/src/platform/windows/windowing.rs), `grid_slots`): todas as células do tamanho da janela que cabem na área de trabalho dos monitores escolhidos (`GridMonitors`, vazio = todos), com `GridGap` entre elas, da esquerda para a direita e de cima para baixo, monitor por monitor. Tamanho da célula: o tamanho global (`OverrideClientWindowSize` + `ClientWindowWidth/Height`) quando ligado; senão, na grade automática, o tamanho com que a janela nova abriu, e no botão manual o tamanho mais comum entre as janelas. **A célula cresce até o tamanho que a janela aceitou** (`accepted_size` + `grid_cell_size`): o Roblox não deixa a janela menor que ~800x600 de área útil, então um global de 520x420 vira janela de 816x638 — medido no teste real de 03/10/2026, quando células de 520 sobrepunham as alts.
+
+- **Automática no launch** (`General.AutoArrangeGrid`, ligada por padrão): quando a janela de um cliente aparece depois do launch de uma conta, da fila ou do Auto Rejoin, a mesma task que confere o tamanho pelo PID ([launch.md](launch.md#tamanho-da-janela-conferido-pelo-pid)) a põe na **primeira célula livre** (`pick_grid_slot`). Uma célula está ocupada quando o centro de uma janela da grade está dentro dela. **Janelas já abertas não se mexem** — o usuário pode estar jogando nelas. **Grade cheia: dá a volta** — a janela vai para a célula menos ocupada, empate na de menor índice, ou seja, sobrepõe a partir da célula 0. Uma janela por vez (`GRID_PLACEMENT`), para duas janelas da fila não escolherem a mesma célula. Na conta do launch de uma conta, a grade vence a posição salva pelo Watcher.
+- **Botão Arrange in grid** (`arrange_windows_grid`): as mesmas células, a i-ésima janela (ordem de cima para baixo, esquerda para direita) na célula i, dando a volta quando há mais janelas que células.
+- **Fora da grade, nos dois**: contas com janela própria — exceção de launch com tamanho (`ClientOverrideWindowWidth/Height`) ou tela cheia (`account_keeps_own_window`). Elas não são movidas nem encolhidas e **bloqueiam as células que cobrem** (`slot_overlaps`): na automática essas células contam como ocupadas, e o botão manual só usa as livres (`unblocked_slots`; tudo coberto = grade inteira). Sem isso a alt nascia por cima da principal de 1000x1000 parada em (0,0); os PIDs saem do rastreamento de processos (`grid_excluded_pids`). Também ficam de fora: conta que começa minimizada (não é desminimizada), janela em tela cheia ou maximizada (na automática) e janela minimizada.
+
+Testes: `win_grid_slot_tests` (células, primeira livre, volta, célula do tamanho aceito, janelas fora da grade bloqueando), `client_window_plan_tests` (quem entra na grade). Interruptores: `ChooseGameScreen.test.tsx` e `settingsTabs.test.tsx` (aba Optimization, junto do tamanho de janela global).
 
 ### Tela "Choose Game" — chips e abas
 
@@ -106,13 +155,15 @@ Resolve as dores de quem joga com muitas contas: cancelar entradas no meio do ca
 Aparece em dois lugares, com o mesmo estado vindo do store:
 
 1. na aba **Console** do Choose Game, acima do log ([ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx));
-2. num diálogo aberto pelo botão da **barra principal** ([SessionDialog.tsx](../../src/components/dialogs/SessionDialog.tsx), `SessionToolbarButton`), disponível a qualquer momento, com contador de clientes rodando.
+2. na página **Session** da barra lateral ([SessionPage.tsx](../../src/components/pages/SessionPage.tsx)), disponível a qualquer momento; o item da barra mostra o contador de clientes rodando.
 
 | Seção | Fonte | Ações |
 |---|---|---|
 | **Joining** | evento `launch-queue` ([multi-launch.md](multi-launch.md#fila-observável-e-cancelamento)) | ✕ por conta (`cancel_account_launch`), "Stop queue" (`stop_launch_queue`) |
 | **Make Friends** | evento `friend-link-state` | nenhuma (só acompanhamento) — uma linha por conta com aguardando/processando/amizade feita/erro, o erro **na conta que enviou** o pedido que falhou, marca de conta principal no modo `star`, e o contador "X / Y contas processadas" |
-| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`), **Close** (`cmd_kill_roblox`), **Auto Rejoin** (adota as contas em jogo no ciclo **sem fechar nada** — ver [botting.md](botting.md)), seleção múltipla com uma confirmação só |
+| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`) e **Close** (`cmd_kill_roblox`) por linha; no cabeçalho, **AFK Mode** (abre o Modo AFK com as contas marcadas, ou todas — o Start do Auto Rejoin de lá adota **sem fechar nada**, ver [botting.md](botting.md#modo-afk-a-tela)) e **Close accounts** (fecha as marcadas, ou **todas as da lista** sem marcação — `closeRobloxClients`, nunca `killAllRobloxProcesses`; mais de uma pede uma confirmação só) |
+
+Na **In game** também entram os clientes abertos **fora do app** (pelo site, ou antes de o app abrir): os reconhecidos pelo log do Roblox aparecem como qualquer conta, com a marca "Opened outside the app"; os que não deu para reconhecer aparecem como **"Unidentified client"** (PID e motivo), com **Show window** (`focus_client_window`) e **Identify** (escolher a conta → `identify_external_client`), sem caixa de seleção, fora da contagem e sem botão de fechar — ver [external-clients.md](external-clients.md).
 
 Regras: cancelar **nunca** chama `cmd_kill_roblox` (há teste de regressão para isso); os nomes respeitam o mascaramento de `hideUsernames`; linhas terminais (`done`/`failed`/`cancelled`) continuam visíveis até a próxima fila substituir.
 
@@ -123,7 +174,7 @@ A seção **Make Friends** só aparece depois que houve uma execução (`total >
 1. No startup a store aplica `DEFAULT_THEME` e depois o tema salvo (`get_theme`).
 2. `applyThemeCssVariables` ([theme.ts](../../src/theme.ts)) transforma `ThemeData` em variáveis CSS; `normalizeTheme` preenche campos ausentes.
 3. Fontes (`font_sans`, `font_mono`): origem `google` (link gerado por `buildGoogleFontsHref`), `local` (arquivo em `RAMThemeFonts/`, resolvido por `resolve_theme_font_asset` e servido com `convertFileSrc`) ou `system`.
-4. Theme Editor: presets embutidos (`THEME_PRESETS`: Legacy v4, Catppuccin, Studio, Terminal, Jakarta, Plex, Soft, Bubble, Graphite, Ocean, Sunset...), presets do usuário (`get/save/delete_theme_preset` → `RAMThemePresets.json`), import (`import_theme_preset_file`) e export (`export_theme_preset_file`).
+4. Página Theme: presets embutidos (`THEME_PRESETS`: Legacy v4, Catppuccin, Studio, Terminal, Jakarta, Plex, Soft, Bubble, Graphite, Ocean, Sunset...), presets do usuário (`get/save/delete_theme_preset` → `RAMThemePresets.json`), import (`import_theme_preset_file`) e export (`export_theme_preset_file`).
 5. Salvar → `update_theme` → `RAMTheme.ini`.
 6. `sync_windows_navbar_theme` é chamado quando muda `ThemeWindowsNavbar` ou `dark_top_bar`.
 
@@ -151,7 +202,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 - Se o único grupo for `Default`, a lista não mostra cabeçalho de grupo.
 - Presença é atualizada a cada `max(1, PresenceUpdateRate)` minutos (mínimo 30 s), em lotes de 100 IDs; `0` = offline, `1` = online, `2` = em jogo, `3` = no Studio. O comando `get_presence` manda o cookie de uma conta como "viewer" (a primeira válida, `pick_viewer_cookie`) e cai para a chamada sem cookie se a autenticada falhar — ver [friends.md](friends.md#armadilhas--cuidados).
 - Toasts ficam empilhados no canto inferior direito, cada um pintado com o tom da própria mensagem; erros persistentes vão para a faixa vermelha até o usuário fechar.
-- Diálogos fecham com Esc (Settings, Server List, Choose Game).
+- Diálogos fecham com Esc (Server List, Choose Game); nas páginas da barra lateral o Esc volta para a lista de contas.
 - Export de tema grava `<nome>.ram-theme.json` na **pasta de dados do usuário** (`get_runtime_data_dir()` — a do exe só no modo portátil); se o tema usa fontes locais, grava `<nome>.ram-theme.zip` incluindo os arquivos das fontes.
 - Fontes importadas aceitam só `.ttf`, `.otf`, `.woff`, `.woff2` e são deduplicadas pelo SHA-256 do conteúdo.
 
@@ -159,13 +210,14 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 
 | Seção.Chave | Efeito na UI |
 |---|---|
-| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden` | Mascaramento de nomes (Choose Game e lista usam `maskName`). |
+| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden` | Mascaramento de nomes e fotos em todas as telas (ver "Nomes ocultos" acima; helper `utils/accountName.ts`). |
 | `General.ShowPresence`, `PresenceUpdateRate` | Pontos de presença e contagem na status bar. |
 | `General.DisableAgingAlert`, `DisableImages` | Indicador de idade / avatares. |
 | `General.MinimizeToTray` | Botão fechar da TitleBar esconde na bandeja. |
 | `General.ThemeWindowsNavbar` | Barra nativa segue o tema. |
 | `General.RestrictedBackgroundStyle` | Fundo da tela de senha. |
 | `General.GridGap`, `GridMonitors` | Arranjo em grade (aba Windows da Choose Game). |
+| `General.AutoArrangeGrid` | Grade automática no launch (aba Windows e Settings > Optimization). |
 | `General.FirstRunWalkthroughState` | Exibição do walkthrough inicial. |
 
 ## Armadilhas / cuidados
@@ -173,5 +225,6 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 - **Ação em lote vai para a [BottomActionBar.tsx](../../src/components/layout/BottomActionBar.tsx) ou para a [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx)** — não existe mais painel lateral de multi-seleção. Havia um (`MultiSelectSidebar.tsx`, 517 linhas) que ninguém conseguia abrir desde que o painel virou de uma conta só; foi apagado depois de ser editado três vezes por engano. A [DetailSidebar.tsx](../../src/components/accounts/DetailSidebar.tsx) continua sendo só para **uma** conta.
 - `store.tsx` é um Context único com ~3000 linhas (3026 em 27/09/2026); qualquer mudança de estado re-renderiza todos os consumidores de `useStore()`.
 - Estado de UI como `placeId`/`jobId` é gravado no INI a **cada** mudança (`SavedPlaceId`, `SavedJobId`, `SavedLaunchData`).
-- `ScriptsDialog` e demais diálogos ficam sempre montados; efeitos deles (ex.: auto-start de scripts) rodam mesmo com o diálogo fechado.
+- `ScriptsPage`, as demais páginas que eram modais e os diálogos ficam sempre montados; efeitos deles (ex.: auto-start de scripts) rodam mesmo com a página/diálogo fechado. Não trocar por `{active && <Page/>}`: os scripts em execução morreriam ao sair da página.
+- Abrir uma página a partir de um diálogo (Scripts pela Server List, Settings pelo gerador) **fecha o diálogo antes**: aberto, ele cobriria a página e ficaria com o Escape.
 - Por a janela não ter decorações nativas, os controles de minimizar/maximizar/fechar são responsabilidade de `TitleBar` e `ModalWindowControls` — ao criar um novo overlay de tela cheia, inclua-o em `anyModalOpen` em [App.tsx](../../src/App.tsx) para os controles continuarem acessíveis. As telas bloqueantes (`PasswordScreen`, `EncryptionSetupScreen`) trocam a árvore inteira, sem `TitleBar`, e por isso cada uma renderiza a sua `ModalWindowControls visible`. A de criptografia não tinha: na primeira execução (sem Cancel, e com o Esc sem efeito) só se saía concluindo ou com Alt+F4 — e se o Continue falhasse, o usuário ficava preso. Aberta pelas Settings, o Esc agora faz o mesmo que o Cancel. **Mover a janela** também é responsabilidade dos dois: a `TitleBar` é o único ponto que chama `startDragging`, e ela some nas telas bloqueantes e fica coberta pelo fundo de qualquer diálogo — por isso a `ModalWindowControls` tem uma **alça** (ícone ⠿, "Move window") antes de minimizar; só o botão esquerdo arrasta. Com a alça a pílula ocupa 142 px a partir da borda direita, e a `VaultKeyBanner` reserva `pr-40` (160 px) para o texto não passar por baixo dela (medido no harness, 27/09/2026).

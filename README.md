@@ -1,12 +1,12 @@
 **English** | [Português](README.pt-BR.md)
 
 # MultiAlt — Roblox Account Manager
-![MultiAlt](Images/Image5.png)
+![MultiAlt: choose a game and join with every selected account](site/assets/screens/choose-game.png)
 
 <p align="center">
   <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">other downloads (portable, full version)</a> · <a href="https://multialt.pages.dev/">🌐 website</a></sub>
+  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/roblox-account-manager/releases/latest">other downloads (full version)</a> · <a href="https://multialt.pages.dev/">🌐 website</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/roblox-account-manager?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/roblox-account-manager/releases/latest)
@@ -29,9 +29,10 @@ Never generate an "rbx-player link" because someone asked you to — anyone hold
 
 Only download from this repository. The [releases page](https://github.com/luanmacea/roblox-account-manager/releases/latest) also has:
 
-- **Portable:** the app with nothing to install. No shortcut and no auto-update.
 - **Files with `_full-nexus-ws`:** the full version, with the local HTTP API and Nexus (opens local network ports). Only if you need them.
 - The `zz-…sig` files are for the auto-updater: you don't need them.
+
+> Looking for the portable `.exe`? It is not published for now (an antivirus engine flagged it 1/75); the `.msi` doesn't ask for administrator either.
 
 > Installed with the old `-setup.exe`? It is no longer published, so it won't update anymore. Uninstall it from Windows Settings → Apps and install the `.msi` once — your accounts and settings are kept.
 
@@ -79,7 +80,7 @@ Only download from this repository. The [releases page](https://github.com/luanm
 | :--- | :--- |
 | Auto-update | Checks for new versions and updates itself |
 | Themes | Built-in theme editor: colors, button style and fonts, with exportable presets |
-| Languages | English and Portuguese (German partial) |
+| Languages | English, Portuguese and Spanish (German partial) |
 | Safe video mode | If the window ever opens blank, the app recovers by itself (or hold **Shift** while opening) |
 
 # FAQ
@@ -123,4 +124,11 @@ bun run check            # typecheck + all tests (vitest + cargo test)
 The first `tauri dev`/`tauri build` compiles every Rust crate from scratch and can take a few minutes; later builds are incremental. Developer documentation (in Portuguese) lives in [docs/](docs/README.md).
 
 # Preview
-![MultiAlt](Images/Image5.png)
+Real screenshots, with account names hidden (the app has a button for that). Click one to see it full size.
+
+<table>
+  <tr><td width="50%"><a href="site/assets/screens/accounts.png"><img src="site/assets/screens/accounts.png" alt="Accounts"></a><br><sub><b>Accounts</b></sub></td><td width="50%"><a href="site/assets/screens/choose-game.png"><img src="site/assets/screens/choose-game.png" alt="Choose game"></a><br><sub><b>Choose game</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/session.png"><img src="site/assets/screens/session.png" alt="Session"></a><br><sub><b>Session</b></sub></td><td width="50%"><a href="site/assets/screens/afk-clicks.png"><img src="site/assets/screens/afk-clicks.png" alt="AFK clicks"></a><br><sub><b>AFK clicks</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/auto-rejoin.png"><img src="site/assets/screens/auto-rejoin.png" alt="Auto Rejoin"></a><br><sub><b>Auto Rejoin</b></sub></td><td width="50%"><a href="site/assets/screens/avatars.png"><img src="site/assets/screens/avatars.png" alt="Avatars"></a><br><sub><b>Avatars</b></sub></td></tr>
+  <tr><td width="50%"><a href="site/assets/screens/theme.png"><img src="site/assets/screens/theme.png" alt="Theme"></a><br><sub><b>Theme</b></sub></td><td width="50%"><a href="site/assets/screens/settings.png"><img src="site/assets/screens/settings.png" alt="Settings"></a><br><sub><b>Settings</b></sub></td></tr>
+</table>

@@ -300,21 +300,6 @@ export function getFreshnessColor(lastUse: string): string | null {
 }
 
 /**
- * Mascara o nome da conta quando o modo "Hidden" da toolbar está ligado.
- *
- * Mesma regra que a lista aplica em `AccountRow`: mostra as primeiras
- * "Preview Letters" e esconde o resto; sem letras de preview (ou quando o
- * preview mostraria o nome inteiro) o nome some por completo.
- */
-export function maskAccountName(name: string, hidden: boolean, previewLetters: number): string {
-  if (!hidden) return name;
-  if (previewLetters > 0 && previewLetters < name.length) {
-    return name.slice(0, previewLetters) + "********";
-  }
-  return "************";
-}
-
-/**
  * Um arquivo de backup gravado na pasta de backups.
  * Espelha `BackupEntry` em `src-tauri/src/commands/backups.rs` (serde camelCase).
  */
@@ -372,6 +357,27 @@ export interface LaunchQueueEntry {
   /** Mensagem de erro quando `state === "failed"`; `null` nos demais estados. */
   error: string | null;
   updatedAtMs: number;
+}
+
+/**
+ * Cliente do Roblox aberto fora do app (pelo site) que o backend não conseguiu
+ * reconhecer pelo log do Roblox (`get_unidentified_clients`). Os reconhecidos
+ * já entram direto em `launchedByProgram`. Ver docs/features/external-clients.md.
+ *
+ * - `noLog`: nenhum log casou com o processo;
+ * - `waitingForGame`: log achado, mas o cliente ainda não entrou num jogo;
+ * - `unknownAccount`: a conta do log (`userId`) não está entre as salvas;
+ * - `accountBusy`: a conta do log já tem outro cliente aberto pelo app.
+ */
+export type UnidentifiedReason = "noLog" | "waitingForGame" | "unknownAccount" | "accountBusy";
+
+export interface UnidentifiedClient {
+  pid: number;
+  reason: UnidentifiedReason;
+  userId: number | null;
+  placeId: number | null;
+  jobId: string | null;
+  startedAtMs: number | null;
 }
 
 export interface LaunchQueuePayload {

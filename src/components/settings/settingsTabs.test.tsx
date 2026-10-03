@@ -14,7 +14,7 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
 
 import { GeneralTab } from "./GeneralTab";
 import { DeveloperTab } from "./DeveloperTab";
-import { SettingsDialog } from "./SettingsDialog";
+import { SettingsPage } from "../pages/SettingsPage";
 import { IsolationTab } from "./IsolationTab";
 import { WebServerTab } from "./WebServerTab";
 import { WatcherTab } from "./WatcherTab";
@@ -37,7 +37,7 @@ function SettingsHarness({ children }: { children: (s: UseSettingsReturn) => Rea
     void s.load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // SettingsDialog mounts the tabs only once settings are loaded, and some tabs
+  // SettingsPage mounts the tabs only once settings are loaded, and some tabs
   // (IsolationTab) read settings in a mount effect — mirror that here.
   if (!s.loaded) return <div>Loading settings...</div>;
   return <>{children(s)}</>;
@@ -70,7 +70,7 @@ beforeEach(async () => {
         return { running: false, port: 0 };
       case "isolation_list_adapters":
         return [];
-      // Usados so pelo SettingsDialog inteiro, que monta todas as abas de uma vez.
+      // Usados so pela SettingsPage inteira, que monta todas as abas de uma vez.
       case "versions_list_installed":
         return [];
       case "remembered_unlock_state":
@@ -96,7 +96,7 @@ describe("WebServerTab", () => {
   });
 
   /**
-   * A aba deixou de ser escondida (SettingsDialog), entao o estado bloqueado e
+   * A aba deixou de ser escondida (SettingsPage), entao o estado bloqueado e
    * a unica coisa que explica a funcionalidade: tem que dizer o QUE o servidor
    * faz e ONDE se liga, senao trocamos um recurso invisivel por uma tela muda.
    */
@@ -265,16 +265,16 @@ describe("IsolationTab", () => {
  * HTTP local nunca ia descobrir. A capacidade tem que ser descobrivel — o que
  * continua trancado e o conteudo, nao a aba.
  */
-describe("SettingsDialog tabs", () => {
+describe("SettingsPage sections", () => {
   it.runIf(ENABLE_WEBSERVER)("lists the WebServer tab even without Developer Mode", async () => {
     stored = {};
-    render(<SettingsDialog open onClose={() => {}} />);
+    render(<SettingsPage active onLeave={() => {}} />);
     expect(await screen.findByRole("button", { name: "WebServer" })).toBeInTheDocument();
   });
 
   it.runIf(ENABLE_WEBSERVER)("opens the WebServer tab on its locked explanation", async () => {
     stored = {};
-    render(<SettingsDialog open onClose={() => {}} />);
+    render(<SettingsPage active onLeave={() => {}} />);
     await userEvent.click(await screen.findByRole("button", { name: "WebServer" }));
     expect(await screen.findByText("Web Server is off")).toBeVisible();
   });
@@ -286,27 +286,51 @@ describe("SettingsDialog tabs", () => {
    */
   it("names the generator tab like the rest of the app does", async () => {
     stored = {};
-    render(<SettingsDialog open onClose={() => {}} />);
+    render(<SettingsPage active onLeave={() => {}} />);
     expect(await screen.findByRole("button", { name: "Account Generator" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Generator" })).not.toBeInTheDocument();
   });
 
   /**
-   * O dialogo era o unico da familia sem guarda de viewport (520px fixos,
-   * 85vh): em telas pequenas a aba Optimization sozinha ja rolava 5,8 telas.
-   * O padrao usado em BottingDialog/GeneratorDialog e `max-w`/`max-h` com
-   * `calc(100vw|100vh - 24px)` — a janela tem `minWidth` 750
-   * (tauri.conf.json), entao a guarda de largura nao e opcional.
+   * As nove abas mal cabiam numa linha do modal de 780 px. Na página elas são
+   * uma lista vertical à esquerda, com a seção atual marcada.
    */
-  it("guards the dialog width and height against the window's minimum size", async () => {
+  it("lists the sections in a vertical side navigation", async () => {
     stored = {};
-    render(<SettingsDialog open onClose={() => {}} />);
-    const modal = await screen.findByText("Settings");
-    const panel = modal.closest('[data-tour="settings-modal"]');
-    expect(panel?.className).toContain("w-[780px]");
-    expect(panel?.className).toContain("max-w-[calc(100vw-24px)]");
-    expect(panel?.className).toContain("h-[calc(100vh-24px)]");
-    expect(panel?.className).toContain("max-h-[760px]");
+    render(<SettingsPage active onLeave={() => {}} />);
+    const sections = screen.getByRole("navigation", { name: "Settings sections" });
+    const general = await screen.findByRole("button", { name: "General" });
+    expect(sections).toContainElement(general);
+    expect(general).toHaveAttribute("aria-current", "true");
+
+    await userEvent.click(screen.getByRole("button", { name: "Watcher" }));
+    expect(screen.getByRole("button", { name: "Watcher" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("heading", { level: 2, name: "Watcher" })).toBeInTheDocument();
+  });
+
+  it("renders nothing while another page is open", () => {
+    render(<SettingsPage active={false} onLeave={() => {}} />);
+    expect(screen.queryByRole("heading", { name: "Settings" })).not.toBeInTheDocument();
+  });
+
+  /** O "Done" do modal recarregava as settings na store; sair da página faz o mesmo. */
+  it("tells the store the settings changed when the page is left", async () => {
+    stored = {};
+    const changed = vi.fn();
+    const view = render(<SettingsPage active onLeave={() => {}} onSettingsChanged={changed} />);
+    await screen.findByRole("button", { name: "General" });
+    expect(changed).not.toHaveBeenCalled();
+    view.rerender(<SettingsPage active={false} onLeave={() => {}} onSettingsChanged={changed} />);
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the page on Escape", async () => {
+    stored = {};
+    const leave = vi.fn();
+    render(<SettingsPage active onLeave={leave} />);
+    await screen.findByRole("button", { name: "General" });
+    await userEvent.keyboard("{Escape}");
+    expect(leave).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -369,6 +393,13 @@ describe("GeneralTab", () => {
     await userEvent.click(await screen.findByText("English"));
     await userEvent.click(await screen.findByText("Portuguese (Brazil)"));
     await expectSaved("General", "Language", "pt");
+  });
+
+  it("offers Spanish and saves it as es", async () => {
+    renderGeneral();
+    await userEvent.click(await screen.findByText("English"));
+    await userEvent.click(await screen.findByText("Spanish"));
+    await expectSaved("General", "Language", "es");
   });
 
   it("saves the updater release channel", async () => {
@@ -624,6 +655,28 @@ describe("OptimizationTab", () => {
   const FAST_FLAGS_ON = {
     Optimization: { NormalEnableFastFlags: "true" },
   } as Record<string, Record<string, string>>;
+
+  /** A grade automática fica junto do tamanho de janela global, que é o da célula. */
+  it("turns the automatic window grid off next to the window size", async () => {
+    renderOptimization({ General: { AutoArrangeGrid: "true" } });
+    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    await userEvent.click(toggle);
+    await expectSaved("General", "AutoArrangeGrid", "false");
+  });
+
+  it("shows the automatic window grid on when it was never saved", async () => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("hides the automatic window grid outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(screen.queryByRole("switch", { name: /Arrange in grid on launch/ })).not.toBeInTheDocument();
+  });
 
   it("rejects a fast flag key that is not on the backend allowlist", async () => {
     renderOptimization({

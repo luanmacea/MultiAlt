@@ -8,7 +8,7 @@ vi.mock("../hooks/usePrompt", async () => (await import("../test-utils/promptMoc
 
 import i18n, { DEFAULT_LANGUAGE } from "./index";
 import { AccountUtilsDialog } from "../components/dialogs/AccountUtilsDialog";
-import { ThemeEditorDialog } from "../components/dialogs/ThemeEditorDialog";
+import { ThemePage } from "../components/pages/ThemePage";
 import { AccountRow } from "../components/accounts/AccountRow";
 import { makeAccount, setStore } from "../test-utils/renderWithStore";
 import { resetTauriMocks } from "../test-utils/tauriMocks";
@@ -46,11 +46,11 @@ describe("a tradução chega à tela", () => {
     expect(screen.queryByText("Sign out of other sessions")).not.toBeInTheDocument();
   });
 
-  it("traduz as abas do editor de temas", () => {
+  it("traduz as seções da página de tema", () => {
     setStore({ accounts: [ACCOUNT] });
-    render(<ThemeEditorDialog open onClose={() => {}} />);
+    render(<ThemePage active onLeave={() => {}} />);
 
-    const abas = screen.getAllByRole("button").map((b) => b.textContent);
+    const abas = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     for (const aba of ["Contas", "Botões", "Formulários", "Campos de texto", "Rótulos", "Fontes"]) {
       expect(abas).toContain(aba);
     }

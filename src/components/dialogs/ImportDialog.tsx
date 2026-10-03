@@ -7,6 +7,7 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { SlidingTabBar } from "../ui/SlidingTabBar";
 import { useTr } from "../../i18n/text";
 import { parseImportLine } from "../../utils/cookies";
+import { maskAccountName } from "../../utils/accountName";
 
 type TabId = "cookie" | "userpass" | "legacy";
 
@@ -33,6 +34,8 @@ export function ImportDialog({
 }) {
   const t = useTr();
   const store = useStore();
+  /** Nome no resultado da importação, mascarado com "Names hidden". */
+  const shown = (name: string) => maskAccountName(name, store.hideUsernames, store.hiddenNameLetters);
   const prompt = usePrompt();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
   const [tab, setTab] = useState<TabId>("cookie");
@@ -83,9 +86,9 @@ export function ImportDialog({
         return {
           text: parsed.password
             ? t("{{name}} - already exists; the password in this line was not stored", {
-                name: info.name,
+                name: shown(info.name),
               })
-            : t("{{name}} - already exists", { name: info.name }),
+            : t("{{name}} - already exists", { name: shown(info.name) }),
           ok: false,
         };
       }
@@ -96,7 +99,7 @@ export function ImportDialog({
         ...(parsed.password ? { password: parsed.password } : {}),
       });
       existingIds.add(info.user_id);
-      return { text: t("Added {{name}}", { name: info.name }), ok: true };
+      return { text: t("Added {{name}}", { name: shown(info.name) }), ok: true };
     } catch (e) {
       return { text: t("Failed: {{error}}", { error: String(e) }), ok: false };
     }
@@ -118,7 +121,7 @@ export function ImportDialog({
       // para usar, e uma conta gravada só com senha nunca abre nada.
       if (parsed.kind === "userpass") {
         out.push({
-          text: t("Skipped {{name}}: no cookie in this line", { name: parsed.username }),
+          text: t("Skipped {{name}}: no cookie in this line", { name: shown(parsed.username) }),
           ok: false,
         });
       } else {
@@ -161,7 +164,7 @@ export function ImportDialog({
           password: parsed.password,
         });
         existingIds.add(info.user_id);
-        out.push({ text: t("Added {{name}}", { name: info.name }), ok: true });
+        out.push({ text: t("Added {{name}}", { name: shown(info.name) }), ok: true });
       } catch (e) {
         out.push({ text: t("Failed: {{error}}", { error: String(e) }), ok: false });
       }

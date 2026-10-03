@@ -13,7 +13,7 @@ Abrir **um** cliente Roblox (`RobloxPlayerBeta.exe`) autenticado como uma conta 
 | [platform_info.rs](../../src-tauri/src/commands/platform_info.rs) | `get_platform_capabilities`: o que este SO suporta (o frontend usa para bloquear multi launch/botting fora do Windows) |
 | [platform/windows/launch.rs](../../src-tauri/src/platform/windows/launch.rs) | `build_launch_url` (sempre com `channel:` vazio = produção), `launch_url` (protocolo → build de produção; não lê nem escreve o registro), `default_player_dir` (old join → build do canal **lido** do registro), `current_player_channel` (só leitura), `set_player_channel` (a única escrita: reparo de canal morto), `ensure_player_exe_for_channel` / `build_version_for_channel`, `refresh_production_version`, `cached_production_player_dir`, `client_source` / `client_dir` (a pasta de onde o cliente abre: patch e old join usam a mesma), `launch_old_join_from` |
 | [platform/windows/core.rs](../../src-tauri/src/platform/windows/core.rs) | Mutex `ROBLOX_singletonMutex` (Multi Roblox, thread dedicada `multi-roblox-mutex`), lock do `RobloxCookies.dat` (fix 773), `generate_browser_tracker_id`, `get_roblox_path` (prefere a pasta da **última build de produção resolvida**, `cached_production_player_dir`) |
-| [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | `ProcessTracker`: PID por conta, launches pendentes, flag de cancelamento, `kill_for_user` / `kill_for_user_graceful` (só matam se o PID ainda for Roblox) |
+| [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | `ProcessTracker`: PID por conta, launches pendentes, flag de cancelamento, `kill_for_user` / `kill_for_user_graceful` (só matam se o PID ainda for Roblox). Clientes abertos pelo site entram aqui por `track_adopted` — ver [external-clients.md](external-clients.md) |
 | [platform/windows/versions.rs](../../src-tauri/src/platform/windows/versions.rs) | `resolve_roblox_install_path` (qual pasta de versão usar) |
 | [account_api.rs](../../src-tauri/src/commands/account_api.rs) | `run_with_session_retry` (renova cookie e repete a chamada em erro de sessão) |
 | [store.tsx](../../src/store.tsx) | `joinServer` → `invoke("launch_roblox")`; listener do evento `launch-log` |
@@ -51,9 +51,10 @@ sequenceDiagram
     L->>W: resolve_roblox_install_path
     L->>W: run_pre_launch_isolation (se Mode != Off / spoof)
     L->>W: ensure_multi_roblox_enabled (EnableMultiRbx)
-    L->>W: refresh_production_version → patch_client_settings_for_launch
+    L->>W: refresh_production_version → client_dir
     L->>API: get_auth_ticket (run_with_session_retry)
     L->>API: resolve_private_join (share link → código)
+    L->>W: patch_client_settings_for_launch (último passo antes do spawn)
     alt use_old_join
         L->>W: pasta = catálogo ? base_path : default_player_dir (lê o canal do registro → build desse canal)
         L->>W: launch_old_join_from(pasta) → RobloxPlayerBeta.exe --app -t -j
@@ -62,6 +63,7 @@ sequenceDiagram
     end
     L->>W: wait_for_new_roblox_pid (400 ms polling)
     L->>W: track_with_version + post-launch profile
+    L-)W: spawn_client_window_enforcement (task à parte: tamanho/posição pelo PID)
     L-->>UI: launch-log (start/auth/target/spawn/pid)
 ```
 
@@ -181,7 +183,7 @@ Mensagem de erro: `http_client::describe_error` transforma timeout em frase ("Ro
 - **VIP/privado:** `vip:<código>` no Job ID força VIP; links com `privateServerLinkCode`, `linkCode` ou `code` (share links) são extraídos; códigos de share (32 hex) são resolvidos via API; código no formato de 5 partes separadas por `-` é tratado como `accessCode`, o resto como `linkCode`. Se o link tiver `/games/<id>`, o place do link prevalece.
 - **Follow user:** desliga VIP e link code; o parâmetro `placeId` é usado como `userId` no `RequestFollowUser`. Follow e shuffle nunca coexistem (`should_shuffle_server` devolve `false` com `followUser`).
 - **PID:** detectado como "primeiro `RobloxPlayerBeta.exe` que não estava no snapshot anterior". Se não aparecer no tempo, emite `warn` `pid` e a conta não é rastreada (sem posição de janela, sem minimizar).
-- **Posição de janela:** só restaurada se a conta tiver os 4 campos `Window_Position_X/Y`, `Window_Width`, `Window_Height` (gravados pelo Watcher com `SaveWindowPositions`).
+- **Posição de janela:** só restaurada se a conta tiver os 4 campos `Window_Position_X/Y`, `Window_Width`, `Window_Height` (gravados pelo Watcher com `SaveWindowPositions`), pela mesma task que confere o tamanho — ver [Tamanho da janela conferido pelo PID](#tamanho-da-janela-conferido-pelo-pid).
 - **Eventos `launch-log`:** payload `{userId, level: info|success|warn|error, step, message}`; steps usados: `start`, `isolation`, `auth`, `moderated`, `target`, `spawn`, `pid`, `wait`. O frontend guarda no máximo 500 entradas.
 - **Close All Roblox** (`cmd_kill_all_roblox`) mata todos os `RobloxPlayerBeta.exe`, chama `cancel_launch()` e remove tudo do tracker.
 - **Fechar o cliente de uma conta** (`kill_for_user` / `kill_for_user_graceful`, usados por `AutoCloseLastProcess`, `cmd_kill_roblox` e botting): só mata se o PID rastreado ainda for um processo Roblox (`is_roblox_pid_alive`); caso contrário apenas remove do tracker e retorna sucesso (proteção contra reuso de PID pelo Windows).
@@ -197,6 +199,7 @@ Arquivo `RAMSettings.ini`.
 | General | `AutoCloseRobloxForMultiRbx` | `false` | Mata clientes abertos se o mutex não puder ser adquirido |
 | General | `AutoCloseLastProcess` | `false` | Fecha o cliente anterior da mesma conta antes de relançar |
 | General | `StartRobloxMinimized` | `false` | Minimiza janelas novas por até 14 s após o launch |
+| General | `AutoArrangeGrid` | `true` | Põe a janela nova na primeira célula livre da grade ([ui-layout.md](ui-layout.md#grade-de-janelas)) |
 | General | `UnlockFPS`/`MaxFPSValue`, `OverrideClientVolume`/`ClientVolume`, `OverrideClientGraphics`/`ClientGraphicsLevel`, `OverrideClientWindowSize`/`ClientWindowWidth`/`ClientWindowHeight`, `CustomClientSettings` | ver store | Aplicados em `ClientAppSettings.json` antes do launch (arquivo custom tem precedência e desativa o FPS/fast flags) |
 | Developer | `UseOldJoin` | `false` | Força `RobloxPlayerBeta.exe --app -t -j` |
 | Developer | `IsTeleport` | `false` | Adiciona `isTeleport=true` na URL do PlaceLauncher |
@@ -232,7 +235,20 @@ Aplicado em: launch de uma conta, fila de várias contas (dentro do laço, por c
 - o arquivo ainda tem o valor da exceção → volta o valor de antes (ou a propriedade some, se a exceção a criou);
 - o arquivo tem outro valor → foi o jogador que mudou dentro do jogo, e o valor dele fica.
 
-Quem diz o que veio da conta é o `from_account` (`AccountSourced`) que o `windows_client_overrides` monta. Testes: `win_client_settings_tests` (`an_account_exception_does_not_leak_into_the_next_account` e vizinhos). Limite que continua: um cliente aberto pode reescrever o XML por conta própria (quando o jogador muda a configuração dentro dele) entre o patch e o spawn da conta seguinte.
+Quem diz o que veio da conta é o `from_account` (`AccountSourced`) que o `windows_client_overrides` monta. Testes: `win_client_settings_tests` (`an_account_exception_does_not_leak_into_the_next_account` e vizinhos; o grupo da janela em `the_global_window_size_replaces_the_main_accounts_exception` e vizinhos).
+
+### Tamanho da janela conferido pelo PID
+
+O registro não resolve tudo: um cliente aberto reescreve o XML por conta própria (o Roblox grava o `StartScreenSize` dele), e se isso acontece entre o patch e o instante em que o cliente novo lê o arquivo, a conta nova abre com o tamanho da outra. Foi o bug de 03/10/2026: perfil global 520x420, exceção da conta principal 1000x1000 — as alts abriam em 1000x1000. Duas camadas, no launch de uma conta, na fila e no Auto Rejoin:
+
+1. **O patch é o último passo antes do spawn** — depois do fechamento gracioso (`AutoCloseLastProcess`), do auth ticket e do `resolve_private_join`, que eram o intervalo em que um cliente aberto reescrevia o XML. `patch_client_settings_for_launch` devolve o que resolveu para a janela (`ResolvedClientWindow`). Teste: `client_window_order_tests`, que lê o código dos três caminhos.
+2. **Conferência pelo PID** (`spawn_client_window_enforcement`, [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) → `enforce_client_window`, [windowing.rs](../../src-tauri/src/platform/windows/windowing.rs)). Numa task à parte (não segura a fila), procura a janela do PID novo por até 45 s, espera 1,5 s o cliente terminar de se dimensionar e aplica o tamanho resolvido **para esta conta** — exceção da conta, senão o global com `OverrideClientWindowSize`, senão nada. Confere de novo duas vezes, 2 s depois cada, caso o cliente se redimensione sozinho. Usa `SetWindowPos` sem ativar a janela nem mudar a ordem. Fica de fora: tela cheia (pedida ou detectada), janela maximizada, minimizada e conta que começa minimizada. O plano é `client_window_plan` (`client_window_plan_tests`).
+
+**Área cliente ou janela inteira?** O Roblox não documenta o que o `StartScreenSize` mede. Não é chutado: na primeira olhada em cada janela, o tamanho dela ainda é o que o XML deu — se a área cliente bate com o pedido, o sentido é área cliente; se o retângulo inteiro bate, é janela inteira. O aprendido vale para as janelas seguintes (inclusive as que nasceram com o tamanho de outra conta, que não ensinam nada). Antes de aprender, o padrão é área cliente. A borda é medida na própria janela (`GetWindowRect` − `GetClientRect`), então DPI e estilo entram sozinhos. Testes: `win_client_window_tests`. **Não verificado com cliente real** — se o Roblox aplicar escala de DPI ao `StartScreenSize`, nenhum dos dois bate e fica o padrão.
+
+A restauração da posição salva pelo Watcher (`Window_Position_*`, launch de uma conta) passou para a mesma task: a posição vem do salvo e o tamanho do plano (ou o salvo, se não houver tamanho). Conta que começa minimizada não é mais movida.
+
+**Grade automática** (`General.AutoArrangeGrid`, ligada por padrão): a mesma task põe a janela na primeira célula livre da grade da aba Windows, com o tamanho imposto acima como tamanho da célula — ver [ui-layout.md](ui-layout.md#grade-de-janelas). Conta com janela própria (exceção com tamanho ou tela cheia) fica fora da grade e mantém tamanho e posição (inclusive a salva pelo Watcher); para as outras, a grade vence a posição salva. Depois de posta, a janela é devolvida à mesma célula nas duas conferências seguintes (a célula não é escolhida de novo).
 
 ## Onde o `ClientAppSettings.json` é gravado
 

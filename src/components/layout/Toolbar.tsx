@@ -3,11 +3,16 @@ import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
-import { ENABLE_NEXUS } from "../../featureFlags";
 import { quickAddAccount } from "../../utils/quickAdd";
-import { SessionToolbarButton } from "../dialogs/SessionDialog";
-import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp, Keyboard, Shirt } from "lucide-react";
+import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus } from "lucide-react";
 
+/**
+ * Barra de cima da página de contas: filtro, selecionar tudo, nomes, painel
+ * lateral e o menu Add. Só o que age sobre a lista. Sessão, AFK Mode, Avatars,
+ * Scripts, Theme, Nexus, Settings e Ajuda saíram daqui — eram ícones que só
+ * diziam o que faziam com o mouse parado em cima — e viraram itens com nome na
+ * barra lateral (NavSidebar), cada um com a sua página.
+ */
 export function Toolbar() {
   const t = useTr();
   const store = useStore();
@@ -279,111 +284,6 @@ export function Toolbar() {
             </div>
           )}
         </div>
-
-        {/*
-          O passo do walkthrough que destaca a Sessão achava este botão pelo
-          `aria-label` traduzido — em outro idioma o tour perdia o alvo. O
-          `data-tour` vai no invólucro porque o botão em si mora no
-          SessionDialog; o span colado no botão dá o mesmo retângulo.
-        */}
-        <span data-tour="toolbar-session" className="inline-flex">
-          <SessionToolbarButton />
-        </span>
-
-        <Tooltip content={t("Theme")} side="bottom">
-          <button
-            onClick={() => store.setThemeEditorOpen(true)}
-            aria-label={t("Theme")}
-            className="theme-btn-ghost p-1.5 rounded-lg transition-colors"
-          >
-            <Palette size={16} strokeWidth={1.5} />
-          </button>
-        </Tooltip>
-
-        {ENABLE_NEXUS && (
-          <Tooltip content="Nexus" side="bottom">
-            <button
-              onClick={() => store.setNexusOpen(true)}
-              aria-label="Nexus"
-              className="theme-btn-ghost p-1.5 rounded-lg transition-colors"
-            >
-              <Layers size={16} strokeWidth={1.5} />
-            </button>
-          </Tooltip>
-        )}
-
-        {/*
-          O AFK mode é por conta e só alcança cliente aberto, então a porta dele
-          fica aqui, sempre visível — e não na barra de ações, que só aparece com
-          conta selecionada.
-        */}
-        <Tooltip content={t("AFK Mode")} side="bottom">
-          <button
-            onClick={() => store.setAfkDialogOpen(true)}
-            aria-label={t("AFK Mode")}
-            className={`theme-btn-ghost p-1.5 rounded-lg transition-colors ${
-              store.afkStatus?.active ? activeToggleStyle : ""
-            }`}
-          >
-            <Keyboard size={16} strokeWidth={1.5} />
-          </button>
-        </Tooltip>
-
-        {/* Avatares grátis: montar com itens oficiais gratuitos e distribuir entre as contas selecionadas. */}
-        <Tooltip content={t("Avatars")} side="bottom">
-          <button
-            onClick={() => store.setAvatarsDialogOpen(true)}
-            aria-label={t("Avatars")}
-            className="theme-btn-ghost p-1.5 rounded-lg transition-colors"
-          >
-            <Shirt size={16} strokeWidth={1.5} />
-          </button>
-        </Tooltip>
-
-        <Tooltip content={t("Scripts")} side="bottom">
-          <button
-            onClick={() => store.setScriptsOpen(true)}
-            aria-label={t("Scripts")}
-            className="theme-btn-ghost p-1.5 rounded-lg transition-colors"
-          >
-            <TerminalSquare size={16} strokeWidth={1.5} />
-          </button>
-        </Tooltip>
-
-        <Tooltip content={t("Settings")} side="bottom">
-          <button
-            onClick={() => store.setSettingsOpen(true)}
-            data-tour="toolbar-settings"
-            aria-label={t("Settings")}
-            className="theme-btn-ghost p-1.5 rounded-lg transition-colors"
-          >
-            <Settings size={16} strokeWidth={1.5} />
-          </button>
-        </Tooltip>
-
-        {/*
-          Ponto de ajuda. Escolhi reabrir o walkthrough de primeira execução em
-          vez de abrir a documentação: é conteúdo que já existe, é mantido junto
-          com a interface e aponta para os controles reais da tela — nada novo
-          foi inventado aqui. A documentação já tem porta própria (o botão do
-          GitHub na barra de título), e o backend só sabe abrir a raiz do
-          repositório (`open_repo_url`, sem argumento), o que deixaria de fora o
-          `docs/mapa-da-interface.md` que a pessoa está procurando.
-        */}
-        {/*
-          Tooltip curto de propósito: encostado na borda direita da janela ele
-          encolhe até a maior palavra e sai da tela. O nome completo fica no
-          `aria-label`, que não tem esse limite.
-        */}
-        <Tooltip content={t("Help")} side="bottom">
-          <button
-            onClick={store.openFirstRunWalkthroughFromSettings}
-            aria-label={t("Help — replay the walkthrough")}
-            className="theme-btn-ghost p-1.5 rounded-lg transition-colors"
-          >
-            <CircleHelp size={16} strokeWidth={1.5} />
-          </button>
-        </Tooltip>
       </div>
     </div>
   );

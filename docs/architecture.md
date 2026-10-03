@@ -47,9 +47,10 @@ A regra do projeto é que o frontend fala só com o backend, mas o código tem e
 | Onde | O quê |
 |---|---|
 | [UpdateDialog.tsx](../src/components/dialogs/UpdateDialog.tsx) | `fetch` direto em `api.github.com` (`REPO_API_URL` de [repo.ts](../src/repo.ts)) para ler as notas da release e o comparativo entre versões. |
-| [ScriptsDialog.tsx](../src/components/dialogs/ScriptsDialog.tsx) | `fetch`/`WebSocket` em nome de scripts do usuário (`ram.http`, `ram.ws`), com permissão explícita. |
+| [ScriptsPage.tsx](../src/components/pages/ScriptsPage.tsx) | `fetch`/`WebSocket` em nome de scripts do usuário (`ram.http`, `ram.ws`), com permissão explícita. |
 | [fontPresets.ts](../src/fontPresets.ts) | Carrega fontes de `fonts.googleapis.com`. |
 | [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos, jogos recentes e servidores recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`), não no backend. A versão que o usuário mandou pular no updater também (`getUpdaterSkipVersionKey`). |
+| [NavSidebar.tsx](../src/components/layout/NavSidebar.tsx) | Barra lateral recolhida ou não: `localStorage` (`ram_nav_collapsed`), preferência de quem está na máquina, com `try/catch` (armazenamento bloqueado só faz a escolha valer até fechar o app). |
 
 A região de um servidor **não** é mais exceção: o frontend chama `get_server_regions` e o backend faz a geolocalização ([server-choice.md](features/server-choice.md)).
 
@@ -138,8 +139,8 @@ webserver = ["dep:axum"]
 
 | Constante | Variável | Default | Efeito |
 |---|---|---|---|
-| `ENABLE_NEXUS` | `VITE_ENABLE_NEXUS` | `true` | Mostra botão Nexus no [Toolbar](../src/components/layout/Toolbar.tsx) e monta o `NexusDialog` em [App.tsx](../src/App.tsx). |
-| `ENABLE_WEBSERVER` | `VITE_ENABLE_WEBSERVER` | `true` | Inclui a aba WebServer em [SettingsDialog.tsx](../src/components/settings/SettingsDialog.tsx) e o toggle em [DeveloperTab.tsx](../src/components/settings/DeveloperTab.tsx). |
+| `ENABLE_NEXUS` | `VITE_ENABLE_NEXUS` | `true` | Mostra o item Nexus na [barra lateral](../src/components/layout/NavSidebar.tsx) e monta a `NexusPage` em [App.tsx](../src/App.tsx). |
+| `ENABLE_WEBSERVER` | `VITE_ENABLE_WEBSERVER` | `true` | Inclui a aba WebServer em [SettingsPage.tsx](../src/components/pages/SettingsPage.tsx) e o toggle em [DeveloperTab.tsx](../src/components/settings/DeveloperTab.tsx). |
 
 Valores aceitos: `1/true/yes/on` e `0/false/no/off` (qualquer outro → default). As flags do frontend e do Cargo são **independentes**: a CI ([ci.yml](../.github/workflows/ci.yml)) builda as duas combinações ("full" e "standard" com `--no-default-features`).
 
@@ -178,13 +179,13 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 | `friend-link-state` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `update_friend_link` | `FriendLinkSnapshot` completo: `{ active, phase, processed, total, accounts[{userId,state,error}], mode, mainUserId }` | [store.tsx](../src/store.tsx) → [SessionPanel.tsx](../src/components/session/SessionPanel.tsx), [BottomActionBar.tsx](../src/components/layout/BottomActionBar.tsx). Substituiu o `friend-link-progress`, que era `{phase, done, total}` e contava **pares** na fase de envio |
 | `browser-login-detected` | [chromium/commands.rs](../src-tauri/src/chromium/commands.rs) | `()` | [store.tsx](../src/store.tsx) (extrai cookie e adiciona conta) |
 | `chromium-download-progress` | [chromium/download.rs](../src-tauri/src/chromium/download.rs) | `{ stage, downloaded, total }` | [store.tsx](../src/store.tsx) |
-| `nexus-log` | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) | `{ message }` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
-| `nexus-element-created` / `nexus-element-newline` | [server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) | elemento / `{}` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
-| `nexus-account-connected` / `nexus-account-disconnected` | [nexus/websocket/connection.rs](../src-tauri/src/nexus/websocket/connection.rs) | `{ username }` | [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx) |
+| `nexus-log` | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) | `{ message }` | [NexusPage.tsx](../src/components/pages/NexusPage.tsx) |
+| `nexus-element-created` / `nexus-element-newline` | [server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) | elemento / `{}` | [NexusPage.tsx](../src/components/pages/NexusPage.tsx) |
+| `nexus-account-connected` / `nexus-account-disconnected` | [nexus/websocket/connection.rs](../src-tauri/src/nexus/websocket/connection.rs) | `{ username }` | [NexusPage.tsx](../src/components/pages/NexusPage.tsx) |
 | `launch-queue` | [launch.rs](../src-tauri/src/commands/launch.rs) `emit_launch_queue` | `LaunchQueuePayload`: `{ entries, active, placeId, jobId }` — retrato completo da fila | [store.tsx](../src/store.tsx) → Painel de Sessão ([multi-launch.md](features/multi-launch.md#fila-observável-e-cancelamento)) |
 | `roblox-build-install` | [platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs) `emit_build_install` | `{ version, stage, current, total, message }` — download silencioso da build do Roblox | [store.tsx](../src/store.tsx) (linha de `actionStatus`) |
 | `afk-status` / `afk-cycle` / `afk-stopped` | [afk.rs](../src-tauri/src/commands/afk.rs) | `AfkStatusPayload` (`{ active, startedAtMs, intervalMinutes, key, accounts }`) / `{ sent }` / `()` | [store.tsx](../src/store.tsx) ([afk-mode.md](features/afk-mode.md)) |
-| `avatar-batch-state` | [avatars.rs](../src-tauri/src/commands/avatars.rs) `update_avatar_batch` | `AvatarBatchSnapshot` completo: `{ running, total, done, currentUserId, accounts[{userId,avatarId,status,reason,claimed,missing}] }` | [AvatarsDialog.tsx](../src/components/dialogs/AvatarsDialog.tsx) ([avatars.md](features/avatars.md)) |
+| `avatar-batch-state` | [avatars.rs](../src-tauri/src/commands/avatars.rs) `update_avatar_batch` | `AvatarBatchSnapshot` completo: `{ running, total, done, currentUserId, accounts[{userId,avatarId,status,reason,claimed,missing}] }` | [AvatarsDialog.tsx](../src/components/pages/AvatarsPage.tsx) ([avatars.md](features/avatars.md)) |
 | `backup-restored` | [backups.rs](../src-tauri/src/commands/backups.rs) | `RestoreReport` (`backupId`, `safetyBackupId`, `restored`, `skipped`, `accountsReloaded`, `requiresRestart`, `restartReasons`) | [BackupsDialog.tsx](../src/components/dialogs/BackupsDialog.tsx) |
 | `chromium-fallback` | [chromium/download.rs](../src-tauri/src/chromium/download.rs) | `{ browser, error }` — o download falhou e o login vai pelo navegador do sistema | [store.tsx](../src/store.tsx) |
 | `signup-progress` | [chromium/signup_session.rs](../src-tauri/src/chromium/signup_session.rs) | `SignupStatus` (retrato da sessão de criação de contas) | [SignupPanel.tsx](../src/components/signup/SignupPanel.tsx) |

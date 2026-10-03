@@ -1224,6 +1224,57 @@ describe("restartRobloxClients", () => {
   });
 });
 
+describe("clients opened outside the app", () => {
+  it("polls the unidentified clients and marks the adopted ones", async () => {
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 })];
+    runningInstances = [
+      { user_id: 1, pid: 10, adopted: false },
+      { user_id: 2, pid: 20, adopted: true },
+    ];
+    results.set("get_unidentified_clients", [
+      { pid: 30, reason: "waitingForGame", userId: null, placeId: null, jobId: null, startedAtMs: 1 },
+    ]);
+    const { result } = await renderStore();
+
+    await waitFor(() => expect(result.current.unidentifiedClients).toHaveLength(1));
+    expect(result.current.unidentifiedClients[0].pid).toBe(30);
+    expect([...result.current.adoptedClients]).toEqual([2]);
+    expect(result.current.launchedByProgram.has(2)).toBe(true);
+  });
+
+  it("an old backend without the command leaves the list empty", async () => {
+    failures.set("get_unidentified_clients", "unknown command");
+    const { result } = await renderStore();
+    await waitFor(() => expect(invokeCalls("get_unidentified_clients").length).toBeGreaterThan(0));
+    expect(result.current.unidentifiedClients).toEqual([]);
+  });
+
+  it("identifying a client sends the pid and the account, then refreshes", async () => {
+    accountsData = [account({ UserID: 1 })];
+    results.set("identify_external_client", true);
+    const { result } = await renderStore();
+    const before = invokeCalls("get_running_instances").length;
+
+    await act(async () => {
+      await result.current.identifyExternalClient(30, 1);
+    });
+
+    expect(lastArgs("identify_external_client")).toEqual({ pid: 30, userId: 1 });
+    expect(invokeCalls("get_running_instances").length).toBeGreaterThan(before);
+  });
+
+  it("showing a client's window goes by pid", async () => {
+    results.set("focus_client_window", true);
+    const { result } = await renderStore();
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.focusClientWindow(30);
+    });
+    expect(ok).toBe(true);
+    expect(lastArgs("focus_client_window")).toEqual({ pid: 30 });
+  });
+});
+
 describe("account mutations", () => {
   it("adds an account by cookie and reports whether it was new", async () => {
     results.set("validate_cookie", { user_id: 7, name: "Cookie" });
@@ -1533,23 +1584,49 @@ describe("toasts and action status", () => {
    * barra. Abrir pela barra tem que **limpar** o jogo da abertura anterior,
    * senão o place escolhido num clique direito continuaria carimbando a tela.
    */
-  it("carrega o jogo escolhido ao abrir o Botting, e o limpa quando não há jogo", async () => {
+  it("carrega o jogo escolhido ao abrir o Auto Rejoin, e o limpa quando não há jogo", async () => {
     const { result } = await renderStore();
 
     act(() => result.current.openBottingDialog("606849621"));
-    expect(result.current.bottingDialogOpen).toBe(true);
-    expect(result.current.bottingDialogPlaceId).toBe("606849621");
+    expect(result.current.afkModeDialog).toEqual({ tab: "rejoin", placeId: "606849621" });
 
-    act(() => result.current.setBottingDialogOpen(false));
+    act(() => result.current.closeAfkMode());
+    expect(result.current.afkModeDialog).toBeNull();
     act(() => result.current.openBottingDialog());
-    expect(result.current.bottingDialogOpen).toBe(true);
-    expect(result.current.bottingDialogPlaceId).toBeNull();
+    expect(result.current.afkModeDialog).toEqual({ tab: "rejoin", placeId: null });
   });
 
   it("place em branco na abertura conta como sem jogo", async () => {
     const { result } = await renderStore();
     act(() => result.current.openBottingDialog("   "));
-    expect(result.current.bottingDialogPlaceId).toBeNull();
+    expect(result.current.afkModeDialog?.placeId).toBeNull();
+  });
+
+  /**
+   * Auto Rejoin e cliques AFK moram na mesma janela (Modo AFK). Quem abre pela
+   * barra (o atalho de AFK) cai na aba de cliques; quem abre pelo "Em jogo" leva
+   * as contas e o caminho de adoção junto.
+   */
+  it("o Modo AFK abre na aba pedida e com as contas de quem abriu", async () => {
+    const { result } = await renderStore();
+
+    act(() => result.current.setAfkDialogOpen(true));
+    expect(result.current.afkModeDialog).toEqual({ tab: "clicks" });
+    act(() => result.current.setAfkDialogOpen(false));
+    expect(result.current.afkModeDialog).toBeNull();
+
+    act(() =>
+      result.current.openAfkMode({ tab: "rejoin", targetUserIds: [1, 2], adoptRunning: true })
+    );
+    expect(result.current.afkModeDialog).toEqual({
+      tab: "rejoin",
+      targetUserIds: [1, 2],
+      adoptRunning: true,
+    });
+
+    // Sem aba pedida, abre nos cliques AFK (a aba padrão).
+    act(() => result.current.openAfkMode({ targetUserIds: [1] }));
+    expect(result.current.afkModeDialog).toEqual({ tab: "clicks", targetUserIds: [1] });
   });
 });
 
@@ -1634,6 +1711,55 @@ describe("adotar contas em jogo no Botting", () => {
       })
     ).rejects.toThrow(/which game/i);
     expect(invokeCalls("start_botting_mode")).toHaveLength(0);
+  });
+
+  /**
+   * Pelo Modo AFK, quem adota vê e ajusta o tempo do ciclo e as contas main
+   * antes do Start: o que foi escolhido na tela vale, e o place que a tela
+   * mostrou (detectado da presença ou digitado) também.
+   */
+  it("com a configuracao da tela, usa o tempo, as mains e o place escolhidos", async () => {
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.adoptRunningIntoBotting([1, 2], {
+        placeId: 1818,
+        intervalMinutes: 25,
+        launchDelaySeconds: 12,
+        playerGraceMinutes: 7,
+        playerUserIds: [1],
+      });
+    });
+
+    const [, args] = invokeCalls("start_botting_mode")[0];
+    expect(args).toMatchObject({
+      userIds: [1, 2],
+      placeId: 1818,
+      intervalMinutes: 25,
+      launchDelaySeconds: 12,
+      playerGraceMinutes: 7,
+      playerUserIds: [1],
+      adoptRunning: true,
+      jobId: "",
+    });
+    // O place veio da tela: não pergunta a presença de novo.
+    expect(invokeCalls("get_account_game_location")).toHaveLength(0);
+  });
+
+  it("detecta o jogo das contas em jogo pela presença", async () => {
+    results.set("get_account_game_location", {
+      userId: 1,
+      inGame: true,
+      placeId: 606849621,
+      jobId: null,
+    });
+    const { result } = await renderStore();
+
+    let place: number | null = null;
+    await act(async () => {
+      place = await result.current.detectRunningGamePlace([1, 2]);
+    });
+    expect(place).toBe(606849621);
   });
 
   it("uma conta so, sem sessao, explica o minimo em vez de falhar no backend", async () => {
@@ -1762,6 +1888,39 @@ describe("backend events", () => {
 
     expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("Alpha");
     expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain("moderadas");
+  });
+
+  /**
+   * Os toasts que nomeiam uma conta saíam com o nome real com "Names hidden"
+   * ligado — inclusive o deste listener, montado uma vez só no boot.
+   */
+  it("masks the account name in toasts while names are hidden", async () => {
+    accountsData = [account({ UserID: 1, Alias: "Alpha" })];
+    settingsData = { General: { HideUsernames: "true", HiddenNameLetters: "0" } };
+    results.set("validate_cookie", { user_id: 7, name: "SecretCookie" });
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.hideUsernames).toBe(true));
+    await waitFor(() => expect(listenHandlers.has("account-moderated")).toBe(true));
+
+    await act(async () => {
+      emit("account-moderated", { userId: 1 });
+    });
+    await act(async () => {
+      await result.current.addAccountByCookie("_|WARNING:-token");
+    });
+    const shown = result.current.toasts.map((toast) => toast.message).join(" | ");
+    expect(shown).toContain("************ is moderated");
+    expect(shown).toContain("Added ************");
+    expect(shown).not.toMatch(/Alpha|SecretCookie/);
+
+    // A linha "Launching <conta>..." do rodapé, com o launch ainda em curso.
+    results.set("launch_roblox", new Promise(() => {}));
+    act(() => {
+      void result.current.joinServer(1);
+    });
+    await waitFor(() => expect(result.current.actionStatus?.message).toBe("Launching ************..."));
+    // O backend continua recebendo o nome de verdade.
+    expect(lastArgs("add_account")).toMatchObject({ username: "SecretCookie" });
   });
 
   /**
@@ -2841,5 +3000,65 @@ describe("refreshAvatarHeadshots", () => {
     // 1 carga inicial + 3 tentativas.
     expect(headshotCalls).toBe(4);
     expect(result.current.avatarUrls.get(1)).toBe("old.png");
+  });
+});
+
+/**
+ * Navegação por páginas: a barra lateral troca a área principal em vez de abrir
+ * modal. Os setters antigos (`setSettingsOpen` e cia.) continuam valendo — há
+ * chamadas espalhadas (barra de ações, gerador, walkthrough, Choose Game) — e
+ * viram navegação.
+ */
+describe("activePage", () => {
+  it("starts on the account list", async () => {
+    const { result } = await renderStore();
+    expect(result.current.activePage).toBe("accounts");
+  });
+
+  it("navigates with setActivePage", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.setActivePage("avatars"));
+    expect(result.current.activePage).toBe("avatars");
+    act(() => result.current.setActivePage("accounts"));
+    expect(result.current.activePage).toBe("accounts");
+  });
+
+  it.each([
+    ["setSettingsOpen", "settings"],
+    ["setThemeEditorOpen", "theme"],
+    ["setAvatarsDialogOpen", "avatars"],
+    ["setSessionDialogOpen", "session"],
+    ["setNexusOpen", "nexus"],
+    ["setScriptsOpen", "scripts"],
+  ] as const)("maps %s(true) to the %s page", async (setter, page) => {
+    const { result } = await renderStore();
+    act(() => result.current[setter](true));
+    expect(result.current.activePage).toBe(page);
+  });
+
+  it("closing the open page goes back to the account list", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.setScriptsOpen(true));
+    act(() => result.current.setScriptsOpen(false));
+    expect(result.current.activePage).toBe("accounts");
+  });
+
+  /**
+   * O walkthrough "fecha tudo" no último passo chamando cada setter com
+   * `false`: fechar uma página que não é a aberta não pode tirar o usuário de
+   * onde ele está.
+   */
+  it("closing a page that is not open leaves the current page alone", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.setActivePage("avatars"));
+    act(() => result.current.setSettingsOpen(false));
+    expect(result.current.activePage).toBe("avatars");
+  });
+
+  it("reopening the walkthrough from Settings leaves the Settings page", async () => {
+    const { result } = await renderStore();
+    act(() => result.current.setSettingsOpen(true));
+    act(() => result.current.openFirstRunWalkthroughFromSettings());
+    expect(result.current.activePage).toBe("accounts");
   });
 });

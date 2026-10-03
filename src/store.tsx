@@ -19,6 +19,7 @@ import type {
   FriendLinkState,
   LaunchQueuePayload,
   ServerPreference,
+  UnidentifiedClient,
   VaultKeyWarning,
 } from "./types";
 import { playAfkBeep } from "./utils/afkBeep";
@@ -53,6 +54,41 @@ export function normalizeServerScanPages(value: number | undefined): number {
 /** Abas do diálogo do gerador de contas. */
 export type GeneratorDialogTab = "provider" | "signup";
 
+/** Abas do Modo AFK: Auto Rejoin (ciclo de rejoin) e cliques AFK (tecla/clique). */
+export type AfkModeTab = "rejoin" | "clicks";
+
+/**
+ * O que está aberto no Modo AFK — `null` com a janela fechada.
+ *
+ * `targetUserIds` + `adoptRunning` vêm do "Em jogo" do Painel de Sessão: as
+ * contas que já estão jogando, que o Auto Rejoin **adota** sem fechar nem
+ * relançar. Sem `targetUserIds` o Auto Rejoin trabalha com as contas
+ * selecionadas na lista, como sempre.
+ */
+export interface AfkModeDialogState {
+  tab: AfkModeTab;
+  targetUserIds?: number[];
+  adoptRunning?: boolean;
+  /** Jogo escolhido na abertura (clique direito num jogo). Vence o rascunho. */
+  placeId?: string | null;
+}
+
+/** O que a tela do Modo AFK escolheu antes de adotar as contas em jogo. */
+export interface AdoptBottingOptions {
+  /** Place mostrado na tela (detectado ou digitado); sem ele, pergunta a presença. */
+  placeId?: number;
+  intervalMinutes?: number;
+  launchDelaySeconds?: number;
+  playerGraceMinutes?: number;
+  playerUserIds?: number[];
+}
+/**
+ * Páginas da área principal, escolhidas pela barra lateral (NavSidebar). Cada
+ * uma ocupa a janela inteira à direita da barra; `accounts` é a lista de contas
+ * (com a Choose Game por cima quando aberta). Ver docs/features/ui-layout.md.
+ */
+export type AppPage = "accounts" | "session" | "afk" | "avatars" | "scripts" | "theme" | "nexus" | "settings";
+
 export function normalizeServerPreference(value: string | undefined): ServerPreference {
   switch ((value || "").trim().toLowerCase()) {
     case "none":
@@ -75,6 +111,7 @@ import { REPO_URL } from "./repo";
 import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
+import { accountLabel, maskAccountName } from "./utils/accountName";
 import {
   type UpdaterReleaseChannel,
   type UpdaterFeatureChannel,
@@ -95,6 +132,8 @@ interface RunningInstanceEntry {
   userId?: number;
   user_id?: number;
   pid?: number;
+  /** Aberto fora do app (pelo site) e reconhecido depois. */
+  adopted?: boolean;
 }
 
 interface OptimizationWarningPayload {
@@ -408,6 +447,14 @@ export interface StoreValue {
   avatarUrls: Map<number, string>;
   presenceByUserId: Map<number, number>;
   launchedByProgram: Set<number>;
+  /** Contas de `launchedByProgram` cujo cliente foi aberto fora do app (pelo site). */
+  adoptedClients: Set<number>;
+  /** Clientes abertos fora do app que o backend não reconheceu sozinho. */
+  unidentifiedClients: UnidentifiedClient[];
+  /** Diz ao app de quem é um cliente não identificado (não fecha nada). */
+  identifyExternalClient: (pid: number, userId: number) => Promise<boolean>;
+  /** Traz para a frente a janela de um cliente pelo PID. */
+  focusClientWindow: (pid: number) => Promise<boolean>;
 
   joinServer: (userId: number, target?: LaunchTarget) => Promise<LaunchAttempt>;
   launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
@@ -440,7 +487,12 @@ export interface StoreValue {
    * da conta — usar o place da tela mandaria a conta para outro jogo no
    * primeiro reinício do ciclo.
    */
-  adoptRunningIntoBotting: (userIds: number[]) => Promise<void>;
+  adoptRunningIntoBotting: (userIds: number[], options?: AdoptBottingOptions) => Promise<void>;
+  /**
+   * O place em que as contas estão jogando agora, pela presença de cada uma (a
+   * primeira que responder em jogo). `null` quando nenhuma diz.
+   */
+  detectRunningGamePlace: (userIds: number[]) => Promise<number | null>;
   stopBottingMode: (closeBotAccounts: boolean) => Promise<void>;
   addBottingAccounts: (userIds: number[]) => Promise<void>;
   setBottingPlayerAccounts: (userIds: number[]) => Promise<void>;
@@ -535,7 +587,15 @@ export interface StoreValue {
   skipFirstRunWalkthrough: () => Promise<void>;
   initialized: boolean;
 
-  settingsOpen: boolean;
+  /** Página aberta na área principal. Ver `AppPage`. */
+  activePage: AppPage;
+  setActivePage: (page: AppPage) => void;
+
+  /**
+   * Os `set<Algo>Open` das telas que viraram página são adaptadores: `true`
+   * navega para a página, `false` volta para a lista de contas **só se** aquela
+   * página for a aberta (fechar o que não está aberto não tira ninguém do lugar).
+   */
   setSettingsOpen: (open: boolean) => void;
   reloadSettings: () => Promise<void>;
 
@@ -550,18 +610,19 @@ export interface StoreValue {
   setImportDialogOpen: (open: boolean) => void;
   importDialogTab: "cookie" | "userpass" | "legacy";
   setImportDialogTab: (tab: "cookie" | "userpass" | "legacy") => void;
-  themeEditorOpen: boolean;
   setThemeEditorOpen: (open: boolean) => void;
-  bottingDialogOpen: boolean;
-  setBottingDialogOpen: (open: boolean) => void;
   /**
-   * Place com que o Auto Rejoin deve abrir quando a abertura partiu de um jogo
-   * (clique direito numa lista de jogos). **Vence o rascunho salvo**: quem
-   * acabou de escolher o jogo quer aquele jogo, não o da vez passada.
-   * `null` quando a abertura não trouxe jogo nenhum.
+   * Janela do Modo AFK (Auto Rejoin + cliques AFK). Uma só: antes eram dois
+   * diálogos, e quem ligava o Auto Rejoin pelo "Em jogo" não achava onde
+   * configurá-lo nem pará-lo.
    */
-  bottingDialogPlaceId: string | null;
-  /** Abre o Auto Rejoin, opcionalmente já com um jogo escolhido. */
+  afkModeDialog: AfkModeDialogState | null;
+  openAfkMode: (opts?: Partial<AfkModeDialogState>) => void;
+  closeAfkMode: () => void;
+  /**
+   * Abre o Modo AFK na aba Auto Rejoin, opcionalmente já com um jogo escolhido
+   * (clique direito numa lista de jogos). O jogo **vence o rascunho salvo**.
+   */
   openBottingDialog: (placeId?: string) => void;
   bottingStatus: BottingStatus | null;
   generatorDialogOpen: boolean;
@@ -575,21 +636,17 @@ export interface StoreValue {
   generatorStatus: GeneratorStatus | null;
   versionsDialogOpen: boolean;
   setVersionsDialogOpen: (open: boolean) => void;
-  afkDialogOpen: boolean;
+  /** Abre (ou fecha) o Modo AFK na aba de cliques AFK — o atalho da barra. */
   setAfkDialogOpen: (open: boolean) => void;
-  avatarsDialogOpen: boolean;
   setAvatarsDialogOpen: (open: boolean) => void;
   /** Invalida e busca de novo o headshot das contas cujo avatar mudou. */
   refreshAvatarHeadshots: (userIds: number[]) => Promise<void>;
-  sessionDialogOpen: boolean;
   setSessionDialogOpen: (open: boolean) => void;
   setDefaultVersion: (versionId: string | null) => void;
   missingAssets: { userId: number; username: string; assetIds: number[] } | null;
   setMissingAssets: (v: { userId: number; username: string; assetIds: number[] } | null) => void;
 
-  nexusOpen: boolean;
   setNexusOpen: (open: boolean) => void;
-  scriptsOpen: boolean;
   setScriptsOpen: (open: boolean) => void;
 
   updateInfo: {
@@ -703,6 +760,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [avatarUrls, setAvatarUrls] = useState<Map<number, string>>(new Map());
   const [presenceByUserId, setPresenceByUserId] = useState<Map<number, number>>(new Map());
   const [launchedByProgram, setLaunchedByProgram] = useState<Set<number>>(new Set());
+  const [adoptedClients, setAdoptedClients] = useState<Set<number>>(new Set());
+  const [unidentifiedClients, setUnidentifiedClients] = useState<UnidentifiedClient[]>([]);
+  // O efeito do polling registra aqui o seu refresh, para identificar um
+  // cliente refletir na hora em vez de esperar o próximo tique.
+  const refreshRunningRef = useRef<() => Promise<void>>(async () => {});
   const [error, setError] = useState<string | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -720,28 +782,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastIdRef = useRef(0);
   const [modal, setModal] = useState<{ title: string; content: string } | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activePage, setActivePageState] = useState<AppPage>("accounts");
+  const setActivePage = useCallback((page: AppPage) => setActivePageState(page), []);
+  /** Adaptador de `set<Algo>Open` para página — ver o comentário em `StoreValue`. */
+  const togglePage = useCallback((page: AppPage, open: boolean) => {
+    setActivePageState((current) => (open ? page : current === page ? "accounts" : current));
+  }, []);
+  const setSettingsOpen = useCallback((open: boolean) => togglePage("settings", open), [togglePage]);
+  const setThemeEditorOpen = useCallback((open: boolean) => togglePage("theme", open), [togglePage]);
+  const setAvatarsDialogOpen = useCallback((open: boolean) => togglePage("avatars", open), [togglePage]);
+  const setSessionDialogOpen = useCallback((open: boolean) => togglePage("session", open), [togglePage]);
+  const setNexusOpen = useCallback((open: boolean) => togglePage("nexus", open), [togglePage]);
+  const setScriptsOpen = useCallback((open: boolean) => togglePage("scripts", open), [togglePage]);
   const [serverListOpen, setServerListOpen] = useState(false);
   const [accountUtilsOpen, setAccountUtilsOpen] = useState(false);
   const [accountFieldsOpen, setAccountFieldsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importDialogTab, setImportDialogTab] = useState<"cookie" | "userpass" | "legacy">("cookie");
-  const [themeEditorOpen, setThemeEditorOpen] = useState(false);
-  const [bottingDialogOpen, setBottingDialogOpen] = useState(false);
-  const [bottingDialogPlaceId, setBottingDialogPlaceId] = useState<string | null>(null);
+  const [afkModeDialog, setAfkModeDialog] = useState<AfkModeDialogState | null>(null);
+  const openAfkMode = useCallback((opts?: Partial<AfkModeDialogState>) => {
+    // Sem aba pedida, os cliques AFK (a aba padrão do Modo AFK).
+    setAfkModeDialog({ ...opts, tab: opts?.tab ?? "clicks" });
+  }, []);
+  const closeAfkMode = useCallback(() => setAfkModeDialog(null), []);
   /**
    * Abrir sem jogo **limpa** o jogo da abertura anterior: senão o place escolhido
-   * num clique direito continuaria carimbando o diálogo aberto pela barra.
+   * num clique direito continuaria carimbando a tela aberta pela barra.
    */
   const openBottingDialog = useCallback((placeId?: string) => {
-    setBottingDialogPlaceId(placeId?.trim() ? placeId.trim() : null);
-    setBottingDialogOpen(true);
+    setAfkModeDialog({ tab: "rejoin", placeId: placeId?.trim() ? placeId.trim() : null });
+  }, []);
+  const setAfkDialogOpen = useCallback((open: boolean) => {
+    setAfkModeDialog(open ? { tab: "clicks" } : null);
   }, []);
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
   const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
   const [afkKeys, setAfkKeys] = useState<string[]>([]);
-  const [afkDialogOpen, setAfkDialogOpen] = useState(false);
-  const [avatarsDialogOpen, setAvatarsDialogOpen] = useState(false);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
 
@@ -751,12 +827,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
-  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
   const [friendLinkState, setFriendLinkState] = useState<FriendLinkState | null>(null);
   const [missingAssets, setMissingAssets] = useState<{ userId: number; username: string; assetIds: number[] } | null>(null);
-  const [nexusOpen, setNexusOpen] = useState(false);
-  const [scriptsOpen, setScriptsOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
     currentVersion: string;
@@ -787,6 +860,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const hiddenNameLetters = parseInt(settings?.General?.HiddenNameLetters || "0") || 0;
   const showAvatarsWhenHidden = settings?.General?.ShowAvatarsWhenHidden === "true";
   const hideRobuxWhenHidden = settings?.General?.HideRobuxWhenHidden === "true";
+  /**
+   * O "Names hidden" de agora, para os toasts que nomeiam uma conta — inclusive
+   * os dos listeners montados uma vez só, que veriam o valor do primeiro render.
+   */
+  const nameMaskingRef = useRef({ hideUsernames, hiddenNameLetters });
+  nameMaskingRef.current = { hideUsernames, hiddenNameLetters };
 
   const filteredAccounts = useMemo(() => {
     if (!searchQuery) return accounts;
@@ -1214,7 +1293,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...(password ? { password } : {}),
       });
       await loadAccounts();
-      addToast(tr(alreadyExists ? "Updated {{name}}" : "Added {{name}}", { name: info.name }));
+      const { hideUsernames: hidden, hiddenNameLetters: letters } = nameMaskingRef.current;
+      addToast(
+        tr(alreadyExists ? "Updated {{name}}" : "Added {{name}}", {
+          name: maskAccountName(info.name, hidden, letters),
+        })
+      );
     } catch (e) {
       setError(String(e));
     }
@@ -1421,7 +1505,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       userId,
     });
     const launchAccount = accounts.find((a) => a.UserID === userId);
-    const accountName = launchAccount?.Alias || launchAccount?.Username || String(userId);
+    const accountName = accountLabel(launchAccount, nameMaskingRef.current, userId);
     const launchingLine = tr("Launching {{name}}...", { name: accountName });
     setActionStatusMessage(launchingLine, "info", 5000);
 
@@ -1599,6 +1683,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function identifyExternalClient(pid: number, userId: number): Promise<boolean> {
+    const ok = await invoke<boolean>("identify_external_client", { pid, userId });
+    await refreshRunningRef.current();
+    return ok;
+  }
+
+  async function focusClientWindow(pid: number): Promise<boolean> {
+    return await invoke<boolean>("focus_client_window", { pid });
+  }
+
   async function focusRobloxClient(userId: number): Promise<boolean> {
     try {
       return await invoke<boolean>("focus_roblox_window", { userId });
@@ -1739,7 +1833,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * Start **fecha e relança** todo mundo, tirando as contas do servidor em que
    * já estavam. Aqui nada é fechado.
    */
-  async function adoptRunningIntoBotting(userIds: number[]) {
+  async function detectRunningGamePlace(userIds: number[]): Promise<number | null> {
+    for (const id of [...new Set(userIds)].filter((it) => it > 0)) {
+      try {
+        const found = await invoke<AccountGameLocation>("get_account_game_location", {
+          userId: id,
+        });
+        if (found?.inGame && found.placeId) return found.placeId;
+      } catch {
+        // Presença indisponível para esta conta; tenta a próxima.
+      }
+    }
+    return null;
+  }
+
+  async function adoptRunningIntoBotting(userIds: number[], options: AdoptBottingOptions = {}) {
     const ids = [...new Set(userIds)].filter((id) => id > 0);
     if (ids.length === 0) return;
 
@@ -1757,24 +1865,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       throw new Error(message);
     }
 
-    // O place vem de onde a conta ESTÁ, não do campo da tela: com o place
-    // errado, o primeiro reinício do ciclo a jogaria em outro jogo.
-    let location: AccountGameLocation | null = null;
-    for (const id of ids) {
-      try {
-        const found = await invoke<AccountGameLocation>("get_account_game_location", {
-          userId: id,
-        });
-        if (found?.inGame && found.placeId) {
-          location = found;
-          break;
-        }
-      } catch {
-        // Presença indisponível para esta conta; tenta a próxima.
-      }
-    }
+    // O place vem de onde a conta ESTÁ, não do campo da tela principal: com o
+    // place errado, o primeiro reinício do ciclo a jogaria em outro jogo. Quem
+    // passa `placeId` é a tela do Modo AFK, que mostrou esse place (detectado
+    // pela mesma presença, ou digitado) antes do Start.
+    const placeId =
+      options.placeId && options.placeId > 0 ? options.placeId : await detectRunningGamePlace(ids);
 
-    if (!location?.placeId) {
+    if (!placeId) {
       const message = tr(
         "Could not tell which game these accounts are in. Open the Auto Rejoin dialog and set the Place ID."
       );
@@ -1785,16 +1883,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const general = settings?.General || {};
     await startBottingMode({
       userIds: ids,
-      placeId: location.placeId,
+      placeId,
       // O job fica de fora de propósito: o ciclo relança no place, e fixar o
       // servidor atual mandaria todo reinício para um servidor que pode não
       // existir mais.
       jobId: "",
       launchData: "",
-      playerUserIds: [],
-      intervalMinutes: parseInt(general.BottingDefaultIntervalMinutes || "19", 10) || 19,
-      launchDelaySeconds: parseInt(general.BottingLaunchDelaySeconds || "20", 10) || 20,
-      playerGraceMinutes: parseInt(general.BottingPlayerGraceMinutes || "15", 10) || 15,
+      playerUserIds: (options.playerUserIds ?? []).filter((id) => ids.includes(id)),
+      intervalMinutes:
+        options.intervalMinutes ??
+        (parseInt(general.BottingDefaultIntervalMinutes || "19", 10) || 19),
+      launchDelaySeconds:
+        options.launchDelaySeconds ??
+        (parseInt(general.BottingLaunchDelaySeconds || "20", 10) || 20),
+      playerGraceMinutes:
+        options.playerGraceMinutes ??
+        (parseInt(general.BottingPlayerGraceMinutes || "15", 10) || 15),
       adoptRunning: true,
     });
   }
@@ -2027,7 +2131,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(walkthroughOpenTimeoutRef.current);
       walkthroughOpenTimeoutRef.current = null;
     }
-    setSettingsOpen(false);
+    // O tour começa na lista de contas (é lá que ficam o Add e a lista), de
+    // qualquer página que a Ajuda tenha sido clicada.
+    setActivePageState("accounts");
     setFirstRunWalkthroughMode("manual");
     setFirstRunWalkthroughOpen(false);
     walkthroughOpenTimeoutRef.current = window.setTimeout(() => {
@@ -2497,7 +2603,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // persisted it — reload so the list reflects the new grouping right away.
         void loadAccounts().catch(() => {});
         const acct = accountsRef.current.find((a) => a.UserID === userId);
-        const name = acct?.Alias || acct?.Username || String(userId);
+        const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(tr("{{name}} is moderated — moved to 'moderadas'", { name }));
       }),
       listen<{ userId: number; index: number; total: number }>("launch-progress", (e) => {
@@ -2718,19 +2824,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       try {
         const rows = await invoke<RunningInstanceEntry[]>("get_running_instances");
         const next = new Set<number>();
+        const adopted = new Set<number>();
         for (const row of rows) {
           const userId = row.userId ?? row.user_id;
           if (typeof userId === "number") {
             next.add(userId);
+            if (row.adopted) adopted.add(userId);
           }
         }
         if (!cancelled) {
           setLaunchedByProgram(next);
+          setAdoptedClients(adopted);
         }
       } catch {
       }
+      // Separado: um backend sem o comando não pode apagar a lista acima.
+      try {
+        const unidentified = await invoke<UnidentifiedClient[]>("get_unidentified_clients");
+        if (!cancelled) setUnidentifiedClients(Array.isArray(unidentified) ? unidentified : []);
+      } catch {
+        if (!cancelled) setUnidentifiedClients([]);
+      }
     };
 
+    refreshRunningRef.current = refreshRunningInstances;
     refreshRunningInstances();
     const timer = window.setInterval(refreshRunningInstances, 2500);
     return () => {
@@ -3046,6 +3163,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     avatarUrls,
     presenceByUserId,
     launchedByProgram,
+    adoptedClients,
+    unidentifiedClients,
+    identifyExternalClient,
+    focusClientWindow,
     joinServer,
     launchMultiple,
     restartRobloxClients,
@@ -3059,6 +3180,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     stopLaunchQueue,
     startBottingMode,
     adoptRunningIntoBotting,
+    detectRunningGamePlace,
     stopBottingMode,
     addBottingAccounts,
     setBottingPlayerAccounts,
@@ -3072,9 +3194,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     captureAfkPoint,
     afkStatus,
     afkKeys,
-    afkDialogOpen,
     setAfkDialogOpen,
-    avatarsDialogOpen,
     setAvatarsDialogOpen,
     refreshAvatarHeadshots,
     startGenerator,
@@ -3120,7 +3240,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     completeFirstRunWalkthrough,
     skipFirstRunWalkthrough,
     initialized,
-    settingsOpen,
+    activePage,
+    setActivePage,
     setSettingsOpen,
     reloadSettings,
     serverListOpen,
@@ -3133,11 +3254,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setImportDialogOpen,
     importDialogTab,
     setImportDialogTab,
-    themeEditorOpen,
     setThemeEditorOpen,
-    bottingDialogOpen,
-    setBottingDialogOpen,
-    bottingDialogPlaceId,
+    afkModeDialog,
+    openAfkMode,
+    closeAfkMode,
     openBottingDialog,
     bottingStatus,
     generatorDialogOpen,
@@ -3147,14 +3267,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     generatorStatus,
     versionsDialogOpen,
     setVersionsDialogOpen,
-    sessionDialogOpen,
     setSessionDialogOpen,
     setDefaultVersion,
     missingAssets,
     setMissingAssets,
-    nexusOpen,
     setNexusOpen,
-    scriptsOpen,
     setScriptsOpen,
     updateInfo,
     updateDialogOpen,

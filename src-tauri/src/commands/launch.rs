@@ -904,12 +904,6 @@ async fn launch_roblox_windows(
         &resolved_base_path,
     )
     .await;
-    patch_client_settings_for_launch(
-        &settings,
-        LaunchClientProfile::Normal,
-        account_overrides.as_ref(),
-        Some(&client_dir),
-    );
 
     let tracker = windows::tracker();
     if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -963,6 +957,17 @@ async fn launch_roblox_windows(
     } else if !actual_job.trim().is_empty() {
         emit_launch_log(&app, user_id, "info", "target", format!("Alvo resolvido: {}", actual_job.trim()));
     }
+
+    // O XML é compartilhado: o patch é o último passo antes do spawn, para não
+    // dar a um cliente já aberto o intervalo do fechamento e da rede para
+    // reescrevê-lo. Mesmo assim ele pode ser reescrito até o cliente novo o
+    // ler — quem garante o tamanho é `spawn_client_window_enforcement`.
+    let resolved_window = patch_client_settings_for_launch(
+        &settings,
+        LaunchClientProfile::Normal,
+        account_overrides.as_ref(),
+        Some(&client_dir),
+    );
 
     let pids_before = windows::get_roblox_pids();
 
@@ -1040,21 +1045,25 @@ async fn launch_roblox_windows(
         apply_windows_post_launch_profile(Some(&app), &settings, LaunchClientProfile::Normal, pid)
             .await;
 
-        let accounts = state.get_all()?;
-        if let Some(account) = accounts.iter().find(|a| a.user_id == user_id) {
-            if let Some((x, y, w, h)) = window_rect_from_fields(&account.fields) {
-                let target_pid = pid;
-                tokio::spawn(async move {
-                    for _ in 0..45 {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        if let Some(hwnd) = windows::find_main_window(target_pid) {
-                            windows::set_window_position(hwnd, x, y, w, h);
-                            break;
-                        }
-                    }
-                });
-            }
-        }
+        let saved_rect = state
+            .get_all()?
+            .iter()
+            .find(|a| a.user_id == user_id)
+            .and_then(|a| window_rect_from_fields(&a.fields));
+        spawn_client_window_enforcement(
+            &app,
+            pid,
+            client_window_plan(ClientWindowInputs {
+                fullscreen: resolved_window.fullscreen,
+                window_size: resolved_window.window_size,
+                keeps_own_window: account_overrides
+                    .as_ref()
+                    .is_some_and(|o| o.keeps_own_window()),
+                start_minimized,
+                auto_arrange_grid: auto_arrange_grid_enabled(&settings),
+                saved_rect,
+            }),
+        );
 
         if start_minimized {
             let baseline = pids_before.clone();
@@ -1481,12 +1490,6 @@ async fn launch_multiple(
             &acct_base_path,
         )
         .await;
-        patch_client_settings_for_launch(
-            &settings,
-            LaunchClientProfile::Normal,
-            acct_overrides.as_ref(),
-            Some(&acct_client_dir),
-        );
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;
@@ -1553,6 +1556,16 @@ async fn launch_multiple(
             sequence.cancel_remaining();
             break;
         }
+
+        // Último passo antes do spawn (ver o launch de uma conta, acima): os
+        // clientes que este lote já abriu reescrevem o XML enquanto esta conta
+        // espera o ticket.
+        let acct_window = patch_client_settings_for_launch(
+            &settings,
+            LaunchClientProfile::Normal,
+            acct_overrides.as_ref(),
+            Some(&acct_client_dir),
+        );
 
         let pids_before = windows::get_roblox_pids();
 
@@ -1630,6 +1643,21 @@ async fn launch_multiple(
                 pid,
             )
             .await;
+            spawn_client_window_enforcement(
+                &app,
+                pid,
+                client_window_plan(ClientWindowInputs {
+                    fullscreen: acct_window.fullscreen,
+                    window_size: acct_window.window_size,
+                    keeps_own_window: acct_overrides
+                        .as_ref()
+                        .is_some_and(|o| o.keeps_own_window()),
+                    start_minimized: acct_start_minimized,
+                    // Lido a cada conta: desligar no meio da fila já vale.
+                    auto_arrange_grid: auto_arrange_grid_enabled(&settings),
+                    saved_rect: None,
+                }),
+            );
             if acct_start_minimized {
                 let baseline = pids_before.clone();
                 tokio::spawn(async move {
@@ -2036,18 +2064,28 @@ fn list_display_monitors() -> Result<serde_json::Value, String> {
     }
 }
 
-/// Arrange every open Roblox window into a grid across the selected monitors
-/// (1-based indices; empty = all monitors).
+/// Arrange the open Roblox windows into the grid across the selected monitors
+/// (1-based indices; empty = all monitors) — the same slots the automatic grid
+/// uses. Accounts with their own window size (launch exception) are left
+/// alone, and the cell is the global window size when it is on.
 #[tauri::command]
-fn arrange_windows_grid(monitor_indices: Vec<usize>, gap: i32) -> Result<GridArrangeResult, String> {
+fn arrange_windows_grid(
+    state: tauri::State<'_, AccountStore>,
+    settings: tauri::State<'_, SettingsStore>,
+    monitor_indices: Vec<usize>,
+    gap: i32,
+) -> Result<GridArrangeResult, String> {
     #[cfg(target_os = "windows")]
     {
-        let (arranged, total) = platform::windows::arrange_roblox_grid(&monitor_indices, gap)?;
+        let size = global_window_size(&settings, LaunchClientProfile::Normal);
+        let excluded = grid_excluded_pids(state.inner());
+        let (arranged, total) =
+            platform::windows::arrange_roblox_grid(&monitor_indices, gap, size, &excluded)?;
         return Ok(GridArrangeResult { arranged, total });
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (monitor_indices, gap);
+        let _ = (state, settings, monitor_indices, gap);
         Err("Grid de janelas só é suportado no Windows.".to_string())
     }
 }
@@ -2087,6 +2125,8 @@ struct RunningInstance {
     pid: u32,
     user_id: i64,
     browser_tracker_id: String,
+    /// Aberto fora do app (pelo site) e reconhecido depois — ver external_clients.rs.
+    adopted: bool,
 }
 
 #[tauri::command]
@@ -2100,6 +2140,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 pid: p.pid,
                 user_id: p.user_id,
                 browser_tracker_id: p.browser_tracker_id,
+                adopted: p.adopted,
             })
             .collect());
     }
@@ -2112,6 +2153,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 pid: p.pid,
                 user_id: p.user_id,
                 browser_tracker_id: p.browser_tracker_id,
+                adopted: false,
             })
             .collect());
     }
@@ -3394,10 +3436,13 @@ mod launch_command_tests {
             pid: 42,
             user_id: 7,
             browser_tracker_id: "12345".to_string(),
+            adopted: true,
         })
         .unwrap();
         assert_eq!(json["pid"], 42);
         assert_eq!(json["user_id"], 7);
         assert_eq!(json["browser_tracker_id"], "12345");
+        // Cliente aberto pelo site e reconhecido pelo log (ver external_clients.rs).
+        assert_eq!(json["adopted"], true);
     }
 }

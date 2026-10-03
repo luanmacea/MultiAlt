@@ -167,7 +167,7 @@ Como funciona agora:
 
 **Numero da versao:** a serie e o major do `package.json` — hoje `0.x`, porque o app ainda esta antes da primeira versao completamente corrigida (as releases `v4.x` eram testes e carregavam o numero herdado do projeto original). O workflow **nao** commita o numero de volta: o `package.json` fica parado e cada release soma um patch a partir da tag mais alta da serie (`[bump:minor]` na mensagem do commit, ou o rotulo `bump:minor` no PR, soma um minor). Para escolher um numero — a 1.0.0, quando chegar a hora —, ponha-o no `package.json`, no `tauri.conf.json` e no `Cargo.toml`: se ele for maior que todas as tags da serie, a release sai exatamente com ele. Regra em [release-version.mjs](../.github/scripts/release-version.mjs), testada na suite `release` (`bun run t release`). ⚠️ O updater so troca por versao **maior**: quem tem uma `4.x` instalada nao recebe a `0.x` sozinho — instala a `0.x` por cima, uma vez.
 
-**Quais arquivos a release publica:** o **MSI** e o **portatil** das duas variantes, mais as assinaturas, e uma copia do MSI padrao com nome fixo, `Roblox-Account-Manager-Setup.msi` — e para ela que o botao de download do README aponta, por `/releases/latest/download/`. Por isso a release **nao** sai como pre-lancamento (`prerelease: false`): o GitHub nao conta pre-lancamento como "latest", e o link quebraria. O canal (beta/stable) continua no titulo, no texto e no manifesto do updater. **O setup NSIS (`.exe`) saiu em 03/10/2026** (decisao do dono: levava marcacao heuristica — ver a tabela abaixo); quem instalou por ele deixou de receber atualizacao, e o README orienta a instalar o MSI uma vez (a desinstalacao do NSIS nao apaga a pasta de dados). O portatil continua atras do interruptor `PUBLISH_PORTABLE` no topo do job `release` ([release-v4.yml](../.github/workflows/release-v4.yml)). O **portatil** e o `.exe` solto (sem instalar): sem admin, mas nao passa pelo updater e nao cria atalho no Menu Iniciar. Serve a quem nao quer instalar nada. **Nao assuma que ele e o mais limpo:** na v0.1.3 o portatil publicado levou 1/75 (`Wacatac.B!ml`, Microsoft) enquanto o MSI saiu 0/75 — ver a tabela abaixo. O guia "Which file to download" do texto da release (passo "Finalize release notes") so cita o que foi publicado.
+**Quais arquivos a release publica:** o **MSI** das duas variantes, mais as assinaturas (os arquivos do updater), e uma copia do MSI padrao com nome fixo, `MultiAlt-Setup.msi` (`Roblox-Account-Manager-Setup.msi` antes da troca de nome) — e para ela que o botao de download do README aponta, por `/releases/latest/download/`. Por isso a release **nao** sai como pre-lancamento (`prerelease: false`): o GitHub nao conta pre-lancamento como "latest", e o link quebraria. O canal (beta/stable) continua no titulo, no texto e no manifesto do updater. **O setup NSIS (`.exe`) saiu em 03/10/2026** (decisao do dono: levava marcacao heuristica — ver a tabela abaixo); quem instalou por ele deixou de receber atualizacao, e o README orienta a instalar o MSI uma vez (a desinstalacao do NSIS nao apaga a pasta de dados). **O portatil tambem saiu da release em 03/10/2026** (decisao do dono: o `.exe` solto leva 1/75 de um motor de ML — `Wacatac.B!ml`, Microsoft, na v0.1.3 — enquanto o MSI sai 0/75; ver a tabela abaixo). O codigo dele nao foi apagado: fica atras do interruptor `PUBLISH_PORTABLE: "false"` no `env` do job `release` ([release-v4.yml](../.github/workflows/release-v4.yml)). **Para religar, troque para `"true"`** (e o teste que trava o padrao, [release-workflow.test.mjs](../.github/scripts/release-workflow.test.mjs), suite `release`): copia, renomeio, upload e a linha do guia da release ja checam o interruptor, e o site mostra a linha "Portable" da tabela de downloads sozinho quando o arquivo existe na release. O **portatil** e o `.exe` solto (sem instalar): sem admin, mas nao passa pelo updater e nao cria atalho no Menu Iniciar. **Texto da release (passo "Finalize release notes"), para quem nao e tecnico** (pedido do dono, 03/10/2026): abre com o link do `MultiAlt-Setup.msi` e tres frases curtas; os outros arquivos ficam num bloco recolhido (o portatil so aparece com o interruptor ligado). O "## What's Changed" vem da secao **`## What's new`** do PR da `develop` para a `main` — escreva ali, em frases curtas e simples, o que muda para quem usa (sem nome de arquivo, sem jargao). A lista automatica do GitHub (titulos dos PRs) fica num bloco recolhido "Technical details"; PR sem a secao cai na lista automatica. A janela de atualizacao do app (`notesForUpdateDialog` em `UpdateDialog.tsx`) tira o bloco de download e os blocos recolhidos.
 
 **Dependencias saem otimizadas mesmo em debug** (`[profile.dev.package."*"] opt-level = 3` no [Cargo.toml](../src-tauri/Cargo.toml)). Motivo medido em 28/09/2026: o Argon2 em Rust puro leva **5,4 s por derivacao sem otimizacao** contra **0,3 s com ela** — 17x. Como `cargo test` roda em debug, a suite Rust levava 18 dos 24 minutos do CI. Com a mudanca: **230 s -> 41 s** local, mais rapido ate do que era com o libsodium. O nosso codigo segue sem otimizacao (compila rapido, debug bom). O libsodium nao sofria disso por ser C pre-compilado; qualquer cripto em Rust puro sofre.
 
@@ -219,7 +219,7 @@ Duas licoes desta medicao, que contrariam o que se supunha antes:
 Duas causas separadas, achadas por bisseccao com `bun run vt`:
 
 1. **A marcacao da Microsoft vinha da criptografia**, nao do resto do app: o `sodiumoxide` embute a biblioteca C **libsodium** no binario, e esse blob e o padrao nº 1 que modelos de ML associam a ransomware. O commit `2b3b660` virava 0/75 em 1/75. Resolvido trocando por criptografia em **Rust puro** (RustCrypto), no mesmo formato — ver [features/accounts.md](features/accounts.md). **Nao foi preciso remover a criptografia nem assinar o codigo.**
-2. **O 1/75 que sobra no NSIS e do empacotador**, nao do nosso codigo (o `.exe` de dentro e 0/75). E um motor de ML obscuro (APEX) com rotulo generico. Perseguir isso e alvo movel; o MSI e o portatil saem 0/75 e cobrem quem se incomoda.
+2. **O 1/75 que sobra no NSIS e do empacotador**, nao do nosso codigo (o `.exe` de dentro e 0/75). E um motor de ML obscuro (APEX) com rotulo generico. Perseguir isso e alvo movel; o MSI sai 0/75 e cobre quem se incomoda.
 
 Tambem aplicado: `webviewInstallMode: embedBootstrapper` no [tauri.conf.json](../src-tauri/tauri.conf.json), que tirou o download-e-executa da instalacao (o NSIS caiu de 3/71 para 1/71 sozinho com isso).
 
@@ -283,11 +283,11 @@ O `RAM_DATA_DIR` não isola tudo: o catálogo de versões (`RAMVersions.json`, `
 
 ## i18n
 
-- Configuração em [src/i18n/index.ts](../src/i18n/index.ts): idiomas suportados `en`, `de` e `pt` (português do Brasil), fallback `en`, `keySeparator: false` e `nsSeparator: false` — **a chave é a própria frase em inglês**.
-- Arquivos: [en](../src/locales/en/common.json) (a fonte; 1695 chaves em 27/09/2026 — o número sobe a cada `i18n:extract`), [pt](../src/locales/pt/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
+- Configuração em [src/i18n/index.ts](../src/i18n/index.ts): idiomas suportados `en`, `de`, `pt` (português do Brasil) e `es` (espanhol neutro da América Latina), fallback `en`, `keySeparator: false` e `nsSeparator: false` — **a chave é a própria frase em inglês**.
+- Arquivos: [en](../src/locales/en/common.json) (a fonte; 1695 chaves em 27/09/2026 — o número sobe a cada `i18n:extract`), [pt](../src/locales/pt/common.json) (completo), [es](../src/locales/es/common.json) (completo) e [de](../src/locales/de/common.json) (parcial — o que falta cai no inglês).
 - Helpers em [src/i18n/text.ts](../src/i18n/text.ts): `useTr()` (hook), `tr()` (fora de componentes) e `trNode()` (traduz texto dentro de fragments JSX). Ambos usam `defaultValue: text`, então uma chave ausente aparece em inglês.
-- Idioma vem de `General.Language` (normalizado: começa com `de` → `de`; `pt`/`portug` → `pt`; senão `en`). O padrão continua `en` — não há detecção de locale do sistema, de propósito: o app é usado fora do Brasil.
-- [src/i18n/locales.test.ts](../src/i18n/locales.test.ts) trava o contrato do catálogo: `pt` cobre o `en` inteiro na mesma ordem, sem chave inventada nem valor vazio, `{{placeholders}}` idênticos em `pt` e `de`, e nada igual ao inglês fora da lista de jargão (`IDENTICAL_BY_DESIGN`).
+- Idioma vem de `General.Language` (normalizado: começa com `de` → `de`; `pt`/`portug` → `pt`; `es`/`spanish` → `es`; senão `en`). O padrão continua `en` — não há detecção de locale do sistema, de propósito: o app é usado fora do Brasil.
+- [src/i18n/locales.test.ts](../src/i18n/locales.test.ts) trava o contrato do catálogo: cada idioma completo (`pt` e `es`, lista `COMPLETE_CATALOGS`) cobre o `en` inteiro na mesma ordem, sem chave inventada nem valor vazio, e nada igual ao inglês fora da sua lista de jargão (`IDENTICAL_BY_DESIGN_PT`, `IDENTICAL_BY_DESIGN_ES`); `{{placeholders}}` idênticos em `pt`, `es` e `de`. Idioma completo novo entra em `COMPLETE_CATALOGS` com a sua própria lista.
 
 ### Glossário pt-BR
 
@@ -296,11 +296,19 @@ O `RAM_DATA_DIR` não isola tudo: o catálogo de versões (`RAMVersions.json`, `
 - Termos fixos: account → conta · launch → iniciar · settings → configurações · aged/idle → sem uso · Main Accounts → Contas main · asset → item · General/Developer/Optimization/Misc/Isolation → Geral/Desenvolvedor/Otimização/Diversos/Isolamento.
 - Rótulo curto (<20 caracteres no inglês) não passa de +30% em português: trunca na tela.
 
+### Glossário es
+
+- Espanhol neutro da América Latina (o público do Roblox), tratamento **"tú"** — nunca voseo nem "vosotros"; vocabulário latino (computadora, archivo, hacer clic).
+- Mesma regra de botão/resultado do pt: "Guardar" / "Configuración guardada"; só a primeira maiúscula em rótulo.
+- **Não se traduz** o mesmo que no pt (`Auto Rejoin`, `Job ID`, `Place ID`, `Nexus`, `Watcher`, `main`, `alt`, nome de tema e de fonte...).
+- Termos fixos: account → cuenta · launch → iniciar · alias → apodo · settings → configuración · isolation → aislamiento · backup → copia de seguridad · encryption → cifrado.
+- Tom do toast: a frase de erro precisa de "error", "falló", "fallido/a" ou "no se pudo"; a de sucesso, "guardad", "actualizad" ou "iniciad"; a de aviso, "advertencia" ou "aviso" (ver [toastTone.ts](../src/utils/toastTone.ts)).
+
 ### Tradução não pode mudar comportamento
 
 O texto exibido nunca é valor de negócio: `<Select>` guarda `value` cru (`"idle"`, `"normal"`) e traduz só o `label`; nome de grupo, fase do Auto Rejoin e seção/chave do INI são comparados no literal inglês. Ao mexer em tradução, mantenha isso.
 
-O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria dos call sites entrega a frase **já traduzida** (`addToast(tr("..."))`). Por isso o heurístico vive em [src/utils/toastTone.ts](../src/utils/toastTone.ts) com marcadores dos dois idiomas completos, e um teste garante que nenhuma tradução apague o tom que o inglês indica.
+O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria dos call sites entrega a frase **já traduzida** (`addToast(tr("..."))`). Por isso o heurístico vive em [src/utils/toastTone.ts](../src/utils/toastTone.ts) com marcadores de cada idioma (`pt`, `es` e `de`), e um teste garante que nenhuma tradução apague o tom que o inglês indica.
 
 ### Extração de chaves
 
@@ -309,7 +317,7 @@ O caso que já morde: `addToast` deduz o tom da mensagem pelo texto, e a maioria
 1. Varre `src/**/*.ts(x)` (ignora pastas `locales` e `i18n`).
 2. Captura strings em `t("...")`/`tr("...")`, props `label|description|placeholder|suffix|title|tooltip|alt|aria-label="..."`, objetos `{ label: "..." }`, fragments `label={<>Texto<Badge/></>}` e filhos de `SectionLabel`, `SectionHeader`, `WarningBadge`, `UtilButton`.
 3. Descarta strings que parecem URLs, caminhos, hashes, IDs numéricos, template strings (`${`) ou sem letras.
-4. Adiciona as chaves faltantes em `en/common.json` com valor = chave. **Não remove** chaves antigas e **não mexe** em `de`/`pt`.
+4. Adiciona as chaves faltantes em `en/common.json` com valor = chave. **Não remove** chaves antigas e **não mexe** em `de`/`pt`/`es`.
 
 O extrator já reconhece, além do literal direto: componente com atributos
 (`<UtilButton onClick={...}>Texto</UtilButton>`), prop com expressão
@@ -329,7 +337,7 @@ não aparece traduzida, confira primeiro se a chave existe em
 todos os idiomas. [src/i18n/reachesTheScreen.test.tsx](../src/i18n/reachesTheScreen.test.tsx)
 renderiza em português os pontos que já falharam assim.
 
-As traduções ficam no próprio repositório: `src/locales/<idioma>/common.json`, com o inglês como fonte. O português acompanha cada mudança — o `locales.test.ts` exige o catálogo pt com todas as chaves do inglês, na mesma ordem e sem chave a mais —, e o alemão é parcial. O Crowdin que o projeto original usava (workflow `crowdin-sync.yml` e `crowdin.yml`) foi removido em 28/09/2026: este repositório não tem projeto lá, e o workflow falhava em todo push na `main`.
+As traduções ficam no próprio repositório: `src/locales/<idioma>/common.json`, com o inglês como fonte. O português e o espanhol acompanham cada mudança — o `locales.test.ts` exige os catálogos pt e es com todas as chaves do inglês, na mesma ordem e sem chave a mais —, e o alemão é parcial. O Crowdin que o projeto original usava (workflow `crowdin-sync.yml` e `crowdin.yml`) foi removido em 28/09/2026: este repositório não tem projeto lá, e o workflow falhava em todo push na `main`.
 
 Regra prática: sempre escreva textos de UI via `t(...)`/`tr(...)` ou numa das props reconhecidas, com interpolação no formato `{{nome}}` (nunca template string), e rode o extrator.
 
@@ -386,9 +394,9 @@ Exemplo: comando `get_account_note(user_id) -> String`.
 
    Normalmente isso vira uma função na [store.tsx](../src/store.tsx) ou fica no componente que usa. Tipos compartilhados vão em [types.ts](../src/types.ts).
 
-5. **Eventos**: se emitiu evento, registre o `listen` num `useEffect` com cleanup e adicione-o na tabela de [architecture.md](architecture.md#eventos-backend--frontend). Como `listen()` é assíncrono, use o padrão com flag `disposed` (como em [store.tsx](../src/store.tsx) e [NexusDialog.tsx](../src/components/dialogs/NexusDialog.tsx)): se o efeito já foi desmontado quando a promise resolver, chame o `unlisten` na hora em vez de guardá-lo — senão o listener vaza. Dentro de handlers de longa duração, leia estado via `ref` (ex.: `accountsRef`) para não usar valores velhos capturados no closure.
+5. **Eventos**: se emitiu evento, registre o `listen` num `useEffect` com cleanup e adicione-o na tabela de [architecture.md](architecture.md#eventos-backend--frontend). Como `listen()` é assíncrono, use o padrão com flag `disposed` (como em [store.tsx](../src/store.tsx) e [NexusPage.tsx](../src/components/pages/NexusPage.tsx)): se o efeito já foi desmontado quando a promise resolver, chame o `unlisten` na hora em vez de guardá-lo — senão o listener vaza. Dentro de handlers de longa duração, leia estado via `ref` (ex.: `accountsRef`) para não usar valores velhos capturados no closure.
 
-6. **Opcional — expor para scripts**: se scripts do usuário devem poder chamar o comando, adicione-o a `SCRIPT_INVOKE_COMMANDS` em [ScriptsDialog.tsx](../src/components/dialogs/ScriptsDialog.tsx) (allowlist; ver [scripts.md](features/scripts.md)).
+6. **Opcional — expor para scripts**: se scripts do usuário devem poder chamar o comando, adicione-o a `SCRIPT_INVOKE_COMMANDS` em [ScriptsPage.tsx](../src/components/pages/ScriptsPage.tsx) (allowlist; ver [scripts.md](features/scripts.md)).
 
 7. **Textos novos** na UI → `t("...")` + `bun run i18n:extract`.
 

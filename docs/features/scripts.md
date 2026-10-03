@@ -9,11 +9,11 @@ Permitir que o usuário escreva pequenos programas JavaScript que automatizam o 
 | Parte | Arquivo |
 |---|---|
 | Store e persistência (`RAMScripts.json`) | [data/scripts.rs](../../src-tauri/src/data/scripts.rs) |
-| Diálogo, host de execução, allowlists | [ScriptsDialog.tsx](../../src/components/dialogs/ScriptsDialog.tsx) |
+| Diálogo, host de execução, allowlists | [ScriptsPage.tsx](../../src/components/pages/ScriptsPage.tsx) |
 | Código do Worker (API `ram`, sandbox) | [scripting/workerSource.ts](../../src/scripting/workerSource.ts) |
 | Limites e validações de segurança | [scripting/security.ts](../../src/scripting/security.ts) |
 | Tipos | [scripting/types.ts](../../src/scripting/types.ts) |
-| Montagem no app | [App.tsx](../../src/App.tsx) (`<ScriptsDialog>` sempre montado) |
+| Montagem no app | [App.tsx](../../src/App.tsx) (`<ScriptsPage>` sempre montada) |
 
 ## Modelo (`ManagedScript`, JSON camelCase)
 
@@ -34,11 +34,11 @@ Comandos: `get_scripts` (ordenado por nome, case-insensitive), `save_script` (up
 
 ## Fluxo
 
-1. `ScriptsDialog` é montado sempre em [App.tsx](../../src/App.tsx) (a renderização visual só acontece quando aberto), então ao entrar no app ele chama `get_scripts`.
+1. `ScriptsPage` é montada sempre em [App.tsx](../../src/App.tsx) (a renderização visual só acontece com a página aberta), então ao entrar no app ele chama `get_scripts`.
 2. Uma única vez após carregar, inicia todos os scripts com `enabled && autoStart`.
 3. **Start**: `createScriptWorker()` cria um Worker a partir de um Blob com `WORKER_SOURCE`; o host envia o código e metadados.
 4. No Worker, o código passa por `normalizeUserCode` (remove BOM, NFKC...) e `assertNoDynamicImport`, e roda dentro de um `AsyncFunction` em modo estrito com `ram`, `console` e timers injetados e com os nomes globais perigosos sombreados.
-5. Cada `ram.<algo>(...)` vira uma mensagem `host-request { requestId, action, payload }`. O host em [ScriptsDialog.tsx](../../src/components/dialogs/ScriptsDialog.tsx) valida permissão/trust, executa e responde. Timeout de host request no worker: 20 s.
+5. Cada `ram.<algo>(...)` vira uma mensagem `host-request { requestId, action, payload }`. O host em [ScriptsPage.tsx](../../src/components/pages/ScriptsPage.tsx) valida permissão/trust, executa e responde. Timeout de host request no worker: 20 s.
 6. O host envia eventos para o script: `window:update` (snapshot do app), `ws` (mensagens de WebSocket) e `ui` (interações com a mini-UI).
 7. **Stop**: mensagem `stop` → rejeita pendentes, limpa handlers e `close()`; o host também faz `worker.terminate()`.
 8. **Save**: `sanitizeScriptSourceForSave` (normaliza aspas/traços "inteligentes", remove caracteres invisíveis, desembrulha bloco ```` ``` ````) → `save_script`. Se a assinatura de segurança (`getScriptSecuritySignature`: trusted + 8 permissões, com `allowPrivateNetwork`) mudou e o script está rodando, ele é **parado**.

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-type TooltipSide = "top" | "bottom";
+// `right` existe para a barra lateral recolhida: o ícone fica colado na borda
+// esquerda da janela, e o tooltip em cima/baixo cobriria o item vizinho.
+type TooltipSide = "top" | "bottom" | "right";
 
 let tooltipOpenCount = 0;
 let lastTooltipCloseAt = 0;
@@ -44,6 +46,10 @@ export function Tooltip({
     const vh = window.innerHeight;
 
     const preferred = side;
+    if (preferred === "right") {
+      setPos({ x: r.right, y: clamp(r.top + r.height / 2, 12, vh - 12), side: "right" });
+      return;
+    }
     const autoSide: TooltipSide = preferred === "top" && r.top < 56 ? "bottom" : preferred;
     const x = clamp(r.left + r.width / 2, 12, vw - 12);
     const y = autoSide === "top" ? clamp(r.top, 12, vh - 12) : clamp(r.bottom, 12, vh - 12);
@@ -130,19 +136,21 @@ export function Tooltip({
                 transform:
                   pos.side === "top"
                     ? "translate(-50%, calc(-100% - 8px))"
-                    : "translate(-50%, 8px)",
+                    : pos.side === "right"
+                      ? "translate(10px, -50%)"
+                      : "translate(-50%, 8px)",
               }}
             >
               <div
                 className={[
                   "relative theme-panel border theme-border rounded-lg px-2.5 py-2 shadow-2xl text-[12px] text-[var(--panel-fg)]",
                   "animate-tooltip-pop",
-                  pos.side === "top" ? "origin-bottom" : "origin-top",
+                  pos.side === "top" ? "origin-bottom" : pos.side === "right" ? "origin-left" : "origin-top",
                 ].join(" ")}
                 style={{
                   maxWidth,
                   willChange: "transform, opacity",
-                  ["--tt-from-y" as never]: pos.side === "top" ? "6px" : "-6px",
+                  ["--tt-from-y" as never]: pos.side === "top" ? "6px" : pos.side === "right" ? "0px" : "-6px",
                 }}
                 role="tooltip"
               >

@@ -3,13 +3,14 @@ import {
   collectGroupNames,
   getFreshnessColor,
   MAX_ALIAS_LENGTH,
-  maskAccountName,
   orderGroupKeys,
   parseGroupName,
   parseGroupOrder,
   serializeGroupOrder,
   timeAgo,
 } from "./types";
+// A máscara mora em utils/accountName.ts; os casos daqui continuam valendo.
+import { maskAccountName } from "./utils/accountName";
 import { makeAccount } from "./test-utils/renderWithStore";
 
 const NOW = new Date("2026-01-15T12:00:00.000Z").getTime();

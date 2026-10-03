@@ -76,7 +76,7 @@ export function FirstRunWalkthrough() {
         title: t("Add your first account"),
         summary: t("Browser Login is the easiest and safest way to start."),
         highlights: [
-          t("Use Add in the top toolbar for Quick Add, Browser Login, and imports"),
+          t("Use Add above the account list for Quick Add, Browser Login, and imports"),
           t("When the list is empty, the center Add shortcut works too"),
         ],
         targets: ["[data-tour='toolbar-add']", "[data-tour='empty-add']"],
@@ -119,25 +119,21 @@ export function FirstRunWalkthrough() {
       {
         id: "session-panel",
         title: t("Watch running clients in the Session panel"),
-        summary: t("The gamepad button in the top toolbar opens the Session panel."),
+        summary: t("Session, in the sidebar, opens the Session panel."),
         highlights: [
           t("Cancel an account that is still joining, before it ever opens a client"),
           t("Find or close a client that is already running, one by one"),
         ],
         /**
-         * O botão do painel fica na Toolbar e ainda não tem `data-tour`, então
-         * o tour o acha pelo `aria-label` traduzido. O diálogo vem primeiro:
-         * com ele aberto é ele que interessa destacar.
+         * A página vem primeiro: aberta, é ela que interessa destacar. Sem ela,
+         * o item da barra lateral (achado pelo `data-tour`, que não muda com o
+         * idioma).
          */
-        targets: [
-          `[role='dialog'][aria-label="${t("Session")}"]`,
-          "[data-tour='toolbar-session']",
-          `button[aria-label="${t("Session")}"]`,
-        ],
-        missingTargetHint: t("The Session panel opens from the gamepad button in the top toolbar"),
+        targets: ["[data-tour='session-page']", "[data-tour='nav-session']"],
+        missingTargetHint: t("The Session panel opens from Session, in the sidebar"),
         actionLabel: t("Open Session Panel"),
         onAction: () => {
-          store.setSessionDialogOpen(true);
+          store.setActivePage("session");
         },
       },
       {
@@ -148,10 +144,10 @@ export function FirstRunWalkthrough() {
           t("Multi Roblox and Auto Rejoin are powerful but higher risk"),
           t("Keep online-join warnings enabled until you fully trust your routine"),
         ],
-        targets: ["[data-tour='settings-modal']", "[data-tour='toolbar-settings']"],
+        targets: ["[data-tour='settings-page']", "[data-tour='nav-settings']"],
         actionLabel: t("Open Settings"),
         onAction: () => {
-          store.setSettingsOpen(true);
+          store.setActivePage("settings");
         },
       },
       {
@@ -169,8 +165,7 @@ export function FirstRunWalkthrough() {
     [
       store.openLoginBrowser,
       store.accounts.length,
-      store.setSessionDialogOpen,
-      store.setSettingsOpen,
+      store.setActivePage,
       store.setSidebarOpen,
       t,
     ]
@@ -200,20 +195,24 @@ export function FirstRunWalkthrough() {
       return null;
     }
 
-    const selectors =
-      activeStep.id === "safety"
-        ? store.settingsOpen
-          ? ["[data-tour='settings-modal']", "[data-tour='toolbar-settings']"]
-          : ["[data-tour='toolbar-settings']", "[data-tour='settings-modal']"]
-          : activeStep.targets;
-
-    for (const selector of selectors) {
+    // A página só existe quando aberta, então a ordem dos alvos (página antes
+    // do item da barra lateral) já escolhe certo.
+    for (const selector of activeStep.targets) {
       const element = document.querySelector<HTMLElement>(selector);
       if (element) return element;
     }
 
     return null;
-  }, [activeStep, store.accounts.length, store.settingsOpen]);
+  }, [activeStep, store.accounts.length, store.activePage]);
+
+  // Os passos da lista de contas só têm alvo na página de contas: aberto de
+  // outra página (a Ajuda fica na barra lateral, em qualquer página), o tour
+  // leva o usuário de volta — e termina lá, onde fica a barra de status.
+  useEffect(() => {
+    const accountSteps = ["add-account", "list-signals", "launch-sidebar", "ready"];
+    if (!accountSteps.includes(activeStep.id)) return;
+    if (store.activePage !== "accounts") store.setActivePage("accounts");
+  }, [activeStep.id, store.activePage, store.setActivePage]);
 
   useEffect(() => {
     if (activeStep.id !== "launch-sidebar") return;
@@ -235,17 +234,13 @@ export function FirstRunWalkthrough() {
 
   useEffect(() => {
     if (activeStep.id !== "ready") return;
-    store.setSettingsOpen(false);
+    // As páginas (Session, Settings...) o efeito acima já trocou pela lista de
+    // contas; aqui fecham os modais.
     store.setServerListOpen(false);
     store.setImportDialogOpen(false);
     store.setAccountFieldsOpen(false);
     store.setAccountUtilsOpen(false);
-    store.setThemeEditorOpen(false);
-    store.setBottingDialogOpen(false);
-    // Fecha também o painel que o passo anterior pode ter aberto.
-    store.setSessionDialogOpen(false);
-    store.setNexusOpen(false);
-    store.setScriptsOpen(false);
+    store.closeAfkMode();
     store.setUpdateDialogOpen(false);
     store.setMissingAssets(null);
     store.closeModal();
@@ -255,15 +250,10 @@ export function FirstRunWalkthrough() {
     store.closeModal,
     store.setAccountFieldsOpen,
     store.setAccountUtilsOpen,
-    store.setBottingDialogOpen,
+    store.closeAfkMode,
     store.setImportDialogOpen,
     store.setMissingAssets,
-    store.setNexusOpen,
-    store.setScriptsOpen,
     store.setServerListOpen,
-    store.setSessionDialogOpen,
-    store.setSettingsOpen,
-    store.setThemeEditorOpen,
     store.setUpdateDialogOpen,
   ]);
 

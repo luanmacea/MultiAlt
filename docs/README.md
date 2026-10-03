@@ -43,7 +43,8 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 ### Launch e automação
 - [features/launch.md](features/launch.md) — lançamento de uma conta.
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
-- [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico).
+- [features/external-clients.md](features/external-clients.md) — clientes abertos pelo site (ou antes de o app abrir) reconhecidos pelo log do Roblox; identificação manual.
+- [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.
 - [features/avatars.md](features/avatars.md) — avatares grátis: montar avatares só com itens oficiais gratuitos do Roblox e distribuí-los entre as contas (resgata o que falta de graça, nunca gasta Robux).
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).
@@ -92,7 +93,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 ## Registro de mudanças (2026-09-26)
 
-1. **O updater aponta para este repositório**, com chave de assinatura própria (com senha); a release publica só o MSI (o setup `.exe` saiu em 03/10/2026) e o portátil, atrás de interruptor — [development.md](development.md#atualizacoes-este-repositorio-com-chave-propria).
+1. **O updater aponta para este repositório**, com chave de assinatura própria (com senha); a release publica só o MSI (o setup `.exe` saiu em 03/10/2026; o portátil também, atrás do interruptor `PUBLISH_PORTABLE` desligado) — [development.md](development.md#atualizacoes-este-repositorio-com-chave-propria).
 2. **O trabalho vive na `develop`**; a `main` só recebe release (cada push nela publica uma versão) — [CLAUDE.md](../CLAUDE.md).
 3. **Exceções de launch por conta**: a conta principal pode abrir com FPS, volume, qualidade, tela e janela próprios — [launch.md](features/launch.md#exceções-de-launch-por-conta).
 4. **Auto Rejoin adota conta que já está em jogo**, sem relançar — [botting.md](features/botting.md#regras-de-negócio).

@@ -72,6 +72,24 @@ describe("ServerListDialog — cabe na janela", () => {
   });
 });
 
+describe("ServerListDialog — nomes ocultos", () => {
+  /** O selo ao lado do título mostrava o nome real com "Names hidden" ligado. */
+  it("o selo da conta sai mascarado", () => {
+    const secret = makeAccount({ UserID: 1001, Username: "secretalpha" });
+    setStore({
+      accounts: [secret],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [secret],
+      selectedAccount: secret,
+      hideUsernames: true,
+      hiddenNameLetters: 0,
+    });
+    render(<ServerListDialog open onClose={vi.fn()} />);
+    expect(within(quadro()).getByText("************")).toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain("secretalpha");
+  });
+});
+
 describe("ServerListDialog — menu do jogo completo, como na Choose Game", () => {
   /**
    * O Server List e a Choose Game ficaram espelhados pela metade: o Server List
@@ -122,6 +140,17 @@ describe("ServerListDialog — menu do jogo completo, como na Choose Game", () =
     await userEvent.click(menu.getByRole("button", { name: "Scripts" }));
     expect(store.setPlaceId).toHaveBeenCalledWith("606849621");
     expect(store.setScriptsOpen).toHaveBeenCalledWith(true);
+  });
+
+  /**
+   * Scripts virou página: com este diálogo aberto por cima, a página abria
+   * escondida atrás dele (e o Escape iria para a página, não para o diálogo).
+   */
+  it("Scripts fecha a Server List para a página aparecer", async () => {
+    const store = renderDialog();
+    const menu = await menuDoJogo("Games", "Jailbreak");
+    await userEvent.click(menu.getByRole("button", { name: "Scripts" }));
+    expect(store.setServerListOpen).toHaveBeenCalledWith(false);
   });
 
   it("Browse servers leva à aba Servers com o place do jogo", async () => {

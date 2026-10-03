@@ -77,11 +77,44 @@ describe("FirstRunWalkthrough — Session panel", () => {
     expect(screen.getByText(/close a client that is already running/i)).toBeInTheDocument();
   });
 
-  it("opens the Session panel from the step's action button", async () => {
+  it("opens the Session page from the step's action button", async () => {
     const store = openTour();
     await gotoStep(/Session panel/i);
     await userEvent.click(screen.getByRole("button", { name: /Open Session Panel/i }));
-    expect(store.setSessionDialogOpen).toHaveBeenCalledWith(true);
+    expect(store.setActivePage).toHaveBeenCalledWith("session");
+  });
+
+  /** A barra de ícones do topo saiu: o tour aponta o item da barra lateral. */
+  it("points at the Session item in the sidebar", async () => {
+    openTour();
+    await gotoStep(/Session panel/i);
+    expect(screen.getAllByText(/sidebar/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/top toolbar/i)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Os passos da lista de contas (Add, bolinhas, painel) só têm alvo na página de
+ * contas: aberto de outra página, o tour leva o usuário até lá.
+ */
+describe("FirstRunWalkthrough — pages", () => {
+  it("brings the account page back for the account steps", async () => {
+    const store = openTour({ activePage: "settings" });
+    await gotoStep(/Add your first account/i);
+    expect(store.setActivePage).toHaveBeenCalledWith("accounts");
+  });
+
+  it("points at the Settings item in the sidebar", async () => {
+    openTour();
+    await gotoStep(/Power settings/i);
+    expect(screen.queryByText(/top toolbar/i)).not.toBeInTheDocument();
+  });
+
+  it("opens the Settings page from the safety step", async () => {
+    const store = openTour();
+    await gotoStep(/Power settings/i);
+    await userEvent.click(screen.getByRole("button", { name: /Open Settings/i }));
+    expect(store.setActivePage).toHaveBeenCalledWith("settings");
   });
 });
 
@@ -92,10 +125,10 @@ describe("FirstRunWalkthrough — final step", () => {
     expect(screen.getByText(/status bar/i)).toBeInTheDocument();
   });
 
-  it("closes the Session panel it opened before finishing", async () => {
-    const store = openTour();
+  it("goes back to the account list before finishing", async () => {
+    const store = openTour({ activePage: "session" });
     await gotoStep(/ready to roll/i);
-    expect(store.setSessionDialogOpen).toHaveBeenCalledWith(false);
+    expect(store.setActivePage).toHaveBeenLastCalledWith("accounts");
   });
 });
 
@@ -111,6 +144,7 @@ describe("FirstRunWalkthrough — passo de idioma", () => {
     await userEvent.click(screen.getByText("English"));
     expect(screen.getByText("German")).toBeInTheDocument();
     expect(screen.getByText("Portuguese (Brazil)")).toBeInTheDocument();
+    expect(screen.getByText("Spanish")).toBeInTheDocument();
   });
 
   it("mostra o idioma salvo em vez do codigo cru quando ele e portugues", async () => {

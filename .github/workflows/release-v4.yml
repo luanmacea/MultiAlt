@@ -61,10 +61,21 @@ jobs:
       # `/releases/latest/download/` — e por isso a release **nao** e marcada
       # como pre-lancamento (o GitHub ignora pre-lancamento no "latest").
       #
-      # Portatil: o executavel solto, sem instalar. Sem admin, mas nao passa
-      # pelo updater. Nao e o mais limpo: na v0.1.3 levou 1/75 (Wacatac, da
-      # Microsoft) contra 0/75 do MSI. Serve a quem nao quer instalar nada.
-      PUBLISH_PORTABLE: "true"
+      # ── Interruptor do portatil ──────────────────────────────────────────
+      # Portatil: o executavel solto, sem instalar (`MultiAlt_<v>_x64_portable.exe`
+      # e `..._portable_full-nexus-ws.exe`). Sem admin, mas nao passa pelo
+      # updater. DESLIGADO desde 03/10/2026 (decisao do dono): o `.exe` solto
+      # leva 1/75 de um motor de ML no VirusTotal (Wacatac, da Microsoft, na
+      # v0.1.3) enquanto o MSI sai 0/75 — a release publica so os MSI e os
+      # arquivos do updater.
+      #
+      # Para VOLTAR a publicar o portatil, troque "false" por "true" aqui e
+      # nada mais: todo passo do portatil (copia, renomeio, upload e a linha
+      # do guia "Which file to download") ja checa este valor, e o site mostra
+      # a linha "Portable" sozinho quando o arquivo existe na release.
+      # O .github/scripts/release-workflow.test.mjs trava o padrao em "false" —
+      # mude o teste junto.
+      PUBLISH_PORTABLE: "false"
 
     steps:
       - name: Checkout
@@ -469,24 +480,7 @@ jobs:
             const repo = context.repo.repo;
             const tag = process.env.RELEASE_TAG;
             const channel = String(process.env.RELEASE_CHANNEL || "beta").toLowerCase();
-            const appVersion = process.env.RELEASE_APP_VERSION;
             const previousTag = process.env.RELEASE_PREVIOUS_TAG;
-            const releaseCommitSha = (context.payload.head_commit?.id || context.sha || "").slice(0, 7);
-
-            let releaseCommitMessage = String(context.payload.head_commit?.message || "").trim();
-            if (!releaseCommitMessage) {
-              try {
-                const commit = await github.rest.repos.getCommit({
-                  owner,
-                  repo,
-                  ref: context.sha
-                });
-                releaseCommitMessage = String(commit.data.commit.message || "").trim();
-              } catch (error) {
-                core.warning(`Could not resolve release commit message from commit API: ${error.message}`);
-              }
-            }
-            releaseCommitMessage = (releaseCommitMessage.split(/\r?\n/)[0] || "N/A").trim();
 
             const generatedNotes = await github.rest.repos.generateReleaseNotes({
               owner,
@@ -496,6 +490,38 @@ jobs:
               ...(previousTag ? { previous_tag_name: previousTag } : {})
             });
             const generatedBody = String(generatedNotes.data.body || "").trim();
+
+            // "What's Changed" em linguagem simples (pedido do dono, 03/10/2026):
+            // vem da secao "## What's new" do PR que gerou a release. A lista
+            // automatica do GitHub (titulos de PR, tecnica) fica recolhida em
+            // "Technical details". PR sem a secao: fica so a lista automatica.
+            let plainChanges = "";
+            try {
+              const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: context.sha
+              });
+              const pr = prs.data.find((item) => item.merged_at) || prs.data[0];
+              const lines = String(pr?.body || "").split(/\r?\n/);
+              const start = lines.findIndex((line) => /^##\s+What's new\s*$/i.test(line));
+              if (start >= 0) {
+                const end = lines.findIndex((line, i) => i > start && /^##\s+\S/.test(line));
+                plainChanges = lines.slice(start + 1, end < 0 ? undefined : end).join("\n").trim();
+              }
+            } catch (error) {
+              core.warning(`Could not read the "What's new" section of the release PR: ${error.message}`);
+            }
+            const technicalList = generatedBody.replace(/^##\s+What's Changed\s*/i, "").trim();
+            const changesBlock = plainChanges
+              ? [
+                  "## What's Changed",
+                  plainChanges,
+                  ...(technicalList
+                    ? ["", "<details>", "<summary>Technical details</summary>", "", technicalList, "", "</details>"]
+                    : [])
+                ].join("\n")
+              : generatedBody || "## What's Changed\n- Release notes could not be generated.";
 
             const contributorSet = new Set();
             if (previousTag) {
@@ -528,48 +554,49 @@ jobs:
               contributorsBlock = `## Contributors\n${avatars}\n\n${names}`;
             }
 
-            const channelLabel = channel === "beta" ? "Beta" : "Stable";
-            const warningLine = channel === "beta"
-              ? "This is a beta release. Missing features, bugs and crashes are possible. Run at your own risk."
-              : "This is a stable release intended for general use.";
-            const calloutType = channel === "beta" ? "WARNING" : "NOTE";
-
-            // Guia de download: cita so os arquivos que este job publica. O
-            // texto fixo que havia aqui anunciou MSI e portatil numa release que
-            // nao tinha nenhum dos dois (4.0.5).
+            // Texto pensado para quem nao e tecnico (pedido do dono, 03/10/2026):
+            // primeiro o botao do instalador e tres frases curtas; o resto fica
+            // num bloco recolhido. Sem commit, canal ou versao antiga no topo.
+            // Os titulos "## What's Changed" e "## Contributors" ficam: o
+            // UpdateDialog do app procura os dois.
+            const msiUrl = `https://github.com/${owner}/${repo}/releases/download/${tag}/MultiAlt-Setup.msi`;
             const publishPortable = process.env.PUBLISH_PORTABLE === "true";
-            const downloadGuide = [
-              "### Which file to download",
-              "**Start here: `MultiAlt-Setup.msi`.** It installs for your user only (no admin prompt), updates itself, and comes out clean on VirusTotal. For most people this is the only file you need (`..._x64_en-US.msi` is the same installer with the version in the name).",
+            const otherFiles = [
+              "<details>",
+              "<summary>Other files (you can ignore these)</summary>",
               "",
-              "- **Installed with the old setup `.exe`?** It is no longer published, so it won't update anymore. Uninstall it (Windows Settings → Apps) and install the `.msi` once — your accounts and settings are kept."
+              "- `MultiAlt_..._x64_en-US.msi`: the same installer, with the version in the name.",
+              "- Files with `full-nexus-ws` in the name: only for people who use external scripts (Nexus or the local API).",
+              "- `.sig` files: used by the automatic update."
             ];
             if (publishPortable) {
-              downloadGuide.push(
-                "- **If you would rather not install anything**, use **the portable `.exe`** (`..._x64_portable.exe`): it runs as-is. In exchange it does not update itself and creates no Start Menu shortcut."
-              );
+              otherFiles.push("- `..._x64_portable.exe`: runs without installing, but does not update itself.");
             }
-            downloadGuide.push(
-              "- **Files with `_full-nexus-ws` in the name**: the same app plus the local HTTP API and the Nexus WebSocket used by external scripts (they open local ports). Only if you need them.",
-              "- **`zz-...sig`**: signatures for the in-app auto-update. No need to download them."
-            );
+            otherFiles.push("", "</details>");
+
+            const betaLine = channel === "beta"
+              ? ["", "> [!NOTE]", "> This is a beta version: some things may still change."]
+              : [];
 
             const topNote = [
-              `> [!${calloutType}]`,
-              `> ${warningLine}`,
+              "## Download",
               "",
-              `Channel: ${channelLabel}`,
-              `Release commit: ${releaseCommitSha}`,
-              `Release commit message: ${releaseCommitMessage}`,
-              `App version: ${appVersion}`,
+              `### [⬇ Download MultiAlt-Setup.msi](${msiUrl})`,
               "",
-              ...downloadGuide
+              "Open the file and follow the installer. That's it.",
+              "",
+              "- Windows 10 or 11",
+              "- No administrator password needed",
+              "- Updates itself when a new version comes out",
+              ...betaLine,
+              "",
+              ...otherFiles
             ].join("\n");
 
             const finalBody = [
               topNote,
               "",
-              generatedBody || "## What's Changed\n- Release notes could not be generated.",
+              changesBlock,
               "",
               contributorsBlock
             ].join("\n");
