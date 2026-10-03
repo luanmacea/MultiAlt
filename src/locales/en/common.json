@@ -1793,6 +1793,8 @@
   "Use all": "Use all",
   "Verification required — skipped": "Verification required — skipped",
   "Avatar batch finished: {{ok}} of {{total}} accounts done": "Avatar batch finished: {{ok}} of {{total}} accounts done",
+  "An avatar batch is already running": "An avatar batch is already running",
+  "No saved avatar selected": "No saved avatar selected",
   "Hair": "Hair",
   "Hat": "Hat",
   "Accessories": "Accessories",
