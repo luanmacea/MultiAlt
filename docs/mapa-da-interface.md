@@ -15,7 +15,7 @@ com a explicação em português.
 
 ```
 Barra de título ─ GitHub · minimizar · maximizar · fechar
-Toolbar ──────── busca · selecionar tudo · Names · painel │ Add ▾ │ Session · Theme · Nexus · AFK · Scripts · Settings
+Toolbar ──────── busca · selecionar tudo · Names · painel │ Add ▾ │ Session · Theme · Nexus · AFK · Avatars · Scripts · Settings
 Lista de contas ─ agrupada, arrastável, com bolinhas de estado
 Barra inferior ── aparece ao selecionar: Clear · Account · Actions ▾ · Choose Game
 StatusBar ─────── contadores e legenda das cores
@@ -39,6 +39,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 | ícone de paleta | `Theme`: editor de cores e fontes. |
 | ícone de camadas | `Nexus`: controle de clientes por script Lua (exige executor externo). |
 | ícone de teclado | `AFK Mode`: manda uma tecla de tempo em tempo para a janela de cada conta escolhida, para não perder o estado no jogo. **Cada envio traz a janela do Roblox para frente por um instante.** Fica aceso enquanto o modo está mandando. |
+| ícone de camiseta | `Avatars`: monta avatares só com itens **oficiais gratuitos** do Roblox (aba Build, com sorteio) e os distribui entre as contas escolhidas (aba Distribute), pegando de graça as peças que faltam. Nunca gasta Robux; conta que o Roblox pede verificação é pulada. |
 | ícone de terminal | `Scripts`: automação em JavaScript **do próprio gerenciador**. |
 | ícone de engrenagem | `Settings`. |
 | `?` | Reabre o tour de primeira execução. |

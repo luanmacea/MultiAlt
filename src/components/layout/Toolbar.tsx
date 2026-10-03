@@ -6,7 +6,7 @@ import { tr, useTr } from "../../i18n/text";
 import { ENABLE_NEXUS } from "../../featureFlags";
 import { quickAddAccount } from "../../utils/quickAdd";
 import { SessionToolbarButton } from "../dialogs/SessionDialog";
-import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp, Keyboard } from "lucide-react";
+import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Palette, Layers, Settings, TerminalSquare, Sparkles, Package, UserPlus, CircleHelp, Keyboard, Shirt } from "lucide-react";
 
 export function Toolbar() {
   const t = useTr();
@@ -326,6 +326,17 @@ export function Toolbar() {
             }`}
           >
             <Keyboard size={16} strokeWidth={1.5} />
+          </button>
+        </Tooltip>
+
+        {/* Avatares grátis: montar com itens oficiais gratuitos e distribuir entre as contas selecionadas. */}
+        <Tooltip content={t("Avatars")} side="bottom">
+          <button
+            onClick={() => store.setAvatarsDialogOpen(true)}
+            aria-label={t("Avatars")}
+            className="theme-btn-ghost p-1.5 rounded-lg transition-colors"
+          >
+            <Shirt size={16} strokeWidth={1.5} />
           </button>
         </Tooltip>
 

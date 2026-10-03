@@ -156,6 +156,22 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: [],
   },
+  avatars: {
+    description: "Avatares gratuitos: catálogo oficial gratuito, resgate de itens, distribuição entre contas",
+    rust: [
+      "avatar_catalog_tests",
+      "avatar_store_tests",
+      "avatar_batch_tests",
+      "avatar_cache_invalidation_tests",
+    ],
+    front: [
+      "src/avatarBuilder.test.ts",
+      "src/components/dialogs/AvatarsDialog.test.tsx",
+      "src/components/dialogs/avatars",
+      // `store.test.ts` entra pelo bloco `refreshAvatarHeadshots` (foto da conta depois do lote).
+      "src/store.test.ts",
+    ],
+  },
   webserver: {
     description: "Servidor HTTP local: rotas, senha e bloqueio anti-CSRF",
     rust: [

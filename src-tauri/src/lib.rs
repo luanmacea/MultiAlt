@@ -11,11 +11,12 @@ mod webview_recovery;
 
 use api::batch::ImageCache;
 use data::accounts::{get_account_data_path, AccountStore};
+use data::avatars::AvatarStore;
 use data::crypto;
 use data::scripts::ScriptStore;
 use data::settings::{
-    get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path, SettingsStore,
-    ThemePresetStore, ThemeStore,
+    get_avatars_path, get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path,
+    SettingsStore, ThemePresetStore, ThemeStore,
 };
 use data::versions::{get_versions_catalog_path, VersionsCatalogStore};
 use std::collections::{HashMap, HashSet};
@@ -44,6 +45,7 @@ include!("commands/afk.rs");
 include!("commands/services.rs");
 include!("commands/updater.rs");
 include!("commands/backups.rs");
+include!("commands/avatars.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -220,6 +222,7 @@ pub fn run() {
     let theme_store = ThemeStore::new(get_theme_path());
     let theme_preset_store = ThemePresetStore::new(get_theme_presets_path());
     let script_store = ScriptStore::new(get_scripts_path());
+    let avatar_store = AvatarStore::new(get_avatars_path());
     let versions_catalog = VersionsCatalogStore::new(get_versions_catalog_path());
     let image_cache = ImageCache::new();
 
@@ -243,6 +246,7 @@ pub fn run() {
         .manage(theme_store)
         .manage(theme_preset_store)
         .manage(script_store)
+        .manage(avatar_store)
         .manage(versions_catalog)
         .manage(image_cache)
         .manage(UpdaterRuntimeState::default())
@@ -403,6 +407,14 @@ pub fn run() {
             send_friend_request,
             make_selected_friends,
             get_friend_link_state,
+            avatar_free_catalog,
+            avatar_list_saved,
+            avatar_save,
+            avatar_delete,
+            avatar_apply_batch,
+            avatar_cancel_batch,
+            get_avatar_batch_state,
+            invalidate_avatar_headshots,
             resolve_join_link,
             block_user,
             unblock_user,

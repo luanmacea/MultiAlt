@@ -19,6 +19,7 @@ pub const DATA_FILES: &[&str] = &[
     "RAMTheme.ini",
     "RAMThemePresets.json",
     "RAMScripts.json",
+    "RAMAvatars.json",
     "AccountControlData.json",
 ];
 pub const DATA_DIRS: &[&str] = &["RAMThemeFonts"];
@@ -160,6 +161,11 @@ pub fn get_scripts_path() -> PathBuf {
     get_runtime_data_dir().join("RAMScripts.json")
 }
 
+/// Avatares salvos da aba de avatares gratuitos.
+pub fn get_avatars_path() -> PathBuf {
+    get_runtime_data_dir().join("RAMAvatars.json")
+}
+
 pub fn get_theme_fonts_dir() -> PathBuf {
     get_runtime_data_dir().join("RAMThemeFonts")
 }
@@ -230,6 +236,7 @@ mod settings_paths_tests {
         let cases = [
             (get_settings_path(), "RAMSettings.ini"),
             (get_scripts_path(), "RAMScripts.json"),
+            (get_avatars_path(), "RAMAvatars.json"),
             (get_theme_path(), "RAMTheme.ini"),
             (get_theme_presets_path(), "RAMThemePresets.json"),
             (get_theme_fonts_dir(), "RAMThemeFonts"),
