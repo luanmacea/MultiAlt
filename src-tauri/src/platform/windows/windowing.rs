@@ -1,3 +1,9 @@
+use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetWindowLongW, IsZoomed, SetWindowPos, GWL_STYLE, SWP_NOACTIVATE, SWP_NOOWNERZORDER,
+    SWP_NOZORDER, WS_CAPTION,
+};
+
 struct EnumWindowData {
     target_pid: u32,
     result_hwnd: HWND,
@@ -161,6 +167,230 @@ pub fn get_window_title(hwnd: HWND) -> String {
         } else {
             String::new()
         }
+    }
+}
+
+// ── tamanho da janela imposto pelo PID, depois do spawn ────────────────────
+//
+// O `StartScreenSize` do XML é compartilhado por todos os clientes (ver
+// `spawn_client_window_enforcement`, em `commands/launch_shared.rs`). Depois que
+// a janela do PID novo aparece, ela recebe o tamanho resolvido para a conta
+// dela — o mesmo que o XML deveria ter dado.
+//
+// O que o `StartScreenSize` mede (área cliente ou janela inteira, com borda e
+// barra de título) não está documentado pelo Roblox. Em vez de chutar, a
+// primeira olhada em cada janela aprende: o patch acabou de gravar o tamanho
+// desta conta, então se a janela nasceu com a área cliente igual a ele, o
+// sentido é área cliente; se nasceu com o retângulo inteiro igual, é janela
+// inteira. O aprendido vale para as próximas janelas (inclusive as que
+// nasceram com o tamanho errado, que não ensinam nada). Antes de aprender, o
+// padrão é área cliente — o que um jogo costuma querer dizer com "tamanho da
+// tela". A borda é medida na própria janela (GetWindowRect − GetClientRect),
+// então DPI e estilo de janela entram sozinhos.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SizeSemantics {
+    /// O tamanho é o da área cliente; a borda vai por fora.
+    Client = 1,
+    /// O tamanho é o do retângulo inteiro da janela.
+    Outer = 2,
+}
+
+impl SizeSemantics {
+    const UNKNOWN: u8 = 0;
+
+    fn from_u8(value: u8) -> Self {
+        if value == SizeSemantics::Outer as u8 {
+            SizeSemantics::Outer
+        } else {
+            SizeSemantics::Client
+        }
+    }
+}
+
+static LEARNED_SIZE_SEMANTICS: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(SizeSemantics::UNKNOWN);
+
+fn learned_size_semantics() -> SizeSemantics {
+    SizeSemantics::from_u8(LEARNED_SIZE_SEMANTICS.load(Ordering::Relaxed))
+}
+
+/// O sentido que uma janela recém-aberta revela, comparando o tamanho que o
+/// XML pediu com o retângulo e a área cliente dela. `None` quando nenhum dos
+/// dois bate (o XML tinha o tamanho de outra conta).
+fn infer_size_semantics(
+    target: (i32, i32),
+    outer: (i32, i32),
+    client: (i32, i32),
+) -> Option<SizeSemantics> {
+    if client == target {
+        Some(SizeSemantics::Client)
+    } else if outer == target {
+        Some(SizeSemantics::Outer)
+    } else {
+        None
+    }
+}
+
+/// O retângulo inteiro que dá à janela o tamanho pedido.
+fn outer_size_for_target(
+    target: (i32, i32),
+    semantics: SizeSemantics,
+    outer: (i32, i32),
+    client: (i32, i32),
+) -> (i32, i32) {
+    match semantics {
+        SizeSemantics::Outer => target,
+        SizeSemantics::Client => (
+            target.0 + (outer.0 - client.0).max(0),
+            target.1 + (outer.1 - client.1).max(0),
+        ),
+    }
+}
+
+/// Maximizada, ou sem barra de título cobrindo o monitor inteiro (tela cheia
+/// do Roblox): o usuário pediu, e mexer desfaria.
+fn is_fullscreen_like(
+    zoomed: bool,
+    style: u32,
+    rect: (i32, i32, i32, i32),
+    monitor: (i32, i32, i32, i32),
+) -> bool {
+    if zoomed {
+        return true;
+    }
+    let captionless = style & WS_CAPTION != WS_CAPTION;
+    let covers = rect.0 <= monitor.0
+        && rect.1 <= monitor.1
+        && rect.0 + rect.2 >= monitor.0 + monitor.2
+        && rect.1 + rect.3 >= monitor.1 + monitor.3;
+    captionless && covers
+}
+
+/// Para onde a janela vai: a posição salva (ou a atual) e o tamanho do plano
+/// (ou o salvo, ou o atual).
+fn client_window_target(
+    current: (i32, i32, i32, i32),
+    client: (i32, i32),
+    size: Option<(u32, u32)>,
+    saved_rect: Option<(i32, i32, i32, i32)>,
+    semantics: SizeSemantics,
+) -> (i32, i32, i32, i32) {
+    let (x, y) = saved_rect.map(|r| (r.0, r.1)).unwrap_or((current.0, current.1));
+    let (w, h) = match size {
+        Some((tw, th)) => outer_size_for_target(
+            (tw as i32, th as i32),
+            semantics,
+            (current.2, current.3),
+            client,
+        ),
+        None => saved_rect
+            .map(|r| (r.2, r.3))
+            .unwrap_or((current.2, current.3)),
+    };
+    (x, y, w, h)
+}
+
+fn client_area_size(hwnd: HWND) -> Option<(i32, i32)> {
+    unsafe {
+        let mut rect: RECT = std::mem::zeroed();
+        if GetClientRect(hwnd, &mut rect) == 0 {
+            return None;
+        }
+        Some((rect.right - rect.left, rect.bottom - rect.top))
+    }
+}
+
+fn monitor_rect_of(hwnd: HWND) -> Option<(i32, i32, i32, i32)> {
+    unsafe {
+        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if hmon.is_null() {
+            return None;
+        }
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(hmon, &mut mi) == 0 {
+            return None;
+        }
+        let r = mi.rcMonitor;
+        Some((r.left, r.top, r.right - r.left, r.bottom - r.top))
+    }
+}
+
+fn window_is_fullscreen_like(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
+    let zoomed = unsafe { IsZoomed(hwnd) != 0 };
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    match monitor_rect_of(hwnd) {
+        Some(monitor) => is_fullscreen_like(zoomed, style, rect, monitor),
+        None => zoomed,
+    }
+}
+
+/// Move/redimensiona sem roubar o foco nem mudar a ordem das janelas.
+fn place_window(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            rect.0,
+            rect.1,
+            rect.2,
+            rect.3,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
+        ) != 0
+    }
+}
+
+pub fn is_roblox_pid_running(pid: u32) -> bool {
+    is_roblox_pid_alive(pid)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowEnforcement {
+    /// Minimizada, maximizada ou em tela cheia: fica como está, e a conferência
+    /// para por aqui.
+    Skipped,
+    /// Já estava onde o plano manda.
+    AlreadyThere,
+    Applied,
+}
+
+/// Aplica o plano numa janela. `first_look`: é a primeira vez que o app olha
+/// para esta janela — o tamanho dela ainda é o que o XML deu, e é dela que se
+/// aprende o sentido do `StartScreenSize`.
+pub fn enforce_client_window(
+    hwnd: HWND,
+    size: Option<(u32, u32)>,
+    saved_rect: Option<(i32, i32, i32, i32)>,
+    first_look: bool,
+) -> WindowEnforcement {
+    if hwnd.is_null() || window_is_minimized(hwnd) {
+        return WindowEnforcement::Skipped;
+    }
+    let (Some(current), Some(client)) = (get_window_position(hwnd), client_area_size(hwnd)) else {
+        return WindowEnforcement::Skipped;
+    };
+    if window_is_fullscreen_like(hwnd, current) {
+        return WindowEnforcement::Skipped;
+    }
+    if first_look {
+        if let Some((tw, th)) = size {
+            if let Some(learned) =
+                infer_size_semantics((tw as i32, th as i32), (current.2, current.3), client)
+            {
+                LEARNED_SIZE_SEMANTICS.store(learned as u8, Ordering::Relaxed);
+            }
+        }
+    }
+    let target = client_window_target(current, client, size, saved_rect, learned_size_semantics());
+    if target == current {
+        return WindowEnforcement::AlreadyThere;
+    }
+    if place_window(hwnd, target) {
+        WindowEnforcement::Applied
+    } else {
+        WindowEnforcement::Skipped
     }
 }
 

@@ -904,12 +904,6 @@ async fn launch_roblox_windows(
         &resolved_base_path,
     )
     .await;
-    patch_client_settings_for_launch(
-        &settings,
-        LaunchClientProfile::Normal,
-        account_overrides.as_ref(),
-        Some(&client_dir),
-    );
 
     let tracker = windows::tracker();
     if auto_close_last_process && tracker.get_pid(user_id).is_some() {
@@ -963,6 +957,17 @@ async fn launch_roblox_windows(
     } else if !actual_job.trim().is_empty() {
         emit_launch_log(&app, user_id, "info", "target", format!("Alvo resolvido: {}", actual_job.trim()));
     }
+
+    // O XML é compartilhado: o patch é o último passo antes do spawn, para não
+    // dar a um cliente já aberto o intervalo do fechamento e da rede para
+    // reescrevê-lo. Mesmo assim ele pode ser reescrito até o cliente novo o
+    // ler — quem garante o tamanho é `spawn_client_window_enforcement`.
+    let resolved_window = patch_client_settings_for_launch(
+        &settings,
+        LaunchClientProfile::Normal,
+        account_overrides.as_ref(),
+        Some(&client_dir),
+    );
 
     let pids_before = windows::get_roblox_pids();
 
@@ -1040,21 +1045,20 @@ async fn launch_roblox_windows(
         apply_windows_post_launch_profile(Some(&app), &settings, LaunchClientProfile::Normal, pid)
             .await;
 
-        let accounts = state.get_all()?;
-        if let Some(account) = accounts.iter().find(|a| a.user_id == user_id) {
-            if let Some((x, y, w, h)) = window_rect_from_fields(&account.fields) {
-                let target_pid = pid;
-                tokio::spawn(async move {
-                    for _ in 0..45 {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        if let Some(hwnd) = windows::find_main_window(target_pid) {
-                            windows::set_window_position(hwnd, x, y, w, h);
-                            break;
-                        }
-                    }
-                });
-            }
-        }
+        let saved_rect = state
+            .get_all()?
+            .iter()
+            .find(|a| a.user_id == user_id)
+            .and_then(|a| window_rect_from_fields(&a.fields));
+        spawn_client_window_enforcement(
+            pid,
+            client_window_plan(ClientWindowInputs {
+                fullscreen: resolved_window.fullscreen,
+                window_size: resolved_window.window_size,
+                start_minimized,
+                saved_rect,
+            }),
+        );
 
         if start_minimized {
             let baseline = pids_before.clone();
@@ -1481,12 +1485,6 @@ async fn launch_multiple(
             &acct_base_path,
         )
         .await;
-        patch_client_settings_for_launch(
-            &settings,
-            LaunchClientProfile::Normal,
-            acct_overrides.as_ref(),
-            Some(&acct_client_dir),
-        );
 
         if auto_close_last_process && tracker.get_pid(uid).is_some() {
             let closed = tracker.kill_for_user_graceful_async(uid, 4500).await;
@@ -1553,6 +1551,16 @@ async fn launch_multiple(
             sequence.cancel_remaining();
             break;
         }
+
+        // Último passo antes do spawn (ver o launch de uma conta, acima): os
+        // clientes que este lote já abriu reescrevem o XML enquanto esta conta
+        // espera o ticket.
+        let acct_window = patch_client_settings_for_launch(
+            &settings,
+            LaunchClientProfile::Normal,
+            acct_overrides.as_ref(),
+            Some(&acct_client_dir),
+        );
 
         let pids_before = windows::get_roblox_pids();
 
@@ -1630,6 +1638,15 @@ async fn launch_multiple(
                 pid,
             )
             .await;
+            spawn_client_window_enforcement(
+                pid,
+                client_window_plan(ClientWindowInputs {
+                    fullscreen: acct_window.fullscreen,
+                    window_size: acct_window.window_size,
+                    start_minimized: acct_start_minimized,
+                    saved_rect: None,
+                }),
+            );
             if acct_start_minimized {
                 let baseline = pids_before.clone();
                 tokio::spawn(async move {

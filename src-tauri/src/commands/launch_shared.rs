@@ -114,9 +114,9 @@ pub(crate) enum GraphicsQuality {
 /// versão do Roblox e `GlobalBasicSettings_13.xml` é por usuário do Windows —
 /// os dois são **globais**. "Por conta" funciona porque a fila de launch é
 /// sequencial e o patch roda imediatamente antes de cada spawn; não é
-/// isolamento de verdade. Se o jogador mudar as configurações dentro do jogo, o
-/// Roblox reescreve o XML e o valor vaza para a próxima conta que abrir sem
-/// exceção própria.
+/// isolamento de verdade. Um cliente aberto ainda pode reescrever o XML antes
+/// de o novo o ler — por isso o tamanho da janela é conferido pelo PID depois
+/// do spawn (`spawn_client_window_enforcement`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct AccountClientOverrides {
     pub max_fps: Option<u32>,
@@ -199,6 +199,118 @@ pub(crate) fn account_client_overrides(
         return None;
     }
     Some(overrides)
+}
+
+// ── a janela do cliente, conferida pelo PID ──────────────────────────────
+//
+// O `StartScreenSize` do `GlobalBasicSettings_13.xml` é **um arquivo para todos
+// os clientes**. O patch roda logo antes do spawn, mas um cliente já aberto
+// (a conta principal com a exceção dela, por exemplo) pode reescrever o XML
+// entre o patch e o instante em que o cliente novo o lê — e a alt abria com o
+// tamanho da principal (03/10/2026). O XML continua sendo gravado (é o que faz
+// o cliente já nascer no tamanho certo na maioria das vezes), mas quem garante
+// é a conferência depois do spawn: achada a janela do PID novo, ela recebe o
+// tamanho resolvido para ESTA conta.
+
+/// O que o launch resolveu para a janela desta conta — a mesma coisa que foi
+/// gravada no XML.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ClientWindowInputs {
+    /// `Some(true)` = tela cheia (exceção da conta).
+    pub fullscreen: Option<bool>,
+    /// O tamanho gravado no `StartScreenSize` (exceção da conta, senão o
+    /// perfil global com `OverrideClientWindowSize`).
+    pub window_size: Option<(u32, u32)>,
+    pub start_minimized: bool,
+    /// O retângulo que o Watcher salvou (`SaveWindowPositions`); só o launch
+    /// avulso o restaura.
+    pub saved_rect: Option<(i32, i32, i32, i32)>,
+}
+
+/// O que fazer com a janela quando ela aparecer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ClientWindowPlan {
+    /// Tamanho a impor, no mesmo sentido do `StartScreenSize`.
+    pub size: Option<(u32, u32)>,
+    /// Posição (e tamanho, se `size` não vier) a restaurar.
+    pub saved_rect: Option<(i32, i32, i32, i32)>,
+}
+
+impl ClientWindowPlan {
+    pub fn is_noop(&self) -> bool {
+        self.size.is_none() && self.saved_rect.is_none()
+    }
+}
+
+/// O piso que `rewrite_global_basic_settings` aplica ao `StartScreenSize`: o
+/// tamanho imposto na janela é o mesmo que o XML recebeu.
+const MIN_CLIENT_WINDOW: (u32, u32) = (320, 240);
+
+pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan {
+    // Tela cheia e começar minimizado são pedidos do usuário que mexer na
+    // janela desfaria.
+    if inputs.start_minimized || inputs.fullscreen == Some(true) {
+        return ClientWindowPlan::default();
+    }
+    ClientWindowPlan {
+        size: inputs
+            .window_size
+            .map(|(w, h)| (w.max(MIN_CLIENT_WINDOW.0), h.max(MIN_CLIENT_WINDOW.1))),
+        saved_rect: inputs.saved_rect,
+    }
+}
+
+/// O que o patch resolveu para a janela, devolvido para a conferência depois
+/// do spawn.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct ResolvedClientWindow {
+    pub fullscreen: Option<bool>,
+    pub window_size: Option<(u32, u32)>,
+}
+
+/// Espera a janela principal do PID aparecer e aplica o plano, sem prender o
+/// launch (roda numa task à parte). A janela é procurada por até 45 s — o
+/// mesmo teto da restauração de posição do Watcher.
+#[cfg(target_os = "windows")]
+pub(crate) fn spawn_client_window_enforcement(pid: u32, plan: ClientWindowPlan) {
+    if plan.is_noop() {
+        return;
+    }
+    tokio::spawn(async move {
+        use platform::windows;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
+        let found = loop {
+            if windows::find_main_window(pid).is_some() {
+                break true;
+            }
+            if std::time::Instant::now() >= deadline || !windows::is_roblox_pid_running(pid) {
+                break false;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        };
+        if !found {
+            return;
+        }
+        // O cliente ainda se dimensiona logo depois de mostrar a janela; medir
+        // antes disso confunde a borda com o tamanho.
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        // Uma aplicação e duas conferências: se o cliente redimensionar a
+        // janela por conta própria logo depois, ela volta ao plano.
+        for attempt in 0..3 {
+            if attempt > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+            }
+            let Some(hwnd) = windows::find_main_window(pid) else {
+                return;
+            };
+            let first_look = attempt == 0;
+            if windows::enforce_client_window(hwnd, plan.size, plan.saved_rect, first_look)
+                == windows::WindowEnforcement::Skipped
+            {
+                return;
+            }
+        }
+    });
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -455,7 +567,7 @@ pub(crate) fn patch_client_settings_for_launch(
     profile: LaunchClientProfile,
     account: Option<&AccountClientOverrides>,
     base_path: Option<&str>,
-) {
+) -> ResolvedClientWindow {
     use platform::windows;
 
     let effective_profile = effective_launch_profile(settings, profile);
@@ -486,6 +598,10 @@ pub(crate) fn patch_client_settings_for_launch(
         overrides.fast_flags.as_ref(),
         overrides.from_account,
     );
+    ResolvedClientWindow {
+        fullscreen: overrides.fullscreen,
+        window_size: overrides.window_size,
+    }
 }
 
 #[cfg(target_os = "macos")]
