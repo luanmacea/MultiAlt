@@ -1880,5 +1880,6 @@
   "PID {{pid}}": "PID {{pid}}",
   "Show window": "Show window",
   "Tell the app which account is playing in this client": "Tell the app which account is playing in this client",
-  "Unidentified client": "Unidentified client"
+  "Unidentified client": "Unidentified client",
+  "Saved backups": "Saved backups"
 }

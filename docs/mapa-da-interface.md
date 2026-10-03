@@ -123,11 +123,12 @@ As duas em negrito abrem a tela já **com aquele jogo preenchido** — antes era
 
 ## 4. Settings
 
-Nove abas. As mais úteis no dia a dia:
+Seções numa lista vertical à esquerda. As mais úteis no dia a dia:
 
 | Aba | O que mora ali |
 |---|---|
 | `General` | Idioma, updates, **Multi Roblox**, **Auto Rejoin**, `Launch one account at a time` e o atraso entre lançamentos (piso de 8 s), presença, nomes ocultos, navegador de login. |
+| `Backups` | Criar, listar, restaurar e apagar backups (contas, settings, scripts e temas), com a pasta de dados e o aviso de chave no zip. |
 | `Developer` | `Enable Developer Mode` (destrava itens do menu de contexto), web server, diagnóstico de mutex. |
 | `WebServer` | API HTTP local para ferramentas externas. A aba é sempre visível; os ajustes destravam com Developer Mode ou com o servidor ligado. A senha precisa de 6+ caracteres ou o servidor responde 401 a tudo. |
 | `Watcher` | Vigia o cliente do Roblox: fecha se cair a conexão, se a memória baixar, se o título mudar. |
@@ -135,7 +136,7 @@ Nove abas. As mais úteis no dia a dia:
 | `Isolation` | Limpeza de rastros antes de cada launch (cache, registro, MachineGuid, MAC). Windows. |
 | `Versions` | Versão padrão do Roblox e o baixador de versões. |
 | `Optimization` | FPS, gráficos, tamanho de janela e política de processo do Windows — um perfil por papel: `Normal`, `Auto Rejoin Main` e `Auto Rejoin Alt` (os dois últimos só aparecem com o Auto Rejoin ligado e perfis separados). |
-| `Misc` | Sincronia dos campos de launch, shuffle de Job ID, **Backups**, criptografia e "lembrar senha". |
+| `Misc` | Sincronia dos campos de launch, shuffle de Job ID, criptografia e "lembrar senha". |
 
 **Dois interruptores em General mudam o app inteiro:** `Multi Roblox` (várias instâncias ao mesmo tempo) e `Auto Rejoin` (destrava todo o ciclo de rejoin automático). Sem eles ligados, várias funcionalidades simplesmente não aparecem.
 
@@ -150,7 +151,7 @@ Nove abas. As mais úteis no dia a dia:
 | `Auto Rejoin` | Actions ▾ ou Choose Game › Follow | Mantém um grupo de contas alt dentro de um servidor: a cada N minutos **fecha e relança** cada alt. As contas marcadas como **main** abrem uma vez e **nunca** são reiniciadas pelo timer; a carência (`player_grace_minutes`) é da main **rebaixada** a alt com o cliente aberto. Exige Multi Roblox. |
 | `Account Utilities` | painel da conta › Tools | Operações na conta Roblox: display name, privacidade, **trocar senha**, **trocar e-mail**, PIN, encerrar outras sessões, bloqueios, outfits, avatar por JSON. |
 | `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
-| `Backups` | Settings › Misc › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
+| `Backups` | Settings › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
 | `Theme Editor` | toolbar | Cores, estilo de botão e fontes; presets exportáveis. |
 | `Session` | toolbar | Fila de lançamento (cancelar) e clientes abertos (focar, fechar). |
 

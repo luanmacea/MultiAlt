@@ -98,7 +98,7 @@ Byfron has said multiple clients may be seen as suspicious behavior — turn it 
 It doesn't break Roblox's Terms of Service, but some games forbid alts — check the game's rules first.
 
 **How do I back up my accounts?**
-In the app: Settings → `Misc` → `Data` → `Backups` → `Manage` ([details](docs/features/backups.md)). The zip includes `AccountData.key` — the backup can't be restored without it — so **if you have no password in the app, anyone with the zip can open your accounts**. If you keep backups in the cloud, set a password first (Settings → `Misc` → `Security` → `Change Encryption Method` → `Open` → `Pass Lock`).
+In the app: Settings → `Backups` ([details](docs/features/backups.md)). The zip includes `AccountData.key` — the backup can't be restored without it — so **if you have no password in the app, anyone with the zip can open your accounts**. If you keep backups in the cloud, set a password first (Settings → `Misc` → `Security` → `Change Encryption Method` → `Open` → `Pass Lock`).
 
 **The app opened with a blank (or black) window. What now?**
 The UI is drawn by Microsoft Edge WebView2 Runtime, so reinstalling the app doesn't help. The app tries to recover: if the UI doesn't show up in 25 s it reopens with video acceleration off. To force that mode, **hold Shift** while the app opens (or add `--safe-mode` to the shortcut's *Target*). If it's still blank, repair **Microsoft Edge WebView2 Runtime** in Windows Settings → Apps → Installed apps → Modify → Repair, restart Windows and update your graphics driver. [Details](docs/features/webview-recovery.md).

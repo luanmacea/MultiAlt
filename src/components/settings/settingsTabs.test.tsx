@@ -75,6 +75,10 @@ beforeEach(async () => {
         return [];
       case "remembered_unlock_state":
         return { remembered: false, expiresAt: null };
+      case "list_backups":
+        return [];
+      case "backups_info":
+        return { dir: "C:/data", portable: false, totalBytes: 0, count: 0 };
       default:
         return undefined;
     }
@@ -295,6 +299,28 @@ describe("SettingsPage sections", () => {
    * As nove abas mal cabiam numa linha do modal de 780 px. Na página elas são
    * uma lista vertical à esquerda, com a seção atual marcada.
    */
+  /**
+   * Backup era um diálogo aberto por um botão "Manage" escondido em Misc > Data.
+   * Agora é uma seção própria da página, com o conteúdo inline.
+   */
+  it("has a Backups section that shows the backups inline, without a dialog", async () => {
+    stored = {};
+    render(<SettingsPage active onLeave={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Backups" }));
+
+    expect(screen.getByRole("heading", { level: 2, name: "Backups" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Create backup" })).toBeVisible();
+    expect(screen.getByText("C:/data")).toBeVisible();
+    expect(document.querySelector(".fixed.inset-0")).toBeNull();
+  });
+
+  it("does not keep the old Manage button for backups in Misc", async () => {
+    stored = {};
+    render(<SettingsPage active onLeave={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Misc" }));
+    expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
+  });
+
   it("lists the sections in a vertical side navigation", async () => {
     stored = {};
     render(<SettingsPage active onLeave={() => {}} />);

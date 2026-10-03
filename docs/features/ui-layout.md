@@ -57,7 +57,7 @@ Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, A
 | **Scripts** | `ScriptsPage` (lista + editor) | |
 | **Theme** | `ThemePage`: presets, todas as categorias em cartões, prévia fixa ao lado | |
 | **Nexus** | `NexusPage` (só com `ENABLE_NEXUS`) | Start/Stop no cabeçalho |
-| **Settings** | `SettingsPage`: seções numa lista vertical à esquerda, conteúdo com teto de largura | |
+| **Settings** | `SettingsPage`: seções numa lista vertical à esquerda, conteúdo com teto de largura; **Backups** é uma seção própria, logo depois de General (era um diálogo até 03/10/2026) | |
 | **Help** (rodapé) | reabre o walkthrough, que leva de volta à lista de contas | |
 
 - **Estado:** `store.activePage` (`AppPage`) + `setActivePage`. Não há roteador. Os setters antigos (`setSettingsOpen`, `setThemeEditorOpen`, `setAvatarsDialogOpen`, `setSessionDialogOpen`, `setNexusOpen`, `setScriptsOpen`) continuam e viram navegação: `true` abre a página; `false` volta para Accounts **só se** aquela página for a aberta. Os booleanos `settingsOpen`/`scriptsOpen`/... saíram — quem quer saber lê `activePage`.

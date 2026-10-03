@@ -14,7 +14,7 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 | Comandos (`get_all_settings`, `get_setting`, `update_setting`, tema, presets, fontes) | [data/settings/commands.rs](../../src-tauri/src/data/settings/commands.rs) |
 | Tema (`RAMTheme.ini`) e presets | [data/settings/theme.rs](../../src-tauri/src/data/settings/theme.rs), [data/settings/presets.rs](../../src-tauri/src/data/settings/presets.rs) |
 | Página e seções | [SettingsPage.tsx](../../src/components/pages/SettingsPage.tsx) (seções numa lista vertical), [tabs.tsx](../../src/components/settings/tabs.tsx) (ordem e ícones), [TabContent.tsx](../../src/components/settings/TabContent.tsx) |
-| Abas | [GeneralTab](../../src/components/settings/GeneralTab.tsx), [DeveloperTab](../../src/components/settings/DeveloperTab.tsx), [WebServerTab](../../src/components/settings/WebServerTab.tsx), [WatcherTab](../../src/components/settings/WatcherTab.tsx), [GeneratorTab](../../src/components/settings/GeneratorTab.tsx), [IsolationTab](../../src/components/settings/IsolationTab.tsx), [VersionsTab](../../src/components/settings/VersionsTab.tsx), [OptimizationTab](../../src/components/settings/OptimizationTab.tsx), [MiscellaneousTab](../../src/components/settings/MiscellaneousTab.tsx) |
+| Abas | [GeneralTab](../../src/components/settings/GeneralTab.tsx), [BackupsTab](../../src/components/settings/BackupsTab.tsx), [DeveloperTab](../../src/components/settings/DeveloperTab.tsx), [WebServerTab](../../src/components/settings/WebServerTab.tsx), [WatcherTab](../../src/components/settings/WatcherTab.tsx), [GeneratorTab](../../src/components/settings/GeneratorTab.tsx), [IsolationTab](../../src/components/settings/IsolationTab.tsx), [VersionsTab](../../src/components/settings/VersionsTab.tsx), [OptimizationTab](../../src/components/settings/OptimizationTab.tsx), [MiscellaneousTab](../../src/components/settings/MiscellaneousTab.tsx) |
 | Hook de leitura/escrita | [hooks/useSettings.ts](../../src/hooks/useSettings.ts) |
 | Cópia global na store | [store.tsx](../../src/store.tsx) (`settings`, `reloadSettings`) |
 
@@ -31,6 +31,7 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 | Aba | Visível quando | Seções/chaves |
 |---|---|---|
 | General | sempre | `General.*` (updates, idioma, launch, privacidade de nomes, multi-Roblox, presença, tray...), `Login.*` |
+| Backups | sempre | nenhuma chave: criar, listar, restaurar e apagar backups inline ([BackupsTab](../../src/components/settings/BackupsTab.tsx), ver [backups.md](backups.md)). Era um diálogo aberto por "Manage" em Misc > Data até 03/10/2026 |
 | Developer | sempre | `Developer.DevMode`, `Developer.EnableWebServer` (toggle só se `ENABLE_WEBSERVER`) |
 | WebServer | `ENABLE_WEBSERVER` (build) — a aba aparece sempre; o que destrava os ajustes é `DevMode` ou `EnableWebServer`, dentro da própria aba ([SettingsPage.tsx](../../src/components/pages/SettingsPage.tsx) só a esconde sem `ENABLE_WEBSERVER`) | `WebServer.*` — ver [webserver.md](webserver.md) |
 | Watcher | sempre | `Watcher.*` — ver [watcher.md](watcher.md) |

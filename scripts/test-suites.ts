@@ -225,7 +225,7 @@ export const SUITES: Record<string, TestSuite> = {
   backups: {
     description: "Backup e restauração dos dados, e onde a pasta de dados fica",
     rust: ["backups_tests", "settings_paths_tests"],
-    front: ["src/components/dialogs/BackupsDialog.test.tsx"],
+    front: ["src/components/settings/BackupsTab.test.tsx"],
   },
   friends: {
     description: "Amigos online por conta e entrada no servidor do amigo",
