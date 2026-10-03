@@ -1,11 +1,11 @@
 {
-  "version": "0.1.8-beta",
-  "notes": "> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: a68abed\nApp version: 0.1.8\n\n## What's Changed\n* MSI-only releases and a one-click download button in the README by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/10\n\n\n**Full Changelog**: https://github.com/luanmacea/roblox-account-manager/compare/v0.1.7-beta...v0.1.8-beta",
-  "pub_date": "2026-10-03T06:07:05.572Z",
+  "version": "0.1.9-beta",
+  "notes": "> [!WARNING]\nThis is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk.\n\nChannel: Beta\nRelease commit: 15f422b\nApp version: 0.1.9\n\n## What's Changed\n* README: blue download button and website link [skip release] by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/11\n* README: new image name for the blue download button [skip release] by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/12\n* Website deploys from main instead of develop [skip release] by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/13\n* Website SEO: robots, sitemap, structured data, Search Console verification [skip release] by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/14\n* Rename to MultiAlt (Roblox Account Manager) by @luanmacea in https://github.com/luanmacea/roblox-account-manager/pull/15\n\n\n**Full Changelog**: https://github.com/luanmacea/roblox-account-manager/compare/v0.1.8-beta...v0.1.9-beta",
+  "pub_date": "2026-10-03T08:01:23.542Z",
   "platforms": {
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclh5bDlOODRCNjU1UEVoSGJPTkI2dllxdUF5ZEtNMmtmN2JwejlrZE55anExTkFHN3ppaWNQallhVk9WK0tMRzE4YmE2eUhqS2paY0J6a2ZodDByTVFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDA3NjIxCWZpbGU6Um9ibG94IEFjY291bnQgTWFuYWdlcl8wLjEuOF94NjRfZW4tVVMubXNpCjVidFE4OWxsWG9SbmIveWYyZk1YaWtDUHdZaytXaGN5bUs2MXVrRU8yZ2xZUFFtR1o1M0dhNUNQTUlka3VtcHIzWDJXbm50OXNsSTdFM3BzbWJsSkNnPT0K",
-      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.8-beta/Roblox.Account.Manager_0.1.8_x64_en-US.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclJmR0taUXdWR0NLYW5zVFRzRTZucml4WWViVURvL3ozSmtpK1N4Z1NYSmx6Vi9HbmR4UWN0WE1FZllkck5jWlpPVjdIanZpR1JzdnF1RUxCaE9JUEFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDE0NDc5CWZpbGU6TXVsdGlBbHRfMC4xLjlfeDY0X2VuLVVTLm1zaQpyUG1CR240VUpaVjdBQUhhYXFYT2RjTlRnWjZGY3JKODl3K09vOVozaTYzcThhUGcxRURvREJJQUZtNXJaci9YRVZybjQxSldDbXhROU5jRkdaMGdEdz09Cg==",
+      "url": "https://github.com/luanmacea/roblox-account-manager/releases/download/v0.1.9-beta/MultiAlt_0.1.9_x64_en-US.msi"
     }
   }
 }
