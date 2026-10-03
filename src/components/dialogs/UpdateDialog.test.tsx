@@ -131,3 +131,26 @@ describe("notas da atualização dentro do app", () => {
     expect(notesForUpdateDialog(body)).toBe(body);
   });
 });
+
+describe("notas da atualização — detalhes técnicos", () => {
+  it("escondem o bloco recolhido de detalhes técnicos e ficam com a lista simples", () => {
+    const body = [
+      "## What's Changed",
+      "- New menu on the left",
+      "",
+      "<details>",
+      "<summary>Technical details</summary>",
+      "",
+      "* Sidebar navigation by @luanmacea in #16",
+      "",
+      "</details>",
+      "",
+      "## Contributors",
+      "[@luanmacea](https://github.com/luanmacea)",
+    ].join("\n");
+    const notes = notesForUpdateDialog(body);
+    expect(notes).toMatch(/New menu on the left/);
+    expect(notes).not.toMatch(/Technical details|in #16|<details>/);
+    expect(notes).toMatch(/## Contributors/);
+  });
+});

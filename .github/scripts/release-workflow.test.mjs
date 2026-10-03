@@ -130,3 +130,25 @@ describe("texto da release", () => {
     expect(body).toMatch(/## Contributors/);
   });
 });
+
+/**
+ * "What's Changed" em linguagem simples: vem da seção "## What's new" do PR da
+ * release; a lista automática do GitHub (títulos de PR) fica recolhida. Sem a
+ * seção, a lista automática continua sendo o texto (nada sai vazio).
+ */
+describe("o que mudou, em linguagem simples", () => {
+  const finalize = () => steps().find((s) => s.name === "Finalize release notes").lines.join("\n");
+
+  it("lê a seção What's new do PR da release", () => {
+    const body = finalize();
+    expect(body).toMatch(/listPullRequestsAssociatedWithCommit/);
+    expect(body).toMatch(/What's new/);
+  });
+
+  it("guarda a lista técnica recolhida e cai nela quando o PR não tem a seção", () => {
+    const body = finalize();
+    expect(body).toMatch(/<summary>Technical details<\/summary>/);
+    expect(body).toMatch(/: generatedBody \|\| "## What's Changed/);
+    expect(body).toMatch(/^\s+changesBlock,$/m);
+  });
+});
