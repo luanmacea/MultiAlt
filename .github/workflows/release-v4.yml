@@ -48,20 +48,19 @@ jobs:
     env:
       RELEASE_GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
-      # ── Anexos opcionais da release ──────────────────────────────────────
-      # O instalador (.exe) sai sempre, nas duas variantes. Estes dois ligam e
-      # desligam os formatos extras; "true" volta a publica-los, e nenhum passo
-      # foi removido do workflow.
+      # ── Anexos da release ────────────────────────────────────────────────
+      # O instalador e o **MSI**, nas duas variantes — o unico desde 03/10/2026.
+      # O setup NSIS (.exe) saiu: levava marcacao heuristica no VirusTotal (3/71
+      # no 4.0.5, 1/75 nas 0.1.x) enquanto o MSI sai 0/75. Quem instalou pelo
+      # NSIS deixa de receber atualizacao (decisao do dono); o README orienta a
+      # instalar o MSI uma vez. O manifesto do updater so tem a chave
+      # `windows-x86_64-msi` (.github/scripts/update-manifest-platforms.mjs).
       #
-      # MSI: o download **recomendado**. No VirusTotal o setup NSIS (.exe) leva
-      # marcacao heuristica (3/71 no 4.0.5, todas de modelos de ML; 1/71 no teste
-      # com o WebView2 embutido, o `webviewInstallMode` do tauri.conf.json) e o
-      # MSI sai limpo (0/61, teste de 28/09/2026). O .exe continua saindo: e por
-      # ele que as instalacoes feitas com ele se atualizam (chave
-      # `windows-x86_64-nsis` do manifesto). Ligar tambem acrescenta o alvo `msi`
-      # ao bundle do Tauri no passo "Configure bundle targets". O guia "Which file
-      # to download" do texto da release segue estes dois interruptores.
-      PUBLISH_MSI: "true"
+      # O MSI padrao sai tambem com um nome fixo, `Roblox-Account-Manager-Setup.msi`:
+      # e para ele que o botao de download do README aponta, por
+      # `/releases/latest/download/` — e por isso a release **nao** e marcada
+      # como pre-lancamento (o GitHub ignora pre-lancamento no "latest").
+      #
       # Portatil: o executavel solto, sem instalar. Sem admin, mas nao passa
       # pelo updater. Nao e o mais limpo: na v0.1.3 levou 1/75 (Wacatac, da
       # Microsoft) contra 0/75 do MSI. Serve a quem nao quer instalar nada.
@@ -167,10 +166,7 @@ jobs:
         shell: pwsh
         run: |
           $config = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          $targets = @("nsis")
-          if ($env:PUBLISH_MSI -eq "true") {
-            $targets += "msi"
-          }
+          $targets = @("msi")
           $config.bundle.targets = $targets
           $config | ConvertTo-Json -Depth 100 | Set-Content src-tauri/tauri.conf.json
           Write-Host "Bundle targets: $($targets -join ', ')"
@@ -204,18 +200,28 @@ jobs:
           releaseName: ${{ steps.meta.outputs.release_title }}
           releaseBody: ${{ steps.meta.outputs.release_body }}
           generateReleaseNotes: true
-          prerelease: ${{ steps.controls.outputs.channel == 'beta' }}
+          # Nunca pre-lancamento: o botao do README usa /releases/latest/download,
+          # e o GitHub nao considera pre-lancamento como "latest". O canal
+          # (beta/stable) continua no titulo, no texto e no manifesto do updater.
+          prerelease: false
           releaseDraft: false
-          # A chave generica do latest.json fica no instalador .exe, o formato
-          # das instalacoes existentes. Quem instalou pelo MSI acha antes a
-          # `windows-x86_64-msi` (o updater procura a do proprio formato).
-          updaterJsonPreferNsis: true
 
       - name: Stage standard portable binary
         if: env.PUBLISH_PORTABLE == 'true'
         shell: pwsh
         run: |
           Copy-Item "src-tauri/target/release/roblox-account-manager.exe" "src-tauri/target/release/portable-standard.exe" -Force
+
+      # A copia com nome fixo sai **antes** do build completo, que reescreve a
+      # mesma pasta bundle/msi com o MSI da outra variante.
+      - name: Stage stable-named MSI for the README button
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi" -File -Filter "*.msi" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $msi) { throw "Standard MSI not found" }
+          Copy-Item $msi.FullName "src-tauri/target/release/Roblox-Account-Manager-Setup.msi" -Force
 
       - name: Wait for release to become available
         shell: pwsh
@@ -284,7 +290,6 @@ jobs:
           $stageDir = "src-tauri/target/release/release-assets"
           $standardPortableSrc = "src-tauri/target/release/portable-standard.exe"
           $fullPortableSrc = "src-tauri/target/release/roblox-account-manager.exe"
-          $nsisDir = Join-Path $bundleRoot "nsis"
           $msiDir = Join-Path $bundleRoot "msi"
 
           if (Test-Path $stageDir) {
@@ -302,75 +307,29 @@ jobs:
             }
           }
 
-          $fullSetupSrc = $null
-          if (Test-Path $nsisDir) {
-            $fullSetupSrc = Get-ChildItem $nsisDir -File -Recurse -Filter "*.exe" |
-              Where-Object { $_.Name -match "setup" } |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-          }
-
-          if (-not $fullSetupSrc) {
-            $fullSetupSrc = Get-ChildItem $bundleRoot -File -Recurse -Filter "*.exe" |
-              Where-Object { $_.Name -match "setup" } |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-          }
-
-          if (-not $fullSetupSrc) {
-            $fullSetupSrc = Get-ChildItem $bundleRoot -File -Recurse -Filter "*.exe" |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
-          }
-
-          if (-not $fullSetupSrc) {
-            throw "Full feature setup EXE not found"
-          }
-
           $fullMsiSrc = $null
-          $fullMsiSigSrc = $null
-          if ($env:PUBLISH_MSI -eq "true") {
-            if (Test-Path $msiDir) {
-              $fullMsiSrc = Get-ChildItem $msiDir -File -Recurse -Filter "*.msi" |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First 1
-            }
-
-            if (-not $fullMsiSrc) {
-              $fullMsiSrc = Get-ChildItem $bundleRoot -File -Recurse -Filter "*.msi" |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First 1
-            }
-
-            if (-not $fullMsiSrc) {
-              throw "Full feature MSI not found"
-            }
-
-            $fullMsiSigSrc = "$($fullMsiSrc.FullName).sig"
-            if (-not (Test-Path $fullMsiSigSrc)) {
-              throw "Full feature MSI signature not found"
-            }
+          if (Test-Path $msiDir) {
+            $fullMsiSrc = Get-ChildItem $msiDir -File -Recurse -Filter "*.msi" |
+              Sort-Object LastWriteTime -Descending |
+              Select-Object -First 1
           }
 
-          $fullSetupSigSrc = "$($fullSetupSrc.FullName).sig"
+          if (-not $fullMsiSrc) {
+            throw "Full feature MSI not found"
+          }
 
-          if (-not (Test-Path $fullSetupSigSrc)) {
-            throw "Full feature setup signature not found"
+          $fullMsiSigSrc = "$($fullMsiSrc.FullName).sig"
+          if (-not (Test-Path $fullMsiSigSrc)) {
+            throw "Full feature MSI signature not found"
           }
 
           $v = $env:RELEASE_VERSION
-          $fullSetupName = "Roblox.Account.Manager_${v}_x64-setup_full-nexus-ws.exe"
           $fullMsiName = "Roblox.Account.Manager_${v}_x64_en-US_full-nexus-ws.msi"
           $standardPortableName = "Roblox.Account.Manager_${v}_x64_portable.exe"
           $fullPortableName = "Roblox.Account.Manager_${v}_x64_portable_full-nexus-ws.exe"
 
-          Copy-Item $fullSetupSrc.FullName (Join-Path $stageDir $fullSetupName) -Force
-          Copy-Item $fullSetupSigSrc (Join-Path $stageDir "$fullSetupName.sig") -Force
-
-          if ($env:PUBLISH_MSI -eq "true") {
-            Copy-Item $fullMsiSrc.FullName (Join-Path $stageDir $fullMsiName) -Force
-            Copy-Item $fullMsiSigSrc (Join-Path $stageDir "$fullMsiName.sig") -Force
-          }
+          Copy-Item $fullMsiSrc.FullName (Join-Path $stageDir $fullMsiName) -Force
+          Copy-Item $fullMsiSigSrc (Join-Path $stageDir "$fullMsiName.sig") -Force
 
           if ($env:PUBLISH_PORTABLE -eq "true") {
             Copy-Item $standardPortableSrc (Join-Path $stageDir $standardPortableName) -Force
@@ -378,29 +337,15 @@ jobs:
           }
 
           $baseUrl = "https://github.com/$($env:GITHUB_REPOSITORY)/releases/download/$($env:RELEASE_TAG)"
-          $fullSetupSignature = (Get-Content $fullSetupSigSrc -Raw).Trim()
-          $fullMsiSignature = if ($fullMsiSigSrc) { (Get-Content $fullMsiSigSrc -Raw).Trim() } else { $null }
+          $fullMsiSignature = (Get-Content $fullMsiSigSrc -Raw).Trim()
 
-          # O updater procura primeiro a chave do proprio formato
-          # (`windows-x86_64-nsis` / `-msi`, tauri-plugin-updater 2.10) e so
-          # depois a generica. A generica fica **sempre** no instalador .exe: e o
-          # formato das instalacoes existentes, e mandar para o MSI um app de
-          # formato desconhecido instalaria uma segunda copia, por maquina, ao
-          # lado da atual.
+          # So a chave do MSI (ver update-manifest-platforms.mjs, que o
+          # generate-update-manifest.mjs aplica de novo): sem a generica, um app
+          # de formato desconhecido nunca recebe o MSI como "atualizacao".
           $platforms = [ordered]@{}
-          $platforms["windows-x86_64"] = [ordered]@{
-            signature = $fullSetupSignature
-            url = "$baseUrl/$fullSetupName"
-          }
-          $platforms["windows-x86_64-nsis"] = [ordered]@{
-            signature = $fullSetupSignature
-            url = "$baseUrl/$fullSetupName"
-          }
-          if ($env:PUBLISH_MSI -eq "true") {
-            $platforms["windows-x86_64-msi"] = [ordered]@{
-              signature = $fullMsiSignature
-              url = "$baseUrl/$fullMsiName"
-            }
+          $platforms["windows-x86_64-msi"] = [ordered]@{
+            signature = $fullMsiSignature
+            url = "$baseUrl/$fullMsiName"
           }
 
           $manifest = [ordered]@{
@@ -414,26 +359,21 @@ jobs:
           $manifest | ConvertTo-Json -Depth 100 | Set-Content $fullManifestOut
 
           Add-Content -Path $env:GITHUB_ENV -Value "RELEASE_STAGE_DIR=$stageDir"
-          Add-Content -Path $env:GITHUB_ENV -Value "FULL_SETUP_NAME=$fullSetupName"
           Add-Content -Path $env:GITHUB_ENV -Value "FULL_MSI_NAME=$fullMsiName"
           Add-Content -Path $env:GITHUB_ENV -Value "STANDARD_PORTABLE_NAME=$standardPortableName"
           Add-Content -Path $env:GITHUB_ENV -Value "FULL_PORTABLE_NAME=$fullPortableName"
           Add-Content -Path $env:GITHUB_ENV -Value "FULL_MANIFEST_PATH=$fullManifestOut"
 
-      - name: Upload full feature installer assets
+      - name: Upload full feature installer and stable-named MSI
         shell: pwsh
         env:
           GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
         run: |
           $tag = "${{ steps.meta.outputs.tag }}"
           $repo = "${{ github.repository }}"
-          $fullSetupPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_SETUP_NAME
-          gh release upload $tag "$fullSetupPath" --repo $repo --clobber
-
-          if ($env:PUBLISH_MSI -eq "true") {
-            $fullMsiPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_MSI_NAME
-            gh release upload $tag "$fullMsiPath" --repo $repo --clobber
-          }
+          $fullMsiPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_MSI_NAME
+          gh release upload $tag "$fullMsiPath" --repo $repo --clobber
+          gh release upload $tag "src-tauri/target/release/Roblox-Account-Manager-Setup.msi" --repo $repo --clobber
 
       - name: Upload portable binaries
         if: env.PUBLISH_PORTABLE == 'true'
@@ -483,14 +423,9 @@ jobs:
             gh release delete-asset $tag "$name" --repo $repo --yes
           }
 
-          $fullSetupSig = Join-Path $env:RELEASE_STAGE_DIR "$env:FULL_SETUP_NAME.sig"
           $fullMsiSig = Join-Path $env:RELEASE_STAGE_DIR "$env:FULL_MSI_NAME.sig"
 
-          if (Test-Path $fullSetupSig) {
-            Copy-Item $fullSetupSig (Join-Path $tmpDir (Split-Path $fullSetupSig -Leaf)) -Force
-          }
-
-          if ($env:PUBLISH_MSI -eq "true" -and (Test-Path $fullMsiSig)) {
+          if (Test-Path $fullMsiSig) {
             Copy-Item $fullMsiSig (Join-Path $tmpDir (Split-Path $fullMsiSig -Leaf)) -Force
           }
 
@@ -599,31 +534,16 @@ jobs:
               : "This is a stable release intended for general use.";
             const calloutType = channel === "beta" ? "WARNING" : "NOTE";
 
-            // Guia de download: cita so os arquivos que este job publica, pelos
-            // mesmos interruptores do topo (PUBLISH_MSI / PUBLISH_PORTABLE). O
+            // Guia de download: cita so os arquivos que este job publica. O
             // texto fixo que havia aqui anunciou MSI e portatil numa release que
             // nao tinha nenhum dos dois (4.0.5).
-            const publishMsi = process.env.PUBLISH_MSI === "true";
             const publishPortable = process.env.PUBLISH_PORTABLE === "true";
-            const heuristicNote =
-              "It is not code-signed, so some antivirus engines may flag it by heuristics (false positive).";
-            const downloadGuide = ["### Which file to download"];
-            if (publishMsi) {
-              // O MSI e o caminho principal; o NSIS entra como alternativa de
-              // quem tiver problema com ele, nao como opcao paralela.
-              downloadGuide.push(
-                "**Start here: the `.msi`** (`..._x64_en-US.msi`). It installs for your user only (no admin prompt), updates itself, and comes out clean on VirusTotal. For most people this is the only file you need.",
-                "",
-                "- **If the `.msi` does not work for you** (it fails to run, your system blocks it, or you prefer the classic wizard), use **the setup `.exe`** (`..._x64-setup.exe`) instead: it is the same app and also installs without an admin prompt. " +
-                  heuristicNote +
-                  " Already installed from it? Keep it: it updates itself. Do not install both, or you end up with two copies."
-              );
-            } else {
-              downloadGuide.push(
-                "**Start here: the setup `.exe`** (`..._x64-setup.exe`). It installs for your user only (no admin prompt). " +
-                  heuristicNote
-              );
-            }
+            const downloadGuide = [
+              "### Which file to download",
+              "**Start here: `Roblox-Account-Manager-Setup.msi`.** It installs for your user only (no admin prompt), updates itself, and comes out clean on VirusTotal. For most people this is the only file you need (`..._x64_en-US.msi` is the same installer with the version in the name).",
+              "",
+              "- **Installed with the old setup `.exe`?** It is no longer published, so it won't update anymore. Uninstall it (Windows Settings → Apps) and install the `.msi` once — your accounts and settings are kept."
+            ];
             if (publishPortable) {
               downloadGuide.push(
                 "- **If you would rather not install anything**, use **the portable `.exe`** (`..._x64_portable.exe`): it runs as-is. In exchange it does not update itself and creates no Start Menu shortcut."
