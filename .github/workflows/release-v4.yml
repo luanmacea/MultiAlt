@@ -491,6 +491,38 @@ jobs:
             });
             const generatedBody = String(generatedNotes.data.body || "").trim();
 
+            // "What's Changed" em linguagem simples (pedido do dono, 03/10/2026):
+            // vem da secao "## What's new" do PR que gerou a release. A lista
+            // automatica do GitHub (titulos de PR, tecnica) fica recolhida em
+            // "Technical details". PR sem a secao: fica so a lista automatica.
+            let plainChanges = "";
+            try {
+              const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner,
+                repo,
+                commit_sha: context.sha
+              });
+              const pr = prs.data.find((item) => item.merged_at) || prs.data[0];
+              const lines = String(pr?.body || "").split(/\r?\n/);
+              const start = lines.findIndex((line) => /^##\s+What's new\s*$/i.test(line));
+              if (start >= 0) {
+                const end = lines.findIndex((line, i) => i > start && /^##\s+\S/.test(line));
+                plainChanges = lines.slice(start + 1, end < 0 ? undefined : end).join("\n").trim();
+              }
+            } catch (error) {
+              core.warning(`Could not read the "What's new" section of the release PR: ${error.message}`);
+            }
+            const technicalList = generatedBody.replace(/^##\s+What's Changed\s*/i, "").trim();
+            const changesBlock = plainChanges
+              ? [
+                  "## What's Changed",
+                  plainChanges,
+                  ...(technicalList
+                    ? ["", "<details>", "<summary>Technical details</summary>", "", technicalList, "", "</details>"]
+                    : [])
+                ].join("\n")
+              : generatedBody || "## What's Changed\n- Release notes could not be generated.";
+
             const contributorSet = new Set();
             if (previousTag) {
               try {
@@ -564,7 +596,7 @@ jobs:
             const finalBody = [
               topNote,
               "",
-              generatedBody || "## What's Changed\n- Release notes could not be generated.",
+              changesBlock,
               "",
               contributorsBlock
             ].join("\n");
