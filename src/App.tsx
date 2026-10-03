@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { StoreProvider, useStore } from "./store";
 import { PromptProvider } from "./hooks/usePrompt";
 import { PasswordScreen } from "./components/layout/PasswordScreen";
@@ -27,7 +27,6 @@ import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
 import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
-import { BackupsDialog } from "./components/dialogs/BackupsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { SessionPage } from "./components/pages/SessionPage";
 import { AfkPage } from "./components/pages/AfkPage";
@@ -47,9 +46,6 @@ function AppContent() {
   const t = useTr();
   const store = useStore();
   const hasCheckedForUpdatesRef = useRef(false);
-  // O diálogo de backups é aberto pelas Settings; o estado mora aqui porque a
-  // store não expõe um flag para ele.
-  const [backupsOpen, setBackupsOpen] = useState(false);
   const showCloseRobloxAction = isMultiRobloxCloseProcessError(store.error);
   // O log de lançamento é a única explicação passo a passo do que falhou, e ele
   // mora na aba Console da Choose Game. Só vale apontar para lá quando existe
@@ -66,7 +62,6 @@ function AppContent() {
     !!store.afkModeDialog ||
     store.generatorDialogOpen ||
     store.updateDialogOpen ||
-    backupsOpen ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
   const page = store.activePage;
@@ -221,7 +216,6 @@ function AppContent() {
             onLeave={leavePage}
             onSettingsChanged={store.reloadSettings}
             onRequestEncryptionSetup={store.openEncryptionSetupFromSettings}
-            onRequestBackups={() => setBackupsOpen(true)}
           />
         </main>
       </div>
@@ -283,8 +277,6 @@ function AppContent() {
         open={store.versionsDialogOpen}
         onClose={() => store.setVersionsDialogOpen(false)}
       />
-
-      <BackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
 
       <IsolationProgressOverlay />
 

@@ -1880,5 +1880,6 @@
   "PID {{pid}}": "PID {{pid}}",
   "Show window": "Mostrar janela",
   "Tell the app which account is playing in this client": "Diga ao app qual conta está jogando neste cliente",
-  "Unidentified client": "Cliente não identificado"
+  "Unidentified client": "Cliente não identificado",
+  "Saved backups": "Backups salvos"
 }

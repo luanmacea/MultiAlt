@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { Settings as SettingsIcon, Code, Gauge, Server, Eye, Sparkles, ShieldCheck, Package, MoreHorizontal } from "lucide-react";
+import { Settings as SettingsIcon, Code, Gauge, Server, Eye, Sparkles, ShieldCheck, Package, MoreHorizontal, DatabaseBackup } from "lucide-react";
 import { ENABLE_WEBSERVER } from "../../featureFlags";
 
 /** Seções da página Settings (eram as abas do antigo SettingsDialog). */
 export type TabId =
   | "general"
+  | "backups"
   | "developer"
   | "webserver"
   | "watcher"
@@ -15,8 +16,8 @@ export type TabId =
   | "miscellaneous";
 
 export const TAB_ORDER: TabId[] = ENABLE_WEBSERVER
-  ? ["general", "developer", "webserver", "watcher", "generator", "isolation", "versions", "optimization", "miscellaneous"]
-  : ["general", "developer", "watcher", "generator", "isolation", "versions", "optimization", "miscellaneous"];
+  ? ["general", "backups", "developer", "webserver", "watcher", "generator", "isolation", "versions", "optimization", "miscellaneous"]
+  : ["general", "backups", "developer", "watcher", "generator", "isolation", "versions", "optimization", "miscellaneous"];
 
 export interface TabDef {
   id: TabId;
@@ -30,6 +31,9 @@ const ICON = { size: 15, strokeWidth: 1.6 } as const;
 
 export const SETTINGS_TABS: TabDef[] = [
   { id: "general", label: "General", icon: <SettingsIcon {...ICON} /> },
+  // Logo depois de General: backup é o que salva o usuário quando algo dá
+  // errado, e como diálogo aberto por "Manage" em Misc ninguém o achava.
+  { id: "backups", label: "Backups", icon: <DatabaseBackup {...ICON} /> },
   { id: "developer", label: "Developer", icon: <Code {...ICON} /> },
   {
     id: "webserver",
