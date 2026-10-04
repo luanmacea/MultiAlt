@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { GameEntry, RecentGame } from "./types";
-import { loadRecentGames, saveRecentGames, resolveRecentGame } from "./types";
+import { loadRecentGames, updateRecentGames, resolveRecentGame } from "./types";
+import { useGameListsChanged } from "./gameListsSync";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { GameRowActions, browseServersIcon, favoriteIcon, joinGameIcon } from "./GamesTab";
@@ -46,25 +47,28 @@ export function RecentGamesList({
   );
   const backfilledRef = useRef(false);
 
+  // Um launch (ou a outra lista de recentes aberta) mexeu na lista: mostra a gravada.
+  useGameListsChanged(() => setGames(loadRecentGames()));
+
   useEffect(() => {
     if (backfilledRef.current) return;
     backfilledRef.current = true;
 
     let cancelled = false;
     (async () => {
-      const next = loadRecentGames();
-      let changed = false;
-      for (let i = 0; i < next.length; i++) {
-        const patched = await resolveRecentGame(next[i], userId);
+      // Cada nome/ícone achado é gravado por lê-muda-grava, só na entrada dele.
+      // Gravar no fim a lista lida no começo apagava o jogo que um launch
+      // tivesse registrado enquanto a rede respondia.
+      for (const game of loadRecentGames()) {
+        const patched = await resolveRecentGame(game, userId);
         if (cancelled) return;
-        if (patched) {
-          next[i] = patched;
-          changed = true;
-          setGames([...next]);
-        }
-      }
-      if (!cancelled && changed) {
-        saveRecentGames(next);
+        if (!patched) continue;
+        const saved = updateRecentGames((list) =>
+          list.map((g) =>
+            g.placeId === patched.placeId ? { ...g, name: patched.name, iconUrl: patched.iconUrl } : g
+          )
+        );
+        if (saved) setGames(saved);
       }
     })();
 
@@ -88,8 +92,7 @@ export function RecentGamesList({
       true
     );
     if (!ok) return;
-    saveRecentGames([]);
-    setGames([]);
+    setGames(updateRecentGames(() => [], { userDelete: true }) ?? loadRecentGames());
   }
 
   function formatTime(ts: number) {

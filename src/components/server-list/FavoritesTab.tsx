@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import type { FavoriteGame, VipServer } from "./types";
-import { loadFavorites, saveFavorites, makeVipId } from "./types";
+import { loadFavorites, updateFavorites, makeVipId } from "./types";
+import { useGameListsChanged } from "./gameListsSync";
 import { FavoriteContextMenu } from "./FavoriteContextMenu";
 import { GameRowActions, browseServersIcon } from "./GamesTab";
 import { loadGameIdentity } from "../../hooks/useGameIdentity";
@@ -63,6 +64,10 @@ export function FavoritesTab({
   const [addingVipFor, setAddingVipFor] = useState<number | null>(null);
   const backfilledRef = useRef(false);
 
+  // Outra tela (o Server List por cima da Choose Game, o "favoritar" da aba
+  // Games) pode ter mudado a lista: a tela mostra sempre o que está gravado.
+  useGameListsChanged(() => setFavorites(loadFavorites()));
+
   /**
    * Completa o ícone dos favoritos salvos sem ele.
    *
@@ -96,13 +101,14 @@ export function FavoritesTab({
       }
       if (!mudou) return;
 
-      // Relê na hora de gravar: o usuário pode ter renomeado ou removido
-      // favorito enquanto os ícones vinham.
-      const atuais = loadFavorites().map((f) =>
-        !f.iconUrl && achados.has(f.placeId) ? { ...f, iconUrl: achados.get(f.placeId)! } : f
+      // Lê-muda-grava: o usuário pode ter renomeado ou removido favorito
+      // enquanto os ícones vinham.
+      const atuais = updateFavorites((lista) =>
+        lista.map((f) =>
+          !f.iconUrl && achados.has(f.placeId) ? { ...f, iconUrl: achados.get(f.placeId)! } : f
+        )
       );
-      saveFavorites(atuais);
-      setFavorites(atuais);
+      if (atuais) setFavorites(atuais);
     })();
 
     return () => {
@@ -113,9 +119,19 @@ export function FavoritesTab({
   const [vipDraftName, setVipDraftName] = useState("");
   const [vipDraftError, setVipDraftError] = useState("");
 
-  function persist(updated: FavoriteGame[]) {
-    setFavorites(updated);
-    saveFavorites(updated);
+  /**
+   * Toda mudança parte da lista **gravada agora**, nunca do `favorites` desta
+   * tela: era gravando a cópia da montagem que uma tela apagava o VIP salvo
+   * por outra (ver `updateFavorites`). `userDelete` só nas exclusões que o
+   * usuário confirmou.
+   */
+  function persist(
+    change: (current: FavoriteGame[]) => FavoriteGame[],
+    opts: { userDelete?: boolean } = {}
+  ): boolean {
+    const saved = updateFavorites(change, opts);
+    setFavorites(saved ?? loadFavorites());
+    return saved !== null;
   }
 
   function getVips(game: FavoriteGame): VipServer[] {
@@ -125,7 +141,8 @@ export function FavoritesTab({
   async function handleRename(game: FavoriteGame) {
     const newName = await prompt(t("Rename favorite:"), game.name);
     if (!newName?.trim()) return;
-    persist(favorites.map((f) => (f.placeId === game.placeId ? { ...f, name: newName.trim() } : f)));
+    if (!persist((list) => list.map((f) => (f.placeId === game.placeId ? { ...f, name: newName.trim() } : f))))
+      return;
     addToast(t("Renamed"));
   }
 
@@ -148,7 +165,7 @@ export function FavoritesTab({
       true
     );
     if (!ok) return;
-    persist(favorites.filter((f) => f.placeId !== game.placeId));
+    if (!persist((list) => list.filter((f) => f.placeId !== game.placeId), { userDelete: true })) return;
     addToast(t("Removed from favorites"));
   }
 
@@ -179,16 +196,17 @@ export function FavoritesTab({
       setVipDraftError(t("That doesn't look like a private server link or VIP code."));
       return;
     }
-    const vips = getVips(game);
+    const vips = getVips(loadFavorites().find((f) => f.placeId === game.placeId) ?? game);
     const name = vipDraftName.trim() || `${t("VIP")} ${vips.length + 1}`;
     const newVip: VipServer = { id: makeVipId(), name, link };
-    persist(
-      favorites.map((f) =>
+    const saved = persist((list) =>
+      list.map((f) =>
         f.placeId === game.placeId
           ? { ...f, vipServers: [...getVips(f), newVip], privateServer: undefined }
           : f
       )
     );
+    if (!saved) return;
     addToast(t("VIP server added"));
     cancelAddVip();
   }
@@ -203,11 +221,14 @@ export function FavoritesTab({
       true
     );
     if (!ok) return;
-    persist(
-      favorites.map((f) =>
-        f.placeId === game.placeId ? { ...f, vipServers: getVips(f).filter((v) => v.id !== vipId) } : f
-      )
+    const saved = persist(
+      (list) =>
+        list.map((f) =>
+          f.placeId === game.placeId ? { ...f, vipServers: getVips(f).filter((v) => v.id !== vipId) } : f
+        ),
+      { userDelete: true }
     );
+    if (!saved) return;
     addToast(t("VIP server removed"));
   }
 

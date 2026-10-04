@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { readStoredList, writeStoredList, type GameListWriteOptions } from "./gameListsSync";
 
 export type TabId = "servers" | "games" | "favorites" | "recent";
 
@@ -99,10 +100,6 @@ export interface RecentJobEntry {
   userIds: number[];
 }
 
-const STORAGE_KEY_FAVORITES = "ram_favorite_games";
-const STORAGE_KEY_RECENT = "ram_recent_games";
-const STORAGE_KEY_RECENT_JOBS = "ram_recent_jobs";
-
 /** Vira número só se for um place plausível. */
 function toPlaceId(digits: string): number | null {
   const id = Number(digits);
@@ -155,42 +152,119 @@ export function makeVipId(): string {
   }
 }
 
+function normalizeFavorites(list: unknown[]): FavoriteGame[] {
+  return (list as FavoriteGame[]).map((f) => {
+    if (!f.vipServers) {
+      f.vipServers = f.privateServer
+        ? [{ id: makeVipId(), name: "VIP", link: f.privateServer }]
+        : [];
+    }
+    return f;
+  });
+}
+
+/**
+ * Favoritos para **mostrar**. Lista ilegível aparece vazia — mas quem vai
+ * gravar não usa isto: usa `updateFavorites`, que se recusa a gravar por cima
+ * de uma lista que não conseguiu ler.
+ */
 export function loadFavorites(): FavoriteGame[] {
+  const read = readStoredList("favorites");
+  if (!read.ok) return [];
   try {
-    const list: FavoriteGame[] = JSON.parse(localStorage.getItem(STORAGE_KEY_FAVORITES) || "[]");
-    return list.map((f) => {
-      if (!f.vipServers) {
-        f.vipServers = f.privateServer
-          ? [{ id: makeVipId(), name: "VIP", link: f.privateServer }]
-          : [];
-      }
-      return f;
-    });
+    return normalizeFavorites(read.list);
   } catch {
     return [];
   }
 }
 
-export function saveFavorites(favorites: FavoriteGame[]) {
-  localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(favorites));
+/**
+ * Grava a lista **inteira**, sem conferir nada. Só para sementes e testes: as
+ * telas usam `updateFavorites`, que lê a lista atual na hora de gravar.
+ */
+export function saveFavorites(favorites: FavoriteGame[], opts: GameListWriteOptions = {}) {
+  writeStoredList("favorites", favorites, opts);
+}
+
+/** Os links de VIP de cada favorito, para conferir o que uma gravação perderia. */
+function vipLinks(list: FavoriteGame[]): Set<string> {
+  const links = new Set<string>();
+  for (const f of list) for (const v of f.vipServers ?? []) links.add(`${f.placeId} ${v.link}`);
+  return links;
+}
+
+/**
+ * **O único jeito de uma tela mudar os favoritos.** Lê a lista gravada *agora*,
+ * aplica `change` e grava — nunca a cópia que a tela guardou em memória. Era
+ * gravando essa cópia que uma tela apagava o VIP que outra tinha acabado de
+ * salvar (a Choose Game deixa a aba Favorites montada por baixo do Server List).
+ *
+ * Devolve a lista gravada, ou `null` quando não gravou:
+ * - a lista atual está ilegível (gravar por cima seria perdê-la);
+ * - sem `userDelete`, a mudança tiraria algum favorito ou VIP — só uma
+ *   exclusão pedida pelo usuário pode tirar.
+ */
+export function updateFavorites(
+  change: (current: FavoriteGame[]) => FavoriteGame[],
+  opts: GameListWriteOptions = {}
+): FavoriteGame[] | null {
+  const read = readStoredList("favorites");
+  if (!read.ok) {
+    console.error("[favorites] the saved favorites are unreadable; refusing to overwrite them");
+    return null;
+  }
+  const current = normalizeFavorites(read.list);
+  const next = change(current.map((f) => ({ ...f, vipServers: [...(f.vipServers ?? [])] })));
+  if (!opts.userDelete) {
+    const kept = new Set(next.map((f) => f.placeId));
+    const lostFavorite = current.some((f) => !kept.has(f.placeId));
+    const nextLinks = vipLinks(next);
+    const lostVip = [...vipLinks(current)].some((link) => !nextLinks.has(link));
+    if (lostFavorite || lostVip) {
+      console.error(
+        "[favorites] refusing a change that would drop a favorite or a VIP server without an explicit delete"
+      );
+      return null;
+    }
+  }
+  writeStoredList("favorites", next, opts);
+  return next;
 }
 
 export function loadRecentGames(): RecentGame[] {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT) || "[]");
-  } catch {
-    return [];
-  }
+  const read = readStoredList("recentGames");
+  return read.ok ? (read.list as RecentGame[]) : [];
 }
 
-export function saveRecentGames(games: RecentGame[]) {
-  localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify(games));
+/** Grava a lista inteira, sem conferir nada. Telas usam `updateRecentGames`. */
+export function saveRecentGames(games: RecentGame[], opts: GameListWriteOptions = {}) {
+  writeStoredList("recentGames", games, opts);
+}
+
+/**
+ * Lê-muda-grava dos jogos recentes, como `updateFavorites`. Lista ilegível não
+ * é sobrescrita (`null`).
+ */
+export function updateRecentGames(
+  change: (current: RecentGame[]) => RecentGame[],
+  opts: GameListWriteOptions = {}
+): RecentGame[] | null {
+  const read = readStoredList("recentGames");
+  if (!read.ok) {
+    console.error("[recent games] the saved list is unreadable; refusing to overwrite it");
+    return null;
+  }
+  const next = change([...(read.list as RecentGame[])]);
+  writeStoredList("recentGames", next, opts);
+  return next;
 }
 
 export function addRecentGame(game: RecentGame, maxCount: number) {
-  const existing = loadRecentGames().filter((g) => g.placeId !== game.placeId);
-  existing.unshift({ ...game, lastPlayed: Date.now() });
-  saveRecentGames(existing.slice(0, maxCount));
+  updateRecentGames((current) => {
+    const rest = current.filter((g) => g.placeId !== game.placeId);
+    rest.unshift({ ...game, lastPlayed: Date.now() });
+    return rest.slice(0, maxCount);
+  });
 }
 
 /**
@@ -238,16 +312,28 @@ export function classifyJobInput(raw: string): RecentJobKind {
 }
 
 export function loadRecentJobs(): RecentJobEntry[] {
-  try {
-    const list = JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT_JOBS) || "[]");
-    return Array.isArray(list) ? (list as RecentJobEntry[]) : [];
-  } catch {
-    return [];
-  }
+  const read = readStoredList("recentJobs");
+  return read.ok ? (read.list as RecentJobEntry[]) : [];
 }
 
-export function saveRecentJobs(entries: RecentJobEntry[]) {
-  localStorage.setItem(STORAGE_KEY_RECENT_JOBS, JSON.stringify(entries));
+/** Grava a lista inteira, sem conferir nada. Telas usam `updateRecentJobs`. */
+export function saveRecentJobs(entries: RecentJobEntry[], opts: GameListWriteOptions = {}) {
+  writeStoredList("recentJobs", entries, opts);
+}
+
+/** Lê-muda-grava dos servidores recentes. Lista ilegível não é sobrescrita. */
+export function updateRecentJobs(
+  change: (current: RecentJobEntry[]) => RecentJobEntry[],
+  opts: GameListWriteOptions = {}
+): RecentJobEntry[] | null {
+  const read = readStoredList("recentJobs");
+  if (!read.ok) {
+    console.error("[recent servers] the saved list is unreadable; refusing to overwrite it");
+    return null;
+  }
+  const next = change([...(read.list as RecentJobEntry[])]);
+  writeStoredList("recentJobs", next, opts);
+  return next;
 }
 
 /**
@@ -266,26 +352,27 @@ export function addRecentJob(
   const trimmed = raw.trim();
   if (!trimmed) return;
 
-  const entries = loadRecentJobs();
-  const existing = entries.find((e) => e.raw === trimmed);
-  const owners = new Set<number>(existing?.userIds ?? []);
-  for (const id of userIds) if (Number.isFinite(id)) owners.add(id);
+  updateRecentJobs((entries) => {
+    const existing = entries.find((e) => e.raw === trimmed);
+    const owners = new Set<number>(existing?.userIds ?? []);
+    for (const id of userIds) if (Number.isFinite(id)) owners.add(id);
 
-  const entry: RecentJobEntry = {
-    kind: classifyJobInput(trimmed),
-    raw: trimmed,
-    // Um launch pelo campo de Job ID pode não saber o place; o que já se sabia
-    // sobre esta entrada não se perde por causa disso.
-    placeId: placeId ?? existing?.placeId ?? null,
-    lastUsed: Date.now(),
-    userIds: [...owners].sort((a, b) => a - b),
-  };
+    const entry: RecentJobEntry = {
+      kind: classifyJobInput(trimmed),
+      raw: trimmed,
+      // Um launch pelo campo de Job ID pode não saber o place; o que já se sabia
+      // sobre esta entrada não se perde por causa disso.
+      placeId: placeId ?? existing?.placeId ?? null,
+      lastUsed: Date.now(),
+      userIds: [...owners].sort((a, b) => a - b),
+    };
 
-  const rest = entries.filter((e) => e.raw !== trimmed);
-  rest.unshift(entry);
-  // Limite estragado (0, NaN) não pode zerar a lista logo depois de gravar.
-  const limit = Number.isFinite(maxCount) ? Math.max(1, Math.trunc(maxCount)) : 1;
-  saveRecentJobs(rest.slice(0, limit));
+    const rest = entries.filter((e) => e.raw !== trimmed);
+    rest.unshift(entry);
+    // Limite estragado (0, NaN) não pode zerar a lista logo depois de gravar.
+    const limit = Number.isFinite(maxCount) ? Math.max(1, Math.trunc(maxCount)) : 1;
+    return rest.slice(0, limit);
+  });
 }
 
 /**
@@ -306,8 +393,9 @@ export function visibleRecentJobs(
   });
 }
 
+/** Exclusão pedida pelo usuário (o "x" da linha). */
 export function removeRecentJob(raw: string) {
-  saveRecentJobs(loadRecentJobs().filter((e) => e.raw !== raw));
+  updateRecentJobs((entries) => entries.filter((e) => e.raw !== raw), { userDelete: true });
 }
 
 /**
@@ -377,12 +465,11 @@ export async function recordRecentGame(
   );
   if (name === optimisticName && iconUrl === optimisticIcon) return;
 
-  const games = loadRecentGames();
-  const idx = games.findIndex((g) => g.placeId === placeId);
-  if (idx >= 0) {
-    games[idx] = { ...games[idx], name, iconUrl };
-    saveRecentGames(games);
-  }
+  // Relê na hora de gravar: outro launch pode ter mexido na lista no meio.
+  if (!loadRecentGames().some((g) => g.placeId === placeId)) return;
+  updateRecentGames((games) =>
+    games.map((g) => (g.placeId === placeId ? { ...g, name, iconUrl } : g))
+  );
 }
 
 export async function resolveRecentGame(
