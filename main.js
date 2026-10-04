@@ -5,7 +5,7 @@
 (function () {
   "use strict";
 
-  var REPO = "luanmacea/roblox-account-manager";
+  var REPO = "luanmacea/MultiAlt";
   var RELEASES_PAGE = "https://github.com/" + REPO + "/releases";
   var dict = window.RAM_I18N || { en: {}, pt: {} };
   var LANGS = { en: "en", pt: "pt-BR", es: "es" };
