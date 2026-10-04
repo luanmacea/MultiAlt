@@ -76,6 +76,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AvatarsPage — montar", () => {
+  /** Visto no harness (cenário tour, 03/10/2026): um estado de lote sem a lista
+   * de contas derrubava a tela inteira com "reading length". */
+  it("não quebra quando o estado do lote chega sem a lista de contas", async () => {
+    wire({ get_avatar_batch_state: { running: false } });
+    renderDialog();
+    expect(await screen.findByRole("navigation", { name: "Categories" })).toBeInTheDocument();
+  });
+
   it("mostra as categorias do catálogo com a contagem de cada uma", async () => {
     wire();
     renderDialog();

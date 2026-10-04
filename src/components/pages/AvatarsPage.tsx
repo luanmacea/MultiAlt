@@ -110,8 +110,11 @@ export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () 
   const [dismissed, setDismissed] = useState(false);
   const prevRunningRef = useRef(false);
 
-  const receive = useCallback((snapshot: AvatarBatchSnapshot | null | undefined) => {
-    if (!snapshot || typeof snapshot !== "object") return;
+  const receive = useCallback((raw: AvatarBatchSnapshot | null | undefined) => {
+    if (!raw || typeof raw !== "object") return;
+    // Estado incompleto (sem a lista de contas) vira lista vazia em vez de
+    // derrubar a tela no primeiro `.length`.
+    const snapshot: AvatarBatchSnapshot = { ...raw, accounts: Array.isArray(raw.accounts) ? raw.accounts : [] };
     const finished = prevRunningRef.current && !snapshot.running;
     prevRunningRef.current = snapshot.running;
     setBatch(snapshot);
