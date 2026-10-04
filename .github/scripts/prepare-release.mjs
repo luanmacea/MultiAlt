@@ -3,14 +3,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { nextReleaseVersion, setCargoPackageVersion } from "./release-version.mjs";
+import { RELEASE_KINDS, releaseKindHeader } from "./release-kind.mjs";
 
 const bump = (process.env.RELEASE_BUMP || "patch").toLowerCase();
 const channel = (process.env.RELEASE_CHANNEL || "beta").toLowerCase();
+// Tipo da release (correcao, novidades, geral): decidido no passo "Resolve
+// bump and channel" do release-v4.yml (regra em release-kind.mjs).
+const kind = (process.env.RELEASE_KIND || "mixed").toLowerCase();
 const repository = process.env.GITHUB_REPOSITORY || "";
 const sha = process.env.GITHUB_SHA || "";
 
 if (!["patch", "minor"].includes(bump)) {
   throw new Error(`Unsupported RELEASE_BUMP value: ${bump}`);
+}
+
+if (!RELEASE_KINDS.includes(kind)) {
+  throw new Error(`Unsupported RELEASE_KIND value: ${kind}`);
 }
 
 if (!["beta", "stable"].includes(channel)) {
@@ -75,7 +83,12 @@ fs.writeFileSync(cargoPath, updatedCargoToml, "utf8");
 
 const shortSha = sha ? sha.slice(0, 7) : "unknown";
 const channelLabel = channel === "beta" ? "Beta" : "Stable";
+// Primeira linha: a marca do tipo e o selo. Este texto e o `notes` do
+// manifesto do updater (o manifesto sai antes do "Finalize release notes"),
+// e o app le o tipo pela marca (src/releaseNotes.ts).
 const releaseBody = [
+  releaseKindHeader(kind),
+  "",
   channel === "beta" ? "> [!WARNING]" : "> [!NOTE]",
   channel === "beta"
     ? "This is a beta release. Missing features, bugs, and crashes are possible. Run at your own risk."
@@ -87,6 +100,7 @@ const releaseBody = [
 ].join("\n");
 
 setOutput("version", fullVersion);
+setOutput("kind", kind);
 setOutput("app_version", appVersion);
 setOutput("tag", tag);
 setOutput("release_title", releaseTitle);

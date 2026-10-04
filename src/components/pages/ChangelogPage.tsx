@@ -13,6 +13,7 @@ import {
   type ReleaseEntry,
 } from "../../releaseNotes";
 import { ReleaseNotesMarkdown } from "../ReleaseNotesMarkdown";
+import { ReleaseKindBadge } from "../ReleaseKindBadge";
 import { PageShell } from "./PageShell";
 
 /**
@@ -232,13 +233,17 @@ function Timeline({ entries, currentVersion, language, hasUpdateInfo, onOpenUpda
             <header
               className={`col-start-2 @xl:col-start-1 @xl:row-start-1 @xl:text-right min-w-0 ${last ? "@xl:pb-4" : "@xl:pb-8"}`}
             >
-              <h2
-                className={`text-[15px] leading-6 font-semibold tabular-nums tracking-tight ${
-                  isCurrent ? "text-[var(--accent-color)]" : "text-[var(--panel-fg)]"
-                }`}
-              >
-                v{entry.version}
-              </h2>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 @xl:justify-end">
+                <h2
+                  className={`text-[15px] leading-6 font-semibold tabular-nums tracking-tight ${
+                    isCurrent ? "text-[var(--accent-color)]" : "text-[var(--panel-fg)]"
+                  }`}
+                >
+                  v{entry.version}
+                </h2>
+                {/* Correção, novidades ou atualização geral; release antiga não tem. */}
+                <ReleaseKindBadge kind={entry.kind} />
+              </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 @xl:justify-end">
                 {date ? (
                   <time dateTime={entry.publishedAt} className="text-[12px] leading-5 text-[var(--panel-muted)]">
