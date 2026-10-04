@@ -29,7 +29,7 @@ flowchart LR
     Store -- "invoke(cmd, args)" --> Cmd
     Cmd -- "app.emit(evento, payload)" --> Store
     Api -- HTTPS --> Roblox[(APIs Roblox)]
-    Stores -- leitura/escrita --> Files[(AccountData.json<br/>RAMSettings.ini<br/>RAMTheme.ini<br/>RAMScripts.json<br/>RAMAvatars.json<br/>RAMVersions.json)]
+    Stores -- leitura/escrita --> Files[(AccountData.json<br/>RAMSettings.ini<br/>RAMTheme.ini<br/>RAMScripts.json<br/>RAMAvatars.json<br/>RAMGameLists.json<br/>RAMVersions.json)]
     Plat --> RbxProc[Processos RobloxPlayerBeta]
 ```
 
@@ -49,7 +49,7 @@ A regra do projeto é que o frontend fala só com o backend, mas o código tem e
 | [UpdateDialog.tsx](../src/components/dialogs/UpdateDialog.tsx), [releaseNotes.ts](../src/releaseNotes.ts) | `fetch` direto em `api.github.com` (`REPO_API_URL` de [repo.ts](../src/repo.ts)), só leitura e sem login: a janela de atualização lê as notas da release e o comparativo entre versões; a página "What's new" ([ChangelogPage](../src/components/pages/ChangelogPage.tsx)) lê a lista de releases, só quando é aberta e uma vez por sessão. |
 | [ScriptsPage.tsx](../src/components/pages/ScriptsPage.tsx) | `fetch`/`WebSocket` em nome de scripts do usuário (`ram.http`, `ram.ws`), com permissão explícita. |
 | [fontPresets.ts](../src/fontPresets.ts) | Carrega fontes de `fonts.googleapis.com`. |
-| [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos, jogos recentes e servidores recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`), não no backend. A versão que o usuário mandou pular no updater também (`getUpdaterSkipVersionKey`). |
+| [server-list/gameListsSync.ts](../src/components/server-list/gameListsSync.ts) | Favoritos, jogos recentes e servidores recentes têm um **cache** em `localStorage` (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`) para as telas lerem e gravarem sem `await`. Desde 03/10/2026 **não** moram só ali: a cópia durável é o `RAMGameLists.json` do backend (`get_game_lists`/`save_game_lists`), que entra no backup e na migração de pasta. Cada gravação é espelhada; a abertura e a restauração de backup hidratam por união (ver [server-list.md](features/server-list.md#onde-as-listas-moram)). A versão que o usuário mandou pular no updater segue só no `localStorage` (`getUpdaterSkipVersionKey`, em [server-list/types.ts](../src/components/server-list/types.ts)). |
 | [NavSidebar.tsx](../src/components/layout/NavSidebar.tsx) | Barra lateral recolhida ou não: `localStorage` (`ram_nav_collapsed`), preferência de quem está na máquina, com `try/catch` (armazenamento bloqueado só faz a escolha valer até fechar o app). |
 | [tour/tourState.ts](../src/components/tour/tourState.ts) | Quais tutoriais de tela a pessoa já abriu: `localStorage` (`ram_tours_seen`), só para o pontinho de "novo" no botão Tutorial, com `try/catch`. |
 
@@ -73,6 +73,7 @@ Registradas com `.manage(...)` em [lib.rs](../src-tauri/src/lib.rs) e acessadas 
 | `ThemePresetStore` | [data/settings/presets.rs](../src-tauri/src/data/settings/presets.rs) | `Mutex<Vec<ThemePresetData>>` | `RAMThemePresets.json` |
 | `ScriptStore` | [data/scripts.rs](../src-tauri/src/data/scripts.rs) | `Mutex<Vec<ManagedScript>>` | `RAMScripts.json` |
 | `AvatarStore` | [data/avatars.rs](../src-tauri/src/data/avatars.rs) | `Mutex<Vec<SavedAvatar>>` | `RAMAvatars.json` |
+| `GameListsStore` | [data/game_lists.rs](../src-tauri/src/data/game_lists.rs) | só um `Mutex<()>` que serializa as gravações; relê o disco a cada leitura (por isso a restauração de backup não pede reinício) | `RAMGameLists.json` (+ `.bak`) |
 | `VersionsCatalogStore` | [data/versions.rs](../src-tauri/src/data/versions.rs) | catálogo de versões instaladas | `RAMVersions.json` |
 | `ImageCache` | [api/batch.rs](../src-tauri/src/api/batch.rs) | `Arc<Mutex<...>>` (filas + cache de URLs) | memória |
 | `UpdaterRuntimeState` | [commands/updater.rs](../src-tauri/src/commands/updater.rs) | estado do updater | memória |
@@ -101,6 +102,7 @@ O diretório base é a **pasta de dados do usuário**, resolvida uma vez por pro
 | `RAMThemeFonts/` | pasta de dados | fontes importadas, nomeadas por SHA-256 | [commands.rs](../src-tauri/src/data/settings/commands.rs) `import_theme_font_asset` |
 | `RAMScripts.json` | pasta de dados | JSON (camelCase) | [data/scripts.rs](../src-tauri/src/data/scripts.rs) `get_scripts_path` |
 | `RAMAvatars.json` | pasta de dados | JSON (camelCase), escrita atômica via `.json.tmp` | [data/avatars.rs](../src-tauri/src/data/avatars.rs) `get_avatars_path` |
+| `RAMGameLists.json` | pasta de dados | JSON (camelCase) `{ favorites, recentGames, recentJobs }`, itens opacos ao Rust (o formato é do frontend). Escrita atômica via `.json.tmp`; a versão anterior fica em `RAMGameLists.json.bak` a cada gravação. Arquivo ilegível trava a gravação; gravação que zera todos os favoritos ou todos os VIPs só passa com `allowDestructive` (exclusão pedida pelo usuário) | [data/game_lists.rs](../src-tauri/src/data/game_lists.rs) `get_game_lists_path` |
 | `RAMVersions.json` | `%LOCALAPPDATA%\Roblox Account Manager\` (se `LOCALAPPDATA` não existir: pasta do exe) | JSON, escrita atômica via `.json.tmp` | [data/versions.rs](../src-tauri/src/data/versions.rs) `get_versions_catalog_path` |
 | `RobloxVersions/` | `%LOCALAPPDATA%\Roblox Account Manager\` | versões do cliente instaladas | [data/versions.rs](../src-tauri/src/data/versions.rs) `ram_managed_versions_root` |
 | `AccountControlData.json` | pasta de dados | JSON (lista de contas do Nexus) | [nexus/websocket/server_impl.rs](../src-tauri/src/nexus/websocket/server_impl.rs) `data_path` |

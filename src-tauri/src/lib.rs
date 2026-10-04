@@ -13,9 +13,10 @@ use api::batch::ImageCache;
 use data::accounts::{get_account_data_path, AccountStore};
 use data::avatars::AvatarStore;
 use data::crypto;
+use data::game_lists::GameListsStore;
 use data::scripts::ScriptStore;
 use data::settings::{
-    get_avatars_path, get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path,
+    get_avatars_path, get_game_lists_path, get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path,
     SettingsStore, ThemePresetStore, ThemeStore,
 };
 use data::versions::{get_versions_catalog_path, VersionsCatalogStore};
@@ -231,6 +232,7 @@ pub fn run() {
     let theme_preset_store = ThemePresetStore::new(get_theme_presets_path());
     let script_store = ScriptStore::new(get_scripts_path());
     let avatar_store = AvatarStore::new(get_avatars_path());
+    let game_lists_store = GameListsStore::new(get_game_lists_path());
     let versions_catalog = VersionsCatalogStore::new(get_versions_catalog_path());
     let image_cache = ImageCache::new();
 
@@ -255,6 +257,7 @@ pub fn run() {
         .manage(theme_preset_store)
         .manage(script_store)
         .manage(avatar_store)
+        .manage(game_lists_store)
         .manage(versions_catalog)
         .manage(image_cache)
         .manage(UpdaterRuntimeState::default())
@@ -398,6 +401,8 @@ pub fn run() {
             data::settings::import_theme_font_bytes,
             data::settings::resolve_theme_font_asset,
             data::settings::import_theme_preset_bytes,
+            data::game_lists::get_game_lists,
+            data::game_lists::save_game_lists,
             list_backups,
             create_backup,
             restore_backup,

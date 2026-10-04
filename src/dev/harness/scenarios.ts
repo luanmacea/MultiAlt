@@ -65,6 +65,9 @@ const settings: Record<string, Record<string, string>> = {
 };
 
 /** Base comum: o app sobe destrancado, com contas e settings. */
+/** O `RAMGameLists.json` do harness, em memória. */
+let harnessGameLists: Record<string, unknown[]> | null = null;
+
 const baseHandler: InvokeHandler = (cmd, args) => {
   switch (cmd) {
     case "needs_password":
@@ -139,6 +142,15 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "vault_key_warning":
       return null;
     case "get_theme":
+      return null;
+    // Favoritos e recentes (`RAMGameLists.json`). Começa sem arquivo (`null`):
+    // a UI migra o que o `localStorage` tem — inclusive o que `seedTourStorage`
+    // semeou — e as gravações ficam em memória. Cair no `[]` do fallback seria
+    // uma resposta que o backend nunca dá.
+    case "get_game_lists":
+      return harnessGameLists;
+    case "save_game_lists":
+      harnessGameLists = (args?.lists as typeof harnessGameLists) ?? harnessGameLists;
       return null;
     default:
       // Comando sem resposta no cenário: `[]` é o que a maioria das telas

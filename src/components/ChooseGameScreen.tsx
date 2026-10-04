@@ -8,7 +8,7 @@ import { useEscapeStack } from "../hooks/useEscapeStack";
 import { FavoritesTab } from "./server-list/FavoritesTab";
 import { GamesTab } from "./server-list/GamesTab";
 import { RecentTab } from "./server-list/RecentTab";
-import { loadFavorites, recordRecentGame, saveFavorites } from "./server-list/types";
+import { loadFavorites, recordRecentGame, updateFavorites } from "./server-list/types";
 import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
@@ -842,15 +842,21 @@ export function ChooseGameScreen() {
   }
 
   async function handleAddFavorite(game: GameEntry) {
-    const existing = loadFavorites();
-    if (existing.some((f) => f.placeId === game.placeId)) {
+    if (loadFavorites().some((f) => f.placeId === game.placeId)) {
       store.addToast(t("Already in favorites"));
       return;
     }
     const customName = await prompt(t("Favorite name:"), game.name);
     if (!customName?.trim()) return;
-    existing.push({ placeId: game.placeId, name: customName.trim(), iconUrl: game.iconUrl, addedAt: Date.now() });
-    saveFavorites(existing);
+    // Lê-muda-grava depois do prompt: a lista lida antes dele pode ter mudado
+    // enquanto o diálogo estava aberto (ícones chegando, outra tela). Gravar a
+    // cópia de antes apagaria o que entrou no meio.
+    const saved = updateFavorites((list) =>
+      list.some((f) => f.placeId === game.placeId)
+        ? list
+        : [...list, { placeId: game.placeId, name: customName.trim(), iconUrl: game.iconUrl, addedAt: Date.now() }]
+    );
+    if (!saved) return;
     store.addToast(t("Added to favorites"));
   }
 
