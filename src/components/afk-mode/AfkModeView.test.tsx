@@ -16,7 +16,9 @@ import {
   makeBottingStatus,
   setStore,
 } from "../../test-utils/renderWithStore";
-import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
+import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
+import { AfkPage } from "../pages/AfkPage";
+import { walkTour } from "../../test-utils/tourHelpers";
 import { resetPromptMocks } from "../../test-utils/promptMocks";
 import type { AfkStatus, StoreValue } from "../../store";
 
@@ -134,6 +136,18 @@ describe("AfkModeView — as duas abas", () => {
     await userEvent.click(screen.getByRole("tab", { name: /AFK clicks/ }));
     expect(screen.getByRole("button", { name: "ann" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "cid" })).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+/** Tutorial da página AFK Mode: passa pelas duas abas sem ligar nada. */
+describe("AfkPage — tutorial", () => {
+  it("walks every step, opening the Auto Rejoin tab only to show it", async () => {
+    base();
+    render(<AfkPage active onLeave={vi.fn()} />);
+    await walkTour("afk", { invoke: invokeMock });
+    // Terminou na aba que o último passo explicou, sem ligar nenhum dos dois.
+    expect(screen.getByRole("tab", { name: /Auto Rejoin/ })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Start Auto Rejoin" })).toBeInTheDocument();
   });
 });
 

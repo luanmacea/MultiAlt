@@ -78,7 +78,7 @@ export function AfkModeView({
   }
 
   const tabList = (
-    <div role="tablist" aria-label={t("AFK Mode")} className={`grid shrink-0 grid-cols-2 gap-2 ${page ? "" : "min-w-[min(100%,520px)] flex-1"}`}>
+    <div role="tablist" aria-label={t("AFK Mode")} data-tour="afk-tabs" className={`grid shrink-0 grid-cols-2 gap-2 ${page ? "" : "min-w-[min(100%,520px)] flex-1"}`}>
       {tabs.map(({ id, label, hint, Icon, running }) => {
         const selected = tab === id;
         return (
@@ -90,6 +90,7 @@ export function AfkModeView({
             type="button"
             role="tab"
             id={`afk-mode-tab-${id}`}
+            data-tour={`afk-tab-${id}`}
             aria-selected={selected}
             aria-controls={`afk-mode-panel-${id}`}
             tabIndex={selected ? 0 : -1}

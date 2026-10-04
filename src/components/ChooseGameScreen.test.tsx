@@ -15,6 +15,8 @@ import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from ".
 import { promptAnswers, resetPromptMocks } from "../test-utils/promptMocks";
 import type { JoinTarget } from "../types";
 import type { StoreValue } from "../store";
+import { walkTour } from "../test-utils/tourHelpers";
+import { ScreenTourHost } from "./tour/ScreenTour";
 
 function joinTarget(overrides: Partial<JoinTarget> = {}): JoinTarget {
   return {
@@ -1194,5 +1196,48 @@ describe("ChooseGameScreen — shell", () => {
     expect(screen.getByText("2 accounts will be launched together")).toBeInTheDocument();
     expect(screen.getByText("alpha")).toBeInTheDocument();
     expect(screen.getByText("bravo")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Tutorial da Choose Game: passa pelas abas (Games, Servers, Friends,
+ * Windows) só abrindo cada uma — nenhuma conta é lançada no caminho.
+ */
+describe("ChooseGameScreen — tutorial", () => {
+  function renderScreen() {
+    setInvokeHandler((cmd) => {
+      switch (cmd) {
+        case "search_games":
+          return { sorts: [{ games: [] }] };
+        case "list_display_monitors":
+          return [{ index: 0, width: 1920, height: 1080, primary: true }];
+        default:
+          return undefined;
+      }
+    });
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+    });
+    render(<ChooseGameScreen />);
+    return store;
+  }
+
+  it("walks every tab of the Choose Game tutorial without launching anyone", async () => {
+    const store = renderScreen();
+    await walkTour("choose-game", { invoke: invokeMock });
+    expect(store.joinServer).not.toHaveBeenCalled();
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+    expect(store.setChooseGameOpen).not.toHaveBeenCalled();
+  });
+
+  it("Escape closes the tutorial, not the screen behind it", async () => {
+    const store = renderScreen();
+    render(<ScreenTourHost />);
+    await userEvent.click(screen.getByRole("button", { name: /Tutorial/ }));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(store.setChooseGameOpen).not.toHaveBeenCalled();
   });
 });

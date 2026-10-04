@@ -12,6 +12,7 @@ import { setStore } from "../../test-utils/renderWithStore";
 import { resetReleaseHistoryCache } from "../../releaseNotes";
 import i18n, { DEFAULT_LANGUAGE } from "../../i18n/index";
 import type { StoreValue } from "../../store";
+import { walkTour } from "../../test-utils/tourHelpers";
 
 function release(tag: string, publishedAt: string, items: string[]) {
   return {
@@ -214,5 +215,21 @@ describe("ChangelogPage", () => {
     await waitFor(() => expect(entries("Versões")).toHaveLength(3));
     expect(screen.getByText("Sua versão")).toBeInTheDocument();
     expect(screen.getByText("3 de outubro de 2026")).toBeInTheDocument();
+  });
+});
+
+describe("ChangelogPage — tutorial", () => {
+  it("walks the short What's new tutorial without starting an update", async () => {
+    const { store } = renderPage();
+    await screen.findByText("Your version");
+    await walkTour("changelog");
+    expect(store.setUpdateDialogOpen).not.toHaveBeenCalled();
+    expect(store.checkForUpdates).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the list when the history is still loading", async () => {
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    renderPage();
+    await walkTour("changelog", { allowMissing: ["list", "current", "update"] });
   });
 });

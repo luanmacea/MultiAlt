@@ -32,6 +32,7 @@ import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/
 import { ENABLE_WEBSERVER } from "../../featureFlags";
 import type { PlatformCapabilities } from "../../types";
 import i18n from "../../i18n";
+import { walkTour } from "../../test-utils/tourHelpers";
 
 /**
  * Settings tabs receive the real `useSettings()` object, so every assertion
@@ -891,5 +892,15 @@ describe("WatcherTab dependent fields", () => {
     cleanup();
     renderWatcher({ Watcher: { [key]: "true" } });
     expect(await screen.findByLabelText(label)).toBeEnabled();
+  });
+});
+
+describe("SettingsPage — tutorial", () => {
+  it("walks the Settings tutorial and ends on Backups without changing a setting", async () => {
+    stored = {};
+    render(<SettingsPage active onLeave={() => {}} />);
+    await screen.findByRole("navigation", { name: "Settings sections" });
+    await walkTour("settings", { invoke: invokeMock });
+    expect(screen.getByRole("heading", { level: 2, name: "Backups" })).toBeInTheDocument();
   });
 });

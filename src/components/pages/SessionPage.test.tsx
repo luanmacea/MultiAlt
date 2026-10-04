@@ -14,6 +14,7 @@ import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type { LaunchQueuePayload } from "../../types";
 import type { StoreValue } from "../../store";
+import { walkTour } from "../../test-utils/tourHelpers";
 
 const ACCOUNTS = [
   makeAccount({ UserID: 10, Username: "alpha" }),
@@ -164,5 +165,34 @@ describe("SessionPage — summary", () => {
     expect(screen.getByText("Auto Rejoin is running for 2 accounts.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open AFK Mode" }));
     expect(store.setActivePage).toHaveBeenCalledWith("afk");
+  });
+});
+
+/**
+ * Tutorial da página (botão Tutorial no cabeçalho): cada passo aponta uma
+ * parte que existe na tela e nenhum passo mexe em cliente ou fila.
+ */
+describe("SessionPage — tutorial", () => {
+  it("walks every step of the Session tutorial with its part on screen", async () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: QUEUE,
+      launchedByProgram: new Set([10]),
+      unidentifiedClients: [
+        { pid: 4100, reason: "noLog", userId: null, placeId: null, jobId: null, startedAtMs: 1_700_000_000_000 },
+      ],
+      ...storeActions(),
+    });
+    await walkTour("session", { invoke: invokeMock });
+  });
+
+  it("still works with nothing running (missing parts fall back)", async () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      ...storeActions(),
+    });
+    await walkTour("session", { invoke: invokeMock });
   });
 });

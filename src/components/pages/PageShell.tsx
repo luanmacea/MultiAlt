@@ -1,5 +1,7 @@
 import { useId, type ReactNode } from "react";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
+import { TourButton } from "../tour/TourButton";
+import type { TourId } from "../tour/tours";
 
 /**
  * Casca comum das páginas da área principal (Session, AFK Mode, Avatars,
@@ -28,6 +30,11 @@ export interface PageShellProps {
    */
   bodyClassName?: string;
   dataTour?: string;
+  /**
+   * Tutorial da página: põe o botão "Tutorial" no cabeçalho, antes das ações.
+   * Nunca abre sozinho (ver components/tour/).
+   */
+  tour?: TourId;
   children: ReactNode;
 }
 
@@ -39,6 +46,7 @@ export function PageShell({
   onLeave,
   bodyClassName = "overflow-y-auto px-6 py-5",
   dataTour,
+  tour,
   children,
 }: PageShellProps) {
   const headingId = useId();
@@ -61,7 +69,12 @@ export function PageShell({
             </div>
           ) : null}
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div> : null}
+        {actions || tour ? (
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {tour ? <TourButton tour={tour} /> : null}
+            {actions}
+          </div>
+        ) : null}
       </header>
       {toolbar ? <div className="shrink-0 border-b theme-border px-6">{toolbar}</div> : null}
       <div className={`flex-1 min-h-0 ${bodyClassName}`}>{children}</div>

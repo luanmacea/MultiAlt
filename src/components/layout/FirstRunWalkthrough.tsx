@@ -6,6 +6,7 @@ import { useTr } from "../../i18n/text";
 import { LANGUAGE_OPTIONS, normalizeLanguage } from "../../i18n";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { Select } from "../ui/Select";
+import { Spotlight, useSpotlight } from "../tour/useSpotlight";
 
 interface WalkthroughStep {
   id: string;
@@ -257,8 +258,8 @@ export function FirstRunWalkthrough() {
     store.setUpdateDialogOpen,
   ]);
 
-  const [activeTarget, setActiveTarget] = useState<HTMLElement | null>(null);
-  const [focusRect, setFocusRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  // O destaque é o mesmo dos tutoriais de tela (ver tour/useSpotlight.tsx).
+  const { target: activeTarget, rect: focusRect } = useSpotlight(resolveActiveTarget, stepIndex);
 
   useEffect(() => {
     const margin = 16;
@@ -308,37 +309,6 @@ export function FirstRunWalkthrough() {
   }, [panelAnchor]);
 
   useEffect(() => {
-    const update = () => {
-      const target = resolveActiveTarget();
-      setActiveTarget((prev) => (prev === target ? prev : target));
-
-      if (!target) {
-        setFocusRect(null);
-        return;
-      }
-
-      const rect = target.getBoundingClientRect();
-      setFocusRect({
-        left: Math.max(8, rect.left - 8),
-        top: Math.max(8, rect.top - 8),
-        width: Math.max(24, rect.width + 16),
-        height: Math.max(24, rect.height + 16),
-      });
-    };
-
-    update();
-    const timer = window.setInterval(update, 140);
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-    };
-  }, [resolveActiveTarget, stepIndex]);
-
-  useEffect(() => {
     if (stepIndex <= steps.length - 1) return;
     setStepIndex(steps.length - 1);
   }, [stepIndex, steps.length]);
@@ -377,19 +347,7 @@ export function FirstRunWalkthrough() {
 
   return (
     <div className="fixed inset-0 z-[95] pointer-events-none">
-      {focusRect ? (
-        <div
-          className="walkthrough-focus-ring"
-          style={{
-            left: focusRect.left,
-            top: focusRect.top,
-            width: focusRect.width,
-            height: focusRect.height,
-          }}
-        />
-      ) : (
-        <div className="walkthrough-soft-scrim" />
-      )}
+      <Spotlight rect={focusRect} />
 
       <div
         ref={panelRef}

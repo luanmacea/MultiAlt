@@ -51,6 +51,7 @@ A regra do projeto é que o frontend fala só com o backend, mas o código tem e
 | [fontPresets.ts](../src/fontPresets.ts) | Carrega fontes de `fonts.googleapis.com`. |
 | [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos, jogos recentes e servidores recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`), não no backend. A versão que o usuário mandou pular no updater também (`getUpdaterSkipVersionKey`). |
 | [NavSidebar.tsx](../src/components/layout/NavSidebar.tsx) | Barra lateral recolhida ou não: `localStorage` (`ram_nav_collapsed`), preferência de quem está na máquina, com `try/catch` (armazenamento bloqueado só faz a escolha valer até fechar o app). |
+| [tour/tourState.ts](../src/components/tour/tourState.ts) | Quais tutoriais de tela a pessoa já abriu: `localStorage` (`ram_tours_seen`), só para o pontinho de "novo" no botão Tutorial, com `try/catch`. |
 
 A região de um servidor **não** é mais exceção: o frontend chama `get_server_regions` e o backend faz a geolocalização ([server-choice.md](features/server-choice.md)).
 
