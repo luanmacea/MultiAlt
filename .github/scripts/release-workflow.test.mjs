@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 /**
@@ -184,5 +186,107 @@ describe("contribuidores da release", () => {
     const add = finalize.indexOf("contributorSet.add(owner)");
     expect(add).toBeGreaterThan(-1);
     expect(add).toBeLessThan(finalize.indexOf("if (previousTag) {\n              try {\n                const compare"));
+  });
+});
+
+/**
+ * Tipo da release (correção, novidades, atualização geral — regra em
+ * release-kind.mjs). O tipo decide o bump, então sai do passo "Resolve bump
+ * and channel", antes do "Prepare version and release metadata"; e os dois
+ * textos da release (o inicial, que vai no `notes` do manifesto do updater, e
+ * o final) abrem com a marca e o selo.
+ */
+describe("tipo da release", () => {
+  const step = (name) => steps().find((s) => s.name === name)?.lines.join("\n") ?? "";
+  const names = () => steps().map((s) => s.name);
+
+  it("o passo que resolve o bump decide o tipo pela regra testada, com o texto do PR", () => {
+    const resolve = step("Resolve bump and channel");
+    expect(resolve).toMatch(/listPullRequestsAssociatedWithCommit/);
+    expect(resolve).toMatch(/release-kind\.mjs/);
+    // Windows: import() de caminho absoluto só funciona como file:// URL.
+    expect(resolve).toMatch(/pathToFileURL/);
+    expect(resolve).toMatch(/resolveReleaseControls\(/);
+    expect(resolve).toMatch(/prBody: .*pr\?*\.body/);
+    expect(resolve).toMatch(/core\.setOutput\("kind"/);
+    expect(resolve).toMatch(/core\.setOutput\("bump"/);
+    expect(names().indexOf("Resolve bump and channel")).toBeLessThan(names().indexOf("Prepare version and release metadata"));
+  });
+
+  it("o tipo chega ao prepare-release e ao texto final", () => {
+    expect(step("Prepare version and release metadata")).toMatch(/RELEASE_KIND: \$\{\{ steps\.controls\.outputs\.kind \}\}/);
+    expect(step("Finalize release notes")).toMatch(/RELEASE_KIND: \$\{\{ steps\.controls\.outputs\.kind \}\}/);
+  });
+
+  it("o texto final abre com a marca e o selo, antes do download", () => {
+    const finalize = step("Finalize release notes");
+    expect(finalize).toMatch(/releaseKindHeader\(/);
+    expect(finalize).toMatch(/pathToFileURL/);
+    const final = /const finalBody = \[\s*([\s\S]*?)\]\.join/.exec(finalize);
+    expect(final).not.toBeNull();
+    const parts = final[1].split(",").map((p) => p.trim()).filter(Boolean);
+    expect(parts[0]).toBe("kindHeader");
+    expect(parts.indexOf("topNote")).toBeGreaterThan(0);
+  });
+
+  it("o bump do workflow_dispatch deixa o tipo decidir por padrão", () => {
+    const dispatch = /bump:\n\s+description:.*\n\s+required: false\n\s+default: "(\w+)"/.exec(yaml);
+    expect(dispatch?.[1]).toBe("auto");
+    expect(yaml).toMatch(/- auto\n\s+- patch\n\s+- minor/);
+  });
+
+  it("o título da release não muda (o selo fica no texto)", () => {
+    const prepare = readFileSync(path.resolve(__dirname, "prepare-release.mjs"), "utf8");
+    expect(prepare).toMatch(/const releaseTitle = `MultiAlt \(Roblox Account Manager\) \$\{tag\}`;/);
+  });
+});
+
+/**
+ * O prepare-release.mjs de verdade, numa pasta temporária com um repositório
+ * git de mentira: o texto inicial da release (o que o manifesto do updater
+ * leva como `notes`) abre com a marca e o selo do tipo.
+ */
+describe("prepare-release.mjs", () => {
+  function runPrepare(env) {
+    const dir = mkdtempSync(path.join(tmpdir(), "multialt-prepare-"));
+    try {
+      mkdirSync(path.join(dir, "src-tauri"));
+      writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }));
+      writeFileSync(path.join(dir, "src-tauri", "tauri.conf.json"), JSON.stringify({ version: "1.0.0" }));
+      writeFileSync(path.join(dir, "src-tauri", "Cargo.toml"), '[package]\nname = "x"\nversion = "1.0.0"\n');
+      const git = (...args) => execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+      git("init", "-q");
+      git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "x");
+      git("tag", "v1.0.0");
+      const output = path.join(dir, "out.txt");
+      writeFileSync(output, "");
+      execFileSync(process.execPath, [path.resolve(__dirname, "prepare-release.mjs")], {
+        cwd: dir,
+        stdio: "pipe",
+        env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_REPOSITORY: "o/r", GITHUB_SHA: "abcdef1234", ...env },
+      });
+      return readFileSync(output, "utf8").replace(/\r\n/g, "\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  const bodyOf = (out) => /release_body<<EOF\n([\s\S]*?)\nEOF/.exec(out)?.[1] ?? "";
+
+  it("correção: patch e o selo Hotfix na primeira linha", () => {
+    const out = runPrepare({ RELEASE_BUMP: "patch", RELEASE_KIND: "fix" });
+    expect(out).toMatch(/^version=1\.0\.1-beta$/m);
+    expect(out).toMatch(/^kind=fix$/m);
+    expect(bodyOf(out).startsWith("<!-- release-kind: fix -->\n**🩹 Hotfix**\n\n")).toBe(true);
+  });
+
+  it("novidades: o selo New features", () => {
+    const out = runPrepare({ RELEASE_BUMP: "minor", RELEASE_KIND: "feature" });
+    expect(out).toMatch(/^version=1\.1\.0-beta$/m);
+    expect(bodyOf(out).startsWith("<!-- release-kind: feature -->\n**✨ New features**")).toBe(true);
+  });
+
+  it("recusa tipo desconhecido", () => {
+    expect(() => runPrepare({ RELEASE_BUMP: "patch", RELEASE_KIND: "major" })).toThrow();
   });
 });

@@ -47,7 +47,44 @@ function release(version: string, publishedAt: string, body: string, extra: Reco
   };
 }
 
+/**
+ * Corpo de hoje (desde 04/10/2026): a marca e o selo do tipo na primeira linha
+ * (.github/scripts/release-kind.mjs), depois o download e a lista simples.
+ */
+const KIND_BADGES = { fix: "**🩹 Hotfix**", feature: "**✨ New features**", mixed: "**📦 General update**" } as const;
+
+export function kindBody(version: string, kind: keyof typeof KIND_BADGES, items: string[]): string {
+  return [
+    `<!-- release-kind: ${kind} -->`,
+    KIND_BADGES[kind],
+    "",
+    "## Download",
+    "",
+    `### [⬇ Download MultiAlt-Setup.msi](${REPO}/releases/download/v${version}-beta/MultiAlt-Setup.msi)`,
+    "",
+    "Open the file and follow the installer. That's it.",
+    "",
+    "## What's Changed",
+    ...items.map((item) => `- ${item}`),
+    "",
+    CONTRIBUTORS,
+  ].join("\n");
+}
+
 export const HARNESS_RELEASES = [
+  release(
+    "0.2.1",
+    "2026-10-05T18:00:00Z",
+    kindBody("0.2.1", "fix", ["Fixed: the account list no longer jumps when a game opens.", "Fixed: VIP servers stay saved after a restore."])
+  ),
+  release(
+    "0.2.0",
+    "2026-10-04T15:00:00Z",
+    kindBody("0.2.0", "mixed", [
+      "Favorites, VIP servers and recent games are kept in backups.",
+      "Fixed: deleting a backup with an accented name no longer closes the app.",
+    ])
+  ),
   release(
     "0.1.10",
     "2026-10-03T22:20:37Z",

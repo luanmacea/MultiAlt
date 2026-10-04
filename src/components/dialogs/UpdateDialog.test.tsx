@@ -184,6 +184,78 @@ describe("notas da atualização — como aparecem na janela", () => {
   });
 });
 
+/**
+ * Tipo da release ao lado da versão: correção, novidades ou atualização geral.
+ * Vem da marca `<!-- release-kind: … -->` do texto da release
+ * (.github/scripts/release-kind.mjs); a marca e o selo do GitHub nunca
+ * aparecem como texto nas notas.
+ */
+describe("tipo da atualização", () => {
+  const body = (kind: string, badge: string) =>
+    [`<!-- release-kind: ${kind} -->`, badge, "", "## What's Changed", "- Fixed: crash on start", "", "## Contributors", "[@a](https://github.com/a)"].join(
+      "\n"
+    );
+
+  beforeEach(async () => {
+    await i18n.changeLanguage(DEFAULT_LANGUAGE);
+    resetTauriMocks();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })));
+  });
+
+  afterEach(async () => {
+    cleanup();
+    vi.unstubAllGlobals();
+    await i18n.changeLanguage(DEFAULT_LANGUAGE);
+  });
+
+  it("mostra a versão e o selo de correção, sem a marca nem o selo do GitHub no texto", async () => {
+    setStore({ updateDialogOpen: true, updateInfo: { ...INFO, body: body("fix", "**🩹 Hotfix**") } });
+    render(<UpdateDialog />);
+    expect(screen.getByText("v0.1.7")).toBeInTheDocument();
+    expect(screen.getByText("Fix")).toHaveAttribute("data-release-kind", "fix");
+    await screen.findByText("Fixed: crash on start");
+    expect(screen.queryByText(/Hotfix|release-kind/)).not.toBeInTheDocument();
+  });
+
+  it("novidades e atualização geral têm selos próprios", () => {
+    setStore({ updateDialogOpen: true, updateInfo: { ...INFO, body: body("feature", "**✨ New features**") } });
+    const view = render(<UpdateDialog />);
+    expect(screen.getByText("New features")).toHaveAttribute("data-release-kind", "feature");
+    view.unmount();
+
+    setStore({ updateDialogOpen: true, updateInfo: { ...INFO, body: body("mixed", "**📦 General update**") } });
+    render(<UpdateDialog />);
+    expect(screen.getByText("General update")).toHaveAttribute("data-release-kind", "mixed");
+  });
+
+  it("lê o tipo do texto final da release quando o do manifesto não tem", async () => {
+    const remote = body("fix", "**🩹 Hotfix**");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        /releases\/tags\//.test(url) ? { ok: true, json: async () => ({ body: remote }) } : { ok: false, json: async () => ({}) }
+      )
+    );
+    setStore({ updateDialogOpen: true, updateInfo: { ...INFO, body: "Channel: Beta" } });
+    render(<UpdateDialog />);
+    expect(await screen.findByText("Fix")).toHaveAttribute("data-release-kind", "fix");
+  });
+
+  it("release sem tipo não tem selo", () => {
+    setStore({ updateDialogOpen: true, updateInfo: INFO });
+    render(<UpdateDialog />);
+    expect(screen.getByText("v0.1.7")).toBeInTheDocument();
+    expect(document.querySelector("[data-release-kind]")).toBeNull();
+  });
+
+  it("fala português", async () => {
+    await i18n.changeLanguage("pt");
+    setStore({ updateDialogOpen: true, updateInfo: { ...INFO, body: body("fix", "**🩹 Hotfix**") } });
+    render(<UpdateDialog />);
+    expect(screen.getByText("Correção")).toBeInTheDocument();
+  });
+});
+
 describe("notas da atualização — detalhes técnicos", () => {
   it("escondem o bloco recolhido de detalhes técnicos e ficam com a lista simples", () => {
     const body = [

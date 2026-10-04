@@ -5,6 +5,7 @@ import {
   compareVersions,
   fetchReleaseHistory,
   notesForUpdateDialog,
+  releaseKindOf,
   resetReleaseHistoryCache,
   versionFromTag,
 } from "./releaseNotes";
@@ -148,6 +149,69 @@ describe("changelogNotes — o que a página de novidades mostra de cada versão
   });
 });
 
+/**
+ * Tipo da release (correção, novidades, atualização geral): a marca
+ * `<!-- release-kind: … -->` que o workflow põe na primeira linha
+ * (.github/scripts/release-kind.mjs). Sem marca, só uma lista em linguagem
+ * simples é classificada; release antiga (títulos de PR) fica sem tipo.
+ */
+describe("releaseKindOf", () => {
+  const withKind = (kind: string, body: string) => `<!-- release-kind: ${kind} -->\n**🩹 Hotfix**\n\n${body}`;
+
+  it("lê a marca", () => {
+    expect(releaseKindOf(withKind("fix", PLAIN_BODY))).toBe("fix");
+    expect(releaseKindOf(withKind("feature", PLAIN_BODY))).toBe("feature");
+    expect(releaseKindOf(withKind("mixed", PLAIN_BODY))).toBe("mixed");
+  });
+
+  it("sem marca, classifica a lista simples pelo prefixo Fixed:", () => {
+    expect(releaseKindOf(PLAIN_BODY)).toBe("feature");
+    expect(releaseKindOf("## What's Changed\n- Fixed: crash\n- fixed: freeze")).toBe("fix");
+    expect(releaseKindOf("## What's Changed\n- Fixed: crash\n- New menu")).toBe("mixed");
+  });
+
+  it("release antiga, com títulos de PR, fica sem tipo", () => {
+    expect(releaseKindOf(TECHNICAL_BODY)).toBeNull();
+  });
+
+  it("sem lista nenhuma, sem tipo", () => {
+    expect(releaseKindOf("Channel: Beta\n\n## Contributors\n[@a](https://github.com/a)")).toBeNull();
+    expect(releaseKindOf("")).toBeNull();
+  });
+
+  it("marca de tipo desconhecido é ignorada", () => {
+    expect(releaseKindOf("<!-- release-kind: major -->\n## What's Changed\n- Fixed: a")).toBe("fix");
+  });
+});
+
+describe("marca e selo do tipo nunca aparecem como texto", () => {
+  const header = "<!-- release-kind: fix -->\n**🩹 Hotfix**\n\n";
+
+  it("na janela de atualização", () => {
+    const notes = notesForUpdateDialog(header + PLAIN_BODY);
+    expect(notes.startsWith("## What's Changed")).toBe(true);
+    expect(notes).not.toMatch(/release-kind|Hotfix/);
+  });
+
+  it("na janela de atualização, também sem a seção de download", () => {
+    const notes = notesForUpdateDialog(header + TECHNICAL_BODY);
+    expect(notes).not.toMatch(/release-kind|Hotfix/);
+    expect(notes.startsWith("> [!WARNING]")).toBe(true);
+  });
+
+  it("os três selos saem", () => {
+    for (const badge of ["**🩹 Hotfix**", "**✨ New features**", "**📦 General update**"]) {
+      expect(notesForUpdateDialog(`${badge}\n\n## What's Changed\n- a`)).toBe("## What's Changed\n- a");
+    }
+  });
+
+  it("na página de novidades", () => {
+    expect(changelogNotes(header + PLAIN_BODY)).toBe(
+      "- New menu on the left, with every screen named.\n- New language: Spanish."
+    );
+  });
+});
+
 describe("versões", () => {
   it("tira o v e o sufixo do canal da tag", () => {
     expect(versionFromTag("v0.1.10-beta")).toBe("0.1.10");
@@ -218,7 +282,10 @@ describe("fetchReleaseHistory", () => {
       tag: "v0.1.10-beta",
       publishedAt: "2026-10-03T22:20:37Z",
       notes: "- New menu on the left, with every screen named.\n- New language: Spanish.",
+      kind: "feature",
     });
+    // Release antiga (títulos de PR): sem tipo, sem selo.
+    expect(entries[1].kind).toBeNull();
   });
 
   it("guarda a lista na sessão: abrir a página de novo não pede outra vez", async () => {

@@ -383,10 +383,11 @@ export const SUITES: Record<string, TestSuite> = {
     front: ["src/utils/platform.test.ts"],
   },
   release: {
-    description: "Workflow de release: número da próxima versão (série pelo major do package.json), manifesto só com o MSI e interruptor do portátil",
+    description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",
     rust: [],
     front: [
       ".github/scripts/release-version.test.mjs",
+      ".github/scripts/release-kind.test.mjs",
       ".github/scripts/update-manifest-platforms.test.mjs",
       ".github/scripts/release-workflow.test.mjs",
       "src/appIdentity.test.ts",
