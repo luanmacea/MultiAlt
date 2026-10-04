@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "notes": "> [!NOTE]\nThis is a stable release intended for general use.\n\nChannel: Stable\nRelease commit: 782b6a5\nApp version: 1.0.0\n\n## What's Changed\n* MultiAlt 1.0.0 by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/17\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v0.1.10-beta...v1.0.0",
+  "pub_date": "2026-10-04T01:17:36.7844373Z",
+  "platforms": {
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmZHOGtpbml1NzFWbS9YZktZeXFRUk43bHhJdGsxUnk2SC9zWXhmcUFNQUZmZ2dSRVkvd0E4anFFSm1xUldYNVVScG9TNjc2dWV0eE44U3NCMVo2dFEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDc2NjU2CWZpbGU6TXVsdGlBbHRfMS4wLjBfeDY0X2VuLVVTLm1zaQpYazFiZlNEYVBiMzYvak15THMwR1FjWitabVFqVndpYkJtLyt0QnFnNCtJdzFBbUQ5Y1JoUXcwc2FaMWNuQU5rZmFLa2JpYmtnenZTQ2NEYW1Fd1NCUT09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v1.0.0/MultiAlt_1.0.0_x64_en-US_full-nexus-ws.msi"
+    }
+  }
+}
