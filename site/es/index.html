@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="es" data-site-lang="es"><head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="meta.title">MultiAlt – Roblox Account Manager: varias cuentas de Roblox, gratis y de código abierto</title>
+  <meta name="description" data-i18n-attr="content:meta.description" content="Gestor de cuentas de Roblox gratis y de código abierto para Windows. Mantén todas tus cuentas conectadas, abre varios Roblox a la vez, encuentra el mejor servidor para tu grupo y sigue en el juego con Auto Rejoin y anti-AFK.">
+  <meta name="theme-color" content="#070b18">
+  <meta name="color-scheme" content="dark">
+  <!-- O Google so usa icone de 48x48 para cima (multiplo de 48) e procura o
+       favicon.ico na raiz: sem eles, o resultado da busca mostrava um globo. -->
+  <link rel="icon" href="../favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64 256x256">
+  <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
+  <link rel="icon" href="../assets/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="MultiAlt – Roblox Account Manager">
+  <meta property="og:description" content="Todas tus cuentas de Roblox en una sola ventana.">
+  <meta property="og:image" content="https://multialt.pages.dev/assets/screenshot.png">
+  <meta property="og:image:width" content="1586">
+  <meta property="og:image:height" content="993">
+  <meta property="og:site_name" content="MultiAlt">
+  <meta name="application-name" content="MultiAlt">
+  <meta property="og:url" content="https://multialt.pages.dev/es/">
+  <link rel="canonical" href="https://multialt.pages.dev/es/">
+  <meta property="og:locale" content="es_ES">
+  <!-- Cada idioma tem endereco proprio (site/pt, site/es, gerados por
+       scripts/site/build-locales.ts); o hreflang liga os tres. -->
+  <link rel="alternate" hreflang="en" href="https://multialt.pages.dev/">
+  <link rel="alternate" hreflang="pt" href="https://multialt.pages.dev/pt/">
+  <link rel="alternate" hreflang="es" href="https://multialt.pages.dev/es/">
+  <link rel="alternate" hreflang="x-default" href="https://multialt.pages.dev/">
+  <meta name="twitter:card" content="summary_large_image">
+  <!-- WebSite na pagina inicial e de onde o Google tira o nome do site no
+       resultado da busca; sem ele aparecia "Cloudflare" (o dono do dominio pages.dev). -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "MultiAlt",
+    "alternateName": ["MultiAlt - Roblox Account Manager", "Roblox Account Manager"],
+    "url": "https://multialt.pages.dev/"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "MultiAlt",
+    "alternateName": ["MultiAlt - Roblox Account Manager", "Roblox Account Manager", "RAM - Roblox Account Manager"],
+    "description": "Free, open-source Roblox account manager for Windows: keep every account signed in, run multiple Roblox clients at once, Auto Rejoin, anti-AFK and a server finder.",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Windows 10, Windows 11",
+    "url": "https://multialt.pages.dev/",
+    "downloadUrl": "https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi",
+    "image": "https://multialt.pages.dev/assets/screenshot.png",
+    "screenshot": "https://multialt.pages.dev/assets/screenshot.png",
+    "license": "https://www.gnu.org/licenses/gpl-3.0.html",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "Luan Macea", "url": "https://github.com/luanmacea" },
+    "sameAs": ["https://github.com/luanmacea/MultiAlt"]
+  }
+  </script>
+  <!-- Gerado das duvidas da pagina por scripts/site/build-locales.ts: nao edite a mao. -->
+  <script type="application/ld+json" id="faq-ld">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "¿Por qué mi antivirus marca la app?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "La app no tiene firma de código, y las herramientas que abren procesos de juegos son un falso positivo común para los antivirus que aprenden por patrones. El .msi sale limpio en VirusTotal. Si tienes dudas, lee el código o compílalo tú mismo."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "¿Cómo activo Multi Roblox?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Cierra Roblox, ve a Settings, General y activa Multi Roblox."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "¿Por qué Multi Roblox viene desactivado?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "El equipo anti-cheat de Roblox ha dicho que ejecutar varios clientes puede verse como un comportamiento sospechoso. Actívalo bajo tu propio riesgo."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "¿Me pueden banear por usarla?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "El gestor no rompe los Términos de Servicio de Roblox, pero algunos juegos prohíben las cuentas alternativas. Revisa las reglas del juego que juegas."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "¿Cómo hago una copia de seguridad de mis cuentas?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Settings, Backups. La copia incluye la clave del equipo, así que si no pones una contraseña en la app, cualquiera con el archivo puede abrir tus cuentas. Pon una contraseña antes de guardar copias en la nube."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "La ventana se abrió en blanco. ¿Y ahora?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "La app se vuelve a abrir sola sin aceleración de video después de 25 segundos. Puedes forzarlo manteniendo Shift mientras se abre. Si sigue en blanco, repara Microsoft Edge WebView2 Runtime en Configuración de Windows, Aplicaciones, reinicia y actualiza el driver de video."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "¿Funciona en Mac?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Todavía no. El soporte para macOS es parcial y por ahora no hay descarga para Mac."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "¿De verdad es gratis?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Sí. Sin plan de pago, sin anuncios, sin cuenta que crear. La licencia es GPL-3.0."
+        }
+      }
+    ]
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&amp;family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <a class="skip" href="#main" data-i18n="nav.skip">Saltar al contenido</a>
+
+  <header class="nav" id="top">
+    <div class="wrap nav-row">
+      <a class="brand" href="#top" aria-label="MultiAlt">
+        <img src="../assets/icon.svg" alt="" width="30" height="30">
+        <span>MultiAlt</span>
+      </a>
+      <nav class="nav-links" aria-label="Sections">
+        <a href="#screens" data-i18n="nav.screens">Pantallas</a>
+        <a href="#features" data-i18n="nav.features">Funciones</a>
+        <a href="#download" data-i18n="nav.download">Descarga</a>
+        <a href="#safety" data-i18n="nav.safety">Seguridad</a>
+        <a href="#faq" data-i18n="nav.faq">Preguntas</a>
+      </nav>
+      <div class="nav-tools">
+        <div class="lang" role="group" aria-label="Language">
+          <button type="button" data-lang="en" aria-pressed="true">EN</button>
+          <button type="button" data-lang="pt" aria-pressed="false">PT</button>
+          <button type="button" data-lang="es" aria-pressed="false">ES</button>
+        </div>
+        <a class="icon-link" href="https://github.com/luanmacea/MultiAlt" aria-label="GitHub">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.39-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"></path></svg>
+        </a>
+        <a class="btn btn-small" href="#download" data-i18n="nav.cta">Descargar</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero: o app desenhado em HTML, abrindo as contas uma a uma -->
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="hero-tag"><span class="dot dot-green" aria-hidden="true"></span><span data-i18n="hero.tag">Gratis y de código abierto para Windows</span></p>
+          <h1><span class="h1-brand">MultiAlt · Roblox Account Manager</span><span data-i18n="hero.title">Todas tus cuentas de Roblox en una sola ventana.</span></h1>
+          <p class="lede" data-i18n="hero.lede">Mantén tu cuenta principal y todas tus alts conectadas, abre todos los Roblox que quieras al mismo tiempo y mantenlos en el juego mientras no estás. Se acabó cerrar sesión para cambiar de cuenta.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/MultiAlt/releases">
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 5.5 10.4 4.5v7H3Zm0 13 7.4 1v-7H3Zm8.3 1.1L21 21V12.5h-9.7Zm0-15.2V11.5H21V3Z"></path></svg>
+              <span class="btn-stack">
+                <span data-i18n="hero.cta">Descargar para Windows</span>
+                <small class="js-dl-meta" data-i18n="dl.metaFallback">Última versión en GitHub</small>
+              </span>
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/luanmacea/MultiAlt" data-i18n="hero.source">Ver el código</a>
+          </div>
+          <ul class="trust">
+            <li><span class="dot dot-blue" aria-hidden="true"></span><span data-i18n="hero.trust1">No pide permisos de administrador</span></li>
+            <li><span class="dot dot-green" aria-hidden="true"></span><span data-i18n="hero.trust2">0/75 en VirusTotal (.msi)</span></li>
+            <li><span class="dot dot-purple" aria-hidden="true"></span><span data-i18n="hero.trust3">Se actualiza solo</span></li>
+          </ul>
+        </div>
+
+        <div class="stage" aria-hidden="true">
+          <div class="clients" id="clients"></div>
+          <div class="app">
+            <div class="app-title">
+              <span>MultiAlt</span>
+              <span class="app-winbtns"><i></i><i></i><i></i></span>
+            </div>
+            <div class="app-toolbar">
+              <span class="app-search">Filter accounts…</span>
+              <span class="app-chip">+ Add</span>
+            </div>
+            <div class="app-group">Main and alts <b id="mock-count">6</b></div>
+            <ul class="app-list" id="mock-list"></ul>
+            <div class="app-actions">
+              <span class="app-place">Place <b>7711635737</b></span>
+              <span class="app-join" id="mock-join">Join Server</span>
+            </div>
+            <div class="app-status">
+              <span><b id="mock-selected">6</b> selected</span>
+              <span><span class="dot dot-orange"></span> <b id="mock-launched">0</b> launched</span>
+              <span><span class="dot dot-green"></span> <b id="mock-ingame">0</b> in game</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Telas: fotos reais do app (nomes ocultos). A lista imita a barra lateral
+         do próprio MultiAlt; só a tela escolhida mostra a frase dela. -->
+    <section class="screens" id="screens">
+      <div class="wrap">
+        <header class="section-head">
+          <h2 data-i18n="sc.title">Mira cada pantalla antes de instalar</h2>
+          <p data-i18n="sc.lede">Capturas reales de MultiAlt, con los nombres de las cuentas ocultos. Elige una pantalla para verla de cerca.</p>
+        </header>
+
+        <div class="tour">
+          <div class="tour-rail" role="tablist" aria-label="Pantallas" data-i18n-attr="aria-label:sc.rail" aria-orientation="vertical">
+            <button class="tour-tab" role="tab" id="tab-accounts" aria-controls="tour-view" aria-selected="true" data-shot="accounts">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+              <span class="tour-name" data-i18n="sc.accounts">Cuentas</span>
+              <span class="tour-desc" data-i18n="sc.accountsD">Todas tus cuentas en una lista, agrupadas a tu manera. Selecciona algunas y envíalas juntas al mismo juego.</span>
+            </button>
+            <button class="tour-tab" role="tab" id="tab-choose-game" aria-controls="tour-view" aria-selected="false" tabindex="-1" data-shot="choose-game">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h4M8 10v4"></path><path d="M15 13h.01M18 11h.01"></path><rect x="2" y="6" width="20" height="12" rx="4"></rect></svg>
+              <span class="tour-name" data-i18n="sc.game">Elegir juego</span>
+              <span class="tour-desc" data-i18n="sc.gameD">Explora juegos, favoritos, servidores y amigos, y entra con todas las cuentas seleccionadas a la vez.</span>
+            </button>
+            <button class="tour-tab" role="tab" id="tab-session" aria-controls="tour-view" aria-selected="false" tabindex="-1" data-shot="session">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+              <span class="tour-name" data-i18n="sc.session">Sesión</span>
+              <span class="tour-desc" data-i18n="sc.sessionD">Sigue la cola de entrada y cada cliente en juego. Enfoca o cierra cualquiera desde aquí.</span>
+            </button>
+            <button class="tour-tab" role="tab" id="tab-afk-clicks" aria-controls="tour-view" aria-selected="false" tabindex="-1" data-shot="afk-clicks">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 9 5 12 1.8-5.2L21 14Z"></path><path d="M7.2 2.2 8 5.1M5.1 8l-2.9-.8M14 4.1 12 6M6 12l-1.9 2"></path></svg>
+              <span class="tour-name" data-i18n="sc.clicks">Clics AFK</span>
+              <span class="tour-desc" data-i18n="sc.clicksD">Pulsa una tecla o hace clic en cada ventana de Roblox cada cierto tiempo, para que ninguna cuenta sea expulsada por inactividad.</span>
+            </button>
+            <button class="tour-tab" role="tab" id="tab-auto-rejoin" aria-controls="tour-view" aria-selected="false" tabindex="-1" data-shot="auto-rejoin">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m17 2 4 4-4 4"></path><path d="M3 11v-1a4 4 0 0 1 4-4h14"></path><path d="m7 22-4-4 4-4"></path><path d="M21 13v1a4 4 0 0 1-4 4H3"></path></svg>
+              <span class="tour-name">Auto Rejoin</span>
+              <span class="tour-desc" data-i18n="sc.rejoinD">Cierra y vuelve a abrir tus alts cada cierto tiempo, con el estado de cada una en vivo. Tu cuenta principal se queda donde está.</span>
+            </button>
+            <button class="tour-tab" role="tab" id="tab-avatars" aria-controls="tour-view" aria-selected="false" tabindex="-1" data-shot="avatars">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23Z"></path></svg>
+              <span class="tour-name" data-i18n="sc.avatars">Avatares</span>
+              <span class="tour-desc" data-i18n="sc.avatarsD">Arma atuendos con artículos oficiales gratis de Roblox y repártelos entre tus alts. Nunca gasta Robux.</span>
+            </button>
+            <button class="tour-tab" role="tab" id="tab-theme" aria-controls="tour-view" aria-selected="false" tabindex="-1" data-shot="theme">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 2a10 10 0 0 0 0 20c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2A5.56 5.56 0 0 0 22 10.83C22 6 17.5 2 12 2Z"></path></svg>
+              <span class="tour-name" data-i18n="sc.theme">Tema</span>
+              <span class="tour-desc" data-i18n="sc.themeD">Cambia cada color y fuente con vista previa en vivo. Guarda preajustes o importa los de otra persona.</span>
+            </button>
+            <button class="tour-tab" role="tab" id="tab-settings" aria-controls="tour-view" aria-selected="false" tabindex="-1" data-shot="settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              <span class="tour-name" data-i18n="sc.settings">Configuración</span>
+              <span class="tour-desc" data-i18n="sc.settingsD">Cada opción en su sección: actualizaciones, inicio, aislamiento, optimización y más.</span>
+            </button>
+          </div>
+
+          <figure class="tour-view" id="tour-view" role="tabpanel" aria-labelledby="tab-accounts">
+            <a class="tour-shot" href="../assets/screens/accounts.png" target="_blank" rel="noopener">
+              <img src="../assets/screens/accounts.png" width="1586" height="993" alt="MultiAlt: Accounts screen" loading="lazy" decoding="async">
+            </a>
+            <figcaption class="tour-caption">
+              <span class="tour-caption-desc" aria-live="polite"></span>
+              <a class="tour-full" href="../assets/screens/accounts.png" target="_blank" rel="noopener" data-i18n="sc.full">Abrir en tamaño real</a>
+            </figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- Destaques -->
+    <section class="features" id="features">
+      <div class="wrap">
+        <header class="section-head">
+          <h2 data-i18n="feat.title">Hecho para quien juega con más de una cuenta</h2>
+          <p data-i18n="feat.lede">Abrir, entrar, quedarse en el servidor y mantener las cuentas seguras: lo que antes llevaba una docena de clics por cuenta ahora lleva uno.</p>
+        </header>
+
+        <article class="spot">
+          <div class="spot-copy">
+            <h3 data-i18n="s1.title">Ábrelas todas a la vez</h3>
+            <p data-i18n="s1.body">Activa Multi Roblox y abre todos los clientes que aguante tu PC. Selecciona un grupo de cuentas y Multi Launch las manda al mismo juego, una por una con una espera segura, mientras el panel de sesión muestra cada apertura en tiempo real.</p>
+            <ul class="ticks">
+              <li data-i18n="s1.t1">Cola de apertura que puedes cancelar cuando quieras</li>
+              <li data-i18n="s1.t2">Ordena todas las ventanas de Roblox en cuadrícula en los monitores que elijas</li>
+              <li data-i18n="s1.t3">Instala versiones de Roblox lado a lado; detecta Bloxstrap, Fishstrap y Voidstrap</li>
+            </ul>
+          </div>
+          <figure class="spot-visual grid-visual" aria-hidden="true">
+            <div class="monitor">
+              <div class="win"><span>Nebula_Main</span></div>
+              <div class="win"><span>FruitFarm_01</span></div>
+              <div class="win"><span>FruitFarm_02</span></div>
+              <div class="win"><span>FruitFarm_03</span></div>
+            </div>
+            <div class="monitor">
+              <div class="win"><span>FruitFarm_04</span></div>
+              <div class="win"><span>FruitFarm_05</span></div>
+              <div class="win"><span>TradeAlt</span></div>
+              <div class="win win-empty"></div>
+            </div>
+            <figcaption data-i18n="s1.cap">Ventanas en cuadrícula en dos monitores</figcaption>
+          </figure>
+        </article>
+
+        <article class="spot spot-flip">
+          <div class="spot-copy">
+            <h3 data-i18n="s2.title">Todos en el mismo servidor</h3>
+            <p data-i18n="s2.body">El buscador de servidores revisa los servidores del juego y elige el que le sirve a tu grupo. Best fit toma el servidor más lleno donde todavía caben todos, para que nadie se quede en otro lobby. ¿Lo prefieres más vacío, más lleno, al azar o en una región? Es un solo ajuste.</p>
+            <ul class="ticks">
+              <li data-i18n="s2.t1">Pega cualquier enlace: juego, servidor privado, enlace para compartir, invitación o deep link</li>
+              <li data-i18n="s2.t2">Mira los amigos en línea de cada cuenta y manda al grupo al servidor de un amigo</li>
+              <li data-i18n="s2.t3">Juegos favoritos con varios enlaces de servidor privado cada uno</li>
+            </ul>
+          </div>
+          <figure class="spot-visual servers" aria-hidden="true">
+            <p class="servers-need"><span data-i18n="s2.need">Grupo de 4 cuentas</span><span class="pips"><i></i><i></i><i></i><i></i></span></p>
+            <ol class="srv">
+              <li><span class="srv-name">Server A</span><span class="bar" style="--fill:95%"></span><span class="srv-n">19/20</span><span class="srv-tag no" data-i18n="s2.full">no caben</span></li>
+              <li><span class="srv-name">Server B</span><span class="bar" style="--fill:85%"></span><span class="srv-n">17/20</span><span class="srv-tag no" data-i18n="s2.full">no caben</span></li>
+              <li class="pick"><span class="srv-name">Server C</span><span class="bar" style="--fill:80%"><b style="--add:20%"></b></span><span class="srv-n">16/20</span><span class="srv-tag yes" data-i18n="s2.best">mejor opción</span></li>
+              <li><span class="srv-name">Server D</span><span class="bar" style="--fill:45%"></span><span class="srv-n">9/20</span><span class="srv-tag"></span></li>
+              <li><span class="srv-name">Server E</span><span class="bar" style="--fill:10%"></span><span class="srv-n">2/20</span><span class="srv-tag"></span></li>
+            </ol>
+          </figure>
+        </article>
+
+        <article class="spot">
+          <div class="spot-copy">
+            <h3 data-i18n="s3.title">Sigue en el juego mientras no estás</h3>
+            <p data-i18n="s3.body">Dos formas de evitar que expulsen a tus cuentas por inactividad. El modo AFK pulsa una tecla o hace clic en cada ventana cada pocos minutos, así nadie se mueve de donde está. Auto Rejoin cierra y vuelve a abrir tus alts cada cierto tiempo, sin tocar nunca tus cuentas principales.</p>
+            <ul class="ticks">
+              <li data-i18n="s3.t1">El watcher cierra el cliente que perdió la conexión o se quedó sin memoria</li>
+              <li data-i18n="s3.t2">Límite de FPS, gráficos, prioridad y FastFlags, con perfiles separados para principales y alts</li>
+              <li data-i18n="s3.t3">Una consola en vivo explica cada apertura, rejoin y acción del watcher</li>
+            </ul>
+          </div>
+          <figure class="spot-visual lanes" aria-hidden="true">
+            <div class="lane">
+              <span class="lane-name" data-i18n="s3.main">Cuenta principal</span>
+              <span class="track"><span class="seg seg-main" style="left:0;width:100%"></span></span>
+            </div>
+            <div class="lane">
+              <span class="lane-name" data-i18n="s3.afk">Modo AFK</span>
+              <span class="track"><span class="seg seg-main" style="left:0;width:100%"></span><i class="tick" style="left:12%"></i><i class="tick" style="left:32%"></i><i class="tick" style="left:52%"></i><i class="tick" style="left:72%"></i><i class="tick" style="left:92%"></i></span>
+            </div>
+            <div class="lane">
+              <span class="lane-name" data-i18n="s3.alt">Alt con Auto Rejoin</span>
+              <span class="track"><span class="seg seg-alt" style="left:0;width:30%"></span><span class="seg seg-alt" style="left:34%;width:30%"></span><span class="seg seg-alt" style="left:68%;width:32%"></span></span>
+            </div>
+            <div class="lane-legend">
+              <span><span class="dot dot-green"></span> <span data-i18n="s3.lg1">en el juego</span></span>
+              <span><i class="tick tick-key"></i> <span data-i18n="s3.lg2">tecla o clic</span></span>
+              <span><span class="gap-key"></span> <span data-i18n="s3.lg3">rejoin</span></span>
+            </div>
+          </figure>
+        </article>
+
+        <article class="spot spot-flip">
+          <div class="spot-copy">
+            <h3 data-i18n="s4.title">Tus cuentas siguen siendo tuyas</h3>
+            <p data-i18n="s4.body">Las cuentas siempre se guardan cifradas en el disco, con tu contraseña o con una clave ligada a este PC. Antes de abrir, el aislamiento borra la caché y los rastros del registro para que una cuenta no herede la sesión de otra. Las copias de seguridad de cuentas, ajustes, scripts y temas están a un clic.</p>
+            <ul class="ticks">
+              <li data-i18n="s4.t1">Agrega cuentas iniciando sesión en el navegador, con cookie, user:pass o el archivo del RAM antiguo</li>
+              <li data-i18n="s4.t2">Estado en vivo: en línea, en el juego, en Studio, sesión expirada o inactiva por más de 20 días</li>
+              <li data-i18n="s4.t3">El modo streamer oculta los nombres mientras grabas</li>
+            </ul>
+          </div>
+          <figure class="spot-visual vault" aria-hidden="true">
+            <div class="file">
+              <div class="file-head"><span>AccountData.json</span><span class="lock"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3"></path></svg><span data-i18n="s4.enc">cifrado</span></span></div>
+              <code class="cipher" id="cipher">x9QeL0v2…</code>
+            </div>
+            <ul class="legend">
+              <li><span class="dot dot-red"></span><span data-i18n="lg.invalid">inválida</span></li>
+              <li><span class="dot dot-amber"></span><span data-i18n="lg.idle">inactiva 20d+</span></li>
+              <li><span class="dot dot-orange"></span><span data-i18n="lg.launched">abriendo</span></li>
+              <li><span class="dot dot-blue"></span><span data-i18n="lg.online">en línea</span></li>
+              <li><span class="dot dot-green"></span><span data-i18n="lg.ingame">en el juego</span></li>
+              <li><span class="dot dot-purple"></span><span data-i18n="lg.studio">studio</span></li>
+            </ul>
+          </figure>
+        </article>
+      </div>
+    </section>
+
+    <!-- Lista completa -->
+    <section class="all" id="all-features">
+      <div class="wrap">
+        <header class="section-head">
+          <h2 data-i18n="all.title">Todo lo demás que viene incluido</h2>
+        </header>
+        <div class="groups">
+          <section class="group">
+            <h3><span class="dot dot-blue" aria-hidden="true"></span><span data-i18n="g1.title">Cuentas</span></h3>
+            <dl>
+              <div><dt data-i18n="g1.a">Creador de cuentas</dt><dd data-i18n="g1.a2">Crea cuentas gratis en el navegador integrado. La app llena el formulario y tú resuelves el CAPTCHA.</dd></div>
+              <div><dt data-i18n="g1.b">Grupos y orden</dt><dd data-i18n="g1.b2">Arrastrar y soltar, grupos, alias, descripciones y campos propios que se mantienen al reiniciar.</dd></div>
+              <div><dt data-i18n="g1.c">Utilidades de cuenta</dt><dd data-i18n="g1.c2">Nombre visible, privacidad, contraseña y correo, PIN, atuendos, cerrar las otras sesiones, Quick Login.</dd></div>
+              <div><dt data-i18n="g1.d">Make Friends</dt><dd data-i18n="g1.d2">Haz que todas tus cuentas sean amigas entre sí, o todas amigas de una sola cuenta.</dd></div>
+              <div><dt data-i18n="g1.e">Avatares gratis</dt><dd data-i18n="g1.e2">Arma atuendos con el catálogo gratuito y viste a tus cuentas con ellos. Nunca gasta Robux.</dd></div>
+            </dl>
+          </section>
+          <section class="group">
+            <h3><span class="dot dot-green" aria-hidden="true"></span><span data-i18n="g2.title">Jugando</span></h3>
+            <dl>
+              <div><dt data-i18n="g2.a">Seguir a un jugador</dt><dd data-i18n="g2.a2">Escribe un nombre de usuario y el grupo entra al servidor donde está ese jugador.</dd></div>
+              <div><dt data-i18n="g2.b">Juegos y servidores recientes</dt><dd data-i18n="g2.b2">Vuelve a lo último que jugaste sin buscar otra vez el ID del juego.</dd></div>
+              <div><dt data-i18n="g2.c">Panel de sesión</dt><dd data-i18n="g2.c2">Los clientes abiertos en un solo lugar: enfoca una ventana, ciérrala o cancela aperturas que siguen en la cola.</dd></div>
+              <div><dt data-i18n="g2.d">Filtro de región</dt><dd data-i18n="g2.d2">Entra solo a servidores de la región que elijas y salta los que no puedes acceder.</dd></div>
+            </dl>
+          </section>
+          <section class="group">
+            <h3><span class="dot dot-orange" aria-hidden="true"></span><span data-i18n="g3.title">Automatización</span></h3>
+            <dl>
+              <div><dt data-i18n="g3.a">Scripts</dt><dd data-i18n="g3.a2">Automatización en JavaScript dentro del gestor, aislada, con permisos por script.</dd></div>
+              <div><dt data-i18n="g3.b">Web API local y Nexus</dt><dd data-i18n="g3.b2">Una API HTTP y un servidor WebSocket para herramientas externas y Nexus.lua, en la versión completa.</dd></div>
+              <div><dt data-i18n="g3.c">Optimización</dt><dd data-i18n="g3.c2">EcoQoS, límites de CPU y memoria y tamaño de ventana, para que veinte clientes no derritan tu PC.</dd></div>
+            </dl>
+          </section>
+          <section class="group">
+            <h3><span class="dot dot-purple" aria-hidden="true"></span><span data-i18n="g4.title">La app</span></h3>
+            <dl>
+              <div><dt data-i18n="g4.a">Temas</dt><dd data-i18n="g4.a2">Un editor de temas para colores, botones y fuentes, con presets que puedes exportar.</dd></div>
+              <div><dt data-i18n="g4.b">Idiomas</dt><dd data-i18n="g4.b2">La app está en inglés, portugués y español, con el alemán en parte.</dd></div>
+              <div><dt data-i18n="g4.c">Ligera para tu PC</dt><dd data-i18n="g4.c2">Reescrita en Rust y TypeScript con Tauri. Sin .NET y sin VC++ que instalar.</dd></div>
+              <div><dt data-i18n="g4.d">Modo de video seguro</dt><dd data-i18n="g4.d2">Si la ventana se abre en blanco, la app se recupera sola. Mantén Shift al abrirla para forzarlo.</dd></div>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <!-- Download -->
+    <section class="download" id="download">
+      <div class="wrap">
+        <header class="section-head">
+          <h2 data-i18n="dl.title">Funcionando en tres pasos</h2>
+          <p><span data-i18n="dl.lede">Cada archivo viene directo de las releases del proyecto en GitHub.</span> <span class="js-release-line"></span></p>
+        </header>
+
+        <ol class="steps">
+          <li>
+            <h3 data-i18n="st1.title">Descarga el instalador</h3>
+            <p data-i18n="st1.body">El .msi es el que necesitas. Se instala solo para tu usuario de Windows y se actualiza solo cuando sale una versión nueva.</p>
+            <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/MultiAlt/releases">
+              <span class="btn-stack"><span data-i18n="st1.cta">Descargar .msi</span><small class="js-dl-meta" data-i18n="dl.metaFallback">Última versión en GitHub</small></span>
+            </a>
+          </li>
+          <li>
+            <h3 data-i18n="st2.title">Ábrelo</h3>
+            <p data-i18n="st2.body">No pide permisos de administrador. La app todavía no tiene firma de código, así que si Windows SmartScreen muestra “Windows protegió su PC”, elige Más información y luego Ejecutar de todas formas.</p>
+          </li>
+          <li>
+            <h3 data-i18n="st3.title">Agrega tus cuentas</h3>
+            <p data-i18n="st3.body">Haz clic en Add e inicia sesión desde el navegador, o pega una cookie. Para abrir varios clientes a la vez, activa Multi Roblox en Settings, General, con Roblox cerrado.</p>
+          </li>
+        </ol>
+
+        <div class="formats">
+          <div class="formats-head">
+            <h3 data-i18n="fm.title">Todas las opciones de descarga</h3>
+            <label class="switch">
+              <input type="checkbox" id="full-toggle">
+              <span class="switch-ui" aria-hidden="true"></span>
+              <span data-i18n="fm.full">Versión completa con Web API local y Nexus</span>
+            </label>
+          </div>
+          <p class="formats-note" id="full-note" data-i18n="fm.note">La versión estándar no abre ningún puerto de red en tu PC. Elige la completa solo si usas Nexus.lua o la API HTTP local.</p>
+          <table>
+            <thead>
+              <tr><th data-i18n="fm.c1">Formato</th><th data-i18n="fm.c2">Ideal para</th><th data-i18n="fm.c3">Tamaño</th><th><span class="sr" data-i18n="fm.c4">Enlace</span></th></tr>
+            </thead>
+            <tbody>
+              <tr class="rec">
+                <td><b data-i18n="fm.msi">Instalador (.msi)</b> <span class="badge" data-i18n="fm.rec">Recomendado</span></td>
+                <td data-i18n="fm.msi2">La mayoría de la gente. Limpio en VirusTotal, sin administrador, se actualiza solo.</td>
+                <td class="js-size" data-kind="msi">–</td>
+                <td><a class="dl-link js-dl" data-kind="msi" href="https://github.com/luanmacea/MultiAlt/releases" data-i18n="fm.get">Descargar</a></td>
+              </tr>
+              <!-- Só aparece quando a release tem o portátil (main.js, renderRelease):
+                   hoje ele não é publicado (PUBLISH_PORTABLE no release-v4.yml). -->
+              <tr class="js-row" data-kind="portable" hidden="">
+                <td><b data-i18n="fm.port">Portátil (.exe)</b></td>
+                <td data-i18n="fm.port2">Usarla desde una carpeta o una USB. Nada que instalar, sin acceso directo y sin actualización automática.</td>
+                <td class="js-size" data-kind="portable">–</td>
+                <td><a class="dl-link js-dl" data-kind="portable" href="https://github.com/luanmacea/MultiAlt/releases" data-i18n="fm.get">Descargar</a></td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="req" data-i18n="fm.req">Necesita Windows 10 u 11 de 64 bits. El soporte para macOS todavía no está listo. Los archivos que empiezan con zz- son del actualizador automático, no los necesitas.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Segurança -->
+    <section class="safety" id="safety">
+      <div class="wrap safety-grid">
+        <header class="section-head">
+          <h2 data-i18n="sf.title">Juega seguro</h2>
+          <p data-i18n="sf.lede">Una herramienta que guarda tus cuentas tiene que ser una que puedas revisar. Esto es lo que debes saber:</p>
+        </header>
+        <div class="safety-items">
+          <div class="alert">
+            <h3 data-i18n="sf.a">Nunca generes un enlace rbx-player porque alguien te lo pidió</h3>
+            <p data-i18n="sf.a2">Cualquiera que tenga ese enlace puede entrar a cualquier juego, e incluso a Roblox Studio, como si fuera tú. Puede gastar tus Robux o hacer que baneen tu cuenta.</p>
+          </div>
+          <div>
+            <h3 data-i18n="sf.b">Descarga solo desde GitHub</h3>
+            <p data-i18n="sf.b2">Todos los botones de esta página llevan a las releases oficiales en GitHub. Las copias publicadas en otros sitios pueden estar modificadas.</p>
+          </div>
+          <div>
+            <h3 data-i18n="sf.c">El código es público</h3>
+            <p data-i18n="sf.c2">Cualquiera puede leerlo, auditarlo y compilarlo por su cuenta. Cada versión pasa por VirusTotal y Windows Defender antes de publicarse.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="faq" id="faq">
+      <div class="wrap faq-grid">
+        <header class="section-head">
+          <h2 data-i18n="fq.title">Preguntas</h2>
+          <p><span data-i18n="fq.lede">¿No encontraste lo que buscabas?</span> <a href="https://github.com/luanmacea/MultiAlt/issues" data-i18n="fq.issue">Abre un issue en GitHub</a></p>
+        </header>
+        <div class="faq-list">
+          <details>
+            <summary data-i18n="q1">¿Por qué mi antivirus marca la app?</summary>
+            <p data-i18n="a1">La app no tiene firma de código, y las herramientas que abren procesos de juegos son un falso positivo común para los antivirus que aprenden por patrones. El .msi sale limpio en VirusTotal. Si tienes dudas, lee el código o compílalo tú mismo.</p>
+          </details>
+          <details>
+            <summary data-i18n="q2">¿Cómo activo Multi Roblox?</summary>
+            <p data-i18n="a2">Cierra Roblox, ve a Settings, General y activa Multi Roblox.</p>
+          </details>
+          <details>
+            <summary data-i18n="q3">¿Por qué Multi Roblox viene desactivado?</summary>
+            <p data-i18n="a3">El equipo anti-cheat de Roblox ha dicho que ejecutar varios clientes puede verse como un comportamiento sospechoso. Actívalo bajo tu propio riesgo.</p>
+          </details>
+          <details>
+            <summary data-i18n="q4">¿Me pueden banear por usarla?</summary>
+            <p data-i18n="a4">El gestor no rompe los Términos de Servicio de Roblox, pero algunos juegos prohíben las cuentas alternativas. Revisa las reglas del juego que juegas.</p>
+          </details>
+          <details>
+            <summary data-i18n="q5">¿Cómo hago una copia de seguridad de mis cuentas?</summary>
+            <p data-i18n="a5">Settings, Backups. La copia incluye la clave del equipo, así que si no pones una contraseña en la app, cualquiera con el archivo puede abrir tus cuentas. Pon una contraseña antes de guardar copias en la nube.</p>
+          </details>
+          <details>
+            <summary data-i18n="q6">La ventana se abrió en blanco. ¿Y ahora?</summary>
+            <p data-i18n="a6">La app se vuelve a abrir sola sin aceleración de video después de 25 segundos. Puedes forzarlo manteniendo Shift mientras se abre. Si sigue en blanco, repara Microsoft Edge WebView2 Runtime en Configuración de Windows, Aplicaciones, reinicia y actualiza el driver de video.</p>
+          </details>
+          <details>
+            <summary data-i18n="q7">¿Funciona en Mac?</summary>
+            <p data-i18n="a7">Todavía no. El soporte para macOS es parcial y por ahora no hay descarga para Mac.</p>
+          </details>
+          <details>
+            <summary data-i18n="q8">¿De verdad es gratis?</summary>
+            <p data-i18n="a8">Sí. Sin plan de pago, sin anuncios, sin cuenta que crear. La licencia es GPL-3.0.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="closer">
+      <div class="wrap closer-row">
+        <img src="../assets/icon.svg" alt="" width="64" height="64">
+        <h2 data-i18n="cl.title">Lista cuando tú lo estés.</h2>
+        <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/MultiAlt/releases">
+          <span class="btn-stack"><span data-i18n="hero.cta">Descargar para Windows</span><small class="js-dl-meta" data-i18n="dl.metaFallback">Última versión en GitHub</small></span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-row">
+      <p data-i18n="ft.credits">Hecho sobre el trabajo de <a href="https://github.com/ic3w0lf22">ic3w0lf22</a>, que creó el Roblox Account Manager original, y de <a href="https://github.com/niccdevs">niccdevs</a>, que lo mantuvo después.</p>
+      <p data-i18n="ft.legal">Sin relación con Roblox Corporation ni respaldado por ella. Roblox es una marca registrada de Roblox Corporation.</p>
+      <p class="foot-links">
+        <a href="https://github.com/luanmacea/MultiAlt">GitHub</a>
+        <a href="https://github.com/luanmacea/MultiAlt/releases" data-i18n="ft.releases">Releases</a>
+        <a href="https://github.com/luanmacea/MultiAlt/issues" data-i18n="ft.issues">Reportar un error</a>
+        <a href="https://github.com/luanmacea/MultiAlt/blob/main/LICENSE">GPL-3.0</a>
+      </p>
+      <p class="foot-links">
+        <a href="../multiple-roblox-accounts/">How to play multiple Roblox accounts at once</a>
+        <a href="../is-multialt-safe/">Is MultiAlt safe?</a>
+      </p>
+      <p class="foot-links foot-langs">
+        <a href="../" hreflang="en" lang="en">English</a>
+        <a href="../pt/" hreflang="pt" lang="pt-BR">Português</a>
+        <a href="../es/" hreflang="es" lang="es">Español</a>
+      </p>
+    </div>
+  </footer>
+
+  <script src="../i18n.js"></script>
+  <script src="../main.js"></script>
+
+
+</body></html>

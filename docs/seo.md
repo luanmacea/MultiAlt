@@ -1,10 +1,17 @@
-# Aparecer no Google para "roblox account manager"
+# Aparecer no Google para "MultiAlt" e "roblox account manager"
 
 Plano montado em 03/10/2026. Site: **https://multialt.pages.dev/** (código em `site/`, ver [site/README.md](../site/README.md)).
 
 > **Troca de nome (03/10/2026):** o app passou a se chamar **MultiAlt** ([rebrand-multialt.md](rebrand-multialt.md)), justamente porque "roblox account manager" é disputado demais. Um nome próprio pega a primeira página para si mesmo; o termo genérico segue na descrição ("MultiAlt – Multi Roblox & account manager") para disputar as buscas genéricas. O endereço antigo, `roblox-account-manager-app.pages.dev`, continua no ar com o canônico apontando para o novo. O Search Console precisa de uma propriedade para o endereço novo (passo 1 abaixo, repetido para `https://multialt.pages.dev/`).
 
-## Onde estamos
+## Situação em 04/10/2026
+
+- **"MultiAlt" é um nome livre:** a busca devolve só uma biblioteca antiga de outro jogo (Everybody Edits, no NuGet) e textos de genética. Depois de indexado, o site deve pegar o primeiro lugar para o próprio nome em dias.
+- **Search Console:** a propriedade `https://multialt.pages.dev/` existe, mas o sitemap enviado em 03/10 aparecia como "Não foi possível buscar" (o endereço ainda não respondia naquele dia; hoje responde 200, inclusive para o Googlebot). Precisa reenviar e pedir indexação de novo.
+- **Downloads:** cerca de 9 somados em todas as releases; 6 estrelas no GitHub.
+- **Feito no site hoje:** páginas `/pt/` e `/es/` com `hreflang`, FAQ estruturado, dois guias (`/multiple-roblox-accounts/`, `/is-multialt-safe/`), `llms.txt`, sitemap com idiomas, IndexNow no `site.yml`.
+
+## Onde estamos (03/10/2026)
 
 - **O Google ainda não conhece o site.** A busca `site:roblox-account-manager-app.pages.dev` não devolve nada: sem página indexada, o site não aparece para pesquisa nenhuma, nem para o próprio nome.
 - **A primeira página de "roblox account manager"** (03/10/2026) tem:
@@ -36,7 +43,8 @@ Plano montado em 03/10/2026. Site: **https://multialt.pages.dev/** (código em `
    2. verificar (aqui foi pelo **arquivo HTML** em `site/`, publicado pela `main`; o Cloudflare redireciona `.html` para o endereço sem extensão e mesmo assim o Google aceitou);
    3. em **Sitemaps**, enviar `sitemap.xml`;
    4. em **Inspeção de URL**, colar a página inicial e pedir **Solicitar indexação**.
-2. **Bing Webmaster Tools** (https://www.bing.com/webmasters). Dá para importar a propriedade direto do Search Console, sem verificar de novo. O Bing também alimenta o DuckDuckGo e o Yahoo.
+2. **IndexNow** (Bing, Yandex, Seznam): o job `indexnow` do `site.yml` avisa a cada push em `main` que mexe no site (desde 04/10/2026).
+3. **Bing Webmaster Tools** (https://www.bing.com/webmasters). Dá para importar a propriedade direto do Search Console, sem verificar de novo. O Bing também alimenta o DuckDuckGo e o Yahoo.
 
 ### 2. Links apontando para o site (o que mais pesa)
 
@@ -52,13 +60,15 @@ Cada lugar abaixo é um link de domínio forte. Nada de comprar link ou spam: o 
 
 ### 3. Mais páginas, cada uma respondendo uma busca (semanas)
 
-Hoje o site é uma página só. Cada página nova é mais uma porta de entrada pelo Google:
+Cada página nova é mais uma porta de entrada pelo Google:
 
-- `/pt/` e `/es/` com o texto já traduzido em HTML. Hoje a troca de idioma é por JavaScript e o Google só vê o inglês. É o que faz o site aparecer para "gerenciador de contas roblox".
+- [x] `/pt/` e `/es/` com o texto já traduzido em HTML (04/10/2026), gerados por `scripts/site/build-locales.ts`.
 - Guias curtos com o nome no título, por exemplo:
-  - "How to play on multiple Roblox accounts at once";
-  - "Is Roblox Account Manager safe?" (o código aberto e o 0/75 no VirusTotal);
-  - "Roblox Account Manager download (.msi)".
+  - [x] "How to play multiple Roblox accounts at once" (`/multiple-roblox-accounts/`, 04/10/2026);
+  - [x] "Is MultiAlt safe?" (`/is-multialt-safe/`, 04/10/2026);
+  - [ ] "MultiAlt vs the original Roblox Account Manager" (busca "roblox account manager alternative");
+  - [ ] versões dos guias em português e espanhol.
+- [x] `llms.txt` na raiz, para assistentes de IA citarem o app certo.
 - Cada página nova entra no `sitemap.xml`.
 
 ### 4. Domínio próprio (opcional)

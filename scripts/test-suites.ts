@@ -398,6 +398,11 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [],
     front: ["scripts/scanVerdict.test.ts"],
   },
+  site: {
+    description: "Site de divulgação: páginas /pt/ e /es/ geradas, hreflang, FAQ estruturado, sitemap",
+    rust: [],
+    front: ["scripts/site"],
+  },
 };
 
 export const SUITE_NAMES = Object.keys(SUITES).sort();

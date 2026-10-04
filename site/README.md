@@ -3,6 +3,10 @@
 Página pública do app (recursos, download, segurança, dúvidas). HTML, CSS e JS puros — sem build, sem dependência, sem nada do app Tauri.
 
 - `index.html` — conteúdo em inglês (o que buscador e quem está sem JS veem).
+- `pt/index.html` e `es/index.html` — **gerados**, não edite à mão: saem do `index.html` + `i18n.js` por `bun scripts/site/build-locales.ts`, que também regrava o FAQ estruturado (`#faq-ld`) do `index.html`. Mexeu no texto do site? Rode o script e commite o resultado; a suíte `bun run t site` falha se as páginas ficarem velhas ou se faltar tradução. Nelas, os botões de idioma levam ao endereço do outro idioma (em vez de trocar o texto na hora).
+- `multiple-roblox-accounts/` e `is-multialt-safe/` — guias em inglês, escritos à mão, cada um mirando uma busca. Guia novo: pasta com `index.html`, entrada no `sitemap.xml`, link no rodapé do `index.html` e no `llms.txt`.
+- `llms.txt` — resumo do app para assistentes de IA (ChatGPT, Perplexity, Claude) citarem certo.
+- `<32 hex>.txt` — chave do IndexNow (o job `indexnow` do [site.yml](../.github/workflows/site.yml) avisa Bing e Yandex a cada publicação). **Não apague.**
 - `i18n.js` — português, espanhol e os textos montados na hora. Chave `data-i18n` nova no HTML precisa da tradução nos dois. O idioma vem de `?lang=`, depois da escolha salva no navegador, depois do idioma do navegador (pt e es; o resto cai no inglês).
 - `main.js` — troca de idioma, links de download e a animação do hero.
 - `styles.css` — paleta do próprio app: degradê do ícone e as cores da legenda de status.
@@ -39,6 +43,7 @@ O objetivo é aparecer para quem pesquisa "roblox account manager". O que o site
 - `robots.txt` e `sitemap.xml` reais. Sem eles, o Cloudflare respondia a página inicial no lugar dos dois (qualquer endereço inexistente caía no `index.html`), e o Google não recebia o mapa do site. Pelo mesmo motivo existe o `404.html`: endereço que não existe responde 404 de verdade.
 - Nome e ícone no resultado da busca: dado estruturado `WebSite` com `name: "MultiAlt"` (sem ele o Google mostrava "Cloudflare", dono do domínio `pages.dev`) e `favicon.ico` na raiz + PNG de 48 e 192 px (o Google ignora ícone menor que 48x48 e mostrava um globo). O Google leva alguns dias para trocar os dois.
 - `og:image` com a captura do app, para o link ficar com prévia grande no Discord, no Reddit e no X.
-- Uma página só, com o idioma trocado por JavaScript: o Google indexa a versão em inglês. Versões em português e espanhol com endereço próprio (`/pt/`, `/es/`) são o próximo passo, se quisermos aparecer para "gerenciador de contas roblox".
+- Versões em português e espanhol com endereço próprio (`/pt/`, `/es/`, desde 04/10/2026), ligadas por `hreflang` no `<head>` e no `sitemap.xml`, cada uma canônica de si mesma. Antes a troca era só por JavaScript e o Google só via o inglês.
+- `FAQPage` estruturado gerado das dúvidas da página, em cada idioma.
 
 Fora do código, o que mais pesa é o Google descobrir o site e outros lugares apontarem para ele — o plano está em [docs/seo.md](../docs/seo.md).

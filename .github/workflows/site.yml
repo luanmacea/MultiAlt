@@ -39,3 +39,29 @@ jobs:
           commit_message: "Deploy site"
           user_name: "github-actions[bot]"
           user_email: "41898282+github-actions[bot]@users.noreply.github.com"
+
+  # Avisa Bing, Yandex e companhia (IndexNow) que as páginas do sitemap mudaram,
+  # para elas entrarem no índice em horas em vez de semanas. A chave é o
+  # arquivo site/<chave>.txt — não apague. O Cloudflare publica a `main` por
+  # conta própria, então o passo espera a chave aparecer no ar antes de avisar.
+  indexnow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ping IndexNow with every URL in the sitemap
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST="multialt.pages.dev"
+          KEYFILE=$(ls site | grep -E '^[0-9a-f]{32}\.txt$' | head -n1)
+          KEY="${KEYFILE%.txt}"
+          for i in $(seq 1 30); do
+            if [ "$(curl -fsS "https://$HOST/$KEYFILE" || true)" = "$KEY" ]; then break; fi
+            sleep 20
+          done
+          URLS=$(grep -oE '<loc>[^<]+</loc>' site/sitemap.xml | sed -E 's#</?loc>##g' | jq -R . | jq -sc .)
+          BODY=$(jq -nc --arg host "$HOST" --arg key "$KEY" --argjson urls "$URLS" \
+            '{host: $host, key: $key, keyLocation: ("https://" + $host + "/" + $key + ".txt"), urlList: $urls}')
+          curl -sS -o /dev/null -w "IndexNow: HTTP %{http_code}\n" -X POST "https://api.indexnow.org/indexnow" \
+            -H "Content-Type: application/json; charset=utf-8" -d "$BODY"
