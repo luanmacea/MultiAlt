@@ -519,6 +519,7 @@ export function BottomActionBar() {
       {/* Primary CTA */}
       <button
         onClick={handleOpenChooseGame}
+        data-tour="choose-game-button"
         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent-color)] hover:opacity-90 text-white text-sm font-semibold transition-opacity"
       >
         <Gamepad2 size={15} strokeWidth={1.5} />

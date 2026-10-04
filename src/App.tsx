@@ -4,6 +4,7 @@ import { PromptProvider } from "./hooks/usePrompt";
 import { PasswordScreen } from "./components/layout/PasswordScreen";
 import { EncryptionSetupScreen } from "./components/layout/EncryptionSetupScreen";
 import { FirstRunWalkthrough } from "./components/layout/FirstRunWalkthrough";
+import { ScreenTourHost } from "./components/tour/ScreenTour";
 import { AppErrorBoundary } from "./components/layout/AppErrorBoundary";
 import { TitleBar } from "./components/layout/TitleBar";
 import { ModalWindowControls } from "./components/layout/ModalWindowControls";
@@ -286,6 +287,9 @@ function AppContent() {
       <UpdateDialog />
 
       {store.firstRunWalkthroughOpen && <FirstRunWalkthrough />}
+
+      {/* Tutorial de uma tela, aberto pelo botão Tutorial dela (nunca sozinho). */}
+      <ScreenTourHost />
 
       {store.modal && (
         <div

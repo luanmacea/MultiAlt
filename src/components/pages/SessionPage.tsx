@@ -48,13 +48,14 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
       description={t("Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.")}
       onLeave={onLeave}
       dataTour="session-page"
+      tour="session"
     >
       <div className="flex flex-col-reverse gap-6 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1 max-w-[1040px]">
           <SessionPanel />
         </div>
 
-        <aside aria-label={t("Summary")} className="w-full lg:w-[260px] xl:w-[300px] shrink-0 space-y-3 lg:sticky lg:top-0">
+        <aside aria-label={t("Summary")} data-tour="session-summary" className="w-full lg:w-[260px] xl:w-[300px] shrink-0 space-y-3 lg:sticky lg:top-0">
           <section className="rounded-xl border theme-border bg-[var(--panel-soft)] px-4 py-3">
             <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Right now")}</h2>
             <dl className="mt-2 divide-y divide-[var(--border-color)]">
