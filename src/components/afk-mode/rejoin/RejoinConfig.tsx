@@ -63,7 +63,7 @@ export function AccountsCard({
   const t = useTr();
   const pickedHere = accounts.filter((a) => ctl.picked.includes(a.UserID)).length;
   return (
-    <section className={`@container ${CARD}`}>
+    <section data-tour="afk-rejoin-accounts" className={`@container ${CARD}`}>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <div className={CARD_TITLE}>{title}</div>
         {accounts.length > 0 ? (
@@ -308,7 +308,7 @@ function GamePicker({ ctl }: { ctl: RejoinController }) {
 export function ServerCard({ ctl }: { ctl: RejoinController }) {
   const t = useTr();
   return (
-    <section className={`${CARD} space-y-2`}>
+    <section data-tour="afk-rejoin-server" className={`${CARD} space-y-2`}>
       <div className={CARD_TITLE} id="rejoin-server-title">
         {t("Server")}
       </div>
