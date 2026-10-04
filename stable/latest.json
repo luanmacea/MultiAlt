@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "notes": "> [!NOTE]\nThis is a stable release intended for general use.\n\nChannel: Stable\nRelease commit: 782b6a5\nApp version: 1.0.0\n\n## What's Changed\n* MultiAlt 1.0.0 by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/17\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v0.1.10-beta...v1.0.0",
+  "pub_date": "2026-10-04T01:13:10.919Z",
+  "platforms": {
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclJ4RGVGd3FnRmIxUk1XZThLeXM5TmIwZExSUXR3cVc5c0tVRW1yNjdaWTV4OG5FR0hlUnAvWDRYMmN0bC9OakxFbkxkVURySjJpS2s1eVEzVGRoc1E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDc2Mzg3CWZpbGU6TXVsdGlBbHRfMS4wLjBfeDY0X2VuLVVTLm1zaQpTM3E2SFRUak94WmZEMk4zQnBGTld4c0V1VlEwc1ZPeSs4MXpMSFdVL0dKSlFYcmp2QlV2WC9DT0ZDb1dDSEpCOWtnbjZXOEg2KzJLKzVyV29HWjBEUT09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v1.0.0/MultiAlt-Setup.msi"
+    }
+  }
+}
