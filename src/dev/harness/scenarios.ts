@@ -23,7 +23,7 @@ import {
 } from "./bus";
 import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
 import { seedTourStorage, tourHandler } from "./tour";
-import { HARNESS_RELEASES } from "./releases";
+import { HARNESS_RELEASES, kindBody } from "./releases";
 
 const params = new URLSearchParams(window.location.search);
 const scenarioName = params.get("scenario") || "default";
@@ -65,6 +65,9 @@ const settings: Record<string, Record<string, string>> = {
 };
 
 /** Base comum: o app sobe destrancado, com contas e settings. */
+/** O `RAMGameLists.json` do harness, em memória. */
+let harnessGameLists: Record<string, unknown[]> | null = null;
+
 const baseHandler: InvokeHandler = (cmd, args) => {
   switch (cmd) {
     case "needs_password":
@@ -139,6 +142,15 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "vault_key_warning":
       return null;
     case "get_theme":
+      return null;
+    // Favoritos e recentes (`RAMGameLists.json`). Começa sem arquivo (`null`):
+    // a UI migra o que o `localStorage` tem — inclusive o que `seedTourStorage`
+    // semeou — e as gravações ficam em memória. Cair no `[]` do fallback seria
+    // uma resposta que o backend nunca dá.
+    case "get_game_lists":
+      return harnessGameLists;
+    case "save_game_lists":
+      harnessGameLists = (args?.lists as typeof harnessGameLists) ?? harnessGameLists;
       return null;
     default:
       // Comando sem resposta no cenário: `[]` é o que a maioria das telas
@@ -1547,13 +1559,15 @@ const SCENARIOS: Record<string, () => void> = {
   /**
    * Página "What's new": as releases chegam pelo mesmo `fetch` em
    * `api.github.com` que o app usa — aqui respondido por um dublê, sem rede —,
-   * depois de 900 ms (`&delay=<ms>`), com os corpos no formato real: a de hoje
-   * (download, lista simples, detalhes técnicos recolhidos), as antigas com a
-   * lista de títulos de PR e `[skip release]`, uma sem "What's Changed" e um
-   * rascunho. O app diz que é a 0.1.9 (`&current=<versão>`).
+   * depois de 900 ms (`&delay=<ms>`), com os corpos no formato real: as duas
+   * mais novas com a marca do tipo (0.2.1 correção, 0.2.0 geral), a 0.1.10
+   * sem marca (lista simples, detalhes técnicos recolhidos — o tipo sai da
+   * lista: novidades), as antigas com a lista de títulos de PR e
+   * `[skip release]` (sem selo), uma sem "What's Changed" e um rascunho. O app
+   * diz que é a 0.1.9 (`&current=<versão>`).
    *
-   * - `&update=1`: o updater acha a 0.1.10 (a janela abre na partida; feche e
-   *   use o "Atualização disponível" da página).
+   * - `&update=1`: o updater acha a mais nova, 0.2.1 (a janela abre na
+   *   partida; feche e use o "Atualização disponível" da página).
    * - `&fail=offline` ou `&fail=rate`: o primeiro pedido falha (sem internet ou
    *   limite do GitHub); o "Tentar de novo" recebe a lista.
    */
@@ -1588,7 +1602,7 @@ const SCENARIOS: Record<string, () => void> = {
       if (cmd === "plugin:app|version") return current;
       if (cmd === "check_for_updates_with_channels" && params.get("update") === "1") {
         return {
-          version: "0.1.10",
+          version: HARNESS_RELEASES[0].tag_name.replace(/^v|-beta$/g, ""),
           currentVersion: current,
           date: "",
           body: HARNESS_RELEASES[0].body,
@@ -1605,16 +1619,31 @@ const SCENARIOS: Record<string, () => void> = {
    * `update-download-progress`, como o backend manda. A instalação nunca
    * responde — no app de verdade ele fecha nessa hora —, então a tela
    * "Instalando" fica à vista para inspeção.
+   *
+   * `&kind=fix|feature|mixed` (padrão `mixed`): o tipo da release, com a marca
+   * e o selo na primeira linha do texto, como o workflow escreve; `&kind=none`
+   * é uma release antiga, sem tipo nem selo.
    */
   update() {
     const total = 18 * 1024 * 1024;
+    const kind = params.get("kind") || "mixed";
+    const items =
+      kind === "fix"
+        ? ["Fixed: the account list no longer jumps when a game opens", "Fixed: VIP servers stay saved after a restore"]
+        : kind === "feature"
+          ? ["Free avatars for your alts", "Desktop shortcut stays in place on updates"]
+          : ["Free avatars for your alts", "Fixed: VIP servers stay saved after a restore"];
+    const body =
+      kind === "fix" || kind === "feature" || kind === "mixed"
+        ? kindBody("0.1.7", kind, items)
+        : "## What's new\n- Free avatars for your alts\n- Desktop shortcut stays in place on updates";
     setInvokeHandler((cmd, args) => {
       if (cmd === "check_for_updates_with_channels") {
         return {
           version: "0.1.7",
           currentVersion: "0.1.6",
           date: "",
-          body: "## What's new\n- Free avatars for your alts\n- Desktop shortcut stays in place on updates",
+          body,
           releaseChannel: "beta",
           featureChannel: "standard",
         };

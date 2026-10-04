@@ -87,6 +87,28 @@ describe("ChangelogPage", () => {
     expect(screen.queryByText(/Contributors/)).not.toBeInTheDocument();
   });
 
+  it("shows what kind of update each version was, next to the version", async () => {
+    const withKind = (r: ReturnType<typeof release>, kind: string) => ({
+      ...r,
+      body: `<!-- release-kind: ${kind} -->\n**🩹 Hotfix**\n\n${r.body}`,
+    });
+    fetchMock.mockResolvedValue(
+      ok([
+        withKind(release("v0.1.11-beta", "2026-10-05T12:00:00Z", ["Fixed: slow account list"]), "fix"),
+        withKind(release("v0.1.10-beta", "2026-10-03T12:00:00Z", ["New menu on the left"]), "feature"),
+        // Release antiga, com títulos de PR: sem selo.
+        release("v0.1.9-beta", "2026-10-02T12:00:00Z", ["Rename to MultiAlt by @a in #15"]),
+      ])
+    );
+    renderPage();
+    await waitFor(() => expect(entries()).toHaveLength(3));
+    const [newest, current, oldest] = entries();
+    expect(within(newest).getByText("Fix")).toHaveAttribute("data-release-kind", "fix");
+    expect(within(current).getByText("New features")).toHaveAttribute("data-release-kind", "feature");
+    expect(oldest.querySelector("[data-release-kind]")).toBeNull();
+    expect(screen.queryByText(/Hotfix|release-kind/)).not.toBeInTheDocument();
+  });
+
   it("shows a loading state while the list is on its way", async () => {
     let resolve!: (r: Response) => void;
     fetchMock.mockReturnValue(new Promise<Response>((r) => (resolve = r)));

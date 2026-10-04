@@ -225,9 +225,9 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   backups: {
-    description: "Backup e restauração dos dados, e onde a pasta de dados fica",
-    rust: ["backups_tests", "settings_paths_tests"],
-    front: ["src/components/settings/BackupsTab.test.tsx"],
+    description: "Backup e restauração dos dados, onde a pasta de dados fica e os favoritos/recentes (RAMGameLists.json)",
+    rust: ["backups_tests", "settings_paths_tests", "game_lists_store_tests"],
+    front: ["src/components/settings/BackupsTab.test.tsx", "src/components/server-list/gameListsSync.test.ts"],
   },
   friends: {
     description: "Amigos online por conta e entrada no servidor do amigo",
@@ -383,10 +383,11 @@ export const SUITES: Record<string, TestSuite> = {
     front: ["src/utils/platform.test.ts"],
   },
   release: {
-    description: "Workflow de release: número da próxima versão (série pelo major do package.json), manifesto só com o MSI e interruptor do portátil",
+    description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",
     rust: [],
     front: [
       ".github/scripts/release-version.test.mjs",
+      ".github/scripts/release-kind.test.mjs",
       ".github/scripts/update-manifest-platforms.test.mjs",
       ".github/scripts/release-workflow.test.mjs",
       "src/appIdentity.test.ts",

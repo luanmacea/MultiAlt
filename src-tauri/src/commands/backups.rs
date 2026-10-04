@@ -182,10 +182,10 @@ pub fn backup_file_name(now: chrono::DateTime<chrono::Utc>, label: Option<&str>)
 /// quando o zip está ilegível e o manifesto não pode ser aberto.
 fn parse_backup_file_stem(stem: &str) -> Option<(chrono::DateTime<chrono::Utc>, Option<String>)> {
     let rest = stem.strip_prefix("backup-")?;
-    if rest.len() < 15 {
-        return None;
-    }
-    let (stamp, tail) = rest.split_at(15);
+    // `get`, não `split_at`: um nome fora do padrão com acento logo no
+    // começo não pode derrubar a listagem.
+    let stamp = rest.get(..15)?;
+    let tail = &rest[15..];
     let naive = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?;
     let label = tail
         .strip_prefix('-')
@@ -206,8 +206,10 @@ fn backup_id_from_file_name(file_name: &str) -> String {
 /// dentro da pasta de backups.
 pub fn resolve_backup_path(dir: &std::path::Path, id: &str) -> Result<std::path::PathBuf, String> {
     let trimmed = id.trim();
-    let stem = match trimmed.len().checked_sub(4) {
-        Some(cut) if trimmed[cut..].eq_ignore_ascii_case(".zip") => &trimmed[..cut],
+    // Sem cortar por posição em bytes: num rótulo acentuado ("avançado") o
+    // corte caía no meio de uma letra e o Rust entrava em pânico, fechando o app.
+    let stem = match trimmed.len().checked_sub(4).and_then(|cut| trimmed.get(cut..).map(|ext| (cut, ext))) {
+        Some((cut, ext)) if ext.eq_ignore_ascii_case(".zip") => &trimmed[..cut],
         _ => trimmed,
     };
 
@@ -1028,6 +1030,34 @@ mod backups_tests {
 
     // ---- criar / listar / restaurar ------------------------------------------------
 
+    /// Visto no app do dono (03/10/2026): apagar o backup "avançado" fechava o
+    /// app. O id era cortado por posição em bytes e o corte caía no meio do "ç"
+    /// — pânico do Rust, app fechado. Rótulo acentuado vem de `sanitize_backup_label`,
+    /// que aceita letras unicode de propósito.
+    #[test]
+    fn an_accented_label_resolves_lists_and_deletes_without_panicking() {
+        let layout = temp_layout("accented");
+        let dir = layout.backups_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        for id in [
+            "backup-20260925-222516-avançado",
+            "backup-20260925-222516-avançado.zip",
+            "backup-20261004-015512-Versão-final",
+            "backup-20260925-222516-ção",
+            "ção",
+        ] {
+            let path = resolve_backup_path(&dir, id).expect(id);
+            assert!(path.to_string_lossy().ends_with(".zip"), "{id}");
+        }
+        assert!(parse_backup_file_stem("backup-çççççççççç").is_none());
+
+        let entry = create_backup_in(&layout, Some("avançado"), false, at("2026-09-25T22:25:16Z")).unwrap();
+        assert_eq!(entry.id, "backup-20260925-222516-avançado");
+        assert!(list_backups_in(&dir).iter().any(|e| e.id == entry.id));
+        assert!(delete_backup_in(&dir, &entry.id).unwrap());
+        assert!(list_backups_in(&dir).is_empty());
+    }
+
     #[test]
     fn a_backup_round_trips_through_create_list_and_restore() {
         let layout = temp_layout("roundtrip");
@@ -1084,6 +1114,51 @@ mod backups_tests {
             .filter(|n| n.contains(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    /// Pedido do dono (03/10/2026): os favoritos — com os links dos servidores
+    /// VIP — e os recentes moravam só no `localStorage` do WebView e ficavam fora
+    /// do backup. Agora moram em `RAMGameLists.json`, e restaurar os traz de volta.
+    #[test]
+    fn restoring_a_backup_brings_the_favorites_and_their_vip_servers_back() {
+        use crate::data::game_lists::{GameLists, GameListsStore, GAME_LISTS_FILE_NAME};
+
+        let layout = temp_layout("game-lists");
+        let store = GameListsStore::new(layout.data_dir.join(GAME_LISTS_FILE_NAME));
+        let saved = GameLists {
+            favorites: vec![serde_json::json!({
+                "placeId": 606849621,
+                "name": "Jailbreak",
+                "iconUrl": null,
+                "addedAt": 1,
+                "vipServers": [{ "id": "v1", "name": "Squad", "link": "https://www.roblox.com/share?code=abc&type=Server" }],
+            })],
+            recent_games: vec![serde_json::json!({ "placeId": 189707, "name": "NDS", "iconUrl": null, "lastPlayed": 2 })],
+            recent_jobs: vec![serde_json::json!({ "kind": "vip", "raw": "vip:123", "placeId": 606849621, "lastUsed": 3, "userIds": [7] })],
+        };
+        store.save(&saved, false).unwrap();
+
+        let entry = create_backup_in(&layout, None, false, chrono::Utc::now()).unwrap();
+        assert!(
+            entry.files.iter().any(|f| f == GAME_LISTS_FILE_NAME),
+            "the backup must carry the game lists: {:?}",
+            entry.files
+        );
+
+        // O usuário apaga o VIP (exclusão explícita) e depois restaura.
+        let mut without_vip = saved.clone();
+        without_vip.favorites[0]["vipServers"] = serde_json::json!([]);
+        store.save(&without_vip, true).unwrap();
+        assert_eq!(store.load().unwrap().unwrap().vip_server_count(), 0);
+
+        let zip_path = resolve_backup_path(&layout.backups_dir(), &entry.id).unwrap();
+        let outcome = restore_backup_archive(&layout, &zip_path).unwrap();
+        assert!(outcome.restored.iter().any(|f| f == GAME_LISTS_FILE_NAME));
+        assert_eq!(store.load().unwrap(), Some(saved));
+
+        // A store relê o disco a cada leitura: nada a reiniciar por causa dela.
+        assert!(restart_reasons_for(&outcome.restored).is_empty());
+        assert!(resolve_entry_target(&layout, GAME_LISTS_FILE_NAME).is_some());
     }
 
     #[test]

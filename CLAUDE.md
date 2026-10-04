@@ -54,6 +54,7 @@ Regras do harness: ele **não substitui** `bun run check`, não fala com a rede 
 
 - **nunca commitar nem fazer merge na `main` sem o usuário pedir** — cada merge vira uma versão publicada;
 - quando ele mandar publicar, o caminho é merge de `develop` em `main` e push;
+- o **tipo da release** (Hotfix / novidades / atualização geral) decide o bump — correção soma patch, o resto soma minor — e sai da seção `## What's new` do PR para a `main` (correção escrita como `Fixed: …`) ou de `[type:fix|feature|mixed]` na mensagem do commit; sem nada disso, vira atualização geral (minor). Ver "Tipo da release" em [docs/development.md](docs/development.md);
 - depois de uma release, **trazer a `main` de volta para a `develop`** (`git merge main`) antes de seguir, para as duas não divergirem. O workflow **não** commita o número da versão: ele sai das tags a cada release. A série é `0.x` até a primeira versão completamente corrigida; a 1.0.0 (ou qualquer número escolhido) sai pondo o número no `package.json`, no `tauri.conf.json` e no `Cargo.toml` — ver "Numero da versao" em [docs/development.md](docs/development.md).
 
 Limites do push automático: **nunca** `--force`/`--force-with-lease` e nunca reescrever histórico já publicado. Se o push for recusado porque a branch divergiu, integrar o remoto (`git pull --rebase`), rodar `bun run check` de novo e só então empurrar; se houver conflito, parar e avisar o usuário. Não criar branch nem PR sem o usuário pedir.

@@ -9,8 +9,9 @@ import { useTr } from "../../i18n/text";
 import { getUpdaterSkipVersionKey } from "../../updaterChannels";
 import { REPO_API_URL, REPO_URL } from "../../repo";
 import { UPDATE_HANDOFF_KEY, writeUpdateHandoff } from "../../updateHandoff";
-import { notesForUpdateDialog } from "../../releaseNotes";
+import { notesForUpdateDialog, releaseKindOf, type ReleaseKind } from "../../releaseNotes";
 import { renderReleaseNotes } from "../ReleaseNotesMarkdown";
+import { ReleaseKindBadge } from "../ReleaseKindBadge";
 
 // Mora em releaseNotes.ts (dividida com a página de novidades); o export fica
 // para quem já importava daqui.
@@ -80,6 +81,8 @@ export function UpdateDialog() {
   const [progress, setProgress] = useState<DownloadProgress>({ downloaded: 0, total: null, speed: 0 });
   const [errorMsg, setErrorMsg] = useState("");
   const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
+  // Tipo da release (correção, novidades, geral), pela marca do texto dela.
+  const [releaseKind, setReleaseKind] = useState<ReleaseKind | null>(null);
   const renderedNotes = useMemo(() => (releaseNotes ? renderReleaseNotes(releaseNotes) : null), [releaseNotes]);
 
   useEffect(() => {
@@ -88,11 +91,14 @@ export function UpdateDialog() {
       setProgress({ downloaded: 0, total: null, speed: 0 });
       setErrorMsg("");
       setReleaseNotes(null);
+      setReleaseKind(null);
       return;
     }
 
     const nextNotes = info?.body?.trim() ? notesForUpdateDialog(info.body) : null;
     setReleaseNotes(nextNotes);
+    const manifestKind = info?.body ? releaseKindOf(info.body) : null;
+    setReleaseKind(manifestKind);
 
     if (!info?.version || !info?.currentVersion) return;
 
@@ -127,6 +133,14 @@ export function UpdateDialog() {
             const remoteBody = typeof releaseData?.body === "string" ? releaseData.body.trim() : "";
             if (remoteBody) {
               resolvedNotes = remoteBody;
+              // O texto final da release (passo "Finalize release notes") vence
+              // o do manifesto, que sai antes dele — menos quando só o do
+              // manifesto traz a marca (aí o palpite pela lista não a desfaz).
+              const remoteKind =
+                manifestKind && !/<!--\s*release-kind:/i.test(remoteBody)
+                  ? manifestKind
+                  : (releaseKindOf(remoteBody) ?? manifestKind);
+              if (!controller.signal.aborted) setReleaseKind(remoteKind);
             }
           }
         } catch {}
@@ -269,10 +283,18 @@ export function UpdateDialog() {
         className={`theme-panel theme-border rounded-xl w-full max-w-lg mx-4 shadow-2xl flex flex-col ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <h2 className="text-sm font-semibold text-[var(--panel-fg)]">
-            {phase === "installing" ? t("Updating MultiAlt") : t("Update Available")}
-          </h2>
+        <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-[var(--panel-fg)]">
+              {phase === "installing" ? t("Updating MultiAlt") : t("Update Available")}
+            </h2>
+            {phase !== "installing" && (
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium tabular-nums text-[var(--panel-fg)]/80">v{info.version}</span>
+                <ReleaseKindBadge kind={releaseKind} />
+              </div>
+            )}
+          </div>
           {phase !== "downloading" && phase !== "installing" && (
             <button onClick={handleClose} className="theme-muted hover:opacity-100 transition-opacity">
               <X size={16} strokeWidth={2} />
