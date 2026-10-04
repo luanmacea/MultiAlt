@@ -20,6 +20,9 @@ pub const DATA_FILES: &[&str] = &[
     "RAMThemePresets.json",
     "RAMScripts.json",
     "RAMAvatars.json",
+    // Favoritos (com os links dos servidores VIP), jogos e servidores recentes.
+    // Moravam só no `localStorage` do WebView e ficavam fora do backup.
+    "RAMGameLists.json",
     "AccountControlData.json",
 ];
 pub const DATA_DIRS: &[&str] = &["RAMThemeFonts"];
@@ -164,6 +167,11 @@ pub fn get_scripts_path() -> PathBuf {
 /// Avatares salvos da aba de avatares gratuitos.
 pub fn get_avatars_path() -> PathBuf {
     get_runtime_data_dir().join("RAMAvatars.json")
+}
+
+/// Favoritos, jogos recentes e servidores recentes (`data/game_lists.rs`).
+pub fn get_game_lists_path() -> PathBuf {
+    get_runtime_data_dir().join("RAMGameLists.json")
 }
 
 pub fn get_theme_fonts_dir() -> PathBuf {

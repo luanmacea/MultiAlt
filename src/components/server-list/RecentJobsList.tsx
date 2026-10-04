@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import type { RecentJobEntry, RecentJobKind } from "./types";
-import { loadRecentJobs, removeRecentJob, saveRecentJobs, visibleRecentJobs } from "./types";
+import { loadRecentJobs, removeRecentJob, updateRecentJobs, visibleRecentJobs } from "./types";
+import { useGameListsChanged } from "./gameListsSync";
 import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 
@@ -34,6 +35,7 @@ export function RecentJobsList({ userId, maxRecent, onSelect }: RecentJobsListPr
   const t = useTr();
   const confirm = useConfirm();
   const [entries, setEntries] = useState<RecentJobEntry[]>(loadRecentJobs);
+  useGameListsChanged(() => setEntries(loadRecentJobs()));
 
   const shown = visibleRecentJobs(entries, userId);
 
@@ -64,7 +66,7 @@ export function RecentJobsList({ userId, maxRecent, onSelect }: RecentJobsListPr
     );
     if (!ok) return;
     const dropped = new Set(shown.map((e) => e.raw));
-    saveRecentJobs(loadRecentJobs().filter((e) => !dropped.has(e.raw)));
+    updateRecentJobs((list) => list.filter((e) => !dropped.has(e.raw)), { userDelete: true });
     setEntries(loadRecentJobs());
   }
 
