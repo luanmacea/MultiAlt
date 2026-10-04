@@ -182,10 +182,10 @@ pub fn backup_file_name(now: chrono::DateTime<chrono::Utc>, label: Option<&str>)
 /// quando o zip está ilegível e o manifesto não pode ser aberto.
 fn parse_backup_file_stem(stem: &str) -> Option<(chrono::DateTime<chrono::Utc>, Option<String>)> {
     let rest = stem.strip_prefix("backup-")?;
-    if rest.len() < 15 {
-        return None;
-    }
-    let (stamp, tail) = rest.split_at(15);
+    // `get`, não `split_at`: um nome fora do padrão com acento logo no
+    // começo não pode derrubar a listagem.
+    let stamp = rest.get(..15)?;
+    let tail = &rest[15..];
     let naive = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?;
     let label = tail
         .strip_prefix('-')
@@ -206,8 +206,10 @@ fn backup_id_from_file_name(file_name: &str) -> String {
 /// dentro da pasta de backups.
 pub fn resolve_backup_path(dir: &std::path::Path, id: &str) -> Result<std::path::PathBuf, String> {
     let trimmed = id.trim();
-    let stem = match trimmed.len().checked_sub(4) {
-        Some(cut) if trimmed[cut..].eq_ignore_ascii_case(".zip") => &trimmed[..cut],
+    // Sem cortar por posição em bytes: num rótulo acentuado ("avançado") o
+    // corte caía no meio de uma letra e o Rust entrava em pânico, fechando o app.
+    let stem = match trimmed.len().checked_sub(4).and_then(|cut| trimmed.get(cut..).map(|ext| (cut, ext))) {
+        Some((cut, ext)) if ext.eq_ignore_ascii_case(".zip") => &trimmed[..cut],
         _ => trimmed,
     };
 

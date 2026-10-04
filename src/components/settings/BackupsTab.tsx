@@ -7,6 +7,7 @@ import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { timeAgo, type BackupEntry, type BackupsInfo, type RestoreReport } from "../../types";
 import { SectionLabel } from "../ui/SectionLabel";
+import { hydrateGameLists, pauseGameListsMirror } from "../server-list/gameListsSync";
 
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
@@ -122,6 +123,10 @@ export function BackupsTab({ active }: { active: boolean }) {
     );
     if (!ok) return;
     setBusyId(entry.id);
+    // O espelho dos favoritos para durante a restauração: uma gravação que
+    // chegasse depois dela poria a lista de antes por cima do RAMGameLists.json
+    // restaurado. Volta na hidratação do fim, que junta o restaurado com o local.
+    await pauseGameListsMirror();
     try {
       const result = await invoke<RestoreReport>("restore_backup", { id: entry.id });
       setReport(result ?? null);
@@ -130,6 +135,7 @@ export function BackupsTab({ active }: { active: boolean }) {
     } catch (e) {
       setError(String(e));
     } finally {
+      void hydrateGameLists();
       setBusyId(null);
     }
   }

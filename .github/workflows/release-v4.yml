@@ -25,12 +25,14 @@ on:
       - ".github/workflows/site.yml"
   workflow_dispatch:
     inputs:
+      # auto: o tipo da release decide (fix -> patch; feature/mixed -> minor).
       bump:
-        description: "Version bump type"
+        description: "Version bump type (auto = decided by the release kind)"
         required: false
-        default: "patch"
+        default: "auto"
         type: choice
         options:
+          - auto
           - patch
           - minor
 
@@ -129,39 +131,48 @@ jobs:
             throw "Missing required v4 files on this branch: $($missing -join ', '). Commit/push the v4 rewrite files first, then rerun Release v4."
           }
 
+      # Tipo da release (fix / feature / mixed) e o bump que ele decide: fix
+      # soma patch, feature e mixed somam minor. A regra mora em
+      # .github/scripts/release-kind.mjs (testada na suite `release`); aqui so
+      # se junta o que ela le — a mensagem do commit, os rotulos e o texto do
+      # PR que trouxe o commit para a `main` (secao "## What's new").
       - name: Resolve bump and channel
         id: controls
         uses: actions/github-script@v7
         with:
           script: |
-            const message = (context.payload.head_commit?.message || "").toLowerCase();
+            const path = require("node:path");
+            const { pathToFileURL } = require("node:url");
+            const { resolveReleaseControls } = await import(
+              pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, ".github", "scripts", "release-kind.mjs")).href
+            );
+
+            const message = context.payload.head_commit?.message || "";
             const dispatchBump = context.payload.inputs?.bump || "";
-            let bump = dispatchBump === "minor" ? "minor" : "patch";
-            let channel = "beta";
 
-            if (message.includes("[bump:minor]")) bump = "minor";
-            if (message.includes("[bump:patch]")) bump = "patch";
-            if (message.includes("[channel:stable]")) channel = "stable";
-            if (message.includes("[channel:beta]")) channel = "beta";
-
-            const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              commit_sha: context.sha
-            });
-
-            if (prs.data.length > 0) {
-              const pr = prs.data.find((item) => item.base.ref === "v4") ?? prs.data[0];
-              const labels = pr.labels.map((label) => String(label.name).toLowerCase());
-
-              if (labels.includes("bump:minor")) bump = "minor";
-              if (labels.includes("bump:patch")) bump = "patch";
-              if (labels.includes("channel:stable")) channel = "stable";
-              if (labels.includes("channel:beta")) channel = "beta";
-
-              core.setOutput("pr_number", String(pr.number));
+            let pr = null;
+            try {
+              const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: context.sha
+              });
+              pr = prs.data.find((item) => item.merged_at) ?? prs.data[0] ?? null;
+            } catch (error) {
+              core.warning(`Could not read the release PR: ${error.message}`);
             }
 
+            const labels = (pr?.labels || []).map((label) => String(label.name));
+            const { kind, bump, channel } = resolveReleaseControls({
+              message,
+              labels,
+              prBody: pr?.body || "",
+              dispatchBump
+            });
+
+            if (pr) core.setOutput("pr_number", String(pr.number));
+            core.info(`Release kind: ${kind}, bump: ${bump}, channel: ${channel}`);
+            core.setOutput("kind", kind);
             core.setOutput("bump", bump);
             core.setOutput("channel", channel);
 
@@ -171,6 +182,7 @@ jobs:
         env:
           RELEASE_BUMP: ${{ steps.controls.outputs.bump }}
           RELEASE_CHANNEL: ${{ steps.controls.outputs.channel }}
+          RELEASE_KIND: ${{ steps.controls.outputs.kind }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SHA: ${{ github.sha }}
 
@@ -539,6 +551,9 @@ jobs:
               : generatedBody || "## What's Changed\n- Release notes could not be generated.";
 
             const contributorSet = new Set();
+            // O dono do repositorio aparece sempre: sem tag anterior (a 1.0.0 abriu
+            // a serie 1.x) a comparacao nao roda e o bloco saia vazio.
+            contributorSet.add(owner);
             if (previousTag) {
               try {
                 const compare = await github.rest.repos.compareCommitsWithBasehead({
@@ -607,7 +622,19 @@ jobs:
               ...otherFiles
             ].join("\n");
 
+            // Primeira linha: a marca do tipo da release (o app a le — ver
+            // src/releaseNotes.ts) e o selo visivel ("🩹 Hotfix", "✨ New
+            // features" ou "📦 General update"), acima do download.
+            const path = require("node:path");
+            const { pathToFileURL } = require("node:url");
+            const { releaseKindHeader } = await import(
+              pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, ".github", "scripts", "release-kind.mjs")).href
+            );
+            const kindHeader = releaseKindHeader(String(process.env.RELEASE_KIND || "mixed").toLowerCase());
+
             const finalBody = [
+              kindHeader,
+              "",
               topNote,
               "",
               changesBlock,
@@ -629,6 +656,7 @@ jobs:
             });
         env:
           RELEASE_CHANNEL: ${{ steps.controls.outputs.channel }}
+          RELEASE_KIND: ${{ steps.controls.outputs.kind }}
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
           RELEASE_APP_VERSION: ${{ steps.meta.outputs.app_version }}
           RELEASE_PREVIOUS_TAG: ${{ steps.meta.outputs.previous_tag }}

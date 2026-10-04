@@ -43,6 +43,7 @@ import { useBackdropClose } from "./hooks/useBackdropClose";
 import { TONE_STYLES } from "./utils/toastTone";
 import { isMultiRobloxCloseProcessError } from "./utils/robloxErrors";
 import { ENABLE_NEXUS } from "./featureFlags";
+import { startGameListsSync } from "./components/server-list/gameListsSync";
 
 function AppContent() {
   const t = useTr();
@@ -322,6 +323,11 @@ function AppContent() {
 }
 
 function App() {
+  // Favoritos e recentes: junta o RAMGameLists.json do backend com o cache do
+  // localStorage, e de novo a cada restauração de backup. Não depende da senha
+  // (as listas não ficam no vault). Ver server-list/gameListsSync.ts.
+  useEffect(() => startGameListsSync(), []);
+
   // O boundary fica **fora** da store: um throw dentro do provider também tem
   // que cair nele, senão a tela fica branca do mesmo jeito.
   return (
