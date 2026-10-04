@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useTr } from "../../i18n/text";
 import { useStore, type AfkModeDialogState } from "../../store";
 import { AfkModeView } from "./AfkModeView";
@@ -22,6 +23,7 @@ export function AfkModeDialog() {
   if (state) lastRef.current = state;
   const shown = lastRef.current;
   const { visible, closing, handleClose } = useModalClose(open, store.closeAfkMode);
+  const backdropClose = useBackdropClose(handleClose);
 
   if (!visible) return null;
 
@@ -41,7 +43,7 @@ export function AfkModeDialog() {
       className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm ${
         closing ? "animate-fade-out" : "animate-fade-in"
       }`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         role="dialog"

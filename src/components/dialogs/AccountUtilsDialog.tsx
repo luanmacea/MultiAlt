@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { SectionHeader } from "../ui/SectionHeader";
 import { UtilInput } from "../ui/UtilInput";
 import { UtilButton } from "../ui/UtilButton";
@@ -88,6 +89,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
   const store = useStore();
   const confirm = useConfirm();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const backdropClose = useBackdropClose(handleClose);
   const account = store.selectedAccount;
 
   const [robux, setRobux] = useState<number | null>(null);
@@ -507,7 +509,7 @@ export function AccountUtilsDialog({ open, onClose }: { open: boolean; onClose: 
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[540px] max-w-[calc(100vw-24px)] max-h-[min(600px,calc(100vh-24px))] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}

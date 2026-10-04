@@ -16,6 +16,7 @@ import type {
   ServerScanUpdate,
 } from "../../types";
 import { looksLikeJoinLink, parsePlaceIdInput } from "../server-list/types";
+import { SessionCache } from "../../utils/sessionCache";
 
 /**
  * Aba "Servers" da Choose Game.
@@ -44,6 +45,43 @@ import { looksLikeJoinLink, parsePlaceIdInput } from "../server-list/types";
 
 /** Quantos servidores têm a região (e a permissão) verificada por clique em "Check servers". */
 const REGION_BATCH = 10;
+
+/** O resumo da varredura que a tela mostra acima da lista. */
+interface ScanSummary {
+  scanned: number;
+  fitting: number;
+  done: boolean;
+  stoppedAtLimit: boolean;
+}
+
+/**
+ * A última varredura **terminada** de cada combinação place + ordem + lote +
+ * profundidade, com as regiões e o acesso já verificados.
+ *
+ * Sair da aba Servers desmontava tudo: a volta recomeçava com a lista vazia e
+ * perdia as regiões, que custaram uma chamada de join cada. Agora a volta
+ * mostra isto na hora e varre de novo por trás (`loadServers({ background })`).
+ * Varredura pela metade não entra: a tela mostraria "Still looking..." sem
+ * ninguém procurando.
+ */
+interface ServersSnapshot {
+  rows: ServerRow[];
+  scan: ScanSummary;
+  regions: Map<string, ServerRegion>;
+  access: Map<number, AccountAccess>;
+}
+
+const serversCache = new SessionCache<ServersSnapshot>();
+
+/** Tudo que muda o resultado da varredura — o filtro de região não, ele é local. */
+export function serversCacheKey(
+  placeId: number,
+  preference: ServerPreference,
+  accounts: number,
+  pages: number
+): string {
+  return `${placeId}|${preference}|${Math.max(accounts, 1)}|${pages}`;
+}
 
 export type LaunchAllFn = (
   userIds: number[],
@@ -316,23 +354,6 @@ export function ServersTab({
   const t = useTr();
   const store = useStore();
 
-  const [rows, setRows] = useState<ServerRow[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [scan, setScan] = useState<
-    { scanned: number; fitting: number; done: boolean; stoppedAtLimit: boolean } | null
-  >(null);
-  const [error, setError] = useState<string | null>(null);
-  const [regions, setRegions] = useState<Map<string, ServerRegion>>(new Map());
-  /**
-   * Quem pode entrar neste place, conta por conta. A verificação das regiões
-   * responde pela primeira conta; as outras perguntam uma vez, num servidor do
-   * place — a permissão (o erro 524) é do place, não do servidor.
-   */
-  const [access, setAccess] = useState<Map<number, AccountAccess>>(new Map());
-  const [regionBusy, setRegionBusy] = useState(false);
-  const [regionProgress, setRegionProgress] = useState<ServerRegionProgress | null>(null);
-  const [joining, setJoining] = useState<string | null>(null);
-
   const accountForApi = userIds[0] ?? null;
   /** Que jogo é o place digitado — um número de 10 dígitos não diz nada. */
   const game = useGameIdentity(placeId, accountForApi);
@@ -341,6 +362,40 @@ export function ServersTab({
   const scanPages = store.serverScanPages;
   const placeIdRef = useRef(placeId);
   placeIdRef.current = placeId;
+
+  // A aba nasce com a última varredura terminada desta combinação, se houver.
+  const [mountCache] = useState(() =>
+    serversCache.get(
+      serversCacheKey(parseInt(placeId, 10) || 0, preference, userIds.length, scanPages)
+    )
+  );
+  const [rows, setRows] = useState<ServerRow[] | null>(mountCache?.rows ?? null);
+  const [loading, setLoading] = useState(false);
+  const [scan, setScan] = useState<ScanSummary | null>(mountCache?.scan ?? null);
+  const [error, setError] = useState<string | null>(null);
+  const [regions, setRegions] = useState<Map<string, ServerRegion>>(
+    () => new Map(mountCache?.regions ?? [])
+  );
+  /**
+   * Quem pode entrar neste place, conta por conta. A verificação das regiões
+   * responde pela primeira conta; as outras perguntam uma vez, num servidor do
+   * place — a permissão (o erro 524) é do place, não do servidor.
+   */
+  const [access, setAccess] = useState<Map<number, AccountAccess>>(
+    () => new Map(mountCache?.access ?? [])
+  );
+  const [regionBusy, setRegionBusy] = useState(false);
+  const [regionProgress, setRegionProgress] = useState<ServerRegionProgress | null>(null);
+  const [joining, setJoining] = useState<string | null>(null);
+  /**
+   * Varredura por trás de uma lista guardada: a lista da tela fica até a nova
+   * **terminar**. Já nasce ligada quando há cache — o efeito de montagem
+   * dispara a varredura logo em seguida.
+   */
+  const [refreshing, setRefreshing] = useState(mountCache !== undefined);
+  const backgroundRef = useRef(mountCache !== undefined);
+  /** De que combinação é a lista na tela — é sob esta chave que ela é guardada. */
+  const [dataKey, setDataKey] = useState<string | null>(null);
 
   const scanIdRef = useRef<number | null>(null);
 
@@ -374,6 +429,27 @@ export function ServersTab({
       const update = event.payload;
       if (update.scanId < (scanIdRef.current ?? 0)) return;
       scanIdRef.current = update.scanId;
+      if (backgroundRef.current) {
+        // Varredura por trás da lista guardada: a parcial fica de fora, senão
+        // a primeira página tomaria o lugar de uma varredura completa.
+        if (!update.done && !update.error) return;
+        backgroundRef.current = false;
+        setRefreshing(false);
+        if (update.error) {
+          // Falhou: a lista anterior continua servindo, com o erro em cima.
+          setError(update.error);
+          setLoading(false);
+          return;
+        }
+        // A região de um servidor não muda: quem continua na lista fica com a
+        // dele (custou uma chamada de join). Quem saiu leva a sua junto.
+        const stillListed = new Set((update.servers || []).map((server) => server.id));
+        setRegions((prev) => {
+          const next = new Map<string, ServerRegion>();
+          for (const [jobId, entry] of prev) if (stillListed.has(jobId)) next.set(jobId, entry);
+          return next;
+        });
+      }
       setRows(update.servers || []);
       setScan({
         scanned: update.scanned,
@@ -399,20 +475,26 @@ export function ServersTab({
    * ordenada pelo backend — num jogo grande as primeiras páginas podem não ter
    * nenhum servidor que caiba o lote, e esperar o fim deixaria a tela vazia.
    */
-  const loadServers = useCallback(async () => {
+  const loadServers = useCallback(async (options: { background?: boolean } = {}) => {
     const place = parseInt(placeIdRef.current, 10);
     if (!place || place <= 0) {
       setError(t("Enter a valid Place ID"));
       return;
     }
+    const background = options.background === true;
+    setDataKey(serversCacheKey(place, preference, userIds.length, scanPages));
     setLoading(true);
     setError(null);
-    setScan(null);
-    setRows(null);
-    // Os Job IDs mudam a cada varredura; regiões antigas não valem mais — e o
-    // place pode ter mudado, então o acesso das contas também.
-    setRegions(new Map());
-    setAccess(new Map());
+    backgroundRef.current = background;
+    setRefreshing(background);
+    if (!background) {
+      setScan(null);
+      setRows(null);
+      // Os Job IDs mudam a cada varredura; regiões antigas não valem mais — e o
+      // place pode ter mudado, então o acesso das contas também.
+      setRegions(new Map());
+      setAccess(new Map());
+    }
     try {
       const started = await invoke<number>("start_server_scan", {
         placeId: place,
@@ -424,17 +506,41 @@ export function ServersTab({
       scanIdRef.current = Math.max(scanIdRef.current ?? 0, started);
     } catch (e) {
       setError(String(e));
-      setRows([]);
+      // Por trás de uma lista guardada, a lista fica; sem ela, a tela vazia
+      // com o erro é o comportamento de sempre.
+      if (!background) setRows([]);
+      backgroundRef.current = false;
+      setRefreshing(false);
       setLoading(false);
     }
   }, [accountForApi, preference, scanPages, t, userIds.length]);
 
   // Recomeça ao abrir com um place escolhido e sempre que a ordem, o lote ou a
-  // profundidade da varredura mudam.
+  // profundidade da varredura mudam. Com uma varredura guardada daquela
+  // combinação, ela aparece na hora e a nova roda por trás.
   useEffect(() => {
-    if (parseInt(placeId, 10) > 0) void loadServers();
+    const place = parseInt(placeId, 10);
+    if (!(place > 0)) return;
+    const cached = serversCache.get(serversCacheKey(place, preference, userIds.length, scanPages));
+    if (cached) {
+      setRows(cached.rows);
+      setScan(cached.scan);
+      setRegions(new Map(cached.regions));
+      setAccess(new Map(cached.access));
+      void loadServers({ background: true });
+    } else {
+      void loadServers();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placeId, preference, userIds.length, scanPages]);
+
+  // Guarda a lista da tela quando ela é uma varredura terminada (e de novo a
+  // cada região/acesso verificado). `dataKey` é a combinação de onde a lista
+  // veio — não a das props, que já pode ter mudado neste mesmo render.
+  useEffect(() => {
+    if (!dataKey || !rows || !scan?.done || refreshing || error) return;
+    serversCache.set(dataKey, { rows, scan, regions, access });
+  }, [dataKey, rows, scan, regions, access, refreshing, error]);
 
   const visible = useMemo(
     () =>
@@ -696,10 +802,23 @@ export function ServersTab({
             : t("Check servers")}
         </button>
 
-        <button onClick={() => void loadServers()} disabled={loading} className={`${buttonClass} ml-auto`}>
-          {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} strokeWidth={1.5} />}
-          {t("Refresh")}
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {refreshing && (
+            // A lista na tela é a última varredura guardada; a nova roda por
+            // trás e a substitui quando terminar.
+            <span
+              data-testid="servers-updating"
+              className="flex items-center gap-1.5 text-[11px] theme-muted"
+            >
+              <Loader2 size={11} className="animate-spin" />
+              {t("Updating...")}
+            </span>
+          )}
+          <button onClick={() => void loadServers()} disabled={loading} className={buttonClass}>
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} strokeWidth={1.5} />}
+            {t("Refresh")}
+          </button>
+        </div>
       </div>
 
       {/* ── Que jogo é este place ── */}

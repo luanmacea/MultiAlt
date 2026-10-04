@@ -306,7 +306,7 @@ fn export_nexus_lua() -> Result<String, String> {
 /// continuava levando para la; o mesmo endereco vivia espalhado no frontend e
 /// no updater (que oferecia instalar o binario do outro projeto por cima
 /// deste). O lado TS tem o par disto em `src/repo.ts`.
-const REPO_URL: &str = "https://github.com/luanmacea/roblox-account-manager";
+const REPO_URL: &str = "https://github.com/luanmacea/MultiAlt";
 
 #[tauri::command]
 fn open_repo_url() -> Result<(), String> {

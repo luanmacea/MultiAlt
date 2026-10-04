@@ -7,19 +7,35 @@
   <meta name="description" data-i18n-attr="content:meta.description" content="Free, open-source Roblox account manager for Windows. Keep all your accounts signed in, run many Roblox clients at once, find the best server for your group and stay in game with Auto Rejoin and anti-AFK.">
   <meta name="theme-color" content="#070b18">
   <meta name="color-scheme" content="dark">
+  <!-- O Google so usa icone de 48x48 para cima (multiplo de 48) e procura o
+       favicon.ico na raiz: sem eles, o resultado da busca mostrava um globo. -->
+  <link rel="icon" href="favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64 256x256">
+  <link rel="icon" href="assets/icon-48.png" sizes="48x48" type="image/png">
+  <link rel="icon" href="assets/icon-192.png" sizes="192x192" type="image/png">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="assets/icon.png">
   <meta property="og:type" content="website">
   <meta property="og:title" content="MultiAlt – Roblox Account Manager">
   <meta property="og:description" content="Every Roblox account in one window. Free, open source, made for Windows.">
   <meta property="og:image" content="https://multialt.pages.dev/assets/screenshot.png">
-  <meta property="og:image:width" content="1094">
-  <meta property="og:image:height" content="691">
+  <meta property="og:image:width" content="1586">
+  <meta property="og:image:height" content="993">
   <meta property="og:site_name" content="MultiAlt">
+  <meta name="application-name" content="MultiAlt">
   <meta property="og:url" content="https://multialt.pages.dev/">
   <link rel="canonical" href="https://multialt.pages.dev/">
   <meta name="twitter:card" content="summary_large_image">
+  <!-- WebSite na pagina inicial e de onde o Google tira o nome do site no
+       resultado da busca; sem ele aparecia "Cloudflare" (o dono do dominio pages.dev). -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "MultiAlt",
+    "alternateName": ["MultiAlt - Roblox Account Manager", "Roblox Account Manager"],
+    "url": "https://multialt.pages.dev/"
+  }
+  </script>
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -30,14 +46,14 @@
     "applicationCategory": "UtilitiesApplication",
     "operatingSystem": "Windows 10, Windows 11",
     "url": "https://multialt.pages.dev/",
-    "downloadUrl": "https://github.com/luanmacea/roblox-account-manager/releases/latest/download/MultiAlt-Setup.msi",
+    "downloadUrl": "https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi",
     "image": "https://multialt.pages.dev/assets/screenshot.png",
     "screenshot": "https://multialt.pages.dev/assets/screenshot.png",
     "license": "https://www.gnu.org/licenses/gpl-3.0.html",
     "isAccessibleForFree": true,
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
     "author": { "@type": "Person", "name": "Luan Macea", "url": "https://github.com/luanmacea" },
-    "sameAs": ["https://github.com/luanmacea/roblox-account-manager"]
+    "sameAs": ["https://github.com/luanmacea/MultiAlt"]
   }
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -67,7 +83,7 @@
           <button type="button" data-lang="pt" aria-pressed="false">PT</button>
           <button type="button" data-lang="es" aria-pressed="false">ES</button>
         </div>
-        <a class="icon-link" href="https://github.com/luanmacea/roblox-account-manager" aria-label="GitHub">
+        <a class="icon-link" href="https://github.com/luanmacea/MultiAlt" aria-label="GitHub">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.39-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
         </a>
         <a class="btn btn-small" href="#download" data-i18n="nav.cta">Download</a>
@@ -84,14 +100,14 @@
           <h1><span class="h1-brand">MultiAlt · Roblox Account Manager</span><span data-i18n="hero.title">Every Roblox account in one window.</span></h1>
           <p class="lede" data-i18n="hero.lede">Keep your main and all your alts signed in, open as many Roblox clients as you want at the same time, and keep them in the game while you’re away. No more logging out to switch accounts.</p>
           <div class="cta-row">
-            <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/roblox-account-manager/releases">
+            <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/MultiAlt/releases">
               <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 5.5 10.4 4.5v7H3Zm0 13 7.4 1v-7H3Zm8.3 1.1L21 21V12.5h-9.7Zm0-15.2V11.5H21V3Z"/></svg>
               <span class="btn-stack">
                 <span data-i18n="hero.cta">Download for Windows</span>
                 <small class="js-dl-meta" data-i18n="dl.metaFallback">Latest release on GitHub</small>
               </span>
             </a>
-            <a class="btn btn-ghost" href="https://github.com/luanmacea/roblox-account-manager" data-i18n="hero.source">View the source</a>
+            <a class="btn btn-ghost" href="https://github.com/luanmacea/MultiAlt" data-i18n="hero.source">View the source</a>
           </div>
           <ul class="trust">
             <li><span class="dot dot-blue" aria-hidden="true"></span><span data-i18n="hero.trust1">No administrator prompt</span></li>
@@ -368,7 +384,7 @@
           <li>
             <h3 data-i18n="st1.title">Download the installer</h3>
             <p data-i18n="st1.body">The .msi is the one to pick. It installs for your Windows user only and updates itself when a new version comes out.</p>
-            <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/roblox-account-manager/releases">
+            <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/MultiAlt/releases">
               <span class="btn-stack"><span data-i18n="st1.cta">Download .msi</span><small class="js-dl-meta" data-i18n="dl.metaFallback">Latest release on GitHub</small></span>
             </a>
           </li>
@@ -401,7 +417,7 @@
                 <td><b data-i18n="fm.msi">Installer (.msi)</b> <span class="badge" data-i18n="fm.rec">Recommended</span></td>
                 <td data-i18n="fm.msi2">Most people. Clean on VirusTotal, no admin, auto-update.</td>
                 <td class="js-size" data-kind="msi">–</td>
-                <td><a class="dl-link js-dl" data-kind="msi" href="https://github.com/luanmacea/roblox-account-manager/releases" data-i18n="fm.get">Download</a></td>
+                <td><a class="dl-link js-dl" data-kind="msi" href="https://github.com/luanmacea/MultiAlt/releases" data-i18n="fm.get">Download</a></td>
               </tr>
               <!-- Só aparece quando a release tem o portátil (main.js, renderRelease):
                    hoje ele não é publicado (PUBLISH_PORTABLE no release-v4.yml). -->
@@ -409,7 +425,7 @@
                 <td><b data-i18n="fm.port">Portable (.exe)</b></td>
                 <td data-i18n="fm.port2">Running from a folder or USB stick. Nothing to install, no shortcut, no auto-update.</td>
                 <td class="js-size" data-kind="portable">–</td>
-                <td><a class="dl-link js-dl" data-kind="portable" href="https://github.com/luanmacea/roblox-account-manager/releases" data-i18n="fm.get">Download</a></td>
+                <td><a class="dl-link js-dl" data-kind="portable" href="https://github.com/luanmacea/MultiAlt/releases" data-i18n="fm.get">Download</a></td>
               </tr>
             </tbody>
           </table>
@@ -447,7 +463,7 @@
       <div class="wrap faq-grid">
         <header class="section-head">
           <h2 data-i18n="fq.title">Questions</h2>
-          <p><span data-i18n="fq.lede">Something not covered here?</span> <a href="https://github.com/luanmacea/roblox-account-manager/issues" data-i18n="fq.issue">Open an issue on GitHub</a></p>
+          <p><span data-i18n="fq.lede">Something not covered here?</span> <a href="https://github.com/luanmacea/MultiAlt/issues" data-i18n="fq.issue">Open an issue on GitHub</a></p>
         </header>
         <div class="faq-list">
           <details>
@@ -468,7 +484,7 @@
           </details>
           <details>
             <summary data-i18n="q5">How do I back up my accounts?</summary>
-            <p data-i18n="a5">Settings, Misc, Data, Backups, Manage. The backup includes the device key, so if you don’t set a password in the app, anyone with the file can open your accounts. Set a password before keeping backups in the cloud.</p>
+            <p data-i18n="a5">Settings, Backups. The backup includes the device key, so if you don’t set a password in the app, anyone with the file can open your accounts. Set a password before keeping backups in the cloud.</p>
           </details>
           <details>
             <summary data-i18n="q6">The window opened blank. What now?</summary>
@@ -490,7 +506,7 @@
       <div class="wrap closer-row">
         <img src="assets/icon.svg" alt="" width="64" height="64">
         <h2 data-i18n="cl.title">Ready when you are.</h2>
-        <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/roblox-account-manager/releases">
+        <a class="btn btn-primary js-dl-msi" href="https://github.com/luanmacea/MultiAlt/releases">
           <span class="btn-stack"><span data-i18n="hero.cta">Download for Windows</span><small class="js-dl-meta" data-i18n="dl.metaFallback">Latest release on GitHub</small></span>
         </a>
       </div>
@@ -502,10 +518,10 @@
       <p data-i18n="ft.credits">Built on the work of <a href="https://github.com/ic3w0lf22">ic3w0lf22</a>, who created the original Roblox Account Manager, and <a href="https://github.com/niccdevs">niccdevs</a>, who maintained it afterwards.</p>
       <p data-i18n="ft.legal">Not affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.</p>
       <p class="foot-links">
-        <a href="https://github.com/luanmacea/roblox-account-manager">GitHub</a>
-        <a href="https://github.com/luanmacea/roblox-account-manager/releases" data-i18n="ft.releases">Releases</a>
-        <a href="https://github.com/luanmacea/roblox-account-manager/issues" data-i18n="ft.issues">Report a bug</a>
-        <a href="https://github.com/luanmacea/roblox-account-manager/blob/main/LICENSE">GPL-3.0</a>
+        <a href="https://github.com/luanmacea/MultiAlt">GitHub</a>
+        <a href="https://github.com/luanmacea/MultiAlt/releases" data-i18n="ft.releases">Releases</a>
+        <a href="https://github.com/luanmacea/MultiAlt/issues" data-i18n="ft.issues">Report a bug</a>
+        <a href="https://github.com/luanmacea/MultiAlt/blob/main/LICENSE">GPL-3.0</a>
       </p>
     </div>
   </footer>

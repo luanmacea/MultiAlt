@@ -20,6 +20,8 @@ import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
 import { Toggle } from "./ui/Toggle";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
+import { SessionCache } from "../utils/sessionCache";
+import { TourButton } from "./tour/TourButton";
 
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
 
@@ -428,6 +430,24 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
 type MonitorInfo = { index: number; width: number; height: number; primary: boolean };
 
 /**
+ * Últimos monitores detectados. A aba Windows voltava com "No monitors
+ * detected" piscando até a consulta responder; agora ela nasce com isto e a
+ * consulta só confirma.
+ */
+const monitorsCache = new SessionCache<MonitorInfo[]>(1);
+
+/** Monitores marcados: os salvos que ainda existem, ou todos. */
+function initialMonitorSelection(list: MonitorInfo[], saved: string | undefined): Set<number> {
+  const savedIdx = (saved || "")
+    .split(",")
+    .map((s) => parseInt(s.trim()))
+    .filter((n) => Number.isFinite(n));
+  return new Set(
+    savedIdx.length > 0 ? savedIdx.filter((i) => list.some((m) => m.index === i)) : list.map((m) => m.index)
+  );
+}
+
+/**
  * Organiza as janelas do Roblox já abertas nos monitores escolhidos.
  *
  * Morava dentro da aba Console, que é o log de lançamento: não tem relação
@@ -437,8 +457,10 @@ type MonitorInfo = { index: number; width: number; height: number; primary: bool
 function GridControls() {
   const t = useTr();
   const store = useStore();
-  const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [monitors, setMonitors] = useState<MonitorInfo[]>(() => monitorsCache.get("last") ?? []);
+  const [selected, setSelected] = useState<Set<number>>(() =>
+    initialMonitorSelection(monitorsCache.get("last") ?? [], store.settings?.General?.GridMonitors)
+  );
   const [gap, setGap] = useState<number>(() => parseInt(store.settings?.General?.GridGap || "20") || 20);
   // Raw text while typing so the field can be cleared; clamped/saved on blur.
   const [gapText, setGapText] = useState<string>(() => String(gap));
@@ -469,14 +491,9 @@ function GridControls() {
           height: m.height,
           primary: !!m.primary,
         }));
+        monitorsCache.set("last", list);
         setMonitors(list);
-        const saved = (store.settings?.General?.GridMonitors || "")
-          .split(",")
-          .map((s) => parseInt(s.trim()))
-          .filter((n) => Number.isFinite(n));
-        const initial =
-          saved.length > 0 ? saved.filter((i) => list.some((m) => m.index === i)) : list.map((m) => m.index);
-        setSelected(new Set(initial));
+        setSelected(initialMonitorSelection(list, store.settings?.General?.GridMonitors));
       })
       .catch(() => {});
     return () => {
@@ -896,11 +913,11 @@ export function ChooseGameScreen() {
   const activeAction = activeTabDef?.action;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 animate-fade-in">
+    <div data-tour="choose-game" className="flex-1 flex flex-col min-h-0 animate-fade-in">
 
       {/* ── Header ── */}
       <div className="shrink-0 px-4 pt-3 pb-0 theme-border border-b">
-        {/* Top row: back + title */}
+        {/* Top row: back + title + tutorial */}
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={() => store.setChooseGameOpen(false)}
@@ -919,10 +936,11 @@ export function ChooseGameScreen() {
                 : t("{{count}} accounts will be launched together", { count: accounts.length })}
             </p>
           </div>
+          <TourButton tour="choose-game" className="ml-auto" />
         </div>
 
         {/* Account chips */}
-        <div className="flex flex-wrap gap-1.5 pb-3 max-h-[52px] overflow-hidden">
+        <div data-tour="cg-accounts" className="flex flex-wrap gap-1.5 pb-3 max-h-[52px] overflow-hidden">
           {accounts.slice(0, 8).map((a) => {
             const name = accountLabel(a, store);
             const avatarUrl = hideAccountAvatar(store) ? undefined : store.avatarUrls.get(a.UserID);
@@ -963,10 +981,11 @@ export function ChooseGameScreen() {
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-0 -mb-px">
+        <div data-tour="cg-tabs" className="flex gap-0 -mb-px">
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              data-tour={`cg-tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-2.5 text-[12px] border-b-2 transition-colors ${
                 activeTab === tab.id
@@ -980,6 +999,8 @@ export function ChooseGameScreen() {
         </div>
       </div>
 
+      {/* Dica + conteúdo da aba juntos: é a área que o tutorial aponta em cada aba. */}
+      <div data-tour="cg-panel" className="flex-1 min-h-0 flex flex-col">
       {/* ── Tab hint ── */}
       {activeHint && (
         <div className="shrink-0 px-4 pt-2.5 pb-0">
@@ -1063,6 +1084,7 @@ export function ChooseGameScreen() {
             <GridControls />
           </div>
         )}
+      </div>
       </div>
 
       {/* ── Launch progress ── */}

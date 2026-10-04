@@ -17,6 +17,7 @@ export function AfkPage({ active, onLeave }: { active: boolean; onLeave: () => v
       )}
       onLeave={onLeave}
       dataTour="afk-page"
+      tour="afk"
       // O view rola as abas por dentro e prende Iniciar/Parar fora da rolagem.
       bodyClassName="flex flex-col"
     >

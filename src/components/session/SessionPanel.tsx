@@ -302,7 +302,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
       )}
 
       {/* ── Entrando ───────────────────────────────────────────────────── */}
-      <section className="rounded-lg border theme-border bg-[var(--panel-soft)]">
+      <section data-tour="session-joining" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
         <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
           <div className="flex items-baseline gap-2 min-w-0">
             <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Joining")}</h3>
@@ -424,7 +424,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
       )}
 
       {/* ── Em jogo ────────────────────────────────────────────────────── */}
-      <section className="rounded-lg border theme-border bg-[var(--panel-soft)]">
+      <section data-tour="session-in-game" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
         <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
           <div className="flex items-center gap-2 min-w-0">
             {runningIds.length > 0 && (
@@ -446,7 +446,11 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          {/* Alvo do tutorial só com botões: vazio, ele cairia num ponto sem nada. */}
+          <div
+            data-tour={runningIds.length > 0 ? "session-in-game-actions" : undefined}
+            className="flex items-center gap-1.5 shrink-0"
+          >
             {runningIds.length > 0 && (
               <>
                 <button
@@ -547,6 +551,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                 <li
                   key={`pid-${client.pid}`}
                   data-testid={`session-unidentified-${client.pid}`}
+                  data-tour="session-unidentified"
                   className="flex flex-col gap-1.5 px-3 py-1.5 text-[12px]"
                 >
                   <div className="flex items-center gap-2 min-w-0">

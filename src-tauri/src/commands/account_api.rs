@@ -1362,11 +1362,19 @@ struct AccountFriends {
     error: Option<String>,
 }
 
+/// Payload do evento `friends-online-progress`.
+///
+/// Além da contagem, leva a entrada da conta que acabou de voltar (`entry`):
+/// é o que deixa a aba Friends mostrar cada conta na hora, sem esperar o lote
+/// inteiro. O `request_id` é o que a tela mandou no comando — com ele ela
+/// descarta os eventos de uma consulta anterior que ainda esteja rodando.
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FriendsOnlineProgress {
     done: usize,
     total: usize,
+    request_id: Option<u64>,
+    entry: Option<AccountFriends>,
 }
 
 /// Espaçamento default entre contas no lote. O rate limit da API de amigos é
@@ -1388,7 +1396,9 @@ async fn get_online_friends(
 }
 
 /// Percorre as contas **em sequência**, com pausa entre elas, e isola o erro de
-/// cada uma na sua própria entrada. `on_progress` recebe `(feitas, total)`.
+/// cada uma na sua própria entrada. `on_progress` recebe `(feitas, total,
+/// entrada)`: a entrada é a da conta que acabou de voltar (`None` só no zero
+/// inicial).
 ///
 /// Separado do comando Tauri para poder ser testado sem `AppHandle`.
 async fn collect_online_friends<F>(
@@ -1398,7 +1408,7 @@ async fn collect_online_friends<F>(
     mut on_progress: F,
 ) -> Vec<AccountFriends>
 where
-    F: FnMut(usize, usize),
+    F: FnMut(usize, usize, Option<&AccountFriends>),
 {
     let ids = dedupe_friend_ids(user_ids);
     let total = ids.len();
@@ -1406,7 +1416,7 @@ where
         std::time::Duration::from_millis(delay_ms.unwrap_or(FRIENDS_ONLINE_DELAY_MS));
     let mut results: Vec<AccountFriends> = Vec::with_capacity(total);
 
-    on_progress(0, total);
+    on_progress(0, total, None);
     for (index, &user_id) in ids.iter().enumerate() {
         let entry = match get_cookie(store, user_id) {
             Ok(cookie) => match api::roblox::get_online_friends(&cookie, user_id).await {
@@ -1417,8 +1427,8 @@ where
             },
             Err(error) => AccountFriends { user_id, friends: Vec::new(), error: Some(error) },
         };
+        on_progress(index + 1, total, Some(&entry));
         results.push(entry);
-        on_progress(index + 1, total);
 
         if index + 1 < total && !delay.is_zero() {
             tokio::time::sleep(delay).await;
@@ -1429,16 +1439,22 @@ where
 }
 
 /// Amigos online de várias contas, uma chamada por conta. Emite
-/// `friends-online-progress` com `{ done, total }` a cada conta concluída.
+/// `friends-online-progress` com `{ done, total, requestId, entry }` a cada
+/// conta concluída — a tela desenha a conta na hora — e ainda devolve o lote
+/// inteiro no fim, que é a versão final da lista.
 #[tauri::command]
 async fn get_online_friends_for_accounts(
     app: tauri::AppHandle,
     state: tauri::State<'_, AccountStore>,
     user_ids: Vec<i64>,
     delay_ms: Option<u64>,
+    request_id: Option<u64>,
 ) -> Result<Vec<AccountFriends>, String> {
-    let results = collect_online_friends(state.inner(), user_ids, delay_ms, |done, total| {
-        let _ = app.emit("friends-online-progress", FriendsOnlineProgress { done, total });
+    let results = collect_online_friends(state.inner(), user_ids, delay_ms, |done, total, entry| {
+        let _ = app.emit(
+            "friends-online-progress",
+            FriendsOnlineProgress { done, total, request_id, entry: entry.cloned() },
+        );
     })
     .await;
 

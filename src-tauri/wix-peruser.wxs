@@ -234,11 +234,15 @@
 
         <DirectoryRef Id="ApplicationProgramsFolder">
             <Component Id="ApplicationShortcut" Guid="*">
+                <!-- Sem Icon="ProductIcon": esse icone fica numa pasta com o codigo
+                     do produto, que muda a cada versao. Como a atualizacao mantem
+                     os atalhos, o atalho ficava apontando para um icone apagado e a
+                     barra de tarefas (que usa este atalho pelo AppUserModel.ID)
+                     mostrava o icone generico. Sem Icon, o Windows usa o do exe. -->
                 <Shortcut Id="ApplicationStartMenuShortcut"
                     Name="{{product_name}}"
                     Description="Runs {{product_name}}"
                     Target="[!Path]"
-                    Icon="ProductIcon"
                     WorkingDirectory="INSTALLDIR">
                     <ShortcutProperty Key="System.AppUserModel.ID" Value="{{bundle_id}}"/>
                 </Shortcut>

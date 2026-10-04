@@ -525,6 +525,7 @@ export function ThemePage({ active, onLeave }: { active: boolean; onLeave: () =>
       )}
       onLeave={onLeave}
       dataTour="theme-page"
+      tour="theme"
       bodyClassName="overflow-y-auto"
       actions={
         <>
@@ -540,6 +541,7 @@ export function ThemePage({ active, onLeave }: { active: boolean; onLeave: () =>
           </button>
           <button
             onClick={handleSave}
+            data-tour="theme-save"
             className="theme-btn theme-accent theme-accent-bg theme-accent-border px-4 py-1.5 text-xs font-semibold"
           >
             {t("Save")}
@@ -549,7 +551,7 @@ export function ThemePage({ active, onLeave }: { active: boolean; onLeave: () =>
     >
       <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_272px] lg:items-start">
         <div className="min-w-0 space-y-5">
-          <section aria-labelledby="theme-presets-heading">
+          <section aria-labelledby="theme-presets-heading" data-tour="theme-presets">
             <h2 id="theme-presets-heading" className="mb-2 text-[12.5px] font-semibold text-[var(--panel-fg)]">
               {t("Presets")}
             </h2>
@@ -643,7 +645,7 @@ export function ThemePage({ active, onLeave }: { active: boolean; onLeave: () =>
             </div>
           </section>
 
-          <div className="grid gap-4 xl:grid-cols-2 xl:items-start">
+          <div data-tour="theme-colors" className="grid gap-4 xl:grid-cols-2 xl:items-start">
             {CATEGORIES.map((cat) => (
               <section
                 key={cat}

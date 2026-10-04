@@ -400,6 +400,12 @@ body {
   will-change: left, top;
 }
 
+/* Tutorial de tela: painel mais estreito que o do tour de boas-vindas, porque
+   ele fica colado no que aponta. */
+.screen-tour-panel {
+  width: min(340px, calc(100vw - 2rem));
+}
+
 .walkthrough-chip {
   display: inline-flex;
   align-items: center;

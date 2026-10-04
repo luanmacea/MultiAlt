@@ -155,10 +155,19 @@ export interface AccountFriends {
   error: string | null;
 }
 
-/** Payload do evento `friends-online-progress` (contas já consultadas). */
+/**
+ * Payload do evento `friends-online-progress` (contas já consultadas).
+ *
+ * `entry` é a conta que acabou de voltar — a aba Friends a desenha na hora,
+ * sem esperar o lote. `requestId` é o que a tela mandou no comando, para
+ * descartar o que sobrou de uma rodada anterior. Os dois são opcionais porque
+ * o zero inicial não traz conta.
+ */
 export interface FriendsOnlineProgress {
   done: number;
   total: number;
+  requestId?: number | null;
+  entry?: AccountFriends | null;
 }
 
 /**

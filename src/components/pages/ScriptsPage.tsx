@@ -3041,10 +3041,11 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
       description={intro}
       onLeave={onLeave}
       dataTour="scripts-page"
+      tour="scripts"
       bodyClassName="flex"
     >
         <div className="flex-1 min-h-0 min-w-0 flex">
-          <aside className="w-[320px] border-r theme-border flex flex-col min-h-0">
+          <aside data-tour="scripts-list" className="w-[320px] border-r theme-border flex flex-col min-h-0">
             <div className="p-3 border-b theme-border flex items-center gap-2">
               <div className="relative flex-1">
                 <Search
@@ -3074,6 +3075,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
             <div className="px-3 py-2 border-b theme-border flex items-center gap-1.5">
               <div ref={newMenuRef} className="relative">
                 <button
+                  data-tour="scripts-new"
                   onClick={() => setNewMenuOpen((prev) => !prev)}
                   className={`px-2.5 py-1 rounded-md border text-[12px] transition-all duration-200 ${
                     newMenuOpen
@@ -3229,7 +3231,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
             </div>
           </aside>
 
-          <section className="flex-1 min-w-0 flex flex-col">
+          <section data-tour="scripts-editor" className="flex-1 min-w-0 flex flex-col">
             {!selectedScript || !draft ? (
               <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
                 {t("Select a script or create a new one")}
