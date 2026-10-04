@@ -182,10 +182,10 @@ pub fn backup_file_name(now: chrono::DateTime<chrono::Utc>, label: Option<&str>)
 /// quando o zip está ilegível e o manifesto não pode ser aberto.
 fn parse_backup_file_stem(stem: &str) -> Option<(chrono::DateTime<chrono::Utc>, Option<String>)> {
     let rest = stem.strip_prefix("backup-")?;
-    if rest.len() < 15 {
-        return None;
-    }
-    let (stamp, tail) = rest.split_at(15);
+    // `get`, não `split_at`: um nome fora do padrão com acento logo no
+    // começo não pode derrubar a listagem.
+    let stamp = rest.get(..15)?;
+    let tail = &rest[15..];
     let naive = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?;
     let label = tail
         .strip_prefix('-')
@@ -206,8 +206,10 @@ fn backup_id_from_file_name(file_name: &str) -> String {
 /// dentro da pasta de backups.
 pub fn resolve_backup_path(dir: &std::path::Path, id: &str) -> Result<std::path::PathBuf, String> {
     let trimmed = id.trim();
-    let stem = match trimmed.len().checked_sub(4) {
-        Some(cut) if trimmed[cut..].eq_ignore_ascii_case(".zip") => &trimmed[..cut],
+    // Sem cortar por posição em bytes: num rótulo acentuado ("avançado") o
+    // corte caía no meio de uma letra e o Rust entrava em pânico, fechando o app.
+    let stem = match trimmed.len().checked_sub(4).and_then(|cut| trimmed.get(cut..).map(|ext| (cut, ext))) {
+        Some((cut, ext)) if ext.eq_ignore_ascii_case(".zip") => &trimmed[..cut],
         _ => trimmed,
     };
 
@@ -1027,6 +1029,34 @@ mod backups_tests {
     }
 
     // ---- criar / listar / restaurar ------------------------------------------------
+
+    /// Visto no app do dono (03/10/2026): apagar o backup "avançado" fechava o
+    /// app. O id era cortado por posição em bytes e o corte caía no meio do "ç"
+    /// — pânico do Rust, app fechado. Rótulo acentuado vem de `sanitize_backup_label`,
+    /// que aceita letras unicode de propósito.
+    #[test]
+    fn an_accented_label_resolves_lists_and_deletes_without_panicking() {
+        let layout = temp_layout("accented");
+        let dir = layout.backups_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        for id in [
+            "backup-20260925-222516-avançado",
+            "backup-20260925-222516-avançado.zip",
+            "backup-20261004-015512-Versão-final",
+            "backup-20260925-222516-ção",
+            "ção",
+        ] {
+            let path = resolve_backup_path(&dir, id).expect(id);
+            assert!(path.to_string_lossy().ends_with(".zip"), "{id}");
+        }
+        assert!(parse_backup_file_stem("backup-çççççççççç").is_none());
+
+        let entry = create_backup_in(&layout, Some("avançado"), false, at("2026-09-25T22:25:16Z")).unwrap();
+        assert_eq!(entry.id, "backup-20260925-222516-avançado");
+        assert!(list_backups_in(&dir).iter().any(|e| e.id == entry.id));
+        assert!(delete_backup_in(&dir, &entry.id).unwrap());
+        assert!(list_backups_in(&dir).is_empty());
+    }
 
     #[test]
     fn a_backup_round_trips_through_create_list_and_restore() {
