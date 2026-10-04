@@ -56,8 +56,9 @@ jobs:
       # instalar o MSI uma vez. O manifesto do updater so tem a chave
       # `windows-x86_64-msi` (.github/scripts/update-manifest-platforms.mjs).
       #
-      # O MSI padrao sai tambem com um nome fixo, `MultiAlt-Setup.msi`:
-      # e para ele que o botao de download do README aponta, por
+      # O MSI padrao sai com um nome fixo, `MultiAlt-Setup.msi` (a copia com a
+      # versao no nome e apagada: e o mesmo arquivo), e e para ele que o botao
+      # de download do README e o updater apontam, por
       # `/releases/latest/download/` — e por isso a release **nao** e marcada
       # como pre-lancamento (o GitHub ignora pre-lancamento no "latest").
       #
@@ -256,6 +257,15 @@ jobs:
             Start-Sleep -Seconds 3
           }
 
+      # Sobe antes do manifesto: o updater passa a baixar este arquivo
+      # (toStableMsiUrl em update-manifest-platforms.mjs).
+      - name: Upload stable-named MSI
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.meta.outputs.tag }}" "src-tauri/target/release/MultiAlt-Setup.msi" --repo "${{ github.repository }}" --clobber
+
       - name: Generate and push standard update manifest
         shell: pwsh
         env:
@@ -375,7 +385,7 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "FULL_PORTABLE_NAME=$fullPortableName"
           Add-Content -Path $env:GITHUB_ENV -Value "FULL_MANIFEST_PATH=$fullManifestOut"
 
-      - name: Upload full feature installer and stable-named MSI
+      - name: Upload full feature installer
         shell: pwsh
         env:
           GH_TOKEN: ${{ env.RELEASE_GITHUB_TOKEN }}
@@ -384,7 +394,6 @@ jobs:
           $repo = "${{ github.repository }}"
           $fullMsiPath = Join-Path $env:RELEASE_STAGE_DIR $env:FULL_MSI_NAME
           gh release upload $tag "$fullMsiPath" --repo $repo --clobber
-          gh release upload $tag "src-tauri/target/release/MultiAlt-Setup.msi" --repo $repo --clobber
 
       - name: Upload portable binaries
         if: env.PUBLISH_PORTABLE == 'true'
@@ -463,6 +472,12 @@ jobs:
           $tag = "${{ steps.meta.outputs.tag }}"
           $repo = "${{ github.repository }}"
           gh release delete-asset $tag "latest.json" --repo $repo --yes 2>$null
+          # Um setup só: a cópia com versão (MultiAlt_*_x64_en-US.msi) é o mesmo
+          # arquivo do MultiAlt-Setup.msi. A assinatura dela fica (zz-*.sig).
+          $assets = gh release view $tag --repo $repo --json assets --jq '.assets[].name'
+          $assets | Where-Object { $_ -like "MultiAlt_*_x64_en-US.msi" } | ForEach-Object {
+            gh release delete-asset $tag $_ --repo $repo --yes 2>$null
+          }
           gh release delete-asset $tag "roblox-account-manager.exe" --repo $repo --yes 2>$null
           gh release delete-asset $tag "Roblox.Account.Manager.Recommended.Portable.exe" --repo $repo --yes 2>$null
           gh release delete-asset $tag "Roblox Account Manager (Recommended) Portable.exe" --repo $repo --yes 2>$null
@@ -565,7 +580,6 @@ jobs:
               "<details>",
               "<summary>Other files (you can ignore these)</summary>",
               "",
-              "- `MultiAlt_..._x64_en-US.msi`: the same installer, with the version in the name.",
               "- Files with `full-nexus-ws` in the name: only for people who use external scripts (Nexus or the local API).",
               "- `.sig` files: used by the automatic update."
             ];

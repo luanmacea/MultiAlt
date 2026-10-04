@@ -14,6 +14,17 @@
 /** Nome fixo do MSI na release: o botao de download do README aponta para ele. */
 export const STABLE_MSI_NAME = "MultiAlt-Setup.msi";
 
+/**
+ * Um setup só na release (pedido do dono, 03/10/2026): o `MultiAlt_<v>_x64_en-US.msi`
+ * que o tauri-action sobe é byte a byte o `MultiAlt-Setup.msi` (o "en-US" é só o
+ * idioma da janela do instalador). A cópia com versão sai da release, então o
+ * updater baixa o de nome fixo da mesma tag; a assinatura é do conteúdo e vale
+ * igual. O MSI da versão completa (`_full-nexus-ws`) é outro arquivo e fica.
+ */
+export function toStableMsiUrl(url) {
+  return url.replace(/\/MultiAlt_[^/]*_x64_en-US\.msi$/, `/${STABLE_MSI_NAME}`);
+}
+
 export function msiOnlyPlatforms(platforms) {
   // Com um formato so, o tauri-action pode escrever apenas a chave generica;
   // se ela aponta para um .msi, e a do MSI.
@@ -24,5 +35,5 @@ export function msiOnlyPlatforms(platforms) {
   if (!String(msi.url || "").toLowerCase().endsWith(".msi")) {
     throw new Error(`windows-x86_64-msi must point at an .msi, got ${msi.url}`);
   }
-  return { "windows-x86_64-msi": msi };
+  return { "windows-x86_64-msi": { ...msi, url: toStableMsiUrl(String(msi.url)) } };
 }
