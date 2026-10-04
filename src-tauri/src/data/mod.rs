@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod avatars;
 pub mod crypto;
+pub mod game_lists;
 pub mod scripts;
 pub mod settings;
 pub mod vault_key;

@@ -49,18 +49,19 @@ A aba Games guarda a última lista e a busca que a produziu num cache de memóri
 
 ### Favoritos e VIPs
 
-1. Guardados em `localStorage["ram_favorite_games"]` como `FavoriteGame { placeId, name, iconUrl, addedAt, vipServers[] }`.
+1. Guardados como `FavoriteGame { placeId, name, iconUrl, addedAt, vipServers[] }` (ver [Onde as listas moram](#onde-as-listas-moram)).
    - O ícone é gravado junto quando o favorito é salvo. Favorito salvo **sem** ícone é completado ao abrir a aba (`loadGameIdentity`, uma passada por montagem, resultado gravado de volta): antes ficava com o quadrado vazio para sempre, ao lado de uma aba Games que mostra o ícone de todos. A releitura na hora de gravar evita ressuscitar favorito removido enquanto os ícones vinham.
 2. "Add VIP Server" pede o link/código e um rótulo (default `VIP <n>`), gera `id` com `crypto.randomUUID()` (fallback timestamp+random).
 3. Clicar num VIP → `onSelectGame(placeId, vip.link)`: no Server List pré-preenche o campo de Job ID; na Choose Game lança **todas as contas selecionadas** direto com `jobId = vip.link`.
 4. Remover VIP filtra pelo `id`; renomear/remover favorito pelo menu de contexto.
+5. **Toda mudança é lê-muda-grava** (`updateFavorites` em [types.ts](../../src/components/server-list/types.ts)): parte da lista gravada *agora*, nunca da cópia que a tela leu ao montar. Até 03/10/2026 a `FavoritesTab` gravava a cópia da montagem inteira por cima — e a Choose Game deixa a aba Favorites montada por baixo do diálogo Server List, que tem a sua própria `FavoritesTab`: o VIP salvo no diálogo sumia na próxima mudança feita na Choose Game (renomear, outro VIP). Foi assim que o dono perdeu VIPs. Agora, além disso, as telas montadas se atualizam quando outra grava (`useGameListsChanged`), e `updateFavorites` recusa uma mudança que tire favorito ou VIP sem `userDelete` (só remover favorito/VIP, depois do confirm, passa esse sinal) e recusa gravar por cima de lista ilegível.
 
 ### Recentes
 
 1. `recordRecentGame(placeId, userId, maxCount)` é chamado ao selecionar jogo no Server List ([ServerListDialog.tsx](../../src/components/server-list/ServerListDialog.tsx)) e pela store ([store.tsx](../../src/store.tsx)) após um `joinServer`/`launchMultiple` **bem-sucedido** (qualquer origem, incl. Choose Game). Launch que falha não entra nos recentes.
 2. Insere otimisticamente no topo (nome = placeId se desconhecido), remove duplicata do mesmo placeId e corta em `MaxRecentGames`.
 3. Em seguida resolve nome e ícone (`batched_get_game_info`, uma chamada) e atualiza a entrada. `RecentGamesList` também completa entradas antigas sem nome/ícone ao exibir.
-4. Persistência em `localStorage["ram_recent_games"]`.
+4. Persistência como os favoritos ([Onde as listas moram](#onde-as-listas-moram)), sempre por lê-muda-grava (`updateRecentGames`): a completação de nome/ícone da `RecentGamesList` gravava no fim a lista lida no começo, e apagava o jogo que um launch registrasse enquanto a rede respondia.
 5. Na linha (e no menu de contexto), **clicar no card abre os servidores** do jogo e **"Join Game" entra** com as contas selecionadas — as mesmas ações da aba Games, nas duas telas (Choose Game e Server List). Até 27/09/2026 o "Join Game" dos Recentes chamava o mesmo `onSelect` do card e só abria os servidores, embora a dica da aba prometesse entrar direto. No popover de escolha de jogo (`RecentGamesPopover`, sem `onJoinGame`), "Join Game" continua sendo escolher.
 
 #### Servidores recentes (Job IDs)
@@ -72,8 +73,23 @@ Ao lado dos jogos recentes, a aba Recent do Server List mostra os **servidores**
 3. `classifyJobInput` marca cada entrada como `job` (público), `vip` ou `link` — para o rótulo da linha e para a regra de visibilidade abaixo. Ele procura o código do link **também no texto decodificado**: o link curto do AppsFlyer carrega a query de verdade dentro do `af_dp` (`…?af_dp=roblox%3A%2F%2F…%3Fcode%3DDEADBEEF`), e sem decodificar ele passaria por `job` — ou seja, um alvo privado visível para todas as contas, com o código do dono à mostra. Errar para "público" é o erro caro.
 4. Sem duplicata (a chave é o `raw`), mais recente no topo, cortada em `General.MaxRecentJobs`. `userIds` **soma** as contas que já usaram aquele alvo (um launch em lote registra todas).
 5. Clicar preenche o Place e o Job ID e volta para a aba Servers — **não entra**. Entrar é o gesto seguinte, com o aviso de conta online.
-6. Persistência em `localStorage["ram_recent_jobs"]`.
+6. Persistência como os favoritos ([Onde as listas moram](#onde-as-listas-moram)), por lê-muda-grava (`updateRecentJobs`).
 7. "Clear all" apaga **só o que aquela conta vê** (ver a regra de visibilidade): apagar entrada que não está na tela é surpresa, não limpeza.
+
+### Onde as listas moram
+
+Favoritos, jogos recentes e servidores recentes têm duas cópias ([gameListsSync.ts](../../src/components/server-list/gameListsSync.ts)):
+
+- **`RAMGameLists.json`** na pasta de dados ([data/game_lists.rs](../../src-tauri/src/data/game_lists.rs), comandos `get_game_lists`/`save_game_lists`) — a durável. Está em `DATA_FILES`, então entra no backup, volta na restauração e acompanha a migração de pasta. Até 03/10/2026 as listas existiam só no `localStorage` e se perdiam num reset do WebView, na troca de PC ou ao restaurar um backup.
+- **`localStorage`** (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`) — cache síncrono: as telas leem e gravam nele sem `await`, e cada gravação é espelhada no backend em segundo plano (uma por vez, sempre do estado atual; gravações seguidas se juntam).
+
+Regras de segurança:
+
+1. **Nada é espelhado antes da hidratação** (`hydrateGameLists`, chamada pelo `App` na abertura): até lá o backend pode ter dado que o cache não tem.
+2. **Hidratar une, nunca substitui.** Sem arquivo no backend (`null`), o cache é migrado para ele uma vez. Com arquivo, os dois lados são unidos — favorito por `placeId` (ordem e campos do backend, o que só o local tem vai para o fim), VIP pelo link, recentes pela chave ficando a entrada mais nova — e o resultado vai para os dois. Backend vazio não apaga o local, local vazio não apaga o backend.
+3. **Lista ilegível não vira lista vazia.** Ninguém grava por cima dela (`update*` devolve `null`, o espelho não manda nada); a hidratação guarda o texto cru em `<chave>.corrupt` antes de repor a lista do backend. Arquivo do backend ilegível: `get_game_lists` falha, o espelho fica desligado e o backend também recusa gravar.
+4. **Zerar só por exclusão explícita.** O backend recusa a gravação que zera todos os favoritos ou todos os VIPs, a menos que venha com `allowDestructive` — mandado só quando a mudança veio de remover favorito/VIP ou limpar recentes. A versão anterior do arquivo fica sempre em `RAMGameLists.json.bak`.
+5. **Restaurar backup:** o espelho para durante a restauração (`pauseGameListsMirror`, no [BackupsTab](../../src/components/settings/BackupsTab.tsx)) e a hidratação do fim — e a do evento `backup-restored` — une o arquivo restaurado com o cache. Ou seja, a restauração **traz de volta** favoritos e VIPs do backup, mas não apaga o que foi adicionado depois dele. Não pede reinício: a store relê o disco a cada leitura.
 
 ### Ações do jogo pelo clique direito
 
@@ -150,8 +166,9 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 
 ## Armadilhas / cuidados
 
-- **A lista de servidores recentes guarda código de link privado em texto puro** no `localStorage` do WebView, como os favoritos VIP já fazem. Não é exportada, não é vista pelo backend, e não é lugar para tratar o link como segredo forte — a regra de visibilidade por conta evita mostrá-lo para quem não o usou, não o esconde de quem abrir o perfil do WebView.
-- **Favoritos e recentes não são arquivos do app**: vivem no `localStorage` do WebView. Não são exportados com `AccountData.json`, não são vistos pelo backend/webserver e podem sumir se o perfil do WebView for limpo.
+- **A lista de servidores recentes guarda código de link privado em texto puro**, no `localStorage` do WebView e no `RAMGameLists.json`, como os favoritos VIP já fazem. Não é lugar para tratar o link como segredo forte — a regra de visibilidade por conta evita mostrá-lo para quem não o usou, não o esconde de quem abrir a pasta de dados ou um zip de backup.
+- **Uma exclusão feita com o espelho desligado pode voltar.** Se o backend estava ilegível (ou a gravação falhou) quando o usuário removeu um favorito, a próxima hidratação une os dois lados e o favorito reaparece. É o lado seguro do erro: a regra é nunca perder VIP, não nunca mostrar um a mais.
+- **`saveFavorites`/`saveRecentGames`/`saveRecentJobs` gravam a lista inteira sem conferir nada** — existem para sementes e testes. Tela nova muda as listas por `updateFavorites`/`updateRecentGames`/`updateRecentJobs`.
 - `General.ServerRegionFormat` **é usado**: [account_api.rs](../../src-tauri/src/commands/account_api.rs) lê o template em `server_region_template` e [server_regions.rs](../../src-tauri/src/api/roblox/server_regions.rs) o aplica em `format_region`. Os tokens substituídos são `<city>`, `<region>`, `<country>`, `<countryCode>` e `<ip>` — o resto do texto passa intacto, e template que resolve vazio cai no IP cru. O comentário do default gravado no INI lista exatamente esses tokens (antes apontava `ip-api.com`, que não tem relação com eles).
 - "Load Region" chama `join-game-instance` com o cookie da conta — é uma requisição real de entrada (não abre o cliente, mas consome a API do Roblox).
 - Find Player compara URLs de headshot; pode dar falso negativo se o CDN devolver URLs diferentes, e varre todas as páginas (lento em jogos grandes).

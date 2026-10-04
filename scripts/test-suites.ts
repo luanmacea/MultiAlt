@@ -225,9 +225,9 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   backups: {
-    description: "Backup e restauração dos dados, e onde a pasta de dados fica",
-    rust: ["backups_tests", "settings_paths_tests"],
-    front: ["src/components/settings/BackupsTab.test.tsx"],
+    description: "Backup e restauração dos dados, onde a pasta de dados fica e os favoritos/recentes (RAMGameLists.json)",
+    rust: ["backups_tests", "settings_paths_tests", "game_lists_store_tests"],
+    front: ["src/components/settings/BackupsTab.test.tsx", "src/components/server-list/gameListsSync.test.ts"],
   },
   friends: {
     description: "Amigos online por conta e entrada no servidor do amigo",

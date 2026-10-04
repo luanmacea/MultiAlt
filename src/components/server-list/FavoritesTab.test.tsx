@@ -8,7 +8,7 @@ vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/pro
 
 import { FavoritesTab } from "./FavoritesTab";
 import { RecentTab } from "./RecentTab";
-import { loadFavorites, saveFavorites, saveRecentGames } from "./types";
+import { loadFavorites, loadRecentGames, saveFavorites, saveRecentGames } from "./types";
 import type { FavoriteGame, RecentGame } from "./types";
 import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 import { clearGameIdentityCache } from "../../hooks/useGameIdentity";
@@ -228,6 +228,85 @@ describe("FavoritesTab", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Remove" }));
     await waitFor(() => expect(addToast).toHaveBeenCalledWith("Removed from favorites"));
     expect(screen.getByText("No favorites yet")).toBeInTheDocument();
+  });
+
+  /**
+   * O bug que levou VIPs do dono: cada `FavoritesTab` lia a lista **uma vez**
+   * (na montagem) e, a cada mudança, gravava a cópia inteira dela por cima. A
+   * Choose Game deixa a aba Favorites montada por baixo do diálogo Server List,
+   * que tem a sua própria `FavoritesTab`: o VIP salvo no diálogo sumia na
+   * próxima mudança feita na Choose Game (renomear, outro VIP...).
+   */
+  describe("duas telas abertas ao mesmo tempo", () => {
+    function renderTwo() {
+      const a = render(
+        <FavoritesTab onSelectGame={vi.fn()} addToast={vi.fn()} />
+      );
+      const addToastB = vi.fn();
+      const b = render(
+        <FavoritesTab onSelectGame={vi.fn()} addToast={addToastB} />
+      );
+      return { a: within(a.container), b: within(b.container), addToastB };
+    }
+
+    it("um VIP salvo numa tela não some quando a outra renomeia o favorito", async () => {
+      saveFavorites([favorite(), favorite({ placeId: 189707, name: "NDS" })]);
+      const { a, b, addToastB } = renderTwo();
+
+      await userEvent.click(b.getByText("Jailbreak"));
+      await userEvent.click(b.getByRole("button", { name: "Add VIP Server" }));
+      await userEvent.type(b.getByPlaceholderText("Private server link or VIP code"), "vip:12345");
+      await userEvent.click(b.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(addToastB).toHaveBeenCalledWith("VIP server added"));
+
+      promptAnswers.prompt = "Natural Disaster";
+      fireEvent.contextMenu(a.getByText("NDS"), { clientX: 5, clientY: 5 });
+      await userEvent.click(await screen.findByRole("button", { name: "Rename" }));
+      await waitFor(() => expect(loadFavorites()[1].name).toBe("Natural Disaster"));
+
+      expect(loadFavorites()[0].vipServers?.map((v) => v.link)).toEqual(["vip:12345"]);
+      // E a outra tela passa a mostrar o VIP também, sem reabrir.
+      await waitFor(() => expect(a.getByText("1 VIP")).toBeInTheDocument());
+    });
+
+    it("um favorito adicionado por outra tela não some quando esta adiciona um VIP", async () => {
+      saveFavorites([favorite()]);
+      const { a } = renderTwo();
+
+      // Outra tela (Games da Choose Game) adiciona um favorito.
+      saveFavorites([...loadFavorites(), favorite({ placeId: 189707, name: "NDS" })]);
+
+      await userEvent.click(a.getAllByText("Jailbreak")[0]);
+      await userEvent.click(a.getByRole("button", { name: "Add VIP Server" }));
+      await userEvent.type(a.getByPlaceholderText("Private server link or VIP code"), "vip:999");
+      await userEvent.click(a.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(loadFavorites()[0].vipServers).toHaveLength(1));
+      expect(loadFavorites().map((f) => f.placeId)).toEqual([606849621, 189707]);
+    });
+
+    it("remover um VIP numa tela não traz de volta o que a outra apagou", async () => {
+      saveFavorites([
+        favorite({
+          vipServers: [
+            { id: "v1", name: "One", link: "vip:1" },
+            { id: "v2", name: "Two", link: "vip:2" },
+          ],
+        }),
+        favorite({ placeId: 189707, name: "NDS" }),
+      ]);
+      const { a } = renderTwo();
+
+      // A outra tela remove o NDS (exclusão explícita, já confirmada lá).
+      saveFavorites(loadFavorites().filter((f) => f.placeId !== 189707));
+
+      await userEvent.click(a.getAllByText("Jailbreak")[0]);
+      promptAnswers.confirm = true;
+      await userEvent.click(a.getAllByTitle("Remove")[0]);
+
+      await waitFor(() => expect(loadFavorites()[0].vipServers?.map((v) => v.link)).toEqual(["vip:2"]));
+      expect(loadFavorites().map((f) => f.placeId)).toEqual([606849621]);
+    });
   });
 
   /**
@@ -529,6 +608,28 @@ describe("RecentTab", () => {
     });
     renderRecent();
     expect(await screen.findByText("Resolved Game")).toBeInTheDocument();
+  });
+
+  /**
+   * A completação gravava no fim a lista lida no começo: um jogo registrado
+   * por um launch enquanto a rede respondia sumia dos recentes.
+   */
+  it("completar o nome não apaga o jogo que um launch registrou no meio", async () => {
+    saveRecentGames([recent({ placeId: 555, name: "555", iconUrl: null })]);
+    let answer: ((value: unknown) => void) | null = null;
+    setInvokeHandler((cmd) =>
+      cmd === "batched_get_game_info" ? new Promise((resolve) => (answer = resolve)) : undefined
+    );
+    renderRecent();
+    await waitFor(() => expect(answer).not.toBeNull());
+
+    // O launch registra outro jogo enquanto o nome do 555 não chegou.
+    saveRecentGames([recent({ placeId: 777, name: "Launched" }), ...loadRecentGames()]);
+    answer!({ placeId: 555, universeId: null, name: "Resolved Game", iconUrl: "https://example.invalid/r.png" });
+
+    expect(await screen.findByText("Resolved Game")).toBeInTheDocument();
+    expect(screen.getByText("Launched")).toBeInTheDocument();
+    expect(loadRecentGames().map((g) => g.placeId)).toEqual([777, 555]);
   });
 
   /** Era a única lista de jogos sem clique direito. */

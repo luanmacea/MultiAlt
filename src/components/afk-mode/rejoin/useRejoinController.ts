@@ -7,6 +7,7 @@ import { useConfirm } from "../../../hooks/usePrompt";
 import { isMultiRobloxCloseProcessError } from "../../../utils/robloxErrors";
 import { useTr } from "../../../i18n/text";
 import { loadFavorites, type FavoriteGame } from "../../server-list/types";
+import { useGameListsChanged } from "../../server-list/gameListsSync";
 import { canRunBottingActionOnRow, type BottingRowAction } from "./rejoinShared";
 
 export interface RejoinTabOptions {
@@ -75,6 +76,8 @@ export function useRejoinController({
   const [placeId, setPlaceId] = useState(escolhidoNaAbertura);
   const [jobId, setJobId] = useState("");
   const [favorites, setFavorites] = useState<FavoriteGame[]>(loadFavorites);
+  // Só lê: favoritos mudados na Choose Game (ou restaurados de um backup) aparecem aqui.
+  useGameListsChanged(() => setFavorites(loadFavorites()));
   const [intervalMinutes, setIntervalMinutes] = useState(19);
   const [launchDelaySeconds, setLaunchDelaySeconds] = useState(20);
   /** Só vai no Start: sem conta main na tela, a carência não tem campo. */

@@ -22,6 +22,7 @@ import {
   saveFavorites,
   saveRecentGames,
   saveRecentJobs,
+  updateFavorites,
   visibleRecentJobs,
   type FavoriteGame,
   type RecentGame,
@@ -124,6 +125,83 @@ describe("favorites storage", () => {
     ];
     localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(stored));
     expect(loadFavorites()[0].vipServers).toEqual([{ id: "keep", name: "Main", link: "vip:new" }]);
+  });
+});
+
+/**
+ * O dono já perdeu VIPs salvos: uma tela gravava a cópia velha da lista por
+ * cima da gravada. `updateFavorites` é o único caminho das telas, e ele lê a
+ * lista atual, recusa gravar por cima de lista ilegível e só tira favorito ou
+ * VIP quando a exclusão foi pedida pelo usuário.
+ */
+describe("updateFavorites", () => {
+  const vip = (id: string, link: string) => ({ id, name: id, link });
+  const base = (): FavoriteGame[] => [
+    { placeId: 1, name: "One", iconUrl: null, addedAt: 1, vipServers: [vip("a", "vip:a")] },
+    { placeId: 2, name: "Two", iconUrl: null, addedAt: 1, vipServers: [] },
+  ];
+
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("parte da lista gravada agora, não de uma cópia antiga", () => {
+    saveFavorites(base());
+    const staleCopy = loadFavorites();
+    // Outra tela adiciona um VIP depois de esta ter lido a lista.
+    updateFavorites((list) =>
+      list.map((f) => (f.placeId === 2 ? { ...f, vipServers: [vip("b", "vip:b")] } : f))
+    );
+
+    updateFavorites((list) => list.map((f) => (f.placeId === 1 ? { ...f, name: "Renamed" } : f)));
+
+    expect(staleCopy[1].vipServers).toEqual([]);
+    expect(loadFavorites()[1].vipServers).toEqual([vip("b", "vip:b")]);
+    expect(loadFavorites()[0].name).toBe("Renamed");
+  });
+
+  it("recusa, sem exclusão explícita, uma mudança que tira um VIP", () => {
+    saveFavorites(base());
+    const result = updateFavorites((list) => list.map((f) => ({ ...f, vipServers: [] })));
+    expect(result).toBeNull();
+    expect(loadFavorites()[0].vipServers).toEqual([vip("a", "vip:a")]);
+  });
+
+  it("recusa, sem exclusão explícita, uma mudança que tira um favorito", () => {
+    saveFavorites(base());
+    expect(updateFavorites((list) => list.slice(0, 1))).toBeNull();
+    expect(updateFavorites(() => [])).toBeNull();
+    expect(loadFavorites()).toHaveLength(2);
+  });
+
+  it("a exclusão pedida pelo usuário continua funcionando", () => {
+    saveFavorites(base());
+    expect(
+      updateFavorites((list) => list.map((f) => ({ ...f, vipServers: [] })), { userDelete: true })
+    ).not.toBeNull();
+    expect(updateFavorites((list) => list.filter((f) => f.placeId !== 2), { userDelete: true })).toHaveLength(1);
+    expect(loadFavorites().map((f) => f.placeId)).toEqual([1]);
+    expect(loadFavorites()[0].vipServers).toEqual([]);
+  });
+
+  it("não grava por cima de uma lista ilegível — nem para adicionar", () => {
+    localStorage.setItem(STORAGE_KEY_FAVORITES, "{not json");
+    expect(updateFavorites((list) => [...list, base()[1]])).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEY_FAVORITES)).toBe("{not json");
+  });
+
+  it("recentes: lista ilegível não vira lista vazia ao registrar um jogo ou servidor", () => {
+    localStorage.setItem(STORAGE_KEY_RECENT, "<<<broken>>>");
+    addRecentGame(recent(1), 10);
+    expect(localStorage.getItem(STORAGE_KEY_RECENT)).toBe("<<<broken>>>");
+
+    localStorage.setItem("ram_recent_jobs", "<<<broken>>>");
+    addRecentJob("abc", 1, 10, [1]);
+    expect(localStorage.getItem("ram_recent_jobs")).toBe("<<<broken>>>");
   });
 });
 
