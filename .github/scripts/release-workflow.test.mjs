@@ -172,3 +172,17 @@ describe("um setup só na release", () => {
     expect(body("Finalize release notes")).not.toMatch(/the same installer, with the version in the name/);
   });
 });
+
+/**
+ * A 1.0.0 abriu a série 1.x sem tag anterior, e o bloco de contribuidores saiu
+ * "No contributor metadata found" — também na janela de atualização do app. O
+ * dono do repositório entra sempre (pedido do dono, 03/10/2026).
+ */
+describe("contribuidores da release", () => {
+  it("sempre incluem o dono do repositório, mesmo sem tag anterior", () => {
+    const finalize = steps().find((s) => s.name === "Finalize release notes").lines.join("\n");
+    const add = finalize.indexOf("contributorSet.add(owner)");
+    expect(add).toBeGreaterThan(-1);
+    expect(add).toBeLessThan(finalize.indexOf("if (previousTag) {\n              try {\n                const compare"));
+  });
+});

@@ -539,6 +539,9 @@ jobs:
               : generatedBody || "## What's Changed\n- Release notes could not be generated.";
 
             const contributorSet = new Set();
+            // O dono do repositorio aparece sempre: sem tag anterior (a 1.0.0 abriu
+            // a serie 1.x) a comparacao nao roda e o bloco saia vazio.
+            contributorSet.add(owner);
             if (previousTag) {
               try {
                 const compare = await github.rest.repos.compareCommitsWithBasehead({
