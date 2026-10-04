@@ -21,6 +21,7 @@ import { SessionPanel } from "./session/SessionPanel";
 import { Toggle } from "./ui/Toggle";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
 import { SessionCache } from "../utils/sessionCache";
+import { TourButton } from "./tour/TourButton";
 
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
 
@@ -912,11 +913,11 @@ export function ChooseGameScreen() {
   const activeAction = activeTabDef?.action;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 animate-fade-in">
+    <div data-tour="choose-game" className="flex-1 flex flex-col min-h-0 animate-fade-in">
 
       {/* ── Header ── */}
       <div className="shrink-0 px-4 pt-3 pb-0 theme-border border-b">
-        {/* Top row: back + title */}
+        {/* Top row: back + title + tutorial */}
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={() => store.setChooseGameOpen(false)}
@@ -935,10 +936,11 @@ export function ChooseGameScreen() {
                 : t("{{count}} accounts will be launched together", { count: accounts.length })}
             </p>
           </div>
+          <TourButton tour="choose-game" className="ml-auto" />
         </div>
 
         {/* Account chips */}
-        <div className="flex flex-wrap gap-1.5 pb-3 max-h-[52px] overflow-hidden">
+        <div data-tour="cg-accounts" className="flex flex-wrap gap-1.5 pb-3 max-h-[52px] overflow-hidden">
           {accounts.slice(0, 8).map((a) => {
             const name = accountLabel(a, store);
             const avatarUrl = hideAccountAvatar(store) ? undefined : store.avatarUrls.get(a.UserID);
@@ -979,10 +981,11 @@ export function ChooseGameScreen() {
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-0 -mb-px">
+        <div data-tour="cg-tabs" className="flex gap-0 -mb-px">
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              data-tour={`cg-tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               className={`px-4 py-2.5 text-[12px] border-b-2 transition-colors ${
                 activeTab === tab.id
@@ -996,6 +999,8 @@ export function ChooseGameScreen() {
         </div>
       </div>
 
+      {/* Dica + conteúdo da aba juntos: é a área que o tutorial aponta em cada aba. */}
+      <div data-tour="cg-panel" className="flex-1 min-h-0 flex flex-col">
       {/* ── Tab hint ── */}
       {activeHint && (
         <div className="shrink-0 px-4 pt-2.5 pb-0">
@@ -1079,6 +1084,7 @@ export function ChooseGameScreen() {
             <GridControls />
           </div>
         )}
+      </div>
       </div>
 
       {/* ── Launch progress ── */}

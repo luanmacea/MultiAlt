@@ -319,6 +319,7 @@ export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () 
             key={item.id}
             role="tab"
             aria-selected={selected}
+            data-tour={`avatars-tab-${item.id}`}
             onClick={() => setTab(item.id)}
             className={`flex items-center gap-1.5 px-3 py-2.5 text-[12.5px] font-medium border-b-2 transition-colors outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--input-focus)] ${
               selected
@@ -348,6 +349,7 @@ export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () 
       description={t("Free official Roblox items only — never spends Robux")}
       onLeave={onLeave}
       dataTour="avatars-page"
+      tour="avatars"
       toolbar={tabs}
       bodyClassName="p-5"
       actions={

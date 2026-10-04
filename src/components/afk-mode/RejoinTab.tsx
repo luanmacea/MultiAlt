@@ -84,6 +84,7 @@ export function RejoinTab(props: RejoinTabOptions) {
     <div className="@container/rejoin flex h-full min-h-0 flex-col gap-3">
       <ModeStatusBar
         testId="rejoin-status"
+        dataTour="afk-rejoin-start"
         running={running}
         title={running ? t("Auto Rejoin is running") : t("Auto Rejoin is stopped")}
         facts={facts}

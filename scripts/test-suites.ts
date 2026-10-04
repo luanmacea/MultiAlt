@@ -355,6 +355,20 @@ export const SUITES: Record<string, TestSuite> = {
       "src/store.test.ts",
     ],
   },
+  tutorials: {
+    description: "Tutoriais de tela (botão Tutorial): motor, \"já visto\" e o passeio de cada tela com as âncoras na tela",
+    rust: [],
+    front: [
+      "src/components/tour",
+      "src/components/layout/FirstRunWalkthrough.test.tsx",
+      "src/App.test.tsx",
+      "src/components/ChooseGameScreen.test.tsx",
+      "src/components/afk-mode/AfkModeView.test.tsx",
+      "src/components/pages",
+      "src/components/settings/settingsTabs.test.tsx",
+      "src/i18n/locales.test.ts",
+    ],
+  },
   diagnostics: {
     description: "Diagnóstico de mutex, janelas, otimização de processo e capacidades da plataforma",
     rust: [

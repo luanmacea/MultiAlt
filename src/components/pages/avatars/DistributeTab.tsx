@@ -62,7 +62,7 @@ export function DistributeTab({
   return (
     <div className="h-full grid grid-cols-[minmax(0,1fr)_320px] gap-3">
       {/* Avatares salvos para sortear */}
-      <section className="theme-surface rounded-xl border theme-border min-h-0 flex flex-col overflow-hidden">
+      <section data-tour="avatars-handout" className="theme-surface rounded-xl border theme-border min-h-0 flex flex-col overflow-hidden">
         <div className="px-3 py-2.5 border-b theme-border flex items-start justify-between gap-3 shrink-0">
           <div className="min-w-0">
             <div className="text-[12.5px] font-semibold text-[var(--panel-fg)]">{t("Avatars to hand out")}</div>
@@ -158,7 +158,7 @@ export function DistributeTab({
       </section>
 
       {/* Contas e progresso */}
-      <section className="theme-surface rounded-xl border theme-border min-h-0 flex flex-col overflow-hidden">
+      <section data-tour="avatars-accounts" className="theme-surface rounded-xl border theme-border min-h-0 flex flex-col overflow-hidden">
         {showBatch && batch ? (
           <BatchPanel
             batch={batch}

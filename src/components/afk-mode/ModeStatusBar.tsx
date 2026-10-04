@@ -14,6 +14,7 @@ export function ModeStatusBar({
   actions,
   message,
   testId,
+  dataTour,
 }: {
   running: boolean;
   title: string;
@@ -23,11 +24,14 @@ export function ModeStatusBar({
   /** Linha de baixo: por que não liga, ou o erro do último Start. */
   message?: { text: string; tone: "muted" | "warn" | "error" } | null;
   testId?: string;
+  /** Âncora do tutorial da página (ver components/tour/tours.ts). */
+  dataTour?: string;
 }) {
   const shown = (facts ?? []).filter((f) => f !== null && f !== undefined && f !== false && f !== "");
   return (
     <section
       data-testid={testId}
+      data-tour={dataTour}
       data-running={running ? "true" : "false"}
       aria-live="polite"
       className={`relative shrink-0 rounded-xl border px-4 py-3 transition-colors ${

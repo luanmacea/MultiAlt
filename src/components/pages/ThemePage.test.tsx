@@ -11,6 +11,8 @@ import { ThemePage } from "./ThemePage";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import { promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
+import { walkTour } from "../../test-utils/tourHelpers";
+import { ScreenTourHost } from "../tour/ScreenTour";
 import { DEFAULT_THEME, DEFAULT_FONT_SANS } from "../../theme";
 
 /**
@@ -253,6 +255,26 @@ describe("ThemePage — page behaviour", () => {
     expect(presetButton).toHaveAttribute("aria-expanded", "false");
     expect(onLeave).not.toHaveBeenCalled();
 
+    await userEvent.keyboard("{Escape}");
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ThemePage — tutorial", () => {
+  it("walks the Theme tutorial without saving or leaving the page", async () => {
+    const { onLeave } = renderDialog();
+    await walkTour("theme", { invoke: invokeMock });
+    expect(onLeave).not.toHaveBeenCalled();
+  });
+
+  it("Escape closes the tutorial first, and only the next one leaves the page", async () => {
+    const { onLeave } = renderDialog();
+    render(<ScreenTourHost />);
+    await userEvent.click(screen.getByRole("button", { name: /Tutorial/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(onLeave).not.toHaveBeenCalled();
     await userEvent.keyboard("{Escape}");
     expect(onLeave).toHaveBeenCalledTimes(1);
   });

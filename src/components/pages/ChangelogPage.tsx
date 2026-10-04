@@ -118,6 +118,8 @@ function ChangelogPageBody({ onLeave }: { onLeave: () => void }) {
       title={t("What's new")}
       description={t("What changed in each update of MultiAlt, newest first.")}
       onLeave={onLeave}
+      dataTour="changelog-page"
+      tour="changelog"
     >
       <div className="@container mx-auto w-full max-w-[880px]">
         {state.kind === "loading" ? <ChangelogSkeleton label={t("Loading the update history…")} /> : null}
@@ -197,7 +199,7 @@ function Timeline({ entries, currentVersion, language, hasUpdateInfo, onOpenUpda
   const updateIndex = entries.findIndex(isNewer);
 
   return (
-    <ol aria-label={t("Versions")} className="relative">
+    <ol aria-label={t("Versions")} data-tour="changelog-list" className="relative">
       {entries.map((entry, index) => {
         const isCurrent = index === currentIndex;
         const newer = isNewer(entry);
@@ -207,6 +209,7 @@ function Timeline({ entries, currentVersion, language, hasUpdateInfo, onOpenUpda
           <li
             key={entry.tag}
             aria-current={isCurrent ? "true" : undefined}
+            data-tour={isCurrent ? "changelog-current" : undefined}
             className="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3 @xl:grid-cols-[10.5rem_1.5rem_minmax(0,1fr)] @xl:gap-x-4"
           >
             {/* Trilho: a linha liga este ponto ao da próxima versão. */}
@@ -255,6 +258,7 @@ function Timeline({ entries, currentVersion, language, hasUpdateInfo, onOpenUpda
                 <button
                   type="button"
                   onClick={hasUpdateInfo ? onOpenUpdate : onCheckForUpdates}
+                  data-tour="changelog-update"
                   className="theme-btn mt-2 inline-flex items-center whitespace-nowrap px-2.5 py-1 text-[12px] font-medium"
                 >
                   {hasUpdateInfo ? t("Update available") : t("Check for Updates")}

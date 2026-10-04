@@ -58,6 +58,7 @@ export function ClicksTab(props: ClicksTabOptions) {
     <div className="@container/clicks flex h-full min-h-0 flex-col gap-3">
       <ModeStatusBar
         testId="clicks-status"
+        dataTour="afk-clicks-start"
         running={running}
         title={running ? t("AFK clicks are on") : t("AFK clicks are off")}
         facts={[
@@ -115,7 +116,7 @@ export function ClicksTab(props: ClicksTabOptions) {
 function SettingsCard({ ctl }: { ctl: ClicksController }) {
   const { t, clickMode, configDisabled, capture } = ctl;
   return (
-    <section className={`${CARD} space-y-2.5`}>
+    <section data-tour="afk-clicks-settings" className={`${CARD} space-y-2.5`}>
       <div className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Settings")}</div>
       <div className="flex items-center gap-2">
         <span className="text-[12px] theme-muted w-32 shrink-0">{t("Send every")}</span>
@@ -223,7 +224,7 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
 function AccountsCard({ ctl }: { ctl: ClicksController }) {
   const { t, store, running, inAfk, candidates, statusByUserId, clickMode, capture } = ctl;
   return (
-    <section className={`@container ${CARD}`}>
+    <section data-tour="afk-clicks-accounts" className={`@container ${CARD}`}>
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <div className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Accounts in AFK mode")}</div>
         {candidates.length > 0 ? (
