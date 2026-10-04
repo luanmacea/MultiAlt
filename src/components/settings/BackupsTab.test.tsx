@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
-import { BackupsDialog } from "./BackupsDialog";
+import { BackupsTab } from "./BackupsTab";
 import { setStore } from "../../test-utils/renderWithStore";
 import {
   confirmMock,
@@ -90,9 +90,8 @@ function backend(overrides: Record<string, Entry> = {}) {
 
 function renderDialog() {
   const store = setStore({});
-  const onClose = vi.fn();
-  const view = render(<BackupsDialog open onClose={onClose} />);
-  return { store, onClose, ...view };
+  const view = render(<BackupsTab active />);
+  return { store, ...view };
 }
 
 function rowFor(id: string) {
@@ -107,11 +106,34 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe("BackupsDialog — listing", () => {
-  it("renders nothing while closed", () => {
+describe("BackupsTab — listing", () => {
+  // A página Settings monta todas as seções de uma vez (as escondidas ficam com
+  // `display: none`): a de backups só lê a pasta quando aparece.
+  it("does not touch the backups folder while the section is hidden", () => {
     setStore({});
-    const { container } = render(<BackupsDialog open={false} onClose={vi.fn()} />);
-    expect(container).toBeEmptyDOMElement();
+    const { rerender } = render(<BackupsTab active={false} />);
+    expect(invokeMock).not.toHaveBeenCalledWith("list_backups");
+    rerender(<BackupsTab active />);
+    expect(invokeMock).toHaveBeenCalledWith("list_backups");
+  });
+
+  it("reloads the list every time the section is shown again", async () => {
+    setStore({});
+    const { rerender } = render(<BackupsTab active />);
+    await screen.findByText(INFO.dir);
+    rerender(<BackupsTab active={false} />);
+    rerender(<BackupsTab active />);
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "list_backups")).toHaveLength(2)
+    );
+  });
+
+  it("is laid out for the page, without a modal frame or a Done button", async () => {
+    renderDialog();
+    await screen.findByText(INFO.dir);
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Close")).not.toBeInTheDocument();
+    expect(document.querySelector(".fixed.inset-0")).toBeNull();
   });
 
   it("shows the data folder, the totals and every backup", async () => {
@@ -206,10 +228,10 @@ describe("BackupsDialog — listing", () => {
  * abre sozinha com zero contas: quem ja tem contas nunca o via. Ele tem que
  * estar onde o backup e criado.
  */
-describe("BackupsDialog — the zip carries the key", () => {
+describe("BackupsTab — the zip carries the key", () => {
   it("warns, where backups are created, that without a password the zip carries the key", async () => {
     setStore({ accountsEncrypted: false });
-    render(<BackupsDialog open onClose={vi.fn()} />);
+    render(<BackupsTab active />);
 
     const warning = await screen.findByText(/carries the key that opens your accounts/i);
     expect(warning).toHaveTextContent(/OneDrive/);
@@ -219,14 +241,14 @@ describe("BackupsDialog — the zip carries the key", () => {
 
   it("does not show it with a password: then the zip holds no key", async () => {
     setStore({ accountsEncrypted: true });
-    render(<BackupsDialog open onClose={vi.fn()} />);
+    render(<BackupsTab active />);
 
     await screen.findByText(INFO.dir);
     expect(screen.queryByText(/carries the key that opens your accounts/i)).not.toBeInTheDocument();
   });
 });
 
-describe("BackupsDialog — creating", () => {
+describe("BackupsTab — creating", () => {
   it("creates a labelled backup and reloads the list", async () => {
     let listCalls = 0;
     backend({
@@ -284,7 +306,7 @@ describe("BackupsDialog — creating", () => {
   });
 });
 
-describe("BackupsDialog — restoring", () => {
+describe("BackupsTab — restoring", () => {
   it("asks for confirmation and does nothing when the user backs out", async () => {
     promptAnswers.confirm = false;
     renderDialog();
@@ -393,7 +415,7 @@ describe("BackupsDialog — restoring", () => {
   });
 });
 
-describe("BackupsDialog — deleting", () => {
+describe("BackupsTab — deleting", () => {
   it("keeps the backup when the confirmation is declined", async () => {
     promptAnswers.confirm = false;
     renderDialog();

@@ -15,6 +15,8 @@ import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from ".
 import { promptAnswers, resetPromptMocks } from "../test-utils/promptMocks";
 import type { JoinTarget } from "../types";
 import type { StoreValue } from "../store";
+import { walkTour } from "../test-utils/tourHelpers";
+import { ScreenTourHost } from "./tour/ScreenTour";
 
 function joinTarget(overrides: Partial<JoinTarget> = {}): JoinTarget {
   return {
@@ -522,6 +524,97 @@ describe("ChooseGameScreen — Friends tab", () => {
     expect(await screen.findByTestId("friends-group-1001")).toBeInTheDocument();
     expect(screen.getByTestId("friends-group-1002")).toBeInTheDocument();
     expect(screen.getByTestId("friend-1001-7001")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Trocar de aba desmonta a aba anterior. A volta (ou sair da Choose Game e
+ * entrar de novo) mostrava a aba vazia, recarregando do zero; agora ela
+ * aparece com o que já tinha e atualiza por trás.
+ */
+describe("ChooseGameScreen — abas guardam o que carregaram", () => {
+  const FRIENDS = [
+    {
+      userId: 1001,
+      error: null,
+      friends: [
+        {
+          userId: 7001,
+          name: "friendo",
+          displayName: "Friendo",
+          presenceType: 2,
+          lastLocation: "Some Game",
+          placeId: 189707,
+          rootPlaceId: 189707,
+          gameId: "job-a",
+        },
+      ],
+    },
+  ];
+
+  function friendCalls() {
+    return invokeMock.mock.calls.filter((call) => call[0] === "get_online_friends_for_accounts");
+  }
+
+  function setup() {
+    setStore({
+      accounts: [ACCOUNT_A],
+      selectedIds: new Set([1001]),
+      selectedAccounts: [ACCOUNT_A],
+    });
+  }
+
+  it("volta à aba Friends com a lista anterior na tela", async () => {
+    setInvokeHandler((cmd) => (cmd === "get_online_friends_for_accounts" ? FRIENDS : []));
+    setup();
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Friends" }));
+    await screen.findByTestId("friend-1001-7001");
+
+    await userEvent.click(screen.getByRole("button", { name: "Favorites" }));
+    expect(screen.queryByTestId("friend-1001-7001")).not.toBeInTheDocument();
+
+    setInvokeHandler((cmd) =>
+      cmd === "get_online_friends_for_accounts" ? new Promise(() => {}) : []
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Friends" }));
+    expect(screen.getByTestId("friend-1001-7001")).toBeInTheDocument();
+    expect(screen.getByTestId("friends-updating-1001")).toBeInTheDocument();
+    expect(friendCalls()).toHaveLength(2);
+  });
+
+  it("sair da Choose Game e entrar de novo também mantém a lista", async () => {
+    setInvokeHandler((cmd) => (cmd === "get_online_friends_for_accounts" ? FRIENDS : []));
+    setup();
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Friends" }));
+    await screen.findByTestId("friend-1001-7001");
+    cleanup();
+
+    setInvokeHandler((cmd) =>
+      cmd === "get_online_friends_for_accounts" ? new Promise(() => {}) : []
+    );
+    setup();
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Friends" }));
+    expect(screen.getByTestId("friend-1001-7001")).toBeInTheDocument();
+  });
+
+  it("volta à aba Windows já com os monitores", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "list_display_monitors" ? [{ index: 1, width: 1920, height: 1080, primary: true }] : []
+    );
+    setup();
+    render(<ChooseGameScreen />);
+    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
+    await screen.findByTitle("1920×1080");
+
+    await userEvent.click(screen.getByRole("button", { name: "Console" }));
+    setInvokeHandler((cmd) => (cmd === "list_display_monitors" ? new Promise(() => {}) : []));
+    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
+
+    expect(screen.getByTitle("1920×1080")).toBeInTheDocument();
+    expect(screen.queryByText("No monitors detected")).not.toBeInTheDocument();
   });
 });
 
@@ -1103,5 +1196,48 @@ describe("ChooseGameScreen — shell", () => {
     expect(screen.getByText("2 accounts will be launched together")).toBeInTheDocument();
     expect(screen.getByText("alpha")).toBeInTheDocument();
     expect(screen.getByText("bravo")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Tutorial da Choose Game: passa pelas abas (Games, Servers, Friends,
+ * Windows) só abrindo cada uma — nenhuma conta é lançada no caminho.
+ */
+describe("ChooseGameScreen — tutorial", () => {
+  function renderScreen() {
+    setInvokeHandler((cmd) => {
+      switch (cmd) {
+        case "search_games":
+          return { sorts: [{ games: [] }] };
+        case "list_display_monitors":
+          return [{ index: 0, width: 1920, height: 1080, primary: true }];
+        default:
+          return undefined;
+      }
+    });
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+    });
+    render(<ChooseGameScreen />);
+    return store;
+  }
+
+  it("walks every tab of the Choose Game tutorial without launching anyone", async () => {
+    const store = renderScreen();
+    await walkTour("choose-game", { invoke: invokeMock });
+    expect(store.joinServer).not.toHaveBeenCalled();
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+    expect(store.setChooseGameOpen).not.toHaveBeenCalled();
+  });
+
+  it("Escape closes the tutorial, not the screen behind it", async () => {
+    const store = renderScreen();
+    render(<ScreenTourHost />);
+    await userEvent.click(screen.getByRole("button", { name: /Tutorial/ }));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(store.setChooseGameOpen).not.toHaveBeenCalled();
   });
 });

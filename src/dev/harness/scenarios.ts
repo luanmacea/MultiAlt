@@ -23,6 +23,7 @@ import {
 } from "./bus";
 import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
 import { seedTourStorage, tourHandler } from "./tour";
+import { HARNESS_RELEASES } from "./releases";
 
 const params = new URLSearchParams(window.location.search);
 const scenarioName = params.get("scenario") || "default";
@@ -611,6 +612,8 @@ function afkHandler(
 
 /** Place em que as contas com cliente aberto estão jogando (presença). */
 const BOTTING_WORLD_PLACE = 606849621;
+/** O outro jogo de `&games=mixed`. */
+const BOTTING_OTHER_PLACE = 920587237;
 
 /**
  * Auto Rejoin do lado do backend (`commands/botting.rs`), só o que a tela lê:
@@ -705,7 +708,10 @@ function bottingHandler(fallback: InvokeHandler, world: AfkWorld, active: boolea
       case "get_account_game_location": {
         const userId = Number(args?.userId);
         const inGame = world.withClient.has(userId);
-        return { userId, inGame, placeId: inGame ? BOTTING_WORLD_PLACE : null, jobId: null };
+        // `&games=mixed`: a 2ª conta com cliente está em outro jogo (Adopt Me!).
+        const elsewhere = params.get("games") === "mixed" && [...world.withClient][1] === userId;
+        const placeId = inGame ? (elsewhere ? BOTTING_OTHER_PLACE : BOTTING_WORLD_PLACE) : null;
+        return { userId, inGame, placeId, jobId: null };
       }
       case "start_botting_mode": {
         // `start_botting_mode`: Multi Roblox ligado e duas contas no mínimo.
@@ -1139,43 +1145,68 @@ const SCENARIOS: Record<string, () => void> = {
     });
   },
 
-  /** Amigos online de cada conta, com uma conta falhando. */
+  /**
+   * Amigos online de cada conta, com uma conta falhando.
+   *
+   * Entregue como o backend entrega: uma conta por vez, com a pausa do rate
+   * limit (`delayMs`) entre elas, um `friends-online-progress` com a entrada de
+   * cada conta e o lote inteiro só no fim. Quem tem que mostrar cada conta
+   * assim que ela chega é a UI.
+   */
   "friends-online"() {
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_online_friends_for_accounts") {
-        const ids = (args.userIds as number[]) || [];
-        return ids.map((userId, index) => ({
-          userId,
-          error: index === 1 ? "Failed to get online friends (status 429)" : null,
-          friends:
-            index === 1
-              ? []
-              : [
-                  {
-                    userId: 7000 + index,
-                    name: `friend${index}`,
-                    displayName: `Friend ${index}`,
-                    presenceType: 2,
-                    lastLocation: "Some Game",
-                    placeId: 606849621,
-                    rootPlaceId: 606849621,
-                    gameId: `job-friend-${index}`,
-                  },
-                  {
-                    userId: 8000 + index,
-                    name: `website${index}`,
-                    displayName: `On Site ${index}`,
-                    presenceType: 1,
-                    lastLocation: "Website",
-                    placeId: null,
-                    rootPlaceId: null,
-                    gameId: null,
-                  },
-                ],
-        }));
+        const ids = [...new Set(((args.userIds as number[]) || []).filter((id) => id > 0))];
+        const requestId = (args.requestId as number | undefined) ?? null;
+        const pause = Number(args.delayMs ?? 0) || 0;
+        const rows = friendsFor(ids);
+        const total = rows.length;
+        harnessEmit("friends-online-progress", { done: 0, total, requestId, entry: null });
+        return new Promise((resolve) => {
+          rows.forEach((entry, index) => {
+            // ~400 ms da consulta de cada conta + a pausa entre elas.
+            setTimeout(() => {
+              harnessEmit("friends-online-progress", { done: index + 1, total, requestId, entry });
+              if (index === total - 1) resolve(rows);
+            }, (index + 1) * 400 + index * pause);
+          });
+          if (total === 0) resolve([]);
+        });
       }
       return baseHandler(cmd, args);
     });
+
+    function friendsFor(ids: number[]) {
+      return ids.map((userId, index) => ({
+        userId,
+        error: index === 1 ? "Failed to get online friends (status 429)" : null,
+        friends:
+          index === 1
+            ? []
+            : [
+                {
+                  userId: 7000 + index,
+                  name: `friend${index}`,
+                  displayName: `Friend ${index}`,
+                  presenceType: 2,
+                  lastLocation: "Some Game",
+                  placeId: 606849621,
+                  rootPlaceId: 606849621,
+                  gameId: `job-friend-${index}`,
+                },
+                {
+                  userId: 8000 + index,
+                  name: `website${index}`,
+                  displayName: `On Site ${index}`,
+                  presenceType: 1,
+                  lastLocation: "Website",
+                  placeId: null,
+                  rootPlaceId: null,
+                  gameId: null,
+                },
+              ],
+      }));
+    }
   },
 
   /**
@@ -1458,7 +1489,8 @@ const SCENARIOS: Record<string, () => void> = {
    * sem esperar 10 min, ligue com 1 min. O Marcar do modo clique acha a janela
    * da 1ª conta, no ponto 37,5% × 62,5%. Multi Roblox ligado: o Auto Rejoin do
    * Modo AFK liga, e a presença diz que as contas com cliente estão no place
-   * 606849621 (é o que o "Em jogo" → Modo AFK detecta).
+   * 606849621 (é o que o "Em jogo" → Modo AFK detecta; com `&games=mixed`, a 2ª conta com cliente está em outro
+   * jogo). Os favoritos são os do tour, um deles com servidor VIP salvo.
    */
   "afk-mode"() {
     settings.Afk = {
@@ -1469,6 +1501,8 @@ const SCENARIOS: Record<string, () => void> = {
       ClickY: "50",
     };
     settings.General = { ...settings.General, EnableMultiRbx: "true", BottingEnabled: "true" };
+    // Favoritos (um com servidor VIP salvo) para o "um jogo que eu escolher".
+    seedTourStorage();
     const world = afkWorld();
     setInvokeHandler(afkHandler(bottingHandler(baseHandler, world, false), world, null));
   },
@@ -1508,6 +1542,62 @@ const SCENARIOS: Record<string, () => void> = {
    */
   avatars() {
     setInvokeHandler(avatarsHandler(baseHandler));
+  },
+
+  /**
+   * Página "What's new": as releases chegam pelo mesmo `fetch` em
+   * `api.github.com` que o app usa — aqui respondido por um dublê, sem rede —,
+   * depois de 900 ms (`&delay=<ms>`), com os corpos no formato real: a de hoje
+   * (download, lista simples, detalhes técnicos recolhidos), as antigas com a
+   * lista de títulos de PR e `[skip release]`, uma sem "What's Changed" e um
+   * rascunho. O app diz que é a 0.1.9 (`&current=<versão>`).
+   *
+   * - `&update=1`: o updater acha a 0.1.10 (a janela abre na partida; feche e
+   *   use o "Atualização disponível" da página).
+   * - `&fail=offline` ou `&fail=rate`: o primeiro pedido falha (sem internet ou
+   *   limite do GitHub); o "Tentar de novo" recebe a lista.
+   */
+  changelog() {
+    const delay = Math.max(0, Number(params.get("delay") ?? 900) || 0);
+    const current = params.get("current") || "0.1.9";
+    let failuresLeft = params.get("fail") ? 1 : 0;
+    const failKind = params.get("fail");
+    const realFetch = window.fetch.bind(window);
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://api.github.com/")) return realFetch(input, init);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      const isList = /\/releases\?/.test(url);
+      if (isList && failuresLeft > 0) {
+        failuresLeft -= 1;
+        if (failKind === "rate") {
+          return new Response(JSON.stringify({ message: "API rate limit exceeded" }), {
+            status: 403,
+            headers: { "content-type": "application/json", "x-ratelimit-remaining": "0" },
+          });
+        }
+        throw new TypeError("Failed to fetch");
+      }
+      if (!isList) return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      return new Response(JSON.stringify(HARNESS_RELEASES), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "plugin:app|version") return current;
+      if (cmd === "check_for_updates_with_channels" && params.get("update") === "1") {
+        return {
+          version: "0.1.10",
+          currentVersion: current,
+          date: "",
+          body: HARNESS_RELEASES[0].body,
+          releaseChannel: "beta",
+          featureChannel: "standard",
+        };
+      }
+      return baseHandler(cmd, args);
+    });
   },
 
   /**

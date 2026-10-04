@@ -56,6 +56,18 @@ A aba **reordena a lista recebida** antes de desenhar (`rankRows`), com o númer
 
 Os eventos são aceitos pelo **maior `scanId` já visto**, não pelo id que o `start_server_scan` devolveu: duas varreduras seguidas resolvem o `invoke` fora de ordem, e comparar com o id "atual" podia descartar os eventos da varredura nova e deixar na tela a primeira página da antiga.
 
+### Voltar à aba (cache da varredura)
+
+A última varredura **terminada** de cada combinação place + ordem + tamanho do lote + páginas fica num cache de memória da sessão (`serversCache` em [ServersTab.tsx](../../src/components/servers/ServersTab.tsx), via `utils/sessionCache.ts`), junto com as regiões e o acesso das contas já verificados. Ao voltar para a aba (ou para a Choose Game), a lista aparece no primeiro desenho, com *Updating...* ao lado do Refresh, e uma varredura nova roda **por trás**:
+
+- as páginas parciais da varredura nova **não** substituem a lista guardada — só a varredura terminada (`done`) troca a lista; uma página no lugar de uma varredura completa seria um passo para trás;
+- a região de um servidor que continua listado é mantida (custou uma chamada de join); a de quem saiu da lista vai junto;
+- erro na varredura de fundo mantém a lista anterior, com o erro em cima;
+- varredura que não terminou (a aba saiu no meio) não é guardada;
+- o **Refresh** manual e a troca de place/ordem/páginas sem cache continuam recomeçando do zero, como antes.
+
+Não há requisição a mais: a volta à aba já disparava uma varredura nova.
+
 ### Servidor repetido entre páginas
 
 A lista do Roblox se mexe entre uma requisição e outra (jogador entra, jogador sai), então **o mesmo Job ID volta em páginas diferentes** — em dados reais de um jogo grande, 50 repetidos em 400 servidores, 33 deles só entre a primeira e a segunda página.

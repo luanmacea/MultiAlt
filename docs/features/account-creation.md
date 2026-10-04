@@ -7,6 +7,8 @@ Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas,
 1. **Comprar de um provedor** (BloxGen) — a conta vem pronta por API;
 2. **Criar no navegador** — o app abre a página de cadastro do Roblox, preenche tudo, e **o usuário resolve o CAPTCHA e confirma**.
 
+> **O gerador pago (BloxGen) está escondido desde 03/10/2026** atrás de `ENABLE_ACCOUNT_GENERATOR` ([featureFlags.ts](../../src/featureFlags.ts), desligado por padrão): o dono acha que o serviço parou de funcionar e ninguém deve gastar crédito tentando. Sem a flag somem a entrada *Account Generator* do menu **Add** (Toolbar e AddAccountDialog), a aba paga do diálogo Contas novas — que abre direto na criação grátis, sem seletor de abas — e a seção *Account Generator* das Settings. O código fica todo (comandos Rust, `GeneratorTab`, painel do diálogo, API de scripts `start_generator`). Exceção: com um gerador pago **rodando** (ligado pela API de scripts), o diálogo mostra o painel para dar para parar. Para religar: compile com `VITE_ENABLE_ACCOUNT_GENERATOR=true` ou troque o padrão na flag. Testes: `accountGeneratorHidden.test.tsx` (desligado); os do gerador ligam a flag com `vi.mock`.
+
 > O app **não** resolve, burla nem esconde a verificação do Roblox. A parte humana continua humana; o que se economiza é a digitação.
 
 ## Onde fica o código

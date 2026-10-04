@@ -50,6 +50,7 @@ export function BuildTab({
       {/* Categorias */}
       <nav
         aria-label={t("Categories")}
+        data-tour="avatars-categories"
         className="theme-surface rounded-xl border theme-border p-2 overflow-y-auto min-h-0 space-y-0.5"
       >
         {catalog === null
@@ -217,7 +218,7 @@ export function BuildTab({
 
       {/* Prévia, pele, sorteio, salvar e salvos */}
       <div className="min-h-0 overflow-y-auto space-y-3 pr-0.5">
-        <section aria-label={t("Preview")} className="theme-surface rounded-xl border theme-border p-3">
+        <section aria-label={t("Preview")} data-tour="avatars-preview" className="theme-surface rounded-xl border theme-border p-3">
           <SectionTitle
             aside={
               <span
@@ -306,7 +307,7 @@ export function BuildTab({
           </div>
         </section>
 
-        <section className="theme-surface rounded-xl border theme-border p-3 space-y-2">
+        <section data-tour="avatars-save" className="theme-surface rounded-xl border theme-border p-3 space-y-2">
           <input
             value={draft.name}
             onChange={(e) => draft.setName(e.target.value)}

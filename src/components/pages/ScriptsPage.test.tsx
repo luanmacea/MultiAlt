@@ -12,6 +12,7 @@ import { ScriptsPage } from "./ScriptsPage";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 import { resetPromptMocks } from "../../test-utils/promptMocks";
+import { walkTour } from "../../test-utils/tourHelpers";
 import type { ManagedScript } from "../../scripting/types";
 
 function makeScript(overrides: Partial<ManagedScript> = {}): ManagedScript {
@@ -205,5 +206,14 @@ describe("ScriptsPage — permission descriptions", () => {
     expect(toggle).toHaveTextContent(
       "Sends requests to any public http/https address, so data the script can read may leave this machine."
     );
+  });
+});
+
+describe("ScriptsPage — tutorial", () => {
+  it("walks the short Scripts tutorial without running or creating anything", async () => {
+    scripts = [makeScript()];
+    renderDialog();
+    await screen.findByText("Auto rejoin");
+    await walkTour("scripts", { invoke: invokeMock });
   });
 });

@@ -10,13 +10,12 @@ interface SettingsPageProps {
   onLeave: () => void;
   onSettingsChanged?: () => void;
   onRequestEncryptionSetup?: () => void;
-  onRequestBackups?: () => void;
 }
 
 const VISIBLE_TABS = SETTINGS_TABS.filter((tab) => !tab.hidden);
 
 /**
- * Página Settings. As nove abas do antigo modal (que mal cabiam numa linha de
+ * Página Settings. As abas do antigo modal (que mal cabiam numa linha de
  * 780 px) viraram uma lista vertical à esquerda do conteúdo; o conteúdo tem
  * teto de largura para as linhas de ajuda não esticarem até a borda da janela.
  *
@@ -29,7 +28,6 @@ export function SettingsPage({
   onLeave,
   onSettingsChanged,
   onRequestEncryptionSetup,
-  onRequestBackups,
 }: SettingsPageProps) {
   const t = useTr();
   const s = useSettings();
@@ -66,6 +64,7 @@ export function SettingsPage({
       description={t("Changes are saved automatically")}
       onLeave={onLeave}
       dataTour="settings-page"
+      tour="settings"
       actions={
         s.saving ? (
           <span className="text-[11.5px] text-[var(--panel-muted)] animate-pulse" role="status">
@@ -77,6 +76,7 @@ export function SettingsPage({
     >
       <nav
         aria-label={t("Settings sections")}
+        data-tour="settings-sections"
         className="w-[208px] shrink-0 border-r theme-border overflow-y-auto py-4 px-3"
       >
         <ul className="space-y-0.5">
@@ -88,6 +88,7 @@ export function SettingsPage({
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
                   aria-current={selected ? "true" : undefined}
+                  data-tour={`settings-section-${tab.id}`}
                   className={`relative w-full flex items-center gap-2.5 h-8 px-2.5 rounded-lg text-left text-[12.5px] transition-colors outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] ${
                     selected
                       ? "bg-[var(--panel-soft)] text-[var(--panel-fg)] font-medium"
@@ -105,7 +106,7 @@ export function SettingsPage({
         </ul>
       </nav>
 
-      <div ref={scrollRef} className="flex-1 min-w-0 overflow-y-auto">
+      <div ref={scrollRef} data-tour="settings-content" className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-[760px] px-7 py-5">
           <h2 className="mb-3 text-[14px] font-semibold text-[var(--panel-fg)]">{t(current.label)}</h2>
           <TabContent
@@ -113,7 +114,6 @@ export function SettingsPage({
             s={s}
             loaded={s.loaded}
             onRequestEncryptionSetup={onRequestEncryptionSetup}
-            onRequestBackups={onRequestBackups}
           />
         </div>
       </div>

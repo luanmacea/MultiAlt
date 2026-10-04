@@ -216,7 +216,9 @@ pub(crate) fn account_client_overrides(
 /// gravada no XML.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct ClientWindowInputs {
-    /// `Some(true)` = tela cheia (exceção da conta).
+    /// `Some(true)` = tela cheia (exceção da conta); `Some(false)` = em janela
+    /// (exceção, ou o valor do jogador que o registro das exceções pôs de volta
+    /// depois da tela cheia de outra conta).
     pub fullscreen: Option<bool>,
     /// O tamanho gravado no `StartScreenSize` (exceção da conta, senão o
     /// perfil global com `OverrideClientWindowSize`).
@@ -241,11 +243,15 @@ pub(crate) struct ClientWindowPlan {
     pub grid: bool,
     /// Posição (e tamanho, se `size` não vier) a restaurar.
     pub saved_rect: Option<(i32, i32, i32, i32)>,
+    /// A conta abre em janela (tamanho no plano, ou `Fullscreen=false`
+    /// resolvido): se a janela aparecer em tela cheia, essa tela cheia veio do
+    /// XML regravado por outro cliente, e é tirada — uma vez.
+    pub leave_fullscreen: bool,
 }
 
 impl ClientWindowPlan {
     pub fn is_noop(&self) -> bool {
-        self.size.is_none() && !self.grid && self.saved_rect.is_none()
+        self.size.is_none() && !self.grid && self.saved_rect.is_none() && !self.leave_fullscreen
     }
 }
 
@@ -268,6 +274,10 @@ pub(crate) fn client_window_plan(inputs: ClientWindowInputs) -> ClientWindowPlan
             .map(|(w, h)| (w.max(MIN_CLIENT_WINDOW.0), h.max(MIN_CLIENT_WINDOW.1))),
         grid,
         saved_rect: if grid { None } else { inputs.saved_rect },
+        // Com tamanho no plano a conta é "em janela" por definição (o XML
+        // grava `Fullscreen=false` junto do `StartScreenSize`). Sem tamanho e
+        // sem `Some(false)`, a tela cheia é preferência do próprio jogador.
+        leave_fullscreen: inputs.window_size.is_some() || inputs.fullscreen == Some(false),
     }
 }
 
@@ -430,6 +440,9 @@ pub(crate) fn spawn_client_window_enforcement(
         // janela por conta própria logo depois, ela volta ao lugar escolhido
         // (a célula não é escolhida de novo).
         let mut chosen: Option<(i32, i32, i32, i32)> = None;
+        // A tela cheia herdada é tirada uma vez só (`leave_fullscreen`): se o
+        // Roblox voltar para ela, a conferência seguinte a vê e para.
+        let mut fullscreen_exit_tried = false;
         for attempt in 0..3 {
             if attempt > 0 {
                 tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -437,6 +450,22 @@ pub(crate) fn spawn_client_window_enforcement(
             let Some(hwnd) = windows::find_main_window(pid) else {
                 return;
             };
+            let mut first_look = chosen.is_none();
+            let mode = windows::window_mode_of(hwnd).unwrap_or(windows::WindowMode::Normal);
+            if windows::should_leave_fullscreen(plan.leave_fullscreen, mode, fullscreen_exit_tried) {
+                match windows::leave_fullscreen(hwnd, plan.size) {
+                    windows::FullscreenExit::NotFullscreen => {}
+                    windows::FullscreenExit::Left(_) => {
+                        fullscreen_exit_tried = true;
+                        first_look = false;
+                        eprintln!("[window] PID {pid}: tela cheia herdada desfeita");
+                    }
+                    windows::FullscreenExit::Refused => {
+                        fullscreen_exit_tried = true;
+                        eprintln!("[window] PID {pid}: não foi possível sair da tela cheia");
+                    }
+                }
+            }
             let outcome = match chosen {
                 Some(rect) => windows::hold_window_rect(hwnd, rect),
                 None if plan.grid => {
@@ -449,9 +478,9 @@ pub(crate) fn spawn_client_window_enforcement(
                             excluded_pids: grid_excluded_pids(app.state::<AccountStore>().inner()),
                         }
                     };
-                    windows::place_in_grid(hwnd, pid, plan.size, &request)
+                    windows::place_in_grid(hwnd, pid, plan.size, &request, first_look)
                 }
-                None => windows::enforce_client_window(hwnd, plan.size, plan.saved_rect, true),
+                None => windows::enforce_client_window(hwnd, plan.size, plan.saved_rect, first_look),
             };
             match outcome {
                 windows::WindowEnforcement::Skipped => return,
@@ -703,7 +732,7 @@ pub(crate) fn patch_client_settings_for_launch(
     if custom_applied {
         overrides.fast_flags = None;
     }
-    let _ = windows::apply_runtime_client_settings(
+    let fullscreen_from_ledger = windows::apply_runtime_client_settings(
         base_path,
         overrides.max_fps,
         overrides.master_volume,
@@ -712,9 +741,14 @@ pub(crate) fn patch_client_settings_for_launch(
         overrides.window_size,
         overrides.fast_flags.as_ref(),
         overrides.from_account,
-    );
+    )
+    .ok()
+    .flatten();
     ResolvedClientWindow {
-        fullscreen: overrides.fullscreen,
+        // Sem pedido desta conta nem do perfil global, vale o que o registro
+        // pôs de volta depois da exceção de outra conta (a tela cheia da
+        // principal, 03/10/2026) — é ele que diz "esta alt é em janela".
+        fullscreen: overrides.fullscreen.or(fullscreen_from_ledger),
         window_size: overrides.window_size,
     }
 }
@@ -2785,6 +2819,72 @@ mod client_window_plan_tests {
             ..inputs()
         });
         assert!(plan.is_noop(), "{plan:?}");
+    }
+
+    // ── tela cheia herdada de outra conta ───────────────────────────────────
+    //
+    // O bug de 03/10/2026: a principal com a exceção "Tela: cheia" e as alts
+    // sem exceção. O cliente da principal regrava `Fullscreen=true` no XML
+    // compartilhado, a alt nasce em tela cheia, e a conferência pelo PID
+    // pulava janela em tela cheia — a alt ficava assim.
+
+    /// O cenário do dono: perfil global 520x420. Com tamanho no plano, a conta
+    /// é "em janela" por definição — tela cheia na janela dela veio de outra.
+    #[test]
+    fn an_alt_with_the_global_size_leaves_a_fullscreen_it_inherited() {
+        let plan = client_window_plan(ClientWindowInputs {
+            window_size: Some((520, 420)),
+            auto_arrange_grid: true,
+            ..inputs()
+        });
+        assert!(plan.leave_fullscreen, "{plan:?}");
+        assert!(plan.grid);
+    }
+
+    /// Sem tamanho global: o registro das exceções devolveu `Fullscreen=false`
+    /// (o valor do jogador) e o launch passa isso adiante como "em janela".
+    #[test]
+    fn an_alt_resolved_as_windowed_leaves_fullscreen_even_without_a_size() {
+        let plan = client_window_plan(ClientWindowInputs {
+            fullscreen: Some(false),
+            ..inputs()
+        });
+        assert!(plan.leave_fullscreen, "{plan:?}");
+        assert!(!plan.is_noop());
+    }
+
+    /// Nada resolvido para a janela: a tela cheia é a preferência do próprio
+    /// jogador no Roblox, e o app não mexe nela.
+    #[test]
+    fn an_alt_with_nothing_resolved_keeps_the_players_own_fullscreen() {
+        let plan = client_window_plan(ClientWindowInputs {
+            auto_arrange_grid: true,
+            ..inputs()
+        });
+        assert!(!plan.leave_fullscreen, "{plan:?}");
+    }
+
+    /// A conta principal com a exceção continua em tela cheia e fora da grade.
+    #[test]
+    fn the_fullscreen_main_account_still_opens_fullscreen_out_of_the_grid() {
+        let plan = client_window_plan(ClientWindowInputs {
+            fullscreen: Some(true),
+            keeps_own_window: true,
+            auto_arrange_grid: true,
+            ..inputs()
+        });
+        assert!(plan.is_noop(), "{plan:?}");
+        assert!(!plan.leave_fullscreen);
+    }
+
+    #[test]
+    fn a_start_minimized_alt_never_leaves_fullscreen() {
+        let plan = client_window_plan(ClientWindowInputs {
+            window_size: Some((520, 420)),
+            start_minimized: true,
+            ..inputs()
+        });
+        assert!(!plan.leave_fullscreen, "{plan:?}");
     }
 
     // ── quem fica fora da grade ─────────────────────────────────────────────

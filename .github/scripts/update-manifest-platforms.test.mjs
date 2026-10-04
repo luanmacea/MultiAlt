@@ -42,3 +42,33 @@ describe("STABLE_MSI_NAME", () => {
     expect(STABLE_MSI_NAME).toBe("MultiAlt-Setup.msi");
   });
 });
+
+/**
+ * Um setup só na release (pedido do dono, 03/10/2026): o `MultiAlt_<v>_x64_en-US.msi`
+ * que o tauri-action sobe é o mesmo arquivo do `MultiAlt-Setup.msi` (mesmo
+ * sha256), então ele sai da release e o updater passa a baixar o de nome fixo.
+ * A assinatura é a do conteúdo, então continua valendo.
+ */
+describe("msiOnlyPlatforms aponta o updater para o setup de nome fixo", () => {
+  const versioned = {
+    signature: "sig-msi",
+    url: "https://github.com/luanmacea/MultiAlt/releases/download/v1.0.0/MultiAlt_1.0.0_x64_en-US.msi",
+  };
+
+  it("troca o nome do arquivo e mantém a tag e a assinatura", () => {
+    expect(msiOnlyPlatforms({ "windows-x86_64-msi": versioned })).toEqual({
+      "windows-x86_64-msi": {
+        signature: "sig-msi",
+        url: "https://github.com/luanmacea/MultiAlt/releases/download/v1.0.0/MultiAlt-Setup.msi",
+      },
+    });
+  });
+
+  it("deixa como está o MSI da versão completa (outro arquivo)", () => {
+    const full = {
+      signature: "sig-full",
+      url: "https://github.com/luanmacea/MultiAlt/releases/download/v1.0.0/MultiAlt_1.0.0_x64_en-US_full-nexus-ws.msi",
+    };
+    expect(msiOnlyPlatforms({ "windows-x86_64-msi": full })).toEqual({ "windows-x86_64-msi": full });
+  });
+});

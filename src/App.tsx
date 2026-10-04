@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { StoreProvider, useStore } from "./store";
 import { PromptProvider } from "./hooks/usePrompt";
 import { PasswordScreen } from "./components/layout/PasswordScreen";
 import { EncryptionSetupScreen } from "./components/layout/EncryptionSetupScreen";
 import { FirstRunWalkthrough } from "./components/layout/FirstRunWalkthrough";
+import { ScreenTourHost } from "./components/tour/ScreenTour";
 import { AppErrorBoundary } from "./components/layout/AppErrorBoundary";
 import { TitleBar } from "./components/layout/TitleBar";
 import { ModalWindowControls } from "./components/layout/ModalWindowControls";
@@ -27,7 +28,6 @@ import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
 import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
-import { BackupsDialog } from "./components/dialogs/BackupsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { SessionPage } from "./components/pages/SessionPage";
 import { AfkPage } from "./components/pages/AfkPage";
@@ -36,8 +36,10 @@ import { ScriptsPage } from "./components/pages/ScriptsPage";
 import { ThemePage } from "./components/pages/ThemePage";
 import { NexusPage } from "./components/pages/NexusPage";
 import { SettingsPage } from "./components/pages/SettingsPage";
+import { ChangelogPage } from "./components/pages/ChangelogPage";
 import { useTr } from "./i18n/text";
 import { useUpdateHandoffToast } from "./hooks/useUpdateHandoffToast";
+import { useBackdropClose } from "./hooks/useBackdropClose";
 import { TONE_STYLES } from "./utils/toastTone";
 import { isMultiRobloxCloseProcessError } from "./utils/robloxErrors";
 import { ENABLE_NEXUS } from "./featureFlags";
@@ -46,9 +48,6 @@ function AppContent() {
   const t = useTr();
   const store = useStore();
   const hasCheckedForUpdatesRef = useRef(false);
-  // O diálogo de backups é aberto pelas Settings; o estado mora aqui porque a
-  // store não expõe um flag para ele.
-  const [backupsOpen, setBackupsOpen] = useState(false);
   const showCloseRobloxAction = isMultiRobloxCloseProcessError(store.error);
   // O log de lançamento é a única explicação passo a passo do que falhou, e ele
   // mora na aba Console da Choose Game. Só vale apontar para lá quando existe
@@ -65,12 +64,12 @@ function AppContent() {
     !!store.afkModeDialog ||
     store.generatorDialogOpen ||
     store.updateDialogOpen ||
-    backupsOpen ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
   const page = store.activePage;
   const onAccounts = page === "accounts";
   const leavePage = () => store.setActivePage("accounts");
+  const modalBackdropClose = useBackdropClose(store.closeModal);
 
   // Volta de uma atualização silenciosa: "Atualizado para vX" (ou o aviso de
   // que a instalação não terminou). Ver updateHandoff.ts.
@@ -219,8 +218,9 @@ function AppContent() {
             onLeave={leavePage}
             onSettingsChanged={store.reloadSettings}
             onRequestEncryptionSetup={store.openEncryptionSetupFromSettings}
-            onRequestBackups={() => setBackupsOpen(true)}
           />
+          {/* Só pede as versões ao GitHub quando aberta (ver ChangelogPage). */}
+          <ChangelogPage active={page === "changelog"} onLeave={leavePage} />
         </main>
       </div>
 
@@ -282,18 +282,19 @@ function AppContent() {
         onClose={() => store.setVersionsDialogOpen(false)}
       />
 
-      <BackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
-
       <IsolationProgressOverlay />
 
       <UpdateDialog />
 
       {store.firstRunWalkthroughOpen && <FirstRunWalkthrough />}
 
+      {/* Tutorial de uma tela, aberto pelo botão Tutorial dela (nunca sozinho). */}
+      <ScreenTourHost />
+
       {store.modal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
-          onClick={store.closeModal}
+          {...modalBackdropClose}
         >
           <div
             className="theme-panel theme-border rounded-xl p-5 max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col shadow-2xl animate-scale-in"

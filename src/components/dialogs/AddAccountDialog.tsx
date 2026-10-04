@@ -1,8 +1,10 @@
 import { File, FileText, Globe, KeyRound, Package, Plus, Sparkles, UserPlus, X } from "lucide-react";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { tr, useTr } from "../../i18n/text";
 import { quickAddAccount } from "../../utils/quickAdd";
+import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 
 interface AddAccountDialogProps {
   open: boolean;
@@ -13,6 +15,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
   const t = useTr();
   const store = useStore();
   const prompt = usePrompt();
+  const backdropClose = useBackdropClose(onClose);
 
   if (!open) return null;
 
@@ -73,7 +76,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
-      onClick={onClose}
+      {...backdropClose}
     >
       <div
         className="theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[420px] max-w-[calc(100vw-2rem)] overflow-hidden animate-scale-in"
@@ -166,18 +169,21 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
               </span>
             </button>
 
-            <button
-              onClick={handleOpenGenerator}
-              className="flex items-start gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
-            >
-              <Sparkles size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
-              <span className="min-w-0">
-                {t("Account Generator")}
-                <span className="block text-[12px] theme-muted leading-snug">
-                  {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+            {/* O gerador pago está desligado por padrão — ver ENABLE_ACCOUNT_GENERATOR. */}
+            {ENABLE_ACCOUNT_GENERATOR && (
+              <button
+                onClick={handleOpenGenerator}
+                className="flex items-start gap-2.5 w-full px-3 py-2.5 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left rounded-lg transition-colors"
+              >
+                <Sparkles size={15} strokeWidth={1.75} className="theme-muted mt-0.5 shrink-0" />
+                <span className="min-w-0">
+                  {t("Account Generator")}
+                  <span className="block text-[12px] theme-muted leading-snug">
+                    {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+                  </span>
                 </span>
-              </span>
-            </button>
+              </button>
+            )}
 
             <div className="my-1 border-t border-zinc-800/70" />
 

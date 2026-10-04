@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("./store", async () => (await import("./test-utils/renderWithStore")).storeModuleMock());
@@ -14,7 +14,9 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
 
 import App from "./App";
 import { makeAccount, setStore } from "./test-utils/renderWithStore";
-import { resetTauriMocks, setInvokeHandler } from "./test-utils/tauriMocks";
+import { invokeMock, resetTauriMocks, setInvokeHandler } from "./test-utils/tauriMocks";
+import { walkTour } from "./test-utils/tourHelpers";
+import { closeTour } from "./components/tour/tourState";
 import { TONE_STYLES } from "./utils/toastTone";
 import type { StoreValue } from "./store";
 
@@ -49,7 +51,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  closeTour();
+});
 
 describe("App — blocking screens", () => {
   it("waits while the store initialises", () => {
@@ -330,6 +335,34 @@ describe("App — pages", () => {
     expect(screen.getByRole("button", { name: new RegExp(`^${title}`) })).toHaveAttribute("aria-current", "page");
   });
 
+  /**
+   * A página de novidades lê as releases do GitHub (60 pedidos/hora sem login).
+   * Só quando é aberta: abrir o app não gasta pedido nenhum.
+   */
+  it("does not ask GitHub for the update history on start", () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      renderApp();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("renders the What's new page with its own header", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, headers: new Headers(), json: async () => [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      renderApp({ activePage: "changelog" });
+      expect(screen.getByRole("heading", { level: 1, name: "What's new" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^What's new/ })).toHaveAttribute("aria-current", "page");
+      expect(await screen.findByText("No updates to show yet.")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("goes back to the account list on Escape", async () => {
     const store = renderApp({ activePage: "settings" });
     await userEvent.keyboard("{Escape}");
@@ -357,5 +390,58 @@ describe("App — pages", () => {
   it("hides the batch action bar outside the account page", () => {
     renderApp({ activePage: "avatars", ...selecting([1]) });
     expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Tutoriais de tela: um botão Tutorial em cada tela, nenhum abre sozinho, e o
+ * da lista de contas aponta partes que existem sem selecionar nem lançar nada.
+ */
+describe("App — screen tutorials", () => {
+  it("never opens a tutorial by itself", () => {
+    renderApp(selecting([1]));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("walks the Accounts tutorial with every part on screen", async () => {
+    const store = renderApp({ sidebarOpen: true, ...selecting([1]) });
+    await walkTour("accounts", { withHost: false, invoke: invokeMock });
+    expect(store.setChooseGameOpen).not.toHaveBeenCalled();
+    expect(store.setHideUsernames).not.toHaveBeenCalled();
+    expect(store.selectSingle).not.toHaveBeenCalled();
+  });
+
+  it("falls back gracefully on an empty account list", async () => {
+    renderApp({ accounts: [] });
+    await walkTour("accounts", { withHost: false, allowMissing: ["select", "panel", "choose-game"] });
+  });
+
+  it.each([
+    ["session", "Session"],
+    ["afk", "AFK Mode"],
+    ["avatars", "Avatars"],
+    ["scripts", "Scripts"],
+    ["theme", "Theme"],
+    ["settings", "Settings"],
+    ["changelog", "What's new"],
+  ] as const)("puts a Tutorial button on the %s page", (page, title) => {
+    renderApp({ activePage: page });
+    const header = screen.getByRole("heading", { level: 1, name: title }).closest("header") as HTMLElement;
+    expect(within(header).getByRole("button", { name: /Tutorial/ })).toBeInTheDocument();
+  });
+
+  it("puts a Tutorial button on the Choose Game screen", () => {
+    renderApp({ chooseGameOpen: true, ...selecting([1]) });
+    expect(screen.getByRole("button", { name: /Tutorial/ })).toBeInTheDocument();
+  });
+
+  it("closes the tutorial when the person leaves its screen", async () => {
+    renderApp({ activePage: "theme" });
+    await userEvent.click(screen.getByRole("button", { name: /Tutorial/ }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    // Foi para a lista de contas (a store de teste não re-renderiza sozinha).
+    cleanup();
+    renderApp({ activePage: "accounts" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 1500 });
   });
 });

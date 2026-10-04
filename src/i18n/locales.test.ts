@@ -36,6 +36,8 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "Auto Rejoin",
   "Auto Rejoin ({{count}})",
   "auto rejoin",
+  // Botão dos tutoriais de tela: "Tutorial" é a mesma palavra em português.
+  "Tutorial",
   "OK",
   "Nexus",
   "ID: {{id}}",
@@ -56,6 +58,7 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "Online",
   "Ping",
   "Place",
+  "Place {{id}}",
   "Place ID",
   "Script",
   "theme-preset",
@@ -166,6 +169,8 @@ const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   "Auto Rejoin",
   "OK",
   "Nexus",
+  // Botão dos tutoriais de tela: "Tutorial" é a mesma palavra em espanhol.
+  "Tutorial",
   "Error: {{error}}",
   "ID: {{id}}",
   "MultiAlt",
@@ -180,6 +185,7 @@ const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   "Job ID",
   "Ping",
   "Place",
+  "Place {{id}}",
   "Place ID",
   "Script",
   "theme-preset",

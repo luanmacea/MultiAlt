@@ -14,6 +14,7 @@
  * ```
  */
 import { vi } from "vitest";
+import { clearSessionCaches } from "../utils/sessionCache";
 
 export type InvokeArgs = Record<string, unknown> | undefined;
 export type InvokeHandler = (cmd: string, args: InvokeArgs) => unknown;
@@ -86,8 +87,15 @@ export function tauriWindowMock() {
   };
 }
 
-/** Clears call history and the invoke routing table. Call in `beforeEach`. */
+/**
+ * Clears call history and the invoke routing table. Call in `beforeEach`.
+ *
+ * Also drops the in-memory session caches (`utils/sessionCache.ts`): they hold
+ * what the fake backend returned, so a new backend means an empty cache —
+ * otherwise one test's friends/servers would show up in the next one.
+ */
 export function resetTauriMocks(): void {
+  clearSessionCaches();
   handler = noopHandler;
   invokeMock.mockClear();
   listenMock.mockClear();

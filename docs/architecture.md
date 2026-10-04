@@ -46,11 +46,12 @@ A regra do projeto é que o frontend fala só com o backend, mas o código tem e
 
 | Onde | O quê |
 |---|---|
-| [UpdateDialog.tsx](../src/components/dialogs/UpdateDialog.tsx) | `fetch` direto em `api.github.com` (`REPO_API_URL` de [repo.ts](../src/repo.ts)) para ler as notas da release e o comparativo entre versões. |
+| [UpdateDialog.tsx](../src/components/dialogs/UpdateDialog.tsx), [releaseNotes.ts](../src/releaseNotes.ts) | `fetch` direto em `api.github.com` (`REPO_API_URL` de [repo.ts](../src/repo.ts)), só leitura e sem login: a janela de atualização lê as notas da release e o comparativo entre versões; a página "What's new" ([ChangelogPage](../src/components/pages/ChangelogPage.tsx)) lê a lista de releases, só quando é aberta e uma vez por sessão. |
 | [ScriptsPage.tsx](../src/components/pages/ScriptsPage.tsx) | `fetch`/`WebSocket` em nome de scripts do usuário (`ram.http`, `ram.ws`), com permissão explícita. |
 | [fontPresets.ts](../src/fontPresets.ts) | Carrega fontes de `fonts.googleapis.com`. |
 | [server-list/types.ts](../src/components/server-list/types.ts) | Favoritos, jogos recentes e servidores recentes ficam em `localStorage` (`ram_favorite_games`, `ram_recent_games`, `ram_recent_jobs`), não no backend. A versão que o usuário mandou pular no updater também (`getUpdaterSkipVersionKey`). |
 | [NavSidebar.tsx](../src/components/layout/NavSidebar.tsx) | Barra lateral recolhida ou não: `localStorage` (`ram_nav_collapsed`), preferência de quem está na máquina, com `try/catch` (armazenamento bloqueado só faz a escolha valer até fechar o app). |
+| [tour/tourState.ts](../src/components/tour/tourState.ts) | Quais tutoriais de tela a pessoa já abriu: `localStorage` (`ram_tours_seen`), só para o pontinho de "novo" no botão Tutorial, com `try/catch`. |
 
 A região de um servidor **não** é mais exceção: o frontend chama `get_server_regions` e o backend faz a geolocalização ([server-choice.md](features/server-choice.md)).
 
@@ -186,7 +187,7 @@ Emitidos com `app.emit(nome, payload)` e escutados com `listen(nome, ...)`.
 | `roblox-build-install` | [platform/windows/launch.rs](../src-tauri/src/platform/windows/launch.rs) `emit_build_install` | `{ version, stage, current, total, message }` — download silencioso da build do Roblox | [store.tsx](../src/store.tsx) (linha de `actionStatus`) |
 | `afk-status` / `afk-cycle` / `afk-stopped` | [afk.rs](../src-tauri/src/commands/afk.rs) | `AfkStatusPayload` (`{ active, startedAtMs, intervalMinutes, key, accounts }`) / `{ sent }` / `()` | [store.tsx](../src/store.tsx) ([afk-mode.md](features/afk-mode.md)) |
 | `avatar-batch-state` | [avatars.rs](../src-tauri/src/commands/avatars.rs) `update_avatar_batch` | `AvatarBatchSnapshot` completo: `{ running, total, done, currentUserId, accounts[{userId,avatarId,status,reason,claimed,missing}] }` | [AvatarsDialog.tsx](../src/components/pages/AvatarsPage.tsx) ([avatars.md](features/avatars.md)) |
-| `backup-restored` | [backups.rs](../src-tauri/src/commands/backups.rs) | `RestoreReport` (`backupId`, `safetyBackupId`, `restored`, `skipped`, `accountsReloaded`, `requiresRestart`, `restartReasons`) | [BackupsDialog.tsx](../src/components/dialogs/BackupsDialog.tsx) |
+| `backup-restored` | [backups.rs](../src-tauri/src/commands/backups.rs) | `RestoreReport` (`backupId`, `safetyBackupId`, `restored`, `skipped`, `accountsReloaded`, `requiresRestart`, `restartReasons`) | [BackupsTab.tsx](../src/components/settings/BackupsTab.tsx) |
 | `chromium-fallback` | [chromium/download.rs](../src-tauri/src/chromium/download.rs) | `{ browser, error }` — o download falhou e o login vai pelo navegador do sistema | [store.tsx](../src/store.tsx) |
 | `signup-progress` | [chromium/signup_session.rs](../src-tauri/src/chromium/signup_session.rs) | `SignupStatus` (retrato da sessão de criação de contas) | [SignupPanel.tsx](../src/components/signup/SignupPanel.tsx) |
 | `server-scan` | [account_api.rs](../src-tauri/src/commands/account_api.rs) `start_server_scan` | página a página da varredura de servidores | [servers/ServersTab.tsx](../src/components/servers/ServersTab.tsx) |

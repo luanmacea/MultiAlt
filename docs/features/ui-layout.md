@@ -11,8 +11,10 @@ Descrever como a janela principal é montada, como temas e fontes são aplicados
 | Raiz e roteamento de telas/diálogos | [App.tsx](../../src/App.tsx) |
 | Estado global | [store.tsx](../../src/store.tsx) |
 | Chrome da janela | [TitleBar.tsx](../../src/components/layout/TitleBar.tsx), [ModalWindowControls.tsx](../../src/components/layout/ModalWindowControls.tsx), [UpdateBanner.tsx](../../src/components/layout/UpdateBanner.tsx), [NavSidebar.tsx](../../src/components/layout/NavSidebar.tsx) (barra lateral), [Toolbar.tsx](../../src/components/layout/Toolbar.tsx), [StatusBar.tsx](../../src/components/layout/StatusBar.tsx) |
-| Páginas | [src/components/pages/](../../src/components/pages): `PageShell` (casca comum), `SessionPage`, `AfkPage`, `AvatarsPage` (+ `pages/avatars/`), `ScriptsPage`, `ThemePage`, `NexusPage`, `SettingsPage` |
+| Páginas | [src/components/pages/](../../src/components/pages): `PageShell` (casca comum), `SessionPage`, `AfkPage`, `AvatarsPage` (+ `pages/avatars/`), `ScriptsPage`, `ThemePage`, `NexusPage`, `SettingsPage`, `ChangelogPage` |
+| Notas de release (janela de atualização e "What's new") | [releaseNotes.ts](../../src/releaseNotes.ts) (limpeza do texto, versões, leitura das releases), [ReleaseNotesMarkdown.tsx](../../src/components/ReleaseNotesMarkdown.tsx) (desenho do markdown) |
 | Telas bloqueantes | [PasswordScreen.tsx](../../src/components/layout/PasswordScreen.tsx), [EncryptionSetupScreen.tsx](../../src/components/layout/EncryptionSetupScreen.tsx), [FirstRunWalkthrough.tsx](../../src/components/layout/FirstRunWalkthrough.tsx) |
+| Tutoriais de tela (botão "Tutorial") | [src/components/tour/](../../src/components/tour): `tours.ts` (os passos), `ScreenTour.tsx` (motor + `ScreenTourHost`), `TourButton.tsx`, `tourState.ts` (aberto / já visto), `useSpotlight.tsx` (destaque, compartilhado com o walkthrough), `placement.ts` |
 | Lista de contas | [AccountList.tsx](../../src/components/accounts/AccountList.tsx), [GroupSection.tsx](../../src/components/accounts/GroupSection.tsx), [AccountRow.tsx](../../src/components/accounts/AccountRow.tsx), [AccountChip.tsx](../../src/components/accounts/AccountChip.tsx) |
 | Sidebar (conta única) | [DetailSidebar.tsx](../../src/components/accounts/DetailSidebar.tsx) → [SingleSelectSidebar.tsx](../../src/components/accounts/SingleSelectSidebar.tsx), [SidebarSection.tsx](../../src/components/accounts/SidebarSection.tsx) |
 | Ações em lote | [BottomActionBar.tsx](../../src/components/layout/BottomActionBar.tsx) |
@@ -21,7 +23,7 @@ Descrever como a janela principal é montada, como temas e fontes são aplicados
 | Diálogos | [src/components/dialogs/](../../src/components/dialogs), [ServerListDialog.tsx](../../src/components/server-list/ServerListDialog.tsx) |
 | Tema | [theme.ts](../../src/theme.ts), [themeFonts.ts](../../src/themeFonts.ts), [fontPresets.ts](../../src/fontPresets.ts), [ThemePage.tsx](../../src/components/pages/ThemePage.tsx), backend [theme.rs](../../src-tauri/src/data/settings/theme.rs) e [presets.rs](../../src-tauri/src/data/settings/presets.rs) |
 | Componentes genéricos | [src/components/ui/](../../src/components/ui) |
-| Hooks de UI | [usePrompt.tsx](../../src/hooks/usePrompt.tsx) (`prompt`/`confirm` assíncronos), [useModalClose.ts](../../src/hooks/useModalClose.ts) (animação de fechar), [useJoinOnlineWarning.ts](../../src/hooks/useJoinOnlineWarning.ts) |
+| Hooks de UI | [usePrompt.tsx](../../src/hooks/usePrompt.tsx) (`prompt`/`confirm` assíncronos), [useModalClose.ts](../../src/hooks/useModalClose.ts) (animação de fechar), [useBackdropClose.ts](../../src/hooks/useBackdropClose.ts) (clique no fundo fecha o modal), [useJoinOnlineWarning.ts](../../src/hooks/useJoinOnlineWarning.ts) |
 
 ## Fluxo
 
@@ -57,7 +59,8 @@ Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, A
 | **Scripts** | `ScriptsPage` (lista + editor) | |
 | **Theme** | `ThemePage`: presets, todas as categorias em cartões, prévia fixa ao lado | |
 | **Nexus** | `NexusPage` (só com `ENABLE_NEXUS`) | Start/Stop no cabeçalho |
-| **Settings** | `SettingsPage`: seções numa lista vertical à esquerda, conteúdo com teto de largura | |
+| **Settings** | `SettingsPage`: seções numa lista vertical à esquerda, conteúdo com teto de largura; **Backups** é uma seção própria, logo depois de General (era um diálogo até 03/10/2026) | |
+| **What's new** (rodapé; pt "Novidades", es "Novedades") | `ChangelogPage`: o que cada versão mudou, da mais nova para a mais antiga (ver abaixo) | fica junto do Help: os dois falam do app, não do trabalho com as contas |
 | **Help** (rodapé) | reabre o walkthrough, que leva de volta à lista de contas | |
 
 - **Estado:** `store.activePage` (`AppPage`) + `setActivePage`. Não há roteador. Os setters antigos (`setSettingsOpen`, `setThemeEditorOpen`, `setAvatarsDialogOpen`, `setSessionDialogOpen`, `setNexusOpen`, `setScriptsOpen`) continuam e viram navegação: `true` abre a página; `false` volta para Accounts **só se** aquela página for a aberta. Os booleanos `settingsOpen`/`scriptsOpen`/... saíram — quem quer saber lê `activePage`.
@@ -69,9 +72,34 @@ Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, A
 - **Recolher:** o botão no rodapé deixa só os ícones (tooltip à direita, só nesse modo). A escolha fica em `localStorage` (`ram_nav_collapsed`, com `try/catch`); abaixo de 900 px de largura a barra recolhe sozinha e o botão some.
 - **Walkthrough:** os passos apontam `data-tour="nav-session"`/`"nav-settings"` (ou a página, se aberta: `session-page`/`settings-page`); os passos da lista de contas trazem a página de contas de volta.
 
+### Tutoriais de tela (botão "Tutorial")
+
+Pedido do dono (03/10/2026): "o app tem muita coisa agora; tutoriais opcionais em cada tela ajudam a guiar". Quem usa quase nunca é técnico — cada passo é uma ou duas frases curtas, com o nome do botão como ele aparece na tela.
+
+- **Onde fica o botão:** no cabeçalho de cada página (`PageShell` com `tour="..."`, antes das ações), na Toolbar da lista de contas (some com a Choose Game aberta — aí vale o da Choose Game) e no cabeçalho da Choose Game. Nexus não tem.
+- **Nunca abre sozinho.** O único sinal é um pontinho na cor de destaque no botão enquanto a pessoa nunca abriu o tutorial daquela tela. "Já visto" fica em `localStorage` (`ram_tours_seen`, com `try/catch`): storage bloqueado só faz o pontinho voltar na próxima abertura.
+- **Tutoriais** ([tours.ts](../../src/components/tour/tours.ts), dados puros): Accounts (lista, selecionar, Add, painel da conta, Choose Game, nomes ocultos), Choose Game (contas, abas, Games, Servers, Friends, Windows), Session (Entrando, Em jogo, AFK Mode/Fechar contas, cliente não identificado, resumo), AFK Mode (cliques: configurações, contas, ligar/parar; Auto Rejoin: onde, quem/iniciar), Avatars (montar, peças, prévia, salvar, distribuir, aplicar), Scripts, Theme, Settings (seções, salvamento automático, Backups), What's new. 3 a 6 passos cada.
+- **Motor** ([ScreenTour.tsx](../../src/components/tour/ScreenTour.tsx)): Voltar/Avançar, "Passo N de M", X e Escape fecham (o tutorial está no topo da pilha de Escape: o primeiro Escape fecha o tutorial, não a página), setas do teclado andam. O painel fica colado no que aponta (embaixo, em cima, ao lado; alvo grande demais recebe o painel por dentro, no canto) e nunca sai da janela ([placement.ts](../../src/components/tour/placement.ts)). O alvo que está rolado para fora da vista é trazido para a tela.
+- **Alvo que falta não quebra:** cada passo lista seletores `data-tour` em ordem de preferência; nenhum na tela → o passo aparece no centro, sem destaque, com "Esta parte não está na tela agora". A pessoa saiu da tela (barra lateral, Voltar) → o tutorial fecha. O tour de boas-vindas (Ajuda) abrindo → o tutorial de tela fecha.
+- **Só olha, não mexe:** o único clique que um passo dá é o `reveal` — abrir a aba ou seção que ele explica (abas da Choose Game, do AFK Mode e do Avatars; a seção Backups). Nenhum passo lança, salva, apaga, seleciona conta ou liga modo. Os testes de cada tela (`walkTour`, [tourHelpers.tsx](../../src/test-utils/tourHelpers.tsx)) andam pelo tutorial inteiro conferindo que cada alvo está na tela e que nenhum comando que muda dado passou pelo `invoke`.
+- **Destaque compartilhado** com o tour de boas-vindas: [useSpotlight.tsx](../../src/components/tour/useSpotlight.tsx) (acha o alvo a cada 140 ms, anel com o resto escurecido).
+- **Tutorial novo:** escreva os passos em `tours.ts` (`title`/`description` em inglês — o extrator de chaves lê esses campos), ponha os `data-tour` que faltarem (escopados pela página quando o mesmo componente existe num modal, como o AFK Mode), passe `tour` ao `PageShell` e adicione um `walkTour` no teste da tela. Traduza em pt e es.
+
+### Página "What's new" (`ChangelogPage`)
+
+Pedido do dono (03/10/2026): uma página que diga, para quem não é técnico, o que cada atualização mudou.
+
+- **De onde vem:** as releases do repositório (`GET <REPO_API_URL>/releases?per_page=30`, [releaseNotes.ts](../../src/releaseNotes.ts)) — a mesma exceção "frontend lê `api.github.com`" que a janela de atualização já tinha ([architecture.md](../architecture.md#exceções-à-regra-frontend-não-acessa-rede)).
+- **Quando pede:** só ao abrir a página. Abrir o app não faz pedido nenhum (o GitHub dá 60 pedidos/hora sem login). A lista fica em memória pela sessão: voltar à página não pede de novo. Falha não fica guardada — "Try again" pede outra vez.
+- **O que mostra de cada versão:** só a seção `## What's Changed` (`changelogNotes`). Da v0.1.10 em diante ela já é a lista em linguagem simples (a lista técnica, recolhida em `<details>`, sai). Até a v0.1.9 era a lista automática de títulos de PR: sai o " by @autor in …/pull/N", a linha "Full Changelog" e os itens `[skip release]` (PR que não publica versão — README, site —, logo não mudou o app). Release sem a seção, ou que ficou vazia, não aparece; rascunho também não.
+- **Marcas:** a versão instalada (`getVersion`) leva ponto cheio na cor de destaque e "Your version"; versões mais novas, ponto vazado e "Not installed yet". A mais nova delas tem o botão para o fluxo de atualização que já existe: **"Update available"** abre a `UpdateDialog` quando o updater já achou a versão (`store.updateInfo`); sem isso, **"Check for Updates"** roda a checagem manual (`checkForUpdates(true)`), que diz "No updates available" se o canal do usuário (stable/beta) não tem aquela versão. Versão comparada sem o `v` e sem o canal (`v0.1.10-beta` = `0.1.10`).
+- **Estados:** esqueleto enquanto carrega; erro com "Try again" e o link para as releases no GitHub — mensagem própria quando o GitHub está limitando (403 com `x-ratelimit-remaining: 0`, ou 429); "No updates to show yet." quando a lista vem vazia.
+- **Layout:** linha do tempo — versão e data à esquerda, alinhadas ao trilho, e a lista à direita; em área estreita (contêiner abaixo de `@xl`) a versão sobe para cima da lista. Data no idioma do app (`Intl.DateTimeFormat`, `dateStyle: "long"`).
+- **Harness:** `?scenario=changelog` responde o `fetch` do GitHub com releases no formato real de cada época (`src/dev/harness/releases.ts`); `&current=`, `&update=1`, `&fail=offline|rate`, `&delay=`.
+
 ### Toolbar
 
-Só na página de contas, e só com o que age na lista: busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator e Roblox Versions.
+Só na página de contas, e só com o que age na lista: busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator (só com `ENABLE_ACCOUNT_GENERATOR`, desligado por padrão) e Roblox Versions.
 
 ### Nomes ocultos (`Names hidden`)
 
@@ -129,6 +157,17 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 | Windows | controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)` — organiza nos monitores as janelas do Roblox que já estão abertas — e o interruptor **Arrange in grid on launch** (`General.AutoArrangeGrid`). Ver [Grade de janelas](#grade-de-janelas). |
 
 `launchAll` (hook `useLauncher`): confirma contas online, muda para a aba Console, grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
+
+**Trocar de aba não perde o que foi carregado.** Cada aba é desmontada ao sair, então o que ela buscou vive num cache de memória da sessão ([utils/sessionCache.ts](../../src/utils/sessionCache.ts)) — nunca em disco nem no `localStorage`, e some ao fechar o app. Ao voltar (para a aba ou para a Choose Game), a aba mostra o que tinha no primeiro desenho e atualiza por trás, com um indicador discreto, trocando os dados quando a resposta chega:
+
+| Aba | Chave do cache | Indicador |
+|---|---|---|
+| Games | última busca (uma só) | *Updating...* ao lado da busca |
+| Servers | place + ordem + lote + páginas; só varredura terminada | *Updating...* ao lado do Refresh; a lista só troca no fim da varredura nova ([server-choice.md](server-choice.md#voltar-à-aba-cache-da-varredura)) |
+| Friends | ids das contas selecionadas | spinner por conta; cada conta troca quando a dela volta ([friends.md](friends.md#carga-progressiva-e-cache-da-aba)) |
+| Windows | último `list_display_monitors` | — (chamada local) |
+
+Favorites e Recent já nasciam prontos (vêm do `localStorage`); Follow, Console e Windows não buscam nada da rede. A volta **não** faz requisição a mais que antes — ela já recarregava; a aba Friends até economiza, juntando-se a uma rodada que ainda esteja em curso. Os testes zeram esses caches pelo `resetTauriMocks()`.
 
 Controles de grade (aba **Windows**): o campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior.
 
@@ -203,6 +242,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 - Presença é atualizada a cada `max(1, PresenceUpdateRate)` minutos (mínimo 30 s), em lotes de 100 IDs; `0` = offline, `1` = online, `2` = em jogo, `3` = no Studio. O comando `get_presence` manda o cookie de uma conta como "viewer" (a primeira válida, `pick_viewer_cookie`) e cai para a chamada sem cookie se a autenticada falhar — ver [friends.md](friends.md#armadilhas--cuidados).
 - Toasts ficam empilhados no canto inferior direito, cada um pintado com o tom da própria mensagem; erros persistentes vão para a faixa vermelha até o usuário fechar.
 - Diálogos fecham com Esc (Server List, Choose Game); nas páginas da barra lateral o Esc volta para a lista de contas.
+- **Clicar no fundo escurecido fecha o modal só se o botão desceu e subiu no fundo** ([useBackdropClose.ts](../../src/hooks/useBackdropClose.ts)). Com `onClick` cru, apertar dentro de um campo (selecionando o texto) e soltar fora do painel fechava o modal: o navegador dispara o `click` no ancestral comum, que é o fundo. Vale para todos os modais (prompt/confirm, modal genérico, Add Account, Import, Contas novas, Versions, Server List, Account Utils, Account Fields, Missing Assets, Update, AFK Mode). Fundo novo usa `<div {...useBackdropClose(fechar)}>`; uma guarda em `useBackdropClose.test.tsx` falha se um fundo `fixed inset-0 ... bg-black/NN` voltar a ter `onClick`.
 - Export de tema grava `<nome>.ram-theme.json` na **pasta de dados do usuário** (`get_runtime_data_dir()` — a do exe só no modo portátil); se o tema usa fontes locais, grava `<nome>.ram-theme.zip` incluindo os arquivos das fontes.
 - Fontes importadas aceitam só `.ttf`, `.otf`, `.woff`, `.woff2` e são deduplicadas pelo SHA-256 do conteúdo.
 

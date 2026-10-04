@@ -132,6 +132,58 @@ describe("notas da atualização dentro do app", () => {
   });
 });
 
+/**
+ * O desenho das notas (lista, aviso, link do PR) saiu deste arquivo para ser
+ * dividido com a página de novidades. A janela tem que continuar igual.
+ */
+describe("notas da atualização — como aparecem na janela", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage(DEFAULT_LANGUAGE);
+    resetTauriMocks();
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("desenham a lista, o aviso e o link do PR, sem a seção de download", async () => {
+    const body = [
+      "## Download",
+      "### [⬇ Download MultiAlt-Setup.msi](https://example.test/MultiAlt-Setup.msi)",
+      "",
+      "## What's Changed",
+      "> [!WARNING]",
+      "> Beta version.",
+      "",
+      "- New menu on the left",
+      "* Smoother updates by @luanmacea in #21",
+      "",
+      "## Contributors",
+      "[@luanmacea](https://github.com/luanmacea)",
+    ].join("\n");
+    setStore({ updateDialogOpen: true, updateInfo: { ...INFO, body } });
+    render(<UpdateDialog />);
+
+    const item = await screen.findByText("New menu on the left");
+    expect(item.tagName).toBe("LI");
+    expect(screen.getByText("Warning")).toBeInTheDocument();
+    expect(screen.getByText("Beta version.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "#21" })).toHaveAttribute(
+      "href",
+      "https://github.com/luanmacea/MultiAlt/pull/21"
+    );
+    expect(screen.queryByText(/Download MultiAlt-Setup/)).not.toBeInTheDocument();
+  });
+
+  it("dizem quando não há notas", () => {
+    setStore({ updateDialogOpen: true, updateInfo: INFO });
+    render(<UpdateDialog />);
+    expect(screen.getByText("Could not load release notes")).toBeInTheDocument();
+  });
+});
+
 describe("notas da atualização — detalhes técnicos", () => {
   it("escondem o bloco recolhido de detalhes técnicos e ficam com a lista simples", () => {
     const body = [

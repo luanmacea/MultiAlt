@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 
 import { GamesTab } from "./GamesTab";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
-import { resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
+import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
 
 const ACCOUNT = makeAccount({ UserID: 1001, Username: "alpha" });
 
@@ -199,5 +199,83 @@ describe("GamesTab — ações do jogo pelo menu de contexto", () => {
     expect(menu.queryByRole("button", { name: "Auto Rejoin" })).not.toBeInTheDocument();
     expect(menu.queryByRole("button", { name: "Scripts" })).not.toBeInTheDocument();
     expect(menu.getByRole("button", { name: "Join Game" })).toBeInTheDocument();
+  });
+});
+
+/**
+ * Sair da aba Games e voltar recomeçava com o spinner e a lista vazia. Agora a
+ * volta mostra a última lista (e a última busca) na hora e consulta de novo
+ * por trás.
+ */
+describe("GamesTab — cache ao trocar de aba", () => {
+  function searchCalls() {
+    return invokeMock.mock.calls.filter((call) => call[0] === "search_games");
+  }
+
+  function pendingSearch() {
+    setInvokeHandler((cmd) => (cmd === "search_games" ? new Promise(() => {}) : null));
+  }
+
+  it("volta mostrando a última lista e atualiza por trás", async () => {
+    await renderGames();
+    cleanup();
+
+    pendingSearch();
+    render(<GamesTab onSelectGame={vi.fn()} onJoinGame={vi.fn()} addToast={vi.fn()} onAddFavorite={vi.fn()} />);
+
+    // Já no primeiro desenho, sem esperar a busca.
+    expect(screen.getByText("Jailbreak")).toBeInTheDocument();
+    expect(screen.getByTestId("games-updating")).toBeInTheDocument();
+    await waitFor(() => expect(searchCalls()).toHaveLength(2));
+  });
+
+  it("volta com a última busca digitada e o resultado dela", async () => {
+    setInvokeHandler((cmd, args) => {
+      if (cmd !== "search_games") return null;
+      const keyword = (args as { keyword?: string } | undefined)?.keyword ?? "";
+      const game = keyword
+        ? { rootPlaceId: 920587237, universeId: 2, name: "Adopt Me!", contentType: "Game" }
+        : { rootPlaceId: 606849621, universeId: 1, name: "Jailbreak" };
+      return keyword ? { searchResults: [{ contents: [game] }] } : { sorts: [{ games: [game] }] };
+    });
+    setStore({ accounts: [ACCOUNT], selectedIds: new Set([1001]), selectedAccounts: [ACCOUNT] });
+    render(<GamesTab onSelectGame={vi.fn()} onJoinGame={vi.fn()} addToast={vi.fn()} onAddFavorite={vi.fn()} />);
+    await screen.findByText("Jailbreak");
+    fireEvent.change(screen.getByPlaceholderText("Search games..."), { target: { value: "adopt" } });
+    await screen.findByText("Adopt Me!", undefined, { timeout: 2000 });
+    cleanup();
+
+    pendingSearch();
+    render(<GamesTab onSelectGame={vi.fn()} onJoinGame={vi.fn()} addToast={vi.fn()} onAddFavorite={vi.fn()} />);
+
+    expect(screen.getByPlaceholderText("Search games...")).toHaveValue("adopt");
+    expect(screen.getByText("Adopt Me!")).toBeInTheDocument();
+    await waitFor(() => {
+      const calls = searchCalls();
+      expect(calls[calls.length - 1]?.[1]).toMatchObject({ keyword: "adopt" });
+    });
+  });
+
+  /** A volta não pode custar mais rede que antes: ícone que já veio não é pedido de novo. */
+  it("não pede de novo o ícone de um jogo que já tem", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "search_games") {
+        return { sorts: [{ games: [{ rootPlaceId: 606849621, universeId: 1, name: "Jailbreak" }] }] };
+      }
+      if (cmd === "batched_get_game_icon") return "https://icon.test/606849621.png";
+      return null;
+    });
+    await renderGames();
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter((c) => c[0] === "batched_get_game_icon")).toHaveLength(1)
+    );
+    cleanup();
+
+    render(<GamesTab onSelectGame={vi.fn()} onJoinGame={vi.fn()} addToast={vi.fn()} onAddFavorite={vi.fn()} />);
+    await waitFor(() => expect(searchCalls()).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByTestId("games-updating")).not.toBeInTheDocument());
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "batched_get_game_icon")).toHaveLength(1);
+    // E o ícone não pisca: continua lá depois da busca nova.
+    expect(document.querySelector('img[src="https://icon.test/606849621.png"]')).not.toBeNull();
   });
 });

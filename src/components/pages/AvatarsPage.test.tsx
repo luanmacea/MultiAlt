@@ -15,6 +15,7 @@ import type { FreeCatalogItem, SavedAvatar } from "../../avatarBuilder";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeMap, type InvokeArgs } from "../../test-utils/tauriMocks";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
+import { walkTour } from "../../test-utils/tourHelpers";
 
 const ACCOUNTS = [
   makeAccount({ UserID: 11, Username: "alpha" }),
@@ -75,6 +76,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AvatarsPage — montar", () => {
+  /** Visto no harness (cenário tour, 03/10/2026): um estado de lote sem a lista
+   * de contas derrubava a tela inteira com "reading length". */
+  it("não quebra quando o estado do lote chega sem a lista de contas", async () => {
+    wire({ get_avatar_batch_state: { running: false } });
+    renderDialog();
+    expect(await screen.findByRole("navigation", { name: "Categories" })).toBeInTheDocument();
+  });
+
   it("mostra as categorias do catálogo com a contagem de cada uma", async () => {
     wire();
     renderDialog();
@@ -385,6 +394,17 @@ describe("AvatarsPage — nomes ocultos", () => {
     });
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
     expectNoRealName();
+  });
+});
+
+/** Tutorial da página: Build e Distribute, sem salvar nem aplicar nada. */
+describe("AvatarsPage — tutorial", () => {
+  it("walks every step of the Avatars tutorial with its part on screen", async () => {
+    wire({ avatar_list_saved: [SAVED] });
+    renderDialog();
+    await screen.findByRole("navigation", { name: "Categories" });
+    await walkTour("avatars", { invoke: invokeMock });
+    expect(screen.getByRole("tab", { name: /Distribute/ })).toHaveAttribute("aria-selected", "true");
   });
 });
 

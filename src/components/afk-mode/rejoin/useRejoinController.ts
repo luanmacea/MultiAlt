@@ -1,40 +1,52 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../../store";
-import type { Account } from "../../../types";
 import { useGameIdentity } from "../../../hooks/useGameIdentity";
 import { useAccountInitial, useAccountLabel, useHideAccountAvatar } from "../../../hooks/useAccountLabel";
 import { useConfirm } from "../../../hooks/usePrompt";
 import { isMultiRobloxCloseProcessError } from "../../../utils/robloxErrors";
 import { useTr } from "../../../i18n/text";
+import { loadFavorites, type FavoriteGame } from "../../server-list/types";
 import { canRunBottingActionOnRow, type BottingRowAction } from "./rejoinShared";
 
 export interface RejoinTabOptions {
   /**
-   * Contas que o Auto Rejoin vai usar. Sem isto, são as selecionadas na lista
-   * principal (o comportamento de sempre).
+   * Contas que chegam marcadas (o "Em jogo" do Painel de Sessão). Sem isto, a
+   * seleção da lista principal — só as que têm cliente aberto aparecem.
    */
   targetUserIds?: number[];
   /**
-   * As contas já estão em jogo (aberto pelo "Em jogo" do Painel de Sessão): o
-   * Start **adota** os clientes abertos, sem fechar nem relançar ninguém.
+   * Aberto pelo "Em jogo": o servidor é **sempre** onde as contas já estão,
+   * mesmo que um jogo tenha vindo junto na abertura.
    */
   adoptRunning?: boolean;
   /**
-   * Jogo escolhido na abertura (clique direito num jogo → "Auto Rejoin").
-   * **Vence o rascunho salvo**: quem acabou de escolher o jogo quer aquele
-   * jogo, não o place da vez passada.
+   * Jogo escolhido na abertura (clique direito num jogo → "Auto Rejoin"): a
+   * opção "um jogo escolhido" já abre marcada com ele.
    */
   initialPlaceId?: string | null;
 }
 
-/** Busca do jogo em que as contas adotadas estão jogando agora. */
-export type PlaceDetection = "idle" | "detecting" | "found" | "missing";
+/**
+ * Para onde o ciclo rejoga:
+ * - `current`: o jogo em que as contas marcadas estão agora (presença). O Start
+ *   **adota** os clientes abertos, sem fechar ninguém; cada rejoin volta a esse
+ *   jogo. É o padrão — ninguém quer ficar digitando Place ID nem Job ID.
+ * - `game`: um jogo escolhido (Favoritos, um VIP salvo neles, ou o Place ID
+ *   digitado no Avançado). O Start relança as contas marcadas nesse jogo.
+ */
+export type ServerMode = "current" | "game";
+
+/** O jogo das contas marcadas, pela presença de cada uma. */
+export type PlaceDetection = "idle" | "detecting" | "found" | "mixed" | "missing";
 
 /**
- * Todo o estado e as ações da aba Auto Rejoin. A tela (split ou classic,
- * modal ou página) só desenha o que este hook entrega — antes era um diálogo de
- * 2 mil linhas com cada bloco escrito duas vezes, uma por visão.
+ * Todo o estado e as ações da aba Auto Rejoin. A tela só desenha o que este
+ * hook entrega.
+ *
+ * Não existe mais conta main na tela (pedido do dono, 03/10/2026): todo Start
+ * manda `playerUserIds: []`. O backend continua aceitando mains — uma sessão
+ * antiga que tenha uma segue funcionando, e a lista ao vivo mostra a fase dela.
  */
 export function useRejoinController({
   targetUserIds,
@@ -49,65 +61,24 @@ export function useRejoinController({
   const accountInitial = useAccountInitial();
   const hideAvatar = useHideAccountAvatar();
 
-  // A lista vem de fora como array novo a cada render; a chave em texto é o que
-  // os efeitos podem acompanhar sem rodar em loop.
   const status = store.bottingStatus;
-  const selectedAccounts = store.selectedAccounts;
-  // Aberto sem contas e sem seleção com o ciclo rodando: os alvos são as contas
-  // do ciclo — senão a tela dizia "nenhuma conta" ao lado da lista ao vivo, e o
-  // menu de mains ficava vazio.
-  const sessionFallback =
-    !targetUserIds && selectedAccounts.length === 0 && status?.active && status.userIds.length > 0
-      ? status.userIds
-      : null;
-  const targetKey = targetUserIds
-    ? targetUserIds.join(",")
-    : sessionFallback
-      ? sessionFallback.join(",")
-      : null;
-  const targetIds = useMemo(
-    () =>
-      targetKey !== null
-        ? targetKey
-            .split(",")
-            .map((s) => parseInt(s, 10))
-            .filter((n) => Number.isFinite(n) && n > 0)
-        : selectedAccounts.map((a) => a.UserID),
-    [targetKey, selectedAccounts]
-  );
-  /** Adoção só existe com contas vindas de quem abriu (as que estão em jogo). */
-  const adopt = adoptRunning && !!targetUserIds;
+  const running = !!status?.active;
+  const escolhidoNaAbertura = initialPlaceId?.trim() || "";
 
-  const accountById = useMemo(
-    () => new Map(store.accounts.map((a) => [a.UserID, a])),
-    [store.accounts]
+  // Quem chega marcado: as contas de quem abriu, ou a seleção da lista.
+  const [draftUserIds, setDraftUserIds] = useState<number[]>(
+    () => targetUserIds ?? store.selectedAccounts.map((a) => a.UserID)
   );
-  const targetAccounts = useMemo(
-    (): Pick<Account, "UserID" | "Username" | "Alias">[] =>
-      targetKey === null
-        ? selectedAccounts
-        : targetIds.map(
-            (id) => accountById.get(id) ?? { UserID: id, Username: `${t("User ID")}: ${id}`, Alias: "" }
-          ),
-    // `t` muda de identidade a cada render; o idioma não muda com a tela aberta.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [targetKey, targetIds, selectedAccounts, accountById]
+  const [serverMode, setServerMode] = useState<ServerMode>(
+    adoptRunning || !escolhidoNaAbertura ? "current" : "game"
   );
-  const [placeId, setPlaceId] = useState("");
-  /** Que jogo é o place do ciclo — o número sozinho não diz nada. */
-  const game = useGameIdentity(placeId, targetIds[0] ?? null);
-  /** O jogo da sessão que está rodando (pode ser outro que o do campo). */
-  const runningGame = useGameIdentity(
-    status?.active && status.placeId ? String(status.placeId) : "",
-    status?.userIds?.[0] ?? null
-  );
+  const [placeId, setPlaceId] = useState(escolhidoNaAbertura);
   const [jobId, setJobId] = useState("");
-  const [launchData, setLaunchData] = useState("");
-  const [shareLaunchFields, setShareLaunchFields] = useState(false);
+  const [favorites, setFavorites] = useState<FavoriteGame[]>(loadFavorites);
   const [intervalMinutes, setIntervalMinutes] = useState(19);
   const [launchDelaySeconds, setLaunchDelaySeconds] = useState(20);
+  /** Só vai no Start: sem conta main na tela, a carência não tem campo. */
   const [playerGraceMinutes, setPlayerGraceMinutes] = useState(15);
-  const [playerUserIds, setPlayerUserIds] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [rowBusy, setRowBusy] = useState<number | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -115,165 +86,187 @@ export function useRejoinController({
   const [bottingStartError, setBottingStartError] = useState<string | null>(null);
   const [closingRoblox, setClosingRoblox] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
-  const [playerMenuOpen, setPlayerMenuOpen] = useState(false);
-  const [bottingLayout, setBottingLayout] = useState<"split" | "classic">("split");
-  const [detection, setDetection] = useState<{ state: PlaceDetection; placeId: string | null }>({
-    state: "idle",
-    placeId: null,
-  });
-  const playerMenuRef = useRef<HTMLDivElement>(null);
+  /** O place de cada conta pela presença: número, `null` (não disse) ou ausente (buscando). */
+  const [placeByUser, setPlaceByUser] = useState<Map<number, number | null>>(() => new Map());
+  const asked = useRef(new Set<number>());
+  const mountedRef = useRef(true);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Adoção: o place vem de onde as contas ESTÃO (presença), não do rascunho —
-  // com o place errado, o primeiro reinício do ciclo as jogaria em outro jogo.
-  // A tela mostra o que achou antes do Start, e a pessoa pode corrigir.
   useEffect(() => {
-    if (!adopt || initialPlaceId?.trim() || targetIds.length === 0) return;
-    let cancelled = false;
-    setDetection({ state: "detecting", placeId: null });
-    store
-      .detectRunningGamePlace(targetIds)
-      .then((found) => {
-        if (cancelled) return;
-        setDetection(
-          found ? { state: "found", placeId: String(found) } : { state: "missing", placeId: null }
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setDetection({ state: "missing", placeId: null });
-      });
+    mountedRef.current = true;
     return () => {
-      cancelled = true;
+      mountedRef.current = false;
     };
-    // `store` muda de identidade a cada render; a busca é por abertura.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adopt, initialPlaceId, targetKey]);
+  }, []);
 
+  // Tempo do ciclo e último jogo escolhido vêm do INI. O jogo da abertura
+  // vence o rascunho: quem acabou de escolher o jogo quer aquele jogo.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       let general = store.settings?.General || {};
       try {
         const fresh = await invoke<Record<string, Record<string, string>>>("get_all_settings");
-        if (fresh?.General) {
-          general = fresh.General;
-        }
+        if (fresh?.General) general = fresh.General;
       } catch {}
       if (cancelled) return;
-
-      const shouldShareLaunchFields = !adopt && general.BottingAutoShareLaunchFields === "true";
-      const escolhidoNaAbertura = initialPlaceId?.trim() || "";
-      const draftPlace = adopt
-        ? // Adotando, nunca o rascunho: só o jogo de quem abriu ou o detectado.
-          escolhidoNaAbertura || detection.placeId || ""
-        : escolhidoNaAbertura ||
-          (shouldShareLaunchFields
-            ? store.placeId || ""
-            : general.BottingDraftPlaceId || store.placeId || "");
-      const draftJob = adopt
-        ? ""
-        : shouldShareLaunchFields
-          ? store.jobId || ""
-          : general.BottingDraftJobId || store.jobId || "";
-      const draftData = adopt
-        ? ""
-        : shouldShareLaunchFields
-          ? store.launchData || ""
-          : general.BottingDraftLaunchData || store.launchData || "";
       const draftInterval = parseInt(general.BottingDefaultIntervalMinutes || "19", 10);
       const draftDelay = parseInt(general.BottingLaunchDelaySeconds || "20", 10);
-      const draftGrace = parseInt(
-        general.BottingPlayerGraceMinutes || String(status?.playerGraceMinutes ?? 15),
-        10
-      );
-      const draftPlayerIdsRaw =
-        general.BottingDraftPlayerAccountIds || general.BottingDraftPlayerAccountId || "";
-      const draftPlayerIds = draftPlayerIdsRaw
-        .split(",")
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => Number.isFinite(n));
-      const dualPanelEnabled = general.BottingDualPanelDialog !== "false";
-
-      setShareLaunchFields(shouldShareLaunchFields);
-      setPlaceId(draftPlace);
-      setJobId(draftJob);
-      setLaunchData(draftData);
+      const draftGrace = parseInt(general.BottingPlayerGraceMinutes || "15", 10);
       setIntervalMinutes(Number.isFinite(draftInterval) ? draftInterval : 19);
       setLaunchDelaySeconds(Number.isFinite(draftDelay) ? draftDelay : 20);
       setPlayerGraceMinutes(Number.isFinite(draftGrace) ? draftGrace : 15);
-      setPlayerUserIds(draftPlayerIds.filter((id) => targetIds.includes(id)));
-      setBottingLayout(dualPanelEnabled ? "split" : "classic");
+      if (!escolhidoNaAbertura) {
+        setPlaceId(general.BottingDraftPlaceId || "");
+        setJobId(general.BottingDraftJobId || "");
+      }
     })();
-
     return () => {
       cancelled = true;
     };
+    // Lido uma vez por abertura (o modal remonta a cada abertura).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    adopt,
-    detection.placeId,
-    initialPlaceId,
-    targetIds,
-    status?.playerGraceMinutes,
-    store.jobId,
-    store.launchData,
-    store.placeId,
-    store.settings,
-  ]);
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (!status?.active) return;
-    if (typeof status.playerGraceMinutes === "number" && status.playerGraceMinutes > 0) {
-      setPlayerGraceMinutes(status.playerGraceMinutes);
-    }
-  }, [status?.active, status?.playerGraceMinutes]);
+  const sessionIds = useMemo(
+    () => (running ? status?.userIds ?? [] : []),
+    [running, status]
+  );
+  const sessionSet = useMemo(() => new Set(sessionIds), [sessionIds]);
 
+  // Quem está no ciclo fica marcado: depois do Stop, religar leva as mesmas
+  // contas (como nos cliques AFK). Sem isto sobrava marcada só a última conta
+  // acrescentada com o ciclo ligado.
+  const sessionKey = sessionIds.join(",");
   useEffect(() => {
-    if (!playerMenuOpen) return;
-    function onMouseDown(e: MouseEvent) {
-      if (!playerMenuRef.current) return;
-      if (!playerMenuRef.current.contains(e.target as Node)) {
-        setPlayerMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onMouseDown);
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown);
-    };
-  }, [playerMenuOpen]);
+    if (sessionIds.length === 0) return;
+    setDraftUserIds((prev) => {
+      const missing = sessionIds.filter((id) => !prev.includes(id));
+      return missing.length === 0 ? prev : [...prev, ...missing];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
 
   /**
-   * Grava o rascunho. Adotando, só o tempo e as mains: o place é o do jogo em
-   * que as contas estão, e Job/JoinData ficam de fora do ciclo — gravá-los
-   * apagaria o rascunho de quem usa o Auto Rejoin pela lista.
+   * Quem aparece para marcar: as contas com cliente aberto (o tracker, que
+   * inclui os clientes abertos pelo site e reconhecidos), mais as que já estão
+   * no ciclo — senão uma conta cujo cliente caiu sumia da tela. O mesmo critério
+   * dos cliques AFK.
    */
-  async function saveDraft(
-    nextPlaceId: string,
-    nextJobId: string,
-    nextLaunchData: string,
-    nextPlayers: number[],
-    nextInterval: number,
-    nextDelay: number,
-    nextGraceMinutes: number
-  ) {
+  const candidates = useMemo(() => {
+    const ids = new Set<number>([...store.launchedByProgram, ...sessionIds]);
+    return store.accounts.filter((a) => ids.has(a.UserID));
+  }, [store.accounts, store.launchedByProgram, sessionIds]);
+  const candidateSet = useMemo(() => new Set(candidates.map((a) => a.UserID)), [candidates]);
+  /** As contas marcadas que estão na lista, na ordem da lista. */
+  const picked = useMemo(
+    () => candidates.map((a) => a.UserID).filter((id) => draftUserIds.includes(id)),
+    [candidates, draftUserIds]
+  );
+  const pickedKey = picked.join(",");
+
+  // Presença de cada conta marcada, uma vez por conta. Só serve à opção
+  // "onde estão agora", e só com o ciclo parado.
+  useEffect(() => {
+    if (running || serverMode !== "current") return;
+    for (const id of picked) {
+      if (asked.current.has(id)) continue;
+      asked.current.add(id);
+      store
+        .detectRunningGamePlace([id])
+        .catch(() => null)
+        .then((found) => {
+          if (!mountedRef.current) return;
+          setPlaceByUser((prev) => new Map(prev).set(id, found && found > 0 ? found : null));
+        });
+    }
+    // `store` muda de identidade a cada render; o que importa é quem está marcado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedKey, serverMode, running]);
+
+  const { detection, detectedPlaceId } = useMemo((): {
+    detection: PlaceDetection;
+    detectedPlaceId: number | null;
+  } => {
+    if (picked.length === 0) return { detection: "idle", detectedPlaceId: null };
+    if (picked.some((id) => !placeByUser.has(id))) return { detection: "detecting", detectedPlaceId: null };
+    const places = new Set(
+      picked.map((id) => placeByUser.get(id)).filter((p): p is number => typeof p === "number")
+    );
+    if (places.size === 0) return { detection: "missing", detectedPlaceId: null };
+    if (places.size > 1) return { detection: "mixed", detectedPlaceId: null };
+    return { detection: "found", detectedPlaceId: [...places][0] };
+  }, [picked, placeByUser]);
+
+  const typedPlaceId = parseInt(placeId.trim(), 10);
+  const chosenPlaceId = Number.isFinite(typedPlaceId) && typedPlaceId > 0 ? typedPlaceId : null;
+  /** O place que o Start vai usar, conforme a opção marcada. */
+  const effectivePlaceId = serverMode === "current" ? detectedPlaceId : chosenPlaceId;
+  const game = useGameIdentity(effectivePlaceId ?? "", picked[0] ?? null);
+  /** O jogo da sessão que está rodando. */
+  const runningGame = useGameIdentity(
+    running && status?.placeId ? String(status.placeId) : "",
+    status?.userIds?.[0] ?? null
+  );
+
+  const accountById = useMemo(
+    () => new Map(store.accounts.map((a) => [a.UserID, a])),
+    [store.accounts]
+  );
+
+  function toggleAccount(userId: number) {
+    setDraftUserIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  }
+
+  /** Marca todas as contas que dá para marcar agora (fora do ciclo, se ele roda). */
+  function selectAllAccounts() {
+    setDraftUserIds((prev) => [
+      ...new Set([...prev, ...candidates.map((a) => a.UserID).filter((id) => !sessionSet.has(id))]),
+    ]);
+  }
+
+  function clearAccounts() {
+    setDraftUserIds([]);
+  }
+
+  function chooseServerMode(next: ServerMode) {
+    setServerMode(next);
+    // Os favoritos podem ter mudado na Choose Game com a tela aberta.
+    if (next === "game") setFavorites(loadFavorites());
+  }
+
+  /** Um favorito (sem `link`) ou um servidor VIP salvo nele. */
+  function pickGame(nextPlaceId: number, link = "") {
+    setServerMode("game");
+    setPlaceId(String(nextPlaceId));
+    setJobId(link);
+  }
+
+  function updatePlaceId(next: string) {
+    setServerMode("game");
+    setPlaceId(next);
+  }
+
+  function updateJobId(next: string) {
+    setServerMode("game");
+    setJobId(next);
+  }
+
+  /** Grava o tempo do ciclo e, com um jogo escolhido, o jogo. */
+  async function saveDraft(overrides: Partial<{ interval: number; delay: number; withGame: boolean }> = {}) {
     const entries: [string, string][] = [
-      ["BottingDraftPlayerAccountIds", nextPlayers.join(",")],
-      ["BottingDefaultIntervalMinutes", String(nextInterval)],
-      ["BottingLaunchDelaySeconds", String(nextDelay)],
-      ["BottingPlayerGraceMinutes", String(nextGraceMinutes)],
+      ["BottingDefaultIntervalMinutes", String(overrides.interval ?? intervalMinutes)],
+      ["BottingLaunchDelaySeconds", String(overrides.delay ?? launchDelaySeconds)],
     ];
-    if (!adopt) {
-      entries.unshift(
-        ["BottingDraftPlaceId", nextPlaceId],
-        ["BottingDraftJobId", nextJobId],
-        ["BottingDraftLaunchData", nextLaunchData]
-      );
-      entries.splice(4, 0, ["BottingDraftSelectedUserIds", targetIds.join(",")]);
+    if (overrides.withGame) {
+      entries.push(["BottingDraftPlaceId", placeId.trim()], ["BottingDraftJobId", jobId.trim()]);
     }
     await Promise.all(
       entries.map(([key, value]) =>
@@ -282,68 +275,57 @@ export function useRejoinController({
     );
   }
 
-  /** `saveDraft` com o que está na tela, trocando só o que acabou de mudar. */
-  function saveCurrentDraft(
-    overrides: Partial<{
-      players: number[];
-      interval: number;
-      delay: number;
-      grace: number;
-    }> = {}
-  ) {
-    return saveDraft(
-      placeId.trim(),
-      jobId.trim(),
-      launchData,
-      overrides.players ?? playerUserIds,
-      overrides.interval ?? intervalMinutes,
-      overrides.delay ?? launchDelaySeconds,
-      overrides.grace ?? playerGraceMinutes
-    );
-  }
-
   const multiRbxEnabled = store.settings?.General?.EnableMultiRbx === "true";
-  const sessionIds = useMemo(() => new Set(status?.active ? status.userIds ?? [] : []), [status]);
-  /** Adotando com sessão ligada: quem ainda não está no ciclo. */
-  const missingFromSession = targetIds.filter((id) => !sessionIds.has(id));
+  /** Com o ciclo rodando: quem está marcado e ainda não está nele. */
+  const missingFromSession = running ? picked.filter((id) => !sessionSet.has(id)) : [];
+
+  const uiActionLocked = busy || bulkBusy || rowBusy !== null;
+  const actionButtonsLocked = uiActionLocked;
+
+  /** Por que o Start não liga — a primeira coisa que falta, na barra de estado. */
+  const startBlocker: string | null = !multiRbxEnabled
+    ? t("Auto Rejoin currently requires Multi Roblox to be enabled")
+    : candidates.length === 0
+      ? t("No Roblox client is open yet. Open the accounts first.")
+      : picked.length < 2
+        ? t("Select at least 2 accounts")
+        : serverMode === "game"
+          ? chosenPlaceId === null
+            ? t("Pick a game")
+            : null
+          : detection === "detecting"
+            ? t("Finding the game these accounts are in...")
+            : detection === "mixed"
+              ? t("The selected accounts are in different games. Tick accounts from one game, or pick a game.")
+              : detection === "missing"
+                ? t("Could not tell which game these accounts are in. Pick a game.")
+                : null;
+  const canStart = !running && startBlocker === null && !uiActionLocked;
 
   async function handleStart() {
+    if (!canStart || effectivePlaceId === null) return;
     setBottingStartError(null);
-    const pid = parseInt(placeId.trim(), 10);
-    if (!Number.isFinite(pid) || pid <= 0) {
-      store.addToast(t("Place ID is required"));
-      return;
-    }
-    if (!multiRbxEnabled) {
-      const msg = t("Auto Rejoin currently requires Multi Roblox to be enabled");
-      setBottingStartError(msg);
-      store.addToast(msg);
-      return;
-    }
-    if (targetIds.length < 2) {
-      store.addToast(t("Select at least 2 accounts"));
-      return;
-    }
     setBusy(true);
     try {
-      await saveCurrentDraft();
-      if (adopt) {
+      if (serverMode === "current") {
+        await saveDraft();
         // Nada fecha nem relança: as contas ficam no servidor em que estão até
-        // o primeiro rejoin delas.
-        await store.adoptRunningIntoBotting(targetIds, {
-          placeId: pid,
+        // o primeiro rejoin delas, e cada rejoin volta ao mesmo jogo.
+        await store.adoptRunningIntoBotting(picked, {
+          placeId: effectivePlaceId,
           intervalMinutes,
           launchDelaySeconds,
           playerGraceMinutes,
-          playerUserIds,
+          playerUserIds: [],
         });
       } else {
+        await saveDraft({ withGame: true });
         await store.startBottingMode({
-          userIds: targetIds,
-          placeId: pid,
+          userIds: picked,
+          placeId: effectivePlaceId,
           jobId: jobId.trim(),
-          launchData,
-          playerUserIds,
+          launchData: "",
+          playerUserIds: [],
           intervalMinutes,
           launchDelaySeconds,
           playerGraceMinutes,
@@ -351,16 +333,13 @@ export function useRejoinController({
       }
     } catch (e) {
       setBottingStartError(String(e));
-      store.addToast(
-        t("Auto Rejoin start failed: {{error}}", {
-          error: String(e),
-        })
-      );
+      store.addToast(t("Auto Rejoin start failed: {{error}}", { error: String(e) }));
+    } finally {
+      if (mountedRef.current) setBusy(false);
     }
-    setBusy(false);
   }
 
-  /** Adotando com a sessão já ligada: só entra nela, sem relançar ninguém. */
+  /** Com o ciclo ligado: só entra nele, sem relançar ninguém. */
   async function handleAddToSession() {
     if (missingFromSession.length === 0) return;
     setBottingStartError(null);
@@ -374,56 +353,13 @@ export function useRejoinController({
     }
   }
 
-  async function handleTogglePlayer(userId: number) {
-    const next = playerUserIds.includes(userId)
-      ? playerUserIds.filter((id) => id !== userId)
-      : [...playerUserIds, userId];
-    setPlayerUserIds(next);
-    await saveCurrentDraft({ players: next });
-    if (status?.active) {
-      await store.setBottingPlayerAccounts(next);
-    }
-  }
-
-  function handleClearPlayers() {
-    setPlayerUserIds([]);
-    void saveCurrentDraft({ players: [] });
-    if (status?.active) void store.setBottingPlayerAccounts([]);
-    setPlayerMenuOpen(false);
-  }
-
-  function updatePlaceId(next: string) {
-    setPlaceId(next);
-    if (shareLaunchFields) store.setPlaceId(next);
-  }
-
-  function updateJobId(next: string) {
-    setJobId(next);
-    if (shareLaunchFields) store.setJobId(next);
-  }
-
-  function updateLaunchData(next: string) {
-    setLaunchData(next);
-    if (shareLaunchFields) store.setLaunchData(next);
-  }
-
-  function applyCurrentLaunchFields() {
-    setPlaceId(store.placeId);
-    setJobId(store.jobId);
-    setLaunchData(store.launchData);
-  }
-
-  const uiActionLocked = busy || bulkBusy || rowBusy !== null;
-  const actionButtonsLocked = uiActionLocked;
-
   /**
-   * A confirmacao da linha nao segue o lote cegamente: o que decide e o que a
-   * acao custa. `closeDisconnect` tira a conta do ciclo de rejoin ate alguem
-   * reconectar (`botting_action_flags`, no Rust), e isso nao se desfaz sozinho —
-   * pergunta. `close` sozinho e transitorio (o loop reabre o cliente no proximo
-   * restart) e e justamente o gesto rapido de quem viu um cliente travado, por
-   * isso segue sem pergunta. O lote pergunta nos dois porque age sobre uma
-   * selecao que a pessoa pode ter esquecido que fez.
+   * A confirmação não segue o lote cegamente: o que decide é o que a ação
+   * custa. `closeDisconnect` tira a conta do ciclo até alguém reconectar
+   * (`botting_action_flags`, no Rust), e isso não se desfaz sozinho — pergunta.
+   * `close` sozinho é transitório (o loop reabre o cliente no próximo
+   * restart), por isso segue sem pergunta. O lote pergunta nos dois porque age
+   * sobre uma seleção que a pessoa pode ter esquecido que fez.
    */
   async function runRowAction(userId: number, action: BottingRowAction) {
     if (actionButtonsLocked) return;
@@ -435,11 +371,7 @@ export function useRejoinController({
     try {
       await store.bottingAccountAction(userId, action);
     } catch (e) {
-      store.addToast(
-        t("Auto Rejoin account action failed: {{error}}", {
-          error: String(e),
-        })
-      );
+      store.addToast(t("Auto Rejoin account action failed: {{error}}", { error: String(e) }));
     } finally {
       setRowBusy(null);
     }
@@ -450,9 +382,7 @@ export function useRejoinController({
     setRowBusy(userId);
     try {
       const focused = await store.focusRobloxClient(userId);
-      if (!focused) {
-        store.addToast(t("No active Roblox window found for this account"));
-      }
+      if (!focused) store.addToast(t("No active Roblox window found for this account"));
     } catch (e) {
       store.addToast(t("Failed to focus client: {{error}}", { error: String(e) }));
     } finally {
@@ -476,87 +406,34 @@ export function useRejoinController({
     store.setError(null);
   }
 
-  function handleLayoutModeChange(nextLayout: "split" | "classic") {
-    if (nextLayout === bottingLayout) return;
-    setBottingLayout(nextLayout);
-    void invoke("update_setting", {
-      section: "General",
-      key: "BottingDualPanelDialog",
-      value: nextLayout === "split" ? "true" : "false",
-    }).catch(() => {});
-  }
-
   const statusMap = new Map((status?.accounts || []).map((a) => [a.userId, a]));
-  const liveUserIds =
-    status?.active && (status.userIds?.length || 0) > 0 ? status.userIds : targetIds;
-  const liveRows = liveUserIds.map((userId) => ({
+  const liveRows = sessionIds.map((userId) => ({
     userId,
     account: accountById.get(userId) || null,
     row: statusMap.get(userId) || null,
   }));
-  const canStart =
-    targetIds.length >= 2 && !!placeId.trim() && !uiActionLocked && multiRbxEnabled;
-  /** Por que o Start não liga — a primeira coisa que falta, na barra de estado. */
-  const startBlocker: string | null = !multiRbxEnabled
-    ? t("Auto Rejoin currently requires Multi Roblox to be enabled")
-    : targetIds.length < 2
-      ? t("Select at least 2 accounts")
-      : !placeId.trim()
-        ? adopt && detection.state === "detecting"
-          ? t("Finding the game these accounts are in...")
-          : t("Place ID is required")
-        : null;
   const dialogError = bottingStartError || store.error || null;
   const rowConflictError =
-    (status?.accounts || [])
-      .map((a) => a.lastError)
-      .find((msg) => isMultiRobloxCloseProcessError(msg)) || null;
-  const closeRobloxAlertMessage = isMultiRobloxCloseProcessError(dialogError)
-    ? dialogError
-    : rowConflictError;
+    (status?.accounts || []).map((a) => a.lastError).find((msg) => isMultiRobloxCloseProcessError(msg)) || null;
+  const closeRobloxAlertMessage = isMultiRobloxCloseProcessError(dialogError) ? dialogError : rowConflictError;
   const showCloseRobloxAction = !!closeRobloxAlertMessage;
-  const playerAccountLabel =
-    playerUserIds.length === 0
-      ? t("None")
-      : playerUserIds.length === 1
-        ? accountLabel(accountById.get(playerUserIds[0]), t("Unknown"))
-        : t("{{count}} selected", { count: playerUserIds.length });
-  /**
-   * O rótulo do botão Main Accounts corta o nome (ou diz só "N selected"): o
-   * `title` traz quem são, por inteiro. Mesmo padrão do chip de Targets.
-   */
-  const playerAccountTitle =
-    playerUserIds.length === 0
-      ? undefined
-      : playerUserIds
-          .map((id) => accountLabel(accountById.get(id), t("Unknown")))
-          .join(", ");
-  const splitPlayersCount = liveRows.filter(
-    ({ userId, row }) => !!row?.isPlayer || playerUserIds.includes(userId)
-  ).length;
-  // Quantos clientes o "Stop + Close" fecha: as contas bot desta sessão.
-  // `stop_botting_mode` fecha `user_ids` menos `player_user_ids` — nada mais.
-  const splitBotCount = liveRows.length - splitPlayersCount;
-  const splitDisconnectedCount = liveRows.filter(({ row }) => !!row?.disconnected).length;
-  const splitRetryingCount = liveRows.filter(({ row }) => (row?.retryCount || 0) >= 2).length;
-  /** O próximo rejoin agendado da sessão (alts conectadas). */
-  const nextRejoinAtMs = (status?.active ? status.accounts : [])
+  // Quantos clientes o "Stop + Close" fecha: `stop_botting_mode` fecha
+  // `user_ids` menos as mains — numa sessão nova, todas as contas dela.
+  const closableCount = liveRows.filter(({ row }) => !row?.isPlayer).length;
+  const disconnectedCount = liveRows.filter(({ row }) => !!row?.disconnected).length;
+  const retryingCount = liveRows.filter(({ row }) => (row?.retryCount || 0) >= 2).length;
+  /** O próximo rejoin agendado da sessão (contas conectadas). */
+  const nextRejoinAtMs = (running ? status?.accounts ?? [] : [])
     .filter((a) => !a.disconnected && !a.isPlayer && typeof a.nextRestartAtMs === "number")
     .reduce<number | null>(
       (min, a) => (min === null || (a.nextRestartAtMs as number) < min ? (a.nextRestartAtMs as number) : min),
       null
     );
   const bulkSelectedSet = useMemo(() => new Set(bulkSelectedUserIds), [bulkSelectedUserIds]);
-  const liveUserIdSet = useMemo(() => new Set(liveUserIds), [liveUserIds]);
   const liveRowsByUserId = useMemo(
     () => new Map(liveRows.map(({ userId, row }) => [userId, row])),
     [liveRows]
   );
-  const allVisibleBulkSelected =
-    liveRows.length > 0 && liveRows.every(({ userId }) => bulkSelectedSet.has(userId));
-  const visibleBotRowIds = liveRows
-    .filter(({ row }) => !!row && !row.isPlayer)
-    .map(({ userId }) => userId);
   const bulkEligibleCounts = useMemo<Record<BottingRowAction, number>>(() => {
     const counts: Record<BottingRowAction, number> = {
       disconnect: 0,
@@ -565,17 +442,15 @@ export function useRejoinController({
       restartClient: 0,
       restartLoop: 0,
     };
-    if (!status?.active) return counts;
+    if (!running) return counts;
     for (const userId of bulkSelectedUserIds) {
       const row = liveRowsByUserId.get(userId) || null;
-      if (canRunBottingActionOnRow(row, "disconnect")) counts.disconnect += 1;
-      if (canRunBottingActionOnRow(row, "close")) counts.close += 1;
-      if (canRunBottingActionOnRow(row, "closeDisconnect")) counts.closeDisconnect += 1;
-      if (canRunBottingActionOnRow(row, "restartClient")) counts.restartClient += 1;
-      if (canRunBottingActionOnRow(row, "restartLoop")) counts.restartLoop += 1;
+      for (const action of Object.keys(counts) as BottingRowAction[]) {
+        if (canRunBottingActionOnRow(row, action)) counts[action] += 1;
+      }
     }
     return counts;
-  }, [bulkSelectedUserIds, liveRowsByUserId, status?.active]);
+  }, [bulkSelectedUserIds, liveRowsByUserId, running]);
 
   function toggleBulkSelected(userId: number) {
     setBulkSelectedUserIds((prev) =>
@@ -595,20 +470,20 @@ export function useRejoinController({
     if (action === "close") {
       return count === 1
         ? t(
-            "Close the Roblox client of 1 alt account? It leaves the server now, and the loop rejoins it at its next scheduled rejoin."
+            "Close the Roblox client of 1 account? It leaves the server now, and Auto Rejoin brings it back at its next rejoin."
           )
         : t(
-            "Close the Roblox client of {{count}} alt accounts? They leave the server now, and the loop rejoins each one at its next scheduled rejoin.",
+            "Close the Roblox clients of {{count}} accounts? They leave the server now, and Auto Rejoin brings each one back at its next rejoin.",
             { count }
           );
     }
     if (action === "closeDisconnect") {
       return count === 1
         ? t(
-            "Close the Roblox client of 1 alt account and take it out of the rejoin cycle? It stays out until you reconnect it."
+            "Close the Roblox client of 1 account and take it out of the rejoin cycle? It stays out until you reconnect it."
           )
         : t(
-            "Close the Roblox client of {{count}} alt accounts and take them out of the rejoin cycle? They stay out until you reconnect them.",
+            "Close the Roblox clients of {{count}} accounts and take them out of the rejoin cycle? They stay out until you reconnect them.",
             { count }
           );
     }
@@ -616,7 +491,7 @@ export function useRejoinController({
   }
 
   async function runBulkAction(action: BottingRowAction) {
-    if (!status?.active || actionButtonsLocked) return;
+    if (!running || actionButtonsLocked) return;
     const eligibleIds = bulkSelectedUserIds.filter((userId) =>
       canRunBottingActionOnRow(liveRowsByUserId.get(userId) || null, action)
     );
@@ -660,41 +535,31 @@ export function useRejoinController({
               ? t("Close + Disconnect")
               : t("Restart loop");
 
-    if (failed === 0) {
-      store.addToast(
-        t("Applied {{action}} to {{count}} accounts", {
-          action: actionLabel,
-          count: succeeded,
-        })
-      );
-    } else {
-      store.addToast(
-        t("Applied {{action}}: {{success}} succeeded, {{failed}} failed", {
-          action: actionLabel,
-          success: succeeded,
-          failed,
-        })
-      );
-    }
+    store.addToast(
+      failed === 0
+        ? t("Applied {{action}} to {{count}} accounts", { action: actionLabel, count: succeeded })
+        : t("Applied {{action}}: {{success}} succeeded, {{failed}} failed", {
+            action: actionLabel,
+            success: succeeded,
+            failed,
+          })
+    );
   }
 
   function handleStop() {
     void store.stopBottingMode(false);
   }
 
-  /**
-   * Parar fechando os clientes bot: a frase diz quantos clientes fecham e o
-   * que continua aberto (a mesma regra explicada em "How each cycle works").
-   */
-  async function handleStopAndCloseBots() {
+  /** Parar fechando os clientes da sessão: a frase diz quantos fecham. */
+  async function handleStopAndClose() {
     const ok = await confirm(
-      splitBotCount === 1
+      closableCount === 1
         ? t(
-            "Stop Auto Rejoin and close the Roblox client of 1 alt account in this session? Main accounts keep their client, and clients of accounts outside this session are left alone."
+            "Stop Auto Rejoin and close the Roblox client of 1 account in this session? Clients of accounts outside this session are left alone."
           )
         : t(
-            "Stop Auto Rejoin and close the Roblox clients of {{count}} alt accounts in this session? Main accounts keep their client, and clients of accounts outside this session are left alone.",
-            { count: splitBotCount }
+            "Stop Auto Rejoin and close the Roblox clients of {{count}} accounts in this session? Clients of accounts outside this session are left alone.",
+            { count: closableCount }
           ),
       true
     );
@@ -713,12 +578,13 @@ export function useRejoinController({
     node.scrollTo({ top: 0, behavior: "smooth" });
   }, [showCloseRobloxAction, closeRobloxAlertMessage]);
 
+  // A seleção em lote só guarda quem ainda está na sessão.
   useEffect(() => {
     setBulkSelectedUserIds((prev) => {
-      const next = prev.filter((id) => liveUserIdSet.has(id));
+      const next = prev.filter((id) => sessionSet.has(id));
       return next.length === prev.length ? prev : next;
     });
-  }, [liveUserIdSet]);
+  }, [sessionSet]);
 
   return {
     t,
@@ -726,70 +592,58 @@ export function useRejoinController({
     accountLabel,
     accountInitial,
     hideAvatar,
-    adopt,
-    targetIds,
-    targetAccounts,
-    accountById,
     status,
-    running: !!status?.active,
-    statusMap,
-    game,
-    runningGame,
+    running,
+    candidates,
+    candidateSet,
+    picked,
+    sessionSet,
+    accountById,
+    serverMode,
+    favorites,
     placeId,
     jobId,
-    launchData,
-    shareLaunchFields,
+    chosenPlaceId,
+    detection,
+    detectedPlaceId,
+    effectivePlaceId,
+    game,
+    runningGame,
     intervalMinutes,
     launchDelaySeconds,
-    playerGraceMinutes,
-    playerUserIds,
-    detection: detection.state,
     nowMs,
-    playerMenuOpen,
-    setPlayerMenuOpen,
-    playerMenuRef,
     contentRef,
-    bottingLayout,
-    useSplitLayout: bottingLayout === "split",
-    multiRbxEnabled,
     canStart,
     startBlocker,
     startError: bottingStartError,
     closeRobloxAlertMessage,
     showCloseRobloxAction,
     closingRoblox,
-    playerAccountLabel,
-    playerAccountTitle,
     liveRows,
-    splitPlayersCount,
-    splitBotCount,
-    splitDisconnectedCount,
-    splitRetryingCount,
+    disconnectedCount,
+    retryingCount,
     nextRejoinAtMs,
     missingFromSession,
     actionButtonsLocked,
     rowBusy,
     bulkSelectedUserIds,
     bulkSelectedSet,
-    allVisibleBulkSelected,
-    visibleBotRowIds,
     bulkEligibleCounts,
-    setIntervalMinutes,
-    setLaunchDelaySeconds,
-    setPlayerGraceMinutes,
+    toggleAccount,
+    selectAllAccounts,
+    clearAccounts,
+    chooseServerMode,
+    pickGame,
     updatePlaceId,
     updateJobId,
-    updateLaunchData,
-    applyCurrentLaunchFields,
-    saveCurrentDraft,
+    setIntervalMinutes,
+    setLaunchDelaySeconds,
+    saveDraft,
     handleStart,
     handleAddToSession,
     handleStop,
-    handleStopAndCloseBots,
-    handleTogglePlayer,
-    handleClearPlayers,
+    handleStopAndClose,
     handleCloseRobloxBannerAction,
-    handleLayoutModeChange,
     dismissError,
     runRowAction,
     runRowFocus,

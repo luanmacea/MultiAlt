@@ -145,6 +145,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/dialogs/VersionsDialog.test.tsx",
       "src/updaterChannels.test.ts",
       "src/components/dialogs/UpdateDialog.test.tsx",
+      "src/releaseNotes.test.ts",
+      "src/components/pages/ChangelogPage.test.tsx",
       "src/updateHandoff.test.ts",
       "src/hooks/useUpdateHandoffToast.test.ts",
     ],
@@ -225,7 +227,7 @@ export const SUITES: Record<string, TestSuite> = {
   backups: {
     description: "Backup e restauração dos dados, e onde a pasta de dados fica",
     rust: ["backups_tests", "settings_paths_tests"],
-    front: ["src/components/dialogs/BackupsDialog.test.tsx"],
+    front: ["src/components/settings/BackupsTab.test.tsx"],
   },
   friends: {
     description: "Amigos online por conta e entrada no servidor do amigo",
@@ -291,7 +293,11 @@ export const SUITES: Record<string, TestSuite> = {
       "username_check_http_tests",
       "generator_failure_budget_tests",
     ],
-    front: ["src/components/signup", "src/components/dialogs/GeneratorDialog.test.tsx"],
+    front: [
+      "src/components/signup",
+      "src/components/dialogs/GeneratorDialog.test.tsx",
+      "src/components/dialogs/accountGeneratorHidden.test.tsx",
+    ],
   },
   ui: {
     description: "Casca da UI: layout, menus, componentes genéricos, i18n, hooks",
@@ -337,7 +343,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   navigation: {
-    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Scripts, Theme, Nexus, Settings) no lugar dos modais",
+    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais",
     rust: [],
     front: [
       "src/components/layout/NavSidebar.test.tsx",
@@ -347,6 +353,20 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/settings/settingsTabs.test.tsx",
       "src/App.test.tsx",
       "src/store.test.ts",
+    ],
+  },
+  tutorials: {
+    description: "Tutoriais de tela (botão Tutorial): motor, \"já visto\" e o passeio de cada tela com as âncoras na tela",
+    rust: [],
+    front: [
+      "src/components/tour",
+      "src/components/layout/FirstRunWalkthrough.test.tsx",
+      "src/App.test.tsx",
+      "src/components/ChooseGameScreen.test.tsx",
+      "src/components/afk-mode/AfkModeView.test.tsx",
+      "src/components/pages",
+      "src/components/settings/settingsTabs.test.tsx",
+      "src/i18n/locales.test.ts",
     ],
   },
   diagnostics: {

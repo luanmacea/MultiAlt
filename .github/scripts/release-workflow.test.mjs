@@ -152,3 +152,23 @@ describe("o que mudou, em linguagem simples", () => {
     expect(body).toMatch(/^\s+changesBlock,$/m);
   });
 });
+
+describe("um setup só na release", () => {
+  const body = (name) => steps().find((s) => s.name === name)?.lines.join("\n") ?? "";
+  const names = () => steps().map((s) => s.name);
+
+  it("sobe o MultiAlt-Setup.msi antes de publicar o manifesto do updater", () => {
+    const upload = names().findIndex((n) => /Upload stable-named MSI/.test(n));
+    const manifest = names().indexOf("Generate and push standard update manifest");
+    expect(upload).toBeGreaterThan(-1);
+    expect(upload).toBeLessThan(manifest);
+  });
+
+  it("tira da release a cópia com a versão no nome (o mesmo arquivo)", () => {
+    expect(body("Clean up release assets")).toMatch(/MultiAlt_\*_x64_en-US\.msi|x64_en-US\\.msi/);
+  });
+
+  it("o texto da release não cita mais a cópia com a versão no nome", () => {
+    expect(body("Finalize release notes")).not.toMatch(/the same installer, with the version in the name/);
+  });
+});

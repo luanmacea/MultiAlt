@@ -55,9 +55,9 @@ function arquivos(dir: string, desceEmSubpastas = true): string[] {
 
 describe("dono do repositório", () => {
   it("aponta para este projeto, não para aquele de onde ele saiu", () => {
-    expect(REPO_SLUG).toBe("luanmacea/roblox-account-manager");
-    expect(REPO_URL).toBe("https://github.com/luanmacea/roblox-account-manager");
-    expect(REPO_API_URL).toBe("https://api.github.com/repos/luanmacea/roblox-account-manager");
+    expect(REPO_SLUG).toBe("luanmacea/MultiAlt");
+    expect(REPO_URL).toBe("https://github.com/luanmacea/MultiAlt");
+    expect(REPO_API_URL).toBe("https://api.github.com/repos/luanmacea/MultiAlt");
   });
 
   it("não sobrou nenhum link para o projeto original", () => {

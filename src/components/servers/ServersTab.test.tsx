@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -827,5 +827,113 @@ describe("ServersTab — qual jogo é este place", () => {
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(screen.queryByTestId("game-badge")).not.toBeInTheDocument();
     expect(screen.queryByText(/Place 606849621/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Sair da aba e voltar recomeçava a varredura com a lista vazia. Agora a volta
+ * mostra a última varredura **terminada** daquele place na hora e varre de novo
+ * por trás; a lista nova só substitui a antiga quando termina — uma página
+ * parcial no lugar de uma varredura completa seria um passo para trás.
+ */
+describe("ServersTab — cache ao trocar de aba", () => {
+  /** Monta a aba sem emitir varredura nenhuma (o backend fica "rodando"). */
+  function renderServers(placeId: string) {
+    const selected = [ACCOUNT_A, ACCOUNT_B];
+    const userIds = selected.map((a) => a.UserID);
+    return renderWithStore(
+      <ServersTab userIds={userIds} placeId={placeId} setPlaceId={setPlaceId} launchAll={launchAll} />,
+      { accounts: selected, selectedIds: new Set(userIds), selectedAccounts: selected }
+    );
+  }
+
+  function renderCached() {
+    setInvokeMap({ start_server_scan: SCAN_ID, stop_server_scan: null, get_server_regions: [] });
+    return renderServers("606849621");
+  }
+
+  it("mostra a lista guardada já no primeiro desenho, com o indicador de atualização", async () => {
+    const first = renderTab([row({ id: "job-antigo", playing: 5 })]);
+    await screen.findByText("job-antigo");
+    first.unmount();
+
+    renderCached();
+    expect(screen.getByText("job-antigo")).toBeInTheDocument();
+    expect(screen.getByTestId("servers-updating")).toBeInTheDocument();
+    await waitFor(() => expect(callsFor("start_server_scan")).toHaveLength(2));
+  });
+
+  it("não troca a lista guardada por uma página parcial da varredura nova", async () => {
+    const first = renderTab([row({ id: "job-antigo", playing: 5 })]);
+    await screen.findByText("job-antigo");
+    first.unmount();
+
+    renderCached();
+    await waitFor(() => expect(callsFor("start_server_scan")).toHaveLength(2));
+    act(() => emitScan([row({ id: "job-parcial" })], { done: false }));
+
+    expect(screen.getByText("job-antigo")).toBeInTheDocument();
+    expect(screen.queryByText("job-parcial")).not.toBeInTheDocument();
+
+    act(() => emitScan([row({ id: "job-novo" })], { done: true }));
+    expect(await screen.findByText("job-novo")).toBeInTheDocument();
+    expect(screen.queryByText("job-antigo")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("servers-updating")).not.toBeInTheDocument();
+  });
+
+  it("mantém a região já verificada dos servidores que continuam na lista", async () => {
+    const user = userEvent.setup();
+    const first = renderTab([row({ id: "job-a" }), row({ id: "job-b" })]);
+    await screen.findByText("job-a");
+    setInvokeMap({
+      start_server_scan: SCAN_ID,
+      get_server_regions: [region("job-a", "BR", "São Paulo"), region("job-b", "US", "Ashburn")],
+    });
+    await user.click(screen.getByRole("button", { name: /Check servers/i }));
+    await screen.findByText("São Paulo, BR");
+    first.unmount();
+
+    renderCached();
+    // A região custou uma chamada de join por servidor: volta junto.
+    expect(screen.getByText("São Paulo, BR")).toBeInTheDocument();
+
+    await waitFor(() => expect(callsFor("start_server_scan")).toHaveLength(2));
+    act(() => emitScan([row({ id: "job-a" }), row({ id: "job-c" })], { done: true }));
+    expect(await screen.findByText("job-c")).toBeInTheDocument();
+    expect(screen.getByText("São Paulo, BR")).toBeInTheDocument();
+    // O servidor que saiu da lista leva a região junto.
+    expect(screen.queryByText("Ashburn, US")).not.toBeInTheDocument();
+  });
+
+  it("não guarda uma varredura que não terminou", async () => {
+    setInvokeMap({ start_server_scan: SCAN_ID, stop_server_scan: null });
+    const first = renderServers("606849621");
+    act(() => emitScan([row({ id: "job-meio" })], { done: false }));
+    await screen.findByText("job-meio");
+    first.unmount();
+
+    renderCached();
+    expect(screen.queryByText("job-meio")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("servers-updating")).not.toBeInTheDocument();
+  });
+
+  it("não mostra a lista de outro place", async () => {
+    const first = renderTab([row({ id: "job-antigo" })]);
+    await screen.findByText("job-antigo");
+    first.unmount();
+
+    setInvokeMap({ start_server_scan: SCAN_ID, stop_server_scan: null });
+    renderServers("920587237");
+    expect(screen.queryByText("job-antigo")).not.toBeInTheDocument();
+  });
+
+  it("o Refresh manual continua recomeçando do zero", async () => {
+    const user = userEvent.setup();
+    renderTab([row({ id: "job-antigo" })]);
+    await screen.findByText("job-antigo");
+
+    await user.click(screen.getByRole("button", { name: /Refresh/i }));
+    await waitFor(() => expect(callsFor("start_server_scan")).toHaveLength(2));
+    expect(screen.queryByText("job-antigo")).not.toBeInTheDocument();
   });
 });

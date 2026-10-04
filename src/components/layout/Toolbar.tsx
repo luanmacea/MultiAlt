@@ -4,6 +4,8 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { quickAddAccount } from "../../utils/quickAdd";
+import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
+import { TourButton } from "../tour/TourButton";
 import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus } from "lucide-react";
 
 /**
@@ -161,6 +163,7 @@ export function Toolbar() {
         <Tooltip content={namesTooltip} side="bottom">
           <button
             onClick={() => store.setHideUsernames(!store.hideUsernames)}
+            data-tour="toolbar-names"
             className={`px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${
               store.hideUsernames
                 ? activeToggleStyle
@@ -176,6 +179,7 @@ export function Toolbar() {
             onClick={() => store.setSidebarOpen(!store.sidebarOpen)}
             disabled={!panelAvailable}
             aria-label={panelTooltip}
+            data-tour="toolbar-panel"
             className={`p-1.5 rounded-lg border transition-colors ${
               !panelAvailable
                 ? "theme-btn-ghost opacity-40 cursor-not-allowed"
@@ -189,6 +193,10 @@ export function Toolbar() {
         </Tooltip>
 
         <div className="w-px h-5 mx-1 bg-[var(--border-color)]" />
+
+        {/* Tutorial desta tela: opcional, nunca abre sozinho (components/tour/).
+            Com a Choose Game aberta, o Tutorial que vale é o dela. */}
+        {!store.chooseGameOpen && <TourButton tour="accounts" />}
 
         <div ref={addRef} className="relative">
           <button
@@ -262,18 +270,21 @@ export function Toolbar() {
                   </span>
                 </span>
               </button>
-              <button
-                onClick={handleOpenGenerator}
-                className="flex items-start gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
-              >
-                <Sparkles size={14} strokeWidth={1.5} className="theme-muted mt-0.5 shrink-0" />
-                <span className="min-w-0">
-                  {t("Account Generator")}
-                  <span className="block text-[12px] theme-muted leading-snug">
-                    {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+              {/* O gerador pago está desligado por padrão — ver ENABLE_ACCOUNT_GENERATOR. */}
+              {ENABLE_ACCOUNT_GENERATOR && (
+                <button
+                  onClick={handleOpenGenerator}
+                  className="flex items-start gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
+                >
+                  <Sparkles size={14} strokeWidth={1.5} className="theme-muted mt-0.5 shrink-0" />
+                  <span className="min-w-0">
+                    {t("Account Generator")}
+                    <span className="block text-[12px] theme-muted leading-snug">
+                      {t("Paid — buys ready-made accounts from BloxGen (third party, API key)")}
+                    </span>
                   </span>
-                </span>
-              </button>
+                </button>
+              )}
               <button
                 onClick={handleOpenVersions}
                 className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"

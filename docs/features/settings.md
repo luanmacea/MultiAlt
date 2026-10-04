@@ -14,7 +14,7 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 | Comandos (`get_all_settings`, `get_setting`, `update_setting`, tema, presets, fontes) | [data/settings/commands.rs](../../src-tauri/src/data/settings/commands.rs) |
 | Tema (`RAMTheme.ini`) e presets | [data/settings/theme.rs](../../src-tauri/src/data/settings/theme.rs), [data/settings/presets.rs](../../src-tauri/src/data/settings/presets.rs) |
 | Página e seções | [SettingsPage.tsx](../../src/components/pages/SettingsPage.tsx) (seções numa lista vertical), [tabs.tsx](../../src/components/settings/tabs.tsx) (ordem e ícones), [TabContent.tsx](../../src/components/settings/TabContent.tsx) |
-| Abas | [GeneralTab](../../src/components/settings/GeneralTab.tsx), [DeveloperTab](../../src/components/settings/DeveloperTab.tsx), [WebServerTab](../../src/components/settings/WebServerTab.tsx), [WatcherTab](../../src/components/settings/WatcherTab.tsx), [GeneratorTab](../../src/components/settings/GeneratorTab.tsx), [IsolationTab](../../src/components/settings/IsolationTab.tsx), [VersionsTab](../../src/components/settings/VersionsTab.tsx), [OptimizationTab](../../src/components/settings/OptimizationTab.tsx), [MiscellaneousTab](../../src/components/settings/MiscellaneousTab.tsx) |
+| Abas | [GeneralTab](../../src/components/settings/GeneralTab.tsx), [BackupsTab](../../src/components/settings/BackupsTab.tsx), [DeveloperTab](../../src/components/settings/DeveloperTab.tsx), [WebServerTab](../../src/components/settings/WebServerTab.tsx), [WatcherTab](../../src/components/settings/WatcherTab.tsx), [GeneratorTab](../../src/components/settings/GeneratorTab.tsx), [IsolationTab](../../src/components/settings/IsolationTab.tsx), [VersionsTab](../../src/components/settings/VersionsTab.tsx), [OptimizationTab](../../src/components/settings/OptimizationTab.tsx), [MiscellaneousTab](../../src/components/settings/MiscellaneousTab.tsx) |
 | Hook de leitura/escrita | [hooks/useSettings.ts](../../src/hooks/useSettings.ts) |
 | Cópia global na store | [store.tsx](../../src/store.tsx) (`settings`, `reloadSettings`) |
 
@@ -31,10 +31,11 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 | Aba | Visível quando | Seções/chaves |
 |---|---|---|
 | General | sempre | `General.*` (updates, idioma, launch, privacidade de nomes, multi-Roblox, presença, tray...), `Login.*` |
+| Backups | sempre | nenhuma chave: criar, listar, restaurar e apagar backups inline ([BackupsTab](../../src/components/settings/BackupsTab.tsx), ver [backups.md](backups.md)). Era um diálogo aberto por "Manage" em Misc > Data até 03/10/2026 |
 | Developer | sempre | `Developer.DevMode`, `Developer.EnableWebServer` (toggle só se `ENABLE_WEBSERVER`) |
 | WebServer | `ENABLE_WEBSERVER` (build) — a aba aparece sempre; o que destrava os ajustes é `DevMode` ou `EnableWebServer`, dentro da própria aba ([SettingsPage.tsx](../../src/components/pages/SettingsPage.tsx) só a esconde sem `ENABLE_WEBSERVER`) | `WebServer.*` — ver [webserver.md](webserver.md) |
 | Watcher | sempre | `Watcher.*` — ver [watcher.md](watcher.md) |
-| Account Generator | sempre | `Generator.*`, `BloxGen.*` |
+| Account Generator | `ENABLE_ACCOUNT_GENERATOR` (build, **desligado** por padrão desde 03/10/2026 — ver [account-creation.md](account-creation.md)) | `Generator.*`, `BloxGen.*` |
 | Isolation | sempre | `Isolation.*` — ver [isolation.md](isolation.md) |
 | Versions | sempre | `Versions.*` — ver [roblox-versions.md](roblox-versions.md) |
 | Optimization | sempre | `Optimization.*`, `General.BottingUseSharedClientProfile` |
@@ -90,13 +91,13 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `RestrictedBackgroundStyle` | `warp` | Fundo animado da tela de senha: `bubbles`, `warp`, `warpLegacy`, `waves`. |
 | `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
 | `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
-| `BottingAutoShareLaunchFields` | `true` | Sincroniza Place/Job/Data entre sidebar e Auto Rejoin. |
-| `BottingDualPanelDialog` | `true` | Layout em dois painéis (New View) na aba Auto Rejoin do Modo AFK; `false` = Classic. |
+| `BottingAutoShareLaunchFields` | `true` | **Ignorada desde 03/10/2026**: o Auto Rejoin não tem mais os campos Place/Job/Data para sincronizar com a sidebar (o servidor é onde as contas estão ou um jogo dos Favoritos). Saiu da aba Miscellaneous; a chave fica no INI sem efeito. |
+| `BottingDualPanelDialog` | `true` | **Ignorada desde 03/10/2026**: a visão Classic saiu, a aba Auto Rejoin tem uma visão só. Saiu da aba Miscellaneous; a chave fica no INI sem efeito. |
 | `BottingDefaultIntervalMinutes` | `19` | Intervalo de ciclo. |
 | `BottingLaunchDelaySeconds` | `20` | Espaço entre launches. |
 | `BottingRetryMax` / `BottingRetryBaseSeconds` | `6` / `8` | Backoff de retry. |
-| `BottingPlayerGraceMinutes` | `15` | Carência para contas main (papel `player` no INI). |
-| `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do formulário de Auto Rejoin. |
+| `BottingPlayerGraceMinutes` | `15` | Carência para contas main (papel `player` no INI). Sem campo na tela desde 03/10/2026 (a tela não tem mais conta main); vai no Start com o valor do INI. |
+| `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do Auto Rejoin. Desde 03/10/2026 só `PlaceId`/`JobId` são gravados e lidos (o último jogo escolhido, gravado no Start com "um jogo que eu escolher"); `LaunchData`, `PlayerAccountId(s)` e `SelectedUserIds` ficam sem efeito. |
 | `EncryptionMethod` | `default` | `default` ou `password` (ver [accounts.md](accounts.md)). |
 | `EncryptionOnboardingState` | `pending` (novo) / `completed` (INI existente) | Onboarding de criptografia. |
 | `FirstRunWalkthroughState` | `pending` (novo) / `completed` (INI existente) | Walkthrough; vira `skipped`/`completed`. |

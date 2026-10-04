@@ -11,6 +11,12 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
   enable: vi.fn(async () => {}),
   disable: vi.fn(async () => {}),
 }));
+// O gerador pago (BloxGen) vem desligado (`ENABLE_ACCOUNT_GENERATOR`); estes
+// testes cobrem o gerador ligado. Desligado: accountGeneratorHidden.test.tsx.
+vi.mock("../../featureFlags", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../featureFlags")>()),
+  ENABLE_ACCOUNT_GENERATOR: true,
+}));
 
 import { GeneralTab } from "./GeneralTab";
 import { DeveloperTab } from "./DeveloperTab";
@@ -26,6 +32,7 @@ import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/
 import { ENABLE_WEBSERVER } from "../../featureFlags";
 import type { PlatformCapabilities } from "../../types";
 import i18n from "../../i18n";
+import { walkTour } from "../../test-utils/tourHelpers";
 
 /**
  * Settings tabs receive the real `useSettings()` object, so every assertion
@@ -75,6 +82,10 @@ beforeEach(async () => {
         return [];
       case "remembered_unlock_state":
         return { remembered: false, expiresAt: null };
+      case "list_backups":
+        return [];
+      case "backups_info":
+        return { dir: "C:/data", portable: false, totalBytes: 0, count: 0 };
       default:
         return undefined;
     }
@@ -295,6 +306,28 @@ describe("SettingsPage sections", () => {
    * As nove abas mal cabiam numa linha do modal de 780 px. Na página elas são
    * uma lista vertical à esquerda, com a seção atual marcada.
    */
+  /**
+   * Backup era um diálogo aberto por um botão "Manage" escondido em Misc > Data.
+   * Agora é uma seção própria da página, com o conteúdo inline.
+   */
+  it("has a Backups section that shows the backups inline, without a dialog", async () => {
+    stored = {};
+    render(<SettingsPage active onLeave={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Backups" }));
+
+    expect(screen.getByRole("heading", { level: 2, name: "Backups" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Create backup" })).toBeVisible();
+    expect(screen.getByText("C:/data")).toBeVisible();
+    expect(document.querySelector(".fixed.inset-0")).toBeNull();
+  });
+
+  it("does not keep the old Manage button for backups in Misc", async () => {
+    stored = {};
+    render(<SettingsPage active onLeave={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Misc" }));
+    expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
+  });
+
   it("lists the sections in a vertical side navigation", async () => {
     stored = {};
     render(<SettingsPage active onLeave={() => {}} />);
@@ -859,5 +892,15 @@ describe("WatcherTab dependent fields", () => {
     cleanup();
     renderWatcher({ Watcher: { [key]: "true" } });
     expect(await screen.findByLabelText(label)).toBeEnabled();
+  });
+});
+
+describe("SettingsPage — tutorial", () => {
+  it("walks the Settings tutorial and ends on Backups without changing a setting", async () => {
+    stored = {};
+    render(<SettingsPage active onLeave={() => {}} />);
+    await screen.findByRole("navigation", { name: "Settings sections" });
+    await walkTour("settings", { invoke: invokeMock });
+    expect(screen.getByRole("heading", { level: 2, name: "Backups" })).toBeInTheDocument();
   });
 });

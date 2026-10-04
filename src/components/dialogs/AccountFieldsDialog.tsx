@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
 import { useModalClose } from "../../hooks/useModalClose";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 
@@ -18,6 +19,7 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
   const t = useTr();
   const store = useStore();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
+  const backdropClose = useBackdropClose(handleClose);
   const account = store.selectedAccount;
   const [rows, setRows] = useState<FieldRow[]>([]);
   const [flash, setFlash] = useState(false);
@@ -76,7 +78,7 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
   return (
     <div
       className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm ${closing ? "animate-fade-out" : "animate-fade-in"}`}
-      onClick={handleClose}
+      {...backdropClose}
     >
       <div
         className={`theme-modal-scope theme-panel theme-border border rounded-2xl shadow-2xl w-[400px] max-h-[400px] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
