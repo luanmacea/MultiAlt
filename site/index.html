@@ -24,6 +24,13 @@
   <meta name="application-name" content="MultiAlt">
   <meta property="og:url" content="https://multialt.pages.dev/">
   <link rel="canonical" href="https://multialt.pages.dev/">
+  <meta property="og:locale" content="en_US">
+  <!-- Cada idioma tem endereco proprio (site/pt, site/es, gerados por
+       scripts/site/build-locales.ts); o hreflang liga os tres. -->
+  <link rel="alternate" hreflang="en" href="https://multialt.pages.dev/">
+  <link rel="alternate" hreflang="pt" href="https://multialt.pages.dev/pt/">
+  <link rel="alternate" hreflang="es" href="https://multialt.pages.dev/es/">
+  <link rel="alternate" hreflang="x-default" href="https://multialt.pages.dev/">
   <meta name="twitter:card" content="summary_large_image">
   <!-- WebSite na pagina inicial e de onde o Google tira o nome do site no
        resultado da busca; sem ele aparecia "Cloudflare" (o dono do dominio pages.dev). -->
@@ -54,6 +61,79 @@
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
     "author": { "@type": "Person", "name": "Luan Macea", "url": "https://github.com/luanmacea" },
     "sameAs": ["https://github.com/luanmacea/MultiAlt"]
+  }
+  </script>
+  <!-- Gerado das duvidas da pagina por scripts/site/build-locales.ts: nao edite a mao. -->
+  <script type="application/ld+json" id="faq-ld">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Why does my antivirus flag it?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The app isn’t code-signed, and tools that launch game processes are a common false positive for antivirus models that learn from patterns. The .msi comes out clean on VirusTotal. If you’re unsure, read the code or build it yourself."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I turn on Multi Roblox?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Close Roblox, then go to Settings, General and turn on Multi Roblox."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Why is Multi Roblox off by default?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Roblox’s anti-cheat team has said running several clients may be seen as suspicious behavior. Turn it on at your own risk."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I get banned for using it?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The manager doesn’t break Roblox’s Terms of Service, but some games forbid alt accounts. Check the rules of the game you play."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I back up my accounts?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Settings, Backups. The backup includes the device key, so if you don’t set a password in the app, anyone with the file can open your accounts. Set a password before keeping backups in the cloud."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "The window opened blank. What now?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "The app reopens itself without video acceleration after 25 seconds. You can force that by holding Shift while it opens. If it’s still blank, repair Microsoft Edge WebView2 Runtime in Windows Settings, Apps, restart and update your graphics driver."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does it work on Mac?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Not yet. macOS support is partial and there’s no Mac download for now."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is it really free?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes. No paid tier, no ads, no account to create. It’s licensed under GPL-3.0."
+        }
+      }
+    ]
   }
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -522,6 +602,15 @@
         <a href="https://github.com/luanmacea/MultiAlt/releases" data-i18n="ft.releases">Releases</a>
         <a href="https://github.com/luanmacea/MultiAlt/issues" data-i18n="ft.issues">Report a bug</a>
         <a href="https://github.com/luanmacea/MultiAlt/blob/main/LICENSE">GPL-3.0</a>
+      </p>
+      <p class="foot-links">
+        <a href="multiple-roblox-accounts/">How to play multiple Roblox accounts at once</a>
+        <a href="is-multialt-safe/">Is MultiAlt safe?</a>
+      </p>
+      <p class="foot-links foot-langs">
+        <a href="./" hreflang="en" lang="en">English</a>
+        <a href="pt/" hreflang="pt" lang="pt-BR">Português</a>
+        <a href="es/" hreflang="es" lang="es">Español</a>
       </p>
     </div>
   </footer>
