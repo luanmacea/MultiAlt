@@ -67,10 +67,13 @@ jobs:
             }
             core.setOutput('run', 'true');
 
-  verify:
+  # Frontend num runner Linux, em paralelo com o Rust: typecheck, testes da
+  # interface e os dois builds do Vite nao precisam de Windows, e o runner
+  # Linux sobe mais rapido. O tempo total vira o do Rust sozinho (03/10/2026).
+  frontend:
     needs: guard
     if: needs.guard.outputs.run == 'true'
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -79,16 +82,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      # Mesmo motivo do release: sem cache, cada push recompila tudo do zero
-      # para rodar `cargo test` e os dois `cargo check`.
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "src-tauri -> target"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -104,9 +97,6 @@ jobs:
       - name: Frontend tests (vitest)
         run: bun run test
 
-      - name: Backend tests (all features)
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --all-features
-
       - name: Build frontend (full)
         env:
           VITE_ENABLE_NEXUS: "true"
@@ -119,8 +109,34 @@ jobs:
           VITE_ENABLE_WEBSERVER: "false"
         run: bun run build
 
-      - name: Check Rust backend (full features)
-        run: cargo check --manifest-path src-tauri/Cargo.toml --locked
+  # Backend: o que precisa de Windows (windows-sys, registro, Win32).
+  verify:
+    needs: guard
+    if: needs.guard.outputs.run == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # `shared-key`: o mesmo cache para o run do PR e o do push. Cache do
+      # GitHub Actions e por branch, e um PR para a main so le o cache da main
+      # e o dele: o run do push na main (depois de cada release) e que deixa o
+      # cache pronto para o proximo PR. A chave tambem muda com o Cargo.lock —
+      # trocar a versao do app (ex.: 1.0.0) recompila tudo uma vez.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
+          shared-key: "ci"
+
+      - name: Backend tests (all features)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --all-features
+
+      # O `cargo test --all-features` acima ja compila a variante completa;
+      # um `cargo check` dela repetia o trabalho. Fica so a variante padrao,
+      # que compila sem as features e o teste nao cobre.
       - name: Check Rust backend (standard build)
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features

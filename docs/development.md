@@ -30,7 +30,7 @@ Scripts definidos em [package.json](../package.json) e hooks de build em [tauri.
 
 ### O que a CI verifica
 
-[.github/workflows/ci.yml](../.github/workflows/ci.yml) (push e PR nas branches `main` e `develop`, só quando mudam `src/`, `src-tauri/`, `package.json`, `vite.config.ts` ou o próprio workflow; runner Windows, com cache do Rust):
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) (push e PR nas branches `main` e `develop`, só quando mudam `src/`, `src-tauri/`, `package.json`, `vite.config.ts` ou o próprio workflow). Dois jobs em paralelo (03/10/2026): `frontend` num runner **Linux** (typecheck, auditoria das suítes, vitest e os dois builds do Vite) e `verify` no runner **Windows** (`cargo test --all-features` e o `cargo check` da variante padrão — o `check` da completa saiu, o `cargo test` já a compila). O cache do Rust usa `shared-key: ci`; cache do Actions é por branch e um PR para a `main` só lê o da `main`, que o run do push na `main` deixa pronto depois de cada release. Trocar a versão no `Cargo.toml` muda o `Cargo.lock` e recompila tudo uma vez:
 
 **Cada commit é verificado uma vez só.** Com um PR aberto da branch, o evento `pull_request` já roda o CI **no mesmo commit** que o `push` — eram dois runs de ~20 min medindo a mesma coisa (visto no `af99c73`, 28/09/2026). O job `guard` (segundos, no runner Linux) consulta se há PR aberto para a branch e, se houver, pula o run do `push`: quem vale é o evento do PR, que é o check que libera o merge. Um `concurrency` por branch/PR também cancela o run anterior quando chega um commit novo — o resultado do commit já substituído não interessa.
 
