@@ -23,15 +23,39 @@ function withoutDetails(lines: string[]): string[] {
 }
 
 /**
+ * Tipo da release: correção (`fix`), novidades (`feature`) ou atualização
+ * geral (`mixed`). Quem decide é o workflow de release
+ * (.github/scripts/release-kind.mjs), que escreve na primeira linha do texto
+ * uma marca para máquina e, logo abaixo, o selo visível na página do GitHub.
+ */
+export type ReleaseKind = "fix" | "feature" | "mixed";
+
+const KIND_MARKER = /<!--\s*release-kind:\s*(fix|feature|mixed)\s*-->/i;
+
+/**
+ * Linhas do tipo que o app não mostra como texto: a marca (de qualquer valor)
+ * e os três selos, que no app viram o selo da própria tela. Os textos dos selos
+ * são os de `RELEASE_KIND_BADGES` (release-kind.mjs) — o release-kind.test.mjs
+ * confere que os dois lados batem.
+ */
+const KIND_LINE =
+  /^\s*(?:<!--\s*release-kind:[^>]*-->|\*\*\s*(?:🩹 Hotfix|✨ New features|📦 General update)\s*\*\*)\s*$/u;
+
+/** Item de lista em linguagem simples que é correção: "Fixed: …". */
+const FIXED_ITEM = /^\**\s*fixed\s*:/i;
+
+/**
  * A página da release abre com "## Download" (o botão do instalador para quem
  * chega pelo GitHub — ver o passo "Finalize release notes" do release-v4.yml)
  * e guarda a lista técnica de PRs num bloco recolhido (<details>). Na janela de
  * atualização nenhum dos dois serve: o app já baixa e instala sozinho, e quem
  * atualiza quer a lista simples. Tira a seção de download inteira (até o
- * próximo título "## ") e os blocos <details>.
+ * próximo título "## ") e os blocos <details>. A marca e o selo do tipo da
+ * release também saem: a janela mostra o tipo no próprio selo.
  */
 export function notesForUpdateDialog(body: string): string {
-  const lines = body.split(/\r?\n/);
+  const all = body.split(/\r?\n/);
+  const lines = all.filter((l) => !KIND_LINE.test(l));
   const start = lines.findIndex((l) => /^##\s+Download\b/i.test(l));
   const withoutDownload =
     start < 0
@@ -42,7 +66,7 @@ export function notesForUpdateDialog(body: string): string {
         })();
   const kept = withoutDetails(withoutDownload);
   const out = kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  return start < 0 && kept.length === lines.length ? body : out;
+  return start < 0 && kept.length === all.length ? body : out;
 }
 
 /** Item de lista em markdown (`-`, `*`, `+`, inclusive o `\*` escapado). */
@@ -67,11 +91,8 @@ const PR_SUFFIX = /\s+by\s+@[A-Za-z0-9-]+(?:\[bot\])?\s+in\s+(?:https?:\/\/\S+|#
  * - Release sem a seção (v0.1.1, v0.1.2) volta vazia e a página a pula.
  */
 export function changelogNotes(body: string): string {
-  const lines = body.split(/\r?\n/);
-  const start = lines.findIndex((l) => /^##\s+What['’]s Changed\b/i.test(l));
-  if (start < 0) return "";
-  const end = lines.findIndex((l, i) => i > start && /^##\s+\S/.test(l));
-  const section = withoutDetails(lines.slice(start + 1, end < 0 ? undefined : end));
+  const section = whatsChangedLines(body);
+  if (!section) return "";
 
   const out: string[] = [];
   for (const raw of section) {
@@ -88,6 +109,42 @@ export function changelogNotes(body: string): string {
     out.push(line);
   }
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Linhas da seção "## What's Changed" (até o próximo título), sem os blocos
+ * recolhidos e sem as linhas do tipo; `null` quando a release não tem a seção.
+ */
+function whatsChangedLines(body: string): string[] | null {
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^##\s+What['’]s Changed\b/i.test(l));
+  if (start < 0) return null;
+  const end = lines.findIndex((l, i) => i > start && /^##\s+\S/.test(l));
+  return withoutDetails(lines.slice(start + 1, end < 0 ? undefined : end)).filter((l) => !KIND_LINE.test(l));
+}
+
+/**
+ * Tipo de uma release pelo texto dela, ou `null` (sem selo).
+ *
+ * - Com a marca `<!-- release-kind: … -->` (releases depois de 04/10/2026),
+ *   vale a marca.
+ * - Sem marca, a lista em linguagem simples de "## What's Changed" é
+ *   classificada como o workflow faz: todos os itens com "Fixed:" → correção;
+ *   nenhum → novidades; os dois → atualização geral.
+ * - Release antiga, com a lista técnica de títulos de PR (" by @autor in …"),
+ *   ou sem lista nenhuma, fica sem tipo: chutar ali seria inventar.
+ */
+export function releaseKindOf(body: string): ReleaseKind | null {
+  const marker = KIND_MARKER.exec(body);
+  if (marker) return marker[1].toLowerCase() as ReleaseKind;
+
+  const items = (whatsChangedLines(body) ?? [])
+    .map((line) => line.match(BULLET)?.[1]?.trim() ?? "")
+    .filter(Boolean);
+  if (items.length === 0 || items.some((item) => PR_SUFFIX.test(item))) return null;
+  const fixes = items.filter((item) => FIXED_ITEM.test(item)).length;
+  if (fixes === items.length) return "fix";
+  return fixes === 0 ? "feature" : "mixed";
 }
 
 /** "v0.1.10-beta" → "0.1.10". O canal (`-beta`) não diz nada para quem lê. */
@@ -114,6 +171,8 @@ export interface ReleaseEntry {
   publishedAt: string;
   /** Markdown de `changelogNotes`, nunca vazio. */
   notes: string;
+  /** Correção, novidades ou geral; `null` em release antiga (sem selo). */
+  kind: ReleaseKind | null;
   url: string;
 }
 
@@ -139,7 +198,8 @@ interface GithubRelease {
 
 function toEntry(raw: GithubRelease): ReleaseEntry | null {
   if (raw.draft === true || typeof raw.tag_name !== "string" || !raw.tag_name.trim()) return null;
-  const notes = changelogNotes(typeof raw.body === "string" ? raw.body : "");
+  const body = typeof raw.body === "string" ? raw.body : "";
+  const notes = changelogNotes(body);
   if (!notes) return null;
   const publishedAt =
     typeof raw.published_at === "string" ? raw.published_at : typeof raw.created_at === "string" ? raw.created_at : "";
@@ -148,6 +208,7 @@ function toEntry(raw: GithubRelease): ReleaseEntry | null {
     version: versionFromTag(raw.tag_name),
     publishedAt,
     notes,
+    kind: releaseKindOf(body),
     url: typeof raw.html_url === "string" ? raw.html_url : "",
   };
 }
