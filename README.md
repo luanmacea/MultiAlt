@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/MultiAlt/releases/latest">other downloads (full version)</a> · <a href="https://multialt.pages.dev/">🌐 website</a></sub>
+  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/MultiAlt/releases/latest">other downloads (full version)</a> · <a href="https://multialt.pages.dev/">🌐 website</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
@@ -17,7 +17,7 @@ Fast and lightweight: rewritten from scratch in **Rust + TypeScript** with [Taur
 
 *MultiAlt was called **RAM — Roblox Account Manager** until v0.1.8: same app, same data, it updates itself to the new name.*
 
-Full credit to [ic3w0lf22](https://github.com/ic3w0lf22), who created the original Roblox Account Manager, and to [niccdevs](https://github.com/niccdevs), who maintained it afterwards. This project continues their work.
+Full credit to [ic3w0lf22](https://github.com/ic3w0lf22), who created the original Roblox Account Manager, and to [niccdevs](https://github.com/niccdevs), who maintained it afterwards. This project continues their work: the original Roblox Account Manager was [archived in October 2024](https://github.com/ic3w0lf22/Roblox-Account-Manager), and MultiAlt is its maintained successor. Coming from RAM? **Add → Import Old Account Data** brings your accounts over.
 
 Found a bug or have an idea? Open an [issue](https://github.com/luanmacea/MultiAlt/issues).
 
