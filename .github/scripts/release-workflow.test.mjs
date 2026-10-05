@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -289,4 +289,50 @@ describe("prepare-release.mjs", () => {
   it("recusa tipo desconhecido", () => {
     expect(() => runPrepare({ RELEASE_BUMP: "patch", RELEASE_KIND: "major" })).toThrow();
   });
+});
+
+/**
+ * O contador de downloads da release e o numero de usuarios que o dono olha
+ * (pedido de 05/10/2026). Automacao nenhuma pode baixar o instalador: os
+ * workflows so baixam `.sig` (para reordenar) e o `latest.json`. Conferir o
+ * botao do README e com HEAD (`curl -I`), que nao conta download.
+ */
+describe("automacao nao infla o contador de downloads", () => {
+  const dirs = [
+    path.resolve(__dirname, "..", "workflows"),
+    path.resolve(__dirname),
+  ];
+  const files = dirs.flatMap((dir) =>
+    readdirSync(dir)
+      .filter((f) => /\.(ya?ml|mjs)$/.test(f) && !f.endsWith(".test.mjs"))
+      .map((f) => path.join(dir, f)),
+  );
+
+  it("acha os arquivos de automacao", () => {
+    expect(files.some((f) => f.endsWith("release-v4.yml"))).toBe(true);
+  });
+
+  for (const file of files) {
+    const text = readFileSync(file, "utf8");
+    const name = path.basename(file);
+
+    it(`${name}: gh release download so pega .sig ou latest.json`, () => {
+      const lines = text.split(/\r?\n/).filter((l) => l.includes("gh release download"));
+      for (const line of lines) {
+        expect(line).toMatch(/--pattern\s+"(\$name|latest\.json)"/);
+      }
+      if (lines.some((l) => l.includes('"$name"'))) {
+        // `$name` vem da lista filtrada por "*.sig" logo acima.
+        expect(text).toMatch(/\$sigNames = @\(\$release\.assets \| Where-Object \{ \$_\.name -like "\*\.sig" \}/);
+      }
+    });
+
+    it(`${name}: nenhum curl/wget/Invoke-WebRequest em asset de release`, () => {
+      const fetches = text
+        .split(/\r?\n/)
+        .filter((l) => /\b(curl|wget|Invoke-WebRequest|iwr)\b/.test(l))
+        .filter((l) => /releases\/(latest\/)?download\//.test(l));
+      expect(fetches).toEqual([]);
+    });
+  }
 });
