@@ -47,4 +47,4 @@ O objetivo é aparecer para quem pesquisa "roblox account manager". O que o site
 - Versões em português e espanhol com endereço próprio (`/pt/`, `/es/`, desde 04/10/2026), ligadas por `hreflang` no `<head>` e no `sitemap.xml`, cada uma canônica de si mesma. Antes a troca era só por JavaScript e o Google só via o inglês.
 - `FAQPage` estruturado gerado das dúvidas da página, em cada idioma.
 
-Fora do código, o que mais pesa é o Google descobrir o site e outros lugares apontarem para ele — o plano está em [docs/seo.md](../docs/seo.md).
+Fora do código, o que mais pesa é o Google descobrir o site e outros lugares apontarem para ele.
