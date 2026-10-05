@@ -48,7 +48,14 @@
     if (typeof renderTour === "function") renderTour();
   }
 
+  // Páginas /pt/ e /es/ já chegam traduzidas (geradas por scripts/site/build-locales.ts):
+  // o idioma é o da página, e trocar de idioma é ir para o endereço do outro.
+  var pageLang = document.documentElement.getAttribute("data-site-lang");
+  // Os arquivos moram na raiz; de /pt/ e /es/ eles ficam um nível acima.
+  var ROOT = pageLang ? "../" : "";
+
   function initialLang() {
+    if (pageLang) return pageLang;
     var fromUrl = new URLSearchParams(location.search).get("lang");
     if (fromUrl) return fromUrl.slice(0, 2).toLowerCase();
     try {
@@ -63,6 +70,10 @@
     b.addEventListener("click", function () {
       var next = b.getAttribute("data-lang");
       try { localStorage.setItem("ram-site-lang", next); } catch (e) { /* ok */ }
+      if (pageLang) {
+        if (next !== pageLang) location.href = next === "en" ? "../" : "../" + next + "/";
+        return;
+      }
       applyLang(next);
     });
   });
@@ -222,7 +233,7 @@
     el.style.setProperty("--y", i * 16 + "px");
     el.style.zIndex = String(i);
     el.innerHTML =
-      '<div class="client-bar"><img src="assets/icon.svg" alt="">Roblox — ' + a.name + "</div>" +
+      '<div class="client-bar"><img src="' + ROOT + 'assets/icon.svg" alt="">Roblox — ' + a.name + "</div>" +
       '<div class="client-scene" style="--sky-a:' + s[0] + ";--sky-b:" + s[1] + ";--ground:" + s[2] + ";--ground-2:" + s[3] + '"></div>';
     clients.appendChild(el);
     if (instant) el.classList.add("on");
@@ -287,7 +298,7 @@
 
   function selectTour(tab, focus) {
     if (!tourImg) return;
-    var shot = "assets/screens/" + tab.getAttribute("data-shot") + ".png";
+    var shot = ROOT + "assets/screens/" + tab.getAttribute("data-shot") + ".png";
     tourTabs.forEach(function (b) {
       var on = b === tab;
       b.setAttribute("aria-selected", String(on));
@@ -323,7 +334,7 @@
     // Adianta o download da foto quando a pessoa passa o mouse.
     b.addEventListener("pointerenter", function () {
       var pre = new Image();
-      pre.src = "assets/screens/" + b.getAttribute("data-shot") + ".png";
+      pre.src = ROOT + "assets/screens/" + b.getAttribute("data-shot") + ".png";
     }, { once: true });
   });
 

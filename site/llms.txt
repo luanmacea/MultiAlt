@@ -1,0 +1,27 @@
+# MultiAlt
+
+> MultiAlt is a free, open-source Roblox account manager for Windows (formerly "RAM - Roblox Account Manager", rewritten in Rust and Tauri). It keeps every Roblox account signed in, runs multiple Roblox clients at the same time (Multi Roblox), sends a group of accounts into the same server, and keeps them in game with AFK mode and Auto Rejoin. Accounts are encrypted on the user's own PC. License: GPL-3.0. Not affiliated with Roblox Corporation.
+
+- Website: https://multialt.pages.dev/
+- Source code and releases: https://github.com/luanmacea/MultiAlt
+- Download (Windows .msi installer, no administrator prompt, updates itself): https://github.com/luanmacea/MultiAlt/releases/latest
+- Platforms: Windows 10 and 11. macOS support is partial, with no Mac download yet.
+- Price: free. No paid tier, no ads, no account to create.
+- Languages: English, Portuguese, Spanish.
+
+## Guides
+
+- [How to play multiple Roblox accounts at once](https://multialt.pages.dev/multiple-roblox-accounts/): install, add accounts, turn on Multi Roblox (Settings, General) and join the same server with every account.
+- [Is MultiAlt safe?](https://multialt.pages.dev/is-multialt-safe/): what it stores, who it talks to, antivirus false positives, ban risk.
+
+## Features
+
+- Accounts: add by browser login, cookie, user:pass or the original RAM account file; groups, aliases, live status (online, in game, expired session); streamer mode; encrypted storage with a password or a device key; backups.
+- Playing: Multi Roblox; Multi Launch (one account at a time, cancellable queue); server finder with "best fit" for groups and region filter; friends tab and follow-a-player; private servers and any Roblox link; window grid across monitors.
+- Staying in game: AFK mode (key press or click on a timer), Auto Rejoin for alts, watcher for disconnected or low-memory clients.
+- Extras: free avatar builder using only free official items (never spends Robux), theme editor, sandboxed JavaScript scripts, optional local HTTP API and Nexus WebSocket server, performance profiles (FPS cap, CPU priority, memory limits).
+
+## Other languages
+
+- Português: https://multialt.pages.dev/pt/
+- Español: https://multialt.pages.dev/es/
