@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Is MultiAlt Safe? What the Roblox Account Manager Does With Your Accounts</title>
+  <meta name="description" content="MultiAlt is open source, encrypts your Roblox accounts on your own PC and scans 0/75 on VirusTotal. Here's what it stores, who it talks to, and how to check the download yourself.">
+  <meta name="theme-color" content="#070b18">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="../favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64 256x256">
+  <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://multialt.pages.dev/is-multialt-safe/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="Is MultiAlt safe?">
+  <meta property="og:description" content="Open source, accounts encrypted on your PC, 0/75 on VirusTotal. What it stores, who it talks to and how to check it yourself.">
+  <meta property="og:image" content="https://multialt.pages.dev/assets/screenshot.png">
+  <meta property="og:url" content="https://multialt.pages.dev/is-multialt-safe/">
+  <meta property="og:site_name" content="MultiAlt">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Is MultiAlt safe?",
+    "description": "What MultiAlt stores, who it talks to, why some antivirus tools flag game launchers, and how to check the download yourself.",
+    "image": "https://multialt.pages.dev/assets/screenshot.png",
+    "datePublished": "2026-10-04",
+    "dateModified": "2026-10-04",
+    "author": { "@type": "Person", "name": "Luan Macea", "url": "https://github.com/luanmacea" },
+    "publisher": { "@type": "Organization", "name": "MultiAlt", "logo": { "@type": "ImageObject", "url": "https://multialt.pages.dev/assets/icon-192.png" } },
+    "mainEntityOfPage": "https://multialt.pages.dev/is-multialt-safe/",
+    "about": { "@type": "SoftwareApplication", "name": "MultiAlt", "url": "https://multialt.pages.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "MultiAlt", "item": "https://multialt.pages.dev/" },
+      { "@type": "ListItem", "position": 2, "name": "Is MultiAlt safe?", "item": "https://multialt.pages.dev/is-multialt-safe/" }
+    ]
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-row">
+      <a class="brand" href="../" aria-label="MultiAlt home">
+        <img src="../assets/icon.svg" alt="" width="30" height="30">
+        <span>MultiAlt</span>
+      </a>
+      <div class="nav-tools">
+        <a class="btn btn-small" href="../#download">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="guide">
+    <p class="crumbs"><a href="../">MultiAlt</a> / Guides</p>
+    <h1>Is MultiAlt safe?</h1>
+    <p class="lede">An account manager holds the keys to every account you put in it, so “trust me” isn’t good enough. Here’s exactly what MultiAlt does with your accounts, and how you can check each claim yourself.</p>
+    <p class="updated">Updated October 4, 2026</p>
+
+    <h2>The short answer</h2>
+    <ul>
+      <li><strong>The code is public.</strong> MultiAlt is open source under GPL-3.0. Anyone can read it, audit it or build it.</li>
+      <li><strong>Your accounts never leave your PC</strong> except to sign in to Roblox itself. There’s no MultiAlt server, no account to create, and no analytics.</li>
+      <li><strong>Accounts are encrypted on disk</strong>, with your password or with a key tied to that computer.</li>
+      <li><strong>The installer scans clean:</strong> the .msi comes out 0/75 on VirusTotal, and every release is also scanned with Windows Defender before it goes out.</li>
+      <li><strong>No administrator prompt.</strong> The .msi installs for your Windows user only.</li>
+    </ul>
+
+    <h2>What it stores, and where</h2>
+    <p>Everything lives in the app’s data folder on your PC. Your accounts are in <code>AccountData.json</code>, encrypted. If you set a password in the app, the file can only be opened with it. If you don’t, it’s locked with a device key stored next to it, so copying just the accounts file to another computer doesn’t expose your accounts.</p>
+    <div class="note">
+      <p><strong>About backups:</strong> a backup includes the device key, so if you haven’t set a password, anyone with the backup file can open your accounts. Set a password before keeping backups in the cloud.</p>
+    </div>
+
+    <h2>Who it talks to</h2>
+    <ul>
+      <li><strong>Roblox</strong>, to sign in, launch games, read servers, friends and avatars. This is the same traffic the Roblox website and app make.</li>
+      <li><strong>GitHub</strong>, to check for updates and download new versions. Updates are signed, and the app refuses one whose signature doesn’t match.</li>
+      <li><strong>Google Fonts</strong>, for the theme fonts.</li>
+    </ul>
+    <p>A few features reach other services, only when you use them: the region filter looks up where game servers are, the Versions screen reads a public list of Roblox builds, and the paid account generator talks to its provider. None of them receive your saved accounts.</p>
+
+    <h2>Why does my antivirus flag it?</h2>
+    <p>The app isn’t code-signed with a paid certificate, and tools that launch game processes look a lot like what antivirus models are trained to catch. That makes them a common false positive. The .msi installer scans 0/75 on VirusTotal. If you’re still unsure:</p>
+    <ol>
+      <li>Download only from the <a href="https://github.com/luanmacea/MultiAlt/releases">official GitHub releases</a>. Copies posted anywhere else may be modified.</li>
+      <li>Upload the file to <a href="https://www.virustotal.com/">VirusTotal</a> yourself and look at the result.</li>
+      <li>Read the code, or build it from source.</li>
+    </ol>
+
+    <h2>Can my Roblox account get banned?</h2>
+    <p>Managing accounts doesn’t break Roblox’s Terms of Service. Two things to keep in mind:</p>
+    <ul>
+      <li><strong>Multi Roblox</strong> (several clients at once) is off by default because Roblox’s anti-cheat team has said it may be seen as suspicious. Turning it on is your call.</li>
+      <li>Some games forbid alt accounts. Check the rules of the games you play.</li>
+    </ul>
+
+    <h2>The one thing that can actually lose you an account</h2>
+    <p><strong>Never create an rbx-player link, or share your cookie, because someone asked you to.</strong> Anyone holding that link can join any game, or even Roblox Studio, as you. They can spend your Robux or get your account banned. MultiAlt will never ask you to send one to anybody.</p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="../#download">Download MultiAlt for Windows</a>
+      <a class="btn btn-ghost" href="https://github.com/luanmacea/MultiAlt">Read the code on GitHub</a>
+    </div>
+
+    <p class="guide-more">More: <a href="../">MultiAlt home</a> · <a href="../multiple-roblox-accounts/">How to play multiple Roblox accounts at once</a> · <a href="../pt/">Português</a> · <a href="../es/">Español</a></p>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-row">
+      <p>Not affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.</p>
+    </div>
+  </footer>
+</body>
+</html>

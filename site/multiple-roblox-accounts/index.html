@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How to Play Multiple Roblox Accounts at Once (Multi Roblox) – MultiAlt</title>
+  <meta name="description" content="Run two or more Roblox accounts at the same time on Windows: add your accounts to MultiAlt, turn on Multi Roblox and send them all into the same server. Free and open source.">
+  <meta name="theme-color" content="#070b18">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="../favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64 256x256">
+  <link rel="icon" href="../assets/icon-48.png" sizes="48x48" type="image/png">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://multialt.pages.dev/multiple-roblox-accounts/">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="How to play multiple Roblox accounts at once">
+  <meta property="og:description" content="Add your accounts, turn on Multi Roblox and join the same server with all of them. Step by step, with MultiAlt.">
+  <meta property="og:image" content="https://multialt.pages.dev/assets/screens/choose-game.png">
+  <meta property="og:url" content="https://multialt.pages.dev/multiple-roblox-accounts/">
+  <meta property="og:site_name" content="MultiAlt">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "How to play multiple Roblox accounts at once",
+    "description": "Run two or more Roblox accounts at the same time on Windows with MultiAlt: add accounts, turn on Multi Roblox and join the same server.",
+    "image": "https://multialt.pages.dev/assets/screens/choose-game.png",
+    "datePublished": "2026-10-04",
+    "dateModified": "2026-10-04",
+    "author": { "@type": "Person", "name": "Luan Macea", "url": "https://github.com/luanmacea" },
+    "publisher": { "@type": "Organization", "name": "MultiAlt", "logo": { "@type": "ImageObject", "url": "https://multialt.pages.dev/assets/icon-192.png" } },
+    "mainEntityOfPage": "https://multialt.pages.dev/multiple-roblox-accounts/",
+    "about": { "@type": "SoftwareApplication", "name": "MultiAlt", "url": "https://multialt.pages.dev/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "MultiAlt", "item": "https://multialt.pages.dev/" },
+      { "@type": "ListItem", "position": 2, "name": "Multiple Roblox accounts", "item": "https://multialt.pages.dev/multiple-roblox-accounts/" }
+    ]
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-row">
+      <a class="brand" href="../" aria-label="MultiAlt home">
+        <img src="../assets/icon.svg" alt="" width="30" height="30">
+        <span>MultiAlt</span>
+      </a>
+      <div class="nav-tools">
+        <a class="btn btn-small" href="../#download">Download</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="guide">
+    <p class="crumbs"><a href="../">MultiAlt</a> / Guides</p>
+    <h1>How to play multiple Roblox accounts at once</h1>
+    <p class="lede">Roblox only lets one client run at a time out of the box. With MultiAlt, a free and open-source account manager for Windows, you can keep every account signed in and open as many Roblox windows as your PC can handle, all in the same server if you want.</p>
+    <p class="updated">Updated October 4, 2026 · Windows 10 and 11</p>
+
+    <h2>What you need</h2>
+    <ul>
+      <li>A Windows 10 or 11 PC. Each extra Roblox client uses roughly the memory and CPU of one more game, so plan on what your machine can run.</li>
+      <li>The accounts you want to play on: your main and your alts.</li>
+      <li><a href="../#download">MultiAlt</a>, the free installer (.msi). It installs for your Windows user only, doesn’t ask for administrator rights and updates itself.</li>
+    </ul>
+
+    <h2>Step 1: Install MultiAlt</h2>
+    <p>Download the <strong>.msi</strong> from the <a href="../#download">download section</a> (it comes straight from the project’s GitHub releases) and open it. There’s no .NET or Visual C++ runtime to install first.</p>
+
+    <h2>Step 2: Add your accounts</h2>
+    <p>Click <strong>Add</strong> on the accounts screen. There are four ways in:</p>
+    <ul>
+      <li><strong>Browser login:</strong> sign in on the real Roblox page inside the app.</li>
+      <li><strong>Cookie:</strong> paste a <code>.ROBLOSECURITY</code> cookie you already have.</li>
+      <li><strong>User and password:</strong> one or many, as <code>user:pass</code> lines.</li>
+      <li><strong>Old RAM file:</strong> import the account file from the original Roblox Account Manager.</li>
+    </ul>
+    <p>Accounts are saved encrypted on your PC, with your password or with a key tied to that computer. They stay signed in, so you don’t have to log out of one account to play on another.</p>
+    <figure>
+      <img src="../assets/screens/accounts.png" width="1586" height="993" alt="MultiAlt accounts screen listing a main account and several alts" loading="lazy" decoding="async">
+      <figcaption>Every account in one list, grouped your way. Names are hidden in this screenshot.</figcaption>
+    </figure>
+
+    <h2>Step 3: Turn on Multi Roblox</h2>
+    <p>Close every Roblox window first. Then go to <strong>Settings → General</strong> and turn on <strong>Multi Roblox</strong>. That’s the switch that lets more than one Roblox client run at the same time.</p>
+    <div class="note">
+      <p><strong>Why it’s off by default:</strong> Roblox’s anti-cheat team has said that running several clients may be treated as suspicious behavior. MultiAlt leaves the choice to you. Turn it on at your own risk, and check the rules of the games you play, since some of them forbid alt accounts.</p>
+    </div>
+
+    <h2>Step 4: Send the accounts into a game</h2>
+    <ol>
+      <li>Select the accounts you want to play on (click, Ctrl+click or Shift+click).</li>
+      <li>Open <strong>Choose game</strong> and pick a game from your favorites, recent games, a search, or paste any Roblox link: a game, a private server, a share link or an invite.</li>
+      <li>Click <strong>Join</strong>. <strong>Multi Launch</strong> opens one account at a time, a few seconds apart so Roblox doesn’t throw a CAPTCHA at you, and the Session panel shows each one as it gets in. You can cancel the queue at any point.</li>
+    </ol>
+    <figure>
+      <img src="../assets/screens/choose-game.png" width="1586" height="993" alt="MultiAlt Choose game screen with games, servers and friends tabs" loading="lazy" decoding="async">
+      <figcaption>Choose game: favorites, servers, friends and recent games, for every selected account at once.</figcaption>
+    </figure>
+
+    <h3>Keep the group in the same server</h3>
+    <p>The <strong>Servers</strong> tab scans the game’s public servers and picks one where everyone fits. “Best fit” chooses the fullest server that still has room for the whole group, so nobody ends up in a different lobby. You can also prefer emptier servers, a random one, or a specific region. Want to join a friend instead? The <strong>Friends</strong> tab shows each account’s online friends, and <strong>Follow</strong> sends the group to whatever server a player is in.</p>
+
+    <h2>Keep every account in the game</h2>
+    <p>Roblox kicks idle players after about 20 minutes. MultiAlt has two ways to deal with that:</p>
+    <ul>
+      <li><strong>AFK mode</strong> presses a key or clicks in each Roblox window every few minutes, so accounts stay right where they are.</li>
+      <li><strong>Auto Rejoin</strong> closes and reopens your alts on a timer, with live status for each one. Your main accounts are never touched.</li>
+    </ul>
+    <p>A watcher can also close a client that lost connection or is running out of memory.</p>
+
+    <h2>Running many clients on one PC</h2>
+    <ul>
+      <li>Under <strong>Settings → Optimization</strong>, cap the FPS, lower graphics and set CPU priority and memory limits, with separate profiles for mains and alts.</li>
+      <li>Arrange every Roblox window in a grid across the monitors you choose.</li>
+      <li>Close what you don’t need: each client is a full copy of the game.</li>
+    </ul>
+
+    <h2>Common questions</h2>
+    <h3>Is it free?</h3>
+    <p>Yes. No paid tier, no ads and no account to create. MultiAlt is open source under GPL-3.0.</p>
+    <h3>Can I get banned for using several accounts?</h3>
+    <p>The manager doesn’t break Roblox’s Terms of Service, but some games forbid alt accounts, and Roblox has said multiple clients may look suspicious. Read the rules of the game you play.</p>
+    <h3>Does it work on Mac?</h3>
+    <p>Not yet. macOS support is partial and there’s no Mac download for now.</p>
+    <h3>Is it safe?</h3>
+    <p>See <a href="../is-multialt-safe/">Is MultiAlt safe?</a> for what the app does with your accounts, why some antivirus tools flag game launchers, and how to check the download yourself.</p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="../#download">Download MultiAlt for Windows</a>
+      <a class="btn btn-ghost" href="https://github.com/luanmacea/MultiAlt">View the source on GitHub</a>
+    </div>
+
+    <p class="guide-more">More: <a href="../">MultiAlt home</a> · <a href="../is-multialt-safe/">Is MultiAlt safe?</a> · <a href="../pt/">Português</a> · <a href="../es/">Español</a></p>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-row">
+      <p>Not affiliated with or endorsed by Roblox Corporation. Roblox is a trademark of Roblox Corporation.</p>
+    </div>
+  </footer>
+</body>
+</html>
