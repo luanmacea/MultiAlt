@@ -13,6 +13,8 @@
 
 - [How to play multiple Roblox accounts at once](https://multialt.pages.dev/multiple-roblox-accounts/): install, add accounts, turn on Multi Roblox (Settings, General) and join the same server with every account.
 - [Is MultiAlt safe?](https://multialt.pages.dev/is-multialt-safe/): what it stores, who it talks to, antivirus false positives, ban risk.
+- Português: [Como jogar com várias contas no Roblox ao mesmo tempo](https://multialt.pages.dev/pt/varias-contas-roblox/) and [O MultiAlt é seguro?](https://multialt.pages.dev/pt/multialt-e-seguro/)
+- Español: [Cómo jugar con varias cuentas en Roblox al mismo tiempo](https://multialt.pages.dev/es/varias-cuentas-roblox/) and [¿MultiAlt es seguro?](https://multialt.pages.dev/es/multialt-es-seguro/)
 
 ## Features
 
