@@ -29,14 +29,23 @@ const params = new URLSearchParams(window.location.search);
 const scenarioName = params.get("scenario") || "default";
 const accountCount = Math.max(1, Math.min(Number(params.get("accounts") ?? 6) || 6, 16));
 const language = params.get("lang");
+// `&names=demo`: nomes inventados com cara de conta de verdade, para gravar os
+// vídeos de divulgação (marketing/) sem "TestAccount1" na tela. O padrão
+// continua TestAccountN, que é o que os cenários e testes esperam.
+const demoNames = params.get("names") === "demo";
+const DEMO_NAMES = [
+  "Nebula_Main", "NebulaTrades", "FruitFarm_01", "FruitFarm_02", "FruitFarm_03", "FruitFarm_04",
+  "FruitFarm_05", "PetGrinder_A", "PetGrinder_B", "PetGrinder_C", "AfkBank_01", "AfkBank_02",
+  "BuilderAlt", "EventAlt_01", "EventAlt_02", "SpareAlt",
+];
 
 function account(index: number) {
   return {
     UserID: 1000 + index,
-    Username: `TestAccount${index}`,
+    Username: demoNames ? DEMO_NAMES[index - 1] : `TestAccount${index}`,
     Alias: "",
     Description: "",
-    Group: "",
+    Group: demoNames ? (index <= 2 ? "Main" : "Squad alts") : "",
     SecurityToken: `cookie-${index}`,
     Password: "",
     Fields: {},
