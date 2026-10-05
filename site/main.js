@@ -38,7 +38,7 @@
       var attr = parts[0], key = parts[1];
       if (!attrOriginals.has(el)) attrOriginals.set(el, el.getAttribute(attr));
       var tr = lang === "en" ? null : dict[lang][key];
-      el.setAttribute(attr, tr != null ? tr : attrOriginals.get(el));
+      el.setAttribute(attr, tr != null ? fromRoot(attr, tr) : attrOriginals.get(el));
     });
     document.querySelectorAll(".lang button").forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === lang));
@@ -53,6 +53,13 @@
   var pageLang = document.documentElement.getAttribute("data-site-lang");
   // Os arquivos moram na raiz; de /pt/ e /es/ eles ficam um nível acima.
   var ROOT = pageLang ? "../" : "";
+
+  // Endereço do i18n.js (escrito a partir da raiz, ex. "pt/varias-contas-roblox/")
+  // visto de /pt/ ou /es/ — a mesma regra do rebase de scripts/site/locales.ts.
+  function fromRoot(attr, url) {
+    if (!ROOT || (attr !== "href" && attr !== "src") || /^(?:[a-z]+:|#|\/|\.\.\/)/i.test(url)) return url;
+    return url === "./" ? ROOT : ROOT + url;
+  }
 
   function initialLang() {
     if (pageLang) return pageLang;

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>¿MultiAlt es seguro? Qué hace el administrador de cuentas de Roblox con tus cuentas</title>
+  <meta name="description" content="MultiAlt es de código abierto, guarda tus cuentas de Roblox cifradas en tu propia PC y da 0/75 en VirusTotal. Esto es lo que guarda, con quién se comunica y cómo revisar la descarga tú mismo.">
+  <meta name="theme-color" content="#070b18">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="../../favicon.ico" sizes="16x16 24x24 32x32 48x48 64x64 256x256">
+  <link rel="icon" href="../../assets/icon-48.png" sizes="48x48" type="image/png">
+  <link rel="icon" href="../../assets/icon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://multialt.pages.dev/es/multialt-es-seguro/">
+  <link rel="alternate" hreflang="en" href="https://multialt.pages.dev/is-multialt-safe/">
+  <link rel="alternate" hreflang="pt" href="https://multialt.pages.dev/pt/multialt-e-seguro/">
+  <link rel="alternate" hreflang="es" href="https://multialt.pages.dev/es/multialt-es-seguro/">
+  <link rel="alternate" hreflang="x-default" href="https://multialt.pages.dev/is-multialt-safe/">
+  <meta property="og:type" content="article">
+  <meta property="og:locale" content="es_ES">
+  <meta property="og:title" content="¿MultiAlt es seguro?">
+  <meta property="og:description" content="Código abierto, cuentas cifradas en tu PC, 0/75 en VirusTotal. Qué guarda, con quién se comunica y cómo revisarlo tú mismo.">
+  <meta property="og:image" content="https://multialt.pages.dev/assets/screenshot.png">
+  <meta property="og:url" content="https://multialt.pages.dev/es/multialt-es-seguro/">
+  <meta property="og:site_name" content="MultiAlt">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "¿MultiAlt es seguro?",
+    "description": "Qué guarda MultiAlt, con quién se comunica, por qué algunos antivirus marcan los programas que abren juegos y cómo revisar la descarga tú mismo.",
+    "inLanguage": "es",
+    "image": "https://multialt.pages.dev/assets/screenshot.png",
+    "datePublished": "2026-10-04",
+    "dateModified": "2026-10-04",
+    "author": { "@type": "Person", "name": "Luan Macea", "url": "https://github.com/luanmacea" },
+    "publisher": { "@type": "Organization", "name": "MultiAlt", "logo": { "@type": "ImageObject", "url": "https://multialt.pages.dev/assets/icon-192.png" } },
+    "mainEntityOfPage": "https://multialt.pages.dev/es/multialt-es-seguro/",
+    "about": { "@type": "SoftwareApplication", "name": "MultiAlt", "url": "https://multialt.pages.dev/es/" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "MultiAlt", "item": "https://multialt.pages.dev/es/" },
+      { "@type": "ListItem", "position": 2, "name": "¿MultiAlt es seguro?", "item": "https://multialt.pages.dev/es/multialt-es-seguro/" }
+    ]
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-row">
+      <a class="brand" href="../" aria-label="Inicio de MultiAlt">
+        <img src="../../assets/icon.svg" alt="" width="30" height="30">
+        <span>MultiAlt</span>
+      </a>
+      <div class="nav-tools">
+        <a class="btn btn-small" href="../#download">Descargar</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="guide">
+    <p class="crumbs"><a href="../">MultiAlt</a> / Guías</p>
+    <h1>¿MultiAlt es seguro?</h1>
+    <p class="lede">Un administrador de cuentas tiene las llaves de todas las cuentas que le pones, así que un “confía en mí” no alcanza. Aquí está exactamente lo que MultiAlt hace con tus cuentas, y cómo puedes comprobar cada afirmación tú mismo.</p>
+    <p class="updated">Actualizado el 4 de octubre de 2026</p>
+
+    <h2>La respuesta corta</h2>
+    <ul>
+      <li><strong>El código es público.</strong> MultiAlt es de código abierto, con licencia GPL-3.0. Cualquiera puede leerlo, auditarlo o compilarlo.</li>
+      <li><strong>Tus cuentas nunca salen de tu PC</strong>, salvo para iniciar sesión en el propio Roblox. No hay servidor de MultiAlt, ni cuenta que crear, ni analíticas.</li>
+      <li><strong>Las cuentas se guardan cifradas en el disco</strong>, con tu contraseña o con una clave ligada a esa computadora.</li>
+      <li><strong>El instalador sale limpio:</strong> el .msi da 0/75 en VirusTotal, y cada versión también se analiza con Windows Defender antes de publicarse.</li>
+      <li><strong>Sin pedir permisos de administrador.</strong> El .msi se instala solo para tu usuario de Windows.</li>
+    </ul>
+
+    <h2>Qué guarda y dónde</h2>
+    <p>Todo vive en la carpeta de datos de la app, en tu PC. Tus cuentas están en <code>AccountData.json</code>, cifrado. Si defines una contraseña en la app, el archivo solo se abre con ella. Si no, queda bloqueado con una clave del equipo guardada a su lado, así que copiar solo el archivo de cuentas a otra computadora no expone tus cuentas.</p>
+    <div class="note">
+      <p><strong>Sobre las copias de seguridad:</strong> una copia de seguridad incluye la clave del equipo, así que, si no definiste una contraseña, cualquiera que tenga el archivo de la copia puede abrir tus cuentas. Define una contraseña antes de guardar copias de seguridad en la nube.</p>
+    </div>
+
+    <h2>Con quién se comunica</h2>
+    <ul>
+      <li><strong>Roblox</strong>, para iniciar sesión, abrir juegos y leer servidores, amigos y avatares. Es el mismo tráfico que generan el sitio y la app de Roblox.</li>
+      <li><strong>GitHub</strong>, para buscar actualizaciones y descargar las versiones nuevas. Las actualizaciones están firmadas, y la app rechaza cualquiera cuya firma no coincida.</li>
+      <li><strong>Google Fonts</strong>, para las fuentes de los temas.</li>
+    </ul>
+    <p>Algunas funciones se conectan a otros servicios, solo cuando las usas: el filtro de región consulta dónde están los servidores del juego, la pantalla Versiones lee una lista pública de builds de Roblox, y el generador de cuentas de pago se comunica con su proveedor. Ninguno de ellos recibe tus cuentas guardadas.</p>
+
+    <h2>¿Por qué mi antivirus marca la app?</h2>
+    <p>La app no está firmada con un certificado de código pagado, y las herramientas que abren procesos de juegos se parecen mucho a lo que los modelos de antivirus están entrenados para detectar. Por eso son un falso positivo común. El instalador .msi da 0/75 en VirusTotal. Si todavía tienes dudas:</p>
+    <ol>
+      <li>Descarga solo desde las <a href="https://github.com/luanmacea/MultiAlt/releases">releases oficiales en GitHub</a>. Las copias publicadas en otros lugares pueden estar modificadas.</li>
+      <li>Sube tú mismo el archivo a <a href="https://www.virustotal.com/">VirusTotal</a> y revisa el resultado.</li>
+      <li>Lee el código, o compílalo desde el código fuente.</li>
+    </ol>
+
+    <h2>¿Me pueden banear la cuenta de Roblox?</h2>
+    <p>Administrar cuentas no viola los Términos de Servicio de Roblox. Dos cosas a tener en cuenta:</p>
+    <ul>
+      <li><strong>Multi Roblox</strong> (varios clientes a la vez) viene desactivado porque el equipo antitrampas de Roblox ha dicho que puede verse como sospechoso. Activarlo es tu decisión.</li>
+      <li>Algunos juegos prohíben las cuentas alternativas. Revisa las reglas de los juegos que juegas.</li>
+    </ul>
+
+    <h2>Lo único que de verdad te puede hacer perder una cuenta</h2>
+    <p><strong>Nunca generes un enlace rbx-player ni compartas tu cookie porque alguien te lo pidió.</strong> Cualquiera que tenga ese enlace puede entrar a cualquier juego, e incluso a Roblox Studio, como si fuera tú. Puede gastar tus Robux o hacer que baneen tu cuenta. MultiAlt nunca te va a pedir que le mandes uno a nadie.</p>
+
+    <div class="cta-row">
+      <a class="btn btn-primary" href="../#download">Descargar MultiAlt para Windows</a>
+      <a class="btn btn-ghost" href="https://github.com/luanmacea/MultiAlt">Leer el código en GitHub</a>
+    </div>
+
+    <p class="guide-more">Más: <a href="../">Inicio de MultiAlt</a> · <a href="../varias-cuentas-roblox/">Cómo jugar con varias cuentas en Roblox al mismo tiempo</a> · <a href="../../is-multialt-safe/" hreflang="en" lang="en">English</a> · <a href="../../pt/multialt-e-seguro/" hreflang="pt" lang="pt-BR">Português</a></p>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-row">
+      <p>Sin relación con Roblox Corporation ni respaldado por ella. Roblox es una marca registrada de Roblox Corporation.</p>
+    </div>
+  </footer>
+</body>
+</html>
