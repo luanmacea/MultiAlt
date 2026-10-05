@@ -30,7 +30,7 @@ const scenarioName = params.get("scenario") || "default";
 const accountCount = Math.max(1, Math.min(Number(params.get("accounts") ?? 6) || 6, 16));
 const language = params.get("lang");
 // `&names=demo`: nomes inventados com cara de conta de verdade, para gravar os
-// vídeos de divulgação (marketing/) sem "TestAccount1" na tela. O padrão
+// vídeos de divulgação sem "TestAccount1" na tela. O padrão
 // continua TestAccountN, que é o que os cenários e testes esperam.
 const demoNames = params.get("names") === "demo";
 const DEMO_NAMES = [
