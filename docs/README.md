@@ -27,7 +27,6 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 
 - [architecture.md](architecture.md) — arquitetura geral, persistência, feature flags, eventos backend→frontend, fluxo de inicialização.
 - [development.md](development.md) — setup, comandos, features do Cargo, i18n, convenções, passo a passo para novo comando Tauri.
-- [seo.md](seo.md) — como fazer o site aparecer no Google para "roblox account manager": diagnóstico, o que já foi feito e próximos passos.
 - [mapa-da-interface.md](mapa-da-interface.md) — onde fica cada funcionalidade na tela e para que serve, em português.
 - [ux-checkup.md](ux-checkup.md) — revisão de usabilidade de setembro/2026: 131 achados triados por prioridade.
 - [../site/README.md](../site/README.md) — site de divulgação (HTML estático no GitHub Pages): como roda, como publica e de onde vêm os links de download.
