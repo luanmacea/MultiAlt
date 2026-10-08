@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 
 import { FeedbackDialog } from "./FeedbackDialog";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
 
 describe("FeedbackDialog", () => {
@@ -45,6 +46,25 @@ describe("FeedbackDialog", () => {
     await userEvent.keyboard("{Escape}");
 
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("Escape closes only the dialog, not the page behind it", async () => {
+    // A página atrás (ex.: Grupos) também volta para a lista de contas com Esc;
+    // com o diálogo aberto, o Esc é só dele (achado no teste real de 08/10/2026).
+    const pageEscape = vi.fn();
+    const onClose = vi.fn();
+    function PageWithDialog({ open }: { open: boolean }) {
+      useEscapeStack(true, pageEscape);
+      return <FeedbackDialog open={open} onClose={onClose} />;
+    }
+    // A página já estava montada; o diálogo abre depois, como no app.
+    const { rerender } = render(<PageWithDialog open={false} />);
+    rerender(<PageWithDialog open />);
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(pageEscape).not.toHaveBeenCalled();
   });
 
   it("renders nothing when closed", () => {

@@ -1,7 +1,7 @@
-import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Bug, Lightbulb, X } from "lucide-react";
 import { useBackdropClose } from "../../hooks/useBackdropClose";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 
 export type FeedbackKind = "bug" | "idea";
@@ -21,14 +21,9 @@ export function FeedbackDialog({ open, onClose }: FeedbackDialogProps) {
   const t = useTr();
   const backdropClose = useBackdropClose(onClose);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  // Pela pilha de Escape: só o topo responde, então a página atrás (que volta
+  // para a lista de contas com Esc) não fecha junto.
+  useEscapeStack(open, onClose);
 
   if (!open) return null;
 
