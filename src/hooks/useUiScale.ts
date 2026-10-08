@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { normalizeUiScaleSetting, resolveUiScale, type LogicalSize } from "../uiScale";
 
 /** Evento com que Settings › General avisa a escolha antes de a store recarregar. */
 const UI_SCALE_EVENT = "ram-ui-scale";
-/** Arrastar a borda da janela dispara dezenas de eventos: calcula só no fim. */
+/** Arrastar a janela dispara dezenas de eventos: calcula só no fim. */
 const RESIZE_DEBOUNCE_MS = 150;
 
 /**
@@ -18,9 +18,12 @@ export function announceUiScale(value: string): void {
 
 /**
  * Aplica o tamanho da interface (`General.InterfaceScale`) com o zoom nativo
- * do WebView. No automático, recalcula quando a janela muda de tamanho;
- * `setZoom` só é chamado quando o fator muda. Trocar de monitor (escala
- * diferente) reaplica em qualquer modo.
+ * do WebView. O automático olha o **monitor** em que a janela está, não a
+ * janela: uma janela restaurada num monitor grande não encolhe a interface
+ * (era assim na primeira versão, e o monitor de 2560x1440 do dono ficaria em
+ * 80% com a janela no tamanho padrão). Recalcula quando a janela anda (pode ter
+ * ido para outro monitor); `setZoom` só é chamado quando o fator muda. Troca de
+ * escala reaplica em qualquer modo.
  *
  * `ready` falso (settings ainda não lidas do INI) não aplica nada: sem isso,
  * quem escolheu um valor fixo veria o automático piscar na abertura.
@@ -67,9 +70,10 @@ export function useUiScale(setting: string | null | undefined, ready = true): vo
 
     const readLogicalSize = async (): Promise<LogicalSize | null> => {
       try {
-        const [physical, scale] = await Promise.all([win.innerSize(), win.scaleFactor()]);
-        if (!(scale > 0)) return null;
-        return { width: physical.width / scale, height: physical.height / scale };
+        const monitor = await currentMonitor();
+        const scale = monitor?.scaleFactor ?? 0;
+        if (!monitor || !(scale > 0)) return null;
+        return { width: monitor.size.width / scale, height: monitor.size.height / scale };
       } catch {
         return null;
       }
@@ -115,7 +119,7 @@ export function useUiScale(setting: string | null | undefined, ready = true): vo
         .catch(() => {});
     };
     try {
-      if (mode === "auto") keep(win.onResized(schedule));
+      if (mode === "auto") keep(win.onMoved(schedule));
       keep(win.onScaleChanged?.(onScaleChanged));
     } catch {
       // API ausente: fica só o cálculo inicial.

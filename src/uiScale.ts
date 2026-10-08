@@ -12,7 +12,7 @@
 export const UI_SCALE_SETTINGS = ["auto", "110", "100", "90", "80"] as const;
 export type UiScaleSetting = (typeof UI_SCALE_SETTINGS)[number];
 
-/** Janela lógica em que a interface fica em 100% no automático. */
+/** Monitor lógico a partir do qual a interface fica em 100% no automático. */
 export const UI_SCALE_REFERENCE = { width: 1440, height: 800 } as const;
 export const UI_SCALE_AUTO_MIN = 0.8;
 export const UI_SCALE_AUTO_MAX = 1;
@@ -30,12 +30,13 @@ export function normalizeUiScaleSetting(raw: string | null | undefined): UiScale
 }
 
 /**
- * Fator automático pelo tamanho **lógico** da janela (pixels físicos divididos
- * pela escala do monitor). Não pode vir de `window.innerWidth`: esse muda com o
- * próprio zoom, e o zoom passaria a alimentar a conta que o decide.
+ * Fator automático pelo tamanho **lógico** do monitor da janela (pixels
+ * físicos divididos pela escala). Não pode vir de `window.innerWidth`: esse
+ * muda com o próprio zoom, e o zoom passaria a alimentar a conta que o decide.
  *
  * `min(w / 1440, h / 800)`, arredondado para baixo em passos de 5% e preso
- * entre 80% e 100%: 2560x1400 → 1.0; 1280x690 → 0.85; 750x450 (mínimo do app) → 0.8.
+ * entre 80% e 100%: 2560x1440 → 1.0; 1920x1080 a 125% (1536x864) → 1.0;
+ * 1366x768 → 0.9; 1920x1080 a 150% (1280x720) → 0.85.
  */
 export function autoUiScale(width: number, height: number): number {
   if (!(width > 0) || !(height > 0)) return 1;
