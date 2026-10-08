@@ -1,18 +1,30 @@
-import { Check, ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import type { MouseEvent } from "react";
+import { Check, ExternalLink, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { useTr } from "../../../i18n/text";
 import { useAccountLabel } from "../../../hooks/useAccountLabel";
 import type { Account } from "../../../types";
 import { NEUTRAL_ACTION, PRIMARY_ACTION } from "../../afk-mode/ModeStatusBar";
 import { GroupIcon, VerifiedBadge } from "./GroupResults";
-import { STATUS_META, needsBrowser, type GroupJoinAccountResult, type GroupJoinSnapshot, type GroupSummary } from "./shared";
+import {
+  STATUS_META,
+  isCaptcha,
+  needsAction,
+  statusLabel,
+  type GroupJoinAccountResult,
+  type GroupJoinSnapshot,
+  type GroupSummary,
+} from "./shared";
 
 const CARD = "theme-surface rounded-xl border theme-border p-3";
 
 /**
  * Quem entra no grupo escolhido, e o andamento de cada conta. A lista de
  * marcar é a mesma das abas do Modo AFK (Selecionar todas / Limpar); o selo de
- * cada linha vem do lote. Conta que esbarrou num captcha ganha "Resolver no
- * navegador" (abre o navegador dela na página do grupo) e "Conferir de novo".
+ * cada linha vem do lote. Clicar em qualquer lugar da caixa da conta marca ou
+ * desmarca (os botões de dentro só fazem a ação deles). Conta que não entrou
+ * (desafio, falha, "ainda não é membro") ganha "Abrir no navegador" (o
+ * navegador dela na página do grupo), "Tentar de novo" (a entrada de novo, só
+ * ela) e "Conferir de novo".
  */
 export function GroupJoinCard({
   group,
@@ -22,12 +34,14 @@ export function GroupJoinCard({
   onPickedChange,
   batch,
   starting,
+  retrying,
   otherBatchRunning,
   cancelling,
   checking,
   onJoin,
   onCancel,
-  onSolveInBrowser,
+  onOpenInBrowser,
+  onRetry,
   onCheckAgain,
 }: {
   group: GroupSummary | null;
@@ -38,13 +52,16 @@ export function GroupJoinCard({
   /** Só o lote deste grupo (o de outro grupo não pinta estas linhas). */
   batch: GroupJoinSnapshot | null;
   starting: boolean;
+  /** Contas com "Tentar de novo" em andamento (uma por vez, como o lote). */
+  retrying: ReadonlySet<number>;
   /** Um lote de outro grupo está rodando: um por vez. */
   otherBatchRunning: boolean;
   cancelling: boolean;
   checking: ReadonlySet<number>;
   onJoin: () => void;
   onCancel: () => void;
-  onSolveInBrowser: (userId: number) => void;
+  onOpenInBrowser: (userId: number) => void;
+  onRetry: (userId: number) => void;
   onCheckAgain: (userId: number) => void;
 }) {
   const t = useTr();
@@ -55,13 +72,22 @@ export function GroupJoinCard({
   const results = new Map<number, GroupJoinAccountResult>((batch?.accounts ?? []).map((r) => [r.userId, r]));
   const total = Math.max(batch?.total ?? 0, batch?.done ?? 0);
   const percent = total > 0 ? Math.round(((batch?.done ?? 0) / total) * 100) : 0;
-  const canJoin = group !== null && !group.isLocked && !locked && count > 0;
+  const anyRetry = retrying.size > 0;
+  const canJoin = group !== null && !group.isLocked && !locked && !anyRetry && count > 0;
 
   function toggle(userId: number) {
     const next = new Set(picked);
     if (next.has(userId)) next.delete(userId);
     else next.add(userId);
     onPickedChange(next);
+  }
+
+  /** Botão de dentro da caixa: faz só a ação dele, não marca/desmarca a conta. */
+  function only(action: () => void) {
+    return (event: MouseEvent) => {
+      event.stopPropagation();
+      action();
+    };
   }
 
   return (
@@ -130,12 +156,19 @@ export function GroupJoinCard({
             const result = results.get(account.UserID);
             const meta = result ? STATUS_META[result.status] : null;
             const isChecking = checking.has(account.UserID);
+            const isRetrying = retrying.has(account.UserID);
+            const challenge = result?.status === "challenge";
+            const captcha = challenge && isCaptcha(result);
+            const diagnostic = [result?.detail, challenge ? result?.reason : null].filter(Boolean).join(" · ");
             return (
               <li
                 key={account.UserID}
                 data-testid={`group-join-row-${account.UserID}`}
-                className={`rounded-lg border transition-colors ${
-                  on ? "border-[var(--accent-color)]/40 bg-[var(--accent-soft)]" : "theme-border"
+                onClick={() => {
+                  if (!locked) toggle(account.UserID);
+                }}
+                className={`rounded-lg border transition-colors ${locked ? "" : "cursor-pointer"} ${
+                  on ? "border-[var(--accent-color)]/40 bg-[var(--accent-soft)]" : "theme-border hover:bg-[var(--panel-soft)]"
                 }`}
               >
                 <div className="flex items-center gap-2 px-2 py-1.5">
@@ -145,8 +178,8 @@ export function GroupJoinCard({
                     aria-checked={on}
                     aria-label={name}
                     disabled={locked}
-                    onClick={() => toggle(account.UserID)}
-                    className="flex-1 min-w-0 flex items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-70"
+                    onClick={only(() => toggle(account.UserID))}
+                    className="flex-1 min-w-0 flex items-center gap-2 text-left rounded outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] disabled:cursor-not-allowed disabled:opacity-70"
                   >
                     <span
                       className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center ${
@@ -161,30 +194,60 @@ export function GroupJoinCard({
                       {name}
                     </span>
                   </button>
-                  {meta ? (
+                  {meta && result ? (
                     <span className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[11px] ${meta.tone}`}>
-                      {result?.status === "joining" ? <Loader2 size={10} className="animate-spin" aria-hidden="true" /> : null}
-                      {t(meta.label)}
+                      {result.status === "joining" ? <Loader2 size={10} className="animate-spin" aria-hidden="true" /> : null}
+                      {t(statusLabel(result))}
                     </span>
                   ) : null}
                 </div>
+                {challenge ? (
+                  <div className="px-2 pb-1.5 pl-8 space-y-0.5">
+                    <div className="text-[11.5px] text-amber-200">
+                      {captcha ? t("Roblox asked for a captcha") : t("Roblox asked this account to confirm something")}
+                    </div>
+                    <div className="text-[11px] theme-muted leading-4">
+                      {t("Open it in the browser and accept what Roblox shows (terms, verification). Then press Try again.")}
+                    </div>
+                    {!captcha && result?.challengeType ? (
+                      <div className="text-[11px] theme-muted opacity-80">
+                        {t("type: {{type}}", { type: result.challengeType })}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 {result?.status === "failed" && result.reason ? (
                   <div className="px-2 pb-1.5 pl-8 text-[11px] text-red-300/90 break-words">{result.reason}</div>
                 ) : null}
-                {group && needsBrowser(result?.status) ? (
+                {diagnostic && (challenge || result?.status === "failed") ? (
+                  <div className="px-2 pb-1.5 pl-8 text-[11px] theme-muted opacity-80 break-words" title={diagnostic}>
+                    {diagnostic}
+                  </div>
+                ) : null}
+                {group && needsAction(result?.status) ? (
                   <div className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 pl-8">
                     <button
                       type="button"
-                      onClick={() => onSolveInBrowser(account.UserID)}
-                      aria-label={t("Solve in browser for {{name}}", { name })}
+                      onClick={only(() => onOpenInBrowser(account.UserID))}
+                      aria-label={t("Open in browser for {{name}}", { name })}
                       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] border-amber-500/40 text-amber-200 hover:bg-amber-500/15"
                     >
                       <ExternalLink size={11} aria-hidden="true" />
-                      {t("Solve in browser")}
+                      {t("Open in browser")}
                     </button>
                     <button
                       type="button"
-                      onClick={() => onCheckAgain(account.UserID)}
+                      onClick={only(() => onRetry(account.UserID))}
+                      disabled={anyRetry || locked}
+                      aria-label={t("Try again for {{name}}", { name })}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border theme-border text-[11px] hover:bg-[var(--panel-soft)] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <RotateCcw size={11} aria-hidden="true" className={isRetrying ? "animate-spin" : undefined} />
+                      {t("Try again")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={only(() => onCheckAgain(account.UserID))}
                       disabled={isChecking}
                       aria-label={t("Check again for {{name}}", { name })}
                       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border theme-border text-[11px] hover:bg-[var(--panel-soft)] disabled:opacity-50"
@@ -246,7 +309,7 @@ export function GroupJoinCard({
           )}
           <span className="flex-1 min-w-[200px] text-[11px] theme-muted leading-4">
             {t(
-              "Accounts join one at a time, with a short pause. If Roblox asks for a captcha, that account is skipped: solve it in its browser, then check again."
+              "Accounts join one at a time, with a short pause. If Roblox asks an account to confirm something, that account is skipped: open it in the browser, accept what Roblox shows, then press Try again."
             )}
           </span>
         </div>

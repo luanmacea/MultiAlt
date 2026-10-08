@@ -55,7 +55,66 @@ export function VerifiedBadge() {
   );
 }
 
-/** Cartões da busca. Clicar escolhe o grupo para a entrada lá embaixo. */
+/**
+ * Os cartões de grupo. Clicar escolhe o grupo para a entrada lá embaixo — o
+ * mesmo para a busca e para os "Grupos populares".
+ */
+export function GroupCards({
+  groups,
+  icons,
+  selectedId,
+  onSelect,
+  label,
+}: {
+  groups: GroupSummary[];
+  icons: Map<number, string | null>;
+  selectedId: number | null;
+  onSelect: (group: GroupSummary) => void;
+  /** Nome da lista para leitor de tela (já traduzido). */
+  label: string;
+}) {
+  const t = useTr();
+  const formatter = new Intl.NumberFormat();
+  return (
+    <ul aria-label={label} className="grid grid-cols-1 gap-2 @xl:grid-cols-2 @4xl:grid-cols-3">
+      {groups.map((group) => {
+        const selected = group.id === selectedId;
+        return (
+          <li key={group.id}>
+            <button
+              type="button"
+              aria-pressed={selected}
+              onClick={() => onSelect(group)}
+              className={`w-full h-full flex items-start gap-3 rounded-xl border p-2.5 text-left transition-colors outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] ${
+                selected
+                  ? "border-[var(--accent-color)] bg-[var(--accent-soft)]"
+                  : "theme-border hover:bg-[var(--panel-soft)]"
+              }`}
+            >
+              <GroupIcon url={icons.get(group.id)} />
+              <span className="flex-1 min-w-0">
+                <span className="flex items-center gap-1 min-w-0">
+                  <span className="truncate text-[12.5px] font-medium text-[var(--panel-fg)]" title={group.name}>
+                    {group.name}
+                  </span>
+                  {group.hasVerifiedBadge ? <VerifiedBadge /> : null}
+                </span>
+                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-[11px] theme-muted tabular-nums">
+                    {t("{{members}} members", { members: formatter.format(group.memberCount) })}
+                  </span>
+                  <EntryChip group={group} />
+                </span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Resultado da busca: carregando, erro, nada achado ou os cartões. */
 export function GroupResults({
   groups,
   icons,
@@ -63,7 +122,6 @@ export function GroupResults({
   onSelect,
   loading,
   error,
-  searched,
   canLoadMore,
   loadingMore,
   onLoadMore,
@@ -74,13 +132,11 @@ export function GroupResults({
   onSelect: (group: GroupSummary) => void;
   loading: boolean;
   error: string | null;
-  searched: boolean;
   canLoadMore: boolean;
   loadingMore: boolean;
   onLoadMore: () => void;
 }) {
   const t = useTr();
-  const formatter = new Intl.NumberFormat();
 
   if (loading) {
     return (
@@ -97,54 +153,13 @@ export function GroupResults({
       </div>
     );
   }
-  if (!searched) {
-    return (
-      <div className="py-4 text-[12px] theme-muted">
-        {t("Search by name, or paste a group link or ID.")}
-      </div>
-    );
-  }
   if (groups.length === 0) {
     return <div className="py-4 text-[12px] theme-muted">{t("No groups found.")}</div>;
   }
 
   return (
     <div>
-      <ul aria-label={t("Groups found")} className="grid grid-cols-1 gap-2 @xl:grid-cols-2 @4xl:grid-cols-3">
-        {groups.map((group) => {
-          const selected = group.id === selectedId;
-          return (
-            <li key={group.id}>
-              <button
-                type="button"
-                aria-pressed={selected}
-                onClick={() => onSelect(group)}
-                className={`w-full h-full flex items-start gap-3 rounded-xl border p-2.5 text-left transition-colors outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] ${
-                  selected
-                    ? "border-[var(--accent-color)] bg-[var(--accent-soft)]"
-                    : "theme-border hover:bg-[var(--panel-soft)]"
-                }`}
-              >
-                <GroupIcon url={icons.get(group.id)} />
-                <span className="flex-1 min-w-0">
-                  <span className="flex items-center gap-1 min-w-0">
-                    <span className="truncate text-[12.5px] font-medium text-[var(--panel-fg)]" title={group.name}>
-                      {group.name}
-                    </span>
-                    {group.hasVerifiedBadge ? <VerifiedBadge /> : null}
-                  </span>
-                  <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="text-[11px] theme-muted tabular-nums">
-                      {t("{{members}} members", { members: formatter.format(group.memberCount) })}
-                    </span>
-                    <EntryChip group={group} />
-                  </span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <GroupCards groups={groups} icons={icons} selectedId={selectedId} onSelect={onSelect} label={t("Groups found")} />
       {canLoadMore ? (
         <div className="mt-3 flex justify-center">
           <button

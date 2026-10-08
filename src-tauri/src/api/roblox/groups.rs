@@ -44,7 +44,9 @@ pub struct GroupSearchPage {
 ///   como pedido);
 /// - 409 código 7 ("already requested to join") → `Pending`;
 /// - 409 código 8 ("already a member") → `AlreadyMember`;
-/// - 403 com o header `rblx-challenge-id` → `ChallengeRequired`;
+/// - 403 com o header `rblx-challenge-id` → `ChallengeRequired`, com o tipo
+///   do header `rblx-challenge-type` (nem todo desafio é captcha: o dono viu
+///   conta presa só no aviso de "Termos de Uso atualizados");
 /// - qualquer outra coisa → `Failed` com a mensagem do Roblox (ex.: 403
 ///   código 6, limite de grupos; 429 código 10, tentativas demais).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,8 +54,138 @@ pub enum GroupJoinOutcome {
     Joined,
     Pending,
     AlreadyMember,
-    ChallengeRequired,
+    /// `challenge_type`: o `rblx-challenge-type` em minúsculas ("captcha",
+    /// "twostepverification", "reauthentication", "chef", "proofofwork",
+    /// "generic"...); ausente ou ilegível vira `"unknown"`.
+    ChallengeRequired { challenge_type: String },
     Failed(String),
+}
+
+/// A tentativa inteira: o resultado e o que o Roblox respondeu, para o
+/// diagnóstico (log e a linha da conta na tela). Nunca leva cookie nem token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupJoinAttempt {
+    pub outcome: GroupJoinOutcome,
+    /// `None` = nem chegou resposta (csrf ou rede falharam antes).
+    pub http_status: Option<u16>,
+    pub error_code: Option<i64>,
+    /// A mensagem do Roblox (ou o corpo cru, se não era o JSON de erro padrão).
+    pub error_message: Option<String>,
+}
+
+impl GroupJoinAttempt {
+    fn without_response(message: String) -> Self {
+        Self {
+            outcome: GroupJoinOutcome::Failed(message),
+            http_status: None,
+            error_code: None,
+            error_message: None,
+        }
+    }
+
+    /// Uma linha curta para a tela: "HTTP 403 · challenge proofofwork · code
+    /// 0". A mensagem do Roblox vai à parte (`error_message`), para a tela não
+    /// repeti-la. `None` quando não há nada a dizer (2xx, ou nem houve
+    /// resposta).
+    pub fn diagnostic(&self) -> Option<String> {
+        let status = self.http_status?;
+        if (200..300).contains(&status) {
+            return None;
+        }
+        let mut parts = vec![format!("HTTP {}", status)];
+        if let GroupJoinOutcome::ChallengeRequired { challenge_type } = &self.outcome {
+            parts.push(format!("challenge {}", challenge_type));
+        }
+        if let Some(code) = self.error_code {
+            parts.push(format!("code {}", code));
+        }
+        Some(parts.join(" · "))
+    }
+}
+
+fn truncate_chars(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        format!("{}…", text.chars().take(max).collect::<String>())
+    }
+}
+
+/// Tipo do desafio pelo header `rblx-challenge-type`: minúsculas, só letras,
+/// números, `-` e `_`, até 40 caracteres. Vazio/ausente → `"unknown"`.
+pub fn normalize_challenge_type(header: Option<&str>) -> String {
+    let cleaned: String = header
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(40)
+        .collect();
+    if cleaned.is_empty() {
+        "unknown".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Grupos grandes e conhecidos da lista "Grupos populares" (campo de busca
+/// vazio). O Roblox não tem endpoint de "top grupos", então a lista é
+/// **curada à mão**: montada em 08/10/2026 com a busca pública
+/// (`/v1/groups/search?keyword=<palavra>&limit=100` para roblox, games,
+/// simulator, studio, official, adopt, tycoon, obby, anime, brookhaven,
+/// bloxburg, piggy, jailbreak, pet, doors, gaming...), pegando os de mais
+/// membros, com selo de verificado, sem nome ofensivo, de piada ou com cara de
+/// golpe. A ordem aqui não importa: a tela ordena pelos membros de agora.
+///
+/// Para atualizar: repita as buscas, troque os ids e confira cada um em
+/// `groups.roblox.com/v1/groups/<id>` (verificado, nome decente). Ver
+/// docs/features/groups.md.
+pub const POPULAR_GROUP_IDS: [i64; 24] = [
+    1074557114, // SecretVerse Studio
+    3461453,    // Nosniy Games
+    15102943,   // Catalog Avatar Creator
+    4705120,    // Scriptbloxian Studios
+    3959677,    // BIG Games Pets
+    35864728,   // Megastar Studios
+    3049798,    // LSPLASH (Doors)
+    4372130,    // Gamer Robot Inc (Blox Fruits)
+    2919215,    // Sonar Studios
+    2782840,    // Chillz Studios
+    9642354,    // Byteonix
+    1112558765, // Pick a Door!
+    985535428,  // Wonder Towers
+    295182,     // Uplift Games (Adopt Me!)
+    7,          // Roblox
+    3996161,    // Osyriss Studios
+    6042520,    // Grandma's Favourite Games
+    11378976,   // ADV Gamers Team
+    2703304,    // BIG Games™
+    3333298,    // Rumble Studios
+    17264167,   // Dress To Impress Group
+    2801805,    // The Builder's Legion
+    340538789,  // Speedy Fun Games
+    2726951,    // Car Crushers Community
+];
+
+/// Detalhes de vários grupos, `concurrency` por vez, sem cookie. Quem falhar
+/// fica de fora (o resto aparece); a ordem é a dos membros, maior primeiro.
+///
+/// Por que não o `/v2/groups?groupIds=` em lote: ele não traz `memberCount`
+/// nem `publicEntryAllowed` (conferido em 08/10/2026), e a tela precisa dos
+/// dois.
+pub async fn get_groups_by_members(group_ids: &[i64], concurrency: usize) -> Vec<GroupSummary> {
+    use futures_util::stream::{self, StreamExt};
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<i64> = group_ids.iter().copied().filter(|id| *id > 0 && seen.insert(*id)).collect();
+    let mut groups: Vec<GroupSummary> = stream::iter(ids)
+        .map(|id| async move { get_group(None, id).await.ok() })
+        .buffer_unordered(concurrency.max(1))
+        .filter_map(|group| async move { group })
+        .collect()
+        .await;
+    groups.sort_by(|a, b| b.member_count.cmp(&a.member_count).then_with(|| a.id.cmp(&b.id)));
+    groups
 }
 
 /// Onde a conta está em relação ao grupo, conferido depois.
@@ -189,9 +321,15 @@ pub async fn get_group(cookie: Option<&str>, group_id: i64) -> Result<GroupSumma
 /// `requires_approval` vem dos detalhes do grupo (`!publicEntryAllowed`): o
 /// Roblox responde 200 também quando a entrada vira pedido.
 pub async fn join_group_outcome(security_token: &str, group_id: i64, requires_approval: bool) -> GroupJoinOutcome {
+    join_group_attempt(security_token, group_id, requires_approval).await.outcome
+}
+
+/// Igual a `join_group_outcome`, com o que o Roblox respondeu (status, código
+/// e mensagem) para o diagnóstico.
+pub async fn join_group_attempt(security_token: &str, group_id: i64, requires_approval: bool) -> GroupJoinAttempt {
     let csrf = match crate::api::auth::get_csrf_token(security_token).await {
         Ok(token) => token,
-        Err(e) => return GroupJoinOutcome::Failed(e),
+        Err(e) => return GroupJoinAttempt::without_response(e),
     };
     let client = http_client::client();
     let request = client
@@ -201,30 +339,47 @@ pub async fn join_group_outcome(security_token: &str, group_id: i64, requires_ap
         .body("{}");
     let response = match crate::api::auth::send_with_csrf_retry(request, &csrf).await {
         Ok(response) => response,
-        Err(e) => return GroupJoinOutcome::Failed(e),
+        Err(e) => return GroupJoinAttempt::without_response(e),
     };
 
     let status = response.status();
+    let code = status.as_u16();
     // Desafio antes de qualquer outra leitura do 403: não é falha de csrf.
-    if status.as_u16() == 403 && response.headers().contains_key("rblx-challenge-id") {
-        return GroupJoinOutcome::ChallengeRequired;
-    }
+    let challenge = (code == 403 && response.headers().contains_key("rblx-challenge-id")).then(|| {
+        normalize_challenge_type(
+            response
+                .headers()
+                .get("rblx-challenge-type")
+                .and_then(|value| value.to_str().ok()),
+        )
+    });
     if status.is_success() {
-        return if requires_approval {
+        let outcome = if requires_approval {
             GroupJoinOutcome::Pending
         } else {
             GroupJoinOutcome::Joined
         };
+        return GroupJoinAttempt { outcome, http_status: Some(code), error_code: None, error_message: None };
     }
 
     let body = response.text().await.unwrap_or_default();
-    match roblox_error(&body) {
-        Some((GROUP_ERR_ALREADY_REQUESTED, _)) if status.as_u16() == 409 => GroupJoinOutcome::Pending,
-        Some((GROUP_ERR_ALREADY_MEMBER, _)) if status.as_u16() == 409 => GroupJoinOutcome::AlreadyMember,
-        Some((_, message)) if !message.is_empty() => GroupJoinOutcome::Failed(message),
-        _ if !body.trim().is_empty() => GroupJoinOutcome::Failed(body),
-        _ => GroupJoinOutcome::Failed(format!("status {}", status.as_u16())),
-    }
+    let parsed = roblox_error(&body);
+    let error_code = parsed.as_ref().map(|(c, _)| *c);
+    let error_message = match &parsed {
+        Some((_, message)) if !message.is_empty() => Some(message.clone()),
+        _ if !body.trim().is_empty() => Some(truncate_chars(body.trim(), 500)),
+        _ => None,
+    };
+    let outcome = if let Some(challenge_type) = challenge {
+        GroupJoinOutcome::ChallengeRequired { challenge_type }
+    } else {
+        match error_code {
+            Some(GROUP_ERR_ALREADY_REQUESTED) if code == 409 => GroupJoinOutcome::Pending,
+            Some(GROUP_ERR_ALREADY_MEMBER) if code == 409 => GroupJoinOutcome::AlreadyMember,
+            _ => GroupJoinOutcome::Failed(error_message.clone().unwrap_or_else(|| format!("status {}", code))),
+        }
+    };
+    GroupJoinAttempt { outcome, http_status: Some(code), error_code, error_message }
 }
 
 /// Entrada simples (usada pelo painel de uma conta): só diz se deu certo.
@@ -233,9 +388,14 @@ pub async fn join_group_outcome(security_token: &str, group_id: i64, requires_ap
 pub async fn join_group(security_token: &str, group_id: i64) -> Result<(), String> {
     match join_group_outcome(security_token, group_id, false).await {
         GroupJoinOutcome::Joined | GroupJoinOutcome::Pending | GroupJoinOutcome::AlreadyMember => Ok(()),
-        GroupJoinOutcome::ChallengeRequired => {
-            Err("Failed to join group: Roblox asked for a verification (captcha)".to_string())
-        }
+        GroupJoinOutcome::ChallengeRequired { challenge_type } if challenge_type == "captcha" => Err(
+            "Failed to join group: Roblox asked for a captcha. Open the account in the browser and join there"
+                .to_string(),
+        ),
+        GroupJoinOutcome::ChallengeRequired { challenge_type } => Err(format!(
+            "Failed to join group: Roblox asked this account to confirm something ({}). Open it in the browser and accept what Roblox shows",
+            challenge_type
+        )),
         GroupJoinOutcome::Failed(message) => Err(format!("Failed to join group: {}", message)),
     }
 }
@@ -403,8 +563,76 @@ mod group_join_http_tests {
         .await;
         assert_eq!(
             join_group_outcome("grp-join-challenge", 880_005, false).await,
-            GroupJoinOutcome::ChallengeRequired
+            GroupJoinOutcome::ChallengeRequired { challenge_type: "captcha".to_string() }
         );
+    }
+
+    /// Nem todo desafio é captcha: o tipo vem do header, e o corpo do Roblox
+    /// vai junto para o diagnóstico.
+    #[tokio::test]
+    async fn a_challenge_keeps_its_type_and_roblox_message() {
+        mount_csrf("grp-join-pow", "csrf-grp-join-pow").await;
+        mount_join(
+            "grp-join-pow",
+            880_011,
+            ResponseTemplate::new(403)
+                .insert_header("rblx-challenge-id", "x")
+                .insert_header("rblx-challenge-type", "ProofOfWork")
+                .set_body_json(error_body(0, "Challenge is required to authorize the request")),
+        )
+        .await;
+        let attempt = join_group_attempt("grp-join-pow", 880_011, false).await;
+        assert_eq!(
+            attempt.outcome,
+            GroupJoinOutcome::ChallengeRequired { challenge_type: "proofofwork".to_string() }
+        );
+        assert_eq!(attempt.http_status, Some(403));
+        assert_eq!(attempt.error_code, Some(0));
+        assert_eq!(
+            attempt.error_message.as_deref(),
+            Some("Challenge is required to authorize the request")
+        );
+        assert_eq!(
+            attempt.diagnostic().as_deref(),
+            Some("HTTP 403 · challenge proofofwork · code 0")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_challenge_without_a_type_is_unknown() {
+        mount_csrf("grp-join-notype", "csrf-grp-join-notype").await;
+        mount_join(
+            "grp-join-notype",
+            880_012,
+            ResponseTemplate::new(403).insert_header("rblx-challenge-id", "x"),
+        )
+        .await;
+        assert_eq!(
+            join_group_outcome("grp-join-notype", 880_012, false).await,
+            GroupJoinOutcome::ChallengeRequired { challenge_type: "unknown".to_string() }
+        );
+    }
+
+    #[test]
+    fn challenge_types_are_normalized() {
+        assert_eq!(normalize_challenge_type(Some(" Captcha ")), "captcha");
+        assert_eq!(normalize_challenge_type(Some("twostepverification")), "twostepverification");
+        assert_eq!(normalize_challenge_type(Some("<script>")), "script");
+        assert_eq!(normalize_challenge_type(Some("")), "unknown");
+        assert_eq!(normalize_challenge_type(None), "unknown");
+        assert_eq!(normalize_challenge_type(Some(&"a".repeat(90))).len(), 40);
+    }
+
+    #[test]
+    fn a_success_has_no_diagnostic_and_a_network_error_has_none_either() {
+        let ok = GroupJoinAttempt {
+            outcome: GroupJoinOutcome::Joined,
+            http_status: Some(200),
+            error_code: None,
+            error_message: None,
+        };
+        assert_eq!(ok.diagnostic(), None);
+        assert_eq!(GroupJoinAttempt::without_response("offline".into()).diagnostic(), None);
     }
 
     #[tokio::test]
@@ -416,9 +644,14 @@ mod group_join_http_tests {
             ResponseTemplate::new(403).set_body_json(error_body(6, "You are already in the maximum number of groups.")),
         )
         .await;
+        let attempt = join_group_attempt("grp-join-max", 880_006, false).await;
         assert_eq!(
-            join_group_outcome("grp-join-max", 880_006, false).await,
+            attempt.outcome,
             GroupJoinOutcome::Failed("You are already in the maximum number of groups.".to_string())
+        );
+        assert_eq!(
+            attempt.diagnostic().as_deref(),
+            Some("HTTP 403 · code 6")
         );
     }
 
@@ -467,7 +700,40 @@ mod group_join_http_tests {
         assert!(join_group("grp-simple-challenge", 880_010)
             .await
             .unwrap_err()
-            .contains("captcha"));
+            .contains("confirm something (unknown)"));
+    }
+
+    /// Os populares: detalhes de cada id, quem falha fica de fora, maior
+    /// primeiro, sem repetir.
+    #[tokio::test]
+    async fn popular_groups_are_sorted_by_members_and_skip_failures() {
+        for (id, members) in [(880_201_i64, 50_i64), (880_202, 900), (880_203, 300)] {
+            Mock::given(method("GET"))
+                .and(path(mock_path("groups", &format!("/v1/groups/{id}"))))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": id, "name": format!("G{id}"), "memberCount": members,
+                    "publicEntryAllowed": true, "hasVerifiedBadge": true
+                })))
+                .mount(mock_server().await)
+                .await;
+        }
+        Mock::given(method("GET"))
+            .and(path(mock_path("groups", "/v1/groups/880204")))
+            .respond_with(ResponseTemplate::new(400).set_body_json(error_body(1, "Group is invalid or does not exist.")))
+            .mount(mock_server().await)
+            .await;
+
+        let groups = get_groups_by_members(&[880_201, 880_204, 880_202, 880_203, 880_202], 2).await;
+        let ids: Vec<i64> = groups.iter().map(|g| g.id).collect();
+        assert_eq!(ids, vec![880_202, 880_203, 880_201]);
+        assert!(groups.iter().all(|g| g.has_verified_badge));
+    }
+
+    #[test]
+    fn the_curated_popular_list_has_no_repeats() {
+        let unique: std::collections::HashSet<i64> = POPULAR_GROUP_IDS.iter().copied().collect();
+        assert_eq!(unique.len(), POPULAR_GROUP_IDS.len());
+        assert!(POPULAR_GROUP_IDS.iter().all(|id| *id > 0));
     }
 
     #[tokio::test]

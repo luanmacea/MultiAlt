@@ -27,8 +27,42 @@ pub struct GroupJoinAccountResult {
     /// "waiting" | "joining" | "joined" | "pending" | "alreadyMember" |
     /// "challenge" | "failed" | "cancelled" | "notMember"
     pub status: String,
-    /// Motivo da falha, como o Roblox escreveu.
+    /// Motivo da falha (ou a mensagem do desafio), como o Roblox escreveu.
     pub reason: Option<String>,
+    /// Só em "challenge": o `rblx-challenge-type` ("captcha", "proofofwork",
+    /// "unknown"...). A tela diz "captcha" só quando é captcha mesmo.
+    pub challenge_type: Option<String>,
+    /// Diagnóstico curto do que o Roblox respondeu ("HTTP 403 · code 0 ·
+    /// ..."), para o dono ver na linha da conta. Nunca leva cookie/token.
+    pub detail: Option<String>,
+}
+
+impl GroupJoinAccountResult {
+    fn waiting(user_id: i64) -> Self {
+        Self { user_id, status: "waiting".to_string(), reason: None, challenge_type: None, detail: None }
+    }
+}
+
+/// O que uma tentativa deixa na linha da conta.
+#[derive(Debug, Clone, PartialEq)]
+struct JoinRowUpdate {
+    status: &'static str,
+    reason: Option<String>,
+    challenge_type: Option<String>,
+    detail: Option<String>,
+}
+
+impl JoinRowUpdate {
+    fn failed(reason: String) -> Self {
+        Self { status: "failed", reason: Some(reason), challenge_type: None, detail: None }
+    }
+
+    fn apply(self, row: &mut GroupJoinAccountResult) {
+        row.status = self.status.to_string();
+        row.reason = self.reason;
+        row.challenge_type = self.challenge_type;
+        row.detail = self.detail;
+    }
 }
 
 /// Pausa entre uma conta e a próxima: sorteada entre `min` e `max`.
@@ -89,8 +123,60 @@ fn outcome_status(outcome: api::roblox::GroupJoinOutcome) -> (&'static str, Opti
         GroupJoinOutcome::Joined => ("joined", None),
         GroupJoinOutcome::Pending => ("pending", None),
         GroupJoinOutcome::AlreadyMember => ("alreadyMember", None),
-        GroupJoinOutcome::ChallengeRequired => ("challenge", None),
+        GroupJoinOutcome::ChallengeRequired { .. } => ("challenge", None),
         GroupJoinOutcome::Failed(message) => ("failed", Some(message)),
+    }
+}
+
+fn attempt_row(attempt: api::roblox::GroupJoinAttempt) -> JoinRowUpdate {
+    let detail = attempt.diagnostic();
+    let message = attempt.error_message.clone();
+    match attempt.outcome {
+        api::roblox::GroupJoinOutcome::ChallengeRequired { challenge_type } => JoinRowUpdate {
+            status: "challenge",
+            reason: message,
+            challenge_type: Some(challenge_type),
+            detail,
+        },
+        outcome => {
+            let (status, reason) = outcome_status(outcome);
+            JoinRowUpdate { status, reason, challenge_type: None, detail }
+        }
+    }
+}
+
+/// Registro de depuração da entrada (o backend só tem `eprintln!`). Leva o
+/// usuário, o grupo e o que o Roblox respondeu — nunca cookie nem token.
+fn log_join_attempt(user_id: i64, group_id: i64, attempt: &api::roblox::GroupJoinAttempt) {
+    let challenge = match &attempt.outcome {
+        api::roblox::GroupJoinOutcome::ChallengeRequired { challenge_type } => challenge_type.as_str(),
+        _ => "-",
+    };
+    eprintln!(
+        "[groups] join user={} group={} status={} challenge={} code={} message={:?}",
+        user_id,
+        group_id,
+        attempt.http_status.map(|s| s.to_string()).unwrap_or_else(|| "none".to_string()),
+        challenge,
+        attempt.error_code.map(|c| c.to_string()).unwrap_or_else(|| "-".to_string()),
+        attempt.error_message.as_deref().unwrap_or("")
+    );
+}
+
+/// Uma conta, uma tentativa. Sem cookie = falha só dela.
+async fn join_one_account(
+    user_id: i64,
+    group: &api::roblox::GroupSummary,
+    cookie_of: &(dyn Fn(i64) -> Result<String, String> + Sync),
+) -> JoinRowUpdate {
+    match cookie_of(user_id) {
+        Ok(cookie) if !cookie.trim().is_empty() => {
+            let attempt = api::roblox::join_group_attempt(&cookie, group.id, !group.public_entry_allowed).await;
+            log_join_attempt(user_id, group.id, &attempt);
+            attempt_row(attempt)
+        }
+        Ok(_) => JoinRowUpdate::failed("Account has no cookie".to_string()),
+        Err(e) => JoinRowUpdate::failed(e),
     }
 }
 
@@ -123,7 +209,6 @@ async fn run_group_join(
     next_u64: &mut (dyn FnMut() -> u64 + Send),
     publish: &mut (dyn FnMut(&GroupJoinSnapshot) + Send),
 ) -> GroupJoinSnapshot {
-    let requires_approval = !group.public_entry_allowed;
     let mut snapshot = GroupJoinSnapshot {
         running: true,
         group_id: Some(group.id),
@@ -131,14 +216,7 @@ async fn run_group_join(
         total: user_ids.len(),
         done: 0,
         current_user_id: None,
-        accounts: user_ids
-            .iter()
-            .map(|&user_id| GroupJoinAccountResult {
-                user_id,
-                status: "waiting".to_string(),
-                reason: None,
-            })
-            .collect(),
+        accounts: user_ids.iter().map(|&user_id| GroupJoinAccountResult::waiting(user_id)).collect(),
     };
     publish(&snapshot);
 
@@ -156,15 +234,7 @@ async fn run_group_join(
         snapshot.current_user_id = Some(user_id);
         publish(&snapshot);
 
-        let (status, reason) = match cookie_of(user_id) {
-            Ok(cookie) if !cookie.trim().is_empty() => {
-                outcome_status(api::roblox::join_group_outcome(&cookie, group.id, requires_approval).await)
-            }
-            Ok(_) => ("failed", Some("Account has no cookie".to_string())),
-            Err(e) => ("failed", Some(e)),
-        };
-        snapshot.accounts[index].status = status.to_string();
-        snapshot.accounts[index].reason = reason;
+        join_one_account(user_id, group, cookie_of).await.apply(&mut snapshot.accounts[index]);
         snapshot.done = index + 1;
         snapshot.current_user_id = None;
         publish(&snapshot);
@@ -176,6 +246,47 @@ async fn run_group_join(
     snapshot
 }
 
+/// "Tentar de novo" de uma conta só (depois de aceitar os termos, resolver a
+/// verificação etc. no navegador). Mexe só na linha dela; as outras ficam como
+/// estavam. Se o retrato é de outro grupo (ou vazio), começa um retrato novo
+/// com essa conta.
+async fn retry_group_join_account(
+    snapshot: &mut GroupJoinSnapshot,
+    user_id: i64,
+    group: &api::roblox::GroupSummary,
+    cookie_of: &(dyn Fn(i64) -> Result<String, String> + Sync),
+    publish: &mut (dyn FnMut(&GroupJoinSnapshot) + Send),
+) {
+    if snapshot.group_id != Some(group.id) {
+        *snapshot = GroupJoinSnapshot {
+            group_id: Some(group.id),
+            group_name: group.name.clone(),
+            ..GroupJoinSnapshot::default()
+        };
+    }
+    snapshot.running = false;
+    let index = match snapshot.accounts.iter().position(|row| row.user_id == user_id) {
+        Some(index) => index,
+        None => {
+            snapshot.accounts.push(GroupJoinAccountResult::waiting(user_id));
+            snapshot.total += 1;
+            snapshot.done += 1;
+            snapshot.accounts.len() - 1
+        }
+    };
+    let row = &mut snapshot.accounts[index];
+    row.status = "joining".to_string();
+    row.reason = None;
+    row.challenge_type = None;
+    row.detail = None;
+    snapshot.current_user_id = Some(user_id);
+    publish(snapshot);
+
+    join_one_account(user_id, group, cookie_of).await.apply(&mut snapshot.accounts[index]);
+    snapshot.current_user_id = None;
+    publish(snapshot);
+}
+
 /// Põe o resultado de uma conferência no retrato (se for do mesmo grupo).
 fn apply_membership_check(snapshot: &mut GroupJoinSnapshot, user_id: i64, group_id: i64, status: &str) -> bool {
     if snapshot.group_id != Some(group_id) {
@@ -185,6 +296,8 @@ fn apply_membership_check(snapshot: &mut GroupJoinSnapshot, user_id: i64, group_
         Some(row) => {
             row.status = status.to_string();
             row.reason = None;
+            row.challenge_type = None;
+            row.detail = None;
             true
         }
         None => false,
@@ -339,6 +452,53 @@ async fn groups_join_batch(
         &mut publish,
     )
     .await)
+}
+
+/// "Tentar de novo" numa conta só. Usa a mesma trava do lote: não roda junto
+/// de um lote (nem de outro "tentar de novo").
+#[tauri::command]
+async fn groups_join_retry(
+    app: tauri::AppHandle,
+    account_store: tauri::State<'_, AccountStore>,
+    user_id: i64,
+    group_id: i64,
+) -> Result<GroupJoinSnapshot, String> {
+    let _running = try_begin_group_join()?;
+    if user_id <= 0 {
+        return Err("No account selected".to_string());
+    }
+    if group_id <= 0 {
+        return Err("Pick a group first".to_string());
+    }
+    let group = api::roblox::get_group(None, group_id)
+        .await
+        .map_err(|e| format!("Could not read the group: {}", e))?;
+    if group.is_locked {
+        return Err("This group is locked and does not accept new members".to_string());
+    }
+
+    let store = account_store.inner();
+    let cookie_of = |user_id: i64| get_cookie(store, user_id);
+    let mut snapshot = GROUP_JOIN.lock().map(|s| s.clone()).unwrap_or_default();
+    let mut publish = |snapshot: &GroupJoinSnapshot| publish_group_join(&app, snapshot);
+    retry_group_join_account(&mut snapshot, user_id, &group, &cookie_of, &mut publish).await;
+    Ok(snapshot)
+}
+
+/// Quantos detalhes de grupo os "Grupos populares" pedem ao mesmo tempo.
+const POPULAR_GROUPS_CONCURRENCY: usize = 4;
+
+/// "Grupos populares" (campo de busca vazio): os dados de agora dos grupos
+/// curados em `POPULAR_GROUP_IDS`, maior primeiro. Leitura pública, sem
+/// cookie. Nenhum respondeu = erro (a tela volta para a dica).
+#[tauri::command]
+async fn groups_popular() -> Result<Vec<api::roblox::GroupSummary>, String> {
+    let groups =
+        api::roblox::get_groups_by_members(&api::roblox::POPULAR_GROUP_IDS, POPULAR_GROUPS_CONCURRENCY).await;
+    if groups.is_empty() {
+        return Err("Could not load the popular groups".to_string());
+    }
+    Ok(groups)
 }
 
 /// Depois de a pessoa resolver o captcha no navegador da conta: a conta já
@@ -583,6 +743,8 @@ mod group_join_batch_tests {
                 user_id: 1,
                 status: "challenge".into(),
                 reason: Some("x".into()),
+                challenge_type: Some("captcha".into()),
+                detail: Some("HTTP 403".into()),
             }],
             ..GroupJoinSnapshot::default()
         };
@@ -592,6 +754,111 @@ mod group_join_batch_tests {
         assert!(apply_membership_check(&mut snapshot, 1, 5, "joined"));
         assert_eq!(snapshot.accounts[0].status, "joined");
         assert_eq!(snapshot.accounts[0].reason, None);
+        assert_eq!(snapshot.accounts[0].challenge_type, None);
+        assert_eq!(snapshot.accounts[0].detail, None);
+    }
+
+    /// O dono viu "Needs captcha" em conta que só tinha o aviso de termos: o
+    /// tipo do desafio chega à linha, com o que o Roblox respondeu.
+    #[tokio::test]
+    async fn a_challenge_row_carries_its_type_and_roblox_answer() {
+        let gid = 990_007;
+        let body = serde_json::json!({ "errors": [{ "code": 0, "message": "Challenge is required" }] });
+        let a = mount_join(
+            6601,
+            gid,
+            ResponseTemplate::new(403)
+                .insert_header("rblx-challenge-id", "c")
+                .insert_header("rblx-challenge-type", "reauthentication")
+                .set_body_json(body),
+            1,
+        )
+        .await;
+        let final_state = run_group_join(
+            &[6601],
+            &group(gid, true),
+            NO_PAUSE,
+            &std::sync::atomic::AtomicBool::new(false),
+            &cookies,
+            &mut || 0,
+            &mut |_| {},
+        )
+        .await;
+        let row = &final_state.accounts[0];
+        assert_eq!(row.status, "challenge");
+        assert_eq!(row.challenge_type.as_deref(), Some("reauthentication"));
+        assert_eq!(row.reason.as_deref(), Some("Challenge is required"));
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("HTTP 403 · challenge reauthentication · code 0")
+        );
+        let json = serde_json::to_value(row).unwrap();
+        assert_eq!(json["challengeType"], "reauthentication");
+        assert!(json.get("detail").is_some());
+        drop(a);
+    }
+
+    /// "Tentar de novo" mexe só na linha daquela conta.
+    #[tokio::test]
+    async fn a_retry_updates_only_that_account() {
+        let gid = 990_008;
+        let a = mount_join(6701, gid, ResponseTemplate::new(200), 1).await;
+        let mut snapshot = GroupJoinSnapshot {
+            group_id: Some(gid),
+            group_name: "Group".into(),
+            total: 2,
+            done: 2,
+            accounts: vec![
+                GroupJoinAccountResult {
+                    user_id: 6700,
+                    status: "joined".into(),
+                    reason: None,
+                    challenge_type: None,
+                    detail: None,
+                },
+                GroupJoinAccountResult {
+                    user_id: 6701,
+                    status: "challenge".into(),
+                    reason: Some("Challenge is required".into()),
+                    challenge_type: Some("generic".into()),
+                    detail: Some("HTTP 403".into()),
+                },
+            ],
+            ..GroupJoinSnapshot::default()
+        };
+        let mut published: Vec<GroupJoinSnapshot> = Vec::new();
+        retry_group_join_account(&mut snapshot, 6701, &group(gid, true), &cookies, &mut |s| {
+            published.push(s.clone())
+        })
+        .await;
+        assert_eq!(
+            statuses(&snapshot),
+            vec![(6700, "joined".to_string()), (6701, "joined".to_string())]
+        );
+        assert_eq!(snapshot.accounts[1].challenge_type, None);
+        assert_eq!(snapshot.accounts[1].detail, None);
+        assert_eq!((snapshot.total, snapshot.done), (2, 2));
+        assert!(!snapshot.running);
+        assert_eq!(published[0].accounts[1].status, "joining");
+        assert_eq!(published.len(), 2);
+        drop(a);
+    }
+
+    #[tokio::test]
+    async fn a_retry_for_another_group_starts_a_fresh_snapshot() {
+        let gid = 990_009;
+        let a = mount_join(6801, gid, ResponseTemplate::new(200), 1).await;
+        let mut snapshot = GroupJoinSnapshot {
+            group_id: Some(1),
+            accounts: vec![GroupJoinAccountResult::waiting(5)],
+            total: 1,
+            ..GroupJoinSnapshot::default()
+        };
+        retry_group_join_account(&mut snapshot, 6801, &group(gid, true), &cookies, &mut |_| {}).await;
+        assert_eq!(snapshot.group_id, Some(gid));
+        assert_eq!(statuses(&snapshot), vec![(6801, "joined".to_string())]);
+        assert_eq!((snapshot.total, snapshot.done), (1, 1));
+        drop(a);
     }
 
     #[test]
@@ -600,7 +867,10 @@ mod group_join_batch_tests {
         assert_eq!(outcome_status(GroupJoinOutcome::Joined).0, "joined");
         assert_eq!(outcome_status(GroupJoinOutcome::Pending).0, "pending");
         assert_eq!(outcome_status(GroupJoinOutcome::AlreadyMember).0, "alreadyMember");
-        assert_eq!(outcome_status(GroupJoinOutcome::ChallengeRequired).0, "challenge");
+        assert_eq!(
+            outcome_status(GroupJoinOutcome::ChallengeRequired { challenge_type: "captcha".into() }).0,
+            "challenge"
+        );
         assert_eq!(
             outcome_status(GroupJoinOutcome::Failed("why".into())),
             ("failed", Some("why".to_string()))

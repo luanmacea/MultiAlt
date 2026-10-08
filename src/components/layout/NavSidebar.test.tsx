@@ -5,6 +5,18 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 
+/** O Help está atrás de `ENABLE_HELP_BUTTON` (desligado); os testes ligam quando precisam. */
+const helpFlag = vi.hoisted(() => ({ on: false }));
+vi.mock("../../featureFlags", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../featureFlags")>();
+  return {
+    ...actual,
+    get ENABLE_HELP_BUTTON() {
+      return helpFlag.on;
+    },
+  };
+});
+
 import { NavSidebar, NAV_COLLAPSED_KEY } from "./NavSidebar";
 import { makeAccount, makeBottingStatus, setStore } from "../../test-utils/renderWithStore";
 import { ENABLE_NEXUS } from "../../featureFlags";
@@ -35,6 +47,7 @@ function afk(active: boolean): AfkStatus {
 
 beforeEach(() => {
   localStorage.clear();
+  helpFlag.on = false;
 });
 
 afterEach(() => {
@@ -65,7 +78,7 @@ describe("NavSidebar — items", () => {
 
   it("shows the labels without hovering", () => {
     renderNav();
-    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Groups", "Scripts", "Theme", "Settings", "What's new", "Help"]) {
+    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Groups", "Scripts", "Theme", "Settings", "What's new"]) {
       expect(screen.getByText(label)).not.toHaveClass("sr-only");
     }
   });
@@ -99,6 +112,7 @@ describe("NavSidebar — items", () => {
   });
 
   it("puts What's new in the footer, above Help, and marks it while open", () => {
+    helpFlag.on = true;
     renderNav({ activePage: "changelog" });
     const whatsNew = item("What's new");
     const help = screen.getByRole("button", { name: /^Help/ });
@@ -114,10 +128,33 @@ describe("NavSidebar — items", () => {
     expect(item("What's new")).toBeInTheDocument();
   });
 
-  it("replays the walkthrough from Help", async () => {
+  it("replays the walkthrough from Help when the flag turns it on", async () => {
+    helpFlag.on = true;
     const store = renderNav();
+    expect(screen.getByText("Help")).not.toHaveClass("sr-only");
     await userEvent.click(screen.getByRole("button", { name: /^Help/ }));
     expect(store.openFirstRunWalkthroughFromSettings).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Pedido do dono (08/10/2026): o Help some por enquanto (pode virar FAQ). O
+   * tutorial continua em Settings › General. O recolher fica sozinho na linha,
+   * à direita com a barra aberta e no centro recolhida.
+   */
+  it("hides Help by default and keeps the collapse button aligned", async () => {
+    renderNav();
+    expect(screen.queryByRole("button", { name: /^Help/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Help")).not.toBeInTheDocument();
+    const row = screen.getByTestId("nav-footer-actions");
+    expect(row).toHaveClass("justify-end");
+    expect(within(row).getAllByRole("button")).toHaveLength(1);
+    expect(within(row).getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    const collapsedRow = screen.getByTestId("nav-footer-actions");
+    expect(collapsedRow).toHaveClass("items-center");
+    expect(within(collapsedRow).getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Help/ })).not.toBeInTheDocument();
   });
 
   /** O tour destaca os itens pelo `data-tour`, que não muda com o idioma. */

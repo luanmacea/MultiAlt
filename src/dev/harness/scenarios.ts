@@ -1020,6 +1020,29 @@ const HARNESS_GROUPS_PAGE_2: HarnessGroup[] = [
   { id: 4_100_101, name: "Retired Pet Club", description: "", memberCount: 77, publicEntryAllowed: true, hasVerifiedBadge: false, isLocked: true },
 ];
 
+/**
+ * "Grupos populares" (campo vazio): nomes inventados, membros na casa dos
+ * milhões, fora de ordem de propósito — quem ordena é a tela.
+ */
+const HARNESS_POPULAR_GROUPS: HarnessGroup[] = [
+  ["Obby Makers Guild", 18_621_888, true, true],
+  ["Sky Tycoon Studio", 138_130_377, true, true],
+  ["Pet Collectors HQ", 29_176_487, true, true],
+  ["Racing Club Official", 8_642_738, true, true],
+  ["Avatar Creators", 44_070_059, true, true],
+  ["Tower Climbers", 15_448_056, false, true],
+  ["Builders Legion", 10_092_230, true, true],
+  ["Roleplay Town Community With A Very Long Name That Should Truncate", 12_487_223, true, false],
+].map(([name, memberCount, publicEntryAllowed, hasVerifiedBadge], index) => ({
+  id: 4_200_000 + index,
+  name: name as string,
+  description: "",
+  memberCount: memberCount as number,
+  publicEntryAllowed: publicEntryAllowed as boolean,
+  hasVerifiedBadge: hasVerifiedBadge as boolean,
+  isLocked: false,
+}));
+
 const GROUP_COLORS = ["#1d4ed8", "#be123c", "#0f766e", "#7c3aed", "#c2410c", "#15803d"];
 
 interface HarnessGroupJoin {
@@ -1029,7 +1052,13 @@ interface HarnessGroupJoin {
   total: number;
   done: number;
   currentUserId: number | null;
-  accounts: { userId: number; status: string; reason: string | null }[];
+  accounts: {
+    userId: number;
+    status: string;
+    reason: string | null;
+    challengeType?: string | null;
+    detail?: string | null;
+  }[];
 }
 
 /**
@@ -1039,11 +1068,15 @@ interface HarnessGroupJoin {
  * `groups-join-state` a cada passo, `groups_join_batch` só responde no fim — e
  * o resultado de cada conta é fixo pela posição: a 1ª entra, a 2ª esbarra no
  * captcha, a 3ª já é membro, a 4ª fica pendente, a 5ª falha (limite de
- * grupos), as demais entram. A conferência devolve "notMember" na primeira vez
- * e "joined" depois, como se a pessoa tivesse entrado pelo navegador.
+ * grupos), a 6ª esbarra num desafio que **não** é captcha (`proofofwork`, o
+ * caso dos termos de uso que o dono viu), as demais entram. A conferência
+ * devolve "notMember" na primeira vez e "joined" depois, como se a pessoa
+ * tivesse entrado pelo navegador; o "Tentar de novo" devolve "joined". Com o
+ * campo vazio, `groups_popular` entrega os populares em 700 ms
+ * (`&popular=fail` = falha, e a tela volta para a dica).
  */
 function groupsHandler(fallback: InvokeHandler): InvokeHandler {
-  const all = [...HARNESS_GROUPS, ...HARNESS_GROUPS_PAGE_2];
+  const all = [...HARNESS_GROUPS, ...HARNESS_GROUPS_PAGE_2, ...HARNESS_POPULAR_GROUPS];
   let batch: HarnessGroupJoin = {
     running: false,
     groupId: null,
@@ -1061,12 +1094,30 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
     return batch;
   };
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const OUTCOMES: { status: string; reason: string | null }[] = [
-    { status: "joined", reason: null },
-    { status: "challenge", reason: null },
-    { status: "alreadyMember", reason: null },
-    { status: "pending", reason: null },
-    { status: "failed", reason: "You are already in the maximum number of groups." },
+  const OUTCOMES: HarnessGroupJoin["accounts"][number][] = [
+    { userId: 0, status: "joined", reason: null },
+    {
+      userId: 0,
+      status: "challenge",
+      reason: "Challenge is required to authorize the request",
+      challengeType: "captcha",
+      detail: "HTTP 403 · challenge captcha · code 0",
+    },
+    { userId: 0, status: "alreadyMember", reason: null },
+    { userId: 0, status: "pending", reason: null },
+    {
+      userId: 0,
+      status: "failed",
+      reason: "You are already in the maximum number of groups.",
+      detail: "HTTP 403 · code 6",
+    },
+    {
+      userId: 0,
+      status: "challenge",
+      reason: "Challenge is required to authorize the request",
+      challengeType: "proofofwork",
+      detail: "HTTP 403 · challenge proofofwork · code 0",
+    },
   ];
 
   return (cmd, args) => {
@@ -1101,8 +1152,28 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
           })
         );
       }
+      case "groups_popular":
+        return wait(700).then(() =>
+          params.get("popular") === "fail"
+            ? Promise.reject("Could not load the popular groups")
+            : HARNESS_POPULAR_GROUPS
+        );
       case "get_groups_join_state":
         return batch;
+      case "groups_join_retry": {
+        if (batch.running) return Promise.reject("A group join is already running");
+        const userId = Number(args.userId);
+        const row = { userId, status: "joined", reason: null, challengeType: null, detail: null };
+        const has = batch.accounts.some((r) => r.userId === userId);
+        publish({
+          accounts: has
+            ? batch.accounts.map((r) => (r.userId === userId ? { ...r, status: "joining" } : r))
+            : [...batch.accounts, { ...row, status: "joining" }],
+        });
+        return wait(900).then(() =>
+          publish({ accounts: batch.accounts.map((r) => (r.userId === userId ? row : r)) })
+        );
+      }
       case "groups_cancel_join":
         cancel = true;
         return null;
@@ -1115,7 +1186,9 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
         const status = seen === 1 ? "notMember" : "joined";
         if (batch.groupId === args.groupId) {
           publish({
-            accounts: batch.accounts.map((row) => (row.userId === userId ? { ...row, status, reason: null } : row)),
+            accounts: batch.accounts.map((row) =>
+              row.userId === userId ? { ...row, status, reason: null, challengeType: null, detail: null } : row
+            ),
           });
         }
         return wait(600).then(() => status);
@@ -1154,7 +1227,7 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
             publish({
               done: index + 1,
               currentUserId: null,
-              accounts: batch.accounts.map((row) => (row.userId === userId ? { ...row, ...outcome } : row)),
+              accounts: batch.accounts.map((row) => (row.userId === userId ? { ...row, ...outcome, userId } : row)),
             });
           }
           return publish({ running: false, currentUserId: null });
@@ -1179,7 +1252,7 @@ const SCENARIOS: Record<string, () => void> = {
   tour() {
     seedTourStorage();
     const pages = realPlacePages as { id: string; playing: number; maxPlayers: number; ping: number | null }[][];
-    const withTour = tourHandler(baseHandler, accounts.map((a) => a.UserID));
+    const withTour = tourHandler(groupsHandler(baseHandler), accounts.map((a) => a.UserID));
     setInvokeHandler((cmd, args) => {
       if (cmd === "start_server_scan") {
         emitRealPlaceScan(pages, Number(args.placeId) || 0);
@@ -1745,10 +1818,11 @@ const SCENARIOS: Record<string, () => void> = {
   },
 
   /**
-   * Página Groups: busca "pet" (duas páginas, uma com um grupo trancado),
-   * link/id colado, e um lote em que a 2ª conta esbarra no captcha, a 3ª já é
-   * membro, a 4ª fica pendente e a 5ª falha. Use `&accounts=6`. (O cenário
-   * `groups` é outro: os grupos da lista de contas.)
+   * Página Groups: grupos populares com o campo vazio, busca "pet" (duas
+   * páginas, uma com um grupo trancado), link/id colado, e um lote em que a 2ª
+   * conta esbarra no captcha, a 3ª já é membro, a 4ª fica pendente, a 5ª falha
+   * e a 6ª esbarra num desafio que não é captcha. Use `&accounts=6`. (O
+   * cenário `groups` é outro: os grupos da lista de contas.)
    */
   "roblox-groups"() {
     setInvokeHandler(groupsHandler(baseHandler));

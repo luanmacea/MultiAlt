@@ -197,7 +197,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   groups: {
-    description: "Página Groups: busca de grupos, entrada em lote uma conta por vez, captcha resolvido no navegador da conta",
+    description: "Página Groups: busca sozinha, grupos populares, entrada em lote uma conta por vez, desafio (captcha ou confirmação) resolvido no navegador da conta, Try again",
     rust: [
       "group_reference_tests",
       "group_join_http_tests",

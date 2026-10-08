@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useStore, type AppPage } from "../../store";
 import { useTr } from "../../i18n/text";
-import { ENABLE_NEXUS } from "../../featureFlags";
+import { ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
 import { Tooltip } from "../ui/Tooltip";
 import { FeedbackDialog } from "../dialogs/FeedbackDialog";
 
@@ -93,7 +93,8 @@ const NAV_GROUPS: NavItemDef[][] = [
 /**
  * "What's new" (Novidades) fica no rodapé, junto do Help: os dois falam do
  * próprio app, não do trabalho com as contas, e quem procura um deles olha ali.
- * É página como as de cima (marca `aria-current`), não ação como o Help.
+ * É página como as de cima (marca `aria-current`), não ação como o Help. (O
+ * Help está escondido por `ENABLE_HELP_BUTTON` desde 08/10/2026.)
  */
 const FOOTER_ITEMS: NavItemDef[] = [{ page: "changelog", label: "What's new", icon: Sparkles }];
 
@@ -286,22 +287,34 @@ export function NavSidebar() {
             )}
           </li>
         </ul>
-        <div className={collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}>
-          {collapsed ? (
-            <Tooltip content={helpLabel} side="right" delayMs={200}>
-              {helpButton}
-            </Tooltip>
-          ) : (
-            <div className="flex-1 min-w-0">{helpButton}</div>
-          )}
-          {narrow ? null : collapsed ? (
-            <Tooltip content={collapseLabel} side="right" delayMs={200}>
-              {collapseButton}
-            </Tooltip>
-          ) : (
-            collapseButton
-          )}
-        </div>
+        {/* Sem o Help (flag) e com a janela estreita (sem recolher), a linha
+            ficaria vazia: some. Sem o Help, o recolher fica sozinho à direita
+            (aberta) ou no centro (recolhida). */}
+        {ENABLE_HELP_BUTTON || !narrow ? (
+          <div
+            data-testid="nav-footer-actions"
+            className={
+              collapsed
+                ? "flex flex-col items-center gap-1"
+                : `flex items-center gap-1 ${ENABLE_HELP_BUTTON ? "" : "justify-end"}`
+            }
+          >
+            {!ENABLE_HELP_BUTTON ? null : collapsed ? (
+              <Tooltip content={helpLabel} side="right" delayMs={200}>
+                {helpButton}
+              </Tooltip>
+            ) : (
+              <div className="flex-1 min-w-0">{helpButton}</div>
+            )}
+            {narrow ? null : collapsed ? (
+              <Tooltip content={collapseLabel} side="right" delayMs={200}>
+                {collapseButton}
+              </Tooltip>
+            ) : (
+              collapseButton
+            )}
+          </div>
+        ) : null}
       </div>
       <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </nav>

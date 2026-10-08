@@ -49,7 +49,15 @@ const RECIPES: { name: string; steps: string[] }[] = [
   { name: "AFK - Auto Rejoin", steps: ["AFK Mode", "Auto Rejoin"] },
   { name: "Avatars - Build", steps: ["Avatars", "Build"] },
   { name: "Avatars - Distribute", steps: ["Avatars", "Distribute"] },
-  { name: "Groups", steps: ["Groups"] },
+  { name: "Groups", steps: ["Groups", "js:await new Promise((r) => setTimeout(r, 1200))"] },
+  {
+    // Sem botão de buscar: a busca roda sozinha 500 ms depois de digitar.
+    name: "Groups - search",
+    steps: [
+      "Groups",
+      "js:const i = document.querySelector('[data-tour=groups-search] input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, 'pet'); i.dispatchEvent(new Event('input', { bubbles: true })); await new Promise((r) => setTimeout(r, 1500))",
+    ],
+  },
   { name: "Scripts", steps: ["Scripts"] },
   { name: "Theme", steps: ["Theme"] },
   { name: "Nexus", steps: ["Nexus"] },
@@ -58,7 +66,8 @@ const RECIPES: { name: string; steps: string[] }[] = [
     steps: ["Settings", tab],
   })),
   { name: "What's new", steps: ["What's new"] },
-  { name: "Help", steps: ["Help"] },
+  // O Help da barra lateral está escondido (ENABLE_HELP_BUTTON); o tutorial abre por aqui.
+  { name: "Walkthrough", steps: ["Settings", "General", "Open Walkthrough"] },
   { name: "Add menu", steps: ["Add"] },
   ...["Quick Add", "Browser Login", "User:Pass Login", "Import Cookie", "Import Old Account Data", "Create Accounts", "Roblox Versions"].map((item) => ({
     name: `Dialog - ${item}`,

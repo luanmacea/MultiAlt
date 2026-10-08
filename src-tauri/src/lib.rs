@@ -440,6 +440,8 @@ pub fn run() {
             groups_cancel_join,
             get_groups_join_state,
             groups_check_membership,
+            groups_join_retry,
+            groups_popular,
             resolve_join_link,
             block_user,
             unblock_user,
