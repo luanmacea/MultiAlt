@@ -2052,5 +2052,13 @@
   "Pick a group first": "Escolha um grupo primeiro",
   "A group join is already running": "Uma entrada em grupo já está rodando",
   "Type at least 2 characters": "Digite pelo menos 2 caracteres",
-  "Group join finished: {{joined}} joined, {{pending}} pending, {{captcha}} need a captcha": "Entrada no grupo terminou: {{joined}} entraram, {{pending}} pendentes, {{captcha}} precisam de captcha"
+  "Group join finished: {{joined}} joined, {{pending}} pending, {{captcha}} need a captcha": "Entrada no grupo terminou: {{joined}} entraram, {{pending}} pendentes, {{captcha}} precisam de captcha",
+  "Could not switch to the complete edition: {{error}}": "Não foi possível trocar para a edição completa: {{error}}",
+  "Distributing avatars is an extra": "Distribuir avatares é um extra",
+  "Get the complete edition": "Baixar a edição completa",
+  "Getting the complete edition": "Baixando a edição completa",
+  "Giving saved avatars to many accounts at once picks up the free catalog items for each account automatically. Some security tools treat automatic purchases — even free ones — as risky, so this part is not included by default. You can add it by switching to the complete edition (it also includes Nexus and the Web Server).": "Dar avatares salvos para várias contas de uma vez pega os itens gratuitos do catálogo em cada conta automaticamente. Algumas ferramentas de segurança tratam compras automáticas — mesmo as gratuitas — como arriscadas, por isso essa parte não vem por padrão. Você pode adicioná-la trocando para a edição completa (ela também traz o Nexus e o Web Server).",
+  "Handing saved looks out to many accounts comes with the complete edition.": "Distribuir os visuais salvos para várias contas vem com a edição completa.",
+  "The complete edition is not available right now. Try again later.": "A edição completa não está disponível agora. Tente de novo mais tarde.",
+  "The update downloads the complete installer from this project's GitHub releases. Your accounts and settings are kept.": "A atualização baixa o instalador completo das releases do GitHub deste projeto. Suas contas e configurações continuam."
 }

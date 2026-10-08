@@ -12,6 +12,14 @@ export const ENABLE_NEXUS = parseBooleanEnv(import.meta.env.VITE_ENABLE_NEXUS, t
 export const ENABLE_WEBSERVER = parseBooleanEnv(import.meta.env.VITE_ENABLE_WEBSERVER, true);
 
 /**
+ * Distribuir avatares salvos entre várias contas (aba Distribute da página
+ * Avatars). Anda junto com a feature Rust `avatar-batch`: a edição completa
+ * compila os dois ligados, a padrão os dois desligados — e aí a aba mostra o
+ * cartão que leva à edição completa (ver docs/features/avatars.md).
+ */
+export const ENABLE_AVATAR_BATCH = parseBooleanEnv(import.meta.env.VITE_ENABLE_AVATAR_BATCH, true);
+
+/**
  * Gerador de contas **pago** (BloxGen): a aba "Account Generator" do diálogo
  * Contas novas, a entrada "Account Generator" do menu Add (Toolbar e
  * AddAccountDialog) e a seção "Account Generator" das Settings. Desligado, o

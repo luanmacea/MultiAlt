@@ -1,3 +1,5 @@
+import { ENABLE_AVATAR_BATCH } from "../../featureFlags";
+
 /**
  * Os tutoriais de cada tela, como dados.
  *
@@ -253,19 +255,33 @@ export const TOURS: Record<TourId, TourDefinition> = {
         description: "Give it a name and click Save.",
         targets: [tour("avatars-save")],
       },
-      {
-        id: "distribute",
-        title: "Distribute",
-        description: "Tick the saved looks you want to hand out.",
-        reveal: tour("avatars-tab-distribute"),
-        targets: [tour("avatars-handout"), tour("avatars-tab-distribute")],
-      },
-      {
-        id: "apply",
-        title: "Apply",
-        description: "Tick the accounts and click Apply avatars. Each account gets one look.",
-        targets: [tour("avatars-accounts")],
-      },
+      // A distribuição em lote só vem na edição completa; na padrão a aba
+      // mostra o cartão que leva a ela.
+      ...(ENABLE_AVATAR_BATCH
+        ? [
+            {
+              id: "distribute",
+              title: "Distribute",
+              description: "Tick the saved looks you want to hand out.",
+              reveal: tour("avatars-tab-distribute"),
+              targets: [tour("avatars-handout"), tour("avatars-tab-distribute")],
+            },
+            {
+              id: "apply",
+              title: "Apply",
+              description: "Tick the accounts and click Apply avatars. Each account gets one look.",
+              targets: [tour("avatars-accounts")],
+            },
+          ]
+        : [
+            {
+              id: "distribute",
+              title: "Distribute",
+              description: "Handing saved looks out to many accounts comes with the complete edition.",
+              reveal: tour("avatars-tab-distribute"),
+              targets: [tour("avatars-edition"), tour("avatars-tab-distribute")],
+            },
+          ]),
     ],
   },
 

@@ -2052,5 +2052,13 @@
   "Pick a group first": "Primero elige un grupo",
   "A group join is already running": "Ya hay una entrada a un grupo en curso",
   "Type at least 2 characters": "Escribe al menos 2 caracteres",
-  "Group join finished: {{joined}} joined, {{pending}} pending, {{captcha}} need a captcha": "Entrada al grupo terminada: {{joined}} unidas, {{pending}} pendientes, {{captcha}} necesitan captcha"
+  "Group join finished: {{joined}} joined, {{pending}} pending, {{captcha}} need a captcha": "Entrada al grupo terminada: {{joined}} unidas, {{pending}} pendientes, {{captcha}} necesitan captcha",
+  "Could not switch to the complete edition: {{error}}": "No se pudo cambiar a la edición completa: {{error}}",
+  "Distributing avatars is an extra": "Repartir avatares es un extra",
+  "Get the complete edition": "Descargar la edición completa",
+  "Getting the complete edition": "Descargando la edición completa",
+  "Giving saved avatars to many accounts at once picks up the free catalog items for each account automatically. Some security tools treat automatic purchases — even free ones — as risky, so this part is not included by default. You can add it by switching to the complete edition (it also includes Nexus and the Web Server).": "Dar avatares guardados a varias cuentas a la vez obtiene automáticamente los artículos gratuitos del catálogo en cada cuenta. Algunas herramientas de seguridad consideran riesgosas las compras automáticas — incluso las gratuitas —, por eso esta parte no viene incluida por defecto. Puedes agregarla cambiando a la edición completa (también incluye Nexus y el Web Server).",
+  "Handing saved looks out to many accounts comes with the complete edition.": "Repartir los looks guardados entre varias cuentas viene con la edición completa.",
+  "The complete edition is not available right now. Try again later.": "La edición completa no está disponible en este momento. Inténtalo de nuevo más tarde.",
+  "The update downloads the complete installer from this project's GitHub releases. Your accounts and settings are kept.": "La actualización descarga el instalador completo desde las releases de GitHub de este proyecto. Tus cuentas y ajustes se conservan."
 }
