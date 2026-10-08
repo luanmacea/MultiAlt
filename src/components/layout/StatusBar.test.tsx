@@ -260,4 +260,13 @@ describe("StatusBar — chip do gerador", () => {
     expect(text).not.toMatch(/balance/);
     expect(text).toMatch(/browser/);
   });
+
+  it("shows an icon next to each color in the legend", () => {
+    renderBar();
+    for (const kind of ["invalid", "aged", "launched", "online", "ingame", "studio"]) {
+      const badge = document.querySelector(`[data-testid="status-legend"] [data-status="${kind}"]`);
+      expect(badge, kind).not.toBeNull();
+      expect(badge!.querySelector("svg"), kind).not.toBeNull();
+    }
+  });
 });

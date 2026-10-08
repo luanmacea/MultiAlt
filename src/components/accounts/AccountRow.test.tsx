@@ -242,6 +242,16 @@ describe("AccountRow", () => {
     expect(dot.getAttribute("aria-label")).toMatch(/red dot/i);
   });
 
+  it("marks each state with its own icon, not only a color", () => {
+    const lastUse = new Date(Date.now() - 25 * 86400000).toISOString();
+    renderRow(
+      { settings: agingAlertOn() },
+      makeAccount({ UserID: 501, Username: "roboduck", LastUse: lastUse, Valid: false })
+    );
+    expect(screen.getByLabelText("Invalid session")).toHaveAttribute("data-status", "invalid");
+    expect(screen.getByLabelText(/Aged: 25 days/)).toHaveAttribute("data-status", "aged");
+  });
+
   it("keeps the aging dot quiet for a recently used account", () => {
     const lastUse = new Date(Date.now() - 3 * 86400000).toISOString();
     renderRow(

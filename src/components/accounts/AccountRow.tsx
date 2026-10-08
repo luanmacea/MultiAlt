@@ -5,6 +5,7 @@ import type { Account } from "../../types";
 import { timeAgo, getFreshnessColor, AGED_AFTER_DAYS } from "../../types";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
+import { StatusBadge, STATUS_COLORS, type StatusKind } from "./StatusBadge";
 
 export function AccountRow({ account }: { account: Account }) {
   const t = useTr();
@@ -73,14 +74,15 @@ export function AccountRow({ account }: { account: Account }) {
   // sessão inválida, com o texto dizendo o que falta fazer.
   const hasSession = !!account.SecurityToken?.trim();
 
-  const statusDots: Array<{ color: string; title: string }> = [];
+  const statusDots: Array<{ kind: StatusKind; color: string; title: string }> = [];
   if (!hasSession) {
     statusDots.push({
-      color: "#ef4444",
+      kind: "invalid",
+      color: STATUS_COLORS.invalid,
       title: t("No session — paste its cookie or use Browser Login to sign in"),
     });
   } else if (!account.Valid) {
-    statusDots.push({ color: "#ef4444", title: t("Invalid session") });
+    statusDots.push({ kind: "invalid", color: STATUS_COLORS.invalid, title: t("Invalid session") });
   }
   if (freshness) {
     // A bolinha só dizia "aged"; quem lê precisa saber *de que* envelheceu.
@@ -89,6 +91,7 @@ export function AccountRow({ account }: { account: Account }) {
     // vermelha, que é sessão inválida.
     const agedDays = Math.floor((Date.now() - new Date(account.LastUse).getTime()) / 86400000);
     statusDots.push({
+      kind: "aged",
       color: freshness,
       title: t(
         "Aged: {{days}} days since the Last Use date shown on the right ({{threshold}}+ days). Its session may still be fine — a dead session is the red dot.",
@@ -97,12 +100,11 @@ export function AccountRow({ account }: { account: Account }) {
     });
   }
   if (launchedLocally) {
-    statusDots.push({ color: "#f59e0b", title: t("Launched by MultiAlt") });
+    statusDots.push({ kind: "launched", color: STATUS_COLORS.launched, title: t("Launched by MultiAlt") });
   }
   if (showPresence && presenceType >= 1) {
-    const presenceColor =
-      presenceType === 3 ? "#4629d8" : presenceType >= 2 ? "#02b757" : "#00a2ff";
-    statusDots.push({ color: presenceColor, title: presenceMeta.label });
+    const presenceKind: StatusKind = presenceType === 3 ? "studio" : presenceType >= 2 ? "ingame" : "online";
+    statusDots.push({ kind: presenceKind, color: STATUS_COLORS[presenceKind], title: presenceMeta.label });
   }
 
   function handleClick(e: React.MouseEvent) {
@@ -195,12 +197,8 @@ export function AccountRow({ account }: { account: Account }) {
           <div className="absolute -left-1.5 -top-1 z-10 flex items-center gap-0.5">
             {statusDots.map((dot, index) => (
               <Tooltip key={index} content={dot.title} side="bottom">
-                <span
-                  role="img"
-                  aria-label={dot.title}
-                  className="w-2 h-2 rounded-full"
-                  style={{ boxShadow: "0 0 0 1px var(--app-bg)", backgroundColor: dot.color }}
-                />
+                {/* Cor e ícone: o estado não pode depender só da cor (StatusBadge). */}
+                <StatusBadge kind={dot.kind} label={dot.title} color={dot.color} />
               </Tooltip>
             ))}
           </div>
