@@ -50,3 +50,14 @@ export const ENABLE_ACCOUNT_GENERATOR = parseBooleanEnv(
  * abaixo para `true`. Ver docs/features/ui-layout.md.
  */
 export const ENABLE_HELP_BUTTON = parseBooleanEnv(import.meta.env.VITE_ENABLE_HELP_BUTTON, false);
+
+/**
+ * Página "Groups" da barra lateral. Escondida desde 08/10/2026 a pedido do
+ * dono: o "Abrir no navegador" do navegador automatizado não mostra o botão de
+ * entrar que o site normal mostra, e isso precisa de investigação com calma na
+ * branch `feature/groups`. O código continua inteiro e testado.
+ *
+ * Para religar: compile com `VITE_ENABLE_GROUPS=true` ou troque o padrão abaixo
+ * para `true`. Ver docs/features/groups.md.
+ */
+export const ENABLE_GROUPS = parseBooleanEnv(import.meta.env.VITE_ENABLE_GROUPS, false);
