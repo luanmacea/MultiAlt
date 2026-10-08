@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useStore, type AppPage } from "../../store";
 import { useTr } from "../../i18n/text";
-import { ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
+import { ENABLE_GROUPS, ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
 import { Tooltip } from "../ui/Tooltip";
 import { FeedbackDialog } from "../dialogs/FeedbackDialog";
 
@@ -72,9 +72,10 @@ interface NavItemDef {
 
 /**
  * Ordem combinada com o dono. Os grupos só separam visualmente: a lista, o que
- * roda agora, e o que se monta/ajusta.
+ * roda agora, e o que se monta/ajusta. Função (e não constante) para as flags
+ * serem lidas a cada render — os testes as trocam.
  */
-const NAV_GROUPS: NavItemDef[][] = [
+const navGroups = (): NavItemDef[][] => [
   [{ page: "accounts", label: "Accounts", icon: Users, tour: "nav-accounts" }],
   [
     { page: "session", label: "Session", icon: Gamepad2, tour: "nav-session" },
@@ -82,7 +83,7 @@ const NAV_GROUPS: NavItemDef[][] = [
   ],
   [
     { page: "avatars", label: "Avatars", icon: Shirt },
-    { page: "groups", label: "Groups", icon: UsersRound },
+    ...(ENABLE_GROUPS ? [{ page: "groups" as const, label: "Groups", icon: UsersRound }] : []),
     { page: "scripts", label: "Scripts", icon: TerminalSquare },
     { page: "theme", label: "Theme", icon: Palette },
     ...(ENABLE_NEXUS ? [{ page: "nexus" as const, label: "Nexus", icon: Layers }] : []),
@@ -91,7 +92,7 @@ const NAV_GROUPS: NavItemDef[][] = [
 ];
 
 /**
- * "What's new" (Novidades) fica no rodapé, junto do Help: os dois falam do
+ * "What's new" (Novidades) fica no rodapé, ao lado do recolher: fala do
  * próprio app, não do trabalho com as contas, e quem procura um deles olha ali.
  * É página como as de cima (marca `aria-current`), não ação como o Help. (O
  * Help está escondido por `ENABLE_HELP_BUTTON` desde 08/10/2026.)
@@ -267,7 +268,7 @@ export function NavSidebar() {
       }`}
     >
       <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-3 ${collapsed ? "px-2.5" : "px-2.5"}`}>
-        {NAV_GROUPS.map((group, index) => (
+        {navGroups().map((group, index) => (
           <ul key={index} className={`space-y-0.5 ${index > 0 ? "mt-2 pt-2 border-t theme-border" : ""}`}>
             {group.map(renderItem)}
           </ul>
@@ -276,7 +277,6 @@ export function NavSidebar() {
 
       <div className="shrink-0 border-t theme-border py-2 px-2.5">
         <ul className="mb-0.5 space-y-0.5">
-          {FOOTER_ITEMS.map(renderItem)}
           <li className={collapsed ? "flex justify-center" : undefined}>
             {collapsed ? (
               <Tooltip content={feedbackLabel} side="right" delayMs={200}>
@@ -286,35 +286,34 @@ export function NavSidebar() {
               feedbackButton
             )}
           </li>
+          {ENABLE_HELP_BUTTON ? (
+            <li className={collapsed ? "flex justify-center" : undefined}>
+              {collapsed ? (
+                <Tooltip content={helpLabel} side="right" delayMs={200}>
+                  {helpButton}
+                </Tooltip>
+              ) : (
+                helpButton
+              )}
+            </li>
+          ) : null}
         </ul>
-        {/* Sem o Help (flag) e com a janela estreita (sem recolher), a linha
-            ficaria vazia: some. Sem o Help, o recolher fica sozinho à direita
-            (aberta) ou no centro (recolhida). */}
-        {ENABLE_HELP_BUTTON || !narrow ? (
-          <div
-            data-testid="nav-footer-actions"
-            className={
-              collapsed
-                ? "flex flex-col items-center gap-1"
-                : `flex items-center gap-1 ${ENABLE_HELP_BUTTON ? "" : "justify-end"}`
-            }
-          >
-            {!ENABLE_HELP_BUTTON ? null : collapsed ? (
-              <Tooltip content={helpLabel} side="right" delayMs={200}>
-                {helpButton}
-              </Tooltip>
-            ) : (
-              <div className="flex-1 min-w-0">{helpButton}</div>
-            )}
-            {narrow ? null : collapsed ? (
-              <Tooltip content={collapseLabel} side="right" delayMs={200}>
-                {collapseButton}
-              </Tooltip>
-            ) : (
-              collapseButton
-            )}
-          </div>
-        ) : null}
+        {/* Última linha: "What's new" ao lado do recolher (pedido do dono,
+            08/10/2026). Recolhida, os dois empilham no centro; janela estreita
+            (que já recolhe sozinha) não tem o botão de recolher. */}
+        <div
+          data-testid="nav-footer-actions"
+          className={collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}
+        >
+          <ul className={collapsed ? undefined : "flex-1 min-w-0"}>{FOOTER_ITEMS.map(renderItem)}</ul>
+          {narrow ? null : collapsed ? (
+            <Tooltip content={collapseLabel} side="right" delayMs={200}>
+              {collapseButton}
+            </Tooltip>
+          ) : (
+            collapseButton
+          )}
+        </div>
       </div>
       <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </nav>

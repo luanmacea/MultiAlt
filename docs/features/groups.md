@@ -1,5 +1,7 @@
 # Grupos (página Groups)
 
+> **Escondida na versão publicada** (08/10/2026): a página fica atrás de `ENABLE_GROUPS` em [featureFlags.ts](../../src/featureFlags.ts), desligada. No teste real, o "Abrir no navegador" (Chromium automatizado) mostrava a página do grupo **sem** o botão de entrar, enquanto o site normal, na mesma conta, mostrava o botão e entrava sem pedir nada. Até entender isso, o trabalho segue na branch `feature/groups`. Para religar: `VITE_ENABLE_GROUPS=true` no build ou o padrão em `true`.
+
 ## Objetivo
 
 Pôr várias contas num grupo (comunidade) do Roblox sem abrir o site conta por conta. A pessoa acha o grupo pelo nome, link ou id (ou escolhe um dos **Grupos populares** que aparecem com o campo vazio), marca as contas e clica **Join group**: o app entra com uma conta por vez, com uma pausa curta entre elas.

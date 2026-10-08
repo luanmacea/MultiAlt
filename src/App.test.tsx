@@ -345,7 +345,8 @@ describe("App — pages", () => {
   it.each([
     ["session", "Session"],
     ["avatars", "Avatars"],
-    ["groups", "Groups"],
+    // "groups" fica de fora: a página está atrás de ENABLE_GROUPS (desligada,
+    // branch feature/groups) e o item não aparece na barra lateral.
     ["scripts", "Scripts"],
     ["theme", "Theme"],
     ["settings", "Settings"],
