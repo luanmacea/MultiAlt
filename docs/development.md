@@ -275,7 +275,7 @@ o agente relata uma tela que não existe mais. Se desconfiar, apague `node_modul
 
 Comandos relacionados em [services.rs](../src-tauri/src/commands/services.rs) e [avatars.rs](../src-tauri/src/commands/avatars.rs) têm stub `#[cfg(not(feature = ...))]` — ao adicionar um comando novo dessas áreas, crie as duas versões.
 
-As duas edições publicadas: a **padrão** (`--no-default-features`, o `MultiAlt-Setup.msi`) e a **completa** (`--features nexus,webserver,avatar-batch`, canal `<release>-nexus-ws` do updater). O binário sabe a própria edição pelas features (`RUNNING_FEATURE_CHANNEL` em [updater.rs](../src-tauri/src/commands/updater.rs)); a troca de uma para a outra na mesma versão é descrita em [features/avatars.md](features/avatars.md#trocar-para-a-edição-completa-pelo-app). `cargo test --no-default-features --lib` roda os testes que só existem na padrão (`avatar_batch_disabled_tests`).
+As duas edições publicadas: a **padrão** (`--no-default-features --features avatar-batch`, o `MultiAlt-Setup.msi`) e a **completa** (`--features nexus,webserver,avatar-batch`, canal `<release>-nexus-ws` do updater). A distribuição de avatares vai nas duas desde 08/10/2026; tirá-la da padrão é um interruptor ([features/avatars.md](features/avatars.md#as-duas-edições)). O binário sabe a própria edição pelas features (`RUNNING_FEATURE_CHANNEL` em [updater.rs](../src-tauri/src/commands/updater.rs)); a troca de uma para a outra na mesma versão é descrita em [features/avatars.md](features/avatars.md#trocar-para-a-edição-completa-pelo-app). `cargo test --no-default-features --lib` roda os testes que só existem na padrão (`avatar_batch_disabled_tests`).
 
 ### Vite ([featureFlags.ts](../src/featureFlags.ts))
 

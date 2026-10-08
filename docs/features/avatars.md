@@ -27,9 +27,9 @@ Especificação: [docs/superpowers/specs/2026-10-02-free-avatars-design.md](../s
 
 ## As duas edições
 
-A distribuição em lote (aba **Distribute**) só vem na **edição completa** — a mesma que traz o Nexus e o Web Server. Montar, salvar, o catálogo, o `set_avatar` de uma conta e as fotos ficam nas duas.
+**Hoje a distribuição em lote vai nas duas edições** (decisão do dono, 08/10/2026): ela chegou a sair da padrão, mas tirá-la não mudou nada que importasse e o usuário perdia a função. O mecanismo ficou como **interruptor desligado** — a feature `avatar-batch`, os stubs, o cartão e a troca de edição pelo app continuam no código e testados. Para tirar o lote da padrão de novo: no `release-v4.yml`, passo "Build and publish standard release", trocar `VITE_ENABLE_AVATAR_BATCH` para `"false"` e o `args` para só `-- --no-default-features` (e o teste `edicoes no release-v4.yml` em [release-workflow.test.mjs](../../.github/scripts/release-workflow.test.mjs)). A tabela abaixo descreve o comportamento **com o interruptor ligado** (lote só na completa):
 
-| | Padrão (`MultiAlt-Setup.msi`) | Completa |
+| | Padrão sem o lote | Completa |
 |---|---|---|
 | Cargo | `--no-default-features` | `--features nexus,webserver,avatar-batch` |
 | Frontend | `VITE_ENABLE_AVATAR_BATCH=false` | `VITE_ENABLE_AVATAR_BATCH=true` |

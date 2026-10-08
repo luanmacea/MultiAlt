@@ -108,7 +108,7 @@ jobs:
         env:
           VITE_ENABLE_NEXUS: "false"
           VITE_ENABLE_WEBSERVER: "false"
-          VITE_ENABLE_AVATAR_BATCH: "false"
+          VITE_ENABLE_AVATAR_BATCH: "true"
         run: bun run build
 
   # Backend: o que precisa de Windows (windows-sys, registro, Win32).
@@ -141,4 +141,4 @@ jobs:
       # um `cargo check` dela repetia o trabalho. Fica so a variante padrao,
       # que compila sem as features e o teste nao cobre.
       - name: Check Rust backend (standard build)
-        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features --features avatar-batch

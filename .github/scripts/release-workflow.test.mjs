@@ -338,9 +338,13 @@ describe("automacao nao infla o contador de downloads", () => {
 });
 
 /**
- * As duas edicoes: a padrao (o `MultiAlt-Setup.msi`) sai sem nenhuma feature
- * extra do Cargo e com as flags do frontend desligadas; a completa liga as tres
- * (Nexus, Web Server e a distribuicao de avatares em lote, `avatar-batch`).
+ * As duas edicoes: a padrao (o `MultiAlt-Setup.msi`) sai sem Nexus e sem Web
+ * Server; a completa liga os dois. A distribuicao de avatares em lote
+ * (`avatar-batch`) vai nas **duas** (decisao do dono, 08/10/2026): ela chegou a
+ * sair da padrao, mas tira-la nao mudou nada que importasse, e o usuario perdia
+ * a funcao. O interruptor fica: para tira-la da padrao de novo, e trocar o
+ * `--features avatar-batch` e o `VITE_ENABLE_AVATAR_BATCH` da padrao (e estes
+ * testes) — o cartao "edicao completa" e a troca de edicao pelo app ja existem.
  */
 describe("edicoes no release-v4.yml", () => {
   const stepText = (name) => {
@@ -349,10 +353,10 @@ describe("edicoes no release-v4.yml", () => {
     return step.lines.join("\n");
   };
 
-  it("a padrao compila sem features extras e esconde a distribuicao de avatares", () => {
+  it("a padrao compila sem Nexus e Web Server, com a distribuicao de avatares", () => {
     const text = stepText("Build and publish standard release");
-    expect(text).toContain("args: -- --no-default-features");
-    expect(text).toMatch(/VITE_ENABLE_AVATAR_BATCH: "false"/);
+    expect(text).toContain("args: -- --no-default-features --features avatar-batch");
+    expect(text).toMatch(/VITE_ENABLE_AVATAR_BATCH: "true"/);
     expect(text).toMatch(/VITE_ENABLE_NEXUS: "false"/);
     expect(text).toMatch(/VITE_ENABLE_WEBSERVER: "false"/);
   });
