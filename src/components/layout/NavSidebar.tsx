@@ -13,6 +13,7 @@ import {
   Sparkles,
   TerminalSquare,
   Users,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import { useStore, type AppPage } from "../../store";
@@ -81,6 +82,7 @@ const NAV_GROUPS: NavItemDef[][] = [
   ],
   [
     { page: "avatars", label: "Avatars", icon: Shirt },
+    { page: "groups", label: "Groups", icon: UsersRound },
     { page: "scripts", label: "Scripts", icon: TerminalSquare },
     { page: "theme", label: "Theme", icon: Palette },
     ...(ENABLE_NEXUS ? [{ page: "nexus" as const, label: "Nexus", icon: Layers }] : []),
