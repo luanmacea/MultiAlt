@@ -409,6 +409,7 @@ export const SUITES: Record<string, TestSuite> = {
       ".github/scripts/release-kind.test.mjs",
       ".github/scripts/update-manifest-platforms.test.mjs",
       ".github/scripts/release-workflow.test.mjs",
+      ".github/scripts/ci-workflow.test.mjs",
       "src/appIdentity.test.ts",
     ],
   },
