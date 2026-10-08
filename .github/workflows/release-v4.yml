@@ -218,11 +218,14 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_ENABLE_NEXUS: "false"
           VITE_ENABLE_WEBSERVER: "false"
-          VITE_ENABLE_AVATAR_BATCH: "false"
+          # A distribuicao de avatares vai nas duas edicoes (decisao do dono,
+          # 08/10/2026). Para tira-la da padrao: "false" aqui e sem o
+          # `--features avatar-batch` abaixo (ver release-workflow.test.mjs).
+          VITE_ENABLE_AVATAR_BATCH: "true"
         with:
           projectPath: "."
           tauriScript: "bun tauri"
-          args: -- --no-default-features
+          args: -- --no-default-features --features avatar-batch
           tagName: ${{ steps.meta.outputs.tag }}
           releaseName: ${{ steps.meta.outputs.release_title }}
           releaseBody: ${{ steps.meta.outputs.release_body }}
