@@ -12,6 +12,7 @@
     "core:window:allow-is-maximized",
     "core:window:allow-hide",
     "core:window:allow-show",
+    "core:webview:allow-set-webview-zoom",
     "process:allow-restart",
     "autostart:allow-enable",
     "autostart:allow-disable",
