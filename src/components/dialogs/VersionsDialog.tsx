@@ -301,7 +301,7 @@ export function VersionsDialog({ open, onClose }: VersionsDialogProps) {
       {...backdropClose}
     >
       <div
-        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[720px] h-[85vh] max-h-[820px] flex flex-col overflow-hidden ${
+        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[720px] max-w-[calc(100vw-24px)] h-[85vh] max-h-[min(820px,calc(100vh-24px))] flex flex-col overflow-hidden ${
           closing ? "animate-scale-out" : "animate-scale-in"
         }`}
         onClick={(e) => e.stopPropagation()}

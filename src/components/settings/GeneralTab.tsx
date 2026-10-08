@@ -12,6 +12,8 @@ import { Select } from "../ui/Select";
 import i18n, { LANGUAGE_OPTIONS, normalizeLanguage } from "../../i18n";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
+import { normalizeUiScaleSetting } from "../../uiScale";
+import { announceUiScale } from "../../hooks/useUiScale";
 import {
   normalizeUpdaterReleaseChannel,
   normalizeUpdaterFeatureChannel,
@@ -92,6 +94,33 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
               const next = normalizeLanguage(value);
               s.set("General", "Language", next);
               void i18n.changeLanguage(next);
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 py-2 px-1">
+        <div className="min-w-0">
+          <div className="text-[13px] text-zinc-300">{t("Interface size")}</div>
+          <div className="mt-0.5 text-[12px] text-zinc-500">
+            {t("Auto shrinks the interface on smaller screens")}
+          </div>
+        </div>
+        <div className="ml-auto min-w-[180px]">
+          <Select
+            ariaLabel="Interface size"
+            value={normalizeUiScaleSetting(s.get("General", "InterfaceScale", "auto"))}
+            options={[
+              { value: "auto", label: "Automatic" },
+              { value: "110", label: "110%" },
+              { value: "100", label: "100%" },
+              { value: "90", label: "90%" },
+              { value: "80", label: "80%" },
+            ]}
+            onChange={(value) => {
+              const next = normalizeUiScaleSetting(value);
+              s.set("General", "InterfaceScale", next);
+              announceUiScale(next);
             }}
           />
         </div>

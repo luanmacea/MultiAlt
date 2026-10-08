@@ -1,3 +1,5 @@
+import { ENABLE_AVATAR_BATCH } from "../../featureFlags";
+
 /**
  * Os tutoriais de cada tela, como dados.
  *
@@ -20,6 +22,7 @@ export type TourId =
   | "session"
   | "afk"
   | "avatars"
+  | "groups"
   | "scripts"
   | "theme"
   | "settings"
@@ -252,18 +255,64 @@ export const TOURS: Record<TourId, TourDefinition> = {
         description: "Give it a name and click Save.",
         targets: [tour("avatars-save")],
       },
+      // A distribuição em lote só vem na edição completa; na padrão a aba
+      // mostra o cartão que leva a ela.
+      ...(ENABLE_AVATAR_BATCH
+        ? [
+            {
+              id: "distribute",
+              title: "Distribute",
+              description: "Tick the saved looks you want to hand out.",
+              reveal: tour("avatars-tab-distribute"),
+              targets: [tour("avatars-handout"), tour("avatars-tab-distribute")],
+            },
+            {
+              id: "apply",
+              title: "Apply",
+              description: "Tick the accounts and click Apply avatars. Each account gets one look.",
+              targets: [tour("avatars-accounts")],
+            },
+          ]
+        : [
+            {
+              id: "distribute",
+              title: "Distribute",
+              description: "Handing saved looks out to many accounts comes with the complete edition.",
+              reveal: tour("avatars-tab-distribute"),
+              targets: [tour("avatars-edition"), tour("avatars-tab-distribute")],
+            },
+          ]),
+    ],
+  },
+
+  groups: {
+    id: "groups",
+    label: "Groups",
+    root: tour("groups-page"),
+    steps: [
       {
-        id: "distribute",
-        title: "Distribute",
-        description: "Tick the saved looks you want to hand out.",
-        reveal: tour("avatars-tab-distribute"),
-        targets: [tour("avatars-handout"), tour("avatars-tab-distribute")],
+        id: "search",
+        title: "Find a group",
+        description: "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.",
+        targets: [tour("groups-search")],
       },
       {
-        id: "apply",
-        title: "Apply",
-        description: "Tick the accounts and click Apply avatars. Each account gets one look.",
-        targets: [tour("avatars-accounts")],
+        id: "pick",
+        title: "Pick the group",
+        description: "Click a card to choose it. The tag says if anyone can join or if the owner approves each request.",
+        targets: [tour("groups-results"), tour("groups-search")],
+      },
+      {
+        id: "accounts",
+        title: "Pick the accounts",
+        description: "Tick the accounts that should join (click anywhere on an account). The ones selected in your list come ticked.",
+        targets: [tour("groups-accounts")],
+      },
+      {
+        id: "join",
+        title: "Join",
+        description: "Click Join group. Accounts join one at a time. If Roblox asks an account to confirm something, use Open in browser on it, accept what Roblox shows, then Try again.",
+        targets: [tour("groups-join"), tour("groups-accounts")],
       },
     ],
   },

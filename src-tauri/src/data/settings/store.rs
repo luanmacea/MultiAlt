@@ -40,7 +40,9 @@ impl SettingsStore {
         let defaults: &[(&str, &str, Option<&str>)] = &[
             ("CheckForUpdates", "true", None),
             ("UpdaterReleaseChannel", "beta", None),
-            ("UpdaterFeatureChannel", "standard", None),
+            // Default = a edição que está rodando: quem instalou a completa
+            // continua recebendo a completa. Valor já gravado nunca é trocado.
+            ("UpdaterFeatureChannel", crate::RUNNING_FEATURE_CHANNEL, None),
             ("AccountJoinDelay", "8", None),
             ("AsyncJoin", "false", None),
             ("DisableAgingAlert", "false", None),

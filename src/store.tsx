@@ -92,6 +92,7 @@ export type AppPage =
   | "session"
   | "afk"
   | "avatars"
+  | "groups"
   | "scripts"
   | "theme"
   | "nexus"
@@ -665,13 +666,23 @@ export interface StoreValue {
     body: string;
     releaseChannel: UpdaterReleaseChannel;
     featureChannel: UpdaterFeatureChannel;
+    /** O diálogo baixa e instala sozinho (troca de edição pedida pela pessoa). */
+    autoInstall?: boolean;
   } | null;
   updateDialogOpen: boolean;
   setUpdateDialogOpen: (open: boolean) => void;
+  /** `true` quando achou uma atualização e abriu o diálogo. */
   checkForUpdates: (
     manual?: boolean,
-    channels?: { releaseChannel?: string; featureChannel?: string }
-  ) => Promise<void>;
+    channels?: { releaseChannel?: string; featureChannel?: string },
+    options?: { autoInstall?: boolean; noUpdateMessage?: string }
+  ) => Promise<boolean>;
+  /**
+   * Passa o updater para a edição completa (`General.UpdaterFeatureChannel =
+   * nexus-ws`) e baixa e instala o instalador dela pelo próprio updater do app —
+   * mesmo na mesma versão. Ver docs/features/avatars.md.
+   */
+  switchToCompleteEdition: () => Promise<boolean>;
   openUpdatePreviewDialog: () => void;
 
   openLoginBrowser: () => Promise<void>;
@@ -846,6 +857,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     body: string;
     releaseChannel: UpdaterReleaseChannel;
     featureChannel: UpdaterFeatureChannel;
+    autoInstall?: boolean;
   } | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [joiningAccounts, setJoiningAccounts] = useState<Set<number>>(new Set());
@@ -3021,9 +3033,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const checkForUpdates = useCallback(async (
     manual?: boolean,
-    channels?: { releaseChannel?: string; featureChannel?: string }
-  ) => {
-    if (!manual && settings?.General?.CheckForUpdates === "false") return;
+    channels?: { releaseChannel?: string; featureChannel?: string },
+    options?: { autoInstall?: boolean; noUpdateMessage?: string }
+  ): Promise<boolean> => {
+    if (!manual && settings?.General?.CheckForUpdates === "false") return false;
 
     const releaseChannel = normalizeUpdaterReleaseChannel(
       channels?.releaseChannel ?? settings?.General?.UpdaterReleaseChannel ?? "beta"
@@ -3043,11 +3056,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } | null>("check_for_updates_with_channels", {
         releaseChannel,
         featureChannel,
+        // Só a checagem pedida pela pessoa troca de edição na mesma versão; a
+        // automática do boot nunca (ver `update_is_offered` no updater.rs).
+        allowEditionSwitch: manual === true,
       });
 
       if (!update) {
-        if (manual) addToast(tr("No updates available"));
-        return;
+        if (manual) addToast(options?.noUpdateMessage ?? tr("No updates available"));
+        return false;
       }
 
       const resolvedReleaseChannel = normalizeUpdaterReleaseChannel(update.releaseChannel);
@@ -3055,7 +3071,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const skipped = localStorage.getItem(
         getUpdaterSkipVersionKey(resolvedReleaseChannel, resolvedFeatureChannel)
       );
-      if (!manual && skipped === update.version) return;
+      if (!manual && skipped === update.version) return false;
 
       setUpdateInfo({
         version: update.version,
@@ -3064,10 +3080,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         body: update.body ?? "",
         releaseChannel: resolvedReleaseChannel,
         featureChannel: resolvedFeatureChannel,
+        autoInstall: options?.autoInstall === true,
       });
       setUpdateDialogOpen(true);
+      return true;
     } catch (e) {
       if (manual) addToast(tr("Update check failed"));
+      return false;
     }
   }, [
     settings?.General?.CheckForUpdates,
@@ -3075,6 +3094,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     settings?.General?.UpdaterReleaseChannel,
     addToast,
   ]);
+
+  const switchToCompleteEdition = useCallback(async (): Promise<boolean> => {
+    // Gravada antes da checagem: a setting mora no INI da pasta de dados e
+    // sobrevive à atualização, então toda checagem depois desta (inclusive a
+    // automática do boot, na edição completa) continua no canal completo.
+    try {
+      await invoke("update_setting", { section: "General", key: "UpdaterFeatureChannel", value: "nexus-ws" });
+    } catch (e) {
+      addToast(tr("Could not switch to the complete edition: {{error}}", { error: String(e) }), "error");
+      return false;
+    }
+    setSettings((prev) => ({
+      ...(prev || {}),
+      General: { ...(prev?.General || {}), UpdaterFeatureChannel: "nexus-ws" },
+    }));
+    return checkForUpdates(
+      true,
+      { featureChannel: "nexus-ws" },
+      {
+        autoInstall: true,
+        noUpdateMessage: tr("The complete edition is not available right now. Try again later."),
+      }
+    );
+  }, [checkForUpdates, addToast]);
 
   const openUpdatePreviewDialog = useCallback(() => {
     const previewBody = [
@@ -3286,6 +3329,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     updateDialogOpen,
     setUpdateDialogOpen,
     checkForUpdates,
+    switchToCompleteEdition,
     openUpdatePreviewDialog,
     openLoginBrowser,
     openAccountBrowser,

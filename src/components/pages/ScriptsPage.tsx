@@ -3238,8 +3238,8 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
               </div>
             ) : (
               <>
-                <div className="px-4 py-3 border-b theme-border flex items-center gap-2">
-                  <div className="flex-1 min-w-0">
+                <div className="px-4 py-3 border-b theme-border flex flex-wrap items-center gap-2">
+                  <div className="flex-1 min-w-[240px]">
                     <input
                       value={draft.name}
                       onChange={(event) =>

@@ -4,6 +4,7 @@ import {
   Gamepad2,
   Keyboard,
   Layers,
+  MessageSquareText,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
@@ -12,12 +13,14 @@ import {
   Sparkles,
   TerminalSquare,
   Users,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import { useStore, type AppPage } from "../../store";
 import { useTr } from "../../i18n/text";
-import { ENABLE_NEXUS } from "../../featureFlags";
+import { ENABLE_GROUPS, ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
 import { Tooltip } from "../ui/Tooltip";
+import { FeedbackDialog } from "../dialogs/FeedbackDialog";
 
 /**
  * Barra lateral de navegação. Substitui os botões de ícone da Toolbar, que só
@@ -69,9 +72,10 @@ interface NavItemDef {
 
 /**
  * Ordem combinada com o dono. Os grupos só separam visualmente: a lista, o que
- * roda agora, e o que se monta/ajusta.
+ * roda agora, e o que se monta/ajusta. Função (e não constante) para as flags
+ * serem lidas a cada render — os testes as trocam.
  */
-const NAV_GROUPS: NavItemDef[][] = [
+const navGroups = (): NavItemDef[][] => [
   [{ page: "accounts", label: "Accounts", icon: Users, tour: "nav-accounts" }],
   [
     { page: "session", label: "Session", icon: Gamepad2, tour: "nav-session" },
@@ -79,6 +83,7 @@ const NAV_GROUPS: NavItemDef[][] = [
   ],
   [
     { page: "avatars", label: "Avatars", icon: Shirt },
+    ...(ENABLE_GROUPS ? [{ page: "groups" as const, label: "Groups", icon: UsersRound }] : []),
     { page: "scripts", label: "Scripts", icon: TerminalSquare },
     { page: "theme", label: "Theme", icon: Palette },
     ...(ENABLE_NEXUS ? [{ page: "nexus" as const, label: "Nexus", icon: Layers }] : []),
@@ -87,9 +92,10 @@ const NAV_GROUPS: NavItemDef[][] = [
 ];
 
 /**
- * "What's new" (Novidades) fica no rodapé, junto do Help: os dois falam do
+ * "What's new" (Novidades) fica no rodapé, ao lado do recolher: fala do
  * próprio app, não do trabalho com as contas, e quem procura um deles olha ali.
- * É página como as de cima (marca `aria-current`), não ação como o Help.
+ * É página como as de cima (marca `aria-current`), não ação como o Help. (O
+ * Help está escondido por `ENABLE_HELP_BUTTON` desde 08/10/2026.)
  */
 const FOOTER_ITEMS: NavItemDef[] = [{ page: "changelog", label: "What's new", icon: Sparkles }];
 
@@ -98,6 +104,7 @@ export function NavSidebar() {
   const store = useStore();
   const narrow = useNarrowWindow();
   const [userCollapsed, setUserCollapsed] = useState(readCollapsed);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const collapsed = userCollapsed || narrow;
 
   const toggleCollapsed = useCallback(() => {
@@ -219,6 +226,23 @@ export function NavSidebar() {
     </button>
   );
 
+  // Reportar problema / sugerir ideia: abre o formulário do GitHub no navegador
+  // (FeedbackDialog). Fica no rodapé, junto do Help, porque é sobre o app.
+  const feedbackLabel = t("Send feedback");
+  const feedbackButton = (
+    <button
+      type="button"
+      onClick={() => setFeedbackOpen(true)}
+      aria-label={feedbackLabel}
+      className={`flex items-center rounded-lg text-[13px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] transition-colors outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] ${
+        collapsed ? "w-10 h-10 justify-center" : "w-full h-9 gap-3 px-2.5"
+      }`}
+    >
+      <MessageSquareText size={17} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />
+      <span className={collapsed ? "sr-only" : "truncate"}>{feedbackLabel}</span>
+    </button>
+  );
+
   const collapseLabel = collapsed ? t("Expand sidebar") : t("Collapse sidebar");
   const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
   const collapseButton = (
@@ -244,7 +268,7 @@ export function NavSidebar() {
       }`}
     >
       <div className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-3 ${collapsed ? "px-2.5" : "px-2.5"}`}>
-        {NAV_GROUPS.map((group, index) => (
+        {navGroups().map((group, index) => (
           <ul key={index} className={`space-y-0.5 ${index > 0 ? "mt-2 pt-2 border-t theme-border" : ""}`}>
             {group.map(renderItem)}
           </ul>
@@ -252,15 +276,36 @@ export function NavSidebar() {
       </div>
 
       <div className="shrink-0 border-t theme-border py-2 px-2.5">
-        <ul className="mb-0.5 space-y-0.5">{FOOTER_ITEMS.map(renderItem)}</ul>
-        <div className={collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}>
-          {collapsed ? (
-            <Tooltip content={helpLabel} side="right" delayMs={200}>
-              {helpButton}
-            </Tooltip>
-          ) : (
-            <div className="flex-1 min-w-0">{helpButton}</div>
-          )}
+        <ul className="mb-0.5 space-y-0.5">
+          <li className={collapsed ? "flex justify-center" : undefined}>
+            {collapsed ? (
+              <Tooltip content={feedbackLabel} side="right" delayMs={200}>
+                {feedbackButton}
+              </Tooltip>
+            ) : (
+              feedbackButton
+            )}
+          </li>
+          {ENABLE_HELP_BUTTON ? (
+            <li className={collapsed ? "flex justify-center" : undefined}>
+              {collapsed ? (
+                <Tooltip content={helpLabel} side="right" delayMs={200}>
+                  {helpButton}
+                </Tooltip>
+              ) : (
+                helpButton
+              )}
+            </li>
+          ) : null}
+        </ul>
+        {/* Última linha: "What's new" ao lado do recolher (pedido do dono,
+            08/10/2026). Recolhida, os dois empilham no centro; janela estreita
+            (que já recolhe sozinha) não tem o botão de recolher. */}
+        <div
+          data-testid="nav-footer-actions"
+          className={collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}
+        >
+          <ul className={collapsed ? undefined : "flex-1 min-w-0"}>{FOOTER_ITEMS.map(renderItem)}</ul>
           {narrow ? null : collapsed ? (
             <Tooltip content={collapseLabel} side="right" delayMs={200}>
               {collapseButton}
@@ -270,6 +315,7 @@ export function NavSidebar() {
           )}
         </div>
       </div>
+      <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </nav>
   );
 }

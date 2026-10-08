@@ -32,6 +32,7 @@ import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay"
 import { SessionPage } from "./components/pages/SessionPage";
 import { AfkPage } from "./components/pages/AfkPage";
 import { AvatarsPage } from "./components/pages/AvatarsPage";
+import { GroupsPage } from "./components/pages/GroupsPage";
 import { ScriptsPage } from "./components/pages/ScriptsPage";
 import { ThemePage } from "./components/pages/ThemePage";
 import { NexusPage } from "./components/pages/NexusPage";
@@ -40,6 +41,7 @@ import { ChangelogPage } from "./components/pages/ChangelogPage";
 import { useTr } from "./i18n/text";
 import { useUpdateHandoffToast } from "./hooks/useUpdateHandoffToast";
 import { useBackdropClose } from "./hooks/useBackdropClose";
+import { useUiScale } from "./hooks/useUiScale";
 import { TONE_STYLES } from "./utils/toastTone";
 import { isMultiRobloxCloseProcessError } from "./utils/robloxErrors";
 import { ENABLE_NEXUS } from "./featureFlags";
@@ -75,6 +77,11 @@ function AppContent() {
   // Volta de uma atualização silenciosa: "Atualizado para vX" (ou o aviso de
   // que a instalação não terminou). Ver updateHandoff.ts.
   useUpdateHandoffToast(store.initialized && !store.needsPassword, store.addToast, t);
+
+  // Tamanho da interface (Settings › General): zoom nativo do WebView, que no
+  // automático encolhe a interface em janela pequena. Antes dos `return`
+  // antecipados para valer também na tela de senha. Ver uiScale.ts.
+  useUiScale(store.settings?.General?.InterfaceScale, store.settings !== null);
 
   useEffect(() => {
     if (!store.initialized || store.needsPassword || store.firstRunWalkthroughOpen) return;
@@ -211,6 +218,7 @@ function AppContent() {
           <SessionPage active={page === "session"} onLeave={leavePage} />
           <AfkPage active={page === "afk"} onLeave={leavePage} />
           <AvatarsPage active={page === "avatars"} onLeave={leavePage} />
+          <GroupsPage active={page === "groups"} onLeave={leavePage} />
           <ScriptsPage active={page === "scripts"} onLeave={leavePage} />
           <ThemePage active={page === "theme"} onLeave={leavePage} />
           {ENABLE_NEXUS && <NexusPage active={page === "nexus"} onLeave={leavePage} />}
