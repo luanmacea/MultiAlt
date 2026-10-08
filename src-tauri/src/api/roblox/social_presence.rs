@@ -1,21 +1,4 @@
-pub async fn join_group(security_token: &str, group_id: i64) -> Result<(), String> {
-    let csrf = crate::api::auth::get_csrf_token(security_token).await?;
-    let client = http_client::client();
-
-    let request = client
-        .post(format!("{}/v1/groups/{}/users", endpoints::host("groups"), group_id))
-        .header(COOKIE, cookie_header(security_token))
-        .header("Content-Type", "application/json")
-        .body("{}");
-    let response = crate::api::auth::send_with_csrf_retry(request, &csrf).await?;
-
-    if response.status().is_success() {
-        Ok(())
-    } else {
-        let body = response.text().await.unwrap_or_default();
-        Err(format!("Failed to join group: {}", body))
-    }
-}
+// `join_group` mora em `groups.rs`, junto da entrada com resultado tipado.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserPresence {

@@ -55,7 +55,7 @@ describe("NavSidebar — items", () => {
       .getAllByRole("button")
       .map((b) => b.getAttribute("data-nav"))
       .filter(Boolean);
-    const expected = ["accounts", "session", "afk", "avatars", "scripts", "theme"];
+    const expected = ["accounts", "session", "afk", "avatars", "groups", "scripts", "theme"];
     if (ENABLE_NEXUS) expected.push("nexus");
     expected.push("settings");
     // "What's new" mora no rodapé, junto do Help: é sobre o app, não trabalho do dia.
@@ -65,7 +65,7 @@ describe("NavSidebar — items", () => {
 
   it("shows the labels without hovering", () => {
     renderNav();
-    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Scripts", "Theme", "Settings", "What's new", "Help"]) {
+    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Groups", "Scripts", "Theme", "Settings", "What's new", "Help"]) {
       expect(screen.getByText(label)).not.toHaveClass("sr-only");
     }
   });
@@ -81,6 +81,7 @@ describe("NavSidebar — items", () => {
     ["Session", "session"],
     ["AFK Mode", "afk"],
     ["Avatars", "avatars"],
+    ["Groups", "groups"],
     ["Scripts", "scripts"],
     ["Theme", "theme"],
     ["Settings", "settings"],

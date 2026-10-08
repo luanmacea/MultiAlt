@@ -325,6 +325,7 @@ describe("App — pages", () => {
   it.each([
     ["session", "Session"],
     ["avatars", "Avatars"],
+    ["groups", "Groups"],
     ["scripts", "Scripts"],
     ["theme", "Theme"],
     ["settings", "Settings"],
@@ -420,6 +421,7 @@ describe("App — screen tutorials", () => {
     ["session", "Session"],
     ["afk", "AFK Mode"],
     ["avatars", "Avatars"],
+    ["groups", "Groups"],
     ["scripts", "Scripts"],
     ["theme", "Theme"],
     ["settings", "Settings"],

@@ -49,6 +49,7 @@ const RECIPES: { name: string; steps: string[] }[] = [
   { name: "AFK - Auto Rejoin", steps: ["AFK Mode", "Auto Rejoin"] },
   { name: "Avatars - Build", steps: ["Avatars", "Build"] },
   { name: "Avatars - Distribute", steps: ["Avatars", "Distribute"] },
+  { name: "Groups", steps: ["Groups"] },
   { name: "Scripts", steps: ["Scripts"] },
   { name: "Theme", steps: ["Theme"] },
   { name: "Nexus", steps: ["Nexus"] },
