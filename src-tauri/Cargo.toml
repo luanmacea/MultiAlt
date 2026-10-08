@@ -11,9 +11,12 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [features]
-default = ["nexus", "webserver"]
+default = ["nexus", "webserver", "avatar-batch"]
 nexus = []
 webserver = ["dep:axum"]
+# Distribuir avatares salvos entre várias contas (resgate dos itens gratuitos
+# + vestir). Só a edição completa; a padrão sai com `--no-default-features`.
+avatar-batch = []
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }

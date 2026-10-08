@@ -19,8 +19,8 @@ Scripts definidos em [package.json](../package.json) e hooks de build em [tauri.
 | `bun run tauri dev` | Abre o app nativo; roda `bun run dev` antes (`beforeDevCommand`). |
 | `bun run tauri build` | Build de produção; roda `bun run build` antes (`beforeBuildCommand`), gera artefatos do updater (`createUpdaterArtifacts: true`). |
 | `bun run i18n:extract` | Alias de `bun scripts/i18n/extract-keys.ts`. |
-| `cd src-tauri && cargo build` | Backend com features default (`nexus` + `webserver`). |
-| `cd src-tauri && cargo build --no-default-features` | Backend "standard", sem Nexus nem WebServer. |
+| `cd src-tauri && cargo build` | Backend com features default (`nexus` + `webserver` + `avatar-batch`). |
+| `cd src-tauri && cargo build --no-default-features` | Backend "standard", sem Nexus, WebServer nem a distribuição de avatares em lote. |
 | `cd src-tauri && cargo build --no-default-features --features webserver` | Só uma das features. |
 | `bun run test` | Testes do frontend (vitest + happy-dom). |
 | `bun run test:coverage` | Idem, com cobertura (v8). |
@@ -271,12 +271,15 @@ o agente relata uma tela que não existe mais. Se desconfiar, apague `node_modul
 |---|---|---|
 | `nexus` | sim | módulo [nexus/](../src-tauri/src/nexus) (WebSocket para Nexus.lua) |
 | `webserver` | sim | [api/server/](../src-tauri/src/api/server) (axum, dependência opcional) |
+| `avatar-batch` | sim | distribuição de avatares em lote: [commands/avatar_batch.rs](../src-tauri/src/commands/avatar_batch.rs) e o resgate em [api/roblox/avatar_claim.rs](../src-tauri/src/api/roblox/avatar_claim.rs) (ver [features/avatars.md](features/avatars.md#as-duas-edições)) |
 
-Comandos relacionados em [services.rs](../src-tauri/src/commands/services.rs) têm stub `#[cfg(not(feature = ...))]` — ao adicionar um comando novo dessas áreas, crie as duas versões.
+Comandos relacionados em [services.rs](../src-tauri/src/commands/services.rs) e [avatars.rs](../src-tauri/src/commands/avatars.rs) têm stub `#[cfg(not(feature = ...))]` — ao adicionar um comando novo dessas áreas, crie as duas versões.
+
+As duas edições publicadas: a **padrão** (`--no-default-features`, o `MultiAlt-Setup.msi`) e a **completa** (`--features nexus,webserver,avatar-batch`, canal `<release>-nexus-ws` do updater). O binário sabe a própria edição pelas features (`RUNNING_FEATURE_CHANNEL` em [updater.rs](../src-tauri/src/commands/updater.rs)); a troca de uma para a outra na mesma versão é descrita em [features/avatars.md](features/avatars.md#trocar-para-a-edição-completa-pelo-app). `cargo test --no-default-features --lib` roda os testes que só existem na padrão (`avatar_batch_disabled_tests`).
 
 ### Vite ([featureFlags.ts](../src/featureFlags.ts))
 
-`VITE_ENABLE_NEXUS` e `VITE_ENABLE_WEBSERVER` (default `true`) escondem a UI correspondente. Mantenha-as coerentes com as features do Cargo no build que você distribui — nada no código amarra uma à outra.
+`VITE_ENABLE_NEXUS`, `VITE_ENABLE_WEBSERVER` e `VITE_ENABLE_AVATAR_BATCH` (default `true`) escondem a UI correspondente. Mantenha-as coerentes com as features do Cargo no build que você distribui — nada no código amarra uma à outra.
 
 ## Dados em desenvolvimento
 

@@ -336,3 +336,32 @@ describe("automacao nao infla o contador de downloads", () => {
     });
   }
 });
+
+/**
+ * As duas edicoes: a padrao (o `MultiAlt-Setup.msi`) sai sem nenhuma feature
+ * extra do Cargo e com as flags do frontend desligadas; a completa liga as tres
+ * (Nexus, Web Server e a distribuicao de avatares em lote, `avatar-batch`).
+ */
+describe("edicoes no release-v4.yml", () => {
+  const stepText = (name) => {
+    const step = steps().find((s) => s.name === name);
+    expect(step, name).toBeDefined();
+    return step.lines.join("\n");
+  };
+
+  it("a padrao compila sem features extras e esconde a distribuicao de avatares", () => {
+    const text = stepText("Build and publish standard release");
+    expect(text).toContain("args: -- --no-default-features");
+    expect(text).toMatch(/VITE_ENABLE_AVATAR_BATCH: "false"/);
+    expect(text).toMatch(/VITE_ENABLE_NEXUS: "false"/);
+    expect(text).toMatch(/VITE_ENABLE_WEBSERVER: "false"/);
+  });
+
+  it("a completa compila Nexus, Web Server e a distribuicao de avatares", () => {
+    const text = stepText("Build full feature variant (Nexus + WebServer + avatar distribution)");
+    expect(text).toContain("bun tauri build -- --features nexus,webserver,avatar-batch");
+    expect(text).toMatch(/VITE_ENABLE_AVATAR_BATCH: "true"/);
+    expect(text).toMatch(/VITE_ENABLE_NEXUS: "true"/);
+    expect(text).toMatch(/VITE_ENABLE_WEBSERVER: "true"/);
+  });
+});

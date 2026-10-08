@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { AvatarsPage } from "./AvatarsPage";
+import { ENABLE_AVATAR_BATCH } from "../../featureFlags";
 import i18n, { DEFAULT_LANGUAGE } from "../../i18n/index";
 import type { StoreValue } from "../../store";
 import type { FreeCatalogItem, SavedAvatar } from "../../avatarBuilder";
@@ -174,6 +175,17 @@ describe("AvatarsPage — montar", () => {
 });
 
 describe("AvatarsPage — distribuir", () => {
+  it("na edição completa a aba mostra o lote, sem o cartão da edição", async () => {
+    expect(ENABLE_AVATAR_BATCH).toBe(true);
+    wire({ avatar_list_saved: [SAVED] });
+    renderDialog();
+    await userEvent.click(screen.getByRole("tab", { name: "Distribute" }));
+    expect(await screen.findByText("Avatars to hand out")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply avatars" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Get the complete edition" })).not.toBeInTheDocument();
+    expect(invokeMock.mock.calls.some(([cmd]) => cmd === "get_avatar_batch_state")).toBe(true);
+  });
+
   it("Apply avatars fica desligado sem conta marcada", async () => {
     wire({ avatar_list_saved: [SAVED] });
     renderDialog({ selectedAccounts: [] });

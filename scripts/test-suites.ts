@@ -177,16 +177,20 @@ export const SUITES: Record<string, TestSuite> = {
     front: [],
   },
   avatars: {
-    description: "Avatares gratuitos: catálogo oficial gratuito, resgate de itens, distribuição entre contas",
+    description: "Avatares gratuitos: catálogo oficial gratuito, resgate de itens, distribuição entre contas (só na edição completa)",
     rust: [
       "avatar_catalog_tests",
+      "avatar_claim_tests",
       "avatar_store_tests",
       "avatar_batch_tests",
+      // Só roda com `cargo test --no-default-features` (edição padrão).
+      "avatar_batch_disabled_tests",
       "avatar_cache_invalidation_tests",
     ],
     front: [
       "src/avatarBuilder.test.ts",
       "src/components/pages/AvatarsPage.test.tsx",
+      "src/components/pages/AvatarsPage.edition.test.tsx",
       "src/components/pages/avatars",
       // `store.test.ts` entra pelo bloco `refreshAvatarHeadshots` (foto da conta depois do lote).
       "src/store.test.ts",

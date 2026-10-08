@@ -144,6 +144,7 @@ webserver = ["dep:axum"]
 |---|---|---|---|
 | `ENABLE_NEXUS` | `VITE_ENABLE_NEXUS` | `true` | Mostra o item Nexus na [barra lateral](../src/components/layout/NavSidebar.tsx) e monta a `NexusPage` em [App.tsx](../src/App.tsx). |
 | `ENABLE_WEBSERVER` | `VITE_ENABLE_WEBSERVER` | `true` | Inclui a aba WebServer em [SettingsPage.tsx](../src/components/pages/SettingsPage.tsx) e o toggle em [DeveloperTab.tsx](../src/components/settings/DeveloperTab.tsx). |
+| `ENABLE_AVATAR_BATCH` | `VITE_ENABLE_AVATAR_BATCH` | `true` | Aba Distribute da [página Avatars](../src/components/pages/AvatarsPage.tsx): o lote, ou (desligada) o cartão que leva à edição completa. Par da feature Cargo `avatar-batch` ([features/avatars.md](features/avatars.md#as-duas-edições)). |
 
 Valores aceitos: `1/true/yes/on` e `0/false/no/off` (qualquer outro → default). As flags do frontend e do Cargo são **independentes**: a CI ([ci.yml](../.github/workflows/ci.yml)) builda as duas combinações ("full" e "standard" com `--no-default-features`).
 

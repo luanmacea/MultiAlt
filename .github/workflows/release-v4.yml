@@ -218,6 +218,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_ENABLE_NEXUS: "false"
           VITE_ENABLE_WEBSERVER: "false"
+          VITE_ENABLE_AVATAR_BATCH: "false"
         with:
           projectPath: "."
           tauriScript: "bun tauri"
@@ -304,15 +305,16 @@ jobs:
           $config.plugins.updater.endpoints = @($endpoint)
           $config | ConvertTo-Json -Depth 100 | Set-Content src-tauri/tauri.conf.json
 
-      - name: Build full feature variant (Nexus + WebServer)
+      - name: Build full feature variant (Nexus + WebServer + avatar distribution)
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           VITE_ENABLE_NEXUS: "true"
           VITE_ENABLE_WEBSERVER: "true"
+          VITE_ENABLE_AVATAR_BATCH: "true"
         run: |
-          bun tauri build -- --features nexus,webserver
+          bun tauri build -- --features nexus,webserver,avatar-batch
 
       - name: Prepare full feature assets and manifest
         shell: pwsh
