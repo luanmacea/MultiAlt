@@ -1996,5 +1996,7 @@
   "Your scripts": "Your scripts",
   "Fix": "Fix",
   "General update": "General update",
-  "New features": "New features"
+  "New features": "New features",
+  "Auto shrinks the interface on smaller screens": "Auto shrinks the interface on smaller screens",
+  "Interface size": "Interface size"
 }

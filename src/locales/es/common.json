@@ -1996,5 +1996,7 @@
   "Your scripts": "Tus scripts",
   "Fix": "Corrección",
   "General update": "Actualización general",
-  "New features": "Novedades"
+  "New features": "Novedades",
+  "Auto shrinks the interface on smaller screens": "El automático reduce la interfaz en pantallas más pequeñas",
+  "Interface size": "Tamaño de la interfaz"
 }
