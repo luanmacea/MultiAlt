@@ -1996,5 +1996,13 @@
   "Your scripts": "Your scripts",
   "Fix": "Fix",
   "General update": "General update",
-  "New features": "New features"
+  "New features": "New features",
+  "Could not switch to the complete edition: {{error}}": "Could not switch to the complete edition: {{error}}",
+  "Distributing avatars is an extra": "Distributing avatars is an extra",
+  "Get the complete edition": "Get the complete edition",
+  "Getting the complete edition": "Getting the complete edition",
+  "Giving saved avatars to many accounts at once picks up the free catalog items for each account automatically. Some security tools treat automatic purchases — even free ones — as risky, so this part is not included by default. You can add it by switching to the complete edition (it also includes Nexus and the Web Server).": "Giving saved avatars to many accounts at once picks up the free catalog items for each account automatically. Some security tools treat automatic purchases — even free ones — as risky, so this part is not included by default. You can add it by switching to the complete edition (it also includes Nexus and the Web Server).",
+  "Handing saved looks out to many accounts comes with the complete edition.": "Handing saved looks out to many accounts comes with the complete edition.",
+  "The complete edition is not available right now. Try again later.": "The complete edition is not available right now. Try again later.",
+  "The update downloads the complete installer from this project's GitHub releases. Your accounts and settings are kept.": "The update downloads the complete installer from this project's GitHub releases. Your accounts and settings are kept."
 }

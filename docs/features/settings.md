@@ -51,7 +51,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 |---|---|---|
 | `CheckForUpdates` | `true` | Checar update ao iniciar. |
 | `UpdaterReleaseChannel` | `beta` | Canal de release do updater. |
-| `UpdaterFeatureChannel` | `standard` | Canal de features do updater. |
+| `UpdaterFeatureChannel` | a edição que está rodando (`standard` na padrão, `nexus-ws` na completa) | Canal de features do updater. Gravado no INI, nunca é reposto por uma versão nova; o botão "Get the complete edition" da página Avatars grava `nexus-ws` ([avatars.md](avatars.md#trocar-para-a-edição-completa-pelo-app)). |
 | `AccountJoinDelay` | `8` | Segundos entre contas no multi-launch. |
 | `AsyncJoin` | `false` | Esperar cada conta abrir antes da próxima. |
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |

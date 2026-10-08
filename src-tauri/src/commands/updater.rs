@@ -51,6 +51,40 @@ fn normalize_updater_feature_channel(raw: &str) -> &'static str {
     }
 }
 
+/// Edição deste binário, no vocabulário do canal de recursos do updater.
+///
+/// Sai das features de compilação, não da setting: a setting
+/// `General.UpdaterFeatureChannel` diz a edição que a pessoa **quer**; isto diz
+/// a que está rodando. A completa é a que o release compila com
+/// `--features nexus,webserver,avatar-batch`.
+pub(crate) const RUNNING_FEATURE_CHANNEL: &str =
+    if cfg!(all(feature = "nexus", feature = "webserver", feature = "avatar-batch")) {
+        "nexus-ws"
+    } else {
+        "standard"
+    };
+
+/// A versão do manifesto conta como atualização?
+///
+/// Normalmente só uma versão maior. A exceção é a troca de edição pedida pela
+/// pessoa (`allow_edition_switch`, só nas checagens manuais): se o canal pedido
+/// é de outra edição, a **mesma** versão também vale — o que se baixa é o
+/// instalador da outra edição. Versão menor nunca. A assinatura do pacote
+/// continua sendo conferida no download/instalação, como em qualquer update.
+fn update_is_offered(
+    current: &semver::Version,
+    remote: &semver::Version,
+    running_feature_channel: &str,
+    wanted_feature_channel: &str,
+    allow_edition_switch: bool,
+) -> bool {
+    if allow_edition_switch && running_feature_channel != wanted_feature_channel {
+        remote >= current
+    } else {
+        remote > current
+    }
+}
+
 fn resolve_manifest_channel(release_channel: &str, feature_channel: &str) -> String {
     if feature_channel == "nexus-ws" {
         format!("{}-nexus-ws", release_channel)
@@ -137,12 +171,23 @@ async fn check_update_for_channel(
     app: &tauri::AppHandle,
     release_channel: &str,
     feature_channel: &str,
+    allow_edition_switch: bool,
 ) -> Result<Option<PendingUpdate>, String> {
     use tauri_plugin_updater::UpdaterExt;
 
     let endpoint = build_manifest_endpoint(release_channel, feature_channel)?;
+    let wanted_feature_channel = feature_channel.to_string();
     let updater = app
         .updater_builder()
+        .version_comparator(move |current, release| {
+            update_is_offered(
+                &current,
+                &release.version,
+                RUNNING_FEATURE_CHANNEL,
+                &wanted_feature_channel,
+                allow_edition_switch,
+            )
+        })
         .endpoints(vec![endpoint])
         .map_err(|e| format!("Failed to configure updater endpoint: {}", e))?
         .installer_args(update_installer_args(
@@ -172,7 +217,10 @@ async fn check_for_updates_with_channels(
     updater_state: tauri::State<'_, UpdaterRuntimeState>,
     release_channel: Option<String>,
     feature_channel: Option<String>,
+    // Só a checagem manual manda `true` (ver `update_is_offered`).
+    allow_edition_switch: Option<bool>,
 ) -> Result<Option<UpdaterCheckResponse>, String> {
+    let allow_edition_switch = allow_edition_switch.unwrap_or(false);
     let normalized_release = normalize_updater_release_channel(
         release_channel.as_deref().unwrap_or("beta"),
     );
@@ -181,14 +229,14 @@ async fn check_for_updates_with_channels(
     );
 
     let primary_update = primary_channel_result(
-        check_update_for_channel(&app, normalized_release, normalized_feature).await,
+        check_update_for_channel(&app, normalized_release, normalized_feature, allow_edition_switch).await,
     )?;
     // Quem esta no beta tambem olha o stable: uma estavel mais nova vence a
     // beta. Mas o stable so nasce na primeira release estavel, e ate la ele
     // responde 404 — por isso a falha dele nao pode derrubar a checagem.
     let fallback_update = if normalized_release == "beta" {
         fallback_channel_result(
-            check_update_for_channel(&app, "stable", normalized_feature).await,
+            check_update_for_channel(&app, "stable", normalized_feature, allow_edition_switch).await,
         )?
     } else {
         None
@@ -406,6 +454,52 @@ mod updater_tests {
         assert_eq!(normalize_updater_feature_channel("standard"), "standard");
         assert_eq!(normalize_updater_feature_channel(""), "standard");
         assert_eq!(normalize_updater_feature_channel("whatever"), "standard");
+    }
+
+    // ---- troca de edição -----------------------------------------------------
+
+    fn v(raw: &str) -> semver::Version {
+        semver::Version::parse(raw).unwrap()
+    }
+
+    #[test]
+    fn switching_to_the_complete_edition_offers_the_same_version() {
+        // O manifesto `stable-nexus-ws` sai com a mesma versão do `stable`: sem
+        // isto, quem pede a edição completa ouviria "nada para atualizar".
+        assert!(update_is_offered(&v("1.4.0"), &v("1.4.0"), "standard", "nexus-ws", true));
+    }
+
+    #[test]
+    fn switching_back_to_the_standard_edition_offers_the_same_version() {
+        assert!(update_is_offered(&v("1.4.0"), &v("1.4.0"), "nexus-ws", "standard", true));
+    }
+
+    #[test]
+    fn the_same_edition_at_the_same_version_stays_up_to_date() {
+        assert!(!update_is_offered(&v("1.4.0"), &v("1.4.0"), "standard", "standard", true));
+        assert!(!update_is_offered(&v("1.4.0"), &v("1.4.0"), "nexus-ws", "nexus-ws", true));
+    }
+
+    #[test]
+    fn the_automatic_check_never_switches_edition_at_the_same_version() {
+        // A checagem do boot não pede troca: uma setting antiga apontando para a
+        // outra edição não vira aviso de atualização a cada abertura.
+        assert!(!update_is_offered(&v("1.4.0"), &v("1.4.0"), "standard", "nexus-ws", false));
+        assert!(update_is_offered(&v("1.4.0"), &v("1.5.0"), "standard", "nexus-ws", false));
+    }
+
+    #[test]
+    fn an_edition_switch_never_offers_an_older_version() {
+        assert!(!update_is_offered(&v("1.4.0"), &v("1.3.9"), "standard", "nexus-ws", true));
+        assert!(update_is_offered(&v("1.4.0"), &v("1.4.1"), "standard", "nexus-ws", true));
+    }
+
+    #[test]
+    fn the_running_edition_comes_from_the_compiled_features() {
+        let complete = cfg!(all(feature = "nexus", feature = "webserver", feature = "avatar-batch"));
+        assert_eq!(RUNNING_FEATURE_CHANNEL, if complete { "nexus-ws" } else { "standard" });
+        // É um dos dois canais que o updater conhece.
+        assert_eq!(normalize_updater_feature_channel(RUNNING_FEATURE_CHANNEL), RUNNING_FEATURE_CHANNEL);
     }
 
     // ---- falha de canal ------------------------------------------------------

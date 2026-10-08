@@ -15,7 +15,9 @@ import {
   type FreeCatalogItem,
   type SavedAvatar,
 } from "../../avatarBuilder";
+import { ENABLE_AVATAR_BATCH } from "../../featureFlags";
 import { BuildTab } from "./avatars/BuildTab";
+import { CompleteEditionCard } from "./avatars/CompleteEditionCard";
 import { DistributeTab } from "./avatars/DistributeTab";
 import { IDLE_BATCH, type AvatarBatchSnapshot } from "./avatars/shared";
 import { useAvatarDraft } from "./avatars/useAvatarDraft";
@@ -32,6 +34,10 @@ type Tab = "build" | "distribute";
  * lote roda no backend, uma conta por vez, e chega inteiro a cada passo pelo
  * evento `avatar-batch-state` — a tela pode fechar e reabrir no meio que retoma
  * de onde está (`get_avatar_batch_state`).
+ *
+ * O lote só existe na edição completa (`ENABLE_AVATAR_BATCH`). Na padrão a aba
+ * Distribute continua, mas mostra o cartão que leva à edição completa
+ * (`CompleteEditionCard`) e o estado do lote nem é consultado.
  */
 /** Mapa vazio estável: as fotos das contas quando os nomes estão ocultos. */
 const NO_AVATARS: Map<number, string> = new Map();
@@ -162,6 +168,7 @@ export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () 
     setPicked(new Set(storeRef.current.selectedAccounts.map((a) => a.UserID)));
     if (!catalog && !catalogLoading) void loadCatalog();
     void loadSaved();
+    if (!ENABLE_AVATAR_BATCH) return;
     invoke<AvatarBatchSnapshot>("get_avatar_batch_state")
       .then((snapshot) => {
         if (!mountedRef.current || !snapshot) return;
@@ -378,6 +385,8 @@ export function AvatarsPage({ active, onLeave }: { active: boolean; onLeave: () 
           onSave={() => void handleSave()}
           onDelete={(avatar) => void handleDelete(avatar)}
         />
+      ) : !ENABLE_AVATAR_BATCH ? (
+        <CompleteEditionCard />
       ) : (
         <DistributeTab
           saved={saved}
