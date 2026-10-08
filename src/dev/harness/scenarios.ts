@@ -24,6 +24,7 @@ import {
 import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
 import { seedTourStorage, tourHandler } from "./tour";
 import { HARNESS_RELEASES, kindBody } from "./releases";
+import { clipReport } from "./clipReport";
 
 const params = new URLSearchParams(window.location.search);
 const scenarioName = params.get("scenario") || "default";
@@ -1687,4 +1688,5 @@ const SCENARIOS: Record<string, () => void> = {
   calls: harnessCalls,
   resetCalls: resetHarnessCalls,
   scenarios: Object.keys(SCENARIOS),
+  clipReport,
 };

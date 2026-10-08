@@ -348,3 +348,4 @@ src-tauri/gen/
 *.key.pub
 .superpowers/
 .claude/worktrees/
+ui-audit-out/

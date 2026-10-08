@@ -110,6 +110,15 @@ bun run dev:ui        # frontend real em localhost:1420, lado Tauri dublado
 
 `UI_HARNESS=1` troca `@tauri-apps/api/{core,event,window}` pelos dublês de [src/dev/harness/](../src/dev/harness/) (alias no [vite.config.ts](../vite.config.ts)). O app roda inteiro no navegador, sem compilar o Rust e sem tocar em conta nenhuma.
 
+### Telas pequenas
+
+```bash
+bun run ui:audit                                   # com o dev:ui rodando
+bun run ui:audit --only "Choose Game" --sizes 750x450
+```
+
+[scripts/ui-audit.ts](../scripts/ui-audit.ts) abre o harness num Edge/Chrome headless em tamanhos de monitor comum (1366x728, 1280x680, 1093x575 e o mínimo da janela, 750x450), passa por cada página, aba, menu e diálogo e lista o que fica **cortado** (`overflow-hidden` com conteúdo maior que a caixa) ou **inalcançável** (texto fora da janela sem rolagem até ele). O detector é `window.__harness.clipReport()` ([clipReport.ts](../src/dev/harness/clipReport.ts)), que também roda à mão pelo console. Prints e `report.json` vão para `ui-audit-out/` (fora do git). Tela nova entra na lista `RECIPES` do script.
+
 ### Cenários
 
 Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`. `window.__harness.scenarios` lista os nomes.
