@@ -38,6 +38,21 @@ struct JoinPacing {
     max: Duration,
 }
 
+/// Número aleatório do sistema (pausas e sorteios dos lotes). Mora aqui, e não
+/// no lote de avatares, porque este arquivo entra nas duas edições e o
+/// `avatar_batch.rs` só na completa — os dois usam.
+fn os_random_u64() -> u64 {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).expect("OS RNG unavailable");
+    u64::from_le_bytes(bytes)
+}
+
+/// Mantém a ordem e descarta repetidos (contas escolhidas para um lote).
+fn dedupe_keep_order<T: Eq + std::hash::Hash + Clone>(items: Vec<T>) -> Vec<T> {
+    let mut seen = std::collections::HashSet::new();
+    items.into_iter().filter(|i| seen.insert(i.clone())).collect()
+}
+
 const JOIN_PACING: JoinPacing = JoinPacing {
     min: Duration::from_secs(2),
     max: Duration::from_secs(4),

@@ -271,18 +271,6 @@ fn avatar_cancel_batch() {
     AVATAR_BATCH_CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
-fn os_random_u64() -> u64 {
-    let mut bytes = [0u8; 8];
-    getrandom::fill(&mut bytes).expect("OS RNG unavailable");
-    u64::from_le_bytes(bytes)
-}
-
-/// Mantém a ordem e descarta repetidos.
-fn dedupe_keep_order<T: Eq + std::hash::Hash + Clone>(items: Vec<T>) -> Vec<T> {
-    let mut seen = std::collections::HashSet::new();
-    items.into_iter().filter(|i| seen.insert(i.clone())).collect()
-}
-
 #[tauri::command]
 async fn avatar_apply_batch(
     app: tauri::AppHandle,
