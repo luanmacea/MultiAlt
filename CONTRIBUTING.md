@@ -10,6 +10,14 @@ Use the forms on the [Issues page](https://github.com/luanmacea/MultiAlt/issues/
 
 Security problems go through the [security policy](SECURITY.md), not public issues.
 
+## Where to start
+
+- **No code needed:** answer questions in [Discussions](https://github.com/luanmacea/MultiAlt/discussions), confirm bugs other people reported, or improve the translations in `src/locales/` (English, Português, Español).
+- **First code contribution:** look for issues labeled [`good first issue`](https://github.com/luanmacea/MultiAlt/labels/good%20first%20issue) or [`documentation`](https://github.com/luanmacea/MultiAlt/labels/documentation). Comment on the issue before starting, so two people don't do the same thing.
+- **Bigger change?** Open an issue or a discussion first and describe the idea. It saves you from building something that doesn't fit the project.
+
+Pull requests are usually answered within a few days — MultiAlt is maintained by one person, so thanks for your patience.
+
 ## Working on the code
 
 MultiAlt is a [Tauri 2](https://tauri.app) app: Rust backend (`src-tauri/`) and React + TypeScript frontend (`src/`). Windows is the main platform.

@@ -109,8 +109,20 @@ A yellow bar at the top of the app has a **Back to normal mode** button. If it d
 **Does it work on Mac?**
 Not yet — macOS support is partial.
 
-# Version 0.x (Beta)
-Under active development: 0.x versions lead up to the first fully fixed release, which will be 1.0.0. Expect bugs and behavior changes between them.
+# Roadmap
+MultiAlt is actively maintained. What is planned next:
+
+- **Groups** — find a Roblox group and put many accounts in it at once (in testing).
+- **FAQ inside the app** — quick answers without leaving MultiAlt.
+- **Your ideas** — suggestions with the most votes in [Discussions › Ideas](https://github.com/luanmacea/MultiAlt/discussions/categories/ideas) are the next candidates.
+
+What MultiAlt will **not** do: anything that breaks Roblox's rules, like cheats, exploits or buying items with Robux for you.
+
+# Community
+- **Questions and ideas:** [Discussions](https://github.com/luanmacea/MultiAlt/discussions).
+- **Found a bug?** Use **Send feedback** in the app, or open an [issue](https://github.com/luanmacea/MultiAlt/issues/new/choose).
+- **Security problem?** Report it privately — see the [security policy](SECURITY.md).
+- **Want to help?** Read the [contributing guide](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
 
 # Development
 
