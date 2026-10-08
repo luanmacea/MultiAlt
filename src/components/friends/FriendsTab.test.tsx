@@ -288,11 +288,14 @@ describe("FriendsTab — loading, errors and reload", () => {
     expect(screen.queryByTestId("friends-empty")).not.toBeInTheDocument();
   });
 
-  it("shows the empty state when nobody is online", async () => {
+  it("says 'no friends online' inside each account, without a second notice on top", async () => {
+    // O aviso grande no topo repetia o que cada conta já diz (pedido do dono, 08/10/2026).
     setFriends([group(1001, []), group(1002, [])]);
     renderTab();
 
-    expect(await screen.findByTestId("friends-empty")).toHaveTextContent("No friends online right now");
+    expect(await screen.findByTestId("friends-group-1001")).toHaveTextContent("No friends online");
+    expect(screen.getByTestId("friends-group-1002")).toHaveTextContent("No friends online");
+    expect(screen.queryByTestId("friends-empty")).not.toBeInTheDocument();
   });
 
   it("surfaces a global failure without blowing up the tab", async () => {

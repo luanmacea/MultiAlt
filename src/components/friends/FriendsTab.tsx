@@ -314,7 +314,11 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
   const rows = groups ?? [];
   const totalFriends = rows.reduce((sum, row) => sum + row.friends.length, 0);
   const hasAccountError = rows.some((row) => row.error);
-  const showEmptyState = !loading && groups !== null && totalFriends === 0 && !hasAccountError && !error;
+  // Com contas na tela, cada uma já diz "No friends online" no próprio bloco:
+  // o aviso grande do topo só repetia isso (pedido do dono, 08/10/2026). Ele
+  // fica só para quando não sobra bloco nenhum para dizer.
+  const showEmptyState =
+    !loading && groups !== null && totalFriends === 0 && !hasAccountError && !error && rows.length === 0;
 
   /**
    * O que a tela desenha, conta por conta. Enquanto a rodada corre, a ordem é
