@@ -61,3 +61,8 @@ export function harnessCalls(): { cmd: string; args: Record<string, unknown> }[]
 export function resetHarnessCalls(): void {
   state.calls = [];
 }
+
+/** Registra uma chamada que não passa pelo `invoke` (ex.: `setZoom` do WebView). */
+export function recordHarnessCall(cmd: string, args: Record<string, unknown> = {}): void {
+  state.calls.push({ cmd, args });
+}

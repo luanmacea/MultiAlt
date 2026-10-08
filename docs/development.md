@@ -108,7 +108,7 @@ Tudo que depende de Win32/estado global: thread do mutex do Multi Roblox, isolam
 bun run dev:ui        # frontend real em localhost:1420, lado Tauri dublado
 ```
 
-`UI_HARNESS=1` troca `@tauri-apps/api/{core,event,window}` pelos dublês de [src/dev/harness/](../src/dev/harness/) (alias no [vite.config.ts](../vite.config.ts)). O app roda inteiro no navegador, sem compilar o Rust e sem tocar em conta nenhuma.
+`UI_HARNESS=1` troca `@tauri-apps/api/{core,event,window,webview,app}` pelos dublês de [src/dev/harness/](../src/dev/harness/) (alias no [vite.config.ts](../vite.config.ts)). O app roda inteiro no navegador, sem compilar o Rust e sem tocar em conta nenhuma.
 
 ### Telas pequenas
 
