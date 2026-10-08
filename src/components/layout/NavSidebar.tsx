@@ -4,6 +4,7 @@ import {
   Gamepad2,
   Keyboard,
   Layers,
+  MessageSquareText,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
@@ -18,6 +19,7 @@ import { useStore, type AppPage } from "../../store";
 import { useTr } from "../../i18n/text";
 import { ENABLE_NEXUS } from "../../featureFlags";
 import { Tooltip } from "../ui/Tooltip";
+import { FeedbackDialog } from "../dialogs/FeedbackDialog";
 
 /**
  * Barra lateral de navegação. Substitui os botões de ícone da Toolbar, que só
@@ -98,6 +100,7 @@ export function NavSidebar() {
   const store = useStore();
   const narrow = useNarrowWindow();
   const [userCollapsed, setUserCollapsed] = useState(readCollapsed);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const collapsed = userCollapsed || narrow;
 
   const toggleCollapsed = useCallback(() => {
@@ -219,6 +222,23 @@ export function NavSidebar() {
     </button>
   );
 
+  // Reportar problema / sugerir ideia: abre o formulário do GitHub no navegador
+  // (FeedbackDialog). Fica no rodapé, junto do Help, porque é sobre o app.
+  const feedbackLabel = t("Send feedback");
+  const feedbackButton = (
+    <button
+      type="button"
+      onClick={() => setFeedbackOpen(true)}
+      aria-label={feedbackLabel}
+      className={`flex items-center rounded-lg text-[13px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] transition-colors outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] ${
+        collapsed ? "w-10 h-10 justify-center" : "w-full h-9 gap-3 px-2.5"
+      }`}
+    >
+      <MessageSquareText size={17} strokeWidth={1.6} aria-hidden="true" className="shrink-0" />
+      <span className={collapsed ? "sr-only" : "truncate"}>{feedbackLabel}</span>
+    </button>
+  );
+
   const collapseLabel = collapsed ? t("Expand sidebar") : t("Collapse sidebar");
   const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
   const collapseButton = (
@@ -252,7 +272,18 @@ export function NavSidebar() {
       </div>
 
       <div className="shrink-0 border-t theme-border py-2 px-2.5">
-        <ul className="mb-0.5 space-y-0.5">{FOOTER_ITEMS.map(renderItem)}</ul>
+        <ul className="mb-0.5 space-y-0.5">
+          {FOOTER_ITEMS.map(renderItem)}
+          <li className={collapsed ? "flex justify-center" : undefined}>
+            {collapsed ? (
+              <Tooltip content={feedbackLabel} side="right" delayMs={200}>
+                {feedbackButton}
+              </Tooltip>
+            ) : (
+              feedbackButton
+            )}
+          </li>
+        </ul>
         <div className={collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-1"}>
           {collapsed ? (
             <Tooltip content={helpLabel} side="right" delayMs={200}>
@@ -270,6 +301,7 @@ export function NavSidebar() {
           )}
         </div>
       </div>
+      <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </nav>
   );
 }

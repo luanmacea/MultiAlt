@@ -23,6 +23,8 @@ on:
       # O site de divulgação sai pelo site.yml, sem release.
       - "site/**"
       - ".github/workflows/site.yml"
+      # Formulários de bug/sugestão (o botão "Send feedback" do app abre).
+      - ".github/ISSUE_TEMPLATE/**"
   workflow_dispatch:
     inputs:
       # auto: o tipo da release decide (fix -> patch; feature/mixed -> minor).

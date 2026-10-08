@@ -210,4 +210,10 @@ describe("NavSidebar — collapse", () => {
     item("Scripts").focus();
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Scripts");
   });
-});
+
+  it("opens the feedback dialog from the footer", async () => {
+    renderNav();
+    expect(screen.queryByRole("dialog", { name: "Send feedback" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Send feedback" }));
+    expect(screen.getByRole("dialog", { name: "Send feedback" })).toBeInTheDocument();
+  });});

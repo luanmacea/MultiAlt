@@ -315,6 +315,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/repoOwnership.test.ts",
       "src/utils",
       "src/featureFlags.test.ts",
+      "src/components/dialogs/FeedbackDialog.test.tsx",
     ],
   },
   "hidden-names": {
