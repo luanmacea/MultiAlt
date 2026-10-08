@@ -310,8 +310,32 @@ const REPO_URL: &str = "https://github.com/luanmacea/MultiAlt";
 
 #[tauri::command]
 fn open_repo_url() -> Result<(), String> {
-    let url = REPO_URL;
+    open_url_in_browser(REPO_URL)
+}
 
+/// Formulário de bug ou sugestão no GitHub (`.github/ISSUE_TEMPLATE/`). O app
+/// não envia nada: só abre a página no navegador, e quem escreve e envia é a
+/// pessoa, na conta GitHub dela. O frontend escolhe só o **tipo**; o endereço
+/// sai daqui, de uma lista fechada.
+fn feedback_form_url(kind: &str) -> Option<String> {
+    let template = match kind {
+        "bug" => "bug_report.yml",
+        "idea" => "feature_request.yml",
+        _ => return None,
+    };
+    Some(format!("{REPO_URL}/issues/new?template={template}"))
+}
+
+#[tauri::command]
+fn open_feedback_form(kind: String) -> Result<(), String> {
+    let url = feedback_form_url(&kind).ok_or_else(|| format!("Unknown feedback kind: {kind}"))?;
+    open_url_in_browser(&url)
+}
+
+/// Abre um endereço fixo do app no navegador padrão. No Windows vai por
+/// `cmd /C start`, que trata `&` como separador de comando — por isso só
+/// endereços conferidos nos testes passam por aqui.
+fn open_url_in_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
@@ -340,7 +364,10 @@ fn open_repo_url() -> Result<(), String> {
     }
 
     #[allow(unreachable_code)]
-    Err("Opening URL is not supported on this platform".into())
+    {
+        let _ = url;
+        Err("Opening URL is not supported on this platform".into())
+    }
 }
 
 #[tauri::command]
@@ -394,6 +421,36 @@ mod services_command_tests {
         assert!(REPO_URL.starts_with("https://github.com/"));
         // No shell metacharacters: the URL is handed to `cmd /C start`.
         assert!(!REPO_URL.contains(|c: char| c.is_whitespace() || c == '&' || c == '"'));
+    }
+
+    #[test]
+    fn feedback_forms_open_this_repos_issue_templates() {
+        assert_eq!(
+            feedback_form_url("bug").as_deref(),
+            Some("https://github.com/luanmacea/MultiAlt/issues/new?template=bug_report.yml")
+        );
+        assert_eq!(
+            feedback_form_url("idea").as_deref(),
+            Some("https://github.com/luanmacea/MultiAlt/issues/new?template=feature_request.yml")
+        );
+    }
+
+    #[test]
+    fn feedback_form_refuses_anything_but_the_two_known_kinds() {
+        // O frontend não escolhe endereço: só o tipo. Nada vira URL arbitrária.
+        for kind in ["", "Bug", "https://evil.example", "bug&calc", "../x"] {
+            assert_eq!(feedback_form_url(kind), None, "{kind}");
+        }
+    }
+
+    #[test]
+    fn feedback_urls_are_safe_to_hand_to_cmd_start() {
+        // `cmd /C start` trata `&` como separador de comando: a URL não pode ter
+        // um (por isso nenhum campo vem pré-preenchido pela query string).
+        for kind in ["bug", "idea"] {
+            let url = feedback_form_url(kind).unwrap();
+            assert!(!url.contains(|c: char| c.is_whitespace() || c == '&' || c == '"' || c == '^' || c == '|'));
+        }
     }
 
     #[cfg(feature = "nexus")]

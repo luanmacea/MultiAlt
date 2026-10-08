@@ -46,6 +46,7 @@ include!("commands/services.rs");
 include!("commands/updater.rs");
 include!("commands/backups.rs");
 include!("commands/avatars.rs");
+include!("commands/groups.rs");
 include!("commands/external_clients.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
@@ -433,6 +434,14 @@ pub fn run() {
             avatar_cancel_batch,
             get_avatar_batch_state,
             invalidate_avatar_headshots,
+            groups_search,
+            groups_icons,
+            groups_join_batch,
+            groups_cancel_join,
+            get_groups_join_state,
+            groups_check_membership,
+            groups_join_retry,
+            groups_popular,
             resolve_join_link,
             block_user,
             unblock_user,
@@ -561,6 +570,7 @@ pub fn run() {
             set_nexus_element_value,
             export_nexus_lua,
             open_repo_url,
+            open_feedback_form,
             sync_windows_navbar_theme,
         ])
         .build(tauri::generate_context!())

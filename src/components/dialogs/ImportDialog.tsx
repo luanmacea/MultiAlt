@@ -301,7 +301,7 @@ export function ImportDialog({
       {...backdropClose}
     >
       <div
-        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[560px] ${tab === "legacy" ? "max-h-[320px]" : tab === "cookie" ? "max-h-[520px]" : "max-h-[420px]"} flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[560px] max-w-[calc(100vw-24px)] ${tab === "legacy" ? "max-h-[min(320px,calc(100vh-24px))]" : tab === "cookie" ? "max-h-[min(520px,calc(100vh-24px))]" : "max-h-[min(420px,calc(100vh-24px))]"} flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-0">

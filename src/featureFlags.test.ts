@@ -49,6 +49,23 @@ describe("feature flags", () => {
     expect(flags.ENABLE_ACCOUNT_GENERATOR).toBe(true);
   });
 
+  it("keeps avatar distribution on unless the build turns it off", async () => {
+    let flags = await loadFlags({ VITE_ENABLE_AVATAR_BATCH: undefined });
+    expect(flags.ENABLE_AVATAR_BATCH).toBe(true);
+    flags = await loadFlags({ VITE_ENABLE_AVATAR_BATCH: "false" });
+    expect(flags.ENABLE_AVATAR_BATCH).toBe(false);
+    // As outras flags não mudam por causa desta.
+    expect(flags.ENABLE_NEXUS).toBe(true);
+    expect(flags.ENABLE_WEBSERVER).toBe(true);
+  });
+
+  it("keeps the sidebar Help button hidden unless the build turns it on", async () => {
+    let flags = await loadFlags({ VITE_ENABLE_HELP_BUTTON: undefined });
+    expect(flags.ENABLE_HELP_BUTTON).toBe(false);
+    flags = await loadFlags({ VITE_ENABLE_HELP_BUTTON: "true" });
+    expect(flags.ENABLE_HELP_BUTTON).toBe(true);
+  });
+
   it("reads the two flags independently", async () => {
     const flags = await loadFlags({ VITE_ENABLE_NEXUS: "false", VITE_ENABLE_WEBSERVER: "true" });
     expect(flags.ENABLE_NEXUS).toBe(false);

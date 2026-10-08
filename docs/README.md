@@ -46,6 +46,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.
 - [features/avatars.md](features/avatars.md) — avatares grátis: montar avatares só com itens oficiais gratuitos do Roblox e distribuí-los entre as contas (resgata o que falta de graça, nunca gasta Robux).
+- [features/groups.md](features/groups.md) — página Groups: busca de grupos do Roblox e entrada das contas marcadas, uma por vez; captcha resolvido pela pessoa no navegador da conta.
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).
 - [features/roblox-versions.md](features/roblox-versions.md) — instalação e seleção de versões do cliente Roblox.
 - [features/watcher.md](features/watcher.md) — monitoramento de processos Roblox.

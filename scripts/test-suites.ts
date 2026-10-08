@@ -177,20 +177,36 @@ export const SUITES: Record<string, TestSuite> = {
     front: [],
   },
   avatars: {
-    description: "Avatares gratuitos: catálogo oficial gratuito, resgate de itens, distribuição entre contas",
+    description: "Avatares gratuitos: catálogo oficial gratuito, resgate de itens, distribuição entre contas (só na edição completa)",
     rust: [
       "avatar_catalog_tests",
+      "avatar_claim_tests",
       "avatar_store_tests",
       "avatar_batch_tests",
+      // Só roda com `cargo test --no-default-features` (edição padrão).
+      "avatar_batch_disabled_tests",
       "avatar_cache_invalidation_tests",
     ],
     front: [
       "src/avatarBuilder.test.ts",
       "src/components/pages/AvatarsPage.test.tsx",
+      "src/components/pages/AvatarsPage.edition.test.tsx",
       "src/components/pages/avatars",
       // `store.test.ts` entra pelo bloco `refreshAvatarHeadshots` (foto da conta depois do lote).
       "src/store.test.ts",
     ],
+  },
+  groups: {
+    description: "Página Groups: busca sozinha, grupos populares, entrada em lote uma conta por vez, desafio (captcha ou confirmação) resolvido no navegador da conta, Try again",
+    rust: [
+      "group_reference_tests",
+      "group_join_http_tests",
+      "group_membership_http_tests",
+      "group_join_batch_tests",
+      "social_presence_extra_tests",
+      "chromium_commands_tests",
+    ],
+    front: ["src/components/pages/GroupsPage.test.tsx", "src/components/layout/NavSidebar.test.tsx"],
   },
   webserver: {
     description: "Servidor HTTP local: rotas, senha e bloqueio anti-CSRF",
@@ -312,9 +328,11 @@ export const SUITES: Record<string, TestSuite> = {
       "src/i18n",
       "src/types.test.ts",
       "src/tauriWindowConfig.test.ts",
+      "src/uiScale.test.ts",
       "src/repoOwnership.test.ts",
       "src/utils",
       "src/featureFlags.test.ts",
+      "src/components/dialogs/FeedbackDialog.test.tsx",
     ],
   },
   "hidden-names": {
@@ -327,6 +345,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/afk-mode/RejoinTab.test.tsx",
       "src/components/afk-mode/ClicksTab.test.tsx",
       "src/components/pages/AvatarsPage.test.tsx",
+      "src/components/pages/GroupsPage.test.tsx",
       "src/components/pages/NexusPage.test.tsx",
       "src/components/menus/ContextMenu.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
@@ -343,7 +362,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   navigation: {
-    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais",
+    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Groups, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais",
     rust: [],
     front: [
       "src/components/layout/NavSidebar.test.tsx",
@@ -397,6 +416,11 @@ export const SUITES: Record<string, TestSuite> = {
     description: "bun run scan: veredito do Defender e do VirusTotal por arquivo",
     rust: [],
     front: ["scripts/scanVerdict.test.ts"],
+  },
+  site: {
+    description: "Site de divulgação: páginas /pt/ e /es/ geradas, hreflang, FAQ estruturado, sitemap",
+    rust: [],
+    front: ["scripts/site"],
   },
 };
 

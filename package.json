@@ -20,7 +20,8 @@
     "scan": "bun scripts/scan.ts",
     "test:suite": "bun scripts/test-suite.ts",
     "test:audit": "bun scripts/test-suite.ts --audit",
-    "dev:ui": "UI_HARNESS=1 vite"
+    "dev:ui": "UI_HARNESS=1 vite",
+    "ui:audit": "bun scripts/ui-audit.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

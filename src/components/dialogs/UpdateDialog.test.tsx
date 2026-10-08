@@ -57,6 +57,38 @@ describe("UpdateDialog", () => {
     expect(await screen.findByRole("button", { name: "Install & Restart" })).toBeInTheDocument();
   });
 
+  it("a troca para a edição completa baixa e instala sozinha, com o progresso no diálogo", async () => {
+    // Mesma versão, outra edição: é o que o botão da aba Distribute pede.
+    setStore({
+      updateDialogOpen: true,
+      updateInfo: { ...INFO, version: "0.1.6", featureChannel: "nexus-ws", autoInstall: true },
+    });
+    const download = deferred();
+    setInvokeMap({ download_selected_update: () => download.promise, install_selected_update: undefined });
+    render(<UpdateDialog />);
+
+    expect(screen.getByText("Getting the complete edition")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(invokeMock.mock.calls.filter((c) => c[0] === "download_selected_update")).toHaveLength(1)
+    );
+    act(() => emitTauriEvent("update-download-progress", { downloaded: 256 * 1024, total: 1024 * 1024 }));
+    expect(await screen.findByText(/^25%/)).toBeInTheDocument();
+
+    await act(async () => download.resolve());
+    expect(await screen.findByText("Installing v0.1.6")).toBeInTheDocument();
+    const installCalls = () => invokeMock.mock.calls.filter((c) => c[0] === "install_selected_update").length;
+    await waitFor(() => expect(installCalls()).toBe(1), { timeout: 3000 });
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "download_selected_update")).toHaveLength(1);
+  });
+
+  it("uma atualização comum espera o clique para baixar", async () => {
+    setInvokeMap({ download_selected_update: undefined });
+    render(<UpdateDialog />);
+    await act(async () => {});
+    expect(invokeMock.mock.calls.filter((c) => c[0] === "download_selected_update")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Download Update" })).toBeInTheDocument();
+  });
+
   it("instalar mostra a tela de instalação, anota a versão e só então instala", async () => {
     setInvokeMap({ download_selected_update: undefined, install_selected_update: undefined });
     render(<UpdateDialog />);

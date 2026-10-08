@@ -255,6 +255,25 @@ export function UpdateDialog() {
     }
   }, [info]);
 
+  // Troca de edição pedida pela pessoa ("Get the complete edition"): o diálogo
+  // baixa e instala sozinho, com o progresso aqui — nada fora do app. A
+  // assinatura é conferida pelo updater como em qualquer atualização.
+  const autoInstall = open && info?.autoInstall === true;
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      autoStartedRef.current = false;
+      return;
+    }
+    if (autoInstall && phase === "available" && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      void startDownload();
+    }
+  }, [open, autoInstall, phase, startDownload]);
+  useEffect(() => {
+    if (autoInstall && phase === "ready") void installAndRestart();
+  }, [autoInstall, phase, installAndRestart]);
+
   const skipVersion = useCallback(() => {
     if (info) {
       localStorage.setItem(
@@ -280,13 +299,17 @@ export function UpdateDialog() {
       {...backdropClose}
     >
       <div
-        className={`theme-panel theme-border rounded-xl w-full max-w-lg mx-4 shadow-2xl flex flex-col ${closing ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`theme-panel theme-border rounded-xl w-full max-w-lg mx-4 shadow-2xl flex flex-col max-h-[calc(100vh-24px)] overflow-y-auto ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-[var(--panel-fg)]">
-              {phase === "installing" ? t("Updating MultiAlt") : t("Update Available")}
+              {phase === "installing"
+                ? t("Updating MultiAlt")
+                : info.autoInstall && info.featureChannel === "nexus-ws"
+                  ? t("Getting the complete edition")
+                  : t("Update Available")}
             </h2>
             {phase !== "installing" && (
               <div className="mt-1 flex flex-wrap items-center gap-2">

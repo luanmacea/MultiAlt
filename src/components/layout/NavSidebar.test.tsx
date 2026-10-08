@@ -5,6 +5,23 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 
+/** O Help está atrás de `ENABLE_HELP_BUTTON` (desligado); os testes ligam quando precisam. */
+const helpFlag = vi.hoisted(() => ({ on: false }));
+/** Grupos está atrás de `ENABLE_GROUPS` (desligado até sair da branch feature/groups). */
+const groupsFlag = vi.hoisted(() => ({ on: false }));
+vi.mock("../../featureFlags", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../featureFlags")>();
+  return {
+    ...actual,
+    get ENABLE_HELP_BUTTON() {
+      return helpFlag.on;
+    },
+    get ENABLE_GROUPS() {
+      return groupsFlag.on;
+    },
+  };
+});
+
 import { NavSidebar, NAV_COLLAPSED_KEY } from "./NavSidebar";
 import { makeAccount, makeBottingStatus, setStore } from "../../test-utils/renderWithStore";
 import { ENABLE_NEXUS } from "../../featureFlags";
@@ -35,6 +52,8 @@ function afk(active: boolean): AfkStatus {
 
 beforeEach(() => {
   localStorage.clear();
+  helpFlag.on = false;
+  groupsFlag.on = false;
 });
 
 afterEach(() => {
@@ -58,14 +77,14 @@ describe("NavSidebar — items", () => {
     const expected = ["accounts", "session", "afk", "avatars", "scripts", "theme"];
     if (ENABLE_NEXUS) expected.push("nexus");
     expected.push("settings");
-    // "What's new" mora no rodapé, junto do Help: é sobre o app, não trabalho do dia.
+    // "What's new" mora no rodapé, ao lado do recolher: é sobre o app, não trabalho do dia.
     expected.push("changelog");
     expect(names).toEqual(expected);
   });
 
   it("shows the labels without hovering", () => {
     renderNav();
-    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Scripts", "Theme", "Settings", "What's new", "Help"]) {
+    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Scripts", "Theme", "Settings", "What's new"]) {
       expect(screen.getByText(label)).not.toHaveClass("sr-only");
     }
   });
@@ -97,13 +116,37 @@ describe("NavSidebar — items", () => {
     expect(store.setActivePage).toHaveBeenCalledWith("nexus");
   });
 
-  it("puts What's new in the footer, above Help, and marks it while open", () => {
+  it("hides Groups until the flag turns it on", async () => {
+    renderNav();
+    expect(screen.queryByText("Groups")).not.toBeInTheDocument();
+    cleanup();
+    groupsFlag.on = true;
+    const store = renderNav();
+    await userEvent.click(item("Groups"));
+    expect(store.setActivePage).toHaveBeenCalledWith("groups");
+  });
+
+  /**
+   * Pedido do dono (08/10/2026): "What's new" desce para a última linha, ao
+   * lado do botão de recolher; "Send feedback" fica logo acima.
+   */
+  it("puts What's new on the last row next to the collapse button, under Send feedback", async () => {
     renderNav({ activePage: "changelog" });
     const whatsNew = item("What's new");
-    const help = screen.getByRole("button", { name: /^Help/ });
     expect(whatsNew).toHaveAttribute("aria-current", "page");
-    expect(whatsNew.compareDocumentPosition(help) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const row = screen.getByTestId("nav-footer-actions");
+    expect(within(row).getByRole("button", { name: /^What's new/ })).toBe(whatsNew);
+    expect(within(row).getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
+    expect(row).toHaveClass("flex", "items-center");
+    const feedback = screen.getByRole("button", { name: "Send feedback" });
+    expect(feedback.compareDocumentPosition(whatsNew) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(item("Settings").compareDocumentPosition(whatsNew) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Recolhida, os dois empilham no centro.
+    await userEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    const collapsedRow = screen.getByTestId("nav-footer-actions");
+    expect(collapsedRow).toHaveClass("flex-col", "items-center");
+    expect(within(collapsedRow).getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
   });
 
   it("keeps What's new named when the sidebar is collapsed", async () => {
@@ -113,10 +156,25 @@ describe("NavSidebar — items", () => {
     expect(item("What's new")).toBeInTheDocument();
   });
 
-  it("replays the walkthrough from Help", async () => {
+  it("replays the walkthrough from Help when the flag turns it on", async () => {
+    helpFlag.on = true;
     const store = renderNav();
+    expect(screen.getByText("Help")).not.toHaveClass("sr-only");
     await userEvent.click(screen.getByRole("button", { name: /^Help/ }));
     expect(store.openFirstRunWalkthroughFromSettings).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Pedido do dono (08/10/2026): o Help some por enquanto (pode virar FAQ). O
+   * tutorial continua em Settings › General. O recolher fica sozinho na linha,
+   * à direita com a barra aberta e no centro recolhida.
+   */
+  it("hides Help by default", async () => {
+    renderNav();
+    expect(screen.queryByRole("button", { name: /^Help/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Help")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.queryByRole("button", { name: /^Help/ })).not.toBeInTheDocument();
   });
 
   /** O tour destaca os itens pelo `data-tour`, que não muda com o idioma. */
@@ -210,4 +268,10 @@ describe("NavSidebar — collapse", () => {
     item("Scripts").focus();
     expect(await screen.findByRole("tooltip")).toHaveTextContent("Scripts");
   });
-});
+
+  it("opens the feedback dialog from the footer", async () => {
+    renderNav();
+    expect(screen.queryByRole("dialog", { name: "Send feedback" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Send feedback" }));
+    expect(screen.getByRole("dialog", { name: "Send feedback" })).toBeInTheDocument();
+  });});

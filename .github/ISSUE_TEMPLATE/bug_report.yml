@@ -1,0 +1,49 @@
+name: "🐞 Report a problem / Reportar um problema"
+description: "Something broke or did not work as expected. / Algo quebrou ou não funcionou como devia."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping! Write in English, Português or Español.
+        **Never paste cookies, passwords or `.ROBLOSECURITY` here** — this page is public.
+
+        Obrigado por ajudar! **Nunca cole cookies, senhas ou `.ROBLOSECURITY` aqui** — esta página é pública.
+  - type: textarea
+    id: what
+    attributes:
+      label: "What happened? / O que aconteceu?"
+      description: "What you did and what went wrong. / O que você fez e o que deu errado."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "What did you expect? / O que você esperava?"
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: "MultiAlt version / Versão do MultiAlt"
+      description: "Sidebar › What's new shows it. / Aparece em Novidades, na barra lateral."
+      placeholder: "1.0.1"
+    validations:
+      required: false
+  - type: dropdown
+    id: windows
+    attributes:
+      label: "Windows"
+      options:
+        - "Windows 11"
+        - "Windows 10"
+        - "Other / Outro"
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "Screenshots (optional) / Prints (opcional)"
+      description: "Drag images here. Hide account names first (Names shown › Names hidden). / Arraste imagens aqui. Esconda os nomes das contas antes."
+    validations:
+      required: false

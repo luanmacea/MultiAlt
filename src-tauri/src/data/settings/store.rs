@@ -40,7 +40,9 @@ impl SettingsStore {
         let defaults: &[(&str, &str, Option<&str>)] = &[
             ("CheckForUpdates", "true", None),
             ("UpdaterReleaseChannel", "beta", None),
-            ("UpdaterFeatureChannel", "standard", None),
+            // Default = a edição que está rodando: quem instalou a completa
+            // continua recebendo a completa. Valor já gravado nunca é trocado.
+            ("UpdaterFeatureChannel", crate::RUNNING_FEATURE_CHANNEL, None),
             ("AccountJoinDelay", "8", None),
             ("AsyncJoin", "false", None),
             ("DisableAgingAlert", "false", None),
@@ -539,7 +541,7 @@ mod settings_store_tests {
             &[
                 ("CheckForUpdates", "true"),
                 ("UpdaterReleaseChannel", "beta"),
-                ("UpdaterFeatureChannel", "standard"),
+                ("UpdaterFeatureChannel", crate::RUNNING_FEATURE_CHANNEL),
                 ("AccountJoinDelay", "8"),
                 ("AsyncJoin", "false"),
                 ("DisableAgingAlert", "false"),
@@ -891,6 +893,33 @@ mod settings_store_tests {
         s.set("Prompts", "SomePrompt", "seen").unwrap();
         assert_eq!(s.get("Prompts", "SomePrompt").unwrap().as_deref(), Some("seen"));
         assert!(fs::read_to_string(&s.file_path).unwrap().contains("[Prompts]"));
+    }
+
+    /// Trocar de edição grava `nexus-ws` (ou `standard`) no INI da pasta de
+    /// dados. A versão nova, ao abrir, não pode devolver o default por cima —
+    /// senão a próxima checagem voltaria para a outra edição.
+    #[test]
+    fn the_chosen_update_edition_survives_a_restart_of_either_edition() {
+        for chosen in ["nexus-ws", "standard"] {
+            let s = from_existing(
+                &format!("edition-keep-{chosen}"),
+                &format!("[General]
+UpdaterFeatureChannel={chosen}
+"),
+            );
+            assert_eq!(s.get_string("General", "UpdaterFeatureChannel"), chosen);
+            let reopened = SettingsStore::new(s.file_path.clone());
+            assert_eq!(reopened.get_string("General", "UpdaterFeatureChannel"), chosen);
+        }
+    }
+
+    #[test]
+    fn a_fresh_install_follows_the_running_edition_for_updates() {
+        let s = fresh("edition-default");
+        assert_eq!(
+            s.get_string("General", "UpdaterFeatureChannel"),
+            crate::RUNNING_FEATURE_CHANNEL
+        );
     }
 
     #[test]

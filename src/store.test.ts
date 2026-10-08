@@ -2446,6 +2446,7 @@ describe("updates", () => {
     expect(lastArgs("check_for_updates_with_channels")).toEqual({
       releaseChannel: "stable",
       featureChannel: "nexus-ws",
+      allowEditionSwitch: true,
     });
     expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/No updates available/i);
   });
@@ -2505,6 +2506,96 @@ describe("updates", () => {
     });
 
     expect(result.current.toasts.map((toast) => toast.message).join(" ")).toMatch(/Update check failed/i);
+  });
+
+  it("the automatic check never asks for an edition switch", async () => {
+    settingsData = { General: { CheckForUpdates: "true", UpdaterFeatureChannel: "nexus-ws" } };
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.checkForUpdates();
+    });
+
+    expect(lastArgs("check_for_updates_with_channels")).toMatchObject({
+      featureChannel: "nexus-ws",
+      allowEditionSwitch: false,
+    });
+  });
+
+  it("switching to the complete edition saves the channel, then downloads it in the app", async () => {
+    settingsData = { General: { UpdaterReleaseChannel: "stable", UpdaterFeatureChannel: "standard" } };
+    // Mesma versão nas duas edições: o backend devolve o instalador completo.
+    updateResult = {
+      version: "1.4.0",
+      currentVersion: "1.4.0",
+      date: "",
+      body: "",
+      releaseChannel: "stable",
+      featureChannel: "nexus-ws",
+    };
+    const { result } = await renderStore();
+
+    let opened = false;
+    await act(async () => {
+      opened = await result.current.switchToCompleteEdition();
+    });
+
+    expect(opened).toBe(true);
+    expect(lastArgs("update_setting")).toEqual({
+      section: "General",
+      key: "UpdaterFeatureChannel",
+      value: "nexus-ws",
+    });
+    expect(lastArgs("check_for_updates_with_channels")).toEqual({
+      releaseChannel: "stable",
+      featureChannel: "nexus-ws",
+      allowEditionSwitch: true,
+    });
+    // A setting é gravada antes da checagem.
+    const order = invokeMock.mock.calls.map((c) => c[0]);
+    expect(order.lastIndexOf("update_setting")).toBeLessThan(order.lastIndexOf("check_for_updates_with_channels"));
+    expect(result.current.updateDialogOpen).toBe(true);
+    expect(result.current.updateInfo).toMatchObject({ version: "1.4.0", featureChannel: "nexus-ws", autoInstall: true });
+  });
+
+  it("after the switch, the next automatic check stays on the complete edition", async () => {
+    settingsData = { General: { CheckForUpdates: "true", UpdaterFeatureChannel: "standard" } };
+    const { result } = await renderStore();
+    await act(async () => {
+      await result.current.switchToCompleteEdition();
+    });
+    expect(result.current.settings?.General?.UpdaterFeatureChannel).toBe("nexus-ws");
+
+    // Versão nova saindo: a checagem do boot olha o manifesto completo.
+    updateResult = {
+      version: "1.5.0",
+      currentVersion: "1.4.0",
+      date: "",
+      body: "",
+      releaseChannel: "beta",
+      featureChannel: "nexus-ws",
+    };
+    await act(async () => {
+      await result.current.checkForUpdates();
+    });
+    expect(lastArgs("check_for_updates_with_channels")).toMatchObject({
+      featureChannel: "nexus-ws",
+      allowEditionSwitch: false,
+    });
+    expect(result.current.updateInfo).toMatchObject({ version: "1.5.0", featureChannel: "nexus-ws", autoInstall: false });
+  });
+
+  it("says so in the app when the complete edition cannot be found", async () => {
+    updateResult = null;
+    const { result } = await renderStore();
+    let opened = true;
+    await act(async () => {
+      opened = await result.current.switchToCompleteEdition();
+    });
+    expect(opened).toBe(false);
+    const toasts = result.current.toasts.map((toast) => toast.message).join(" ");
+    expect(toasts).toMatch(/complete edition is not available right now/i);
+    expect(toasts).not.toMatch(/github|browser/i);
   });
 
   it("fills a preview release for the update dialog", async () => {

@@ -7,14 +7,15 @@ vi.mock("./store", async () => (await import("./test-utils/renderWithStore")).st
 vi.mock("@tauri-apps/api/core", async () => (await import("./test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("./test-utils/tauriMocks")).tauriEventMock());
 vi.mock("@tauri-apps/api/window", async () => (await import("./test-utils/tauriMocks")).tauriWindowMock());
+vi.mock("@tauri-apps/api/webview", async () => (await import("./test-utils/tauriMocks")).tauriWebviewMock());
 vi.mock("@tauri-apps/plugin-autostart", () => ({
   enable: vi.fn(async () => {}),
   disable: vi.fn(async () => {}),
 }));
 
 import App from "./App";
-import { makeAccount, setStore } from "./test-utils/renderWithStore";
-import { invokeMock, resetTauriMocks, setInvokeHandler } from "./test-utils/tauriMocks";
+import { defaultSettings, makeAccount, setStore } from "./test-utils/renderWithStore";
+import { invokeMock, monitorMock, resetTauriMocks, setInvokeHandler, webviewMock } from "./test-utils/tauriMocks";
 import { walkTour } from "./test-utils/tourHelpers";
 import { closeTour } from "./components/tour/tourState";
 import { TONE_STYLES } from "./utils/toastTone";
@@ -54,6 +55,25 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   closeTour();
+});
+
+describe("App — tamanho da interface", () => {
+  it("aplica o tamanho salvo em General.InterfaceScale", async () => {
+    const settings = defaultSettings();
+    renderApp({ settings: { ...settings, General: { ...settings.General, InterfaceScale: "90" } } });
+    await waitFor(() => expect(webviewMock.setZoom).toHaveBeenCalledWith(0.9));
+    expect(webviewMock.setZoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("automático vale já na tela de senha (monitor lógico 1280x720 -> 85%)", async () => {
+    monitorMock.mockResolvedValue({ size: { width: 1920, height: 1080 }, scaleFactor: 1.5 });
+    try {
+      renderApp({ needsPassword: true });
+      await waitFor(() => expect(webviewMock.setZoom).toHaveBeenCalledWith(0.85));
+    } finally {
+      monitorMock.mockResolvedValue({ size: { width: 1440, height: 800 }, scaleFactor: 1 });
+    }
+  });
 });
 
 describe("App — blocking screens", () => {
@@ -325,6 +345,8 @@ describe("App — pages", () => {
   it.each([
     ["session", "Session"],
     ["avatars", "Avatars"],
+    // "groups" fica de fora: a página está atrás de ENABLE_GROUPS (desligada,
+    // branch feature/groups) e o item não aparece na barra lateral.
     ["scripts", "Scripts"],
     ["theme", "Theme"],
     ["settings", "Settings"],
@@ -420,6 +442,7 @@ describe("App — screen tutorials", () => {
     ["session", "Session"],
     ["afk", "AFK Mode"],
     ["avatars", "Avatars"],
+    ["groups", "Groups"],
     ["scripts", "Scripts"],
     ["theme", "Theme"],
     ["settings", "Settings"],

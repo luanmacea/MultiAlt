@@ -26,4 +26,18 @@ describe("configuração da janela do Tauri", () => {
 
     expect(janela.dragDropEnabled).toBe(false);
   });
+
+  /**
+   * Tamanho da interface (`hooks/useUiScale.ts`) usa `getCurrentWebview().setZoom`.
+   * Sem esta permissão o Tauri recusa o comando, o hook engole o erro e a
+   * interface fica em 100% sem ninguém perceber — o `core:default` não a inclui.
+   */
+  it("deixa a janela principal mudar o zoom do WebView", () => {
+    const caps = JSON.parse(
+      readFileSync(path.resolve(__dirname, "../src-tauri/capabilities/default.json"), "utf8")
+    );
+
+    expect(caps.windows).toContain("main");
+    expect(caps.permissions).toContain("core:webview:allow-set-webview-zoom");
+  });
 });

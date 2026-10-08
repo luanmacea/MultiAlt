@@ -338,7 +338,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     updateInfo: null,
     updateDialogOpen: false,
     setUpdateDialogOpen: vi.fn(),
-    checkForUpdates: vi.fn(async () => {}),
+    checkForUpdates: vi.fn(async () => false),
+    switchToCompleteEdition: vi.fn(async () => true),
     openUpdatePreviewDialog: vi.fn(),
 
     openLoginBrowser: vi.fn(async () => {}),

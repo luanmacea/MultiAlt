@@ -12,16 +12,45 @@ Especificação: [docs/superpowers/specs/2026-10-02-free-avatars-design.md](../s
 
 | Arquivo | Papel |
 |---|---|
-| [api/roblox/avatar_catalog.rs](../../src-tauri/src/api/roblox/avatar_catalog.rs) | Busca do catálogo gratuito (`search_free_official_items`), detalhes colecionáveis (`collectible_details`), peças de um bundle com o tipo de cada uma (`bundle_asset_ids` → `BundleAsset { id, asset_type }`), posse (`owns_item`) e o resgate (`claim_free_item` → `ClaimOutcome`) |
+| [api/roblox/avatar_catalog.rs](../../src-tauri/src/api/roblox/avatar_catalog.rs) | Busca do catálogo gratuito (`search_free_official_items`) — nas duas edições |
+| [api/roblox/avatar_claim.rs](../../src-tauri/src/api/roblox/avatar_claim.rs) | **Só edição completa** (`avatar-batch`): detalhes colecionáveis (`collectible_details`), peças de um bundle com o tipo de cada uma (`bundle_asset_ids` → `BundleAsset { id, asset_type }`), posse (`owns_item`) e o resgate (`claim_free_item` → `ClaimOutcome`) |
 | [data/avatars.rs](../../src-tauri/src/data/avatars.rs) | `AvatarStore`: avatares salvos em `RAMAvatars.json`, validação (`validate_avatar`) |
-| [commands/avatars.rs](../../src-tauri/src/commands/avatars.rs) | Comandos, o lote (`avatar_apply_batch`, `apply_avatar_to_account`, `assign_avatars`), evento `avatar-batch-state`, cancelamento, guarda de execução única |
+| [commands/avatars.rs](../../src-tauri/src/commands/avatars.rs) | Comandos do catálogo e dos avatares salvos, o retrato do lote (`AvatarBatchSnapshot`) e, na edição padrão, os comandos do lote que só respondem `AVATAR_BATCH_DISABLED_ERR` |
+| [commands/avatar_batch.rs](../../src-tauri/src/commands/avatar_batch.rs) | **Só edição completa**: o lote (`avatar_apply_batch`, `apply_avatar_to_account`, `assign_avatars`), evento `avatar-batch-state`, cancelamento, guarda de execução única |
 | [api/batch.rs](../../src-tauri/src/api/batch.rs) | `ImageCache::invalidate_targets`: esquece o headshot em cache das contas que trocaram de avatar |
 | [avatarBuilder.ts](../../src/avatarBuilder.ts) | Lógica pura do construtor: categorias, seleção, sorteio, paleta de pele, validação do rascunho |
 | [pages/AvatarsPage.tsx](../../src/components/pages/AvatarsPage.tsx) | A casca da tela: catálogo, avatares salvos, ouvinte do `avatar-batch-state`, comandos |
-| [pages/avatars/](../../src/components/pages/avatars) | `BuildTab` (Montar), `DistributeTab` (Distribuir), `AccountPicker` (contas dentro do diálogo), `BatchPanel` (progresso e resumo), `useAvatarDraft`, `useAvatarThumbs` (miniaturas com retentativa), `shared.tsx` |
-| [store.tsx](../../src/store.tsx) | `refreshAvatarHeadshots` e `avatarsDialogOpen` |
+| [pages/avatars/](../../src/components/pages/avatars) | `BuildTab` (Montar), `DistributeTab` (Distribuir), `CompleteEditionCard` (a aba Distribuir na edição padrão), `AccountPicker` (contas dentro do diálogo), `BatchPanel` (progresso e resumo), `useAvatarDraft`, `useAvatarThumbs` (miniaturas com retentativa), `shared.tsx` |
+| [store.tsx](../../src/store.tsx) | `refreshAvatarHeadshots`, `avatarsDialogOpen` e `switchToCompleteEdition` (botão do cartão da edição padrão) |
 | [layout/NavSidebar.tsx](../../src/components/layout/NavSidebar.tsx) | Item **Avatars** da barra lateral, que abre a página |
 | [dev/harness/scenarios.ts](../../src/dev/harness/scenarios.ts) | Cenário `avatars` do harness (`bun run dev:ui`, `?scenario=avatars&accounts=6`) |
+
+## As duas edições
+
+**Hoje a distribuição em lote vai nas duas edições** (decisão do dono, 08/10/2026): ela chegou a sair da padrão, mas tirá-la não mudou nada que importasse e o usuário perdia a função. O mecanismo ficou como **interruptor desligado** — a feature `avatar-batch`, os stubs, o cartão e a troca de edição pelo app continuam no código e testados. Para tirar o lote da padrão de novo: no `release-v4.yml`, passo "Build and publish standard release", trocar `VITE_ENABLE_AVATAR_BATCH` para `"false"` e o `args` para só `-- --no-default-features` (e o teste `edicoes no release-v4.yml` em [release-workflow.test.mjs](../../.github/scripts/release-workflow.test.mjs)). A tabela abaixo descreve o comportamento **com o interruptor ligado** (lote só na completa):
+
+| | Padrão sem o lote | Completa |
+|---|---|---|
+| Cargo | `--no-default-features` | `--features nexus,webserver,avatar-batch` |
+| Frontend | `VITE_ENABLE_AVATAR_BATCH=false` | `VITE_ENABLE_AVATAR_BATCH=true` |
+| Backend do lote | não compila (`avatar_batch.rs`, `avatar_claim.rs`); `avatar_apply_batch` e `avatar_cancel_batch` respondem `Avatar distribution is not in this edition`, `get_avatar_batch_state` devolve o lote parado | completo |
+| Aba Distribute | cartão "Distributing avatars is an extra" com o botão **Get the complete edition** | o lote |
+
+Os builds de desenvolvimento (`cargo build`, `bun run tauri dev`, `cargo test --all-features`) têm tudo: `avatar-batch` está no `default` do Cargo e a flag do frontend vale `true` sem a variável.
+
+### Trocar para a edição completa pelo app
+
+O botão do cartão chama `switchToCompleteEdition` no store:
+
+1. grava `General.UpdaterFeatureChannel = nexus-ws` (o mesmo valor de Settings › General › Update Feature Channel). A setting mora no `RAMSettings.ini` da pasta de dados: a versão nova não a sobrescreve (`apply_defaults` só preenche chave ausente), então **toda atualização seguinte continua na edição completa**;
+2. roda a checagem manual (`check_for_updates_with_channels` com `allowEditionSwitch: true`) no canal `<release>-nexus-ws`;
+3. abre o diálogo de atualização com `autoInstall`: ele **baixa e instala sozinho**, com o progresso no próprio diálogo, pelo updater do app (a assinatura do pacote é conferida como em qualquer atualização). Nada abre no navegador.
+
+**Mesma versão nas duas edições.** O manifesto `stable-nexus-ws` sai com a mesma versão do `stable`, e o updater só oferece versão maior. Por isso o `version_comparator` do updater ([updater.rs](../../src-tauri/src/commands/updater.rs), `update_is_offered`) aceita a **mesma** versão quando a checagem é manual (`allowEditionSwitch`) e o canal pedido é de outra edição que a do binário (`RUNNING_FEATURE_CHANNEL`, tirado das features de compilação — `nexus-ws` só com as três ligadas). Versão menor nunca. A checagem automática do boot nunca troca de edição na mesma versão, e mesma edição + mesma versão continua "nada para atualizar" (sem laço depois da troca). Voltar para a padrão pelo Settings funciona igual, ao contrário.
+
+O MSI das duas edições tem o mesmo `upgradeCode` e o template ([wix-peruser.wxs](../../src-tauri/wix-peruser.wxs)) usa `MajorUpgrade` com `AllowDowngrades="yes"` (o padrão do Tauri, `allowDowngrades: true`): o instalador da outra edição, na mesma versão, **substitui** o instalado em vez de instalar ao lado.
+
+Instalação nova: o default de `UpdaterFeatureChannel` é a edição que está rodando — quem instalou a completa recebe a completa.
 
 ## Endpoints usados
 
@@ -107,7 +136,7 @@ Ao fim do lote a tela chama `refreshAvatarHeadshots(userIds)` no store, que **nu
 |---|---|
 | `avatar_free_catalog` | Catálogo gratuito oficial, com cache de 6 h em memória. |
 | `avatar_list_saved`, `avatar_save`, `avatar_delete` | CRUD dos avatares salvos. |
-| `avatar_apply_batch` | O lote (uma conta por vez); só responde no fim, com o retrato final. |
+| `avatar_apply_batch` | O lote (uma conta por vez); só responde no fim, com o retrato final. Edição padrão: erro `Avatar distribution is not in this edition`. |
 | `avatar_cancel_batch` | Pede o cancelamento do lote em andamento. |
 | `get_avatar_batch_state` | Retrato atual do lote. |
 | `invalidate_avatar_headshots` | Esquece o headshot em cache das contas dadas. |
@@ -131,12 +160,18 @@ Ao fim do lote a tela chama `refreshAvatarHeadshots(userIds)` no store, que **nu
 
 Suíte `avatars` (`bun run t avatars`):
 
-- `avatar_catalog_tests` (Rust, wiremock) — busca paginada que filtra pago/UGC/tipos excluídos, `collectible_details`, `owns_item`, e o resgate: `Claimed`, `PriceMismatch` → `NotFree`, 403 com challenge → `ChallengeRequired`, e que preço ≠ 0 ou criador ≠ 1 nem chega a pedir.
+- `avatar_catalog_tests` (Rust, wiremock) — busca paginada que filtra pago/UGC/tipos excluídos.
+- `avatar_claim_tests` (Rust, wiremock, edição completa) — `collectible_details`, `owns_item`, e o resgate: `Claimed`, `PriceMismatch` → `NotFree`, 403 com challenge → `ChallengeRequired`, e que preço ≠ 0 ou criador ≠ 1 nem chega a pedir.
+- `avatar_batch_disabled_tests` (Rust, só em `cargo test --no-default-features`) — na edição padrão os comandos do lote respondem a mensagem da edição e o estado volta parado.
+- `updater_tests` (suíte `versions`) — troca de edição oferece a mesma versão (nos dois sentidos), mesma edição + mesma versão segue em dia, a checagem automática não troca, versão menor nunca. `settings_store_tests` — a edição escolhida sobrevive a reabrir o app.
 - `avatar_store_tests` — validação, upsert/delete, persistência e latch do arquivo ilegível.
 - `avatar_batch_tests` — `assign_avatars` espalha sem repetir, JSON de vestir, a conta pula peça já possuída, nunca chama `purchase-item` para item com preço ≠ 0, para no desafio sem vestir nada, expande bundles em assets, cabeça vence corpo na mesma parte, `invalidAssetIds` vira `missing` (todos recusados = `failed`), wearing recusado = `failed`, e respeita o cancelamento (inclusive o que chega logo antes de um resgate).
 - `avatar_games_extra_tests` (suíte `api`) — `set_avatar` com `set-wearing-assets` recusado devolve erro.
 - `avatar_cache_invalidation_tests` — `invalidate_targets` esquece só o tipo e o alvo certos (`11:` não é `1:`).
 - `avatarBuilder.test.ts`, `AvatarsPage.test.tsx` e `pages/avatars/` (incluindo `useAvatarThumbs.test.tsx`) — sorteio respeitando categorias obrigatórias, validação do rascunho, as duas abas, o seletor de contas, o painel do lote, a retentativa das miniaturas, a recusa do backend traduzida e o início recusado que não repete o aviso de fim do lote anterior.
-- `store.test.ts` (bloco `refreshAvatarHeadshots`) — a foto da conta depois do lote.
+- `store.test.ts` (bloco `refreshAvatarHeadshots`) — a foto da conta depois do lote; bloco `updates` — `switchToCompleteEdition` grava a setting antes de checar, pede `allowEditionSwitch`, abre o diálogo com `autoInstall`, e a checagem automática seguinte continua no canal completo.
+- `AvatarsPage.edition.test.tsx` — com `ENABLE_AVATAR_BATCH` desligado, a aba Distribute mostra o cartão, não consulta o lote e o botão chama a troca de edição. `UpdateDialog.test.tsx` — com `autoInstall`, baixa e instala sem clique.
+
+Para ver o cartão no harness: `VITE_ENABLE_AVATAR_BATCH=false bun run dev:ui` e abrir `?scenario=avatars`.
 
 Resgate e vestimenta de verdade ficam fora de teste automático: precisam de uma conta real. No navegador, `?scenario=avatars&accounts=6` entrega o catálogo, dois avatares salvos e um lote em que a 1ª conta resgata 3 peças, a 2ª esbarra na verificação e as demais vestem sem resgatar nada. O teste real é do dono, numa alt, com o `.exe` gerado.
