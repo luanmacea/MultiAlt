@@ -79,7 +79,7 @@ export function AddAccountDialog({ open, onClose }: AddAccountDialogProps) {
       {...backdropClose}
     >
       <div
-        className="theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[420px] max-w-[calc(100vw-2rem)] overflow-hidden animate-scale-in"
+        className="theme-modal-scope theme-panel theme-border bg-zinc-900 border border-zinc-800/80 rounded-2xl shadow-2xl w-[420px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-24px)] overflow-y-auto animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/70">

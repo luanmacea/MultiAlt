@@ -81,7 +81,7 @@ export function AccountFieldsDialog({ open, onClose }: { open: boolean; onClose:
       {...backdropClose}
     >
       <div
-        className={`theme-modal-scope theme-panel theme-border border rounded-2xl shadow-2xl w-[400px] max-h-[400px] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
+        className={`theme-modal-scope theme-panel theme-border border rounded-2xl shadow-2xl w-[400px] max-w-[calc(100vw-24px)] max-h-[min(400px,calc(100vh-24px))] flex flex-col overflow-hidden ${closing ? "animate-scale-out" : "animate-scale-in"}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-3">
