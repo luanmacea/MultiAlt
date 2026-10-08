@@ -16,16 +16,25 @@ export function getCurrentWindow() {
     setAlwaysOnTop: noop,
     isMaximized: async () => false,
     isFocused: async () => true,
-    // Tamanho da interface (useUiScale): físico = CSS x devicePixelRatio, como o
-    // Tauri entrega. O zoom do dublê não faz nada, então isto não realimenta.
-    innerSize: async () => {
-      const ratio = window.devicePixelRatio || 1;
-      return { width: Math.round(window.innerWidth * ratio), height: Math.round(window.innerHeight * ratio) };
-    },
-    scaleFactor: async () => window.devicePixelRatio || 1,
     onResized: async () => () => {},
+    onMoved: async () => () => {},
     onScaleChanged: async () => () => {},
     onFocusChanged: async () => () => {},
     listen: async () => () => {},
+  };
+}
+
+/**
+ * Monitor da janela (tamanho da interface, useUiScale). No navegador o
+ * "monitor" é a própria aba: físico = CSS x devicePixelRatio, como o Tauri
+ * entrega. O zoom do dublê não faz nada, então isto não realimenta.
+ */
+export async function currentMonitor() {
+  const ratio = window.devicePixelRatio || 1;
+  return {
+    name: "harness",
+    size: { width: Math.round(window.innerWidth * ratio), height: Math.round(window.innerHeight * ratio) },
+    position: { x: 0, y: 0 },
+    scaleFactor: ratio,
   };
 }

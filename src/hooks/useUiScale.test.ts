@@ -2,13 +2,15 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Janela de mentira: tamanho físico + fator de escala do monitor, como o Tauri
- * entrega. O tamanho lógico (físico / escala) é o que decide o zoom automático.
+ * Monitor de mentira: tamanho físico + fator de escala, como o Tauri entrega
+ * em `currentMonitor()`. O tamanho lógico do **monitor** (físico / escala) é o
+ * que decide o zoom automático — não o da janela: uma janela restaurada num
+ * monitor grande não pode encolher a interface (achado no teste de 08/10/2026).
  */
-const win = {
-  physical: { width: 1920, height: 1035 },
+const mon = {
+  physical: { width: 1920, height: 1080 },
   scale: 1.5,
-  resized: [] as Array<() => void>,
+  moved: [] as Array<() => void>,
   scaleChanged: [] as Array<() => void>,
 };
 
@@ -16,15 +18,14 @@ const setZoom = vi.fn(async (_factor: number) => {});
 const unlisten = vi.fn();
 
 vi.mock("@tauri-apps/api/window", () => ({
+  currentMonitor: async () => ({ size: { ...mon.physical }, scaleFactor: mon.scale }),
   getCurrentWindow: () => ({
-    innerSize: async () => ({ ...win.physical }),
-    scaleFactor: async () => win.scale,
-    onResized: async (cb: () => void) => {
-      win.resized.push(cb);
+    onMoved: async (cb: () => void) => {
+      mon.moved.push(cb);
       return unlisten;
     },
     onScaleChanged: async (cb: () => void) => {
-      win.scaleChanged.push(cb);
+      mon.scaleChanged.push(cb);
       return unlisten;
     },
   }),
@@ -36,7 +37,7 @@ vi.mock("@tauri-apps/api/webview", () => ({
 
 import { announceUiScale, useUiScale } from "./useUiScale";
 
-/** Deixa as promessas do hook (innerSize/scaleFactor/setZoom) assentarem. */
+/** Deixa as promessas do hook (currentMonitor/setZoom) assentarem. */
 async function settle() {
   await act(async () => {
     for (let i = 0; i < 5; i++) await Promise.resolve();
@@ -47,18 +48,19 @@ function zooms() {
   return setZoom.mock.calls.map((c) => c[0]);
 }
 
-function resizeTo(width: number, height: number, scale = win.scale) {
-  win.physical = { width, height };
-  win.scale = scale;
-  for (const cb of win.resized) cb();
+/** A janela foi arrastada para outro monitor. */
+function moveTo(width: number, height: number, scale = mon.scale) {
+  mon.physical = { width, height };
+  mon.scale = scale;
+  for (const cb of mon.moved) cb();
 }
 
 beforeEach(() => {
   vi.useFakeTimers();
-  win.physical = { width: 1920, height: 1035 }; // 1280x690 lógico a 150%
-  win.scale = 1.5;
-  win.resized = [];
-  win.scaleChanged = [];
+  mon.physical = { width: 1920, height: 1080 }; // 1280x720 lógico a 150%
+  mon.scale = 1.5;
+  mon.moved = [];
+  mon.scaleChanged = [];
   setZoom.mockClear();
   unlisten.mockClear();
 });
@@ -69,10 +71,18 @@ afterEach(() => {
 });
 
 describe("useUiScale", () => {
-  it("automático: aplica o zoom pelo tamanho lógico da janela", async () => {
+  it("automático: aplica o zoom pelo tamanho lógico do monitor", async () => {
     renderHook(() => useUiScale("auto"));
     await settle();
     expect(zooms()).toEqual([0.85]);
+  });
+
+  it("monitor grande fica em 100% mesmo com a janela pequena", async () => {
+    mon.physical = { width: 2560, height: 1440 };
+    mon.scale = 1;
+    renderHook(() => useUiScale("auto"));
+    await settle();
+    expect(zooms()).toEqual([1]);
   });
 
   it("setting ausente conta como automático", async () => {
@@ -87,28 +97,27 @@ describe("useUiScale", () => {
     });
     await settle();
     expect(zooms()).toEqual([]);
-    expect(win.resized).toHaveLength(0);
+    expect(mon.moved).toHaveLength(0);
 
     rerender({ value: "110", ready: true });
     await settle();
     expect(zooms()).toEqual([1.1]);
   });
 
-  it("valor fixo ignora a janela", async () => {
+  it("valor fixo ignora o monitor", async () => {
     renderHook(() => useUiScale("90"));
     await settle();
     expect(zooms()).toEqual([0.9]);
   });
 
-  it("recalcula ao redimensionar, com debounce, e só chama setZoom quando muda", async () => {
+  it("recalcula ao mudar de monitor, com debounce, e só chama setZoom quando muda", async () => {
     renderHook(() => useUiScale("auto"));
     await settle();
     expect(zooms()).toEqual([0.85]);
 
-    // Arrastar a borda dispara vários eventos: um cálculo só no fim.
-    resizeTo(2400, 1200); // 1600x800 lógico
-    resizeTo(3000, 1500);
-    resizeTo(3840, 2100); // 2560x1400 lógico
+    // Arrastar a janela dispara vários eventos: um cálculo só no fim.
+    moveTo(1920, 1080);
+    moveTo(2560, 1440, 1);
     await settle();
     expect(zooms()).toEqual([0.85]);
 
@@ -118,8 +127,8 @@ describe("useUiScale", () => {
     await settle();
     expect(zooms()).toEqual([0.85, 1]);
 
-    // Mudou o tamanho, mas o fator continua 1: nada de setZoom repetido.
-    resizeTo(3600, 2000);
+    // Outro monitor grande: o fator continua 1, nada de setZoom repetido.
+    moveTo(3840, 2160, 1.5);
     await act(async () => {
       vi.advanceTimersByTime(150);
     });
@@ -131,9 +140,9 @@ describe("useUiScale", () => {
     renderHook(() => useUiScale("auto"));
     await settle();
 
-    // Mesma janela física, monitor a 100%: 1920x1035 lógico -> 1.0.
-    win.scale = 1;
-    for (const cb of win.scaleChanged) cb();
+    // Mesmo monitor físico passado para 100%: 1920x1080 lógico -> 1.0.
+    mon.scale = 1;
+    for (const cb of mon.scaleChanged) cb();
     await act(async () => {
       vi.advanceTimersByTime(150);
     });
@@ -147,10 +156,10 @@ describe("useUiScale", () => {
     renderHook(() => useUiScale("90"));
     await settle();
     expect(zooms()).toEqual([0.9]);
-    // Valor fixo não escuta mudança de tamanho, mas escuta troca de monitor.
-    expect(win.resized).toHaveLength(0);
-    win.scale = 1;
-    for (const cb of win.scaleChanged) cb();
+    // Valor fixo não escuta a janela andar, mas escuta troca de escala.
+    expect(mon.moved).toHaveLength(0);
+    mon.scale = 1;
+    for (const cb of mon.scaleChanged) cb();
     await act(async () => {
       vi.advanceTimersByTime(150);
     });
@@ -158,10 +167,10 @@ describe("useUiScale", () => {
     expect(zooms()).toEqual([0.9, 0.9]);
   });
 
-  it("valor fixo não escuta o redimensionamento", async () => {
+  it("valor fixo não escuta a janela mudar de monitor", async () => {
     renderHook(() => useUiScale("100"));
     await settle();
-    expect(win.resized).toHaveLength(0);
+    expect(mon.moved).toHaveLength(0);
     expect(zooms()).toEqual([1]);
   });
 
