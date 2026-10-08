@@ -192,6 +192,18 @@ export const SUITES: Record<string, TestSuite> = {
       "src/store.test.ts",
     ],
   },
+  groups: {
+    description: "Página Groups: busca de grupos, entrada em lote uma conta por vez, captcha resolvido no navegador da conta",
+    rust: [
+      "group_reference_tests",
+      "group_join_http_tests",
+      "group_membership_http_tests",
+      "group_join_batch_tests",
+      "social_presence_extra_tests",
+      "chromium_commands_tests",
+    ],
+    front: ["src/components/pages/GroupsPage.test.tsx", "src/components/layout/NavSidebar.test.tsx"],
+  },
   webserver: {
     description: "Servidor HTTP local: rotas, senha e bloqueio anti-CSRF",
     rust: [
@@ -329,6 +341,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/afk-mode/RejoinTab.test.tsx",
       "src/components/afk-mode/ClicksTab.test.tsx",
       "src/components/pages/AvatarsPage.test.tsx",
+      "src/components/pages/GroupsPage.test.tsx",
       "src/components/pages/NexusPage.test.tsx",
       "src/components/menus/ContextMenu.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
@@ -345,7 +358,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   navigation: {
-    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais",
+    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Groups, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais",
     rust: [],
     front: [
       "src/components/layout/NavSidebar.test.tsx",

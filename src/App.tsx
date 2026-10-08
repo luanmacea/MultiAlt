@@ -32,6 +32,7 @@ import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay"
 import { SessionPage } from "./components/pages/SessionPage";
 import { AfkPage } from "./components/pages/AfkPage";
 import { AvatarsPage } from "./components/pages/AvatarsPage";
+import { GroupsPage } from "./components/pages/GroupsPage";
 import { ScriptsPage } from "./components/pages/ScriptsPage";
 import { ThemePage } from "./components/pages/ThemePage";
 import { NexusPage } from "./components/pages/NexusPage";
@@ -217,6 +218,7 @@ function AppContent() {
           <SessionPage active={page === "session"} onLeave={leavePage} />
           <AfkPage active={page === "afk"} onLeave={leavePage} />
           <AvatarsPage active={page === "avatars"} onLeave={leavePage} />
+          <GroupsPage active={page === "groups"} onLeave={leavePage} />
           <ScriptsPage active={page === "scripts"} onLeave={leavePage} />
           <ThemePage active={page === "theme"} onLeave={leavePage} />
           {ENABLE_NEXUS && <NexusPage active={page === "nexus"} onLeave={leavePage} />}

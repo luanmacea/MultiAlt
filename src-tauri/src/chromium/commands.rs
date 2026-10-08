@@ -22,6 +22,17 @@ pub(super) fn manual_binary_path(settings: &SettingsStore) -> String {
 
 const ROBLOX_LOGIN_URL: &str = "https://www.roblox.com/login";
 const ROBLOX_HOME_URL: &str = "https://www.roblox.com/home";
+const ROBLOX_COMMUNITIES_URL: &str = "https://www.roblox.com/communities";
+
+/// Página em que o navegador da conta abre: a home, ou a página de um grupo
+/// (a tela Groups abre ali para a pessoa resolver o captcha e entrar). Só id
+/// numérico: o front não escolhe URL nenhuma para uma janela logada.
+fn account_browser_start_url(group_id: Option<i64>) -> String {
+    match group_id {
+        Some(id) if id > 0 => format!("{}/{}", ROBLOX_COMMUNITIES_URL, id),
+        _ => ROBLOX_HOME_URL.to_string(),
+    }
+}
 
 /// Quanto esperamos o browser de setup sair sozinho antes de matá-lo.
 const BROWSER_EXIT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -114,6 +125,7 @@ pub async fn open_account_browser(
     chromium: State<'_, ChromiumManager>,
     settings: State<'_, SettingsStore>,
     user_id: i64,
+    group_id: Option<i64>,
 ) -> Result<(), String> {
     let token = {
         let accounts = state.get_all()?;
@@ -174,7 +186,8 @@ pub async fn open_account_browser(
     // cookie do perfil e **sem** porta de debug. Sem CDP anexado o
     // `navigator.webdriver` já nasce indefinido, então o stealth continua
     // valendo sem precisarmos injetar nada.
-    let (child, _) = spawn_chrome(&binary, &profile, ROBLOX_HOME_URL, false, stealth).await?;
+    let start_url = account_browser_start_url(group_id);
+    let (child, _) = spawn_chrome(&binary, &profile, &start_url, false, stealth).await?;
     chromium.track(user_id, child);
     Ok(())
 }
@@ -405,6 +418,17 @@ mod chromium_commands_tests {
 
     // Only the pure helpers. The Tauri commands themselves start a browser and
     // talk to Roblox, so they stay manual.
+
+    #[test]
+    fn the_account_browser_opens_home_or_the_group_page() {
+        assert_eq!(account_browser_start_url(None), "https://www.roblox.com/home");
+        assert_eq!(account_browser_start_url(Some(0)), "https://www.roblox.com/home");
+        assert_eq!(account_browser_start_url(Some(-4)), "https://www.roblox.com/home");
+        assert_eq!(
+            account_browser_start_url(Some(4199740)),
+            "https://www.roblox.com/communities/4199740"
+        );
+    }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

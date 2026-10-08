@@ -20,6 +20,7 @@ export type TourId =
   | "session"
   | "afk"
   | "avatars"
+  | "groups"
   | "scripts"
   | "theme"
   | "settings"
@@ -264,6 +265,38 @@ export const TOURS: Record<TourId, TourDefinition> = {
         title: "Apply",
         description: "Tick the accounts and click Apply avatars. Each account gets one look.",
         targets: [tour("avatars-accounts")],
+      },
+    ],
+  },
+
+  groups: {
+    id: "groups",
+    label: "Groups",
+    root: tour("groups-page"),
+    steps: [
+      {
+        id: "search",
+        title: "Find a group",
+        description: "Type a group name, or paste its link or ID, and click Search.",
+        targets: [tour("groups-search")],
+      },
+      {
+        id: "pick",
+        title: "Pick the group",
+        description: "Click a card to choose it. The tag says if anyone can join or if the owner approves each request.",
+        targets: [tour("groups-results"), tour("groups-search")],
+      },
+      {
+        id: "accounts",
+        title: "Pick the accounts",
+        description: "Tick the accounts that should join. The ones selected in your list come ticked.",
+        targets: [tour("groups-accounts")],
+      },
+      {
+        id: "join",
+        title: "Join",
+        description: "Click Join group. Accounts join one at a time. If Roblox asks for a captcha, use Solve in browser on that account.",
+        targets: [tour("groups-join"), tour("groups-accounts")],
       },
     ],
   },

@@ -1,0 +1,246 @@
+import "@testing-library/jest-dom/vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
+vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
+vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
+
+import { GroupsPage } from "./GroupsPage";
+import type { StoreValue } from "../../store";
+import { makeAccount, setStore } from "../../test-utils/renderWithStore";
+import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeMap, type InvokeArgs } from "../../test-utils/tauriMocks";
+import { walkTour } from "../../test-utils/tourHelpers";
+import type { GroupJoinSnapshot, GroupSummary } from "./groups/shared";
+
+const ACCOUNTS = [
+  makeAccount({ UserID: 11, Username: "alpha" }),
+  makeAccount({ UserID: 22, Username: "bravo" }),
+  makeAccount({ UserID: 33, Username: "charlie" }),
+];
+
+function group(id: number, name: string, overrides: Partial<GroupSummary> = {}): GroupSummary {
+  return {
+    id,
+    name,
+    description: "",
+    memberCount: 1200,
+    publicEntryAllowed: true,
+    hasVerifiedBadge: false,
+    isLocked: false,
+    ...overrides,
+  };
+}
+
+const OPEN = group(501, "Builders Club", { hasVerifiedBadge: true });
+const APPROVAL = group(502, "Secret Society", { publicEntryAllowed: false, memberCount: 40 });
+
+const IDLE: GroupJoinSnapshot = {
+  running: false,
+  groupId: null,
+  groupName: "",
+  total: 0,
+  done: 0,
+  currentUserId: null,
+  accounts: [],
+};
+
+function wire(overrides: Record<string, unknown | ((args: InvokeArgs) => unknown)> = {}) {
+  setInvokeMap({
+    get_groups_join_state: IDLE,
+    groups_search: { groups: [OPEN, APPROVAL], nextCursor: null },
+    groups_icons: [{ targetId: 501, imageUrl: "https://img/501.png" }],
+    ...overrides,
+  });
+}
+
+function renderPage(overrides: Partial<StoreValue> = {}) {
+  const store = setStore({ accounts: ACCOUNTS, ...overrides });
+  render(<GroupsPage active onLeave={() => {}} />);
+  return store;
+}
+
+async function search(text: string) {
+  await userEvent.type(screen.getByPlaceholderText("Group name, link or ID"), text);
+  await userEvent.click(screen.getByRole("button", { name: "Search" }));
+}
+
+beforeEach(() => {
+  resetTauriMocks();
+});
+
+afterEach(cleanup);
+
+describe("GroupsPage — search", () => {
+  it("shows each group as a card with members, entry rule and verified badge", async () => {
+    wire();
+    renderPage();
+    await search("builders");
+
+    expect(invokeMock).toHaveBeenCalledWith("groups_search", { query: "builders", cursor: null });
+    const list = await screen.findByRole("list", { name: "Groups found" });
+    const cards = within(list).getAllByRole("button");
+    expect(cards).toHaveLength(2);
+    expect(within(cards[0]).getByText("Builders Club")).toBeInTheDocument();
+    expect(within(cards[0]).getByText("Open to join")).toBeInTheDocument();
+    expect(within(cards[0]).getByRole("img", { name: "Verified" })).toBeInTheDocument();
+    expect(within(cards[1]).getByText("Approval required")).toBeInTheDocument();
+    expect(within(cards[1]).getByText(/40 members/)).toBeInTheDocument();
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith("groups_icons", { groupIds: [501, 502] }));
+  });
+
+  it("shows the backend refusal instead of results", async () => {
+    wire({
+      groups_search: () => {
+        throw "Type at least 2 characters";
+      },
+    });
+    renderPage();
+    await search("x");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Type at least 2 characters");
+  });
+
+  it("loads the next page with the cursor and keeps the first results", async () => {
+    wire({
+      groups_search: (args: InvokeArgs) =>
+        (args as { cursor: string | null }).cursor === "c2"
+          ? { groups: [group(503, "Third")], nextCursor: null }
+          : { groups: [OPEN, APPROVAL], nextCursor: "c2" },
+    });
+    renderPage();
+    await search("club");
+    await userEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    expect(invokeMock).toHaveBeenCalledWith("groups_search", { query: "club", cursor: "c2" });
+    expect(await screen.findByText("Third")).toBeInTheDocument();
+    expect(screen.getByText("Builders Club")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  it("picks the group right away when a link is pasted", async () => {
+    wire({ groups_search: { groups: [APPROVAL], nextCursor: null } });
+    renderPage();
+    await search("https://www.roblox.com/communities/502/x");
+    expect(await screen.findByText("Join Secret Society")).toBeInTheDocument();
+  });
+});
+
+describe("GroupsPage — accounts and join", () => {
+  it("starts with the accounts selected in the list ticked", async () => {
+    wire();
+    renderPage({ selectedAccounts: [ACCOUNTS[1]] });
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "bravo" })).toHaveAttribute("aria-checked", "true"));
+    expect(screen.getByRole("checkbox", { name: "alpha" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("Select all and Clear tick and untick every account", async () => {
+    wire();
+    renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    for (const name of ["alpha", "bravo", "charlie"]) {
+      expect(screen.getByRole("checkbox", { name })).toHaveAttribute("aria-checked", "true");
+    }
+    await userEvent.click(screen.getByRole("button", { name: "Clear" }));
+    for (const name of ["alpha", "bravo", "charlie"]) {
+      expect(screen.getByRole("checkbox", { name })).toHaveAttribute("aria-checked", "false");
+    }
+  });
+
+  it("keeps Join group off until a group and an account are picked", async () => {
+    wire();
+    renderPage();
+    expect(screen.getByText("Pick a group above first")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Join group" })).toBeDisabled();
+    await search("builders");
+    await userEvent.click(await screen.findByRole("button", { name: /Builders Club/ }));
+    expect(screen.getByRole("button", { name: "Join group" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("checkbox", { name: "alpha" }));
+    expect(screen.getByRole("button", { name: "Join group" })).toBeEnabled();
+  });
+
+  it("joins the ticked accounts, shows each status and offers the browser for a captcha", async () => {
+    const final: GroupJoinSnapshot = {
+      running: false,
+      groupId: 501,
+      groupName: "Builders Club",
+      total: 3,
+      done: 3,
+      currentUserId: null,
+      accounts: [
+        { userId: 11, status: "joined", reason: null },
+        { userId: 22, status: "challenge", reason: null },
+        { userId: 33, status: "failed", reason: "You are already in the maximum number of groups." },
+      ],
+    };
+    wire({ groups_join_batch: final, open_account_browser: null, groups_check_membership: "joined" });
+    const store = renderPage({ selectedAccounts: ACCOUNTS });
+    await search("builders");
+    await userEvent.click(await screen.findByRole("button", { name: /Builders Club/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Join group" }));
+
+    expect(invokeMock).toHaveBeenCalledWith("groups_join_batch", { userIds: [11, 22, 33], groupId: 501 });
+    const row = (id: number) => screen.getByTestId(`group-join-row-${id}`);
+    await waitFor(() => expect(within(row(11)).getByText("Joined")).toBeInTheDocument());
+    expect(within(row(22)).getByText("Needs captcha")).toBeInTheDocument();
+    expect(within(row(33)).getByText("Failed")).toBeInTheDocument();
+    expect(within(row(33)).getByText("You are already in the maximum number of groups.")).toBeInTheDocument();
+    // Só a conta do captcha ganha os botões do navegador.
+    expect(within(row(11)).queryByRole("button", { name: /Solve in browser/ })).not.toBeInTheDocument();
+    expect(within(row(33)).queryByRole("button", { name: /Solve in browser/ })).not.toBeInTheDocument();
+
+    await userEvent.click(within(row(22)).getByRole("button", { name: "Solve in browser for bravo" }));
+    expect(invokeMock).toHaveBeenCalledWith("open_account_browser", { userId: 22, groupId: 501 });
+    expect(store.addToast).toHaveBeenCalledWith(expect.stringContaining("bravo"));
+
+    await userEvent.click(within(row(22)).getByRole("button", { name: "Check again for bravo" }));
+    expect(invokeMock).toHaveBeenCalledWith("groups_check_membership", { userId: 22, groupId: 501 });
+    await waitFor(() => expect(within(row(22)).getByText("Joined")).toBeInTheDocument());
+    expect(within(row(22)).queryByRole("button", { name: /Solve in browser/ })).not.toBeInTheDocument();
+  });
+
+  it("follows the batch by its event, with progress and Cancel while it runs", async () => {
+    wire({ groups_join_batch: () => new Promise(() => {}), groups_cancel_join: null });
+    renderPage({ selectedAccounts: ACCOUNTS.slice(0, 2) });
+    await search("builders");
+    await userEvent.click(await screen.findByRole("button", { name: /Builders Club/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Join group" }));
+
+    act(() =>
+      emitTauriEvent("groups-join-state", {
+        running: true,
+        groupId: 501,
+        groupName: "Builders Club",
+        total: 2,
+        done: 1,
+        currentUserId: 22,
+        accounts: [
+          { userId: 11, status: "pending", reason: null },
+          { userId: 22, status: "joining", reason: null },
+        ],
+      })
+    );
+    expect(await screen.findByText("Pending approval")).toBeInTheDocument();
+    expect(screen.getByText("Joining...")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Group join progress" })).toHaveAttribute("aria-valuenow", "1");
+    // Durante o lote, a lista de marcar fica travada.
+    expect(screen.getByRole("checkbox", { name: "alpha" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(invokeMock.mock.calls.map((call) => call[0])).toContain("groups_cancel_join");
+  });
+
+  it("hides account names in the rows when names are hidden", async () => {
+    wire();
+    renderPage({ hideUsernames: true });
+    expect(screen.queryByRole("checkbox", { name: "alpha" })).not.toBeInTheDocument();
+    expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+  });
+});
+
+describe("GroupsPage — tutorial", () => {
+  it("walks the tutorial without changing anything", async () => {
+    wire();
+    renderPage();
+    await walkTour("groups", { invoke: invokeMock });
+    expect(invokeMock).not.toHaveBeenCalledWith("groups_join_batch", expect.anything());
+  });
+});

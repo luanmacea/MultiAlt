@@ -988,6 +988,184 @@ function avatarsHandler(fallback: InvokeHandler): InvokeHandler {
   };
 }
 
+interface HarnessGroup {
+  id: number;
+  name: string;
+  description: string;
+  memberCount: number;
+  publicEntryAllowed: boolean;
+  hasVerifiedBadge: boolean;
+  isLocked: boolean;
+}
+
+const HARNESS_GROUPS: HarnessGroup[] = [
+  ["Pet Simulator Fans", 1_284_311, true, true],
+  ["Pet Traders United", 94_200, false, false],
+  ["Pet Sim Speedrunners", 3_120, true, false],
+  ["Pets & Plushies — Official Community With A Very Long Name That Should Truncate", 512_000, true, true],
+  ["Pet Builders", 860, false, false],
+  ["Pet Lovers BR", 41_000, true, false],
+].map(([name, memberCount, publicEntryAllowed, hasVerifiedBadge], index) => ({
+  id: 4_100_000 + index,
+  name: name as string,
+  description: "",
+  memberCount: memberCount as number,
+  publicEntryAllowed: publicEntryAllowed as boolean,
+  hasVerifiedBadge: hasVerifiedBadge as boolean,
+  isLocked: false,
+}));
+
+const HARNESS_GROUPS_PAGE_2: HarnessGroup[] = [
+  { id: 4_100_100, name: "Pet Collectors Guild", description: "", memberCount: 12_000, publicEntryAllowed: true, hasVerifiedBadge: false, isLocked: false },
+  { id: 4_100_101, name: "Retired Pet Club", description: "", memberCount: 77, publicEntryAllowed: true, hasVerifiedBadge: false, isLocked: true },
+];
+
+const GROUP_COLORS = ["#1d4ed8", "#be123c", "#0f766e", "#7c3aed", "#c2410c", "#15803d"];
+
+interface HarnessGroupJoin {
+  running: boolean;
+  groupId: number | null;
+  groupName: string;
+  total: number;
+  done: number;
+  currentUserId: number | null;
+  accounts: { userId: number; status: string; reason: string | null }[];
+}
+
+/**
+ * Página Groups (`commands/groups.rs`). Só entrega dados: a busca devolve uma
+ * página com cursor e depois uma segunda; um número ou link devolve um grupo.
+ * O lote espelha o backend — uma conta por vez, o retrato inteiro em
+ * `groups-join-state` a cada passo, `groups_join_batch` só responde no fim — e
+ * o resultado de cada conta é fixo pela posição: a 1ª entra, a 2ª esbarra no
+ * captcha, a 3ª já é membro, a 4ª fica pendente, a 5ª falha (limite de
+ * grupos), as demais entram. A conferência devolve "notMember" na primeira vez
+ * e "joined" depois, como se a pessoa tivesse entrado pelo navegador.
+ */
+function groupsHandler(fallback: InvokeHandler): InvokeHandler {
+  const all = [...HARNESS_GROUPS, ...HARNESS_GROUPS_PAGE_2];
+  let batch: HarnessGroupJoin = {
+    running: false,
+    groupId: null,
+    groupName: "",
+    total: 0,
+    done: 0,
+    currentUserId: null,
+    accounts: [],
+  };
+  let cancel = false;
+  const checks = new Map<number, number>();
+  const publish = (change: Partial<HarnessGroupJoin>) => {
+    batch = { ...batch, ...change };
+    harnessEmit("groups-join-state", batch);
+    return batch;
+  };
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const OUTCOMES: { status: string; reason: string | null }[] = [
+    { status: "joined", reason: null },
+    { status: "challenge", reason: null },
+    { status: "alreadyMember", reason: null },
+    { status: "pending", reason: null },
+    { status: "failed", reason: "You are already in the maximum number of groups." },
+  ];
+
+  return (cmd, args) => {
+    switch (cmd) {
+      case "groups_search": {
+        const query = String(args.query ?? "").trim();
+        const byId = /^\d+$/.test(query) ? Number(query) : Number(/(?:groups|communities)\/(\d+)/.exec(query)?.[1] ?? NaN);
+        if (Number.isFinite(byId)) {
+          const found = all.find((g) => g.id === byId);
+          return wait(300).then(() =>
+            found ? { groups: [found], nextCursor: null } : Promise.reject("Group is invalid or does not exist.")
+          );
+        }
+        if (query.length < 2) return Promise.reject("Type at least 2 characters");
+        if (args.cursor === "page-2") return wait(500).then(() => ({ groups: HARNESS_GROUPS_PAGE_2, nextCursor: null }));
+        return wait(500).then(() => ({ groups: HARNESS_GROUPS, nextCursor: "page-2" }));
+      }
+      case "groups_icons": {
+        const ids = (args.groupIds as number[] | undefined) ?? [];
+        return wait(250).then(() =>
+          ids.map((id, index) => {
+            const group = all.find((g) => g.id === id);
+            return {
+              targetId: id,
+              // A 3ª fica sem imagem: o cartão tem que mostrar o ícone padrão.
+              imageUrl:
+                group && index !== 2
+                  ? fixtureIcon((group.name.trim()[0] || "?").toUpperCase(), GROUP_COLORS[id % GROUP_COLORS.length])
+                  : null,
+              thumbnailType: "GroupIcon",
+            };
+          })
+        );
+      }
+      case "get_groups_join_state":
+        return batch;
+      case "groups_cancel_join":
+        cancel = true;
+        return null;
+      case "open_account_browser":
+        return null;
+      case "groups_check_membership": {
+        const userId = Number(args.userId);
+        const seen = (checks.get(userId) ?? 0) + 1;
+        checks.set(userId, seen);
+        const status = seen === 1 ? "notMember" : "joined";
+        if (batch.groupId === args.groupId) {
+          publish({
+            accounts: batch.accounts.map((row) => (row.userId === userId ? { ...row, status, reason: null } : row)),
+          });
+        }
+        return wait(600).then(() => status);
+      }
+      case "groups_join_batch": {
+        if (batch.running) return Promise.reject("A group join is already running");
+        const userIds = (args.userIds as number[] | undefined) ?? [];
+        const group = all.find((g) => g.id === args.groupId);
+        if (userIds.length === 0) return Promise.reject("No account selected");
+        if (!group) return Promise.reject("Pick a group first");
+        if (group.isLocked) return Promise.reject("This group is locked and does not accept new members");
+        cancel = false;
+        publish({
+          running: true,
+          groupId: group.id,
+          groupName: group.name,
+          total: userIds.length,
+          done: 0,
+          currentUserId: null,
+          accounts: userIds.map((userId) => ({ userId, status: "waiting", reason: null })),
+        });
+        return (async () => {
+          for (const [index, userId] of userIds.entries()) {
+            if (cancel) {
+              publish({
+                accounts: batch.accounts.map((row) => (row.status === "waiting" ? { ...row, status: "cancelled" } : row)),
+              });
+              break;
+            }
+            publish({
+              currentUserId: userId,
+              accounts: batch.accounts.map((row) => (row.userId === userId ? { ...row, status: "joining" } : row)),
+            });
+            await wait(1200);
+            const outcome = OUTCOMES[index] ?? OUTCOMES[0];
+            publish({
+              done: index + 1,
+              currentUserId: null,
+              accounts: batch.accounts.map((row) => (row.userId === userId ? { ...row, ...outcome } : row)),
+            });
+          }
+          return publish({ running: false, currentUserId: null });
+        })();
+      }
+      default:
+        return fallback(cmd, args);
+    }
+  };
+}
+
 const SCENARIOS: Record<string, () => void> = {
   default() {
     setInvokeHandler(baseHandler);
@@ -1564,6 +1742,16 @@ const SCENARIOS: Record<string, () => void> = {
    */
   avatars() {
     setInvokeHandler(avatarsHandler(baseHandler));
+  },
+
+  /**
+   * Página Groups: busca "pet" (duas páginas, uma com um grupo trancado),
+   * link/id colado, e um lote em que a 2ª conta esbarra no captcha, a 3ª já é
+   * membro, a 4ª fica pendente e a 5ª falha. Use `&accounts=6`. (O cenário
+   * `groups` é outro: os grupos da lista de contas.)
+   */
+  "roblox-groups"() {
+    setInvokeHandler(groupsHandler(baseHandler));
   },
 
   /**

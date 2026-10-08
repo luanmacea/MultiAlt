@@ -43,7 +43,7 @@ Igual aos passos 1–5, mas depois espera o seletor `#login-username` e manda um
 1. Normaliza o token da conta (`normalize_security_token`) e mata uma janela anterior da mesma conta (duas instâncias no mesmo perfil brigam pelo lock do Chromium).
 2. **Fase 1 — browser de setup**: sobe com a porta de debug, parado em `about:blank`, **sem nenhuma página do Roblox carregada**. Via CDP grava o `.ROBLOSECURITY` em `.roblox.com` e `www.roblox.com` **com validade de 1 ano** (`persistent_cookie_expiry`), o que faz o Chromium persistir o cookie no perfil em vez de mantê-lo só em memória.
 3. `close_browser` pede o encerramento gracioso (`Browser.close`, com `Page.close` como alternativa) — é o shutdown normal do Chromium que grava o cookie no disco. Esperamos a saída por até 10 s e, se travar, matamos o processo.
-4. **Fase 2 — a janela do usuário**: sobe de novo no mesmo perfil, direto em `https://www.roblox.com/home`, **sem `--remote-debugging-port`**. É essa instância que o `ChromiumManager` rastreia.
+4. **Fase 2 — a janela do usuário**: sobe de novo no mesmo perfil, direto em `https://www.roblox.com/home` — ou, com `groupId` (página Groups, depois de um captcha; ver [groups.md](groups.md)), em `https://www.roblox.com/communities/<groupId>`, montada no backend (`account_browser_start_url`) a partir só do id numérico —, **sem `--remote-debugging-port`**. É essa instância que o `ChromiumManager` rastreia.
 
 ## Qual binário abre: manual, baixado ou navegador do sistema
 
