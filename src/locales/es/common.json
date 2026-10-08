@@ -1996,5 +1996,11 @@
   "Your scripts": "Tus scripts",
   "Fix": "Corrección",
   "General update": "Actualización general",
-  "New features": "Novedades"
+  "New features": "Novedades",
+  "Send feedback": "Enviar comentarios",
+  "Report a problem": "Reportar un problema",
+  "Something broke or did not work as expected.": "Algo se rompió o no funcionó como debía.",
+  "Suggest an idea": "Sugerir una idea",
+  "Something you would like MultiAlt to do.": "Algo que te gustaría que MultiAlt hiciera.",
+  "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.": "Abre un formulario en la página del proyecto en GitHub, en tu navegador. Para enviarlo necesitas una cuenta gratuita de GitHub. La app no envía nada por su cuenta, y nada de tus cuentas va incluido."
 }

@@ -1,0 +1,23 @@
+name: "💡 Suggest an idea / Sugerir uma ideia"
+description: "Something you would like MultiAlt to do. / Algo que você gostaria que o MultiAlt fizesse."
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Write in English, Português or Español.
+        Obrigado pela ideia! Pode escrever em português.
+  - type: textarea
+    id: idea
+    attributes:
+      label: "Your idea / Sua ideia"
+      description: "What should MultiAlt do? / O que o MultiAlt deveria fazer?"
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: "Why would it help? / Por que ajudaria?"
+      description: "What do you do today without it? / Como você faz hoje sem isso?"
+    validations:
+      required: false
