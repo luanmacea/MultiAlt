@@ -22,6 +22,7 @@ Descrever como a janela principal é montada, como temas e fontes são aplicados
 | Menu de contexto | [ContextMenu.tsx](../../src/components/menus/ContextMenu.tsx), [MenuItemView.tsx](../../src/components/menus/MenuItemView.tsx) |
 | Diálogos | [src/components/dialogs/](../../src/components/dialogs), [ServerListDialog.tsx](../../src/components/server-list/ServerListDialog.tsx) |
 | Tema | [theme.ts](../../src/theme.ts), [themeFonts.ts](../../src/themeFonts.ts), [fontPresets.ts](../../src/fontPresets.ts), [ThemePage.tsx](../../src/components/pages/ThemePage.tsx), backend [theme.rs](../../src-tauri/src/data/settings/theme.rs) e [presets.rs](../../src-tauri/src/data/settings/presets.rs) |
+| Tamanho da interface (zoom) | [uiScale.ts](../../src/uiScale.ts) (regra do automático, pura), [useUiScale.ts](../../src/hooks/useUiScale.ts) (aplica com `setZoom`), controle em [GeneralTab.tsx](../../src/components/settings/GeneralTab.tsx) |
 | Componentes genéricos | [src/components/ui/](../../src/components/ui) |
 | Hooks de UI | [usePrompt.tsx](../../src/hooks/usePrompt.tsx) (`prompt`/`confirm` assíncronos), [useModalClose.ts](../../src/hooks/useModalClose.ts) (animação de fechar), [useBackdropClose.ts](../../src/hooks/useBackdropClose.ts) (clique no fundo fecha o modal), [useJoinOnlineWarning.ts](../../src/hooks/useJoinOnlineWarning.ts) |
 
@@ -218,6 +219,23 @@ A seção **Make Friends** só aparece depois que houve uma execução (`total >
 5. Salvar → `update_theme` → `RAMTheme.ini`.
 6. `sync_windows_navbar_theme` é chamado quando muda `ThemeWindowsNavbar` ou `dark_top_bar`.
 
+### Tamanho da interface
+
+Em monitor de notebook (1920x1080 a 150% no Windows → janela lógica de ~1280x690) cabeçalhos, abas, linhas e espaçamentos comiam a tela; no 2560x1440 do dono a interface estava certa. Settings › General › **Interface size** (`General.InterfaceScale`) resolve com o **zoom nativo do WebView** (`getCurrentWebview().setZoom(fator)`, permissão `core:webview:allow-set-webview-zoom` em [capabilities/default.json](../../src-tauri/capabilities/default.json)). O zoom nativo escala tudo por igual, inclusive as classes em px do Tailwind (`text-[12px]`), que um truque de `rem` no CSS não pegaria.
+
+| Opção (INI) | Zoom |
+|---|---|
+| `auto` (padrão, também chave ausente ou valor desconhecido) | pelo tamanho da janela, ver abaixo |
+| `110` / `100` / `90` / `80` | fixo, ignora a janela |
+
+**Regra do automático** ([uiScale.ts](../../src/uiScale.ts), `autoUiScale`): `min(largura / 1440, altura / 800)`, arredondado **para baixo** em passos de 5% e preso entre 80% e 100%. Exemplos: 2560x1400 → 100%; 1280x690 → 85%; 1100x650 → 80% (daria 75%); 750x450 (mínimo da janela) → 80%. Nunca passa de 100%: quem quer maior escolhe 110%.
+
+- O tamanho usado é o **lógico** da janela: `innerSize()` (pixels físicos) dividido por `scaleFactor()` do monitor. **Não** usar `window.innerWidth`: ele está em px CSS, muda com o próprio zoom, e o zoom passaria a realimentar a conta que o decide.
+- [useUiScale.ts](../../src/hooks/useUiScale.ts) roda no [App.tsx](../../src/App.tsx) antes dos `return` antecipados, então vale também na tela de senha. Espera as settings chegarem (`store.settings !== null`) para quem escolheu valor fixo não ver o automático piscar na abertura. No automático recalcula em `onResized` (debounce de 150 ms); `setZoom` só é chamado quando o fator muda. A exceção é `onScaleChanged` (janela arrastada para monitor com outra escala): em qualquer modo, reaplica mesmo com o mesmo fator, porque a troca de DPI mexe na escala do WebView2 e o zoom não pode ficar para trás sem o hook perceber.
+- A escolha vale **na hora**: a página Settings grava pelo `useSettings` dela e a store só relê as settings ao sair da página, então o `GeneralTab` também dispara o evento `ram-ui-scale` (`announceUiScale`), que o hook escuta até a store recarregar.
+- Com zoom, o viewport CSS simplesmente fica maior (janela de 1280 px lógicos a 85% = ~1506 px CSS). `100vh`, os tetos `max-h-[calc(100vh-…)]` dos diálogos, o posicionamento de menus/tooltips por `window.innerWidth` e `clientX` (tudo em px CSS) e o limiar da `NavSidebar` (900 px CSS de layout) continuam coerentes; o mínimo da janela (750x450 lógicos) vira ~937x562 px CSS a 80%. Arrastar pela `TitleBar` usa `startDragging`, que não depende de coordenada.
+- Fora do Tauri (testes, navegador) a API não existe: o hook engole o erro e a interface fica em 100%. No harness (`bun run dev:ui`) o `setZoom` é um no-op registrado em `window.__harness.calls()` como `plugin:webview|set_webview_zoom`.
+
 ### Status bar
 
 Total/filtradas, selecionadas, contas online e em jogo (se `ShowPresence`), contas lançadas pelo app, status do Auto Rejoin/gerador e a linha de `actionStatus` (ver abaixo).
@@ -259,6 +277,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 | `General.MinimizeToTray` | Botão fechar da TitleBar esconde na bandeja. |
 | `General.ThemeWindowsNavbar` | Barra nativa segue o tema. |
 | `General.RestrictedBackgroundStyle` | Fundo da tela de senha. |
+| `General.InterfaceScale` | Tamanho da interface: `auto` (padrão) ou `110`/`100`/`90`/`80` (ver "Tamanho da interface"). |
 | `General.GridGap`, `GridMonitors` | Arranjo em grade (aba Windows da Choose Game). |
 | `General.AutoArrangeGrid` | Grade automática no launch (aba Windows e Settings > Optimization). |
 | `General.FirstRunWalkthroughState` | Exibição do walkthrough inicial. |

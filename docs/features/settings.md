@@ -89,6 +89,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ThemeWindowsNavbar` | `true` | Barra de título do Windows segue o tema. |
 | `ThemeWindowsNavbarAutoEnabledV1` | `true` | Marcador de migração (força `ThemeWindowsNavbar=true` uma vez). |
 | `RestrictedBackgroundStyle` | `warp` | Fundo animado da tela de senha: `bubbles`, `warp`, `warpLegacy`, `waves`. |
+| `InterfaceScale` | — (`auto`) | Tamanho da interface (zoom nativo do WebView): `auto` encolhe em janela pequena (80–100%), ou fixo `110`/`100`/`90`/`80`. Vale na hora, sem sair da página. Ver [ui-layout.md](ui-layout.md#tamanho-da-interface). |
 | `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
 | `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
 | `BottingAutoShareLaunchFields` | `true` | **Ignorada desde 03/10/2026**: o Auto Rejoin não tem mais os campos Place/Job/Data para sincronizar com a sidebar (o servidor é onde as contas estão ou um jogo dos Favoritos). Saiu da aba Miscellaneous; a chave fica no INI sem efeito. |

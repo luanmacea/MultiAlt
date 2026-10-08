@@ -2002,5 +2002,7 @@
   "Something broke or did not work as expected.": "Algo se rompió o no funcionó como debía.",
   "Suggest an idea": "Sugerir una idea",
   "Something you would like MultiAlt to do.": "Algo que te gustaría que MultiAlt hiciera.",
-  "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.": "Abre un formulario en la página del proyecto en GitHub, en tu navegador. Para enviarlo necesitas una cuenta gratuita de GitHub. La app no envía nada por su cuenta, y nada de tus cuentas va incluido."
+  "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.": "Abre un formulario en la página del proyecto en GitHub, en tu navegador. Para enviarlo necesitas una cuenta gratuita de GitHub. La app no envía nada por su cuenta, y nada de tus cuentas va incluido.",
+  "Auto shrinks the interface on smaller screens": "El automático reduce la interfaz en pantallas más pequeñas",
+  "Interface size": "Tamaño de la interfaz"
 }

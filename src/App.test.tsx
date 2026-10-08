@@ -7,14 +7,15 @@ vi.mock("./store", async () => (await import("./test-utils/renderWithStore")).st
 vi.mock("@tauri-apps/api/core", async () => (await import("./test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("./test-utils/tauriMocks")).tauriEventMock());
 vi.mock("@tauri-apps/api/window", async () => (await import("./test-utils/tauriMocks")).tauriWindowMock());
+vi.mock("@tauri-apps/api/webview", async () => (await import("./test-utils/tauriMocks")).tauriWebviewMock());
 vi.mock("@tauri-apps/plugin-autostart", () => ({
   enable: vi.fn(async () => {}),
   disable: vi.fn(async () => {}),
 }));
 
 import App from "./App";
-import { makeAccount, setStore } from "./test-utils/renderWithStore";
-import { invokeMock, resetTauriMocks, setInvokeHandler } from "./test-utils/tauriMocks";
+import { defaultSettings, makeAccount, setStore } from "./test-utils/renderWithStore";
+import { invokeMock, resetTauriMocks, setInvokeHandler, webviewMock, windowMock } from "./test-utils/tauriMocks";
 import { walkTour } from "./test-utils/tourHelpers";
 import { closeTour } from "./components/tour/tourState";
 import { TONE_STYLES } from "./utils/toastTone";
@@ -54,6 +55,27 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   closeTour();
+});
+
+describe("App — tamanho da interface", () => {
+  it("aplica o tamanho salvo em General.InterfaceScale", async () => {
+    const settings = defaultSettings();
+    renderApp({ settings: { ...settings, General: { ...settings.General, InterfaceScale: "90" } } });
+    await waitFor(() => expect(webviewMock.setZoom).toHaveBeenCalledWith(0.9));
+    expect(webviewMock.setZoom).toHaveBeenCalledTimes(1);
+  });
+
+  it("automático vale já na tela de senha (janela lógica 1280x690 -> 85%)", async () => {
+    windowMock.innerSize.mockResolvedValue({ width: 1920, height: 1035 });
+    windowMock.scaleFactor.mockResolvedValue(1.5);
+    try {
+      renderApp({ needsPassword: true });
+      await waitFor(() => expect(webviewMock.setZoom).toHaveBeenCalledWith(0.85));
+    } finally {
+      windowMock.innerSize.mockResolvedValue({ width: 1440, height: 800 });
+      windowMock.scaleFactor.mockResolvedValue(1);
+    }
+  });
 });
 
 describe("App — blocking screens", () => {

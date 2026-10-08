@@ -2002,5 +2002,7 @@
   "Something broke or did not work as expected.": "Something broke or did not work as expected.",
   "Suggest an idea": "Suggest an idea",
   "Something you would like MultiAlt to do.": "Something you would like MultiAlt to do.",
-  "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.": "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along."
+  "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.": "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.",
+  "Auto shrinks the interface on smaller screens": "Auto shrinks the interface on smaller screens",
+  "Interface size": "Interface size"
 }

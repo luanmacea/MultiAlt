@@ -60,7 +60,22 @@ export const windowMock = {
   show: vi.fn(async () => {}),
   setFocus: vi.fn(async () => {}),
   startDragging: vi.fn(async () => {}),
+  // Tamanho da interface (hooks/useUiScale.ts): janela lógica de 1440x800 = 100%.
+  innerSize: vi.fn(async () => ({ width: 1440, height: 800 })),
+  scaleFactor: vi.fn(async () => 1),
+  onScaleChanged: vi.fn(async () => unlistenMock),
 };
+
+/** `@tauri-apps/api/webview`: só o zoom nativo (tamanho da interface). */
+export const webviewMock = {
+  setZoom: vi.fn(async (_factor: number) => {}),
+};
+
+export function tauriWebviewMock() {
+  return {
+    getCurrentWebview: () => webviewMock,
+  };
+}
 
 export function tauriCoreMock() {
   return {
@@ -101,4 +116,5 @@ export function resetTauriMocks(): void {
   listenMock.mockClear();
   unlistenMock.mockClear();
   for (const fn of Object.values(windowMock)) fn.mockClear();
+  for (const fn of Object.values(webviewMock)) fn.mockClear();
 }

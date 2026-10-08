@@ -414,6 +414,32 @@ describe("GeneralTab", () => {
     await expectSaved("General", "WarnOnCopyCredential", "false");
   });
 
+  /**
+   * Tamanho da interface (uiScale.ts): nasce em Automatic; a escolha grava
+   * `General.InterfaceScale` e avisa o App na hora (`ram-ui-scale`), sem
+   * esperar a store reler as settings ao sair da página.
+   */
+  it("saves the interface size and applies it right away", async () => {
+    const announced: string[] = [];
+    const onAnnounce = (e: Event) => announced.push(String((e as CustomEvent).detail));
+    window.addEventListener("ram-ui-scale", onAnnounce);
+    try {
+      renderGeneral();
+      expect(await screen.findByText("Auto shrinks the interface on smaller screens")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Interface size" }));
+      await userEvent.click(await screen.findByText("90%"));
+      await expectSaved("General", "InterfaceScale", "90");
+      expect(announced).toEqual(["90"]);
+    } finally {
+      window.removeEventListener("ram-ui-scale", onAnnounce);
+    }
+  });
+
+  it("shows Automatic when the interface size was never set", async () => {
+    renderGeneral();
+    expect(await screen.findByRole("button", { name: "Interface size" })).toHaveTextContent("Automatic");
+  });
+
   it("saves the picked language", async () => {
     renderGeneral();
     await userEvent.click(await screen.findByText("English"));
