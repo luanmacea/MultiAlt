@@ -92,6 +92,7 @@ export type AppPage =
   | "session"
   | "afk"
   | "avatars"
+  | "groups"
   | "scripts"
   | "theme"
   | "nexus"
