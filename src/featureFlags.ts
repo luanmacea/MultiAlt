@@ -40,3 +40,13 @@ export const ENABLE_ACCOUNT_GENERATOR = parseBooleanEnv(
   import.meta.env.VITE_ENABLE_ACCOUNT_GENERATOR,
   false
 );
+
+/**
+ * Botão "Help" no rodapé da barra lateral (refaz o tutorial). Escondido desde
+ * 08/10/2026 a pedido do dono — pode voltar como FAQ. O código continua
+ * inteiro; o tutorial segue em Settings › General › "Open Walkthrough".
+ *
+ * Para religar: compile com `VITE_ENABLE_HELP_BUTTON=true` ou troque o padrão
+ * abaixo para `true`. Ver docs/features/ui-layout.md.
+ */
+export const ENABLE_HELP_BUTTON = parseBooleanEnv(import.meta.env.VITE_ENABLE_HELP_BUTTON, false);

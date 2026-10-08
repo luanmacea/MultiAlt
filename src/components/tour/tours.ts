@@ -293,7 +293,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "search",
         title: "Find a group",
-        description: "Type a group name, or paste its link or ID, and click Search.",
+        description: "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.",
         targets: [tour("groups-search")],
       },
       {
@@ -305,13 +305,13 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "accounts",
         title: "Pick the accounts",
-        description: "Tick the accounts that should join. The ones selected in your list come ticked.",
+        description: "Tick the accounts that should join (click anywhere on an account). The ones selected in your list come ticked.",
         targets: [tour("groups-accounts")],
       },
       {
         id: "join",
         title: "Join",
-        description: "Click Join group. Accounts join one at a time. If Roblox asks for a captcha, use Solve in browser on that account.",
+        description: "Click Join group. Accounts join one at a time. If Roblox asks an account to confirm something, use Open in browser on it, accept what Roblox shows, then Try again.",
         targets: [tour("groups-join"), tour("groups-accounts")],
       },
     ],
