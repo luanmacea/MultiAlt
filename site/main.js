@@ -121,6 +121,15 @@
     return r.prerelease ? v + " " + t("dyn.beta") : v;
   }
 
+  // O botão principal passa por /get/<origem>/ (download-source.js), que o
+  // Cloudflare Web Analytics conta e que leva ao MultiAlt-Setup.msi da última
+  // release. Sem o download-source.js carregado, fica o link direto.
+  function setTrackedDownload(msi) {
+    var ds = window.MultiAltDownloadSource;
+    var href = ds ? "/get/" + ds.current() + "/" : (msi ? msi.browser_download_url : RELEASES_PAGE);
+    document.querySelectorAll(".js-dl-msi").forEach(function (a) { a.href = href; });
+  }
+
   function renderRelease() {
     var full = document.getElementById("full-toggle").checked;
     if (!release) {
@@ -130,9 +139,7 @@
     var std = pickAssets(release, false);
     var picked = pickAssets(release, full);
 
-    document.querySelectorAll(".js-dl-msi").forEach(function (a) {
-      a.href = std.msi ? std.msi.browser_download_url : RELEASES_PAGE;
-    });
+    setTrackedDownload(std.msi);
     document.querySelectorAll(".js-dl-meta").forEach(function (el) {
       el.textContent = std.msi
         ? t("dyn.meta", { version: versionLabel(release), size: fmtSize(std.msi.size) })
@@ -346,6 +353,7 @@
   });
 
   applyLang(initialLang());
+  setTrackedDownload(null);
   loadRelease();
   runHero();
 })();
