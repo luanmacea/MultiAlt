@@ -156,6 +156,7 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "auth_http_tests",
       "auth_extra_tests",
+      "auth_challenge_tests",
       "csrf_retry_tests",
       "user_api_tests",
       "user_http_tests",

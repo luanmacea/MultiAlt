@@ -74,6 +74,7 @@ Comandos: `unlock_accounts(password, rememberHours)`, `try_remembered_unlock()` 
 1. Obtém CSRF.
 2. `POST .../authentication-ticket/` com `x-csrf-token`, `Referer`, `RBXAuthenticationNegotiation: 1` e corpo vazio.
 3. Retorna o header `rbx-authentication-ticket`; ausência → erro com status e corpo.
+   - **Exceção — o Roblox pediu verificação.** Se a resposta traz `rblx-challenge-id` ou `rblx-challenge-type` (403 de "Challenge is required"), o erro vira uma frase que diz o que fazer: "Roblox wants to verify this account (2-step verification). Open it in the browser (account panel › Tools › Browser), finish the check there, then try again." O tipo (`twostepverification`, `captcha`, `reauthentication`; outro qualquer vira "a security check") só muda o trecho entre parênteses. **O app nunca tenta resolver o desafio.** O texto evita as palavras de `is_auth_session_error` (senão o launch dispararia o refresh que desloga a conta) e de `is_moderated_error` (senão a conta iria para `moderadas`) — travado por `auth_challenge_tests`.
 4. O ticket é usado para montar o launch do cliente (ver [launch.md](launch.md)) e nos links `roblox-player://` do menu de contexto (modo desenvolvedor).
 
 ### Retry de sessão — `run_with_session_retry`
