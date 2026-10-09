@@ -17,6 +17,12 @@ Página pública do app (recursos, download, segurança, dúvidas). HTML, CSS e 
 
 Os botões não têm versão escrita: o `main.js` lê `api.github.com/repos/luanmacea/MultiAlt/releases` e aponta para o `.msi` (sem `_full-nexus-ws`) da release mais recente. É a lista, e não `/releases/latest`, porque a série 0.x sai como pre-release e o `latest` do GitHub ignora pre-release. Se a API falhar (limite de 60 pedidos por hora por IP), os botões continuam levando à página de releases. **Renomear os arquivos da release quebra a escolha** — as regras estão em `pickAssets`.
 
+## De onde vem cada download
+
+O botão principal (`.js-dl-msi`) não vai direto ao GitHub: leva a `/get/<origem>/`, uma página de passagem que o Cloudflare Web Analytics conta por caminho e que, em 0,7 s, manda para `releases/latest/download/MultiAlt-Setup.msi` (com meta refresh para quem está sem JavaScript). A origem sai do `download-source.js`: o `?ref=` da página de entrada, senão o site de onde a pessoa veio (`youtube`, `google`, `bing`, `search` para outros buscadores, `github`, `devto`, `alternativeto`, `direct`, `other`), guardada na primeira página da visita. O botão do README usa `/get/readme/`. Origem nova: entrada no `download-source.js` e uma pasta em `get/` com o mesmo `index.html` das outras (a suíte `site` confere). O relatório fica no painel do Cloudflare, em Web Analytics, no caminho de cada página `/get/`. Os botões da tabela "All download options" continuam indo direto ao arquivo.
+
+**Não abra uma página `/get/` para testar:** ela baixa o instalador de verdade e soma um download no contador do GitHub.
+
 ## Rodar local
 
 ```bash
