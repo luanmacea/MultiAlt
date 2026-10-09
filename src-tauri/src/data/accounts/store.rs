@@ -1284,6 +1284,31 @@ impl AccountStore {
         }
     }
 
+    /// Troca o cookie da conta por `new_token` **só se** ela ainda estiver com
+    /// `old_token` — tudo sob o mesmo lock, e gravado pelo caminho normal
+    /// (criptografado). É o que grava o cookie novo que o Roblox devolveu numa
+    /// resposta (`api::cookie_rotation`): se a conta já ganhou outro cookie
+    /// nesse meio-tempo (novo login, refresh), o da resposta velha não passa
+    /// por cima. Marca `valid = true`: o Roblox acabou de entregar sessão nova.
+    pub fn replace_token_if(
+        &self,
+        user_id: i64,
+        old_token: &str,
+        new_token: &str,
+    ) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts
+            .iter_mut()
+            .find(|a| a.user_id == user_id && a.security_token == old_token)
+        else {
+            return Ok(false);
+        };
+        account.security_token = new_token.to_string();
+        account.valid = true;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
     /// botting e web server): sem isso `last_use` só era escrito ao criar ou
     /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do
@@ -4144,5 +4169,63 @@ mod vault_migration_tests {
             .expect_err("não pode importar vault de outra instalação");
         assert_eq!(err, IMPORT_PASSWORD_REQUIRED);
         assert!(target.get_all().unwrap().is_empty());
+    }
+}
+
+/// `replace_token_if`: o cookie novo que o Roblox devolve só entra se a conta
+/// ainda tiver o cookie que foi enviado (ver `api::cookie_rotation`).
+#[cfg(test)]
+mod account_token_swap_tests {
+    use super::*;
+
+    fn temp_store(tag: &str) -> AccountStore {
+        crypto::init();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        AccountStore::new(std::env::temp_dir().join(format!("ram-token-swap-{tag}-{nanos}.json")))
+    }
+
+    fn token_of(store: &AccountStore, user_id: i64) -> String {
+        store
+            .get_all()
+            .unwrap()
+            .into_iter()
+            .find(|a| a.user_id == user_id)
+            .unwrap()
+            .security_token
+    }
+
+    #[test]
+    fn the_token_is_replaced_when_the_old_one_matches() {
+        let store = temp_store("match");
+        let mut account = Account::new("OLD".into(), "one".into(), 1);
+        account.valid = false;
+        store.add(account).unwrap();
+
+        assert!(store.replace_token_if(1, "OLD", "NEW").unwrap());
+        let saved = store.get_all().unwrap().remove(0);
+        assert_eq!(saved.security_token, "NEW");
+        assert!(saved.valid, "a fresh cookie from Roblox means a live session");
+    }
+
+    /// A conta ganhou outro cookie entre o pedido e a resposta (novo login):
+    /// o da resposta velha não pode passar por cima.
+    #[test]
+    fn a_newer_token_is_not_overwritten() {
+        let store = temp_store("newer");
+        store.add(Account::new("NEWER".into(), "one".into(), 1)).unwrap();
+
+        assert!(!store.replace_token_if(1, "OLD", "ROTATED").unwrap());
+        assert_eq!(token_of(&store, 1), "NEWER");
+    }
+
+    #[test]
+    fn an_unknown_account_is_left_alone() {
+        let store = temp_store("unknown");
+        store.add(Account::new("OLD".into(), "one".into(), 1)).unwrap();
+        assert!(!store.replace_token_if(2, "OLD", "NEW").unwrap());
+        assert_eq!(token_of(&store, 1), "OLD");
     }
 }

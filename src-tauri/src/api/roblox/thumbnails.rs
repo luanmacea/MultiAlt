@@ -107,7 +107,7 @@ pub async fn get_asset_thumbnails(
         request = request.header(COOKIE, cookie_header(token));
     }
 
-    let response = request.send().await.map_err(|e| http_client::describe_error(&e))?;
+    let response = request.send_noting().await.map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get asset thumbnails (status {})", response.status().as_u16()));

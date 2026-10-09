@@ -1,3 +1,7 @@
+// `send_noting` no lugar de `send`: o `.ROBLOSECURITY` novo que o Roblox
+// devolver em qualquer resposta fica registrado para a conta (ver
+// `api::cookie_rotation`).
+use crate::api::cookie_rotation::SendNoting;
 use crate::api::endpoints;
 use crate::api::http_client;
 use reqwest::header::{COOKIE, REFERER};
@@ -53,7 +57,7 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
     let response = client
         .get(format!("{}/my/account/json", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -86,7 +90,7 @@ pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, referer_url())
         .header("RBXAuthenticationNegotiation", "1")
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -131,7 +135,7 @@ pub async fn send_with_csrf_retry(
     let retry = builder.try_clone();
     let response = builder
         .header("X-CSRF-TOKEN", csrf)
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -149,7 +153,7 @@ pub async fn send_with_csrf_retry(
     match (fresh, retry) {
         (Some(fresh), Some(retry)) => retry
             .header("X-CSRF-TOKEN", fresh)
-            .send()
+            .send_noting()
             .await
             .map_err(|e| http_client::describe_error(&e)),
         // No token to retry with (or a streaming body): keep the original 403
@@ -171,7 +175,7 @@ pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
         .header("RBXAuthenticationNegotiation", "1")
         .header("Content-Type", "application/json")
         .body("")
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -251,7 +255,7 @@ pub async fn check_pin(security_token: &str) -> Result<bool, String> {
         .get(format!("{}/v1/account/pin/", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
