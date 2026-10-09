@@ -7,7 +7,7 @@ import { copyAccountSecret } from "../../utils/copySecret";
 import { collectGroupNames, parseGroupName } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
-import { ChevronDown, Gamepad2, Settings2, Users } from "lucide-react";
+import { ChevronDown, Gamepad2, Settings2, ShieldCheck, Users } from "lucide-react";
 
 /**
  * Faixa aceita para o delay entre pedidos de amizade, em segundos. É a mesma
@@ -35,6 +35,7 @@ export function BottomActionBar() {
   const count = store.selectedIds.size;
   const isSingle = count === 1;
   const accounts = store.selectedAccounts;
+  const checkProgress = store.accountCheckProgress;
 
   const bottingActive = store.bottingStatus?.active === true;
   const bottingEnabled = store.settings?.General?.BottingEnabled === "true";
@@ -140,6 +141,11 @@ export function BottomActionBar() {
     }
     setRefreshing(false);
     store.addToast(tr("Refreshed: {{ok}} ok, {{fail}} failed", { ok, fail }));
+  }
+
+  async function handleCheckAccounts() {
+    setActionsOpen(false);
+    await store.checkAccounts(accounts.map((a) => a.UserID));
   }
 
   async function handleCopyCookies() {
@@ -352,7 +358,13 @@ export function BottomActionBar() {
           onClick={() => { setActionsOpen((v) => !v); setGroupMenuOpen(false); }}
           className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg border theme-border theme-btn-ghost"
         >
-          {friendBusy ? friendPhaseLabel : refreshing ? t("Refreshing...") : t("Actions")}
+          {friendBusy
+            ? friendPhaseLabel
+            : refreshing
+              ? t("Refreshing...")
+              : checkProgress
+                ? t("Checking {{done}}/{{total}}...", checkProgress)
+                : t("Actions")}
           <ChevronDown size={11} strokeWidth={2} className={`transition-transform ${actionsOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -368,6 +380,24 @@ export function BottomActionBar() {
               className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-center gap-2"
             >
               🔄 {refreshing ? t("Refreshing...") : t("Refresh Cookies ({{count}})", { count })}
+            </button>
+
+            {/* Ideia 9. Fica ao lado do Refresh Cookies, mas é o oposto dele:
+                só lê, e não desloga ninguém — a segunda linha diz isso. */}
+            <button
+              onClick={handleCheckAccounts}
+              disabled={!!checkProgress}
+              className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-start gap-2"
+            >
+              <ShieldCheck size={13} strokeWidth={1.5} className="mt-0.5 shrink-0" />
+              <span className="min-w-0">
+                {checkProgress
+                  ? t("Checking {{done}}/{{total}}...", checkProgress)
+                  : t("Check Accounts ({{count}})", { count })}
+                <span className="block text-[11px] theme-muted leading-snug">
+                  {t("Session and ban status. Read-only: it doesn't sign anything out.")}
+                </span>
+              </span>
             </button>
 
             <button

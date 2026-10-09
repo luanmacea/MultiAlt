@@ -1309,6 +1309,22 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// Grava o `valid` da conta (o ponto vermelho de sessão inválida). Só
+    /// regrava o arquivo quando o valor muda — conferir 50 contas boas não pode
+    /// virar 50 gravações. Devolve `true` quando mudou.
+    pub fn set_valid(&self, user_id: i64, valid: bool) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        if account.valid == valid {
+            return Ok(false);
+        }
+        account.valid = valid;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
     /// botting e web server): sem isso `last_use` só era escrito ao criar ou
     /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do
