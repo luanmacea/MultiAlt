@@ -29,6 +29,7 @@ de subir a próxima:
 |---|---|---|---|---|
 | 1.1.0 | telas pequenas, feedback, tamanho da interface | — | 08/10/2026 | |
 | próxima | ícones na legenda de status (já na develop) + Quedas ou Conta | | — | não antes de 10/10/2026 |
+| — | **Quedas** (1, 19, 4) | branch `feature/quedas`, 09/10/2026 | — | MSI limpo; `.exe` oscila no Trapmine (só a ideia 1: 1/75; 1+19: 0/75; 1+19+4: 1/71) — mesma nota de ML no limite, sem função culpada; falta teste do dono com cliente real |
 | — | **Conta** (8, 10, 26, 7, 9) | branch `feature/conta`, 09/10/2026 | — | `.exe` e MSI da edição padrão limpos no Defender e VirusTotal (09/10/2026); falta teste do dono com conta real |
 
 ## Pacotes
