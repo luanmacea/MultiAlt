@@ -101,18 +101,24 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   botting: {
-    description: "Modo botting e watcher de processos",
+    description: "Modo botting, watcher de processos e quedas lidas do log do cliente",
     rust: [
       "botting_command_tests",
       "botting_console_tests",
       "auto_rejoin_naming_tests",
       "watcher_tests",
       "watcher_console_tests",
+      // Quedas lidas do log do cliente (commands/client_health.rs).
+      "client_log_classifier_tests",
+      "client_log_session_tests",
+      "client_health_monitor_tests",
     ],
     // A aba Auto Rejoin do Modo AFK e a moldura (abas, modal) que a abre.
     front: [
       "src/components/afk-mode/RejoinTab.test.tsx",
       "src/components/afk-mode/AfkModeView.test.tsx",
+      "src/utils/clientHealth.test.ts",
+      "src/components/session/SessionPanel.test.tsx",
     ],
   },
   afk: {

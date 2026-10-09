@@ -48,6 +48,7 @@ include!("commands/backups.rs");
 include!("commands/avatars.rs");
 include!("commands/groups.rs");
 include!("commands/external_clients.rs");
+include!("commands/client_health.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -286,6 +287,10 @@ pub fn run() {
             // "Em jogo" pelo log do Roblox — ver commands/external_clients.rs.
             #[cfg(target_os = "windows")]
             start_external_client_scanner(app.handle().clone());
+            // Quedas com motivo, lidas do log de cada cliente rastreado — ver
+            // commands/client_health.rs.
+            #[cfg(target_os = "windows")]
+            start_client_health_monitor(app.handle().clone());
 
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;

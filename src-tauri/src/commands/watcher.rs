@@ -80,6 +80,18 @@ fn windows_title_indicates_disconnect(title_lower: &str) -> bool {
         || title_lower.contains("no connection")
 }
 
+/// A conta está sem conexão? O log do cliente manda quando foi achado (diz o
+/// motivo e não confunde teleporte com queda); o título da janela fica só de
+/// reserva para o cliente cujo log não apareceu. `None`: não dá para saber
+/// (sem log e sem título) — o contador não mexe.
+fn client_connection_lost(health: Option<&ClientHealthView>, title_lower: &str) -> Option<bool> {
+    match health {
+        Some(view) if view.log_found => Some(view.drop.is_some()),
+        _ if !title_lower.is_empty() => Some(windows_title_indicates_disconnect(title_lower)),
+        _ => None,
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn windows_title_indicates_beta(title: &str) -> bool {
     title.to_lowercase().contains("roblox beta")
@@ -231,8 +243,9 @@ async fn start_watcher(
 
                     if cfg.exit_if_no_connection {
                         let lower_title = title.to_lowercase();
-                        if !lower_title.is_empty() {
-                            if windows_title_indicates_disconnect(&lower_title) {
+                        let health = client_health_of(inst.user_id, inst.pid);
+                        if let Some(lost) = client_connection_lost(health.as_ref(), &lower_title) {
+                            if lost {
                                 let since = disconnected_since
                                     .entry(inst.user_id)
                                     .or_insert_with(std::time::Instant::now);
@@ -373,19 +386,6 @@ async fn start_watcher(
                 && line_lower.contains("returning from game")
         }
 
-        fn macos_line_indicates_disconnect(line_lower: &str) -> bool {
-            line_lower.contains("sending disconnect with reason")
-                || line_lower.contains("disconnected")
-                || line_lower.contains("connection error")
-                || line_lower.contains("lost connection")
-                || line_lower.contains("no connection")
-                || line_lower.contains("error code: 277")
-        }
-
-        fn macos_line_indicates_reconnect(line_lower: &str) -> bool {
-            line_lower.contains("joining game")
-        }
-
         use platform::macos;
 
         let tracker = macos::tracker();
@@ -472,13 +472,20 @@ async fn start_watcher(
                                     beta_detected = true;
                                 }
                                 if cfg.exit_if_no_connection {
-                                    if macos_line_indicates_reconnect(&lower) {
-                                        disconnected_since.remove(&inst.user_id);
-                                    }
-                                    if macos_line_indicates_disconnect(&lower) {
-                                        disconnected_since
-                                            .entry(inst.user_id)
-                                            .or_insert_with(std::time::Instant::now);
+                                    // Mesmo classificador do Windows (client_health.rs):
+                                    // o 285 de toda saída e de todo teleporte não é queda.
+                                    match classify_log_line(line) {
+                                        Some(ClientLogEvent::JoinedGame { .. }) => {
+                                            disconnected_since.remove(&inst.user_id);
+                                        }
+                                        Some(ClientLogEvent::Disconnected { .. })
+                                        | Some(ClientLogEvent::Kicked { .. })
+                                        | Some(ClientLogEvent::ServerShutdown { .. }) => {
+                                            disconnected_since
+                                                .entry(inst.user_id)
+                                                .or_insert_with(std::time::Instant::now);
+                                        }
+                                        _ => {}
                                     }
                                 }
                             }
@@ -712,6 +719,38 @@ mod watcher_tests {
         assert!(!windows_title_indicates_disconnect("roblox"));
         assert!(!windows_title_indicates_disconnect(""));
         assert!(!windows_title_indicates_disconnect("jailbreak"));
+    }
+
+    fn health(log_found: bool, dropped: bool) -> ClientHealthView {
+        ClientHealthView {
+            pid: 1,
+            log_found,
+            drop: dropped.then(|| ClientDrop {
+                kind: DropKind::Disconnected,
+                reason: Some(DropReason::ConnectionLost),
+                code: Some(277),
+                message: None,
+                since_ms: 0,
+            }),
+        }
+    }
+
+    #[test]
+    fn the_log_decides_the_connection_when_it_was_found() {
+        // Título normal, log com queda: caiu.
+        assert_eq!(client_connection_lost(Some(&health(true, true)), "roblox"), Some(true));
+        // Título com "disconnected" no nome da conta, log sem queda: não caiu.
+        assert_eq!(
+            client_connection_lost(Some(&health(true, false)), "roblox - no connection bob"),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn without_a_log_the_title_is_the_fallback() {
+        assert_eq!(client_connection_lost(None, "roblox - disconnected"), Some(true));
+        assert_eq!(client_connection_lost(Some(&health(false, false)), "roblox"), Some(false));
+        assert_eq!(client_connection_lost(None, ""), None);
     }
 
     #[cfg(target_os = "windows")]

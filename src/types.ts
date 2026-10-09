@@ -389,6 +389,31 @@ export interface UnidentifiedClient {
   startedAtMs: number | null;
 }
 
+/**
+ * Queda de um cliente, lida do log do Roblox pelo backend
+ * (`commands/client_health.rs`). `crashed`: o processo terminou dentro de um
+ * jogo sem a conta sair e sem o app fechá-lo.
+ */
+export type ClientDropKind = "disconnected" | "kicked" | "serverShutdown" | "crashed";
+export type ClientDropReason = "connectionLost" | "joinedElsewhere" | "idle" | "other";
+
+export interface ClientDrop {
+  kind: ClientDropKind;
+  reason: ClientDropReason | null;
+  code: number | null;
+  /** Mensagem do kick, quando o jogo mandou uma. */
+  message: string | null;
+  sinceMs: number;
+}
+
+/** Saúde de um cliente rastreado (vem junto de `get_running_instances`). */
+export interface ClientHealth {
+  pid: number;
+  /** O log foi achado: a queda vem dele, e não do título da janela. */
+  logFound: boolean;
+  drop: ClientDrop | null;
+}
+
 export interface LaunchQueuePayload {
   entries: LaunchQueueEntry[];
   /** `true` enquanto a fila está processando contas. */

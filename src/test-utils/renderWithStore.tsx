@@ -218,6 +218,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     launchedByProgram: new Set<number>(),
     adoptedClients: new Set<number>(),
     unidentifiedClients: [],
+    clientHealth: new Map(),
     identifyExternalClient: vi.fn(async () => true),
     focusClientWindow: vi.fn(async () => true),
 

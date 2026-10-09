@@ -2070,5 +2070,15 @@
   "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.": "Escribe el nombre de un grupo, o pega su enlace o ID. La búsqueda se hace sola mientras escribes. Con el campo vacío, ves grupos populares.",
   "Type at least 2 characters to search.": "Escribe al menos 2 caracteres para buscar.",
   "type: {{type}}": "tipo: {{type}}",
-  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Entrada al grupo terminada: {{joined}} entraron, {{pending}} pendientes, {{confirm}} necesitan confirmación"
+  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Entrada al grupo terminada: {{joined}} entraron, {{pending}} pendientes, {{confirm}} necesitan confirmación",
+  "{{name}} in Roblox: {{status}}": "{{name}} en Roblox: {{status}}",
+  "Closed without leaving the game": "Se cerró sin salir del juego",
+  "Disconnected: idle for too long": "Se cayó: estuvo inactiva demasiado tiempo",
+  "Disconnected: lost connection": "Se cayó: perdió la conexión",
+  "Disconnected: the account joined somewhere else": "Se cayó: la cuenta entró en otro lugar",
+  "Kicked from the game": "Fue expulsada del juego",
+  "Kicked: {{message}}": "Fue expulsada: {{message}}",
+  "Roblox error code {{code}}": "Código de error de Roblox: {{code}}",
+  "The server shut down": "El servidor se cerró",
+  "Disconnected from the game": "Se cayó del juego"
 }

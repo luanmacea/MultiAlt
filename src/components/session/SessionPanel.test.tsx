@@ -13,6 +13,8 @@ import { makeAccount, makeBottingStatus, renderWithStore, setStore } from "../..
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type {
+  ClientDrop,
+  ClientHealth,
   FriendLinkState,
   LaunchQueueEntry,
   LaunchQueuePayload,
@@ -682,5 +684,53 @@ describe("SessionPanel — clientes abertos fora do app", () => {
     const picker = screen.getByRole("combobox", { name: "Account for this client" });
     expect(within(picker).queryByRole("option", { name: "Bravo Alt" })).not.toBeInTheDocument();
     expect(within(picker).getByRole("option", { name: "Br********" })).toBeInTheDocument();
+  });
+});
+
+describe("SessionPanel — quedas lidas do log", () => {
+  function health(drop: Partial<ClientDrop> | null): ClientHealth {
+    return {
+      pid: 4242,
+      logFound: true,
+      drop: drop
+        ? { kind: "disconnected", reason: null, code: null, message: null, sinceMs: 1_700_000_000_000, ...drop }
+        : null,
+    };
+  }
+
+  it("shows why each account dropped, next to its name", () => {
+    renderPanel({
+      launchedByProgram: new Set([1, 2, 3]),
+      clientHealth: new Map([
+        [1, health({ kind: "disconnected", reason: "connectionLost", code: 277 })],
+        [2, health({ kind: "kicked", code: 267, message: "Server restarting" })],
+        [3, health({ kind: "serverShutdown", code: 274 })],
+      ]),
+    });
+    const lost = within(screen.getByTestId("session-running-1")).getByTestId("client-health-note");
+    expect(lost).toHaveTextContent("Disconnected: lost connection");
+    // O código fica no tooltip, para quem quiser procurar.
+    expect(lost).toHaveAttribute("title", expect.stringContaining("277"));
+    expect(within(screen.getByTestId("session-running-2")).getByText("Kicked: Server restarting")).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-running-3")).getByText("The server shut down")).toBeInTheDocument();
+  });
+
+  it("says nothing for an account that is fine", () => {
+    renderPanel({
+      launchedByProgram: new Set([1, 2]),
+      clientHealth: new Map([[1, health(null)]]),
+    });
+    expect(screen.queryByTestId("client-health-note")).not.toBeInTheDocument();
+  });
+
+  it("a website client also shows its drop (display only, it keeps the same buttons)", () => {
+    renderPanel({
+      launchedByProgram: new Set([3]),
+      adoptedClients: new Set([3]),
+      clientHealth: new Map([[3, health({ kind: "disconnected", reason: "joinedElsewhere", code: 273 })]]),
+    });
+    const row = screen.getByTestId("session-running-3");
+    expect(within(row).getByText("Disconnected: the account joined somewhere else")).toBeInTheDocument();
+    expect(within(row).getByText("Opened outside the app")).toBeInTheDocument();
   });
 });

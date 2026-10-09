@@ -2070,5 +2070,15 @@
   "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.": "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.",
   "Type at least 2 characters to search.": "Type at least 2 characters to search.",
   "type: {{type}}": "type: {{type}}",
-  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation"
+  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation",
+  "{{name}} in Roblox: {{status}}": "{{name}} in Roblox: {{status}}",
+  "Closed without leaving the game": "Closed without leaving the game",
+  "Disconnected: idle for too long": "Disconnected: idle for too long",
+  "Disconnected: lost connection": "Disconnected: lost connection",
+  "Disconnected: the account joined somewhere else": "Disconnected: the account joined somewhere else",
+  "Kicked from the game": "Kicked from the game",
+  "Kicked: {{message}}": "Kicked: {{message}}",
+  "Roblox error code {{code}}": "Roblox error code {{code}}",
+  "The server shut down": "The server shut down",
+  "Disconnected from the game": "Disconnected from the game"
 }

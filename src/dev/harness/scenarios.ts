@@ -1754,6 +1754,61 @@ const SCENARIOS: Record<string, () => void> = {
   },
 
   /**
+   * Quedas lidas do log do Roblox (Painel de Sessão → Em jogo, e o painel da
+   * conta). Todas as contas começam em jogo; as quedas chegam aos poucos, como
+   * o monitor do backend (`commands/client_health.rs`) as manda: o evento
+   * `roblox-client-health` e o mesmo dado no polling de `get_running_instances`.
+   * A 4ª conta foi aberta pelo site (adotada). Depois de um tempo a 1ª volta a
+   * um jogo e o aviso some. O cenário só entrega dados.
+   */
+  "client-drops"() {
+    type Drop = {
+      kind: string;
+      reason: string | null;
+      code: number | null;
+      message: string | null;
+      sinceMs: number;
+    };
+    const rows = accounts.slice(0, Math.min(accountCount, 5)).map((a, i) => ({
+      userId: a.UserID,
+      pid: 8200 + i,
+      adopted: i === 3,
+      drop: null as Drop | null,
+    }));
+    const drops: [number, Omit<Drop, "sinceMs">][] = [
+      [0, { kind: "disconnected", reason: "connectionLost", code: 277, message: null }],
+      [1, { kind: "kicked", reason: null, code: 267, message: "You have been kicked for being AFK too long" }],
+      [2, { kind: "serverShutdown", reason: null, code: 274, message: null }],
+      [3, { kind: "disconnected", reason: "joinedElsewhere", code: 273, message: null }],
+    ];
+    drops.forEach(([index, drop], order) => {
+      const row = rows[index];
+      if (!row) return;
+      setTimeout(() => {
+        row.drop = { ...drop, sinceMs: Date.now() };
+        harnessEmit("roblox-client-health", { userId: row.userId, drop: row.drop, adopted: row.adopted });
+      }, 1200 * (order + 1));
+    });
+    setTimeout(() => {
+      if (!rows[0]) return;
+      rows[0].drop = null;
+      harnessEmit("roblox-client-health", { userId: rows[0].userId, drop: null });
+    }, 15_000);
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_running_instances") {
+        return rows.map((row) => ({
+          pid: row.pid,
+          user_id: row.userId,
+          browser_tracker_id: `${row.userId}0001`,
+          adopted: row.adopted,
+          health: { pid: row.pid, logFound: true, drop: row.drop },
+        }));
+      }
+      return baseHandler(cmd, args);
+    });
+  },
+
+  /**
    * AFK mode desligado, como num INI novo: sem tecla escolhida (`Afk.Key` nasce
    * vazia e nem chega ao INI), intervalo 10, bipe desligado. As quatro primeiras
    * contas têm cliente aberto por este app. No ciclo automático o Windows mantém

@@ -2127,6 +2127,9 @@ struct RunningInstance {
     browser_tracker_id: String,
     /// Aberto fora do app (pelo site) e reconhecido depois — ver external_clients.rs.
     adopted: bool,
+    /// Queda lida do log do cliente — ver client_health.rs. `None` enquanto o
+    /// monitor não viu este PID.
+    health: Option<ClientHealthView>,
 }
 
 #[tauri::command]
@@ -2139,6 +2142,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
             .map(|p| RunningInstance {
                 pid: p.pid,
                 user_id: p.user_id,
+                health: client_health_of(p.user_id, p.pid),
                 browser_tracker_id: p.browser_tracker_id,
                 adopted: p.adopted,
             })
@@ -2154,6 +2158,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 user_id: p.user_id,
                 browser_tracker_id: p.browser_tracker_id,
                 adopted: false,
+                health: None,
             })
             .collect());
     }
@@ -3437,6 +3442,17 @@ mod launch_command_tests {
             user_id: 7,
             browser_tracker_id: "12345".to_string(),
             adopted: true,
+            health: Some(ClientHealthView {
+                pid: 42,
+                log_found: true,
+                drop: Some(ClientDrop {
+                    kind: DropKind::Kicked,
+                    reason: None,
+                    code: Some(267),
+                    message: Some("bye".into()),
+                    since_ms: 5,
+                }),
+            }),
         })
         .unwrap();
         assert_eq!(json["pid"], 42);
@@ -3444,5 +3460,10 @@ mod launch_command_tests {
         assert_eq!(json["browser_tracker_id"], "12345");
         // Cliente aberto pelo site e reconhecido pelo log (ver external_clients.rs).
         assert_eq!(json["adopted"], true);
+        // A queda (client_health.rs) chega em camelCase, como a UI lê.
+        assert_eq!(json["health"]["logFound"], true);
+        assert_eq!(json["health"]["drop"]["kind"], "kicked");
+        assert_eq!(json["health"]["drop"]["message"], "bye");
+        assert_eq!(json["health"]["drop"]["sinceMs"], 5);
     }
 }
