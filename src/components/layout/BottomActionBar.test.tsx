@@ -242,6 +242,21 @@ describe("BottomActionBar — actions", () => {
     expect(confirmWithOptOutMock).not.toHaveBeenCalled();
   });
 
+  /** Ideia 9: conferir sessão e moderação da seleção, só leitura. */
+  it("checks the selected accounts and says it is read-only", async () => {
+    const store = renderBar();
+    await openActions();
+    const button = screen.getByRole("button", { name: /Check Accounts \(2\)/ });
+    expect(button).toHaveTextContent(/doesn't sign anything out/);
+    await userEvent.click(button);
+    expect(store.checkAccounts).toHaveBeenCalledWith([1, 2]);
+  });
+
+  it("shows the progress of a running check on the Actions button", () => {
+    renderBar([A, B], { accountCheckProgress: { done: 3, total: 20 } });
+    expect(screen.getByRole("button", { name: /^Checking 3\/20/ })).toBeInTheDocument();
+  });
+
   it("lists the existing groups and moves the selection into one", async () => {
     const store = renderBar();
     await openActions();

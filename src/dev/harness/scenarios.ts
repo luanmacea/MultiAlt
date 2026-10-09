@@ -1287,6 +1287,7 @@ const SCENARIOS: Record<string, () => void> = {
    * ao abrir (ideia 10, conta 6). Ver `harnessModeration`.
    */
   moderation() {
+    const deadAfterCheck = new Set<number>();
     setInvokeHandler((cmd, args) => {
       if (cmd === "check_account_moderation") {
         const userId = Number(args?.userId);
@@ -1294,6 +1295,42 @@ const SCENARIOS: Record<string, () => void> = {
         if (result.error) throw result.error;
         harnessEmit("account-moderation", { userId, status: result.status });
         return result.status;
+      }
+      if (cmd === "check_accounts") {
+        // O que o backend devolveria (`commands/account_check.rs`), aos poucos:
+        // progresso a cada conta, moderação de quem respondeu e o resumo. A
+        // conta 6 tem o cookie morto (401), a 5 pegou o limite do Roblox.
+        const ids = ((args?.userIds as number[] | undefined) ?? []).map(Number);
+        return new Promise((resolve) => {
+          const summary = { total: 0, ok: 0, warned: 0, invalid: 0, banned: 0, unknown: 0, results: [] as unknown[] };
+          harnessEmit("account-check-progress", { done: 0, total: ids.length });
+          ids.forEach((userId, index) => {
+            setTimeout(() => {
+              const result = harnessModeration(userId);
+              let outcome: "ok" | "warned" | "invalid" | "banned" | "unknown";
+              if (userId === 1006) {
+                outcome = "invalid";
+                deadAfterCheck.add(userId);
+              }
+              else if (result.error) outcome = "unknown";
+              else {
+                harnessEmit("account-moderation", { userId, status: result.status });
+                const state = result.status?.state;
+                outcome = state === "banned" || state === "terminated" ? "banned" : state === "warned" ? "warned" : "ok";
+              }
+              summary.total += 1;
+              summary[outcome] += 1;
+              summary.results.push({ userId, outcome });
+              harnessEmit("account-check-progress", { done: summary.total, total: ids.length });
+              if (summary.total === ids.length) resolve(summary);
+            }, 500 * (index + 1));
+          });
+          if (ids.length === 0) resolve(summary);
+        });
+      }
+      if (cmd === "get_accounts") {
+        // O backend grava `Valid = false` em quem respondeu 401 no check.
+        return accounts.map((a) => (deadAfterCheck.has(a.UserID) ? { ...a, Valid: false } : a));
       }
       if (cmd === "launch_roblox") {
         const userId = Number(args?.userId);

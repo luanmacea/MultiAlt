@@ -217,6 +217,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     presenceByUserId: new Map<number, number>(),
     moderationByUserId: new Map<number, ModerationStatus>(),
     checkModeration: vi.fn(async () => null),
+    checkAccounts: vi.fn(async () => null),
+    accountCheckProgress: null,
     launchedByProgram: new Set<number>(),
     adoptedClients: new Set<number>(),
     unidentifiedClients: [],

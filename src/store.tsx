@@ -123,6 +123,7 @@ import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import { accountLabel, maskAccountName } from "./utils/accountName";
+import { accountCheckSummaryText, type AccountCheckSummary } from "./utils/accountCheck";
 import {
   type UpdaterReleaseChannel,
   type UpdaterFeatureChannel,
@@ -465,6 +466,13 @@ export interface StoreValue {
   moderationByUserId: Map<number, ModerationStatus>;
   /** Consulta a moderação de uma conta agora (sem refresh de sessão). */
   checkModeration: (userId: number) => Promise<ModerationStatus | null>;
+  /**
+   * "Check accounts": sessão e moderação de cada conta, só leitura e com ritmo
+   * limitado (`check_accounts`). Termina com o toast de resumo.
+   */
+  checkAccounts: (userIds: number[]) => Promise<AccountCheckSummary | null>;
+  /** Progresso do "Check accounts" em andamento; `null` quando parado. */
+  accountCheckProgress: { done: number; total: number } | null;
   launchedByProgram: Set<number>;
   /** Contas de `launchedByProgram` cujo cliente foi aberto fora do app (pelo site). */
   adoptedClients: Set<number>;
@@ -789,6 +797,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [avatarUrls, setAvatarUrls] = useState<Map<number, string>>(new Map());
   const [presenceByUserId, setPresenceByUserId] = useState<Map<number, number>>(new Map());
   const [moderationByUserId, setModerationByUserId] = useState<Map<number, ModerationStatus>>(new Map());
+  const [accountCheckProgress, setAccountCheckProgress] = useState<{ done: number; total: number } | null>(null);
   const rememberModeration = useCallback((userId: number, status: ModerationStatus) => {
     setModerationByUserId((prev) => {
       const next = new Map(prev);
@@ -1384,6 +1393,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       addToast(String(e), "warn");
       return null;
+    }
+  }
+
+  async function checkAccounts(userIds: number[]): Promise<AccountCheckSummary | null> {
+    if (userIds.length === 0) return null;
+    setAccountCheckProgress({ done: 0, total: userIds.length });
+    try {
+      const summary = await invoke<AccountCheckSummary>("check_accounts", { userIds });
+      // `Valid` pode ter mudado no backend (401 = inválida, 200 = válida de novo).
+      await loadAccounts().catch(() => {});
+      const tone: ToastTone = summary.invalid > 0 || summary.banned > 0 ? "warn" : "success";
+      addToast(accountCheckSummaryText(summary, tr), tone);
+      return summary;
+    } catch (e) {
+      addToast(tr("Check failed: {{error}}", { error: String(e) }), "error");
+      return null;
+    } finally {
+      setAccountCheckProgress(null);
     }
   }
 
@@ -2658,6 +2685,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
         if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
       }),
+      listen<{ done: number; total: number }>("account-check-progress", (e) => {
+        const { done, total } = e.payload ?? { done: 0, total: 0 };
+        // Só atualiza um check em andamento: um evento atrasado depois do fim
+        // não pode reacender o "Checking…".
+        setAccountCheckProgress((prev) => (prev ? { done, total } : prev));
+      }),
       listen<{ userId: number; group?: string }>("account-moderated", (e) => {
         const userId = e.payload.userId;
         // The backend already moved the account into the "moderadas" group and
@@ -3256,6 +3289,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     presenceByUserId,
     moderationByUserId,
     checkModeration,
+    checkAccounts,
+    accountCheckProgress,
     launchedByProgram,
     adoptedClients,
     unidentifiedClients,

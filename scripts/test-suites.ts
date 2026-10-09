@@ -91,6 +91,8 @@ export const SUITES: Record<string, TestSuite> = {
       "clipboard_write_only_tests",
       "moderation_http_tests",
       "moderation_command_tests",
+      "session_check_http_tests",
+      "account_check_tests",
       "remember_unlock_tests",
       "crypto_tests",
       "vault_key_tests",
@@ -110,6 +112,7 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/layout/BottomActionBar.test.tsx",
       // Moderação (ideia 8): selos e legenda.
       "src/utils/moderation.test.ts",
+      "src/utils/accountCheck.test.ts",
       "src/components/layout/StatusBar.test.tsx",
     ],
   },

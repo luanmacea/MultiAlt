@@ -2088,5 +2088,11 @@
   "No moderation": "Sin moderación",
   "Terminated": "Cancelada",
   "warned": "advertida",
-  "Warned": "Advertida"
+  "Warned": "Advertida",
+  "{{ok}} ok, {{invalid}} invalid, {{banned}} banned, {{unknown}} couldn't check": "{{ok}} bien, {{invalid}} inválidas, {{banned}} baneadas, {{unknown}} sin comprobar",
+  "{{summary}}, {{warned}} warned": "{{summary}}, {{warned}} advertidas",
+  "Check Accounts ({{count}})": "Comprobar cuentas ({{count}})",
+  "Check failed: {{error}}": "Error al comprobar: {{error}}",
+  "Checking {{done}}/{{total}}...": "Comprobando {{done}}/{{total}}...",
+  "Session and ban status. Read-only: it doesn't sign anything out.": "Sesión y baneo. Solo lectura: no cierra ninguna sesión."
 }

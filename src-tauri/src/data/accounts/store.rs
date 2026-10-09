@@ -1309,6 +1309,22 @@ impl AccountStore {
         Ok(true)
     }
 
+    /// Grava o `valid` da conta (o ponto vermelho de sessão inválida). Só
+    /// regrava o arquivo quando o valor muda — conferir 50 contas boas não pode
+    /// virar 50 gravações. Devolve `true` quando mudou.
+    pub fn set_valid(&self, user_id: i64, valid: bool) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        if account.valid == valid {
+            return Ok(false);
+        }
+        account.valid = valid;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
     /// botting e web server): sem isso `last_use` só era escrito ao criar ou
     /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do
@@ -4227,5 +4243,20 @@ mod account_token_swap_tests {
         store.add(Account::new("OLD".into(), "one".into(), 1)).unwrap();
         assert!(!store.replace_token_if(2, "OLD", "NEW").unwrap());
         assert_eq!(token_of(&store, 1), "OLD");
+    }
+
+    /// `set_valid` (ideia 9, "Check accounts"): só muda — e só grava — quando
+    /// o valor é outro.
+    #[test]
+    fn set_valid_only_reports_a_real_change() {
+        let store = temp_store("valid");
+        store.add(Account::new("TOKEN".into(), "one".into(), 1)).unwrap();
+
+        assert!(store.set_valid(1, false).unwrap());
+        assert!(!store.get_all().unwrap()[0].valid);
+        assert!(!store.set_valid(1, false).unwrap(), "same value is not a change");
+        assert!(store.set_valid(1, true).unwrap());
+        assert!(!store.set_valid(99, false).unwrap(), "unknown account");
+        assert_eq!(token_of(&store, 1), "TOKEN", "the cookie is never touched");
     }
 }
