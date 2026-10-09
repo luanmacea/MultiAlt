@@ -14,6 +14,22 @@ Ordem de trabalho das ideias de [ideias-de-outros-gerenciadores.md](ideias-de-ou
 - **Fácil de entender:** opção nova vem desligada ou com padrão seguro, com uma
   frase dizendo o que faz; nada de tela nova onde um interruptor resolve.
 
+## Ritmo das versões
+
+**Uma versão a cada ~2 dias**, no máximo (pedido do dono, 09/10/2026). Antes
+de subir a próxima:
+
+1. Olhar o que chegou desde a última: issues e "Enviar feedback", Discussions,
+   contagem de downloads/atualizações da versão atual.
+2. **Problema novo na versão atual vem primeiro**: vira hotfix ou entra no
+   próximo pacote, e o pacote pode encolher para não atrasar a correção.
+3. Só então: PR da `develop` para a `main` com o "What's new" do pacote.
+
+| Versão | Pacote | Pronto na develop | Publicada | Observações |
+|---|---|---|---|---|
+| 1.1.0 | telas pequenas, feedback, tamanho da interface | — | 08/10/2026 | |
+| próxima | ícones na legenda de status (já na develop) + Quedas | | — | não antes de 10/10/2026 |
+
 ## Pacotes
 
 | Versão | Tema | Ideias | Por que nessa ordem |
