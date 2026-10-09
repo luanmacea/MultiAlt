@@ -412,6 +412,8 @@ export interface ClientHealth {
   /** O log foi achado: a queda vem dele, e não do título da janela. */
   logFound: boolean;
   drop: ClientDrop | null;
+  /** A janela está "Não respondendo" há 30 s (só clientes abertos pelo app). */
+  notResponding?: boolean;
 }
 
 export interface LaunchQueuePayload {

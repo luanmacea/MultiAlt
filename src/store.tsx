@@ -2628,15 +2628,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ),
       // Queda lida do log do Roblox (commands/client_health.rs): vale com o
       // Watcher desligado também — só avisa, não fecha nada.
-      listen<{ userId: number; drop: ClientDrop | null }>("roblox-client-health", (e) => {
-        const { userId, drop } = e.payload;
-        if (!drop) return;
-        const status = clientHealthLabel({ pid: 0, logFound: true, drop }, tr);
+      listen<{ userId: number; drop?: ClientDrop | null; notResponding?: boolean }>("roblox-client-health", (e) => {
+        const { userId, drop, notResponding } = e.payload;
+        void refreshRunningRef.current();
+        if (!drop && !notResponding) return;
+        const status = clientHealthLabel({ pid: 0, logFound: true, drop: drop ?? null, notResponding }, tr);
         if (!status) return;
         const acct = accountsRef.current.find((a) => a.UserID === userId);
         const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(tr("{{name}} in Roblox: {{status}}", { name, status: status.label }), "warn");
-        void refreshRunningRef.current();
       }),
       listen<{ userId: number; group?: string }>("account-moderated", (e) => {
         const userId = e.payload.userId;
@@ -3020,6 +3020,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       listen<{ userId: number; timeout: number }>("roblox-no-connection", (e) => {
         addToast(tr("Watcher: no connection timeout ({{timeout}}s) for {{userId}}", { timeout: e.payload.timeout, userId: e.payload.userId }));
+      }),
+      listen<{ userId: number; seconds: number }>("roblox-not-responding", (e) => {
+        addToast(tr("Watcher: closed a client that stopped responding ({{userId}})", { userId: e.payload.userId }));
       }),
     ];
 

@@ -233,6 +233,7 @@ impl SettingsStore {
             ("ExitIfNoConnection", "false"),
             ("NoConnectionTimeout", "60"),
             ("ExitOnBeta", "false"),
+            ("CloseIfNotResponding", "false"),
             ("CloseRbxMemory", "false"),
             ("MemoryLowValue", "200"),
             ("CloseRbxWindowTitle", "false"),

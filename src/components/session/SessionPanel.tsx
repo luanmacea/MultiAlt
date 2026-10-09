@@ -509,7 +509,8 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                     onChange={() => toggleChecked(userId)}
                     className="accent-[var(--accent-color)]"
                   />
-                  <span className="text-[var(--panel-fg)] truncate">{name}</span>
+                  {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
+                  <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
                   {/* Queda com motivo, lida do log do Roblox (client_health.rs). */}
                   <ClientHealthNote health={store.clientHealth?.get(userId)} className="shrink" />
                   {store.adoptedClients.has(userId) && (

@@ -171,6 +171,13 @@ pub fn get_window_title(hwnd: HWND) -> String {
     }
 }
 
+/// A janela está "Não respondendo" (o Windows diz isso de quem passou 5 s sem
+/// tratar mensagens). Só pergunta ao sistema: não manda nada para a janela.
+pub fn is_window_hung(hwnd: HWND) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsHungAppWindow;
+    unsafe { IsHungAppWindow(hwnd) != 0 }
+}
+
 /// Troca o título da janela de um cliente (nome da conta na barra de tarefas,
 /// `commands/client_health.rs`). `WM_SETTEXT` com teto de 1 s e desistindo se
 /// a janela estiver travada: um cliente "Não respondendo" nunca prende o app.

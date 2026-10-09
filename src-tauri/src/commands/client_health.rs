@@ -401,6 +401,8 @@ pub trait ClientHealthOs {
     fn main_window(&self, pid: u32) -> Option<isize>;
     fn window_title(&self, hwnd: isize) -> String;
     fn set_window_title(&self, hwnd: isize, title: &str) -> bool;
+    /// A janela está "Não respondendo" (`IsHungAppWindow`).
+    fn is_hung(&self, hwnd: isize) -> bool;
 }
 
 #[derive(Debug, Clone)]
@@ -416,6 +418,8 @@ struct ClientHealthEntry {
     reported: Option<ClientDrop>,
     /// O título que o app pôs na janela (para reconhecê-lo depois).
     applied_title: Option<String>,
+    hung: HungWatch,
+    not_responding: bool,
 }
 
 impl ClientHealthEntry {
@@ -431,6 +435,8 @@ impl ClientHealthEntry {
             exit_seen: false,
             reported: None,
             applied_title: None,
+            hung: HungWatch::default(),
+            not_responding: false,
         }
     }
 
@@ -449,6 +455,35 @@ pub struct ClientHealthView {
     pub drop: Option<ClientDrop>,
     /// O título que o app pôs na janela (nome da conta), se pôs.
     pub window_title: Option<String>,
+    /// A janela está "Não respondendo" há 30 s ou mais (só clientes do app).
+    pub not_responding: bool,
+}
+
+/// Quanto tempo a janela fica "Não respondendo" antes de o app avisar (e de
+/// o Watcher poder fechá-la, se a opção estiver ligada).
+pub const HUNG_THRESHOLD_MS: i64 = 30_000;
+
+/// Desde quando a janela não responde. O Windows já só chama de travada a
+/// janela que passou 5 s sem tratar mensagens (`IsHungAppWindow`); os 30 s
+/// daqui tiram do caminho a carga de um jogo pesado.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HungWatch {
+    since_ms: Option<i64>,
+}
+
+impl HungWatch {
+    pub fn update(&mut self, hung: bool, now_ms: i64) {
+        if hung {
+            self.since_ms.get_or_insert(now_ms);
+        } else {
+            self.since_ms = None;
+        }
+    }
+
+    pub fn is_not_responding(&self, now_ms: i64) -> bool {
+        self.since_ms
+            .is_some_and(|since| now_ms - since >= HUNG_THRESHOLD_MS)
+    }
 }
 
 /// Mudança que vira evento e linha no Console.
@@ -461,6 +496,8 @@ pub enum HealthNotice {
     },
     /// A conta voltou a um jogo depois de uma queda.
     Recovered { user_id: i64 },
+    /// A janela ficou (ou deixou de ficar) "Não respondendo" por 30 s.
+    NotResponding { user_id: i64, not_responding: bool },
 }
 
 #[derive(Debug, Default)]
@@ -554,10 +591,27 @@ impl ClientHealthMonitor {
             }
             entry.session.settle(now_ms);
 
-            if alive.contains(&entry.pid) {
-                if let Some(hwnd) = os.main_window(entry.pid) {
-                    Self::apply_window_title(os, entry, hwnd, client.window_label.as_deref());
-                }
+            let window = alive
+                .contains(&entry.pid)
+                .then(|| os.main_window(entry.pid))
+                .flatten();
+            let hung = window.is_some_and(|hwnd| os.is_hung(hwnd));
+            // "Não respondendo" só nos clientes que o app abriu: o do site é
+            // da pessoa, e o app não tem o que fazer com ele.
+            let was_not_responding = entry.not_responding;
+            entry.hung.update(hung && !entry.adopted, now_ms);
+            let not_responding = entry.hung.is_not_responding(now_ms);
+            entry.not_responding = not_responding;
+            if not_responding != was_not_responding {
+                notices.push(HealthNotice::NotResponding {
+                    user_id: client.user_id,
+                    not_responding,
+                });
+            }
+            // Janela travada: nem o título se mexe (só volta a conferir quando
+            // ela responder).
+            if let (Some(hwnd), false) = (window, hung) {
+                Self::apply_window_title(os, entry, hwnd, client.window_label.as_deref());
             }
 
             let current = entry.current_drop().cloned();
@@ -623,6 +677,7 @@ impl ClientHealthMonitor {
                         log_found: entry.log.is_some(),
                         drop: entry.current_drop().cloned(),
                         window_title: entry.applied_title.clone(),
+                        not_responding: entry.not_responding,
                     },
                 )
             })
@@ -693,6 +748,9 @@ impl ClientHealthOs for WindowsClientHealthOs {
     }
     fn set_window_title(&self, hwnd: isize, title: &str) -> bool {
         platform::windows::set_window_title(hwnd as _, title)
+    }
+    fn is_hung(&self, hwnd: isize) -> bool {
+        platform::windows::is_window_hung(hwnd as _)
     }
 }
 
@@ -783,6 +841,24 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 }),
             );
             emit_launch_log(app, *user_id, "warn", "client", drop_console_line(drop));
+        }
+        HealthNotice::NotResponding {
+            user_id,
+            not_responding,
+        } => {
+            let _ = app.emit(
+                "roblox-client-health",
+                serde_json::json!({
+                    "userId": user_id,
+                    "notResponding": not_responding,
+                }),
+            );
+            let line = if *not_responding {
+                "Não respondendo há 30 s"
+            } else {
+                "Voltou a responder"
+            };
+            emit_launch_log(app, *user_id, if *not_responding { "warn" } else { "info" }, "client", String::from(line));
         }
         HealthNotice::Recovered { user_id } => {
             let _ = app.emit(
