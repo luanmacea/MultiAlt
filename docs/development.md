@@ -137,7 +137,7 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 | `console-history` | Linhas de launch, Auto Rejoin e Watcher chegando aos poucos no Console |
 | `groups` | Contas em grupos nomeados (um com prefixo numérico, um com vírgula no nome) para ver cabeçalhos e arrastar a ordem |
 | `launch-queue` | Fila de launch e contas em jogo |
-| `client-drops` | Contas em jogo caindo aos poucos, com motivo (perdeu a conexão, expulsa com mensagem, servidor fechou, conta de site que entrou em outro lugar); a 1ª volta a um jogo depois de 15 s. Para ver a Sessão e o painel da conta |
+| `client-drops` | Contas em jogo caindo aos poucos, com motivo (perdeu a conexão, expulsa com mensagem, servidor fechou, conta de site que entrou em outro lugar) e uma janela "Not responding"; a 1ª volta a um jogo depois de 15 s. Para ver a Sessão e o painel da conta |
 | `vault-key-warning-locked` | Tela de senha com a faixa vermelha do `.key` (`writeFailed`) — para ver se o rodapé cabe e se a pílula de minimizar/fechar não cobre o texto |
 | `vault-key-warning-setup` | A mesma faixa (`migrationFailed`) na tela de criptografia da primeira execução, onde o rodapé são os botões Continue/Cancel |
 | `afk-mode` | AFK mode desligado, como num INI novo (sem tecla escolhida, intervalo 10, bipe desligado), quatro contas com cliente aberto; no ciclo automático a 2ª volta com `focusDenied` |

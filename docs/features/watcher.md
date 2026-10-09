@@ -23,6 +23,7 @@ Varredura periódica dos clientes Roblox **lançados e rastreados pelo app** par
    2. Para cada instância rastreada com janela principal:
       - **Pula a janela em foreground** (a que o usuário está usando).
       - Registra o início (PID, instante) para a *startup grace* de 30 s.
+      - **Não respondendo** (`CloseIfNotResponding`): o monitor de quedas diz que a janela está "Não respondendo" há 30 s ([abaixo](#não-respondendo)) → mata e emite `roblox-not-responding {userId, seconds}`.
       - **Memória** (`CloseRbxMemory`, após grace): se working set < `MemoryLowValue` MB → mata e emite `roblox-low-memory {userId, memoryMb}`.
       - **Título** (`CloseRbxWindowTitle`, após grace, título esperado não vazio): título efetivo (sem o nome da conta que o app pôs — ver [Nome da conta na janela](#nome-da-conta-na-janela)) ≠ `ExpectedWindowTitle` → mata e emite `roblox-title-mismatch {userId, title, expected}`.
       - **Beta** (`ExitOnBeta`): título contém "roblox beta" (case-insensitive) → mata e emite `roblox-beta-detected {userId, title}`.
@@ -56,7 +57,7 @@ sequenceDiagram
 - A janela em primeiro plano nunca é avaliada (nem para kill, nem para salvar posição).
 - *Startup grace* fixa de 30 s por PID vale para memória, título e posição; **não** vale para beta e sem conexão.
 - A regra de memória é de **memória baixa** (cliente que caiu para um working set pequeno, típico de travado/erro), não de consumo alto.
-- A ordem de avaliação é memória → título → beta → sem conexão → posição; o primeiro kill bem-sucedido encerra a avaliação daquela instância.
+- A ordem de avaliação é não respondendo → memória → título → beta → sem conexão → posição; o primeiro kill bem-sucedido encerra a avaliação daquela instância.
 - Toda ação é `kill_for_user` (TerminateProcess + espera até 1,2 s e remove do tracker). Se o PID rastreado não for mais um processo Roblox (cliente já fechou e o Windows reutilizou o PID), `kill_for_user` não mata nada: só remove do tracker e retorna `true` (o evento correspondente ainda é emitido). O Watcher **não relança** a conta; relançar é papel do Auto Rejoin ou do usuário.
 - **Todo evento do Watcher também vira linha no Console** (`emit_launch_log`, `step: "watcher"`). O evento só virava toast, que some em 2,5 s: quem voltasse depois não tinha como saber por que a conta caiu. Um teste estrutural (`watcher_console_tests`) lê o próprio arquivo e exige a linha ao lado de cada `emit` — assim cobre também o ramo de macOS, que não compila no Windows.
 - As posições salvas são usadas pelo [launch único](launch.md) para restaurar a janela.
@@ -138,6 +139,23 @@ tarefas. Opção `General.ShowAccountNameOnWindow` (padrão ligado, só Windows)
   de novo, o título antigo fica até o Roblox trocá-lo (o app só reconhece como
   seu o título que poria agora).
 
+## Não respondendo
+
+O monitor de quedas também pergunta ao Windows, a cada 2 s, se a janela de cada
+cliente **que o app abriu** está travada (`IsHungAppWindow` — o Windows só diz
+que sim depois de 5 s sem a janela tratar mensagens; nada é mandado para a
+janela). Travada por **30 s seguidos** (`HUNG_THRESHOLD_MS`) → a Sessão e o
+painel da conta mostram **"Not responding"** (âmbar), com toast e linha no
+Console; some quando a janela volta a responder. Um respiro no meio zera a
+contagem: carga pesada de jogo não vira aviso.
+
+- **Cliente do site nunca é marcado** (nem fechado): o aviso e a opção são só
+  para os clientes que o app abriu.
+- **Fechar é opção do Watcher**, desligada por padrão: `CloseIfNotResponding`
+  ("Close If Not Responding") fecha **só aquele cliente** (`kill_for_user`),
+  com o Watcher ligado, pulando a janela em primeiro plano como as outras regras.
+- Janela travada não tem o título mexido (nome da conta) até voltar a responder.
+
 ## Configurações relacionadas
 
 Seção `[Watcher]`:
@@ -152,6 +170,7 @@ Seção `[Watcher]`:
 | `CloseRbxWindowTitle` | `false` | — | Liga a regra de título |
 | `ExpectedWindowTitle` | `Roblox` | — | Título esperado exato |
 | `ExitOnBeta` | `false` | — | Fecha clientes com "Roblox Beta" no título |
+| `CloseIfNotResponding` | `false` | — | Fecha o cliente do app que fica "Não respondendo" por 30 s |
 | `ExitIfNoConnection` | `false` | — | Fecha clientes desconectados |
 | `NoConnectionTimeout` | `60` (s) | 1–3600 | Tempo desconectado antes de fechar |
 | `SaveWindowPositions` | `false` | — | Persiste posição/tamanho por conta |

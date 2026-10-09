@@ -3453,6 +3453,7 @@ mod launch_command_tests {
                     since_ms: 5,
                 }),
                 window_title: Some("Roblox — Main".into()),
+                not_responding: true,
             }),
         })
         .unwrap();
@@ -3466,5 +3467,6 @@ mod launch_command_tests {
         assert_eq!(json["health"]["drop"]["kind"], "kicked");
         assert_eq!(json["health"]["drop"]["message"], "bye");
         assert_eq!(json["health"]["drop"]["sinceMs"], 5);
+        assert_eq!(json["health"]["notResponding"], true);
     }
 }

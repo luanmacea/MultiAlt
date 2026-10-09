@@ -37,6 +37,7 @@ struct WindowsWatcherConfig {
     exit_if_no_connection: bool,
     no_connection_timeout_secs: u64,
     exit_on_beta: bool,
+    close_if_not_responding: bool,
     startup_grace_secs: u64,
 }
 
@@ -58,6 +59,7 @@ fn load_windows_watcher_config(settings: &SettingsStore) -> WindowsWatcherConfig
             3600,
         ),
         exit_on_beta: settings.get_bool("Watcher", "ExitOnBeta"),
+        close_if_not_responding: settings.get_bool("Watcher", "CloseIfNotResponding"),
         startup_grace_secs: 30,
     }
 }
@@ -166,6 +168,28 @@ async fn start_watcher(
                         *startup = (inst.pid, std::time::Instant::now());
                     }
                     let startup_grace_elapsed = startup.1.elapsed().as_secs() >= cfg.startup_grace_secs;
+                    // Queda, "Não respondendo" e o título que o app pôs (client_health.rs).
+                    let health = client_health_of(inst.user_id, inst.pid);
+
+                    // "Não respondendo" há 30 s (o monitor só conta clientes do app).
+                    if cfg.close_if_not_responding
+                        && health.as_ref().is_some_and(|h| h.not_responding)
+                        && tracker.kill_for_user(inst.user_id)
+                    {
+                        let _ = app_handle.emit(
+                            "roblox-not-responding",
+                            serde_json::json!({
+                                "userId": inst.user_id,
+                                "seconds": HUNG_THRESHOLD_MS / 1000,
+                            }),
+                        );
+                        // O console e o historico geral: evento do Watcher tambem vira linha la.
+                        emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: não respondia havia {}s", HUNG_THRESHOLD_MS / 1000));
+                        disconnected_since.remove(&inst.user_id);
+                        startup_seen.remove(&inst.user_id);
+                        last_saved_positions.remove(&inst.user_id);
+                        continue;
+                    }
 
                     if cfg.memory_enabled && startup_grace_elapsed {
                         if let Some(mem) = windows::get_process_memory_mb(inst.pid) {
@@ -193,7 +217,6 @@ async fn start_watcher(
                         || cfg.exit_on_beta
                         || cfg.exit_if_no_connection;
 
-                    let health = client_health_of(inst.user_id, inst.pid);
                     let title = if should_read_title {
                         // O nome da conta que o app pôs no título (client_health.rs)
                         // não conta para as regras: elas veem "Roblox".
@@ -667,6 +690,15 @@ mod watcher_tests {
         assert_eq!(watcher_clamped_u64(&s.store, "ScanInterval", 6, 1, 3600), 6);
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn closing_a_client_that_stops_responding_is_off_by_default() {
+        let s = TempSettings::new("hung");
+        assert!(!load_windows_watcher_config(&s.store).close_if_not_responding);
+        s.store.set("Watcher", "CloseIfNotResponding", "true").unwrap();
+        assert!(load_windows_watcher_config(&s.store).close_if_not_responding);
+    }
+
     // ---- watcher_due / watcher_remaining_ms ---------------------------------
 
     #[test]
@@ -737,6 +769,7 @@ mod watcher_tests {
                 since_ms: 0,
             }),
             window_title: None,
+            not_responding: false,
         }
     }
 

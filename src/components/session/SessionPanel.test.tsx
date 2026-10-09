@@ -733,4 +733,14 @@ describe("SessionPanel — quedas lidas do log", () => {
     expect(within(row).getByText("Disconnected: the account joined somewhere else")).toBeInTheDocument();
     expect(within(row).getByText("Opened outside the app")).toBeInTheDocument();
   });
+
+  it("shows a hung window as not responding, in its own color", () => {
+    renderPanel({
+      launchedByProgram: new Set([1]),
+      clientHealth: new Map([[1, { ...health(null), notResponding: true }]]),
+    });
+    const note = within(screen.getByTestId("session-running-1")).getByTestId("client-health-note");
+    expect(note).toHaveTextContent("Not responding");
+    expect(note).toHaveAttribute("data-tone", "hung");
+  });
 });

@@ -133,6 +133,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ReadInterval` | `250` | ms |
 | `ExitIfNoConnection` / `NoConnectionTimeout` | `false` / `60` | fecha sem conexão após N s |
 | `ExitOnBeta` | `false` | fecha se detectar Roblox beta |
+| `CloseIfNotResponding` | `false` | fecha o cliente do app que fica "Não respondendo" por 30 s |
 | `CloseRbxMemory` / `MemoryLowValue` | `false` / `200` | fecha abaixo de N MB |
 | `CloseRbxWindowTitle` / `ExpectedWindowTitle` | `false` / `Roblox` | fecha se o título divergir |
 | `SaveWindowPositions` | `false` | salva posição da janela nos `Fields` da conta |

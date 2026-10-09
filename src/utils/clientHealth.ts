@@ -12,10 +12,29 @@ export interface ClientHealthLabel {
   label: string;
   /** Detalhe para o tooltip (código do Roblox), quando houver. */
   detail: string;
+  /** `drop`: caiu (vermelho); `hung`: janela travada (âmbar). */
+  tone: "drop" | "hung";
 }
 
 /** `null` quando não há nada a avisar (cliente em jogo, ou sem informação). */
 export function clientHealthLabel(health: ClientHealth | null | undefined, t: Translate): ClientHealthLabel | null {
+  const label = dropLabel(health, t);
+  if (label) return { ...label, tone: "drop" };
+  // Queda vence: uma conta caída com a janela travada mostra o motivo.
+  if (health?.notResponding) {
+    return {
+      label: t("Not responding"),
+      detail: t("The Roblox window has not responded for 30 seconds"),
+      tone: "hung",
+    };
+  }
+  return null;
+}
+
+function dropLabel(
+  health: ClientHealth | null | undefined,
+  t: Translate
+): Omit<ClientHealthLabel, "tone"> | null {
   const drop = health?.drop;
   if (!drop) return null;
   const detail = drop.code !== null ? t("Roblox error code {{code}}", { code: drop.code }) : "";

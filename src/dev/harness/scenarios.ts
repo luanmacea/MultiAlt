@@ -1758,8 +1758,9 @@ const SCENARIOS: Record<string, () => void> = {
    * conta). Todas as contas começam em jogo; as quedas chegam aos poucos, como
    * o monitor do backend (`commands/client_health.rs`) as manda: o evento
    * `roblox-client-health` e o mesmo dado no polling de `get_running_instances`.
-   * A 4ª conta foi aberta pelo site (adotada). Depois de um tempo a 1ª volta a
-   * um jogo e o aviso some. O cenário só entrega dados.
+   * A 4ª conta foi aberta pelo site (adotada); a 5ª fica "Não respondendo".
+   * Depois de um tempo a 1ª volta a um jogo e o aviso some. O cenário só
+   * entrega dados.
    */
   "client-drops"() {
     type Drop = {
@@ -1794,6 +1795,14 @@ const SCENARIOS: Record<string, () => void> = {
       rows[0].drop = null;
       harnessEmit("roblox-client-health", { userId: rows[0].userId, drop: null });
     }, 15_000);
+    // A 5ª trava: a janela fica "Não respondendo" (o backend só avisa depois
+    // de 30 s; aqui chega em 6 s para não esperar).
+    let hungUserId: number | null = null;
+    setTimeout(() => {
+      if (!rows[4]) return;
+      hungUserId = rows[4].userId;
+      harnessEmit("roblox-client-health", { userId: hungUserId, notResponding: true });
+    }, 6_000);
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_running_instances") {
         return rows.map((row) => ({
@@ -1801,7 +1810,13 @@ const SCENARIOS: Record<string, () => void> = {
           user_id: row.userId,
           browser_tracker_id: `${row.userId}0001`,
           adopted: row.adopted,
-          health: { pid: row.pid, logFound: true, drop: row.drop },
+          health: {
+            pid: row.pid,
+            logFound: true,
+            drop: row.drop,
+            windowTitle: `Roblox — ${row.userId}`,
+            notResponding: row.userId === hungUserId,
+          },
         }));
       }
       return baseHandler(cmd, args);
