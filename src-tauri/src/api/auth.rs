@@ -185,12 +185,52 @@ pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
         return Ok(ticket);
     }
 
+    if let Some(message) = challenge_message(response.headers()) {
+        return Err(message);
+    }
+
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     Err(format!(
         "Failed to get authentication ticket (status {}): {}",
         status.as_u16(),
         body
+    ))
+}
+
+/// Nome curto do tipo de verificação que o Roblox pediu (`rblx-challenge-type`).
+/// Tipo desconhecido vira "a security check": a mensagem continua útil mesmo
+/// quando o Roblox inventa um desafio novo.
+fn challenge_kind_label(kind: &str) -> &'static str {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "twostepverification" | "forcetwostepverification" => "2-step verification",
+        "captcha" => "a CAPTCHA",
+        "reauthentication" => "your password again",
+        _ => "a security check",
+    }
+}
+
+/// Mensagem para quando o Roblox responde com um desafio (`rblx-challenge-id` /
+/// `rblx-challenge-type`) em vez do ticket. O app **nunca** tenta resolver o
+/// desafio: só diz onde terminá-lo. O texto evita de propósito as palavras que
+/// `is_auth_session_error` (renovaria a sessão) e `is_moderated_error` (moveria
+/// a conta para "moderadas") reconhecem.
+fn challenge_message(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    let read = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let id = read("rblx-challenge-id");
+    let kind = read("rblx-challenge-type");
+    if id.is_none() && kind.is_none() {
+        return None;
+    }
+    Some(format!(
+        "Roblox wants to verify this account ({}). Open it in the browser (account panel › Tools › Browser), finish the check there, then try again.",
+        challenge_kind_label(kind.as_deref().unwrap_or(""))
     ))
 }
 
