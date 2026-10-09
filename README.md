@@ -4,7 +4,7 @@
 ![MultiAlt: choose a game and join with every selected account](site/assets/screens/choose-game.png)
 
 <p align="center">
-  <a href="https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
+  <a href="https://multialt.pages.dev/get/readme/"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
   <br>
   <sub>Windows 10/11 · <a href="https://github.com/luanmacea/MultiAlt/releases/latest">other downloads (full version)</a> · <a href="https://multialt.pages.dev/">🌐 website</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
 </p>
