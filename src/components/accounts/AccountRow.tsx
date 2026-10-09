@@ -6,6 +6,7 @@ import { timeAgo, getFreshnessColor, AGED_AFTER_DAYS } from "../../types";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 import { StatusBadge, STATUS_COLORS, type StatusKind } from "./StatusBadge";
+import { moderationBadge, moderationLabel } from "../../utils/moderation";
 
 export function AccountRow({ account }: { account: Account }) {
   const t = useTr();
@@ -83,6 +84,20 @@ export function AccountRow({ account }: { account: Account }) {
     });
   } else if (!account.Valid) {
     statusDots.push({ kind: "invalid", color: STATUS_COLORS.invalid, title: t("Invalid session") });
+  }
+  // Moderação lida do Roblox nesta sessão (painel, "Check accounts" ou antes do
+  // launch). Só aparece quando há algo: conta limpa não ganha selo.
+  const moderation = store.moderationByUserId?.get(account.UserID);
+  const moderationKind = moderationBadge(moderation);
+  if (moderation && moderationKind) {
+    const note = moderation.note?.trim();
+    statusDots.push({
+      kind: moderationKind,
+      color: STATUS_COLORS[moderationKind],
+      title: note
+        ? t("{{status}} — moderator note: {{note}}", { status: moderationLabel(moderation, t), note })
+        : moderationLabel(moderation, t),
+    });
   }
   if (freshness) {
     // A bolinha só dizia "aged"; quem lê precisa saber *de que* envelheceu.
