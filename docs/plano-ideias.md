@@ -28,7 +28,8 @@ de subir a próxima:
 | Versão | Pacote | Pronto na develop | Publicada | Observações |
 |---|---|---|---|---|
 | 1.1.0 | telas pequenas, feedback, tamanho da interface | — | 08/10/2026 | |
-| próxima | ícones na legenda de status (já na develop) + Quedas | | — | não antes de 10/10/2026 |
+| próxima | ícones na legenda de status (já na develop) + Quedas ou Conta | | — | não antes de 10/10/2026 |
+| — | **Conta** (8, 10, 26, 7, 9) | branch `feature/conta`, 09/10/2026 | — | `.exe` e MSI da edição padrão limpos no Defender e VirusTotal (09/10/2026); falta teste do dono com conta real |
 
 ## Pacotes
 
