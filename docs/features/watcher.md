@@ -24,7 +24,7 @@ Varredura periódica dos clientes Roblox **lançados e rastreados pelo app** par
       - **Pula a janela em foreground** (a que o usuário está usando).
       - Registra o início (PID, instante) para a *startup grace* de 30 s.
       - **Memória** (`CloseRbxMemory`, após grace): se working set < `MemoryLowValue` MB → mata e emite `roblox-low-memory {userId, memoryMb}`.
-      - **Título** (`CloseRbxWindowTitle`, após grace, título esperado não vazio): título ≠ `ExpectedWindowTitle` → mata e emite `roblox-title-mismatch {userId, title, expected}`.
+      - **Título** (`CloseRbxWindowTitle`, após grace, título esperado não vazio): título efetivo (sem o nome da conta que o app pôs — ver [Nome da conta na janela](#nome-da-conta-na-janela)) ≠ `ExpectedWindowTitle` → mata e emite `roblox-title-mismatch {userId, title, expected}`.
       - **Beta** (`ExitOnBeta`): título contém "roblox beta" (case-insensitive) → mata e emite `roblox-beta-detected {userId, title}`.
       - **Sem conexão** (`ExitIfNoConnection`): o log do cliente diz que caiu (ver [Quedas](#quedas-lidas-do-log-do-cliente)); sem log achado, o título contém "disconnected", "connection error", "lost connection" ou "no connection" → começa a contar; se persistir ≥ `NoConnectionTimeout` s → mata e emite `roblox-no-connection {userId, title, timeout}`. Título normal zera o contador.
       - **Posição** (`SaveWindowPositions`, após grace): se (x, y, w, h) mudou desde a última gravação, salva em `Window_Position_X/Y`, `Window_Width`, `Window_Height` da conta.
@@ -110,6 +110,34 @@ que** a conta caiu. Só lê: o log (aberto só para leitura) e a lista de proces
   neles. Os logs só tinham o código 285; os outros códigos vêm do enum
   `ConnectionError` do Roblox e dos concorrentes e precisam de teste real.
 
+## Nome da conta na janela
+
+Também no monitor de [client_health.rs](../../src-tauri/src/commands/client_health.rs),
+com o Watcher ligado ou não: cada janela de cliente rastreado (lançado pelo app
+ou adotado do site — adotado quer dizer que a conta já foi identificada) ganha o
+título **`Roblox — <alias ou username>`**, para saber quem é quem na barra de
+tarefas. Opção `General.ShowAccountNameOnWindow` (padrão ligado, só Windows).
+
+- **Nomes ocultos:** o nome sai mascarado exatamente como a tela do app mostra
+  (`mask_account_name`, espelho de `maskAccountName`; os dois lados testam os
+  mesmos casos de `src/utils/accountNameCases.json`). Nome escondido nunca vai
+  para a barra de tarefas.
+- **Só mexe no título normal:** se a janela está com "Roblox" (ou com o título
+  que o app pôs), põe o nome; se o Roblox mostra outra coisa (erro, "Roblox
+  Beta"), deixa como está. O Roblox pode voltar o título para "Roblox"
+  (teleporte): a cada 2 s o monitor confere e põe de novo.
+- **Desligar** devolve "Roblox" às janelas renomeadas.
+- **As regras do Watcher não veem o nome:** título esperado, beta e sem conexão
+  comparam o título "efetivo" (`effective_client_title`: o título que o app pôs
+  vale "Roblox"). Sem isso, renomear faria a regra de título fechar todos os
+  clientes, e um alias como "No Connection Bob" pareceria desconexão.
+- **API nativa:** `WM_SETTEXT` por `SendMessageTimeoutW` com `SMTO_ABORTIFHUNG`
+  e teto de 1 s (`set_window_title` em windowing.rs) — janela travada nunca
+  prende o app.
+- **Limite:** se o app fechar com a opção ligada e o alias mudar antes de abrir
+  de novo, o título antigo fica até o Roblox trocá-lo (o app só reconhece como
+  seu o título que poria agora).
+
 ## Configurações relacionadas
 
 Seção `[Watcher]`:
@@ -130,7 +158,7 @@ Seção `[Watcher]`:
 
 ## Armadilhas / cuidados
 
-- `ExpectedWindowTitle` é comparação **exata**; qualquer variação (idioma, sufixo) mata o cliente após 30 s.
+- `ExpectedWindowTitle` é comparação **exata** (com o título efetivo: o nome da conta que o app põe não conta); qualquer outra variação (idioma, sufixo) mata o cliente após 30 s.
 - `MemoryLowValue` alto demais mata clientes saudáveis que ainda estão carregando após a grace.
 - A detecção de desconexão depende do formato do log do Roblox (e, sem log, do título da janela), que pode mudar entre versões: o 0.742 já trocou as linhas de desconexão. Se uma atualização mudar de novo, rode `client_log_real_probe` contra os logs novos.
 - Salvar posição escreve no arquivo de contas (encriptado) sempre que a janela se move; com muitas contas isso gera várias gravações.

@@ -1,5 +1,6 @@
 // Saúde de cada cliente que o app acompanha: a queda lida do log do Roblox,
-// com o motivo. Ver docs/features/watcher.md ("Quedas").
+// com o motivo, e o nome da conta no título da janela. Ver
+// docs/features/watcher.md ("Quedas" e "Nome da conta na janela").
 //
 // Tudo aqui só **lê**: o log (aberto só para leitura) e a lista de processos.
 // Quem fecha cliente continua sendo só o Watcher, e só os que o app abriu
@@ -318,12 +319,74 @@ fn complete_line_bytes(bytes: &[u8], max: u64) -> usize {
 }
 
 /// Um cliente que o app acompanha, como o tracker diz.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrackedClient {
     pub user_id: i64,
     pub pid: u32,
     /// Aberto pelo site e reconhecido: só aviso na tela, nunca ação.
     pub adopted: bool,
+    /// O nome que vai no título da janela (já mascarado com os nomes
+    /// ocultos). `None`: opção desligada — o título volta a ser "Roblox".
+    pub window_label: Option<String>,
+}
+
+// ── Nome da conta no título da janela ──────────────────────────────────────
+
+/// O título que o Roblox põe na janela do cliente em jogo.
+pub const ROBLOX_WINDOW_TITLE: &str = "Roblox";
+/// O que a tela mostra no lugar de um nome escondido por inteiro (igual a
+/// `HIDDEN_NAME` em src/utils/accountName.ts).
+const HIDDEN_ACCOUNT_NAME: &str = "************";
+
+/// Espelho de `maskAccountName` (src/utils/accountName.ts), com a mesma conta
+/// de letras do JavaScript (unidades UTF-16): com os nomes ocultos, a barra de
+/// tarefas não pode mostrar mais do que a tela do app. Os dois lados leem os
+/// mesmos casos de `src/utils/accountNameCases.json`.
+pub fn mask_account_name(name: &str, hidden: bool, preview_letters: i64) -> String {
+    if !hidden {
+        return name.to_string();
+    }
+    let units: Vec<u16> = name.encode_utf16().collect();
+    if preview_letters > 0 && (preview_letters as usize) < units.len() {
+        let mut shown = String::from_utf16_lossy(&units[..preview_letters as usize]);
+        shown.push_str("********");
+        return shown;
+    }
+    HIDDEN_ACCOUNT_NAME.to_string()
+}
+
+/// Alias || Username, mascarado como a tela do app mostra.
+pub fn window_account_label(alias: &str, username: &str, hidden: bool, preview_letters: i64) -> String {
+    let raw = if alias.is_empty() { username } else { alias };
+    mask_account_name(raw, hidden, preview_letters)
+}
+
+/// `Roblox — <conta>`.
+pub fn client_window_title(label: &str) -> String {
+    format!("{ROBLOX_WINDOW_TITLE} — {label}")
+}
+
+/// O título como o Roblox o pôs: se o atual é o que o app pôs (ou poria agora,
+/// depois de reabrir), vale "Roblox". As regras do Watcher que olham o título
+/// (título esperado, beta, sem conexão) comparam isto, nunca o nome da conta.
+pub fn effective_client_title<'a>(current: &'a str, applied: Option<&str>, desired: Option<&str>) -> &'a str {
+    let ours = !current.is_empty() && (applied == Some(current) || desired == Some(current));
+    if ours {
+        ROBLOX_WINDOW_TITLE
+    } else {
+        current
+    }
+}
+
+/// O título a pôr agora, se precisar mudar. Só mexe numa janela que está com o
+/// título normal do Roblox (ou o nosso): se o Roblox mostra outra coisa (erro,
+/// beta), deixa como está, para as regras do Watcher continuarem vendo.
+pub fn plan_window_title(current: &str, applied: Option<&str>, desired: Option<&str>) -> Option<String> {
+    if effective_client_title(current, applied, desired) != ROBLOX_WINDOW_TITLE {
+        return None;
+    }
+    let want = desired.unwrap_or(ROBLOX_WINDOW_TITLE);
+    (current != want).then(|| want.to_string())
 }
 
 /// O que o monitor precisa do sistema (dublê nos testes).
@@ -334,6 +397,10 @@ pub trait ClientHealthOs {
     fn read_log(&self, path: &std::path::Path, offset: u64, max: u64) -> Option<Vec<u8>>;
     /// O próprio app fechou este PID (Fechar, Auto Rejoin, Watcher…).
     fn terminated_by_app(&self, pid: u32) -> bool;
+    /// Janela principal do cliente (HWND como número).
+    fn main_window(&self, pid: u32) -> Option<isize>;
+    fn window_title(&self, hwnd: isize) -> String;
+    fn set_window_title(&self, hwnd: isize, title: &str) -> bool;
 }
 
 #[derive(Debug, Clone)]
@@ -347,6 +414,8 @@ struct ClientHealthEntry {
     crashed: Option<ClientDrop>,
     exit_seen: bool,
     reported: Option<ClientDrop>,
+    /// O título que o app pôs na janela (para reconhecê-lo depois).
+    applied_title: Option<String>,
 }
 
 impl ClientHealthEntry {
@@ -361,6 +430,7 @@ impl ClientHealthEntry {
             crashed: None,
             exit_seen: false,
             reported: None,
+            applied_title: None,
         }
     }
 
@@ -377,6 +447,8 @@ pub struct ClientHealthView {
     /// O log do cliente foi achado: a queda vem dele, não do título da janela.
     pub log_found: bool,
     pub drop: Option<ClientDrop>,
+    /// O título que o app pôs na janela (nome da conta), se pôs.
+    pub window_title: Option<String>,
 }
 
 /// Mudança que vira evento e linha no Console.
@@ -482,6 +554,12 @@ impl ClientHealthMonitor {
             }
             entry.session.settle(now_ms);
 
+            if alive.contains(&entry.pid) {
+                if let Some(hwnd) = os.main_window(entry.pid) {
+                    Self::apply_window_title(os, entry, hwnd, client.window_label.as_deref());
+                }
+            }
+
             let current = entry.current_drop().cloned();
             let changed = match (&current, &entry.reported) {
                 (Some(now), Some(before)) => !now.same_drop(before),
@@ -505,6 +583,35 @@ impl ClientHealthMonitor {
         notices
     }
 
+    /// Põe (ou tira) o nome da conta no título. O Roblox pode trocar o título
+    /// de volta (teleporte): cada passada confere e põe de novo — ler o título
+    /// não custa nada.
+    fn apply_window_title(
+        os: &dyn ClientHealthOs,
+        entry: &mut ClientHealthEntry,
+        hwnd: isize,
+        label: Option<&str>,
+    ) {
+        let desired = label
+            .filter(|l| !l.trim().is_empty())
+            .map(client_window_title);
+        let current = os.window_title(hwnd);
+        if current != ROBLOX_WINDOW_TITLE
+            && effective_client_title(&current, entry.applied_title.as_deref(), desired.as_deref())
+                == ROBLOX_WINDOW_TITLE
+        {
+            // Já é nosso (inclusive o que ficou de antes de o app reabrir).
+            entry.applied_title = Some(current.clone());
+        }
+        if let Some(next) =
+            plan_window_title(&current, entry.applied_title.as_deref(), desired.as_deref())
+        {
+            if os.set_window_title(hwnd, &next) {
+                entry.applied_title = (next != ROBLOX_WINDOW_TITLE).then_some(next);
+            }
+        }
+    }
+
     pub fn views(&self) -> HashMap<i64, ClientHealthView> {
         self.entries
             .iter()
@@ -515,6 +622,7 @@ impl ClientHealthMonitor {
                         pid: entry.pid,
                         log_found: entry.log.is_some(),
                         drop: entry.current_drop().cloned(),
+                        window_title: entry.applied_title.clone(),
                     },
                 )
             })
@@ -577,6 +685,34 @@ impl ClientHealthOs for WindowsClientHealthOs {
     fn terminated_by_app(&self, pid: u32) -> bool {
         platform::windows::was_terminated_by_app(pid)
     }
+    fn main_window(&self, pid: u32) -> Option<isize> {
+        platform::windows::find_main_window(pid).map(|hwnd| hwnd as isize)
+    }
+    fn window_title(&self, hwnd: isize) -> String {
+        platform::windows::get_window_title(hwnd as _)
+    }
+    fn set_window_title(&self, hwnd: isize, title: &str) -> bool {
+        platform::windows::set_window_title(hwnd as _, title)
+    }
+}
+
+/// O nome de cada conta para o título da janela, ou nada com a opção
+/// desligada. Mesma regra da tela: Alias || Username, mascarado com os nomes
+/// ocultos (`General.HideUsernames` + `HiddenNameLetters`, que a tela grava).
+#[cfg(target_os = "windows")]
+fn window_labels(app: &tauri::AppHandle) -> HashMap<i64, String> {
+    let settings = app.state::<SettingsStore>();
+    if settings.get_string("General", "ShowAccountNameOnWindow") == "false" {
+        return HashMap::new();
+    }
+    let hidden = settings.get_bool("General", "HideUsernames");
+    let letters = settings.get_int("General", "HiddenNameLetters").unwrap_or(0);
+    app.state::<AccountStore>()
+        .get_all()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| (a.user_id, window_account_label(&a.alias, &a.username, hidden, letters)))
+        .collect()
 }
 
 #[cfg(target_os = "windows")]
@@ -585,14 +721,20 @@ static CLIENT_HEALTH_MONITOR: LazyLock<Mutex<ClientHealthMonitor>> =
 
 /// Uma passada de verdade: lê o tracker, roda o monitor e publica o retrato.
 #[cfg(target_os = "windows")]
-fn run_client_health_tick() -> Vec<HealthNotice> {
-    let tracked: Vec<TrackedClient> = platform::windows::tracker()
-        .get_all()
+fn run_client_health_tick(app: &tauri::AppHandle) -> Vec<HealthNotice> {
+    let tracked_processes = platform::windows::tracker().get_all();
+    let mut labels = if tracked_processes.is_empty() {
+        HashMap::new()
+    } else {
+        window_labels(app)
+    };
+    let tracked: Vec<TrackedClient> = tracked_processes
         .into_iter()
         .map(|p| TrackedClient {
             user_id: p.user_id,
             pid: p.pid,
             adopted: p.adopted,
+            window_label: labels.remove(&p.user_id),
         })
         .collect();
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -612,7 +754,8 @@ fn run_client_health_tick() -> Vec<HealthNotice> {
 pub(crate) fn start_client_health_monitor(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            let notices = tokio::task::spawn_blocking(run_client_health_tick)
+            let handle = app.clone();
+            let notices = tokio::task::spawn_blocking(move || run_client_health_tick(&handle))
                 .await
                 .unwrap_or_default();
             for notice in notices {
@@ -1008,6 +1151,9 @@ mod client_health_monitor_tests {
         logs: RefCell<HashMap<u32, (PathBuf, String)>>,
         terminated: RefCell<HashSet<u32>>,
         locate_calls: RefCell<u32>,
+        /// PID → título da janela principal (sem entrada: sem janela).
+        titles: RefCell<HashMap<u32, String>>,
+        set_calls: RefCell<u32>,
     }
 
     impl FakeOs {
@@ -1048,6 +1194,17 @@ mod client_health_monitor_tests {
         fn terminated_by_app(&self, pid: u32) -> bool {
             self.terminated.borrow().contains(&pid)
         }
+        fn main_window(&self, pid: u32) -> Option<isize> {
+            self.titles.borrow().contains_key(&pid).then_some(pid as isize)
+        }
+        fn window_title(&self, hwnd: isize) -> String {
+            self.titles.borrow().get(&(hwnd as u32)).cloned().unwrap_or_default()
+        }
+        fn set_window_title(&self, hwnd: isize, title: &str) -> bool {
+            *self.set_calls.borrow_mut() += 1;
+            self.titles.borrow_mut().insert(hwnd as u32, title.to_string());
+            true
+        }
     }
 
     const JOIN: &str = "x [FLog::Output] ! Joining game 'a' place 1 at 10.0.0.1\n";
@@ -1059,6 +1216,14 @@ mod client_health_monitor_tests {
             user_id,
             pid,
             adopted: false,
+            window_label: None,
+        }
+    }
+
+    fn named(user_id: i64, pid: u32, label: &str) -> TrackedClient {
+        TrackedClient {
+            window_label: Some(label.to_string()),
+            ..ours(user_id, pid)
         }
     }
 
@@ -1101,6 +1266,7 @@ mod client_health_monitor_tests {
                 user_id: 1,
                 pid: 100,
                 adopted: true,
+                window_label: None,
             }],
             T0,
         );
@@ -1206,5 +1372,142 @@ mod client_health_monitor_tests {
             drop_console_line(&drop(DropKind::ServerShutdown, None, Some(274), None)),
             "O servidor fechou (código 274)"
         );
+    }
+
+    // ---- nome da conta no título ------------------------------------------
+
+    fn with_window(pid: u32, title: &str) -> FakeOs {
+        let os = FakeOs::with_client(pid, JOIN);
+        os.titles.borrow_mut().insert(pid, title.to_string());
+        os
+    }
+
+    #[test]
+    fn the_window_gets_the_account_name_and_keeps_it() {
+        let os = with_window(100, "Roblox");
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[named(1, 100, "Main")], T0);
+        assert_eq!(os.titles.borrow()[&100], "Roblox — Main");
+        assert_eq!(monitor.views()[&1].window_title.as_deref(), Some("Roblox — Main"));
+
+        // Nada mudou: não escreve de novo.
+        monitor.tick(&os, &[named(1, 100, "Main")], T0 + 2_000);
+        assert_eq!(*os.set_calls.borrow(), 1);
+
+        // O Roblox pôs "Roblox" de volta (teleporte): põe o nome de novo.
+        os.titles.borrow_mut().insert(100, "Roblox".into());
+        monitor.tick(&os, &[named(1, 100, "Main")], T0 + 4_000);
+        assert_eq!(os.titles.borrow()[&100], "Roblox — Main");
+    }
+
+    #[test]
+    fn turning_the_option_off_gives_the_title_back() {
+        let os = with_window(100, "Roblox");
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[named(1, 100, "Main")], T0);
+        monitor.tick(&os, &[ours(1, 100)], T0 + 2_000);
+        assert_eq!(os.titles.borrow()[&100], "Roblox");
+        assert_eq!(monitor.views()[&1].window_title, None);
+    }
+
+    #[test]
+    fn hiding_names_swaps_the_title_for_the_masked_one() {
+        let os = with_window(100, "Roblox");
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[named(1, 100, "Main")], T0);
+        let masked = window_account_label("Main", "annabelle", true, 1);
+        monitor.tick(&os, &[named(1, 100, &masked)], T0 + 2_000);
+        assert_eq!(os.titles.borrow()[&100], "Roblox — M********");
+    }
+
+    #[test]
+    fn a_title_roblox_set_to_something_else_is_left_alone() {
+        // Erro ou beta no título: as regras do Watcher precisam ver o texto.
+        let os = with_window(100, "Roblox Beta");
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[named(1, 100, "Main")], T0);
+        assert_eq!(os.titles.borrow()[&100], "Roblox Beta");
+        assert_eq!(*os.set_calls.borrow(), 0);
+    }
+
+    #[test]
+    fn after_the_app_reopens_its_own_title_is_recognized() {
+        // O app fechou e abriu de novo: o título já tem o nome, o monitor
+        // nasce sem memória e reconhece o título como seu.
+        let os = with_window(100, "Roblox — Main");
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[named(1, 100, "Main")], T0);
+        assert_eq!(*os.set_calls.borrow(), 0);
+        assert_eq!(monitor.views()[&1].window_title.as_deref(), Some("Roblox — Main"));
+    }
+
+    #[test]
+    fn a_client_without_a_window_is_skipped() {
+        let os = FakeOs::with_client(100, JOIN);
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[named(1, 100, "Main")], T0);
+        assert_eq!(*os.set_calls.borrow(), 0);
+    }
+}
+
+#[cfg(test)]
+mod client_window_title_tests {
+    use super::*;
+
+    #[derive(serde::Deserialize)]
+    struct MaskCase {
+        name: String,
+        hidden: bool,
+        letters: i64,
+        expected: String,
+    }
+
+    #[test]
+    fn masking_matches_the_app_screen_case_by_case() {
+        // Os mesmos casos do src/utils/accountName.test.ts.
+        let cases: Vec<MaskCase> =
+            serde_json::from_str(include_str!("../../../src/utils/accountNameCases.json")).unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            assert_eq!(
+                mask_account_name(&case.name, case.hidden, case.letters),
+                case.expected,
+                "{:?} hidden={} letters={}",
+                case.name,
+                case.hidden,
+                case.letters
+            );
+        }
+    }
+
+    #[test]
+    fn the_label_is_the_alias_or_the_username() {
+        assert_eq!(window_account_label("Main", "annabelle", false, 0), "Main");
+        assert_eq!(window_account_label("", "annabelle", false, 0), "annabelle");
+        assert_eq!(window_account_label("", "annabelle", true, 3), "ann********");
+        assert_eq!(window_account_label("", "annabelle", true, 0), "************");
+    }
+
+    #[test]
+    fn the_effective_title_hides_only_our_own_name() {
+        let ours = client_window_title("No Connection Bob");
+        // O nome da conta nunca chega às regras do Watcher.
+        assert_eq!(effective_client_title(&ours, Some(&ours), None), "Roblox");
+        assert_eq!(effective_client_title(&ours, None, Some(&ours)), "Roblox");
+        // Título que o app não pôs passa como está.
+        assert_eq!(effective_client_title("Roblox — Error Code: 429", None, Some(&ours)), "Roblox — Error Code: 429");
+        assert_eq!(effective_client_title("Roblox Beta", None, None), "Roblox Beta");
+        assert_eq!(effective_client_title("", None, Some("")), "");
+    }
+
+    #[test]
+    fn the_plan_only_touches_the_normal_title() {
+        let main = client_window_title("Main");
+        assert_eq!(plan_window_title("Roblox", None, Some(&main)), Some(main.clone()));
+        assert_eq!(plan_window_title(&main, Some(&main), Some(&main)), None);
+        assert_eq!(plan_window_title(&main, Some(&main), None), Some("Roblox".into()));
+        assert_eq!(plan_window_title("Roblox", None, None), None);
+        assert_eq!(plan_window_title("Roblox Beta", None, Some(&main)), None);
+        assert_eq!(plan_window_title("Disconnected", None, Some(&main)), None);
     }
 }

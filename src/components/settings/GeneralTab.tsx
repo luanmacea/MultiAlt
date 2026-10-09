@@ -411,6 +411,15 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         label="Hide Robux When Hidden"
         description="Mask the Robux balance in the sidebar when names are hidden"
       />
+      {/* commands/client_health.rs: SetWindowText nas janelas que o app acompanha. */}
+      {isWindows && (
+        <Toggle
+          checked={s.get("General", "ShowAccountNameOnWindow", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "ShowAccountNameOnWindow", v)}
+          label="Show Account Name on Roblox Window"
+          description="Titles each Roblox window “Roblox — account” so you can tell them apart on the taskbar. Hidden names stay hidden."
+        />
+      )}
 
       <Divider />
 

@@ -112,6 +112,7 @@ export const SUITES: Record<string, TestSuite> = {
       "client_log_classifier_tests",
       "client_log_session_tests",
       "client_health_monitor_tests",
+      "client_window_title_tests",
     ],
     // A aba Auto Rejoin do Modo AFK e a moldura (abas, modal) que a abre.
     front: [

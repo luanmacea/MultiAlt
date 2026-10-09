@@ -193,8 +193,13 @@ async fn start_watcher(
                         || cfg.exit_on_beta
                         || cfg.exit_if_no_connection;
 
+                    let health = client_health_of(inst.user_id, inst.pid);
                     let title = if should_read_title {
-                        windows::get_window_title(hwnd)
+                        // O nome da conta que o app pôs no título (client_health.rs)
+                        // não conta para as regras: elas veem "Roblox".
+                        let raw = windows::get_window_title(hwnd);
+                        let applied = health.as_ref().and_then(|h| h.window_title.as_deref());
+                        effective_client_title(&raw, applied, None).to_string()
                     } else {
                         String::new()
                     };
@@ -243,7 +248,6 @@ async fn start_watcher(
 
                     if cfg.exit_if_no_connection {
                         let lower_title = title.to_lowercase();
-                        let health = client_health_of(inst.user_id, inst.pid);
                         if let Some(lost) = client_connection_lost(health.as_ref(), &lower_title) {
                             if lost {
                                 let since = disconnected_since
@@ -732,6 +736,7 @@ mod watcher_tests {
                 message: None,
                 since_ms: 0,
             }),
+            window_title: None,
         }
     }
 

@@ -3452,6 +3452,7 @@ mod launch_command_tests {
                     message: Some("bye".into()),
                     since_ms: 5,
                 }),
+                window_title: Some("Roblox — Main".into()),
             }),
         })
         .unwrap();

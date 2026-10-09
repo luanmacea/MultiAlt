@@ -6,6 +6,7 @@ import {
   maskAccountName,
   rawAccountLabel,
 } from "./accountName";
+import maskCases from "./accountNameCases.json";
 
 const ANN = { Username: "annabelle", Alias: "" };
 const ALIASED = { Username: "annabelle", Alias: "Main" };
@@ -76,5 +77,14 @@ describe("accountInitial", () => {
   it("com nomes ocultos não revela a inicial que a prévia não mostraria", () => {
     expect(accountInitial(ANN, { hideUsernames: true, hiddenNameLetters: 0 })).toBe("*");
     expect(accountInitial(ANN, { hideUsernames: true, hiddenNameLetters: 1 })).toBe("A");
+  });
+});
+
+// Os mesmos casos rodam no Rust (`mask_account_name`, client_health.rs), que
+// põe o nome no título da janela do Roblox: a barra de tarefas não pode
+// mostrar mais do que a tela do app.
+describe("casos compartilhados com o backend", () => {
+  it.each(maskCases)("maskAccountName($name, $hidden, $letters) = $expected", ({ name, hidden, letters, expected }) => {
+    expect(maskAccountName(name, hidden, letters)).toBe(expected);
   });
 });
