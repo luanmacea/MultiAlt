@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
+import { copyAccountSecret } from "../../utils/copySecret";
 import { collectGroupNames, parseGroupName } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
@@ -147,8 +148,24 @@ export function BottomActionBar() {
     // Um clique punha o cookie de toda a seleção na área de transferência sem
     // dizer o que um cookie entrega nem quantas contas iam junto.
     if (!(await confirmCopyCredential("cookie", cookies.length))) return;
-    await navigator.clipboard.writeText(cookies.join("\n"));
-    store.addToast(tr("Copied {{count}} cookies", { count: cookies.length }));
+    // Pelo backend: fora do histórico do Win+V e apagado sozinho em 30 s.
+    try {
+      const result = await copyAccountSecret(
+        accounts.map((a) => a.UserID),
+        "cookie",
+        () => cookies.join("\n")
+      );
+      store.addToast(
+        result.clearsInSecs
+          ? tr("Copied {{count}} cookies. Cleared from the clipboard in {{seconds}} s.", {
+              count: result.count,
+              seconds: result.clearsInSecs,
+            })
+          : tr("Copied {{count}} cookies", { count: result.count })
+      );
+    } catch {
+      store.addToast(tr("Failed to copy"));
+    }
   }
 
   async function handleMoveToGroup(group: string) {

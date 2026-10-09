@@ -142,6 +142,12 @@ const baseHandler: InvokeHandler = (cmd, args) => {
         iconUrl: game ? iconForGame(id, game.name) : null,
       };
     }
+    // Cópia de credencial: o backend devolve quantas linhas copiou e em quanto
+    // tempo apaga. O harness não toca na área de transferência de verdade.
+    case "copy_account_secret": {
+      const ids = ((args?.userIds as number[] | undefined) ?? []).map(Number);
+      return { count: ids.length, clearsInSecs: 30 };
+    }
     // Sem atualização: o diálogo de update não pode tapar a tela em teste.
     case "check_for_updates_with_channels":
       return null;

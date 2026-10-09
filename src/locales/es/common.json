@@ -2070,5 +2070,8 @@
   "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.": "Escribe el nombre de un grupo, o pega su enlace o ID. La búsqueda se hace sola mientras escribes. Con el campo vacío, ves grupos populares.",
   "Type at least 2 characters to search.": "Escribe al menos 2 caracteres para buscar.",
   "type: {{type}}": "tipo: {{type}}",
-  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Entrada al grupo terminada: {{joined}} entraron, {{pending}} pendientes, {{confirm}} necesitan confirmación"
+  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Entrada al grupo terminada: {{joined}} entraron, {{pending}} pendientes, {{confirm}} necesitan confirmación",
+  "Anything else running on this PC can read the clipboard while it is there. Cleared from the clipboard in {{seconds}} s, and kept out of the Win+V history.": "Cualquier otro programa abierto en esta PC puede leer el portapapeles mientras esté ahí. Se borra del portapapeles en {{seconds}} s y queda fuera del historial de Win+V.",
+  "Copied {{count}} cookies. Cleared from the clipboard in {{seconds}} s.": "{{count}} cookies copiadas. Se borran del portapapeles en {{seconds}} s.",
+  "Copied {{label}}. Cleared from the clipboard in {{seconds}} s.": "{{label}} copiado. Se borra del portapapeles en {{seconds}} s."
 }

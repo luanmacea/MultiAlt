@@ -177,8 +177,41 @@ describe("ContextMenu — copy submenu", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expected));
   });
 
-  it("copies the cookie of every selected account once the warning is accepted", async () => {
+  it("copies the cookie of every selected account through the backend once the warning is accepted", async () => {
     promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
+    setInvokeMap({ copy_account_secret: { count: 2, clearsInSecs: 30 } });
+    const store = renderMenu({}, [A, B]);
+    await userEvent.click(item("Cookie"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("copy_account_secret", { userIds: [1, 2], kind: "cookie" })
+    );
+    expect(writeText).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith("Copied cookie. Cleared from the clipboard in 30 s.")
+    );
+  });
+
+  it.each([
+    ["Password", "password"],
+    ["User:Pass", "userpass"],
+  ])("copies the %s through the backend too", async (label, kind) => {
+    promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
+    setInvokeMap({ copy_account_secret: { count: 2, clearsInSecs: 30 } });
+    renderMenu({}, [A, B]);
+    await userEvent.click(item(label));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("copy_account_secret", { userIds: [1, 2], kind })
+    );
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the plain clipboard where the protected copy does not exist", async () => {
+    promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
+    setInvokeMap({
+      copy_account_secret: () => {
+        throw "CLIPBOARD_UNSUPPORTED";
+      },
+    });
     renderMenu({}, [A, B]);
     await userEvent.click(item("Cookie"));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
@@ -258,7 +291,9 @@ describe("ContextMenu — copiar credencial avisa antes", () => {
       })
     );
     await waitFor(() => expect(store.reloadSettings).toHaveBeenCalled());
-    expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2");
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("copy_account_secret", { userIds: [1, 2], kind: "cookie" })
+    );
   });
 
   it("skips the warning once it has been turned off", async () => {
@@ -266,7 +301,9 @@ describe("ContextMenu — copiar credencial avisa antes", () => {
     settings.General.WarnOnCopyCredential = "false";
     renderWithPasswords({ settings });
     await userEvent.click(item("Cookie"));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("copy_account_secret", { userIds: [1, 2], kind: "cookie" })
+    );
     expect(confirmWithOptOutMock).not.toHaveBeenCalled();
   });
 
