@@ -2080,5 +2080,7 @@
   "Kicked: {{message}}": "Foi expulso: {{message}}",
   "Roblox error code {{code}}": "Código de erro do Roblox: {{code}}",
   "The server shut down": "O servidor fechou",
-  "Disconnected from the game": "Caiu do jogo"
+  "Disconnected from the game": "Caiu do jogo",
+  "Show Account Name on Roblox Window": "Mostrar o nome da conta na janela do Roblox",
+  "Titles each Roblox window “Roblox — account” so you can tell them apart on the taskbar. Hidden names stay hidden.": "Muda o título de cada janela do Roblox para “Roblox — conta”, para saber quem é quem na barra de tarefas. Nomes ocultos continuam ocultos."
 }

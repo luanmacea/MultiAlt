@@ -2080,5 +2080,7 @@
   "Kicked: {{message}}": "Kicked: {{message}}",
   "Roblox error code {{code}}": "Roblox error code {{code}}",
   "The server shut down": "The server shut down",
-  "Disconnected from the game": "Disconnected from the game"
+  "Disconnected from the game": "Disconnected from the game",
+  "Show Account Name on Roblox Window": "Show Account Name on Roblox Window",
+  "Titles each Roblox window “Roblox — account” so you can tell them apart on the taskbar. Hidden names stay hidden.": "Titles each Roblox window “Roblox — account” so you can tell them apart on the taskbar. Hidden names stay hidden."
 }

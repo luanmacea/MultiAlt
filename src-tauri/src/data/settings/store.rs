@@ -69,6 +69,11 @@ impl SettingsStore {
             ("AutoCloseLastProcess", "false", None),
             ("AutoCloseRobloxForMultiRbx", "false", None),
             ("ShowPresence", "true", None),
+            (
+                "ShowAccountNameOnWindow",
+                "true",
+                Some("Titles each Roblox window this app tracks \"Roblox — <account>\" (masked when names are hidden)"),
+            ),
             ("PresenceUpdateRate", "5", None),
             ("WarnOnOnlineJoin", "true", None),
             ("WarnOnCopyCredential", "true", None),
