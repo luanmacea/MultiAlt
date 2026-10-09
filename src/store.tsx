@@ -20,6 +20,8 @@ import type {
   LaunchQueuePayload,
   ServerPreference,
   UnidentifiedClient,
+  ClientDrop,
+  ClientHealth,
   VaultKeyWarning,
 } from "./types";
 import { playAfkBeep } from "./utils/afkBeep";
@@ -122,6 +124,7 @@ import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import { accountLabel, maskAccountName } from "./utils/accountName";
+import { clientHealthLabel } from "./utils/clientHealth";
 import {
   type UpdaterReleaseChannel,
   type UpdaterFeatureChannel,
@@ -144,6 +147,8 @@ interface RunningInstanceEntry {
   pid?: number;
   /** Aberto fora do app (pelo site) e reconhecido depois. */
   adopted?: boolean;
+  /** Queda lida do log (`commands/client_health.rs`). */
+  health?: ClientHealth | null;
 }
 
 interface OptimizationWarningPayload {
@@ -461,6 +466,8 @@ export interface StoreValue {
   adoptedClients: Set<number>;
   /** Clientes abertos fora do app que o backend não reconheceu sozinho. */
   unidentifiedClients: UnidentifiedClient[];
+  /** Queda (com motivo) de cada conta em jogo, lida do log do Roblox. */
+  clientHealth: Map<number, ClientHealth>;
   /** Diz ao app de quem é um cliente não identificado (não fecha nada). */
   identifyExternalClient: (pid: number, userId: number) => Promise<boolean>;
   /** Traz para a frente a janela de um cliente pelo PID. */
@@ -782,6 +789,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [launchedByProgram, setLaunchedByProgram] = useState<Set<number>>(new Set());
   const [adoptedClients, setAdoptedClients] = useState<Set<number>>(new Set());
   const [unidentifiedClients, setUnidentifiedClients] = useState<UnidentifiedClient[]>([]);
+  const [clientHealth, setClientHealth] = useState<Map<number, ClientHealth>>(new Map());
   // O efeito do polling registra aqui o seu refresh, para identificar um
   // cliente refletir na hora em vez de esperar o próximo tique.
   const refreshRunningRef = useRef<() => Promise<void>>(async () => {});
@@ -2618,6 +2626,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
         }
       ),
+      // Queda lida do log do Roblox (commands/client_health.rs): vale com o
+      // Watcher desligado também — só avisa, não fecha nada.
+      listen<{ userId: number; drop: ClientDrop | null }>("roblox-client-health", (e) => {
+        const { userId, drop } = e.payload;
+        if (!drop) return;
+        const status = clientHealthLabel({ pid: 0, logFound: true, drop }, tr);
+        if (!status) return;
+        const acct = accountsRef.current.find((a) => a.UserID === userId);
+        const name = accountLabel(acct, nameMaskingRef.current, userId);
+        addToast(tr("{{name}} in Roblox: {{status}}", { name, status: status.label }), "warn");
+        void refreshRunningRef.current();
+      }),
       listen<{ userId: number; group?: string }>("account-moderated", (e) => {
         const userId = e.payload.userId;
         // The backend already moved the account into the "moderadas" group and
@@ -2846,16 +2866,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const rows = await invoke<RunningInstanceEntry[]>("get_running_instances");
         const next = new Set<number>();
         const adopted = new Set<number>();
+        const health = new Map<number, ClientHealth>();
         for (const row of rows) {
           const userId = row.userId ?? row.user_id;
           if (typeof userId === "number") {
             next.add(userId);
             if (row.adopted) adopted.add(userId);
+            if (row.health) health.set(userId, row.health);
           }
         }
         if (!cancelled) {
           setLaunchedByProgram(next);
           setAdoptedClients(adopted);
+          setClientHealth(health);
         }
       } catch {
       }
@@ -3217,6 +3240,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     launchedByProgram,
     adoptedClients,
     unidentifiedClients,
+    clientHealth,
     identifyExternalClient,
     focusClientWindow,
     joinServer,

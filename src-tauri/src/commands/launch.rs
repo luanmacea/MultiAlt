@@ -2127,6 +2127,9 @@ struct RunningInstance {
     browser_tracker_id: String,
     /// Aberto fora do app (pelo site) e reconhecido depois — ver external_clients.rs.
     adopted: bool,
+    /// Queda lida do log do cliente — ver client_health.rs. `None` enquanto o
+    /// monitor não viu este PID.
+    health: Option<ClientHealthView>,
 }
 
 #[tauri::command]
@@ -2139,6 +2142,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
             .map(|p| RunningInstance {
                 pid: p.pid,
                 user_id: p.user_id,
+                health: client_health_of(p.user_id, p.pid),
                 browser_tracker_id: p.browser_tracker_id,
                 adopted: p.adopted,
             })
@@ -2154,6 +2158,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 user_id: p.user_id,
                 browser_tracker_id: p.browser_tracker_id,
                 adopted: false,
+                health: None,
             })
             .collect());
     }

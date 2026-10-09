@@ -17,6 +17,7 @@ import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
+import { ClientHealthNote } from "./ClientHealthNote";
 import type {
   FriendLinkAccountState,
   LaunchQueueEntry,
@@ -509,6 +510,8 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                     className="accent-[var(--accent-color)]"
                   />
                   <span className="text-[var(--panel-fg)] truncate">{name}</span>
+                  {/* Queda com motivo, lida do log do Roblox (client_health.rs). */}
+                  <ClientHealthNote health={store.clientHealth?.get(userId)} className="shrink" />
                   {store.adoptedClients.has(userId) && (
                     <span
                       className="shrink-0 flex items-center gap-1 theme-muted"

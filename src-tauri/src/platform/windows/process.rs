@@ -63,7 +63,32 @@ pub fn find_legacy_ram_pids() -> Vec<u32> {
     }
 }
 
+/// PIDs que o próprio app mandou fechar (Fechar, Auto Rejoin, Watcher...). O
+/// monitor de quedas (`commands/client_health.rs`) usa isto para não chamar de
+/// "fechou sozinho" o cliente que o app fechou. Guarda só os últimos.
+static TERMINATED_BY_APP: LazyLock<Mutex<std::collections::VecDeque<u32>>> =
+    LazyLock::new(|| Mutex::new(std::collections::VecDeque::new()));
+const TERMINATED_BY_APP_MEMORY: usize = 64;
+
+fn note_terminated_by_app(pid: u32) {
+    if let Ok(mut pids) = TERMINATED_BY_APP.lock() {
+        pids.retain(|p| *p != pid);
+        pids.push_back(pid);
+        while pids.len() > TERMINATED_BY_APP_MEMORY {
+            pids.pop_front();
+        }
+    }
+}
+
+pub fn was_terminated_by_app(pid: u32) -> bool {
+    TERMINATED_BY_APP
+        .lock()
+        .map(|pids| pids.contains(&pid))
+        .unwrap_or(false)
+}
+
 pub fn kill_process(pid: u32) -> Result<(), String> {
+    note_terminated_by_app(pid);
     unsafe {
         let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
         if handle.is_null() {
