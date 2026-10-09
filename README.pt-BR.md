@@ -4,7 +4,7 @@
 ![MultiAlt: escolha um jogo e entre com todas as contas selecionadas](site/assets/screens/choose-game.png)
 
 <p align="center">
-  <a href="https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
+  <a href="https://multialt.pages.dev/get/readme/"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
   <br>
   <sub>Windows 10/11 · <a href="https://github.com/luanmacea/MultiAlt/releases/latest">outros downloads (versão completa)</a> · <a href="https://multialt.pages.dev/pt/">🌐 site</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
 </p>
