@@ -57,6 +57,18 @@ async fn refresh_account_session(state: &AccountStore, user_id: i64) -> Result<S
     Ok(new_cookie)
 }
 
+/// Grava o `.ROBLOSECURITY` novo que o Roblox devolveu numa resposta à chamada
+/// feita com `sent` (registrado em `api::cookie_rotation`). Só troca se a conta
+/// ainda estiver com `sent`, e pelo caminho normal criptografado. Falha de
+/// gravação não derruba a chamada; a mensagem não leva o cookie.
+fn adopt_rotated_cookie(state: &AccountStore, user_id: i64, sent: &str) {
+    if let Some(new_cookie) = api::cookie_rotation::take_rotated(sent) {
+        if let Err(e) = state.replace_token_if(user_id, sent, &new_cookie) {
+            eprintln!("[cookie-rotation] could not save the new cookie of account {user_id}: {e}");
+        }
+    }
+}
+
 async fn run_with_session_retry<T, F, Fut>(
     state: &AccountStore,
     user_id: i64,
@@ -67,7 +79,9 @@ where
     Fut: Future<Output = Result<T, String>>,
 {
     let cookie = get_cookie(state, user_id)?;
-    match operation(cookie).await {
+    let first = operation(cookie.clone()).await;
+    adopt_rotated_cookie(state, user_id, &cookie);
+    match first {
         Ok(value) => Ok(value),
         Err(error) => {
             if !is_auth_session_error(&error) {
@@ -84,7 +98,9 @@ where
                     }
                 })?;
 
-            match operation(refreshed_cookie).await {
+            let retried = operation(refreshed_cookie.clone()).await;
+            adopt_rotated_cookie(state, user_id, &refreshed_cookie);
+            match retried {
                 Ok(value) => Ok(value),
                 Err(retry_error) => {
                     if is_auth_session_error(&retry_error) {
@@ -153,7 +169,9 @@ where
     Fut: Future<Output = Result<T, String>>,
 {
     let cookie = get_cookie(state, user_id)?;
-    operation(cookie).await
+    let result = operation(cookie.clone()).await;
+    adopt_rotated_cookie(state, user_id, &cookie);
+    result
 }
 
 /// Ticket de auth para os links que o menu de contexto copia (`roblox-player://`
