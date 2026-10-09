@@ -18,6 +18,7 @@ import type {
   PlatformCapabilities,
   FriendLinkState,
   LaunchQueuePayload,
+  ModerationStatus,
   ServerPreference,
   UnidentifiedClient,
   VaultKeyWarning,
@@ -456,6 +457,14 @@ export interface StoreValue {
 
   avatarUrls: Map<number, string>;
   presenceByUserId: Map<number, number>;
+  /**
+   * Moderação lida nesta sessão (banida/advertida/encerrada), por conta. Vem do
+   * evento `account-moderation`: consulta no painel, "conferir contas" e a
+   * checagem antes do launch. Só em memória.
+   */
+  moderationByUserId: Map<number, ModerationStatus>;
+  /** Consulta a moderação de uma conta agora (sem refresh de sessão). */
+  checkModeration: (userId: number) => Promise<ModerationStatus | null>;
   launchedByProgram: Set<number>;
   /** Contas de `launchedByProgram` cujo cliente foi aberto fora do app (pelo site). */
   adoptedClients: Set<number>;
@@ -779,6 +788,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeData | null>(null);
   const [avatarUrls, setAvatarUrls] = useState<Map<number, string>>(new Map());
   const [presenceByUserId, setPresenceByUserId] = useState<Map<number, number>>(new Map());
+  const [moderationByUserId, setModerationByUserId] = useState<Map<number, ModerationStatus>>(new Map());
+  const rememberModeration = useCallback((userId: number, status: ModerationStatus) => {
+    setModerationByUserId((prev) => {
+      const next = new Map(prev);
+      next.set(userId, status);
+      return next;
+    });
+  }, []);
   const [launchedByProgram, setLaunchedByProgram] = useState<Set<number>>(new Set());
   const [adoptedClients, setAdoptedClients] = useState<Set<number>>(new Set());
   const [unidentifiedClients, setUnidentifiedClients] = useState<UnidentifiedClient[]>([]);
@@ -1348,6 +1365,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setAccounts((prev) => prev.map((a) => (a.UserID === account.UserID ? account : a)));
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  /**
+   * Moderação de uma conta, agora (ignora o cache do backend). Leitura: nunca
+   * renova a sessão. Erro (limite do Roblox, rede, cookie vencido) vira toast
+   * e **não** muda o que a tela mostra — 429 nunca vira "banida".
+   */
+  async function checkModeration(userId: number): Promise<ModerationStatus | null> {
+    try {
+      const status = await invoke<ModerationStatus>("check_account_moderation", {
+        userId,
+        force: true,
+      });
+      rememberModeration(userId, status);
+      return status;
+    } catch (e) {
+      addToast(String(e), "warn");
+      return null;
     }
   }
 
@@ -2618,6 +2654,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
         }
       ),
+      // Moderação lida pelo backend (painel, "conferir contas", antes do launch).
+      listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
+        if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
+      }),
       listen<{ userId: number; group?: string }>("account-moderated", (e) => {
         const userId = e.payload.userId;
         // The backend already moved the account into the "moderadas" group and
@@ -3214,6 +3254,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     devMode,
     avatarUrls,
     presenceByUserId,
+    moderationByUserId,
+    checkModeration,
     launchedByProgram,
     adoptedClients,
     unidentifiedClients,

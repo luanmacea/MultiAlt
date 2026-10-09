@@ -89,6 +89,8 @@ export const SUITES: Record<string, TestSuite> = {
       "clipboard_command_tests",
       "win_clipboard_tests",
       "clipboard_write_only_tests",
+      "moderation_http_tests",
+      "moderation_command_tests",
       "remember_unlock_tests",
       "crypto_tests",
       "vault_key_tests",
@@ -106,6 +108,9 @@ export const SUITES: Record<string, TestSuite> = {
       // Cópia de credencial pelo backend (ideia 26).
       "src/components/menus/ContextMenu.test.tsx",
       "src/components/layout/BottomActionBar.test.tsx",
+      // Moderação (ideia 8): selos e legenda.
+      "src/utils/moderation.test.ts",
+      "src/components/layout/StatusBar.test.tsx",
     ],
   },
   botting: {

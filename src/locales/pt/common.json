@@ -2073,5 +2073,20 @@
   "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Entrada no grupo concluída: {{joined}} entraram, {{pending}} pendentes, {{confirm}} precisam de confirmação",
   "Anything else running on this PC can read the clipboard while it is there. Cleared from the clipboard in {{seconds}} s, and kept out of the Win+V history.": "Qualquer outro programa aberto neste PC pode ler a área de transferência enquanto ela estiver lá. Apagado da área de transferência em {{seconds}} s, e fora do histórico do Win+V.",
   "Copied {{count}} cookies. Cleared from the clipboard in {{seconds}} s.": "{{count}} cookies copiados. Apagados da área de transferência em {{seconds}} s.",
-  "Copied {{label}}. Cleared from the clipboard in {{seconds}} s.": "{{label}} copiado. Apagado da área de transferência em {{seconds}} s."
+  "Copied {{label}}. Cleared from the clipboard in {{seconds}} s.": "{{label}} copiado. Apagado da área de transferência em {{seconds}} s.",
+  "{{status}} — moderator note: {{note}}": "{{status}} — nota do moderador: {{note}}",
+  "Ask Roblox if an account is banned right before opening it, and skip it if so": "Pergunta ao Roblox se a conta está banida logo antes de abri-la e, se estiver, pula essa conta",
+  "Asks Roblox if this account is banned or warned. Read-only: it doesn't sign anything out.": "Pergunta ao Roblox se esta conta está banida ou advertida. Só leitura: não desconecta nada.",
+  "Ban ended {{date}} — reactivate it on roblox.com": "Ban terminou em {{date}} — reative a conta no roblox.com",
+  "Ban status not checked yet": "Banimento ainda não conferido",
+  "banned": "banida",
+  "Banned": "Banida",
+  "Banned until {{date}}": "Banida até {{date}}",
+  "Check ban status": "Conferir banimento",
+  "Check Bans Before Launch": "Conferir banimento antes de abrir",
+  "Moderator note: {{note}}": "Nota do moderador: {{note}}",
+  "No moderation": "Sem moderação",
+  "Terminated": "Encerrada",
+  "warned": "advertida",
+  "Warned": "Advertida"
 }

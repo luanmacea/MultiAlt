@@ -5,6 +5,7 @@ import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 import { TONE_STYLES } from "../../utils/toastTone";
 import { StatusBadge } from "../accounts/StatusBadge";
+import { moderationBadge } from "../../utils/moderation";
 
 /**
  * O chip do rodapé cobre as duas formas de criar conta, e o destino do clique
@@ -36,6 +37,11 @@ export function StatusBar() {
     showPresence
       ? store.accounts.filter((a) => match(store.presenceByUserId.get(a.UserID) ?? 0)).length
       : 0;
+  const moderationKinds = new Set(
+    store.accounts
+      .map((a) => moderationBadge(store.moderationByUserId?.get(a.UserID)))
+      .filter((kind): kind is "banned" | "warned" => kind !== null)
+  );
   const onlineCount = countPresence((p) => p === 1);
   const inGameCount = countPresence((p) => p >= 2 && p !== 3);
   const studioCount = countPresence((p) => p === 3);
@@ -209,6 +215,20 @@ export function StatusBar() {
           <StatusBadge kind="studio" label={t("studio")} decorative />
           {t("studio")}
         </span>
+        {/* Moderação só entra na legenda quando alguma conta tem o selo: são
+            estados raros, e a legenda fixa já é longa. */}
+        {moderationKinds.has("banned") && (
+          <span className="inline-flex items-center gap-1 shrink-0">
+            <StatusBadge kind="banned" label={t("banned")} decorative />
+            {t("banned")}
+          </span>
+        )}
+        {moderationKinds.has("warned") && (
+          <span className="inline-flex items-center gap-1 shrink-0">
+            <StatusBadge kind="warned" label={t("warned")} decorative />
+            {t("warned")}
+          </span>
+        )}
       </div>
     </div>
   );

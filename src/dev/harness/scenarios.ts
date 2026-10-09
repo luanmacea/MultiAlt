@@ -1245,9 +1245,73 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
   };
 }
 
+/**
+ * Moderação como o backend devolve (`check_account_moderation`): o mesmo
+ * resumo que `usermoderation/v1/not-approved` vira em `commands/moderation.rs`.
+ * Conta 2 banida por 3 dias com nota, 3 advertida, 4 encerrada, 5 com o Roblox
+ * limitando (429), o resto limpa.
+ */
+function harnessModeration(userId: number): { status?: Record<string, unknown>; error?: string } {
+  const slot = userId - 1000;
+  if (slot === 2) {
+    return {
+      status: {
+        state: "banned",
+        until: new Date(Date.now() + 3 * 86400000).toISOString(),
+        note: "Exploiting",
+        punishment: "Ban 3 Days",
+      },
+    };
+  }
+  if (slot === 3) {
+    return { status: { state: "warned", until: null, note: "Be respectful in chat", punishment: "Warn" } };
+  }
+  if (slot === 4) {
+    return { status: { state: "terminated", until: null, note: null, punishment: "Delete" } };
+  }
+  if (slot === 5) return { error: "Roblox is limiting requests right now. Try again in a minute." };
+  return { status: { state: "clean", until: null, note: null, punishment: null } };
+}
+
+/** O texto que `auth.rs` devolve quando o Roblox pede verificação (ideia 10). */
+const HARNESS_CHALLENGE_ERROR =
+  "Roblox wants to verify this account (2-step verification). Open it in the browser (account panel › Tools › Browser), finish the check there, then try again.";
+
 const SCENARIOS: Record<string, () => void> = {
   default() {
     setInvokeHandler(baseHandler);
+  },
+
+  /**
+   * Contas banidas/advertidas/encerradas (ideia 8) e uma que pede verificação
+   * ao abrir (ideia 10, conta 6). Ver `harnessModeration`.
+   */
+  moderation() {
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "check_account_moderation") {
+        const userId = Number(args?.userId);
+        const result = harnessModeration(userId);
+        if (result.error) throw result.error;
+        harnessEmit("account-moderation", { userId, status: result.status });
+        return result.status;
+      }
+      if (cmd === "launch_roblox") {
+        const userId = Number(args?.userId);
+        if (userId === 1006) throw HARNESS_CHALLENGE_ERROR;
+        const result = harnessModeration(userId);
+        const state = result.status?.state;
+        if (state === "banned" || state === "terminated") {
+          harnessEmit("account-moderation", { userId, status: result.status });
+          throw state === "terminated"
+            ? "Skipped: Roblox terminated this account."
+            : "Skipped: this account is banned until " +
+                new Date(String(result.status?.until)).toLocaleString() +
+                '. Moderator note: "Exploiting"';
+        }
+        return null;
+      }
+      return baseHandler(cmd, args);
+    });
   },
 
   /**
