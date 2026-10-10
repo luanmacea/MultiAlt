@@ -56,9 +56,9 @@ fn normalize_updater_feature_channel(raw: &str) -> &'static str {
 /// Sai das features de compilação, não da setting: a setting
 /// `General.UpdaterFeatureChannel` diz a edição que a pessoa **quer**; isto diz
 /// a que está rodando. A completa é a que o release compila com
-/// `--features nexus,webserver,avatar-batch`.
+/// `--features full` (toda feature opcional; ver o Cargo.toml).
 pub(crate) const RUNNING_FEATURE_CHANNEL: &str =
-    if cfg!(all(feature = "nexus", feature = "webserver", feature = "avatar-batch")) {
+    if cfg!(feature = "full") {
         "nexus-ws"
     } else {
         "standard"
@@ -496,7 +496,7 @@ mod updater_tests {
 
     #[test]
     fn the_running_edition_comes_from_the_compiled_features() {
-        let complete = cfg!(all(feature = "nexus", feature = "webserver", feature = "avatar-batch"));
+        let complete = cfg!(feature = "full");
         assert_eq!(RUNNING_FEATURE_CHANNEL, if complete { "nexus-ws" } else { "standard" });
         // É um dos dois canais que o updater conhece.
         assert_eq!(normalize_updater_feature_channel(RUNNING_FEATURE_CHANNEL), RUNNING_FEATURE_CHANNEL);
