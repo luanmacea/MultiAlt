@@ -35,7 +35,7 @@ de subir a próxima:
 | 1.2.0 | **Conta** (8, 10, 26, 7, 9) + ícones na legenda de status | 10/10/2026 | 10/10/2026 | "minor update"; `.exe` e MSI limpos no Defender e VirusTotal |
 | 1.3 (próxima) | **Quedas** (1, 19, 4) | branch `feature/quedas` | — | não antes de 12/10/2026; falta teste do dono com cliente real |
 | 1.4 | **Reconexão** (2, 14, 23) — inclui a 1.3 | branch `feature/reconexao` (sai da `feature/quedas`) | — | API nativa nova (`SetThreadExecutionState`); falta teste do dono com cliente real |
-| 1.5 | **Desempenho** (18, 20, 22) — inclui a 1.3 e a 1.4 | branch `feature/desempenho` (recebeu a `feature/reconexao`) | — | tudo opcional e desligado; volume ao vivo (20) só na edição completa (feature `live-audio`, dentro do `full`); falta teste do dono com cliente real ([performance.md](features/performance.md)) |
+| 1.5 | **Desempenho** (18, 20, 22) — inclui a 1.3 e a 1.4 | branch `feature/desempenho` (recebeu a `feature/reconexao`) | — | tudo opcional e desligado; volume ao vivo (20) nas duas edições (feature `live-audio`, dentro do `standard`); falta teste do dono com cliente real ([performance.md](features/performance.md)) |
 
 ## Pacotes
 

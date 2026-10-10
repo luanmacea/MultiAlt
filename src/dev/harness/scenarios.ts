@@ -2017,7 +2017,7 @@ const SCENARIOS: Record<string, () => void> = {
             pid: row.pid,
             logFound: true,
             drop: row.drop,
-            windowTitle: `Roblox — ${row.userId}`,
+            windowTitle: `${row.userId} — Roblox`,
             notResponding: row.userId === hungUserId,
             inGame: !row.drop,
           },

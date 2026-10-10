@@ -150,4 +150,4 @@ jobs:
       # um `cargo check` dela repetia o trabalho. Fica so a variante padrao,
       # que compila sem as features e o teste nao cobre.
       - name: Check Rust backend (standard build)
-        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features --features avatar-batch
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features --features standard

@@ -76,7 +76,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `AutoCloseRobloxForMultiRbx` | `false` | Fecha Roblox abertos se não conseguir ativar multi-Roblox. |
 | `EnableMultiRbx` | — (false) | Multi-Roblox; também controla a limpeza ao sair do app. |
 | `ShowPresence` | `true` | Mostra presença na lista. |
-| `ShowAccountNameOnWindow` | `true` | Só Windows: título "Roblox — conta" em cada janela que o app acompanha (mascarado com `HideUsernames`). Ver [watcher.md](watcher.md#nome-da-conta-na-janela). |
+| `ShowAccountNameOnWindow` | `true` | Só Windows: título "conta — Roblox" (nome primeiro) em cada janela que o app acompanha (mascarado com `HideUsernames`). Ver [watcher.md](watcher.md#nome-da-conta-na-janela). |
 | `PresenceUpdateRate` | `5` | Minutos entre atualizações de presença (mínimo efetivo 30 s). |
 | `WarnOnOnlineJoin` | `true` | Confirma antes de entrar com conta online. |
 | `WarnOnCopyCredential` | `true` | Confirma antes de copiar cookie/senha para a área de transferência (opt-out no próprio aviso). |
@@ -165,7 +165,7 @@ Fora dos perfis, uma chave para todos os clientes (cartão **While you play** da
 | Chave | Default | Significado |
 |---|---|---|
 | `FollowFocus` | `false` | Otimização que segue o foco: o cliente em uso (que o app abriu) a toda velocidade, os outros com a política de fundo; 35 s de carência para cliente novo. |
-| `MuteBackgroundClients` | `false` | Fundo mudo: só o cliente em uso faz som (mixer do Windows). Só vale no binário com a feature `live-audio` (só na edição completa); sem ela (edição padrão) a opção nem aparece. |
+| `MuteBackgroundClients` | `false` | Fundo mudo: só o cliente em uso faz som (mixer do Windows). Só vale no binário com a feature `live-audio` (nas duas edições, via `standard`); sem ela a opção nem aparece. |
 
 Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
 
