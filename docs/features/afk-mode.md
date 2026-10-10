@@ -105,7 +105,7 @@ sequenceDiagram
 [platform/windows/power.rs](../../src-tauri/src/platform/windows/power.rs).
 Enquanto o **Modo AFK**, o **Auto Rejoin** ou a **reconexão automática** roda,
 o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado,
-"Keep the PC awake while AFK Mode or Auto Rejoin runs" em Settings › General).
+"Keep the PC awake while accounts are kept in game" em Settings › General).
 
 - **Só o sistema, nunca a tela:** `SetThreadExecutionState(ES_CONTINUOUS |
   ES_SYSTEM_REQUIRED)`. A tela continua apagando no tempo do Windows (o pedido

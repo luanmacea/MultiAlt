@@ -32,9 +32,29 @@ function waitingLabel(ms: number, attempt: number, max: number, t: Translate): s
   });
 }
 
+/**
+ * O erro da tentativa na língua da tela. As frases que o backend escreve
+ * (`RECONNECT_ERROR_*` em commands/reconnect.rs) chegam em inglês; o teste lê
+ * a lista do fonte do Rust. Outro texto (erro do launch) passa como veio.
+ */
+export function reconnectErrorText(error: string, t: Translate): string {
+  switch (error) {
+    case "The client was closed":
+      return t("The client was closed");
+    case "It did not get into the game in 2 minutes":
+      return t("It did not get into the game in 2 minutes");
+    case "The old client did not close":
+      return t("The old client did not close");
+    case "The Roblox client did not start":
+      return t("The Roblox client did not start");
+    default:
+      return error;
+  }
+}
+
 export function autoReconnectLabel(entry: AutoReconnectEntry, nowMs: number, t: Translate): AutoReconnectLabel {
   const counts = { attempt: entry.attempt, max: entry.maxAttempts };
-  const detail = entry.error ?? "";
+  const detail = entry.error ? reconnectErrorText(entry.error, t) : "";
   switch (entry.phase) {
     case "waiting":
       return {

@@ -368,6 +368,10 @@ describe("SettingsPage sections", () => {
 });
 
 describe("GeneralTab", () => {
+  const WAIT_FOR_GAME = "Start the next account once the previous one is in the game";
+  const DISABLED_BY_SERIAL =
+    "Not used while “Launch one account at a time” is on. It applies again when you turn that off.";
+
   function renderGeneral(initial: Record<string, Record<string, string>> = {}) {
     stored = initial;
     renderTab((s) => <GeneralTab s={s} />);
@@ -500,16 +504,30 @@ describe("GeneralTab", () => {
   it("disables the join delay while accounts launch one at a time", async () => {
     renderGeneral({ General: { AsyncJoin: "true" } });
     expect(await screen.findByLabelText("Account Join Delay")).toBeDisabled();
+    expect(screen.getByText(DISABLED_BY_SERIAL)).toBeInTheDocument();
+  });
+
+  /**
+   * "Esperar cada conta abrir" e "Esperar cada conta entrar no jogo" pareciam
+   * a mesma coisa. O `AsyncJoin` (launch.rs) espera o sinal `next_account`, que
+   * nada na tela manda: na prática são 2 minutos entre contas. A descrição diz
+   * isso, e o outro interruptor diz que só encurta a espera do delay.
+   */
+  it("tells the two ways of waiting between accounts apart", async () => {
+    renderGeneral();
     expect(
-      screen.getByText("Not used while accounts launch one at a time.")
+      await screen.findByText(
+        "Leaves 2 minutes between accounts, so each one has time to load. The slowest option. Off: accounts start spaced by the delay below."
+      )
     ).toBeInTheDocument();
+    expect(screen.queryByText(/Waits for each account to open/)).not.toBeInTheDocument();
   });
 
   /**
    * launch.rs (`wait_for_game_join`): a fila segue quando o log diz que a
    * conta entrou. Só no Windows, onde o log é lido; nasce ligado.
    */
-  describe("Wait for each account to get into the game", () => {
+  describe("Start the next account once the previous one is in the game", () => {
     let userAgent: { mockRestore: () => void } | null = null;
     beforeEach(() => {
       userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
@@ -520,21 +538,30 @@ describe("GeneralTab", () => {
 
     it("is on by default and turning it off saves false", async () => {
       renderGeneral();
-      const toggle = (await screen.findByText("Wait for each account to get into the game")).closest(
-        "[role=switch]"
-      );
+      const toggle = (await screen.findByText(WAIT_FOR_GAME)).closest("[role=switch]");
       expect(toggle).toHaveAttribute("aria-checked", "true");
       await userEvent.click(toggle as HTMLElement);
       await expectSaved("General", "WaitForGameJoin", "false");
     });
 
-    it("is not used while accounts launch one at a time", async () => {
+    it("says it only shortens the delay above", async () => {
+      renderGeneral();
+      expect(
+        await screen.findByText(
+          "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer)."
+        )
+      ).toBeInTheDocument();
+    });
+
+    /**
+     * Cinza e ainda "ligado" ao lado de "não usado": a dica diz qual opção
+     * manda e que volta a valer quando ela for desligada.
+     */
+    it("is not used while accounts launch one at a time, and says when it applies again", async () => {
       renderGeneral({ General: { AsyncJoin: "true" } });
-      const toggle = (await screen.findByText("Wait for each account to get into the game")).closest(
-        "[role=switch]"
-      );
+      const toggle = (await screen.findByText(WAIT_FOR_GAME)).closest("[role=switch]");
       expect(toggle).toHaveAttribute("aria-disabled", "true");
-      expect(screen.getAllByText("Not used while accounts launch one at a time.")).toHaveLength(2);
+      expect(screen.getAllByText(DISABLED_BY_SERIAL)).toHaveLength(2);
     });
 
     /** commands/reconnect.rs: padrão de todas as contas, nasce desligado. */
@@ -546,13 +573,28 @@ describe("GeneralTab", () => {
       await expectSaved("General", "AutoReconnect", "true");
     });
 
-    /** commands/keep_awake.rs: nasce ligado; desligar grava false. */
+    /** Descrição curta, sem "cliente", e dizendo que janela aberta pelo site fica de fora. */
+    it("describes auto-reconnect in plain words", async () => {
+      renderGeneral();
+      expect(
+        await screen.findByText(
+          "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its panel."
+        )
+      ).toBeInTheDocument();
+    });
+
+    /** commands/keep_awake.rs: nasce ligado; desligar grava false. O rótulo cobre a reconexão também. */
     it("keeps the PC awake by default, and turning it off saves false", async () => {
       renderGeneral();
-      const toggle = (await screen.findByText("Keep the PC awake while AFK Mode or Auto Rejoin runs")).closest(
+      const toggle = (await screen.findByText("Keep the PC awake while accounts are kept in game")).closest(
         "[role=switch]"
       );
       expect(toggle).toHaveAttribute("aria-checked", "true");
+      expect(
+        screen.getByText(
+          "Windows won't go to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off."
+        )
+      ).toBeInTheDocument();
       await userEvent.click(toggle as HTMLElement);
       await expectSaved("General", "KeepPcAwake", "false");
     });
@@ -849,6 +891,56 @@ describe("OptimizationTab", () => {
     expect(
       screen.queryByRole("switch", { name: /Mute the Roblox windows you're not using/ })
     ).not.toBeInTheDocument();
+  });
+
+  /**
+   * Revisão no harness (10/10/2026): "While you play" (vale na hora) ficava
+   * entre o cabeçalho dos perfis (vale no próximo launch) e o card do perfil,
+   * separando o seletor de perfil das opções que ele controla.
+   */
+  it("puts the 'While you play' box above the per-profile settings", async () => {
+    renderOptimization({});
+    const whilePlaying = await screen.findByText("While you play");
+    const profiles = screen.getByText("Optimization Profiles");
+    expect(
+      whilePlaying.compareDocumentPosition(profiles) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  /** "35 s" quebrava entre o número e a unidade na janela estreita. */
+  it("keeps '35 s' on one line", async () => {
+    renderOptimization({});
+    // O normalizador padrão do testing-library troca o espaço rígido por um
+    // comum: confere o texto cru.
+    const description = await screen.findByText(/to load first/);
+    expect(description.textContent).toContain("35 s");
+  });
+
+  /** As duas opções também valem para o botão Arrange in grid, mesmo sem a grade no launch. */
+  it.each([
+    "Allow smaller windows in the grid",
+    "Remove window borders in the grid",
+  ])("says %s also applies to the Arrange in grid button", async (label) => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: new RegExp(label) });
+    expect(toggle.closest("label") ?? toggle.parentElement?.parentElement).toHaveTextContent(
+      /Arrange in grid button/
+    );
+  });
+
+  /** A grade é uma só para todos os perfis: com perfis separados, o card diz isso. */
+  it("says the grid options are shared when Auto Rejoin profiles are split", async () => {
+    renderOptimization({
+      General: { BottingEnabled: "true", BottingUseSharedClientProfile: "false" },
+    });
+    await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(screen.getByText(/Grid options are the same for every profile/)).toBeInTheDocument();
+  });
+
+  it("does not mention profiles in the grid when there is only one", async () => {
+    renderOptimization({});
+    await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(screen.queryByText(/Grid options are the same for every profile/)).not.toBeInTheDocument();
   });
 
   it("hides the focus-following optimization outside Windows", async () => {

@@ -2750,7 +2750,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!status) return;
         const acct = accountsRef.current.find((a) => a.UserID === userId);
         const name = accountLabel(acct, nameMaskingRef.current, userId);
-        addToast(tr("{{name}} in Roblox: {{status}}", { name, status: status.label }), "warn");
+        addToast(tr("{{name}} in Roblox — {{status}}", { name, status: status.label }), "warn");
       }),
       // Presets (ideia 13). O resultado de quem clicou já aparece onde o clique
       // foi; o que vem do horário precisa de um toast, porque ninguém clicou.
@@ -3014,7 +3014,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const final = entry.phase === "gaveUp" || entry.phase === "stopped";
         if (!final || previous?.phase === entry.phase) continue;
         const status = autoReconnectLabel(entry, Date.now(), tr).label;
-        addToast(tr("Auto-reconnect — {{name}}: {{status}}", { name: nameOf(entry.userId), status }), "warn");
+        addToast(tr("Auto-reconnect ({{name}}) — {{status}}", { name: nameOf(entry.userId), status }), "warn");
       }
       // Relançada e conferida: ficou no jogo.
       for (const userId of Array.isArray(e.payload?.reconnected) ? e.payload.reconnected : []) {
