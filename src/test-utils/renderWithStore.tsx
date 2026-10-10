@@ -228,6 +228,11 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
 
     joinServer: vi.fn(async () => "started" as const),
     launchMultiple: vi.fn(async () => {}),
+    presetsDialog: null,
+    openPresetsDialog: vi.fn(),
+    closePresetsDialog: vi.fn(),
+    presetsRevision: 0,
+    launchPreset: vi.fn(async () => "started" as const),
     restartRobloxClients: vi.fn(async () => {}),
     focusRobloxClient: vi.fn(async () => true),
     closeRobloxClients: vi.fn(async (userIds: number[]) => userIds.length),

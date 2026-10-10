@@ -28,6 +28,7 @@ import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
 import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
+import { PresetsDialog } from "./components/presets/PresetsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { SessionPage } from "./components/pages/SessionPage";
 import { AfkPage } from "./components/pages/AfkPage";
@@ -67,6 +68,7 @@ function AppContent() {
     !!store.afkModeDialog ||
     store.generatorDialogOpen ||
     store.updateDialogOpen ||
+    store.presetsDialog !== null ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
   const page = store.activePage;
@@ -290,6 +292,8 @@ function AppContent() {
         open={store.versionsDialogOpen}
         onClose={() => store.setVersionsDialogOpen(false)}
       />
+
+      <PresetsDialog />
 
       <IsolationProgressOverlay />
 

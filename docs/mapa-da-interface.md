@@ -34,6 +34,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 | ícone de checkbox | `Select all` / `Deselect all`. |
 | `Names shown` / `Names hidden` | Mascara os nomes das contas em todas as telas, inclusive toasts e confirmações (para gravar tela). Quantas letras ficam visíveis: Settings › General › `Preview Letters`. |
 | ícone de painel | Mostra/esconde o painel de detalhes. Fica desabilitado quando não há exatamente uma conta selecionada. |
+| `Presets` | Presets de launch: "estas contas → este jogo/servidor" salvos com nome, abertos com `Launch`; opcionalmente abrem e fecham sozinhos num horário (só com o app aberto, e fechar mexe só no que o preset abriu). Ver [presets.md](features/presets.md). |
 | `Add ▾` | Todas as formas de trazer conta para dentro (abaixo). |
 | ícone de gamepad | `Session`: fila de lançamento e clientes abertos. |
 | ícone de paleta | `Theme`: editor de cores e fontes. |
@@ -92,6 +93,8 @@ O andamento do Make Friends aparece no **Painel de Sessão** (botão `Session` n
 ## 3. Choose Game
 
 Abre com contas selecionadas e mostra `N accounts will be launched together` com chips removíveis. Sai com `Back` ou `Esc`.
+
+`Save as preset` (no cabeçalho) guarda essas contas como preset de launch, para abrir depois com um clique pela Toolbar › `Presets`.
 
 | Aba | Para que serve |
 |---|---|

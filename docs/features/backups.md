@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Guardar cópias dos dados do usuário (contas, settings, scripts, temas, avatares salvos, favoritos com os servidores VIP, jogos e servidores recentes, catálogo de versões e lista do Nexus) e conseguir voltar uma delas **de dentro do app**, sem copiar arquivo na mão. Resolve o caso "apaguei tudo sem querer" sem precisar recadastrar conta por conta.
+Guardar cópias dos dados do usuário (contas, settings, scripts, temas, avatares salvos, favoritos com os servidores VIP, jogos e servidores recentes, presets de launch, catálogo de versões e lista do Nexus) e conseguir voltar uma delas **de dentro do app**, sem copiar arquivo na mão. Resolve o caso "apaguei tudo sem querer" sem precisar recadastrar conta por conta.
 
 Anda junto com a mudança de pasta: os dados saíram de "ao lado do executável" para a pasta do usuário, então o `.exe` pode ser movido à vontade (ver [architecture.md](../architecture.md#arquivos-de-persistência)).
 
@@ -33,6 +33,7 @@ Anda junto com a mudança de pasta: os dados saíram de "ao lado do executável"
   - `AccountData.json` em texto puro **com senha configurada** — a próxima gravação recriptografaria com a senha da sessão.
   - Só o caso "texto puro, sem senha na sessão" recarrega na hora (`accountsReloaded: true`), e ele só aparece restaurando backup antigo, de antes da criptografia por padrão.
 - **Favoritos, VIPs e recentes** (`RAMGameLists.json`, desde 03/10/2026 — antes moravam só no `localStorage` do WebView e ficavam fora do zip) **não** pedem reinício: a store relê o disco a cada leitura. Durante a restauração o [BackupsTab](../../src/components/settings/BackupsTab.tsx) para o espelho do frontend (`pauseGameListsMirror`) e, no fim, hidrata de novo — por **união** com o cache local: o que o backup tinha volta, o que foi adicionado depois dele fica. Backup antigo, sem o arquivo, não mexe nas listas atuais. Ver [server-list.md](server-list.md#onde-as-listas-moram).
+- **Presets de launch** (`RAMLaunchPresets.json`, desde a ideia 13) também não pedem reinício: o `LaunchPresetStore` relê o disco a cada leitura, e o agendador lê dele a cada passada. Ver [presets.md](presets.md).
 - O catálogo de versões é restaurado no caminho real de `get_versions_catalog_path()`, que fica fora da pasta de dados no modo portátil.
 - O rótulo é saneado para virar nome de arquivo (barra, `..`, caminho absoluto, controles, tamanho), mas o rótulo **exibido** é o que o usuário digitou, guardado no manifesto.
 

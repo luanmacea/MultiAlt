@@ -61,6 +61,16 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/accounts/AccountLaunchOverrides.test.tsx",
     ],
   },
+  presets: {
+    description: "Presets de launch (contas → jogo/servidor), agendamento de abrir/fechar e quais clientes cada execução abriu",
+    rust: [
+      "launch_preset_store_tests",
+      "launch_preset_validation_tests",
+      "launch_preset_schedule_tests",
+      "launch_preset_run_tests",
+    ],
+    front: ["src/components/presets", "src/utils/presets.test.ts"],
+  },
   "join-links": {
     description: "Links de convite, VIP/privado, deep links e share links",
     rust: [

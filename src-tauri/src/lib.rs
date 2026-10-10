@@ -14,9 +14,10 @@ use data::accounts::{get_account_data_path, AccountStore};
 use data::avatars::AvatarStore;
 use data::crypto;
 use data::game_lists::GameListsStore;
+use data::launch_presets::LaunchPresetStore;
 use data::scripts::ScriptStore;
 use data::settings::{
-    get_avatars_path, get_game_lists_path, get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path,
+    get_avatars_path, get_game_lists_path, get_launch_presets_path, get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path,
     SettingsStore, ThemePresetStore, ThemeStore,
 };
 use data::versions::{get_versions_catalog_path, VersionsCatalogStore};
@@ -36,6 +37,7 @@ include!("commands/launch_shared.rs");
 include!("commands/botting.rs");
 include!("commands/generators.rs");
 include!("commands/launch.rs");
+include!("commands/launch_presets.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
@@ -238,6 +240,7 @@ pub fn run() {
     let script_store = ScriptStore::new(get_scripts_path());
     let avatar_store = AvatarStore::new(get_avatars_path());
     let game_lists_store = GameListsStore::new(get_game_lists_path());
+    let launch_preset_store = LaunchPresetStore::new(get_launch_presets_path());
     let versions_catalog = VersionsCatalogStore::new(get_versions_catalog_path());
     let image_cache = ImageCache::new();
 
@@ -263,6 +266,7 @@ pub fn run() {
         .manage(script_store)
         .manage(avatar_store)
         .manage(game_lists_store)
+        .manage(launch_preset_store)
         .manage(versions_catalog)
         .manage(image_cache)
         .manage(UpdaterRuntimeState::default())
@@ -294,6 +298,10 @@ pub fn run() {
             // commands/client_health.rs.
             #[cfg(target_os = "windows")]
             start_client_health_monitor(app.handle().clone());
+
+            // Horários dos presets de launch: só com o app aberto, sem
+            // recuperar o que passou — ver commands/launch_presets.rs.
+            start_preset_scheduler(app.handle().clone());
 
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -500,6 +508,11 @@ pub fn run() {
             clear_image_cache,
             launch_roblox,
             launch_multiple,
+            get_launch_presets,
+            save_launch_preset,
+            delete_launch_preset,
+            launch_preset,
+            close_preset_clients,
             cancel_launch,
             get_launch_queue,
             cancel_account_launch,

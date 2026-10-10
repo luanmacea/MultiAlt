@@ -14,6 +14,7 @@ Lançar várias contas, **uma por vez e em sequência**, no mesmo place/Job ID, 
 | [platform/windows/launch.rs](../../src-tauri/src/platform/windows/launch.rs) | Spawn: protocolo (`launch_url`, build de produção) ou old join (pasta do catálogo, ou `default_player_dir` — build do canal lido do registro) |
 | [store.tsx](../../src/store.tsx) | `launchMultiple`, `killAllRobloxProcesses`, listeners `launch-progress` / `launch-complete` / `launch-log` |
 | [ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx) | Chamador (1 conta → `joinServer`; várias → `launchMultiple`) |
+| [launch_presets.rs](../../src-tauri/src/commands/launch_presets.rs) | Chamador: presets de launch, à mão ou pelo horário, chamam `launch_multiple` direto do Rust — ver [presets.md](presets.md) |
 
 ## Fluxo
 

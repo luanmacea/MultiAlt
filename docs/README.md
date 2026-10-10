@@ -45,6 +45,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 ### Launch e automação
 - [features/launch.md](features/launch.md) — lançamento de uma conta.
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
+- [features/presets.md](features/presets.md) — presets de launch (contas → jogo/servidor num clique) e horário de abrir/fechar, que fecha só o que o preset abriu.
 - [features/external-clients.md](features/external-clients.md) — clientes abertos pelo site (ou antes de o app abrir) reconhecidos pelo log do Roblox; identificação manual.
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.

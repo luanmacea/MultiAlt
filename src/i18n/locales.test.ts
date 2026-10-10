@@ -26,6 +26,9 @@ function placeholders(text: string): string[] {
  * ("Volume", "Console") não é a mesma que coincide em espanhol.
  */
 const IDENTICAL_BY_DESIGN_PT = new Set<string>([
+  // Presets de launch: "place" e "VIP" não se traduzem (glossário).
+  "Place {{placeId}}",
+  "VIP: {{name}}",
   "WebServer",
   "Watcher",
   "online",
@@ -160,6 +163,9 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
 
 /** Mesma regra para o espanhol: marcas, fontes, jargão e exemplos de formato. */
 const IDENTICAL_BY_DESIGN_ES = new Set<string>([
+  // Presets de launch: "place" e "VIP" não se traduzem (glossário).
+  "Place {{placeId}}",
+  "VIP: {{name}}",
   "General",
   "WebServer",
   "Watcher",

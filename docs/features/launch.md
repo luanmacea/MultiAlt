@@ -17,6 +17,7 @@ Abrir **um** cliente Roblox (`RobloxPlayerBeta.exe`) autenticado como uma conta 
 | [platform/windows/versions.rs](../../src-tauri/src/platform/windows/versions.rs) | `resolve_roblox_install_path` (qual pasta de versão usar) |
 | [account_api.rs](../../src-tauri/src/commands/account_api.rs) | `run_with_session_retry` (renova cookie e repete a chamada em erro de sessão) |
 | [store.tsx](../../src/store.tsx) | `joinServer` → `invoke("launch_roblox")`; listener do evento `launch-log` |
+| [launch_presets.rs](../../src-tauri/src/commands/launch_presets.rs) | Presets de launch: abrem pela fila (`launch_multiple`, sem mudar nada nela), anotam quais PIDs abriram e fecham só esses — ver [presets.md](presets.md) |
 
 ## Fluxo
 
@@ -189,6 +190,7 @@ Mensagem de erro: `http_client::describe_error` transforma timeout em frase ("Ro
 - **Eventos `launch-log`:** payload `{userId, level: info|success|warn|error, step, message}`; steps usados: `start`, `isolation`, `auth`, `moderated`, `target`, `spawn`, `pid`, `wait`. O frontend guarda no máximo 500 entradas.
 - **Close All Roblox** (`cmd_kill_all_roblox`) mata todos os `RobloxPlayerBeta.exe`, chama `cancel_launch()` e remove tudo do tracker.
 - **Fechar o cliente de uma conta** (`kill_for_user` / `kill_for_user_graceful`, usados por `AutoCloseLastProcess`, `cmd_kill_roblox` e botting): só mata se o PID rastreado ainda for um processo Roblox (`is_roblox_pid_alive`); caso contrário apenas remove do tracker e retorna sucesso (proteção contra reuso de PID pelo Windows).
+- **Preset com horário de fechar** ([presets.md](presets.md)) fecha só os clientes que **aquela** execução abriu: confere conta + PID no tracker e pula cliente adotado do site. Não existe outro caminho de fechamento em lote além do "Close All Roblox" explícito.
 - **Ao sair do app** o app **não fecha** cliente nenhum: só solta o mutex do Multi Roblox e limpa o rastreamento (`exit_cleanup_tests`, ver CLAUDE.md).
 
 ## Configurações relacionadas

@@ -102,7 +102,7 @@ Pedido do dono (03/10/2026): uma página que diga, para quem não é técnico, o
 
 ### Toolbar
 
-Só na página de contas, e só com o que age na lista: busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator (só com `ENABLE_ACCOUNT_GENERATOR`, desligado por padrão) e Roblox Versions.
+Só na página de contas, e só com o que age na lista: busca (filtra por username, alias, descrição, grupo), selecionar tudo, ocultar nomes, abrir o painel da conta, **Presets** (abre a lista de presets de launch — [presets.md](presets.md)) e menu **Add**: Quick Add (cookie ou username), Browser Login, User:Pass Login, Import Cookie, Import Old Account Data, **Create Accounts** (cadastro no navegador — [account-creation.md](account-creation.md)), Account Generator (só com `ENABLE_ACCOUNT_GENERATOR`, desligado por padrão) e Roblox Versions.
 
 ### Nomes ocultos (`Names hidden`)
 
@@ -185,6 +185,8 @@ A grade é feita de **células fixas** ([windowing.rs](../../src-tauri/src/platf
 Testes: `win_grid_slot_tests` (células, primeira livre, volta, célula do tamanho aceito, janelas fora da grade bloqueando), `client_window_plan_tests` (quem entra na grade). Interruptores: `ChooseGameScreen.test.tsx` e `settingsTabs.test.tsx` (aba Optimization, junto do tamanho de janela global).
 
 ### Tela "Choose Game" — chips e abas
+
+No cabeçalho, **Save as preset** abre o editor de presets com as contas da tela (e o Place ID do campo) — [presets.md](presets.md).
 
 Os chips de conta no topo têm um **x** que tira aquela conta do lote sem sair da tela (o lote nunca fica vazio: o x da última conta é desabilitado).
 

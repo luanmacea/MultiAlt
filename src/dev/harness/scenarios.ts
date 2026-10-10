@@ -1283,6 +1283,99 @@ const SCENARIOS: Record<string, () => void> = {
   },
 
   /**
+   * Presets de launch (ideia 13): três presets como o backend devolve — um com
+   * horário de abrir e fechar e dois clientes ainda abertos, um com VIP dos
+   * favoritos e um com uma conta que saiu do app. Salvar e apagar ficam em
+   * memória, como o arquivo `RAMLaunchPresets.json` ficaria. Abra pela Toolbar
+   * (Presets) ou pela Choose Game (Save as preset).
+   */
+  presets() {
+    const hour = 3_600_000;
+    let presets: Record<string, unknown>[] = [
+      {
+        id: "preset-1",
+        name: "Morning farm",
+        userIds: accounts.slice(0, 4).map((a) => a.UserID),
+        placeId: 6516141723,
+        jobId: "",
+        gameName: "Blox Fruits",
+        vipName: null,
+        arrangeGrid: true,
+        schedule: { openEnabled: true, openAt: "08:00", days: [0, 1, 2, 3, 4], closeEnabled: true, closeAt: "18:00" },
+        nextOpenAt: Date.now() + 14 * hour,
+        nextCloseAt: Date.now() + 4 * hour,
+        openClients: 2,
+      },
+      {
+        id: "preset-2",
+        name: "Squad VIP",
+        userIds: accounts.slice(0, 2).map((a) => a.UserID),
+        placeId: 606849621,
+        jobId: "vip:ABC123",
+        gameName: "Jailbreak",
+        vipName: "Squad",
+        arrangeGrid: false,
+        schedule: null,
+        nextOpenAt: null,
+        nextCloseAt: null,
+        openClients: 0,
+      },
+      {
+        id: "preset-3",
+        name: "Old alts",
+        userIds: [accounts[accounts.length - 1].UserID, 999_999],
+        placeId: 15101393044,
+        jobId: "",
+        gameName: "Steal a Brainrot",
+        vipName: null,
+        arrangeGrid: false,
+        schedule: null,
+        nextOpenAt: null,
+        nextCloseAt: null,
+        openClients: 0,
+      },
+    ];
+    let serial = 10;
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_launch_presets") return presets;
+      if (cmd === "save_launch_preset") {
+        const preset = { ...(args?.preset as Record<string, unknown>) };
+        if (!preset.id) preset.id = `preset-${++serial}`;
+        const view = { nextOpenAt: null, nextCloseAt: null, openClients: 0, ...preset };
+        presets = presets.some((p) => p.id === preset.id)
+          ? presets.map((p) => (p.id === preset.id ? { ...p, ...view } : p))
+          : [...presets, view];
+        return preset;
+      }
+      if (cmd === "delete_launch_preset") {
+        presets = presets.filter((p) => p.id !== args?.id);
+        return true;
+      }
+      if (cmd === "launch_preset") return 2;
+      if (cmd === "close_preset_clients") {
+        presets = presets.map((p) => (p.id === args?.id ? { ...p, openClients: 0 } : p));
+        return 2;
+      }
+      return baseHandler(cmd, args);
+    });
+    // Favoritos com um VIP, para o editor oferecer "Jogo — VIP: Squad".
+    harnessGameLists = {
+      favorites: [
+        {
+          placeId: 606849621,
+          name: "Jailbreak",
+          iconUrl: null,
+          addedAt: 1,
+          vipServers: [{ id: "v1", name: "Squad", link: "vip:ABC123" }],
+        },
+        { placeId: 6516141723, name: "Blox Fruits", iconUrl: null, addedAt: 2, vipServers: [] },
+      ],
+      recentGames: [],
+      recentJobs: [],
+    };
+  },
+
+  /**
    * Contas banidas/advertidas/encerradas (ideia 8) e uma que pede verificação
    * ao abrir (ideia 10, conta 6). Ver `harnessModeration`.
    */

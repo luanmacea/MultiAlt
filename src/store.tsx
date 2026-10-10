@@ -24,6 +24,9 @@ import type {
   ClientDrop,
   ClientHealth,
   VaultKeyWarning,
+  LaunchPreset,
+  LaunchPresetEvent,
+  LaunchPresetView,
 } from "./types";
 import { playAfkBeep } from "./utils/afkBeep";
 import type { AfkMode } from "./afkClickPoint";
@@ -328,32 +331,9 @@ export interface GeneratorStartConfig {
   maxAccounts: number;
 }
 
-/**
- * A private-server code written into the Job ID field, either as `vip:<code>`
- * or inside a pasted link (`?privateServerLinkCode=`/`linkCode=`/`code=`).
- * Returns an empty string when the field holds a plain Job ID.
- *
- * Both launch paths must agree on this: a single launch used to understand
- * pasted links while a multi launch forwarded the whole URL as the Job ID.
- */
-export function parsePrivateServerCode(rawJobId: string): string {
-  const raw = rawJobId.trim();
-  if (!raw) return "";
-
-  const vipPrefix = raw.match(/^vip:\s*(.+)$/i);
-  if (vipPrefix?.[1]) return vipPrefix[1].trim();
-
-  const linkLike = raw.match(/(?:privateServerLinkCode|linkCode|code)=([^&\s]+)/i);
-  if (linkLike?.[1]) {
-    try {
-      return decodeURIComponent(linkLike[1]);
-    } catch {
-      return linkLike[1];
-    }
-  }
-
-  return "";
-}
+// Mora em utils/ para os módulos puros (presets) usarem sem carregar o store.
+export { parsePrivateServerCode } from "./utils/privateServerCode";
+import { parsePrivateServerCode } from "./utils/privateServerCode";
 
 /**
  * Explicit place/job for a launch. When provided, these take precedence over
@@ -492,6 +472,17 @@ export interface StoreValue {
 
   joinServer: (userId: number, target?: LaunchTarget) => Promise<LaunchAttempt>;
   launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
+  /**
+   * Presets de launch (ideia 13). `presetsDialog` nulo = fechado; com `draft`
+   * nulo abre na lista, com rascunho abre no editor. `presetsRevision` sobe a
+   * cada resultado de preset (inclusive pelo horário) para a tela reler.
+   */
+  presetsDialog: { draft: LaunchPreset | null } | null;
+  openPresetsDialog: (draft?: LaunchPreset | null) => void;
+  closePresetsDialog: () => void;
+  presetsRevision: number;
+  /** Abre um preset pela fila normal. Devolve se começou. */
+  launchPreset: (preset: LaunchPresetView) => Promise<LaunchAttempt>;
   restartRobloxClients: (userIds: number[]) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
   /** Fecha os clientes das contas informadas; devolve quantos foram fechados. */
@@ -881,6 +872,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
+  const [presetsDialog, setPresetsDialog] = useState<{ draft: LaunchPreset | null } | null>(null);
+  const [presetsRevision, setPresetsRevision] = useState(0);
+  const openPresetsDialog = useCallback((draft?: LaunchPreset | null) => {
+    setPresetsDialog({ draft: draft ?? null });
+  }, []);
+  const closePresetsDialog = useCallback(() => setPresetsDialog(null), []);
   const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
   const [friendLinkState, setFriendLinkState] = useState<FriendLinkState | null>(null);
   const [missingAssets, setMissingAssets] = useState<{ userId: number; username: string; assetIds: number[] } | null>(null);
@@ -1682,6 +1679,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       launchClearTimeoutRef.current = null;
     }, 7000);
     return "started";
+  }
+
+  /**
+   * Preset de launch: o backend abre pela mesma fila do `launch_multiple` e
+   * anota quais clientes esta execução abriu (é o que "fechar" usa). Aqui só o
+   * mesmo retorno visual do lote e os recentes.
+   */
+  async function launchPreset(preset: LaunchPresetView): Promise<LaunchAttempt> {
+    const total = preset.userIds.length;
+    clearLaunchTimeout();
+    setLaunchProgress({ mode: "multi", current: 0, total, userId: preset.userIds[0] ?? null });
+    const launchingLine = tr("Launching {{count}} accounts...", { count: total });
+    setActionStatusMessage(launchingLine, "info", 5000);
+    try {
+      await invoke<number>("launch_preset", { id: preset.id });
+      await loadAccounts();
+      void recordRecentGame(preset.placeId, preset.userIds[0] ?? null, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
+      setPresetsRevision((n) => n + 1);
+      return "started";
+    } catch (e) {
+      setJoiningAccounts(new Set());
+      setLaunchProgress(null);
+      if (isLaunchAlreadyActiveError(e)) {
+        withdrawActionStatus(launchingLine);
+        reportLaunchAlreadyActive();
+        return "refused";
+      }
+      setError(String(e));
+      setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
+      return "failed";
+    }
   }
 
   async function launchMultiple(userIds: number[], target?: LaunchTarget) {
@@ -2701,6 +2729,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(tr("{{name}} in Roblox: {{status}}", { name, status: status.label }), "warn");
       }),
+      // Presets (ideia 13). O resultado de quem clicou já aparece onde o clique
+      // foi; o que vem do horário precisa de um toast, porque ninguém clicou.
+      listen<LaunchPresetEvent>("launch-preset", (e) => {
+        const p = e.payload;
+        setPresetsRevision((n) => n + 1);
+        if (!p.scheduled) return;
+        if (!p.ok) {
+          addToast(tr("Preset {{name}} failed: {{error}}", { name: p.name, error: p.error ?? "" }), "error");
+        } else if (p.action === "open") {
+          addToast(tr("Preset {{name}} opened {{count}} account(s) on schedule", { name: p.name, count: p.count }), "success");
+        } else {
+          addToast(tr("Preset {{name}} closed {{count}} window(s) on schedule", { name: p.name, count: p.count }), "info");
+        }
+      }),
       // Moderação lida pelo backend (painel, "conferir contas", antes do launch).
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
         if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
@@ -3325,6 +3367,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     focusClientWindow,
     joinServer,
     launchMultiple,
+    presetsDialog,
+    openPresetsDialog,
+    closePresetsDialog,
+    presetsRevision,
+    launchPreset,
     restartRobloxClients,
     focusRobloxClient,
     closeRobloxClients,

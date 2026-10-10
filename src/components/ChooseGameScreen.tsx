@@ -13,7 +13,8 @@ import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle, X } from "lucide-react";
+import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle, X, Bookmark } from "lucide-react";
+import { newPresetDraft } from "../utils/presets";
 import type { LaunchLogLevel, LaunchTarget } from "../store";
 import { TONE_STYLES, type ToneStyle } from "../utils/toastTone";
 import type { JoinTarget, PickedServer } from "../types";
@@ -942,7 +943,18 @@ export function ChooseGameScreen() {
                 : t("{{count}} accounts will be launched together", { count: accounts.length })}
             </p>
           </div>
-          <TourButton tour="choose-game" className="ml-auto" />
+          {/* Guarda estas contas (e o jogo do campo, se houver) como preset. */}
+          <button
+            onClick={() =>
+              store.openPresetsDialog(newPresetDraft(userIds, parseInt(store.placeId) || 0))
+            }
+            className="ml-auto flex items-center gap-1.5 text-[12px] theme-muted hover:text-[var(--panel-fg)] px-2.5 py-1.5 rounded-md theme-btn-ghost border theme-border transition-colors"
+            title={t("Save these accounts and a game as a preset, to launch them later in one click")}
+          >
+            <Bookmark size={13} strokeWidth={1.5} />
+            {t("Save as preset")}
+          </button>
+          <TourButton tour="choose-game" />
         </div>
 
         {/* Account chips */}

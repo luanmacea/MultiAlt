@@ -752,3 +752,52 @@ export function writeAccountLaunchOverrides(
 
   return out;
 }
+
+/**
+ * Preset de launch: "estas contas → este jogo/servidor", com horário opcional
+ * de abrir e de fechar. Espelha `data::launch_presets::LaunchPreset` (camelCase).
+ * Ver docs/features/presets.md.
+ */
+export interface PresetSchedule {
+  openEnabled: boolean;
+  /** `HH:MM`, 24 h, hora local. */
+  openAt: string;
+  /** Dias de abrir: 0 = segunda … 6 = domingo. Fechar vale todo dia. */
+  days: number[];
+  closeEnabled: boolean;
+  closeAt: string;
+}
+
+export interface LaunchPreset {
+  /** Vazio num preset novo: o backend gera. */
+  id: string;
+  name: string;
+  userIds: number[];
+  placeId: number;
+  /** Vazio = servidor público; Job ID; ou `vip:<código>` de um VIP dos favoritos. */
+  jobId: string;
+  gameName?: string | null;
+  vipName?: string | null;
+  arrangeGrid: boolean;
+  schedule?: PresetSchedule | null;
+  createdAt?: number;
+}
+
+/** `get_launch_presets`: o preset e o que a tela mostra ao lado dele. */
+export interface LaunchPresetView extends LaunchPreset {
+  nextOpenAt: number | null;
+  nextCloseAt: number | null;
+  /** Clientes que as execuções deste preset abriram e que seguem abertos. */
+  openClients: number;
+}
+
+/** Evento `launch-preset`: resultado de abrir/fechar (pelo horário ou à mão). */
+export interface LaunchPresetEvent {
+  presetId: string;
+  name: string;
+  action: "open" | "close";
+  scheduled: boolean;
+  ok: boolean;
+  count: number;
+  error: string | null;
+}
