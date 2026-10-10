@@ -47,6 +47,7 @@ include!("windows/launch.rs");
 include!("windows/client_settings.rs");
 include!("windows/optimization.rs");
 include!("windows/focus_follow.rs");
+include!("windows/live_audio.rs");
 include!("windows/windowing.rs");
 include!("windows/input.rs");
 include!("windows/tracker.rs");

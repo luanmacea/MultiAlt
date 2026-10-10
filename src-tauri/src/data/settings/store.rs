@@ -290,6 +290,8 @@ impl SettingsStore {
             // Otimizacao que segue o foco (docs/features/performance.md):
             // opcional, desligada por padrao.
             ("FollowFocus", "false"),
+            // Fundo mudo (feature `live-audio`; sem ela a chave e ignorada).
+            ("MuteBackgroundClients", "false"),
         ];
 
         let optimization = ini.section("Optimization");

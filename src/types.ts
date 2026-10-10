@@ -105,6 +105,8 @@ export interface PlatformCapabilities {
   supportsBotting: boolean;
   supportsUpdater: boolean;
   supportsClientSettings: boolean;
+  /** Volume ao vivo por cliente: só com a feature `live-audio` no binário. */
+  supportsLiveAudio: boolean;
   reasons: string[];
   warnings: string[];
 }
