@@ -777,6 +777,9 @@ fn run_afk_cycle_blocking(
     let tracker = windows::tracker();
 
     let mut focus_taken = false;
+    // Janelas que o ciclo trouxe para frente: se no fim a da frente não é
+    // nenhuma delas, foi o usuário que escolheu outra (issue #23).
+    let mut cycle_windows = Vec::new();
     let mut outcome: Vec<(i64, Option<AfkSendError>)> = Vec::new();
 
     for &user_id in targets {
@@ -801,6 +804,7 @@ fn run_afk_cycle_blocking(
                 let was_minimized = windows::window_is_minimized(hwnd);
                 let requested = windows::focus_window(hwnd);
                 focus_taken = true;
+                cycle_windows.push(hwnd);
                 std::thread::sleep(std::time::Duration::from_millis(AFK_FOCUS_SETTLE_MS));
 
                 let ready = afk_window_is_ready(
@@ -841,7 +845,12 @@ fn run_afk_cycle_blocking(
     {
         // Só o primeiro plano volta: a janela do usuário não é restaurada nem
         // desmaximizada (o `focus_window` restauraria uma janela minimizada).
-        windows::give_focus_back(previous_foreground);
+        // A volta é conferida na tela e repetida se o Windows recusar — o que
+        // acontece com o usuário mexendo em outra janela durante o ciclo.
+        let back = windows::give_focus_back_after_cycle(previous_foreground, &cycle_windows);
+        if back == windows::GiveBack::Denied {
+            eprintln!("[afk] o Windows recusou devolver o foco à janela anterior");
+        }
     }
 
     Ok(outcome)
@@ -1510,8 +1519,8 @@ mod afk_command_tests {
         .expect("commands/afk.rs tem de existir");
         let body = super::afk_input_safety_tests::production_only(&source);
         assert!(
-            body.contains("windows::give_focus_back(previous_foreground)"),
-            "o ciclo tem de devolver o foco pelo give_focus_back"
+            body.contains("windows::give_focus_back_after_cycle(previous_foreground"),
+            "o ciclo tem de devolver o foco pelo give_focus_back_after_cycle"
         );
         assert!(
             !body.contains("focus_window(previous_foreground)"),
