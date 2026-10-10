@@ -2103,5 +2103,9 @@
   "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.": "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.",
   "While you play": "While you play",
   "Mute the Roblox windows you're not using": "Mute the Roblox windows you're not using",
-  "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them.": "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them."
+  "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them.": "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them.",
+  "Allow smaller windows in the grid": "Allow smaller windows in the grid",
+  "Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen.": "Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen.",
+  "Grid windows lose their title bar and border so they sit edge to edge. Turning this off gives the borders back.": "Grid windows lose their title bar and border so they sit edge to edge. Turning this off gives the borders back.",
+  "Remove window borders in the grid": "Remove window borders in the grid"
 }
