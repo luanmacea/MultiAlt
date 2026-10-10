@@ -287,6 +287,9 @@ impl SettingsStore {
             ("BottingBotJobCpuLimitPercent", "20"),
             ("BottingBotEnableJobMemoryLimit", "false"),
             ("BottingBotJobMemoryLimitMb", "1536"),
+            // Otimizacao que segue o foco (docs/features/performance.md):
+            // opcional, desligada por padrao.
+            ("FollowFocus", "false"),
         ];
 
         let optimization = ini.section("Optimization");
@@ -702,6 +705,7 @@ mod settings_store_tests {
             ));
             out.push(("Optimization", format!("BottingBot{suffix}"), bot.to_string()));
         }
+        push(&mut out, "Optimization", &[("FollowFocus", "false")]);
 
         push(
             &mut out,

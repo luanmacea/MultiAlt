@@ -53,6 +53,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).
 - [features/roblox-versions.md](features/roblox-versions.md) — instalação e seleção de versões do cliente Roblox.
 - [features/watcher.md](features/watcher.md) — monitoramento de processos Roblox.
+- [features/performance.md](features/performance.md) — desempenho enquanto você joga: otimização que segue a janela em uso.
 
 ### Integrações
 - [features/webserver.md](features/webserver.md) — API HTTP local (feature `webserver`).

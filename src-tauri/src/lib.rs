@@ -48,6 +48,7 @@ include!("commands/backups.rs");
 include!("commands/avatars.rs");
 include!("commands/groups.rs");
 include!("commands/external_clients.rs");
+include!("commands/focus_follow.rs");
 include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
@@ -289,6 +290,10 @@ pub fn run() {
             // "Em jogo" pelo log do Roblox — ver commands/external_clients.rs.
             #[cfg(target_os = "windows")]
             start_external_client_scanner(app.handle().clone());
+
+            // Otimização que segue o foco: o laço só age com a opção ligada.
+            #[cfg(target_os = "windows")]
+            start_focus_follow_loop(app.handle().clone());
 
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -583,12 +588,17 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { .. } => {
+                // Antes da limpeza do Multi Roblox, que esvazia o rastreamento.
+                #[cfg(target_os = "windows")]
+                release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
                 #[cfg(target_os = "macos")]
                 cleanup_multi_roblox_on_exit(app);
             }
             tauri::RunEvent::Exit => {
+                #[cfg(target_os = "windows")]
+                release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
                 #[cfg(target_os = "macos")]

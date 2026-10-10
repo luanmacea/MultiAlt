@@ -2097,5 +2097,9 @@
   "Session and ban status. Read-only: it doesn't sign anything out.": "Sesión y baneo. Solo lectura: no cierra ninguna sesión.",
   "{{who}} — failed: {{error}}": "{{who}} — falló: {{error}}",
   "Line {{n}}": "Línea {{n}}",
-  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "Roblox está restringiendo esta cuenta (baneada, advertida o en revisión). Revísala en roblox.com/not-approved y luego agrégala de nuevo."
+  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "Roblox está restringiendo esta cuenta (baneada, advertida o en revisión). Revísala en roblox.com/not-approved y luego agrégala de nuevo.",
+  "Applies right away": "Se aplica al instante",
+  "Follow the window in use": "Seguir la ventana en uso",
+  "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.": "La que estás jugando va a toda velocidad, las demás se ralentizan. Solo ventanas abiertas por MultiAlt; una nueva tiene 35 s para cargar antes.",
+  "While you play": "Mientras juegas"
 }

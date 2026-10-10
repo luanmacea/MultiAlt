@@ -451,6 +451,91 @@ pub(crate) fn apply_optimization_to_pid(
     }
 }
 
+/// O par `(ControlMask, StateMask)` do power throttling para uma troca de
+/// velocidade ao vivo. Sem EcoQoS nem timer, `(0, 0)` devolve a decisão ao
+/// Windows — o estado de um processo que ninguém mexeu. (O launch continua
+/// pulando a chamada nesse caso: `apply_power_throttling`.)
+fn live_power_throttling_masks(profile: &WindowsProcessPolicy) -> (u32, u32) {
+    let mask = power_throttling_mask(profile);
+    (mask, mask)
+}
+
+/// Prioridade, power throttling e prioridade de memória num processo já
+/// aberto — a troca de velocidade da otimização que segue o foco
+/// (`focus_follow.rs`). Mesmas APIs do launch; nada novo no binário.
+pub(crate) fn apply_process_policy_live(
+    pid: u32,
+    profile: &WindowsProcessPolicy,
+) -> Result<(), String> {
+    unsafe {
+        let process = OpenProcess(
+            PROCESS_SET_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        );
+        if process.is_null() {
+            return Err(format!("Failed to open Roblox process {}", pid));
+        }
+        let result = (|| -> Result<(), String> {
+            apply_priority_class(process, profile)?;
+            let (control, state) = live_power_throttling_masks(profile);
+            let throttling = PROCESS_POWER_THROTTLING_STATE {
+                Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                ControlMask: control,
+                StateMask: state,
+            };
+            if SetProcessInformation(
+                process,
+                ProcessPowerThrottling,
+                &throttling as *const _ as *const _,
+                size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+            ) == 0
+            {
+                return Err("Failed to set process power throttling".into());
+            }
+            apply_memory_priority(process, profile)
+        })();
+        CloseHandle(process);
+        result
+    }
+}
+
+/// Os flags do teto de CPU do Job: `Some(p)` liga o teto rígido em `p`%,
+/// `None` desliga (sem `JOB_OBJECT_CPU_RATE_CONTROL_ENABLE` o Windows ignora o
+/// resto).
+fn job_cpu_cap_info(cap: Option<u32>) -> (u32, u32) {
+    match cap {
+        Some(percent) => (
+            JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP,
+            percent.clamp(5, 100).saturating_mul(100),
+        ),
+        None => (0, 0),
+    }
+}
+
+/// Liga/desliga o teto de CPU do Job que o launch criou para o PID. `Ok(false)`
+/// quando o cliente não tem Job (o perfil não pediu teto).
+pub(crate) fn set_job_cpu_cap(pid: u32, cap: Option<u32>) -> Result<bool, String> {
+    let (flags, rate) = job_cpu_cap_info(cap);
+    let info = JOBOBJECT_CPU_RATE_CONTROL_INFORMATION {
+        ControlFlags: flags,
+        Anonymous: JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0 { CpuRate: rate },
+    };
+    let applied = tracker().with_job_handle(pid, |job| unsafe {
+        SetInformationJobObject(
+            job,
+            JobObjectCpuRateControlInformation,
+            &info as *const _ as *const _,
+            size_of::<JOBOBJECT_CPU_RATE_CONTROL_INFORMATION>() as u32,
+        ) != 0
+    });
+    match applied {
+        None => Ok(false),
+        Some(true) => Ok(true),
+        Some(false) => Err("Failed to change job CPU limit".into()),
+    }
+}
+
 #[cfg(test)]
 mod win_optimization_tests {
     use super::*;
@@ -881,6 +966,30 @@ mod win_optimization_tests {
                 payload
             );
         }
+    }
+
+    #[test]
+    fn a_live_switch_to_full_speed_hands_power_throttling_back_to_windows() {
+        // (0, 0) = "o Windows decide", como num processo que ninguém mexeu.
+        assert_eq!(live_power_throttling_masks(&policy(false, false, false)), (0, 0));
+        let both = PROCESS_POWER_THROTTLING_EXECUTION_SPEED
+            | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
+        assert_eq!(live_power_throttling_masks(&policy(false, true, true)), (both, both));
+    }
+
+    #[test]
+    fn the_job_cpu_cap_is_switched_off_by_clearing_every_flag() {
+        assert_eq!(job_cpu_cap_info(None), (0, 0));
+        let (flags, rate) = job_cpu_cap_info(Some(30));
+        assert_eq!(
+            flags,
+            JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP
+        );
+        // O Windows mede em centésimos de porcento.
+        assert_eq!(rate, 3000);
+        // Fora da faixa da tela (5–100) não passa.
+        assert_eq!(job_cpu_cap_info(Some(0)).1, 500);
+        assert_eq!(job_cpu_cap_info(Some(500)).1, 10000);
     }
 
     #[test]

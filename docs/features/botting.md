@@ -124,6 +124,7 @@ Aplicados por `apply_windows_post_launch_profile` ao PID após o launch (só se 
 - `MemoryPriority` (`normal` / `low` / `very_low`).
 - Experimental: `EnableJobCpuLimit` + `JobCpuLimitPercent` (5–100, hard cap via Job Object); `EnableJobMemoryLimit` + `JobMemoryLimitMb` (256–32768, **o processo é encerrado pelo Windows se passar**); `EnableFastFlags` + `FastFlagsJson` (só chaves da `WINDOWS_FASTFLAG_ALLOWLIST`).
 - Falha ao aplicar → evento `roblox-optimization-warning {pid, message}`.
+- Com `Optimization.FollowFocus` ligado, a prioridade deixa de ser aplicada no launch e passa a seguir a janela em uso — ver [performance.md](performance.md).
 - Defaults do perfil `BottingBot`: `below_normal`, `BackgroundMode=true`, `EcoQos=true`, `IgnoreTimerResolution=true`, `MemoryPriority=low` (mas `EnableProcessPolicy=false`, então nada é aplicado até ligar).
 
 ## Configurações relacionadas

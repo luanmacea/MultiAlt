@@ -737,6 +737,25 @@ describe("OptimizationTab", () => {
     expect(screen.queryByRole("switch", { name: /Arrange in grid on launch/ })).not.toBeInTheDocument();
   });
 
+  /** Ideia 18: a janela em uso a toda velocidade, as outras no fundo. Opcional. */
+  it("offers the focus-following optimization off by default and saves it", async () => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: /Follow the window in use/ });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(
+      screen.getByText(/The one you're playing runs at full speed, the others slow down/)
+    ).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    await expectSaved("Optimization", "FollowFocus", "true");
+  });
+
+  it("hides the focus-following optimization outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(screen.queryByRole("switch", { name: /Follow the window in use/ })).not.toBeInTheDocument();
+  });
+
   it("rejects a fast flag key that is not on the backend allowlist", async () => {
     renderOptimization({
       Optimization: {

@@ -153,6 +153,12 @@ Três perfis com as mesmas 13 chaves, prefixadas por `Normal`, `BottingPlayer` e
 | `EnableJobCpuLimit` / `JobCpuLimitPercent` | false / 25 | false / 25 | false / 20 |
 | `EnableJobMemoryLimit` / `JobMemoryLimitMb` | false / 2048 | false / 2048 | false / 1536 |
 
+Fora dos perfis, uma chave para todos os clientes (cartão **While you play** da aba, ver [performance.md](performance.md)):
+
+| Chave | Default | Significado |
+|---|---|---|
+| `FollowFocus` | `false` | Otimização que segue o foco: o cliente em uso (que o app abriu) a toda velocidade, os outros com a política de fundo; 35 s de carência para cliente novo. |
+
 Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
 
 ### `[Versions]` — detalhes em [roblox-versions.md](roblox-versions.md)

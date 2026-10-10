@@ -419,6 +419,11 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: ["src/utils/platform.test.ts"],
   },
+  performance: {
+    description: "Desempenho enquanto joga: otimização que segue a janela em uso",
+    rust: ["focus_follow_tests", "win_optimization_tests"],
+    front: ["src/components/settings/settingsTabs.test.tsx"],
+  },
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",
     rust: [],
