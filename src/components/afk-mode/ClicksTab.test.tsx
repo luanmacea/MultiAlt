@@ -38,7 +38,7 @@ function makeAfkStatus(overrides: Partial<AfkStatus> = {}): AfkStatus {
   return {
     active: false,
     startedAtMs: null,
-    intervalMinutes: 10,
+    intervalSeconds: 600,
     key: "",
     mode: "key",
     clickX: 50,
@@ -152,7 +152,7 @@ describe("ClicksTab — o que impede o start", () => {
 
     expect(store.startAfkMode).toHaveBeenCalledWith({
       userIds: [11],
-      intervalMinutes: 10,
+      intervalSeconds: 600,
       key: "Space",
       mode: "key",
       clickX: 50,
@@ -170,7 +170,7 @@ describe("ClicksTab — o que impede o start", () => {
 
     expect(store.startAfkMode).toHaveBeenCalledWith({
       userIds: [22],
-      intervalMinutes: 10,
+      intervalSeconds: 600,
       key: "W",
       mode: "key",
       clickX: 50,
@@ -184,7 +184,7 @@ describe("ClicksTab — sessão em andamento", () => {
     active: true,
     startedAtMs: 1_000,
     key: "Space",
-    intervalMinutes: 10,
+    intervalSeconds: 600,
     accounts: [makeAfkAccount({ sends: 2 })],
   });
 
@@ -223,7 +223,126 @@ describe("ClicksTab — sessão em andamento", () => {
   it("com sessão ativa o intervalo e a tecla ficam travados", () => {
     renderDialog({ afkStatus: RUNNING });
     expect(screen.getByLabelText("Key to send")).toBeDisabled();
-    expect(screen.getByLabelText("Send every")).toBeDisabled();
+    expect(screen.getByLabelText("Send every: minutes")).toBeDisabled();
+    expect(screen.getByLabelText("Send every: seconds")).toBeDisabled();
+  });
+
+  /** O intervalo mostrado é o da sessão, quebrado em minutos e segundos. */
+  it("com sessão ativa os campos mostram o intervalo da sessão", () => {
+    renderDialog({ afkStatus: makeAfkStatus({ ...RUNNING, intervalSeconds: 75 }) });
+    expect(screen.getByLabelText("Send every: minutes")).toHaveValue("1");
+    expect(screen.getByLabelText("Send every: seconds")).toHaveValue("15");
+  });
+});
+
+/**
+ * Pedido do dono (10/10/2026): "coloca um campo de segundos também, daí consigo
+ * configurar tipo só 10 segundos depois que um ciclo acabar". O intervalo é
+ * minutos + segundos, com piso de 5 s (`clamp_afk_interval_seconds`), e vai ao
+ * backend em segundos.
+ */
+describe("ClicksTab — intervalo em minutos e segundos", () => {
+  const iniWith = (afk: Record<string, string>) => ({
+    ...defaultSettings(),
+    Afk: { Key: "Space", ...afk },
+  });
+
+  async function start() {
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+    await userEvent.click(screen.getByRole("button", { name: /Start AFK Mode/i }));
+  }
+
+  async function typeInto(label: string, value: string) {
+    const field = screen.getByLabelText(label);
+    await userEvent.clear(field);
+    await userEvent.type(field, value);
+    await userEvent.tab();
+  }
+
+  it("lê minutos e segundos do INI e manda o total em segundos", async () => {
+    const { store } = renderDialog({ settings: iniWith({ IntervalMinutes: "1", IntervalSeconds: "30" }) });
+    expect(screen.getByLabelText("Send every: minutes")).toHaveValue("1");
+    expect(screen.getByLabelText("Send every: seconds")).toHaveValue("30");
+
+    await start();
+    expect(store.startAfkMode).toHaveBeenCalledWith(expect.objectContaining({ intervalSeconds: 90 }));
+  });
+
+  it("quem só tinha minutos no INI continua com o mesmo intervalo", async () => {
+    const { store } = renderDialog({ settings: iniWith({ IntervalMinutes: "10" }) });
+    expect(screen.getByLabelText("Send every: seconds")).toHaveValue("0");
+    await start();
+    expect(store.startAfkMode).toHaveBeenCalledWith(expect.objectContaining({ intervalSeconds: 600 }));
+  });
+
+  /** "0" no INI é zero minuto, não "valor ausente": senão 0 min 10 s virava 10 min 10 s. */
+  it("zero minuto no INI é zero, e não o padrão de 10", async () => {
+    const { store } = renderDialog({ settings: iniWith({ IntervalMinutes: "0", IntervalSeconds: "10" }) });
+    expect(screen.getByLabelText("Send every: minutes")).toHaveValue("0");
+    await start();
+    expect(store.startAfkMode).toHaveBeenCalledWith(expect.objectContaining({ intervalSeconds: 10 }));
+  });
+
+  it("dá para ligar com só 10 segundos, e os dois campos ficam gravados", async () => {
+    const { store } = renderDialog({ settings: iniWith({ IntervalMinutes: "10", IntervalSeconds: "0" }) });
+    await typeInto("Send every: minutes", "0");
+    await typeInto("Send every: seconds", "10");
+
+    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+      section: "Afk",
+      key: "IntervalMinutes",
+      value: "0",
+    });
+    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
+      section: "Afk",
+      key: "IntervalSeconds",
+      value: "10",
+    });
+
+    await start();
+    expect(store.startAfkMode).toHaveBeenCalledWith(expect.objectContaining({ intervalSeconds: 10 }));
+  });
+
+  it("os segundos vão de 0 a 59 e os minutos de 0 a 120", async () => {
+    renderDialog({ settings: iniWith({ IntervalMinutes: "10", IntervalSeconds: "0" }) });
+    await typeInto("Send every: seconds", "75");
+    expect(screen.getByLabelText("Send every: seconds")).toHaveValue("59");
+    await typeInto("Send every: minutes", "500");
+    expect(screen.getByLabelText("Send every: minutes")).toHaveValue("120");
+  });
+
+  it("abaixo de 5 segundos não liga, e a tela diz por quê", async () => {
+    const { store } = renderDialog({ settings: iniWith({ IntervalMinutes: "0", IntervalSeconds: "3" }) });
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+
+    expect(screen.getAllByText("At least 5 seconds.").length).toBeGreaterThan(0);
+    const startButton = screen.getByRole("button", { name: /Start AFK Mode/i });
+    expect(startButton).toBeDisabled();
+    await userEvent.click(startButton);
+    expect(store.startAfkMode).not.toHaveBeenCalled();
+
+    await typeInto("Send every: seconds", "5");
+    expect(screen.queryByText("At least 5 seconds.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Start AFK Mode/i })).toBeEnabled();
+  });
+
+  it("a contagem de cada conta usa o intervalo em segundos", () => {
+    vi.useFakeTimers({ now: 10_000_000 });
+    try {
+      const startedAt = Date.now();
+      renderDialog({
+        afkStatus: makeAfkStatus({
+          active: true,
+          startedAtMs: startedAt,
+          key: "Space",
+          intervalSeconds: 10,
+          accounts: [makeAfkAccount({ userId: 11, lastSendAtMs: startedAt, nextSendAtMs: startedAt + 10_000 })],
+        }),
+      });
+      expect(screen.getByRole("button", { name: ACCOUNTS[0].Username }).textContent).toContain("0:10");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -275,7 +394,7 @@ describe("ClicksTab — parar não esquece quem estava no modo", () => {
     await userEvent.click(start);
     expect(store.startAfkMode).toHaveBeenCalledWith({
       userIds: [11, 22],
-      intervalMinutes: 10,
+      intervalSeconds: 600,
       key: "Space",
       mode: "key",
       clickX: 50,
@@ -518,9 +637,9 @@ describe("ClicksTab — a tela diz a coisa certa", () => {
           active: true,
           startedAtMs: startedAt,
           key: "Space",
-          intervalMinutes: 10,
+          intervalSeconds: 600,
           accounts: [
-            makeAfkAccount({ userId: 11, lastSendAtMs: startedAt, nextSendAtMs: startedAt + 10 * 60_000 }),
+            makeAfkAccount({ userId: 11, lastSendAtMs: startedAt, nextSendAtMs: startedAt + 600_000 }),
           ],
         }),
       };
@@ -605,7 +724,15 @@ describe("ClicksTab — a tela diz a coisa certa", () => {
       expect(screen.getByText("Tecla a enviar")).toBeInTheDocument();
       expect(screen.queryByText("Chave")).not.toBeInTheDocument();
       expect(screen.getByLabelText("Tecla a enviar").tagName).toBe("BUTTON");
-      expect(screen.getByLabelText("Enviar a cada").tagName).toBe("INPUT");
+      expect(screen.getByLabelText("Enviar a cada: minutos").tagName).toBe("INPUT");
+      expect(screen.getByLabelText("Enviar a cada: segundos").tagName).toBe("INPUT");
+    });
+
+    it("o aviso do piso de 5 segundos sai em português", async () => {
+      renderDialog({
+        settings: { ...defaultSettings(), Afk: { IntervalMinutes: "0", IntervalSeconds: "2", Key: "Space" } },
+      });
+      expect(screen.getAllByText("No mínimo 5 segundos.").length).toBeGreaterThan(0);
     });
 
     it("a pílula diz 'Ligado' com a sessão ligada", () => {
@@ -661,7 +788,7 @@ describe("ClicksTab — modo clique", () => {
 
     expect(store.startAfkMode).toHaveBeenCalledWith({
       userIds: [11],
-      intervalMinutes: 10,
+      intervalSeconds: 600,
       key: "",
       mode: "click",
       clickX: 50,

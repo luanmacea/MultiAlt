@@ -2130,7 +2130,7 @@ describe("presence and running instances", () => {
 });
 
 describe("AFK mode", () => {
-  const RUNNING = { active: true, startedAtMs: 1, intervalMinutes: 10, key: "Space", accounts: [] };
+  const RUNNING = { active: true, startedAtMs: 1, intervalSeconds: 600, key: "Space", accounts: [] };
 
   /** "Modo AFK iniciado em 1 contas" era o toast de quem liga o modo numa conta só. */
   it("o toast de início fala de uma conta no singular", async () => {
@@ -2140,7 +2140,7 @@ describe("AFK mode", () => {
     await act(async () => {
       await result.current.startAfkMode({
         userIds: [11],
-        intervalMinutes: 10,
+        intervalSeconds: 600,
         key: "Space",
         mode: "key",
         clickX: 50,
@@ -2160,7 +2160,7 @@ describe("AFK mode", () => {
     await act(async () => {
       await result.current.startAfkMode({
         userIds: [11, 22],
-        intervalMinutes: 10,
+        intervalSeconds: 600,
         key: "Space",
         mode: "key",
         clickX: 50,
@@ -2180,7 +2180,7 @@ describe("AFK mode", () => {
     await act(async () => {
       await result.current.startAfkMode({
         userIds: [11],
-        intervalMinutes: 5,
+        intervalSeconds: 10,
         key: "",
         mode: "click",
         clickX: 37.5,
@@ -2190,7 +2190,7 @@ describe("AFK mode", () => {
 
     expect(lastArgs("start_afk_mode")).toEqual({
       userIds: [11],
-      intervalMinutes: 5,
+      intervalSeconds: 10,
       key: "",
       mode: "click",
       clickX: 37.5,

@@ -454,7 +454,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   scan: {
-    description: "bun run scan: veredito do Defender e do VirusTotal por arquivo",
+    description: "bun run scan: veredito do Defender e do VirusTotal por arquivo, com o portão de cada edição (padrão: nada; completa: só o Trapmine de ML)",
     rust: [],
     front: ["scripts/scanVerdict.test.ts"],
   },

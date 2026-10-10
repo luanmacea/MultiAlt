@@ -67,7 +67,7 @@ describe("msiOnlyPlatforms aponta o updater para o setup de nome fixo", () => {
   it("deixa como está o MSI da versão completa (outro arquivo)", () => {
     const full = {
       signature: "sig-full",
-      url: "https://github.com/luanmacea/MultiAlt/releases/download/v1.0.0/MultiAlt_1.0.0_x64_en-US_full-nexus-ws.msi",
+      url: "https://github.com/luanmacea/MultiAlt/releases/download/v1.0.0/MultiAlt_1.0.0_Full-Setup.msi",
     };
     expect(msiOnlyPlatforms({ "windows-x86_64-msi": full })).toEqual({ "windows-x86_64-msi": full });
   });
