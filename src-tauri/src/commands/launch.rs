@@ -831,6 +831,13 @@ async fn launch_roblox_windows(
         format!("Iniciando launch — place {place_id} ({target_desc})"),
     );
 
+    // Conta banida/encerrada é pulada aqui, com a frase certa, em vez de falhar
+    // no auth ticket depois do isolamento (ver commands/moderation.rs).
+    if let Some(reason) = moderation_launch_block(state.inner(), &app, &settings, user_id).await {
+        emit_launch_log(&app, user_id, "warn", "moderated", reason.clone());
+        return Err(reason);
+    }
+
     let is_teleport = settings.get_bool("Developer", "IsTeleport");
     let configured_old_join = settings.get_bool("Developer", "UseOldJoin");
     let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
@@ -1145,6 +1152,11 @@ async fn launch_roblox_other(
     {
         use platform::macos;
 
+        if let Some(reason) = moderation_launch_block(state.inner(), &app, &settings, user_id).await {
+            emit_launch_log(&app, user_id, "warn", "moderated", reason.clone());
+            return Err(reason);
+        }
+
         let is_teleport = settings.get_bool("Developer", "IsTeleport");
         let use_old_join = settings.get_bool("Developer", "UseOldJoin");
         let auto_close_last_process = settings.get_bool("General", "AutoCloseLastProcess");
@@ -1383,6 +1395,13 @@ async fn launch_multiple(
                 user_ids.len()
             ),
         );
+
+        // Banida/encerrada: pula esta conta e segue a fila (commands/moderation.rs).
+        if let Some(reason) = moderation_launch_block(state.inner(), &app, &settings, uid).await {
+            emit_launch_log(&app, uid, "warn", "moderated", reason.clone());
+            sequence.mark(uid, LaunchQueueState::Failed, Some(reason));
+            continue;
+        }
 
         let (acct_base_path, acct_version_id) = match windows::resolve_roblox_install_path(
             acct_version_override.as_deref(),
@@ -1772,6 +1791,12 @@ async fn launch_multiple(
                 continue;
             }
             sequence.mark(uid, LaunchQueueState::Launching, None);
+
+            if let Some(reason) = moderation_launch_block(state.inner(), &app, &settings, uid).await {
+                emit_launch_log(&app, uid, "warn", "moderated", reason.clone());
+                sequence.mark(uid, LaunchQueueState::Failed, Some(reason));
+                continue;
+            }
 
             // Always launch into the selected place/job (per-account saved-game
             // overrides removed — see the Windows path for rationale).

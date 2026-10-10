@@ -45,7 +45,7 @@ pub async fn get_presence_as(
     }
 
     let response = request
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 

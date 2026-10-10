@@ -77,6 +77,11 @@ impl SettingsStore {
             ("PresenceUpdateRate", "5", None),
             ("WarnOnOnlineJoin", "true", None),
             ("WarnOnCopyCredential", "true", None),
+            (
+                "CheckModerationBeforeLaunch",
+                "true",
+                Some("Check if an account is banned right before launching it, and skip it if so"),
+            ),
             ("UnlockFPS", "false", None),
             ("MaxFPSValue", "120", None),
             ("CustomClientSettings", "", None),

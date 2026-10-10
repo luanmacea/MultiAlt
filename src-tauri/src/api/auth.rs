@@ -1,3 +1,7 @@
+// `send_noting` no lugar de `send`: o `.ROBLOSECURITY` novo que o Roblox
+// devolver em qualquer resposta fica registrado para a conta (ver
+// `api::cookie_rotation`).
+use crate::api::cookie_rotation::SendNoting;
 use crate::api::endpoints;
 use crate::api::http_client;
 use reqwest::header::{COOKIE, REFERER};
@@ -53,9 +57,21 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
     let response = client
         .get(format!("{}/my/account/json", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
+
+    // Conta moderada (banida, advertida, em análise): o site redireciona a
+    // página para `/not-approved` em vez de responder. O cookie é bom; quem
+    // diz de quem ele é passa a ser a API de usuários, que não redireciona.
+    if response.status().is_redirection() {
+        let to_moderation = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|loc| loc.contains("not-approved"));
+        return validate_cookie_via_users_api(security_token, to_moderation).await;
+    }
 
     if !response.status().is_success() {
         return Err(format!(
@@ -78,6 +94,53 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
     })
 }
 
+/// Reserva do [`validate_cookie`] quando o site redireciona: a API de
+/// usuários diz id e nome sem passar pela página que a moderação bloqueia.
+/// `to_moderation` = o redirecionamento ia para `/not-approved`.
+async fn validate_cookie_via_users_api(
+    security_token: &str,
+    to_moderation: bool,
+) -> Result<AccountInfo, String> {
+    #[derive(Deserialize)]
+    struct AuthenticatedUser {
+        id: i64,
+        name: String,
+        #[serde(rename = "displayName", default)]
+        display_name: String,
+    }
+
+    let response = build_client()
+        .get(format!("{}/v1/users/authenticated", endpoints::host("users")))
+        .header(COOKIE, cookie_header(security_token))
+        .send_noting()
+        .await
+        .map_err(|e| http_client::describe_error(&e))?;
+    let status = response.status();
+
+    if status.is_success() {
+        let body = response
+            .text()
+            .await
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+        let user = serde_json::from_str::<AuthenticatedUser>(&body)
+            .map_err(|e| format!("Failed to parse account info: {}", e))?;
+        return Ok(AccountInfo {
+            user_id: user.id,
+            display_name: if user.display_name.is_empty() { user.name.clone() } else { user.display_name },
+            name: user.name,
+            user_email: None,
+            is_email_verified: false,
+            age_bracket: 0,
+            user_above_13: false,
+        });
+    }
+    if status.as_u16() == 401 || !to_moderation {
+        return Err(format!("Invalid cookie (status {})", status.as_u16()));
+    }
+    Err("Roblox is restricting this account (moderated: banned, warned or under review).          Check it at roblox.com/not-approved, then add it again."
+        .to_string())
+}
+
 pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
     let client = build_client();
 
@@ -86,7 +149,7 @@ pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, referer_url())
         .header("RBXAuthenticationNegotiation", "1")
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -131,7 +194,7 @@ pub async fn send_with_csrf_retry(
     let retry = builder.try_clone();
     let response = builder
         .header("X-CSRF-TOKEN", csrf)
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -149,7 +212,7 @@ pub async fn send_with_csrf_retry(
     match (fresh, retry) {
         (Some(fresh), Some(retry)) => retry
             .header("X-CSRF-TOKEN", fresh)
-            .send()
+            .send_noting()
             .await
             .map_err(|e| http_client::describe_error(&e)),
         // No token to retry with (or a streaming body): keep the original 403
@@ -171,7 +234,7 @@ pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
         .header("RBXAuthenticationNegotiation", "1")
         .header("Content-Type", "application/json")
         .body("")
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -185,12 +248,52 @@ pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
         return Ok(ticket);
     }
 
+    if let Some(message) = challenge_message(response.headers()) {
+        return Err(message);
+    }
+
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     Err(format!(
         "Failed to get authentication ticket (status {}): {}",
         status.as_u16(),
         body
+    ))
+}
+
+/// Nome curto do tipo de verificação que o Roblox pediu (`rblx-challenge-type`).
+/// Tipo desconhecido vira "a security check": a mensagem continua útil mesmo
+/// quando o Roblox inventa um desafio novo.
+fn challenge_kind_label(kind: &str) -> &'static str {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "twostepverification" | "forcetwostepverification" => "2-step verification",
+        "captcha" => "a CAPTCHA",
+        "reauthentication" => "your password again",
+        _ => "a security check",
+    }
+}
+
+/// Mensagem para quando o Roblox responde com um desafio (`rblx-challenge-id` /
+/// `rblx-challenge-type`) em vez do ticket. O app **nunca** tenta resolver o
+/// desafio: só diz onde terminá-lo. O texto evita de propósito as palavras que
+/// `is_auth_session_error` (renovaria a sessão) e `is_moderated_error` (moveria
+/// a conta para "moderadas") reconhecem.
+fn challenge_message(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    let read = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let id = read("rblx-challenge-id");
+    let kind = read("rblx-challenge-type");
+    if id.is_none() && kind.is_none() {
+        return None;
+    }
+    Some(format!(
+        "Roblox wants to verify this account ({}). Open it in the browser (account panel › Tools › Browser), finish the check there, then try again.",
+        challenge_kind_label(kind.as_deref().unwrap_or(""))
     ))
 }
 
@@ -211,7 +314,7 @@ pub async fn check_pin(security_token: &str) -> Result<bool, String> {
         .get(format!("{}/v1/account/pin/", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
