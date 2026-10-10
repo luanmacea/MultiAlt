@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { autoReconnectLabel } from "./autoReconnect";
+import { autoReconnectLabel, reconnectErrorText } from "./autoReconnect";
+import ptCommon from "../locales/pt/common.json";
 import type { AutoReconnectEntry } from "../types";
 
 const t = (text: string, options?: Record<string, unknown>) =>
@@ -78,5 +81,45 @@ describe("the countdown", () => {
     expect(at(9_500)).toBe("Reconnecting in 10 s (attempt 1/5)");
     expect(at(60_000)).toBe("Reconnecting in 1 min (attempt 1/5)");
     expect(at(299_000)).toBe("Reconnecting in 5 min (attempt 1/5)");
+  });
+});
+
+/**
+ * O erro da tentativa vem do Rust em inglês (`RECONNECT_ERROR_*` em
+ * commands/reconnect.rs) e aparecia cru na tela em português. A lista sai do
+ * próprio fonte do Rust: frase nova lá sem tradução aqui reprova.
+ */
+describe("the error of an attempt", () => {
+  const source = readFileSync(resolve(__dirname, "../../src-tauri/src/commands/reconnect.rs"), "utf8");
+  const backendErrors = [...source.matchAll(/pub const RECONNECT_ERROR_\w+: &str = "([^"]+)";/g)].map((m) => m[1]);
+  const pt = ptCommon as Record<string, string>;
+  const ptT = (text: string, options?: Record<string, unknown>) => t(pt[text] ?? text, options);
+
+  it("lists the messages the backend writes", () => {
+    expect(backendErrors).toEqual(
+      expect.arrayContaining(["It did not get into the game in 2 minutes", "The Roblox client did not start"])
+    );
+  });
+
+  it("is translated for every message the backend writes", () => {
+    for (const message of backendErrors) {
+      const text = reconnectErrorText(message, ptT);
+      expect(pt[message], message).toBeTruthy();
+      expect(text, message).toBe(pt[message]);
+      expect(text, message).not.toBe(message);
+    }
+  });
+
+  it("goes translated into the reconnect line", () => {
+    const info = autoReconnectLabel(
+      entry({ phase: "gaveUp", attempt: 5, error: "It did not get into the game in 2 minutes" }),
+      NOW,
+      ptT
+    );
+    expect(info.detail).toBe(pt["It did not get into the game in 2 minutes"]);
+  });
+
+  it("keeps an unknown message as it came", () => {
+    expect(reconnectErrorText("PID não detectado", ptT)).toBe("PID não detectado");
   });
 });
