@@ -93,11 +93,14 @@ function OptimizationProfileSection({
   title,
   profile,
   isWindows,
+  splitProfiles = false,
 }: {
   s: UseSettingsReturn;
   title: string;
   profile: OptimizationProfileId;
   isWindows: boolean;
+  /** Auto Rejoin com perfis separados: a grade continua uma só para todos. */
+  splitProfiles?: boolean;
 }) {
   const t = useTr();
   const customClientSettings = s.get("General", generalKey(profile, "CustomClientSettings"), "").trim();
@@ -274,19 +277,24 @@ function OptimizationProfileSection({
             label="Arrange in grid on launch"
             description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
           />
+          {splitProfiles ? (
+            <div className="text-[12px] leading-5 text-zinc-500">
+              {t("Grid options are the same for every profile.")}
+            </div>
+          ) : null}
           {/* Ideia 22 (docs/features/performance.md): só nos clientes que o
               app abriu, no launch e no botão Arrange in grid. */}
           <Toggle
             checked={s.getBool("General", "GridAllowSmallWindows")}
             onChange={(v) => s.setBool("General", "GridAllowSmallWindows", v)}
             label="Allow smaller windows in the grid"
-            description="Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen."
+            description="Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen. Also applies to the Arrange in grid button."
           />
           <Toggle
             checked={s.getBool("General", "GridBorderless")}
             onChange={(v) => s.setBool("General", "GridBorderless", v)}
             label="Remove window borders in the grid"
-            description="Grid windows lose their title bar and border so they sit edge to edge. Turning this off gives the borders back."
+            description="Grid windows lose their title bar and border so they sit edge to edge. Also applies to the Arrange in grid button; turning this off gives the borders back."
           />
         </>
       ) : null}
@@ -569,7 +577,7 @@ function WindowInUseSection({ s }: { s: UseSettingsReturn }) {
         checked={s.getBool("Optimization", "FollowFocus")}
         onChange={(v) => s.setBool("Optimization", "FollowFocus", v)}
         label="Follow the window in use"
-        description="The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first."
+        description="The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first."
       />
       {liveAudio ? (
         <Toggle
@@ -654,6 +662,10 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
 
   return (
     <div className="space-y-4">
+      {/* Vale na hora: fica acima dos perfis (que valem no próximo launch),
+          para não separar o seletor de perfil das opções dele. */}
+      {isWindows ? <WindowInUseSection s={s} /> : null}
+
       <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
         <SectionLabel>{t("Optimization Profiles")}</SectionLabel>
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -677,8 +689,6 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
           </>
         ) : null}
       </div>
-
-      {isWindows ? <WindowInUseSection s={s} /> : null}
 
       {profiles.length > 1 ? (
         // `sticky` para o nome do perfil ativo nunca depender de rolagem: o
@@ -707,6 +717,7 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
         title={activeProfile.label}
         profile={activeProfile.id}
         isWindows={isWindows}
+        splitProfiles={profiles.length > 1}
       />
     </div>
   );

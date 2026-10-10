@@ -2117,13 +2117,10 @@
   "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "Roblox está restringiendo esta cuenta (baneada, advertida o en revisión). Revísala en roblox.com/not-approved y luego agrégala de nuevo.",
   "Applies right away": "Se aplica al instante",
   "Follow the window in use": "Seguir la ventana en uso",
-  "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.": "La que estás jugando va a toda velocidad, las demás se ralentizan. Solo ventanas abiertas por MultiAlt; una nueva tiene 35 s para cargar antes.",
   "While you play": "Mientras juegas",
   "Mute the Roblox windows you're not using": "Silenciar las ventanas de Roblox que no estás usando",
   "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them.": "Solo la ventana que estás jugando suena. Solo ventanas abiertas por MultiAlt; al desactivarlo vuelven a sonar.",
   "Allow smaller windows in the grid": "Permitir ventanas más pequeñas en la cuadrícula",
-  "Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen.": "Las celdas de la cuadrícula pueden ser más pequeñas que el tamaño mínimo de ventana de Roblox, y caben más ventanas en la pantalla.",
-  "Grid windows lose their title bar and border so they sit edge to edge. Turning this off gives the borders back.": "Las ventanas de la cuadrícula pierden la barra de título y el borde y quedan pegadas. Al desactivarlo vuelven los bordes.",
   "Remove window borders in the grid": "Quitar el borde de las ventanas de la cuadrícula",
   "Starts the next account as soon as the previous one is in the game: never sooner than 8 seconds, at most 20 (or the delay above, if longer).": "Inicia la siguiente cuenta en cuanto la anterior entra al juego: nunca antes de 8 segundos, como máximo 20 (o el retraso de arriba, si es mayor).",
   "Wait for each account to get into the game": "Esperar a que cada cuenta entre al juego",
@@ -2158,5 +2155,9 @@
   "Waiting for the internet to come back (attempt {{attempt}}/{{max}})": "Esperando que vuelva internet (intento {{attempt}}/{{max}})",
   "Auto-reconnect is bringing back {{count}} accounts.": "La reconexión automática está trayendo de vuelta {{count}} cuentas.",
   "Keep the PC awake while AFK Mode or Auto Rejoin runs": "Mantener la PC despierta mientras el Modo AFK o el Auto Rejoin están activos",
-  "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off.": "Evita que Windows entre en suspensión mientras el Modo AFK, el Auto Rejoin o la reconexión automática están activos. La pantalla igual puede apagarse."
+  "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off.": "Evita que Windows entre en suspensión mientras el Modo AFK, el Auto Rejoin o la reconexión automática están activos. La pantalla igual puede apagarse.",
+  "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.": "La que estás jugando va a toda velocidad, las demás se ralentizan. Solo ventanas abiertas por MultiAlt; una nueva tiene 35 s para cargar antes.",
+  "Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen. Also applies to the Arrange in grid button.": "Las celdas de la cuadrícula pueden ser más pequeñas que el tamaño mínimo de ventana de Roblox, para que quepan más ventanas en la pantalla. También vale para el botón Organizar en cuadrícula.",
+  "Grid windows lose their title bar and border so they sit edge to edge. Also applies to the Arrange in grid button; turning this off gives the borders back.": "Las ventanas de la cuadrícula pierden la barra de título y el borde y quedan pegadas. También vale para el botón Organizar en cuadrícula; desactivarlo devuelve los bordes.",
+  "Grid options are the same for every profile.": "Las opciones de la cuadrícula son las mismas para todos los perfiles."
 }
