@@ -19,7 +19,7 @@ export const STABLE_MSI_NAME = "MultiAlt-Setup.msi";
  * que o tauri-action sobe é byte a byte o `MultiAlt-Setup.msi` (o "en-US" é só o
  * idioma da janela do instalador). A cópia com versão sai da release, então o
  * updater baixa o de nome fixo da mesma tag; a assinatura é do conteúdo e vale
- * igual. O MSI da versão completa (`_full-nexus-ws`) é outro arquivo e fica.
+ * igual. O MSI da edição completa (`MultiAlt_<v>_Full-Setup.msi`) é outro arquivo e fica.
  */
 export function toStableMsiUrl(url) {
   return url.replace(/\/MultiAlt_[^/]*_x64_en-US\.msi$/, `/${STABLE_MSI_NAME}`);

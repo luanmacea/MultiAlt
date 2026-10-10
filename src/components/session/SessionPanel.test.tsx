@@ -449,7 +449,7 @@ describe("SessionPanel — Modo AFK com as contas em jogo", () => {
       afkStatus: {
         active: true,
         startedAtMs: 1,
-        intervalMinutes: 10,
+        intervalSeconds: 600,
         key: "Space",
         mode: "key",
         clickX: 50,
