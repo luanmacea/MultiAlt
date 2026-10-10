@@ -252,14 +252,16 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         />
       )}
 
-      {/* A chave continua `AsyncJoin`, mas ela SERIALIZA a fila (launch.rs:1222
-          espera a conta anterior sinalizar). O rotulo antigo, "Async Launching",
-          prometia o contrario do que o codigo faz. */}
+      {/* A chave continua `AsyncJoin`, mas ela SERIALIZA a fila (launch.rs
+          espera o sinal `next_account`, com teto de 120 s). O rotulo antigo,
+          "Async Launching", prometia o contrario do que o codigo faz. Nada na
+          tela manda o sinal: na pratica sao 2 minutos entre contas — e e isso
+          que a descricao diz, para nao parecer o "Start the next account..." */}
       <Toggle
         checked={serialLaunch}
         onChange={(v) => s.setBool("General", "AsyncJoin", v)}
         label="Launch one account at a time"
-        description="Waits for each account to open before starting the next. Off launches them spaced by the delay below."
+        description="Leaves 2 minutes between accounts, so each one has time to load. The slowest option. Off: accounts start spaced by the delay below."
       />
       <NumberField
         value={s.getNumber("General", "AccountJoinDelay", 8)}
@@ -267,7 +269,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         label="Account Join Delay"
         description={
           serialLaunch
-            ? "Not used while accounts launch one at a time."
+            ? "Not used while “Launch one account at a time” is on. It applies again when you turn that off."
             : "Roblox rejects logins that arrive too close together, so 8 seconds is the floor."
         }
         disabled={serialLaunch}
@@ -283,11 +285,11 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         <Toggle
           checked={s.get("General", "WaitForGameJoin", "true") !== "false"}
           onChange={(v) => s.setBool("General", "WaitForGameJoin", v)}
-          label="Wait for each account to get into the game"
+          label="Start the next account once the previous one is in the game"
           description={
             serialLaunch
-              ? "Not used while accounts launch one at a time."
-              : "Starts the next account as soon as the previous one is in the game: never sooner than 8 seconds, at most 20 (or the delay above, if longer)."
+              ? "Not used while “Launch one account at a time” is on. It applies again when you turn that off."
+              : "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer)."
           }
           disabled={serialLaunch}
         />
@@ -458,7 +460,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
           checked={s.getBool("General", "AutoReconnect")}
           onChange={(v) => s.setBool("General", "AutoReconnect", v)}
           label="Reconnect accounts that drop"
-          description="Default for every account (each one can change it in its panel): reopens a client this app opened in the same game after a lost connection, a kick or a crash."
+          description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its panel."
         />
       )}
       {/* commands/keep_awake.rs: SetThreadExecutionState só com o sistema
@@ -467,8 +469,8 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         <Toggle
           checked={s.get("General", "KeepPcAwake", "true") !== "false"}
           onChange={(v) => s.setBool("General", "KeepPcAwake", v)}
-          label="Keep the PC awake while AFK Mode or Auto Rejoin runs"
-          description="Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off."
+          label="Keep the PC awake while accounts are kept in game"
+          description="Windows won't go to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off."
         />
       )}
       <Toggle
