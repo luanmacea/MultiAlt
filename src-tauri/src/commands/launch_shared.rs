@@ -961,7 +961,14 @@ pub(crate) async fn apply_windows_post_launch_profile(
     pid: u32,
 ) {
     let effective_profile = effective_launch_profile(settings, profile);
-    let optimization_profile = platform::windows::load_optimization_profile(settings, effective_profile);
+    // A otimização que segue o foco tira daqui a política de fundo deste
+    // cliente e o estado a devolver quando ela desliga.
+    platform::windows::remember_launch_profile(pid, effective_profile);
+    let follow_focus = platform::windows::focus_follow_enabled(settings);
+    let optimization_profile = platform::windows::launch_profile_under_focus_follow(
+        platform::windows::load_optimization_profile(settings, effective_profile),
+        follow_focus,
+    );
     let has_process_policy = optimization_profile.process.enabled;
     let has_job_limits = optimization_profile.experimental.enable_job_cpu_limit
         || optimization_profile.experimental.enable_job_memory_limit;
@@ -975,7 +982,13 @@ pub(crate) async fn apply_windows_post_launch_profile(
         .await;
     }
 
-    if let Err(err) = platform::windows::apply_optimization_to_pid(pid, &optimization_profile) {
+    let applied = platform::windows::apply_optimization_to_pid(pid, &optimization_profile);
+    if follow_focus {
+        // O Job acabou de nascer com o teto ligado: o laço reaplica a
+        // velocidade (o cliente novo está na carência, sem teto).
+        platform::windows::focus_follow_forget_applied(pid);
+    }
+    if let Err(err) = applied {
         eprintln!("Failed to apply Windows optimization to pid {}: {}", pid, err);
         if let Some(app) = app {
             let _ = app.emit(
