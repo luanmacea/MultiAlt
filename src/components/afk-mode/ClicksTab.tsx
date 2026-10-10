@@ -118,22 +118,40 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
   return (
     <section data-tour="afk-clicks-settings" className={`${CARD} space-y-2.5`}>
       <div className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Settings")}</div>
+      {/* Minutos + segundos, contados do fim de cada ciclo. Piso de 5 s
+          (`clamp_afk_interval_seconds`): abaixo disso o Start não liga. */}
       <div className="flex items-center gap-2">
         <span className="text-[12px] theme-muted w-32 shrink-0">{t("Send every")}</span>
         <NumericInput
-          value={ctl.intervalMinutes}
-          min={1}
+          value={ctl.intervalMinutesPart}
+          min={0}
           max={120}
           integer
           disabled={configDisabled}
-          ariaLabel={t("Send every")}
+          ariaLabel={t("Send every: minutes")}
           onChange={ctl.setIntervalMinutes}
           onCommit={(v) => ctl.persist("IntervalMinutes", String(v))}
-          containerClassName="relative flex-1"
+          containerClassName="relative flex-1 min-w-0"
           className="sidebar-input text-xs w-full disabled:opacity-60"
         />
         <span className="text-[12px] theme-muted">{t("min")}</span>
+        <NumericInput
+          value={ctl.intervalSecondsPart}
+          min={0}
+          max={59}
+          integer
+          disabled={configDisabled}
+          ariaLabel={t("Send every: seconds")}
+          onChange={ctl.setIntervalSecondsPart}
+          onCommit={(v) => ctl.persist("IntervalSeconds", String(v))}
+          containerClassName="relative flex-1 min-w-0"
+          className="sidebar-input text-xs w-full disabled:opacity-60"
+        />
+        <span className="text-[12px] theme-muted">s</span>
       </div>
+      {ctl.intervalTooShort ? (
+        <div className="text-[11px] theme-muted leading-4">{t("At least 5 seconds.")}</div>
+      ) : null}
       <div className="flex items-center gap-2">
         <span className="text-[12px] theme-muted w-32 shrink-0">{t("What to send")}</span>
         <Select
@@ -275,7 +293,7 @@ function AccountsCard({ ctl }: { ctl: ClicksController }) {
                   </span>
                   {running && picked ? (
                     <span className="text-[11px] font-mono theme-muted shrink-0">
-                      {formatAfkCountdown(row?.nextSendAtMs ?? null, ctl.nowMs, ctl.intervalMinutes * 60_000)}
+                      {formatAfkCountdown(row?.nextSendAtMs ?? null, ctl.nowMs, ctl.intervalSeconds * 1000)}
                     </span>
                   ) : null}
                   {row?.lastErrorCode === "focusDenied" ? (

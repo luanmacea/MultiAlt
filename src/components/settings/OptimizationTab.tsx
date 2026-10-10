@@ -565,7 +565,7 @@ function OptimizationProfileSection({
 function WindowInUseSection({ s }: { s: UseSettingsReturn }) {
   const t = useTr();
   // O volume ao vivo usa COM de áudio e só existe no binário com a feature
-  // `live-audio` (fora das duas edições por padrão): sem ela, nada de opção.
+  // `live-audio` (só na edição completa): sem ela, nada de opção.
   const liveAudio = useStore().platformCapabilities?.supportsLiveAudio === true;
   return (
     <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
