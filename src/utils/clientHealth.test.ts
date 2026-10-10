@@ -1,6 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { clientHealthLabel } from "./clientHealth";
 import type { ClientDrop } from "../types";
+import ptCommon from "../locales/pt/common.json";
+
+/**
+ * Em português o sujeito é a conta (feminino): "Caiu: ficou parada", "ser
+ * expulsa". "Foi expulso" destoava das vizinhas.
+ */
+describe("drop labels in Portuguese", () => {
+  const pt = ptCommon as Record<string, string>;
+  const ptT = (text: string, options?: Record<string, unknown>) =>
+    (pt[text] ?? text).replace(/\{\{(\w+)\}\}/g, (_, key: string) => String(options?.[key] ?? ""));
+  const drops: Partial<ClientDrop>[] = [
+    { kind: "disconnected", reason: "connectionLost" },
+    { kind: "disconnected", reason: "joinedElsewhere" },
+    { kind: "disconnected", reason: "idle" },
+    { kind: "disconnected" },
+    { kind: "kicked", message: "x" },
+    { kind: "kicked" },
+    { kind: "serverShutdown" },
+    { kind: "crashed" },
+  ];
+
+  it("talk about the account in the feminine", () => {
+    for (const partial of drops) {
+      const label = clientHealthLabel(drop(partial), ptT)?.label ?? "";
+      expect(label, JSON.stringify(partial)).not.toMatch(/\b(expulso|parado|fechado|desconectado)\b/i);
+    }
+  });
+});
 
 const t = (text: string, options?: Record<string, unknown>) =>
   text.replace(/\{\{(\w+)\}\}/g, (_, key: string) => String(options?.[key] ?? ""));

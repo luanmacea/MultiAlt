@@ -2722,7 +2722,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!status) return;
         const acct = accountsRef.current.find((a) => a.UserID === userId);
         const name = accountLabel(acct, nameMaskingRef.current, userId);
-        addToast(tr("{{name}} in Roblox: {{status}}", { name, status: status.label }), "warn");
+        addToast(tr("{{name}} in Roblox — {{status}}", { name, status: status.label }), "warn");
       }),
       // Moderação lida pelo backend (painel, "conferir contas", antes do launch).
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
@@ -2972,7 +2972,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const final = entry.phase === "gaveUp" || entry.phase === "stopped";
         if (!final || previous?.phase === entry.phase) continue;
         const status = autoReconnectLabel(entry, Date.now(), tr).label;
-        addToast(tr("Auto-reconnect — {{name}}: {{status}}", { name: nameOf(entry.userId), status }), "warn");
+        addToast(tr("Auto-reconnect ({{name}}) — {{status}}", { name: nameOf(entry.userId), status }), "warn");
       }
       // Relançada e conferida: ficou no jogo.
       for (const userId of Array.isArray(e.payload?.reconnected) ? e.payload.reconnected : []) {

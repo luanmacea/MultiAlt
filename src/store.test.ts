@@ -3197,7 +3197,36 @@ describe("auto-reconnect", () => {
     act(() => emit("auto-reconnect", { entries: [entry(1, "gaveUp", 5)] }));
     act(() => emit("auto-reconnect", { entries: [entry(1, "gaveUp", 5)] }));
     const warnings = result.current.toasts.filter((t) => t.message.includes("Gave up after 5 tries"));
-    expect(warnings.map((t) => t.message)).toEqual(["Auto-reconnect — user1: Gave up after 5 tries"]);
+    expect(warnings.map((t) => t.message)).toEqual(["Auto-reconnect (user1) — Gave up after 5 tries"]);
+  });
+
+  /** "… — user1: Not reconnecting: …" tinha dois-pontos duas vezes. */
+  it("warns about a stop without a double colon", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    act(() =>
+      emit("auto-reconnect", { entries: [{ ...entry(1, "stopped"), reason: "closedByUser" }] })
+    );
+    expect(result.current.toasts.map((t) => t.message)).toContain(
+      "Auto-reconnect (user1) — Not reconnecting: the client was closed"
+    );
+  });
+});
+
+/** Queda lida do log do Roblox: o aviso dizia "user1 in Roblox: Disconnected: lost connection". */
+describe("client drop toast", () => {
+  it("names the account and the drop without a double colon", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    act(() =>
+      emit("roblox-client-health", {
+        userId: 1,
+        drop: { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 0 },
+      })
+    );
+    const messages = result.current.toasts.map((t) => t.message);
+    expect(messages).toContain("user1 in Roblox — Disconnected: lost connection");
+    for (const message of messages) expect(message.split(":").length, message).toBeLessThanOrEqual(2);
   });
 
   it("says when a reopened account stayed in the game", async () => {

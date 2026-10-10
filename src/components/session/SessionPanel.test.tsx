@@ -804,8 +804,8 @@ describe("SessionPanel — reconexão automática", () => {
       autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5, error: "PID not detected" })],
     });
     const row = screen.getByTestId("session-reconnect-2");
-    const label = within(row).getByText("Gave up after 5 tries");
-    expect(label).toHaveAttribute("title", "Gave up after 5 tries — PID not detected");
+    expect(within(row).getByText("Gave up after 5 tries")).toBeInTheDocument();
+    expect(within(row).getByText("PID not detected")).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: /Try again/ })).toBeInTheDocument();
     await userEvent.click(within(row).getByRole("button", { name: "Dismiss Bravo Alt" }));
     expect(callsFor("stop_auto_reconnect")).toEqual([["stop_auto_reconnect", { userId: 2 }]]);
@@ -832,5 +832,92 @@ describe("SessionPanel — reconexão automática", () => {
     expect(within(row).getByText("Reconnecting now (attempt 3/5)")).toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: /Try/ })).not.toBeInTheDocument();
     expect(within(row).getByRole("button", { name: /Stop/ })).toBeInTheDocument();
+  });
+
+  /** A causa ficava só no tooltip: agora é uma segunda linha, à vista. */
+  it("shows the cause under the line, for a pending reconnect too", () => {
+    renderPanel({
+      autoReconnect: [
+        reconnect(2, { phase: "gaveUp", attempt: 5, error: "PID not detected" }),
+        reconnect(1, { phase: "waiting", attempt: 2, error: "It did not get into the game in 2 minutes" }),
+      ],
+    });
+    expect(screen.getByTestId("session-reconnect-detail-2")).toHaveTextContent("PID not detected");
+    expect(screen.getByTestId("session-reconnect-detail-1")).toHaveTextContent(
+      "It did not get into the game in 2 minutes"
+    );
+  });
+
+  it("has no cause line when there is no error", () => {
+    renderPanel({ autoReconnect: [reconnect(1, { phase: "waiting" })] });
+    expect(screen.queryByTestId("session-reconnect-detail-1")).not.toBeInTheDocument();
+  });
+
+  /** Sem retorno, o clique parecia não ter feito nada (e dava para clicar de novo). */
+  it("disables the line's buttons while the command runs", async () => {
+    let finish: (value: boolean) => void = () => {};
+    setInvokeMap({ retry_auto_reconnect: () => new Promise<boolean>((resolve) => (finish = resolve)) });
+    renderPanel({ ...reconnectActions(), autoReconnect: [reconnect(1, { phase: "waiting" })] });
+    const row = screen.getByTestId("session-reconnect-1");
+    await userEvent.click(within(row).getByRole("button", { name: /Try now/ }));
+    expect(within(row).getByRole("button", { name: /Try now/ })).toBeDisabled();
+    expect(within(row).getByRole("button", { name: /Stop/ })).toBeDisabled();
+    finish(true);
+    await waitFor(() => expect(within(row).getByRole("button", { name: /Try now/ })).not.toBeDisabled());
+  });
+
+  it("hides a dismissed line right away, before the backend answers", async () => {
+    setInvokeMap({ stop_auto_reconnect: () => new Promise<boolean>(() => {}) });
+    renderPanel({ ...reconnectActions(), autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5 })] });
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    expect(screen.queryByTestId("session-reconnect-2")).not.toBeInTheDocument();
+  });
+
+  it("says so when the account is no longer reconnecting", async () => {
+    setInvokeMap({ stop_auto_reconnect: false, retry_auto_reconnect: false });
+    const { store } = renderPanel({
+      ...reconnectActions(),
+      autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5 }), reconnect(1, { phase: "waiting" })],
+    });
+    await userEvent.click(within(screen.getByTestId("session-reconnect-1")).getByRole("button", { name: /Try now/ }));
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith("alpha is no longer being reconnected.", "info")
+    );
+    // Dispensar uma que o backend já não tem: some do mesmo jeito, com o aviso.
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith("Bravo Alt is no longer being reconnected.", "info")
+    );
+    expect(screen.queryByTestId("session-reconnect-2")).not.toBeInTheDocument();
+  });
+
+  it("brings a dismissed line back when the command fails", async () => {
+    setInvokeMap({
+      stop_auto_reconnect: () => {
+        throw new Error("boom");
+      },
+    });
+    renderPanel({ ...reconnectActions(), autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5 })] });
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    await waitFor(() => expect(screen.getByTestId("session-reconnect-2")).toBeInTheDocument());
+    expect(screen.getByText(/boom/)).toBeInTheDocument();
+  });
+
+  it("shows a new drop of a dismissed account again", async () => {
+    setInvokeMap({ stop_auto_reconnect: () => new Promise<boolean>(() => {}) });
+    const actions = reconnectActions();
+    const { rerender } = renderPanel({ ...actions, autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5 })] });
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    expect(screen.queryByTestId("session-reconnect-2")).not.toBeInTheDocument();
+    // Caiu de novo: outra queda (outro `sinceMs`) é outra linha.
+    const again = reconnect(2, { phase: "waiting" });
+    setStore({
+      accounts: ACCOUNTS,
+      ...storeActions(),
+      ...actions,
+      autoReconnect: [{ ...again, drop: { ...again.drop, sinceMs: NOW + 60_000 } }],
+    });
+    rerender(<SessionPanel />);
+    expect(screen.getByTestId("session-reconnect-2")).toBeInTheDocument();
   });
 });
