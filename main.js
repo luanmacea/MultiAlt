@@ -94,19 +94,21 @@
   // aparece se o arquivo existe (renderRelease). O MSI padrão vem duas vezes:
   // com a versão no nome e como `MultiAlt-Setup.msi` (nome fixo do botão do
   // README) — o da versão ganha, para o arquivo baixado dizer qual versão é.
-  function pickAssets(r, full) {
+  // A edição completa (arquivos com `_full-`/`_Full-` no nome) só aparece nos
+  // anexos da release do GitHub (decisão do dono, 10/10/2026): o site nunca
+  // aponta para ela.
+  function pickAssets(r) {
     var by = { msi: null, portable: null };
     var stableMsi = null;
     (r.assets || []).forEach(function (a) {
       var n = a.name;
       if (/^zz-/.test(n) || /\.sig$/.test(n)) return;
-      var isFull = /_full-nexus-ws/.test(n);
-      if (isFull !== full) return;
+      if (/_full-/i.test(n)) return;
       // MultiAlt-Setup.msi desde a troca de nome; o nome antigo vale para as
       // releases de antes dela.
       if (n === "MultiAlt-Setup.msi" || n === "Roblox-Account-Manager-Setup.msi") stableMsi = a;
       else if (/\.msi$/.test(n)) by.msi = a;
-      else if (/_portable(_full-nexus-ws)?\.exe$/.test(n)) by.portable = a;
+      else if (/_portable\.exe$/.test(n)) by.portable = a;
     });
     if (!by.msi) by.msi = stableMsi;
     return by;
@@ -131,13 +133,12 @@
   }
 
   function renderRelease() {
-    var full = document.getElementById("full-toggle").checked;
     if (!release) {
       document.querySelectorAll(".js-dl-meta").forEach(function (el) { el.textContent = t("dl.metaFallback"); });
       return;
     }
-    var std = pickAssets(release, false);
-    var picked = pickAssets(release, full);
+    var std = pickAssets(release);
+    var picked = std;
 
     setTrackedDownload(std.msi);
     document.querySelectorAll(".js-dl-meta").forEach(function (el) {
@@ -196,8 +197,6 @@
       })
       .catch(function () { /* fica o link para a página de releases */ });
   }
-
-  document.getElementById("full-toggle").addEventListener("change", renderRelease);
 
   // ---------- hero: contas abrindo uma a uma ----------
   var ACCOUNTS = [
