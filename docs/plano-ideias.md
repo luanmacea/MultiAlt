@@ -30,6 +30,7 @@ de subir a próxima:
 | 1.1.0 | telas pequenas, feedback, tamanho da interface | — | 08/10/2026 | |
 | 1.2.0 | **Conta** (8, 10, 26, 7, 9) + ícones na legenda de status | 10/10/2026 | 10/10/2026 | "minor update"; `.exe` e MSI limpos no Defender e VirusTotal |
 | próxima | **Quedas** (1, 19, 4) | branch `feature/quedas` | — | não antes de 12/10/2026; falta teste do dono com cliente real |
+| — | **Desempenho** (18, 20, 22) | branch própria (10/10/2026) | — | tudo opcional e desligado; volume ao vivo (20) atrás da feature `live-audio`, fora das duas edições até o scan; falta build + scan e teste do dono com cliente real ([performance.md](features/performance.md)) |
 
 ## Pacotes
 

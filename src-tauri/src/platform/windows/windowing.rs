@@ -1,8 +1,9 @@
 use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AdjustWindowRectEx, GetWindowLongW, IsZoomed, SetWindowLongW, SetWindowPos, GWL_EXSTYLE,
-    GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER,
-    SW_SHOWNOACTIVATE, WS_CAPTION, WS_OVERLAPPEDWINDOW, WS_POPUP,
+    GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+    SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, WS_CAPTION,
+    WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME,
 };
 
 struct EnumWindowData {
@@ -490,17 +491,11 @@ fn window_is_fullscreen_like(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
 
 /// Move/redimensiona sem roubar o foco nem mudar a ordem das janelas.
 fn place_window(hwnd: HWND, rect: (i32, i32, i32, i32)) -> bool {
-    unsafe {
-        SetWindowPos(
-            hwnd,
-            std::ptr::null_mut(),
-            rect.0,
-            rect.1,
-            rect.2,
-            rect.3,
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER,
-        ) != 0
-    }
+    place_window_with(hwnd, rect, grid_swp_flags(false))
+}
+
+fn place_window_with(hwnd: HWND, rect: (i32, i32, i32, i32), flags: u32) -> bool {
+    unsafe { SetWindowPos(hwnd, std::ptr::null_mut(), rect.0, rect.1, rect.2, rect.3, flags) != 0 }
 }
 
 pub fn is_roblox_pid_running(pid: u32) -> bool {
@@ -547,7 +542,17 @@ fn learn_size_semantics(
 }
 
 fn move_to(hwnd: HWND, current: (i32, i32, i32, i32), target: (i32, i32, i32, i32)) -> WindowEnforcement {
-    if target == current || place_window(hwnd, target) {
+    move_to_with(hwnd, current, target, false)
+}
+
+/// `allow_small`: ver `grid_swp_flags`.
+fn move_to_with(
+    hwnd: HWND,
+    current: (i32, i32, i32, i32),
+    target: (i32, i32, i32, i32),
+    allow_small: bool,
+) -> WindowEnforcement {
+    if target == current || place_window_with(hwnd, target, grid_swp_flags(allow_small)) {
         WindowEnforcement::Placed(target)
     } else {
         WindowEnforcement::Skipped
@@ -573,11 +578,14 @@ pub fn enforce_client_window(
 }
 
 /// Devolve a janela ao retângulo já escolhido, se o cliente a tiver mexido.
-pub fn hold_window_rect(hwnd: HWND, rect: (i32, i32, i32, i32)) -> WindowEnforcement {
+/// `allow_small`: a célula é menor que o mínimo do Roblox (grade com
+/// `GridAllowSmallWindows`) — sem isso a conferência devolveria o tamanho
+/// mínimo que ela acabou de tirar.
+pub fn hold_window_rect(hwnd: HWND, rect: (i32, i32, i32, i32), allow_small: bool) -> WindowEnforcement {
     let Some((current, _)) = movable_window(hwnd) else {
         return WindowEnforcement::Skipped;
     };
-    move_to(hwnd, current, rect)
+    move_to_with(hwnd, current, rect, allow_small)
 }
 
 // ── Grid layout of Roblox windows across monitors ──────────────────────────
@@ -844,8 +852,179 @@ fn unblocked_slots(slots: &[GridCell], cell: (i32, i32), blockers: &[(i32, i32, 
 /// O tamanho da célula: o pedido, ou o que a janela de fato ficou se ela não
 /// encolheu até lá. O Roblox tem tamanho mínimo (~800x600 de área útil): um
 /// 520x420 na configuração vira 816x638, e células de 520 sobrepõem as janelas.
-fn grid_cell_size(requested: (i32, i32), actual: (i32, i32)) -> (i32, i32) {
+///
+/// Com `allow_small` (`GridAllowSmallWindows`) a janela é posta sem o aviso de
+/// "vou mudar de tamanho" (`SWP_NOSENDCHANGING`), que é onde o Roblox impõe o
+/// mínimo: a célula fica do tamanho pedido, com um piso de 200x200 (janela
+/// menor que isso a grade nem enxerga, ver `roblox_win_cb`).
+fn grid_cell_size(requested: (i32, i32), actual: (i32, i32), allow_small: bool) -> (i32, i32) {
+    if allow_small {
+        return (
+            requested.0.max(MIN_SMALL_GRID_CELL.0),
+            requested.1.max(MIN_SMALL_GRID_CELL.1),
+        );
+    }
     (requested.0.max(actual.0), requested.1.max(actual.1))
+}
+
+// ── grade menor que o mínimo e sem moldura (ideia 22) ──────────────────────
+//
+// Duas opções da grade, desligadas por padrão, só para clientes que o app
+// abriu (rastreados e não adotados):
+// - `General.GridAllowSmallWindows`: célula menor que o mínimo do Roblox. A
+//   janela é posta com `SWP_NOSENDCHANGING` — o `WM_WINDOWPOSCHANGING` não é
+//   enviado e o Roblox não tem onde aumentar o tamanho. Só constante nova, a
+//   mesma `SetWindowPos` de sempre.
+// - `General.GridBorderless`: tira a barra de título e a borda
+//   (`WS_CAPTION | WS_THICKFRAME`) e as janelas encostam. A moldura original
+//   fica guardada e volta quando a opção desliga (olhada de 1 s), quando o
+//   botão manual arruma sem ela, ou ao fechar o app.
+
+/// Piso da célula com `allow_small`.
+const MIN_SMALL_GRID_CELL: (i32, i32) = (200, 200);
+
+/// Os bits de moldura que a grade sem moldura tira e devolve.
+const GRID_FRAME_BITS: u32 = WS_CAPTION | WS_THICKFRAME;
+
+/// Como a grade trata as janelas que o app abriu.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GridWindowStyle {
+    /// `General.GridAllowSmallWindows`.
+    pub allow_small: bool,
+    /// `General.GridBorderless`.
+    pub borderless: bool,
+}
+
+/// Os flags do `SetWindowPos` da grade: nunca rouba o foco nem mexe na ordem;
+/// com `allow_small`, também não avisa a janela (ver acima).
+fn grid_swp_flags(allow_small: bool) -> u32 {
+    let base = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+    if allow_small {
+        base | SWP_NOSENDCHANGING
+    } else {
+        base
+    }
+}
+
+/// O estilo sem moldura: sai a barra de título e a borda; o resto fica (o
+/// botão da barra de tarefas continua minimizando).
+fn borderless_style(style: u32) -> u32 {
+    style & !GRID_FRAME_BITS
+}
+
+/// O estilo com a moldura devolvida: só os bits de moldura que a janela tinha
+/// antes voltam — uma janela que nunca teve borda não ganha uma.
+fn restored_frame_style(current: u32, original: u32) -> u32 {
+    current | (original & GRID_FRAME_BITS)
+}
+
+/// Célula menor que o mínimo só se todas as janelas da grade forem do app:
+/// a de um cliente aberto pelo site cresceria até o mínimo e sobreporia as
+/// vizinhas.
+fn grid_small_allowed(
+    allow_small: bool,
+    window_pids: &[u32],
+    own: &std::collections::HashSet<u32>,
+) -> bool {
+    allow_small && window_pids.iter().all(|pid| own.contains(pid))
+}
+
+/// Janelas sem moldura pela grade: `hwnd -> (pid, estilo original)`.
+static BORDERLESS_WINDOWS: LazyLock<Mutex<HashMap<isize, (u32, u32)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn borderless_windows() -> std::sync::MutexGuard<'static, HashMap<isize, (u32, u32)>> {
+    BORDERLESS_WINDOWS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Aplica um estilo e manda a janela redesenhar a moldura, sem mover, sem
+/// redimensionar e sem foco.
+fn apply_frame_style(hwnd: HWND, style: u32) {
+    unsafe {
+        SetWindowLongW(hwnd, GWL_STYLE, style as i32);
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE
+                | SWP_NOSIZE
+                | SWP_NOZORDER
+                | SWP_NOACTIVATE
+                | SWP_NOOWNERZORDER
+                | SWP_FRAMECHANGED,
+        );
+    }
+}
+
+/// Tira a moldura da janela de um cliente do app e guarda a original.
+fn make_borderless(hwnd: HWND, pid: u32) {
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    let bare = borderless_style(style);
+    if bare == style {
+        return;
+    }
+    borderless_windows()
+        .entry(hwnd as isize)
+        .or_insert((pid, style));
+    apply_frame_style(hwnd, bare);
+}
+
+/// Devolve a moldura a uma janela que a grade tirou (se ela ainda é do mesmo
+/// cliente).
+fn restore_border(hwnd: isize, pid: u32, original: u32) {
+    let hwnd = hwnd as HWND;
+    if window_pid(hwnd) != Some(pid) {
+        return;
+    }
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32;
+    let framed = restored_frame_style(style, original);
+    if framed != style {
+        apply_frame_style(hwnd, framed);
+    }
+}
+
+/// Devolve a moldura a todas as janelas que a grade tirou.
+pub fn release_borderless_windows() {
+    let taken: Vec<(isize, (u32, u32))> = borderless_windows().drain().collect();
+    for (hwnd, (pid, original)) in taken {
+        restore_border(hwnd, pid, original);
+    }
+}
+
+/// Devolve a moldura às janelas destes PIDs (botão manual sem a opção).
+fn release_borderless_for(pids: &std::collections::HashSet<u32>) {
+    let taken: Vec<(isize, (u32, u32))> = {
+        let mut map = borderless_windows();
+        let hwnds: Vec<isize> = map
+            .iter()
+            .filter(|(_, (pid, _))| pids.contains(pid))
+            .map(|(hwnd, _)| *hwnd)
+            .collect();
+        hwnds
+            .into_iter()
+            .filter_map(|hwnd| map.remove(&hwnd).map(|v| (hwnd, v)))
+            .collect()
+    };
+    for (hwnd, (pid, original)) in taken {
+        restore_border(hwnd, pid, original);
+    }
+}
+
+/// A olhada de 1 s: cliente que saiu do rastreamento é esquecido; opção
+/// desligada devolve as molduras.
+pub fn grid_borders_tick(settings: &SettingsStore) {
+    let ours = launched_client_pids();
+    let pending = {
+        let mut map = borderless_windows();
+        map.retain(|_, (pid, _)| ours.contains(pid));
+        !map.is_empty()
+    };
+    if pending && !settings.get_bool("General", "GridBorderless") {
+        release_borderless_windows();
+    }
 }
 
 /// O botão manual põe a i-ésima janela na célula i, dando a volta.
@@ -876,6 +1055,8 @@ pub struct GridRequest {
     pub gap: i32,
     /// PIDs fora da grade (contas com janela própria).
     pub excluded_pids: std::collections::HashSet<u32>,
+    /// Célula menor que o mínimo e sem moldura.
+    pub style: GridWindowStyle,
 }
 
 /// Põe a janela do PID na primeira célula livre da grade. A célula tem o
@@ -898,6 +1079,18 @@ pub fn place_in_grid(
     if first_look {
         learn_size_semantics(size, current, client);
     }
+    // A grade só é chamada para clientes que o app abriu. A moldura sai antes
+    // de medir: sem ela a janela inteira é área útil.
+    let small = request.style.allow_small;
+    let (current, client) = if request.style.borderless {
+        make_borderless(hwnd, pid);
+        match movable_window(hwnd) {
+            Some(measured) => measured,
+            None => return WindowEnforcement::Skipped,
+        }
+    } else {
+        (current, client)
+    };
     let requested = match size {
         Some((tw, th)) => outer_size_for_target(
             (tw as i32, th as i32),
@@ -907,7 +1100,8 @@ pub fn place_in_grid(
         ),
         None => (current.2, current.3),
     };
-    let (cell_w, cell_h) = grid_cell_size(requested, accepted_size(hwnd, current, requested));
+    let (cell_w, cell_h) =
+        grid_cell_size(requested, accepted_size(hwnd, current, requested, small), small);
     let monitors = selected_monitors(&list_monitors(), &request.monitor_indices);
     let slots = grid_slots(&monitors, cell_w, cell_h, request.gap);
     let others: Vec<RobloxWin> = list_roblox_windows().into_iter().filter(|w| w.pid != pid).collect();
@@ -920,15 +1114,24 @@ pub fn place_in_grid(
         Some(i) => (slots[i].x, slots[i].y, cell_w, cell_h),
         None => (current.0, current.1, cell_w, cell_h),
     };
-    move_to(hwnd, current, target)
+    move_to_with(hwnd, current, target, small)
 }
 
 /// O tamanho que a janela aceita de verdade: pede `requested` no lugar onde ela
 /// está e lê de volta. O mínimo do Roblox é aplicado na hora (WM_GETMINMAXINFO),
 /// então a leitura já vem com o tamanho final.
-fn accepted_size(hwnd: HWND, current: (i32, i32, i32, i32), requested: (i32, i32)) -> (i32, i32) {
+fn accepted_size(
+    hwnd: HWND,
+    current: (i32, i32, i32, i32),
+    requested: (i32, i32),
+    allow_small: bool,
+) -> (i32, i32) {
     if (current.2, current.3) != requested {
-        place_window(hwnd, (current.0, current.1, requested.0, requested.1));
+        place_window_with(
+            hwnd,
+            (current.0, current.1, requested.0, requested.1),
+            grid_swp_flags(allow_small),
+        );
     }
     get_window_position(hwnd).map(|r| (r.2, r.3)).unwrap_or(requested)
 }
@@ -943,11 +1146,27 @@ pub fn arrange_roblox_grid(
     gap: i32,
     size: Option<(u32, u32)>,
     excluded_pids: &std::collections::HashSet<u32>,
+    style: GridWindowStyle,
 ) -> Result<(usize, usize), String> {
     let _guard = GRID_PLACEMENT.lock().unwrap_or_else(|e| e.into_inner());
+    // Moldura e célula pequena só nos clientes que o app abriu; o aberto pelo
+    // site é arrumado como sempre foi.
+    let own: std::collections::HashSet<u32> = launched_client_pids()
+        .into_iter()
+        .filter(|pid| !excluded_pids.contains(pid))
+        .collect();
+    if style.borderless {
+        for w in list_roblox_windows().iter().filter(|w| own.contains(&w.pid)) {
+            make_borderless(w.hwnd as HWND, w.pid);
+        }
+    } else {
+        release_borderless_for(&own);
+    }
     let (excluded, wins): (Vec<RobloxWin>, Vec<RobloxWin>) = list_roblox_windows()
         .into_iter()
         .partition(|w| excluded_pids.contains(&w.pid));
+    let window_pids: Vec<u32> = wins.iter().map(|w| w.pid).collect();
+    let small = grid_small_allowed(style.allow_small, &window_pids, &own);
     let blockers: Vec<(i32, i32, i32, i32)> = excluded.iter().map(|w| (w.x, w.y, w.w, w.h)).collect();
     if wins.is_empty() {
         return Err("Nenhuma janela de Roblox aberta foi encontrada.".to_string());
@@ -976,7 +1195,13 @@ pub fn arrange_roblox_grid(
     let first = wins[0];
     let (cell_w, cell_h) = grid_cell_size(
         (cell_w, cell_h),
-        accepted_size(first.hwnd as HWND, (first.x, first.y, first.w, first.h), (cell_w, cell_h)),
+        accepted_size(
+            first.hwnd as HWND,
+            (first.x, first.y, first.w, first.h),
+            (cell_w, cell_h),
+            small,
+        ),
+        small,
     );
     let slots = unblocked_slots(&grid_slots(&monitors, cell_w, cell_h, gap), (cell_w, cell_h), &blockers);
     if slots.is_empty() {
@@ -991,7 +1216,7 @@ pub fn arrange_roblox_grid(
                 let _ = ShowWindow(hwnd, SW_RESTORE);
             }
         }
-        if place_window(hwnd, (cell.x, cell.y, cell_w, cell_h)) {
+        if place_window_with(hwnd, (cell.x, cell.y, cell_w, cell_h), grid_swp_flags(small)) {
             arranged += 1;
         }
     }
@@ -1362,9 +1587,9 @@ mod win_grid_slot_tests {
     /// janelas se sobrepõem.
     #[test]
     fn the_cell_grows_to_the_size_the_window_really_took() {
-        assert_eq!(grid_cell_size((536, 459), (816, 638)), (816, 638));
-        assert_eq!(grid_cell_size((1296, 759), (816, 638)), (1296, 759));
-        assert_eq!(grid_cell_size((900, 500), (816, 638)), (900, 638));
+        assert_eq!(grid_cell_size((536, 459), (816, 638), false), (816, 638));
+        assert_eq!(grid_cell_size((1296, 759), (816, 638), false), (1296, 759));
+        assert_eq!(grid_cell_size((900, 500), (816, 638), false), (900, 638));
     }
 
     #[test]
@@ -1391,6 +1616,97 @@ mod win_grid_slot_tests {
         assert_eq!(idx(selected_monitors(&all, &[])), vec![1, 2]);
         assert_eq!(idx(selected_monitors(&all, &[2])), vec![2]);
         assert_eq!(idx(selected_monitors(&all, &[0, 2, 7])), vec![2]);
+    }
+}
+
+#[cfg(test)]
+mod win_grid_style_tests {
+    use super::*;
+    use std::collections::HashSet;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_SYSMENU, WS_VISIBLE,
+    };
+
+    // ── célula menor que o mínimo ──────────────────────────────────────────
+
+    #[test]
+    fn with_small_windows_allowed_the_cell_keeps_the_requested_size() {
+        // O Roblox levaria 520x420 a 816x638; com a opção, fica 520x420.
+        assert_eq!(grid_cell_size((520, 420), (816, 638), true), (520, 420));
+    }
+
+    #[test]
+    fn small_cells_never_go_below_what_the_grid_can_see() {
+        assert_eq!(grid_cell_size((120, 90), (816, 638), true), (200, 200));
+    }
+
+    #[test]
+    fn without_the_option_the_cell_still_grows_to_the_roblox_minimum() {
+        assert_eq!(grid_cell_size((520, 420), (816, 638), false), (816, 638));
+    }
+
+    #[test]
+    fn only_small_cells_skip_the_size_change_notice() {
+        let base = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+        assert_eq!(grid_swp_flags(false), base);
+        assert_eq!(grid_swp_flags(true), base | SWP_NOSENDCHANGING);
+        // Nunca rouba o foco de quem está jogando.
+        assert_ne!(grid_swp_flags(true) & SWP_NOACTIVATE, 0);
+        assert_ne!(grid_swp_flags(false) & SWP_NOACTIVATE, 0);
+    }
+
+    #[test]
+    fn a_website_client_in_the_grid_keeps_the_cells_at_the_roblox_minimum() {
+        let own: HashSet<u32> = [10, 20].into_iter().collect();
+        assert!(grid_small_allowed(true, &[10, 20], &own));
+        // 77 foi aberto pelo site: cresceria e sobreporia as vizinhas.
+        assert!(!grid_small_allowed(true, &[10, 77], &own));
+        assert!(!grid_small_allowed(false, &[10, 20], &own));
+    }
+
+    // ── sem moldura ────────────────────────────────────────────────────────
+
+    #[test]
+    fn borderless_removes_the_title_bar_and_the_border_only() {
+        let roblox = WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN;
+        let bare = borderless_style(roblox);
+        assert_eq!(bare & WS_CAPTION, 0);
+        assert_eq!(bare & WS_THICKFRAME, 0);
+        assert_ne!(bare & WS_VISIBLE, 0);
+        assert_ne!(bare & WS_CLIPCHILDREN, 0);
+        // O botão da barra de tarefas continua minimizando.
+        assert_ne!(bare & WS_MINIMIZEBOX, 0);
+        assert_ne!(bare & WS_MAXIMIZEBOX, 0);
+        assert_ne!(bare & WS_SYSMENU, 0);
+    }
+
+    #[test]
+    fn restoring_gives_back_exactly_the_frame_the_window_had() {
+        let roblox = WS_OVERLAPPEDWINDOW | WS_VISIBLE | WS_CLIPCHILDREN;
+        assert_eq!(restored_frame_style(borderless_style(roblox), roblox), roblox);
+        // Uma janela sem borda redimensionável não ganha uma.
+        let fixed = (WS_OVERLAPPEDWINDOW & !WS_THICKFRAME) | WS_VISIBLE;
+        let restored = restored_frame_style(borderless_style(fixed), fixed);
+        assert_eq!(restored & WS_THICKFRAME, 0);
+        assert_eq!(restored, fixed);
+    }
+
+    #[test]
+    fn a_borderless_cell_is_not_mistaken_for_fullscreen() {
+        let bare = borderless_style(WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+        let monitor = (0, 0, 1920, 1080);
+        assert_eq!(window_mode(false, bare, (0, 0, 640, 480), monitor), WindowMode::Normal);
+    }
+
+    #[test]
+    fn the_grid_options_are_off_by_default() {
+        assert_eq!(
+            GridWindowStyle::default(),
+            GridWindowStyle {
+                allow_small: false,
+                borderless: false
+            }
+        );
     }
 }
 

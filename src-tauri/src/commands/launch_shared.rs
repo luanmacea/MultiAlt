@@ -342,6 +342,17 @@ pub(crate) fn grid_layout_settings(settings: &SettingsStore) -> (Vec<usize>, i32
     (monitors, gap)
 }
 
+/// Célula menor que o mínimo do Roblox (`General.GridAllowSmallWindows`) e
+/// janelas sem moldura (`General.GridBorderless`) — as duas desligadas por
+/// padrão, só para clientes que o app abriu. Ver docs/features/performance.md.
+#[cfg(target_os = "windows")]
+pub(crate) fn grid_window_style(settings: &SettingsStore) -> platform::windows::GridWindowStyle {
+    platform::windows::GridWindowStyle {
+        allow_small: settings.get_bool("General", "GridAllowSmallWindows"),
+        borderless: settings.get_bool("General", "GridBorderless"),
+    }
+}
+
 /// O tamanho de janela do perfil global (`OverrideClientWindowSize`), ou
 /// `None` com ele desligado.
 pub(crate) fn global_window_size(
@@ -443,6 +454,12 @@ pub(crate) fn spawn_client_window_enforcement(
         // A tela cheia herdada é tirada uma vez só (`leave_fullscreen`): se o
         // Roblox voltar para ela, a conferência seguinte a vê e para.
         let mut fullscreen_exit_tried = false;
+        // Lido uma vez: a conferência segura a célula escolhida com os mesmos
+        // flags com que ela foi posta.
+        let grid_style = plan
+            .grid
+            .then(|| grid_window_style(&app.state::<SettingsStore>()))
+            .unwrap_or_default();
         for attempt in 0..3 {
             if attempt > 0 {
                 tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
@@ -467,7 +484,7 @@ pub(crate) fn spawn_client_window_enforcement(
                 }
             }
             let outcome = match chosen {
-                Some(rect) => windows::hold_window_rect(hwnd, rect),
+                Some(rect) => windows::hold_window_rect(hwnd, rect, grid_style.allow_small),
                 None if plan.grid => {
                     let request = {
                         let settings = app.state::<SettingsStore>();
@@ -476,6 +493,7 @@ pub(crate) fn spawn_client_window_enforcement(
                             monitor_indices,
                             gap,
                             excluded_pids: grid_excluded_pids(app.state::<AccountStore>().inner()),
+                            style: grid_style,
                         }
                     };
                     windows::place_in_grid(hwnd, pid, plan.size, &request, first_look)
@@ -2981,6 +2999,23 @@ mod client_window_plan_tests {
         let settings = temp_settings("grid-off");
         settings.set("General", "AutoArrangeGrid", "false").unwrap();
         assert!(!auto_arrange_grid_enabled(&settings));
+    }
+
+    /// Ideia 22: célula menor que o mínimo e sem moldura, as duas opcionais.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn small_and_borderless_grid_windows_are_off_by_default() {
+        let settings = temp_settings("grid-style");
+        assert_eq!(grid_window_style(&settings), platform::windows::GridWindowStyle::default());
+        settings.set("General", "GridAllowSmallWindows", "true").unwrap();
+        settings.set("General", "GridBorderless", "true").unwrap();
+        assert_eq!(
+            grid_window_style(&settings),
+            platform::windows::GridWindowStyle {
+                allow_small: true,
+                borderless: true
+            }
+        );
     }
 
     #[test]

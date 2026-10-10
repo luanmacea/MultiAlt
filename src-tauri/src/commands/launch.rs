@@ -2104,8 +2104,9 @@ fn arrange_windows_grid(
     {
         let size = global_window_size(&settings, LaunchClientProfile::Normal);
         let excluded = grid_excluded_pids(state.inner());
+        let style = grid_window_style(&settings);
         let (arranged, total) =
-            platform::windows::arrange_roblox_grid(&monitor_indices, gap, size, &excluded)?;
+            platform::windows::arrange_roblox_grid(&monitor_indices, gap, size, &excluded, style)?;
         return Ok(GridArrangeResult { arranged, total });
     }
     #[cfg(not(target_os = "windows"))]

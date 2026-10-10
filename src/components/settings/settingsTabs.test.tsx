@@ -731,6 +731,30 @@ describe("OptimizationTab", () => {
     expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 
+  /** Ideia 22: janelas da grade menores que o mínimo e sem moldura, opcionais. */
+  it.each([
+    ["Allow smaller windows in the grid", "GridAllowSmallWindows"],
+    ["Remove window borders in the grid", "GridBorderless"],
+  ])("offers %s off by default and saves it", async (label, key) => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: new RegExp(label) });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+    await expectSaved("General", key, "true");
+  });
+
+  it("hides the grid window options outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(
+      screen.queryByRole("switch", { name: /Allow smaller windows in the grid/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Remove window borders in the grid/ })
+    ).not.toBeInTheDocument();
+  });
+
   it("hides the automatic window grid outside Windows", async () => {
     renderOptimization({}, "macos");
     await screen.findByText("Override Window Size");

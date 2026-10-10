@@ -267,12 +267,28 @@ function OptimizationProfileSection({
       {isWindows ? (
         // Uma chave só para todos os perfis (launch e Auto Rejoin): a grade é
         // uma só. Ligada por padrão — só o "false" gravado a desliga.
-        <Toggle
-          checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
-          onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
-          label="Arrange in grid on launch"
-          description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
-        />
+        <>
+          <Toggle
+            checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
+            onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
+            label="Arrange in grid on launch"
+            description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
+          />
+          {/* Ideia 22 (docs/features/performance.md): só nos clientes que o
+              app abriu, no launch e no botão Arrange in grid. */}
+          <Toggle
+            checked={s.getBool("General", "GridAllowSmallWindows")}
+            onChange={(v) => s.setBool("General", "GridAllowSmallWindows", v)}
+            label="Allow smaller windows in the grid"
+            description="Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen."
+          />
+          <Toggle
+            checked={s.getBool("General", "GridBorderless")}
+            onChange={(v) => s.setBool("General", "GridBorderless", v)}
+            label="Remove window borders in the grid"
+            description="Grid windows lose their title bar and border so they sit edge to edge. Turning this off gives the borders back."
+          />
+        </>
       ) : null}
 
       {isWindows ? (

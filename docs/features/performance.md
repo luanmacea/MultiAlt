@@ -14,6 +14,7 @@ opcional e desligado por padrão.
 |---|---|
 | Decisão (quem é o cliente em uso, carência, o que mudar) e o laço | [platform/windows/focus_follow.rs](../../src-tauri/src/platform/windows/focus_follow.rs) |
 | Troca de prioridade/EcoQoS/memória ao vivo, teto do Job | [platform/windows/optimization.rs](../../src-tauri/src/platform/windows/optimization.rs) (`apply_process_policy_live`, `set_job_cpu_cap`) |
+| Grade menor e sem moldura | [platform/windows/windowing.rs](../../src-tauri/src/platform/windows/windowing.rs) (`GridWindowStyle`, `grid_swp_flags`, `borderless_style`), [commands/launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) (`grid_window_style`) |
 | Volume ao vivo (decisão sempre; COM só com `live-audio`) | [platform/windows/live_audio.rs](../../src-tauri/src/platform/windows/live_audio.rs) |
 | Timer de 1 s e devolução ao fechar o app | [commands/focus_follow.rs](../../src-tauri/src/commands/focus_follow.rs), [lib.rs](../../src-tauri/src/lib.rs) |
 | Launch avisa o perfil do cliente | [commands/launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) (`apply_windows_post_launch_profile`) |
@@ -118,12 +119,49 @@ código nativo novo no binário. Por isso:
   mutado).
 - **Desligar a opção ou fechar o app desmuta** tudo o que o app mutou.
 
-## Configurações relacionadas
+## Grade menor que o mínimo e sem moldura (`General.GridAllowSmallWindows`, `General.GridBorderless`)
+
+Dois interruptores em Settings > Optimization, logo abaixo de **Arrange in grid
+on launch**. Valem na grade automática do launch e no botão **Arrange in grid**
+(aba Windows da Choose Game) — ver [ui-layout.md](ui-layout.md#grade-de-janelas).
+
+- **Allow smaller windows in the grid**: a célula fica do tamanho pedido, mesmo
+  abaixo do mínimo do Roblox (~800x600 de área útil). A janela é posta com
+  `SWP_NOSENDCHANGING`: o `WM_WINDOWPOSCHANGING` não chega ao Roblox, que é onde
+  ele impõe o mínimo. Piso de 200x200 (a grade não enxerga janela menor). A
+  conferência que segura a célula logo depois do launch usa o mesmo flag — sem
+  isso ela devolveria o mínimo.
+- **Remove window borders in the grid**: tira a barra de título e a borda
+  (`WS_CAPTION | WS_THICKFRAME`) antes de medir a célula, então a janela
+  inteira vira área do jogo e as janelas encostam. O resto do estilo fica (o
+  botão da barra de tarefas continua minimizando).
+
+### Regras de negócio
+
+- **Só clientes que o app abriu.** No botão manual, as janelas de clientes
+  abertos pelo site são arrumadas como sempre: com moldura, e a célula volta ao
+  mínimo do Roblox se uma delas está na grade (ela cresceria e sobreporia as
+  vizinhas — `grid_small_allowed`).
+- A moldura original de cada janela fica guardada (`hwnd → pid, estilo`) e
+  **volta**: quando a opção desliga (olhada de 1 s), quando o botão manual
+  arruma sem a opção, e ao fechar o app. Só volta o que a janela tinha.
+- Janela sem moldura do tamanho de uma célula não é confundida com tela cheia
+  (a tela cheia exige cobrir o monitor inteiro).
+- Só constantes novas (`SWP_NOSENDCHANGING`, `SWP_NOMOVE`, `SWP_NOSIZE`,
+  `WS_THICKFRAME`); as APIs (`SetWindowPos`, `SetWindowLongW`,
+  `GetWindowLongW`) já eram usadas pela grade e pela saída da tela cheia.
+- **Confirmar com cliente real** (está assim no catálogo de ideias): o Roblox
+  pode desenhar mal abaixo do mínimo, ou voltar a moldura sozinho ao sair da
+  tela cheia — nesse caso a moldura fica, e o app não briga.
+
+
 
 | Seção | Chave | Default | Efeito |
 |---|---|---|---|
 | Optimization | `FollowFocus` | `false` | Liga a otimização que segue o foco. |
 | Optimization | `MuteBackgroundClients` | `false` | Fundo mudo (só com a feature `live-audio`). |
+| General | `GridAllowSmallWindows` | `false` | Célula da grade menor que o mínimo do Roblox. |
+| General | `GridBorderless` | `false` | Janelas da grade sem moldura. |
 | Optimization | `{Normal,BottingPlayer,BottingBot}EnableProcessPolicy` e demais | ver [settings.md](settings.md#optimization) | Política de fundo (se ligada) e o estado devolvido ao desligar. |
 
 ## Testes
@@ -134,7 +172,10 @@ throttling e do teto do Job ao vivo), `live_audio_tests` (quem é mutado, só o
 que o app mutou é desmutado, feature fora das duas edições, COM só neste
 arquivo), `live_audio_com_tests` (com a feature: percorre o mixer de verdade
 **sem** mutar nada, tamanho das tabelas), `platform_info_tests`
-(`supportsLiveAudio`), `settingsTabs.test.tsx` (interruptores).
+(`supportsLiveAudio`), `win_grid_style_tests` (célula pequena, flags do
+`SetWindowPos`, moldura tirada e devolvida, cliente do site na grade),
+`win_grid_slot_tests`, `client_window_plan_tests` (padrão desligado),
+`settingsTabs.test.tsx` (interruptores).
 Suíte: `bun run t performance`.
 
 ## Armadilhas / cuidados
