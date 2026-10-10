@@ -1072,22 +1072,23 @@ async fn run_reconnect_attempt(
         return AttemptOutcome::Stop(ReconnectStopReason::Banned, Some(message));
     }
 
-    // O cliente velho é da própria conta (e do app): fecha, a não ser que ele
-    // tenha voltado ao jogo sozinho. Cliente do site nunca é fechado.
     let tracker = platform::windows::tracker();
     if let Some(current) = tracker.get_all().into_iter().find(|p| p.user_id == user_id) {
+        // Cliente do site nunca é fechado; o que voltou ao jogo sozinho fica.
         if current.adopted {
             return AttemptOutcome::Stop(ReconnectStopReason::OpenedOutsideApp, None);
         }
         if client_health_of(user_id, current.pid).is_some_and(|v| v.in_game) {
             return AttemptOutcome::AlreadyInGame;
         }
-        if !tracker.kill_for_user_graceful_async(user_id, 4500).await {
-            return AttemptOutcome::Failed("The old client did not close".to_string());
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 
+    // A fila primeiro: com outro launch rodando, nada é fechado e a tentativa
+    // volta logo depois, sem gastar a vez.
+    let sequence = match launch_queue_start(app, &[user_id], target.place_id, &target.job_id) {
+        Ok(sequence) => sequence,
+        Err(_) => return AttemptOutcome::Busy,
+    };
     emit_launch_log(
         app,
         user_id,
@@ -1095,10 +1096,22 @@ async fn run_reconnect_attempt(
         "reconnect",
         format!("Reconexão automática: tentativa {attempt}/{RECONNECT_MAX_ATTEMPTS}"),
     );
-    let sequence = match launch_queue_start(app, &[user_id], target.place_id, &target.job_id) {
-        Ok(sequence) => sequence,
-        Err(_) => return AttemptOutcome::Busy,
-    };
+
+    // O cliente velho é da própria conta e do app (conferido acima): fecha só
+    // ele, para o novo não brigar com a sessão caída.
+    if let Some(current) = tracker.get_all().into_iter().find(|p| p.user_id == user_id) {
+        if current.adopted {
+            sequence.finish();
+            return AttemptOutcome::Stop(ReconnectStopReason::OpenedOutsideApp, None);
+        }
+        if !tracker.kill_for_user_graceful_async(user_id, 4500).await {
+            let error = "The old client did not close".to_string();
+            sequence.mark(user_id, LaunchQueueState::Failed, Some(error.clone()));
+            sequence.finish();
+            return AttemptOutcome::Failed(error);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
     let result = launch_roblox_windows(
         app.clone(),
         &sequence,
