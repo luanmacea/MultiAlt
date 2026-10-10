@@ -200,6 +200,21 @@ describe("StatusBar", () => {
     }
   });
 
+  it("adds the moderation badges to the legend only when an account has one", () => {
+    renderBar();
+    expect(screen.queryByText("banned")).not.toBeInTheDocument();
+    expect(screen.queryByText("warned")).not.toBeInTheDocument();
+    cleanup();
+    renderBar({
+      moderationByUserId: new Map([
+        [1, { state: "terminated", until: null, note: null, punishment: "Delete" }],
+        [2, { state: "warned", until: null, note: null, punishment: "Warn" }],
+      ]),
+    });
+    expect(document.querySelector('[data-testid="status-legend"] [data-status="banned"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="status-legend"] [data-status="warned"]')).not.toBeNull();
+  });
+
   it("names the aging criterion instead of the bare word 'aged'", () => {
     renderBar();
     expect(screen.queryByText("aged")).not.toBeInTheDocument();
@@ -259,5 +274,14 @@ describe("StatusBar — chip do gerador", () => {
     const text = generatorChipTooltip("", (s: string) => s);
     expect(text).not.toMatch(/balance/);
     expect(text).toMatch(/browser/);
+  });
+
+  it("shows an icon next to each color in the legend", () => {
+    renderBar();
+    for (const kind of ["invalid", "aged", "launched", "online", "ingame", "studio"]) {
+      const badge = document.querySelector(`[data-testid="status-legend"] [data-status="${kind}"]`);
+      expect(badge, kind).not.toBeNull();
+      expect(badge!.querySelector("svg"), kind).not.toBeNull();
+    }
   });
 });

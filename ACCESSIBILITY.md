@@ -10,11 +10,11 @@ MultiAlt should be usable by everyone who plays Roblox with more than one accoun
 - **Screen readers:** the sidebar, buttons and dialogs have names and roles, and the current page is announced.
 - **Themes:** several color themes, plus a theme editor to raise contrast or change fonts.
 - **Languages:** English, Português and Español.
+- **Account states with icons:** every state has its own icon besides its color — ✕ invalid session, clock idle 20+ days, rocket launched, Wi-Fi online, gamepad in game, hammer in Studio — on each account and in the legend at the bottom.
 - **Hidden names:** account names and pictures can be masked on every screen, useful when streaming or sharing screenshots.
 
 ## Known limitations
 
-- Some account states (online, in game, invalid) are shown mainly by colored dots; a text legend is at the bottom of the window.
 - The Roblox game windows themselves are outside MultiAlt's control.
 - Accessibility has not been tested with every screen reader; NVDA and Narrator are the most likely to work, others are untested.
 - macOS support is partial.

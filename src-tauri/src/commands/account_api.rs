@@ -57,6 +57,18 @@ async fn refresh_account_session(state: &AccountStore, user_id: i64) -> Result<S
     Ok(new_cookie)
 }
 
+/// Grava o `.ROBLOSECURITY` novo que o Roblox devolveu numa resposta à chamada
+/// feita com `sent` (registrado em `api::cookie_rotation`). Só troca se a conta
+/// ainda estiver com `sent`, e pelo caminho normal criptografado. Falha de
+/// gravação não derruba a chamada; a mensagem não leva o cookie.
+fn adopt_rotated_cookie(state: &AccountStore, user_id: i64, sent: &str) {
+    if let Some(new_cookie) = api::cookie_rotation::take_rotated(sent) {
+        if let Err(e) = state.replace_token_if(user_id, sent, &new_cookie) {
+            eprintln!("[cookie-rotation] could not save the new cookie of account {user_id}: {e}");
+        }
+    }
+}
+
 async fn run_with_session_retry<T, F, Fut>(
     state: &AccountStore,
     user_id: i64,
@@ -67,7 +79,9 @@ where
     Fut: Future<Output = Result<T, String>>,
 {
     let cookie = get_cookie(state, user_id)?;
-    match operation(cookie).await {
+    let first = operation(cookie.clone()).await;
+    adopt_rotated_cookie(state, user_id, &cookie);
+    match first {
         Ok(value) => Ok(value),
         Err(error) => {
             if !is_auth_session_error(&error) {
@@ -84,7 +98,9 @@ where
                     }
                 })?;
 
-            match operation(refreshed_cookie).await {
+            let retried = operation(refreshed_cookie.clone()).await;
+            adopt_rotated_cookie(state, user_id, &refreshed_cookie);
+            match retried {
                 Ok(value) => Ok(value),
                 Err(retry_error) => {
                     if is_auth_session_error(&retry_error) {
@@ -153,7 +169,9 @@ where
     Fut: Future<Output = Result<T, String>>,
 {
     let cookie = get_cookie(state, user_id)?;
-    operation(cookie).await
+    let result = operation(cookie.clone()).await;
+    adopt_rotated_cookie(state, user_id, &cookie);
+    result
 }
 
 /// Ticket de auth para os links que o menu de contexto copia (`roblox-player://`
@@ -2224,6 +2242,142 @@ mod account_api_tests {
         assert_eq!(snap.phase, "idle");
         assert_eq!(snap.total, 0);
         assert!(snap.accounts.is_empty());
+    }
+}
+
+/// O cookie novo que o Roblox devolve numa resposta qualquer é gravado na conta
+/// (ideia 7, `api::cookie_rotation`) — pelos dois caminhos de comando.
+#[cfg(test)]
+mod cookie_rotation_command_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    fn temp_store(tag: &str) -> AccountStore {
+        crypto::init();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        AccountStore::new(std::env::temp_dir().join(format!("ram-rotation-{tag}-{nanos}.json")))
+    }
+
+    fn store_with(user_id: i64, token: &str, tag: &str) -> AccountStore {
+        let store = temp_store(tag);
+        store
+            .add(crate::data::accounts::Account::new(token.to_string(), format!("user{user_id}"), user_id))
+            .unwrap();
+        store
+    }
+
+    fn rotated(tag: &str) -> String {
+        format!("_|WARNING:-DO-NOT-SHARE-THIS.--ROTATED-{}-{}", tag, "B".repeat(80))
+    }
+
+    /// `check_pin` (leitura): CSRF + GET do PIN, com `set_cookie` opcional na resposta.
+    async fn mount_pin(token: &str, set_cookie: Option<String>) {
+        mount_csrf(token, &format!("csrf-{token}")).await;
+        let mut response = ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "isEnabled": false,
+            "unlockedUntil": serde_json::Value::Null
+        }));
+        if let Some(line) = set_cookie {
+            response = response.insert_header("set-cookie", line.as_str());
+        }
+        Mock::given(method("GET"))
+            .and(path(mock_path("auth", "/v1/account/pin/")))
+            .and(header("cookie", cookie_of(token)))
+            .respond_with(response)
+            .mount(mock_server().await)
+            .await;
+    }
+
+    async fn read_pin(store: &AccountStore, user_id: i64) -> Result<bool, String> {
+        read_without_refresh(store, user_id, |cookie| async move {
+            api::auth::check_pin(&cookie).await
+        })
+        .await
+    }
+
+    fn token_of(store: &AccountStore) -> String {
+        store.get_all().unwrap().remove(0).security_token
+    }
+
+    #[tokio::test]
+    async fn a_read_saves_the_cookie_roblox_sends_back() {
+        let new = rotated("read");
+        mount_pin(
+            "rotation-read",
+            Some(format!(".ROBLOSECURITY={new}; domain=.roblox.com; path=/; HttpOnly")),
+        )
+        .await;
+        let store = store_with(7101, "rotation-read", "read");
+
+        assert!(read_pin(&store, 7101).await.unwrap());
+        assert_eq!(token_of(&store), new);
+    }
+
+    #[tokio::test]
+    async fn a_response_without_a_new_cookie_leaves_the_account_alone() {
+        mount_pin("rotation-none", None).await;
+        let store = store_with(7102, "rotation-none", "none");
+
+        read_pin(&store, 7102).await.unwrap();
+        assert_eq!(token_of(&store), "rotation-none");
+    }
+
+    #[tokio::test]
+    async fn a_malformed_or_deleting_cookie_is_ignored() {
+        mount_pin(
+            "rotation-bad",
+            Some(".ROBLOSECURITY=; Max-Age=0; domain=.roblox.com; path=/".to_string()),
+        )
+        .await;
+        let store = store_with(7103, "rotation-bad", "bad");
+
+        read_pin(&store, 7103).await.unwrap();
+        assert_eq!(token_of(&store), "rotation-bad");
+    }
+
+    /// O caminho de ação (`run_with_session_retry`) grava também — sem chamar o
+    /// refresh, que só roda em erro de sessão.
+    #[tokio::test]
+    async fn an_action_saves_the_cookie_roblox_sends_back() {
+        let new = rotated("action");
+        mount_pin(
+            "rotation-action",
+            Some(format!(".ROBLOSECURITY={new}; path=/")),
+        )
+        .await;
+        let store = store_with(7104, "rotation-action", "action");
+
+        run_with_session_retry(&store, 7104, |cookie| async move {
+            api::auth::check_pin(&cookie).await
+        })
+        .await
+        .unwrap();
+        assert_eq!(token_of(&store), new);
+    }
+
+    /// A falha da chamada não impede gravar o cookie que veio junto.
+    #[tokio::test]
+    async fn a_failed_read_still_saves_the_new_cookie() {
+        let new = rotated("failed");
+        mount_csrf("rotation-failed", "csrf-rotation-failed").await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("auth", "/v1/account/pin/")))
+            .and(header("cookie", cookie_of("rotation-failed")))
+            .respond_with(
+                ResponseTemplate::new(503)
+                    .insert_header("set-cookie", format!(".ROBLOSECURITY={new}; path=/").as_str()),
+            )
+            .mount(mock_server().await)
+            .await;
+        let store = store_with(7105, "rotation-failed", "failed");
+
+        assert!(read_pin(&store, 7105).await.is_err());
+        assert_eq!(token_of(&store), new);
     }
 }
 

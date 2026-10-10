@@ -242,6 +242,50 @@ describe("AccountRow", () => {
     expect(dot.getAttribute("aria-label")).toMatch(/red dot/i);
   });
 
+  it("marks each state with its own icon, not only a color", () => {
+    const lastUse = new Date(Date.now() - 25 * 86400000).toISOString();
+    renderRow(
+      { settings: agingAlertOn() },
+      makeAccount({ UserID: 501, Username: "roboduck", LastUse: lastUse, Valid: false })
+    );
+    expect(screen.getByLabelText("Invalid session")).toHaveAttribute("data-status", "invalid");
+    expect(screen.getByLabelText(/Aged: 25 days/)).toHaveAttribute("data-status", "aged");
+  });
+
+  /** Ideia 8: a moderação lida do Roblox aparece na linha, com ícone próprio. */
+  it("shows a banned account with its end date and the moderator note", () => {
+    const until = new Date(Date.now() + 3 * 86400000);
+    const dd = String(until.getDate()).padStart(2, "0");
+    const mm = String(until.getMonth() + 1).padStart(2, "0");
+    renderRow({
+      moderationByUserId: new Map([
+        [501, { state: "banned", until: until.toISOString(), note: "Spam", punishment: "Ban 3 Days" }],
+      ]),
+    });
+    const dot = screen.getByLabelText(new RegExp(`Banned until ${dd}/${mm}`));
+    expect(dot).toHaveAttribute("data-status", "banned");
+    expect(dot.getAttribute("aria-label")).toContain("Spam");
+  });
+
+  it("shows warned and terminated accounts", () => {
+    renderRow({
+      moderationByUserId: new Map([[501, { state: "warned", until: null, note: null, punishment: "Warn" }]]),
+    });
+    expect(screen.getByLabelText(/Warned/)).toHaveAttribute("data-status", "warned");
+    cleanup();
+    renderRow({
+      moderationByUserId: new Map([[501, { state: "terminated", until: null, note: null, punishment: "Delete" }]]),
+    });
+    expect(screen.getByLabelText(/Terminated/)).toHaveAttribute("data-status", "banned");
+  });
+
+  it("shows nothing for a clean account", () => {
+    renderRow({
+      moderationByUserId: new Map([[501, { state: "clean", until: null, note: null, punishment: null }]]),
+    });
+    expect(document.querySelector("[data-status='banned'], [data-status='warned']")).toBeNull();
+  });
+
   it("keeps the aging dot quiet for a recently used account", () => {
     const lastUse = new Date(Date.now() - 3 * 86400000).toISOString();
     renderRow(

@@ -20,6 +20,7 @@ Plataforma principal: **Windows** (APIs Win32 para processos, registro, janelas,
 | Entender uma funcionalidade específica | [features/](#funcionalidades) |
 | Achar uma funcionalidade na tela (o que existe e onde fica) | [mapa-da-interface.md](mapa-da-interface.md) |
 | Saber o que está confuso na interface e o que corrigir primeiro | [ux-checkup.md](ux-checkup.md) |
+| Ver o que outros gerenciadores têm que vale trazer (ideias já triadas por segurança) | [ideias-de-outros-gerenciadores.md](ideias-de-outros-gerenciadores.md) |
 
 Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde fica o código**, **Fluxo**, **Regras de negócio**, **Configurações relacionadas**, **Armadilhas / cuidados**.
 
@@ -29,6 +30,8 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [development.md](development.md) — setup, comandos, features do Cargo, i18n, convenções, passo a passo para novo comando Tauri.
 - [mapa-da-interface.md](mapa-da-interface.md) — onde fica cada funcionalidade na tela e para que serve, em português.
 - [ux-checkup.md](ux-checkup.md) — revisão de usabilidade de setembro/2026: 131 achados triados por prioridade.
+- [ideias-de-outros-gerenciadores.md](ideias-de-outros-gerenciadores.md) — funcionalidades de 48 gerenciadores open source que valem a pena trazer, com origem, licença e cuidados de segurança (skill `/competitor-scout`).
+- [plano-ideias.md](plano-ideias.md) — em que ordem e em quais versões as ideias entram (pacotes por tema), e as respostas às dúvidas do dono sobre cada uma.
 - [../site/README.md](../site/README.md) — site de divulgação (HTML estático no GitHub Pages): como roda, como publica e de onde vêm os links de download.
 
 ## Funcionalidades

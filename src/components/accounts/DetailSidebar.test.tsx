@@ -209,3 +209,34 @@ describe("DetailSidebar", () => {
     expect(invokeMock).not.toHaveBeenCalledWith("join_group", expect.anything());
   });
 });
+
+/** Ideia 8: moderação no painel da conta, com consulta sob demanda. */
+describe("DetailSidebar — moderation", () => {
+  it("checks the ban status on demand", async () => {
+    const store = renderSidebar();
+    await userEvent.click(screen.getByRole("button", { name: "Check ban status" }));
+    expect(store.checkModeration).toHaveBeenCalledWith(1);
+  });
+
+  it("says nothing was checked yet before the first check", () => {
+    renderSidebar();
+    expect(screen.getByText("Ban status not checked yet")).toBeInTheDocument();
+  });
+
+  it("shows the state and the moderator note once known", () => {
+    renderSidebar({
+      moderationByUserId: new Map([
+        [1, { state: "warned", until: null, note: "Be nice in chat", punishment: "Warn" }],
+      ]),
+    });
+    expect(screen.getByText("Warned")).toBeInTheDocument();
+    expect(screen.getByText(/Be nice in chat/)).toBeInTheDocument();
+  });
+
+  it("shows a clean account as such", () => {
+    renderSidebar({
+      moderationByUserId: new Map([[1, { state: "clean", until: null, note: null, punishment: null }]]),
+    });
+    expect(screen.getByText("No moderation")).toBeInTheDocument();
+  });
+});

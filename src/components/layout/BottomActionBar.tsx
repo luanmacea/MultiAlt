@@ -3,10 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../../store";
 import { usePrompt, useConfirm } from "../../hooks/usePrompt";
 import { useCopyCredentialWarning } from "../../hooks/useCopyCredentialWarning";
+import { copyAccountSecret } from "../../utils/copySecret";
 import { collectGroupNames, parseGroupName } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
-import { ChevronDown, Gamepad2, Settings2, Users } from "lucide-react";
+import { ChevronDown, Gamepad2, Settings2, ShieldCheck, Users } from "lucide-react";
 
 /**
  * Faixa aceita para o delay entre pedidos de amizade, em segundos. É a mesma
@@ -34,6 +35,7 @@ export function BottomActionBar() {
   const count = store.selectedIds.size;
   const isSingle = count === 1;
   const accounts = store.selectedAccounts;
+  const checkProgress = store.accountCheckProgress;
 
   const bottingActive = store.bottingStatus?.active === true;
   const bottingEnabled = store.settings?.General?.BottingEnabled === "true";
@@ -141,14 +143,35 @@ export function BottomActionBar() {
     store.addToast(tr("Refreshed: {{ok}} ok, {{fail}} failed", { ok, fail }));
   }
 
+  async function handleCheckAccounts() {
+    setActionsOpen(false);
+    await store.checkAccounts(accounts.map((a) => a.UserID));
+  }
+
   async function handleCopyCookies() {
     setActionsOpen(false);
     const cookies = accounts.map((a) => a.SecurityToken).filter(Boolean);
     // Um clique punha o cookie de toda a seleção na área de transferência sem
     // dizer o que um cookie entrega nem quantas contas iam junto.
     if (!(await confirmCopyCredential("cookie", cookies.length))) return;
-    await navigator.clipboard.writeText(cookies.join("\n"));
-    store.addToast(tr("Copied {{count}} cookies", { count: cookies.length }));
+    // Pelo backend: fora do histórico do Win+V e apagado sozinho em 30 s.
+    try {
+      const result = await copyAccountSecret(
+        accounts.map((a) => a.UserID),
+        "cookie",
+        () => cookies.join("\n")
+      );
+      store.addToast(
+        result.clearsInSecs
+          ? tr("Copied {{count}} cookies. Cleared from the clipboard in {{seconds}} s.", {
+              count: result.count,
+              seconds: result.clearsInSecs,
+            })
+          : tr("Copied {{count}} cookies", { count: result.count })
+      );
+    } catch {
+      store.addToast(tr("Failed to copy"));
+    }
   }
 
   async function handleMoveToGroup(group: string) {
@@ -335,7 +358,13 @@ export function BottomActionBar() {
           onClick={() => { setActionsOpen((v) => !v); setGroupMenuOpen(false); }}
           className="flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg border theme-border theme-btn-ghost"
         >
-          {friendBusy ? friendPhaseLabel : refreshing ? t("Refreshing...") : t("Actions")}
+          {friendBusy
+            ? friendPhaseLabel
+            : refreshing
+              ? t("Refreshing...")
+              : checkProgress
+                ? t("Checking {{done}}/{{total}}...", checkProgress)
+                : t("Actions")}
           <ChevronDown size={11} strokeWidth={2} className={`transition-transform ${actionsOpen ? "rotate-180" : ""}`} />
         </button>
 
@@ -351,6 +380,24 @@ export function BottomActionBar() {
               className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-center gap-2"
             >
               🔄 {refreshing ? t("Refreshing...") : t("Refresh Cookies ({{count}})", { count })}
+            </button>
+
+            {/* Ideia 9. Fica ao lado do Refresh Cookies, mas é o oposto dele:
+                só lê, e não desloga ninguém — a segunda linha diz isso. */}
+            <button
+              onClick={handleCheckAccounts}
+              disabled={!!checkProgress}
+              className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-start gap-2"
+            >
+              <ShieldCheck size={13} strokeWidth={1.5} className="mt-0.5 shrink-0" />
+              <span className="min-w-0">
+                {checkProgress
+                  ? t("Checking {{done}}/{{total}}...", checkProgress)
+                  : t("Check Accounts ({{count}})", { count })}
+                <span className="block text-[11px] theme-muted leading-snug">
+                  {t("Session and ban status. Read-only: it doesn't sign anything out.")}
+                </span>
+              </span>
             </button>
 
             <button

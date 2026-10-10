@@ -74,6 +74,7 @@ Comandos: `unlock_accounts(password, rememberHours)`, `try_remembered_unlock()` 
 1. Obtém CSRF.
 2. `POST .../authentication-ticket/` com `x-csrf-token`, `Referer`, `RBXAuthenticationNegotiation: 1` e corpo vazio.
 3. Retorna o header `rbx-authentication-ticket`; ausência → erro com status e corpo.
+   - **Exceção — o Roblox pediu verificação.** Se a resposta traz `rblx-challenge-id` ou `rblx-challenge-type` (403 de "Challenge is required"), o erro vira uma frase que diz o que fazer: "Roblox wants to verify this account (2-step verification). Open it in the browser (account panel › Tools › Browser), finish the check there, then try again." O tipo (`twostepverification`, `captcha`, `reauthentication`; outro qualquer vira "a security check") só muda o trecho entre parênteses. **O app nunca tenta resolver o desafio.** O texto evita as palavras de `is_auth_session_error` (senão o launch dispararia o refresh que desloga a conta) e de `is_moderated_error` (senão a conta iria para `moderadas`) — travado por `auth_challenge_tests`.
 4. O ticket é usado para montar o launch do cliente (ver [launch.md](launch.md)) e nos links `roblox-player://` do menu de contexto (modo desenvolvedor).
 
 ### Retry de sessão — `run_with_session_retry`
@@ -97,6 +98,17 @@ se r2 falha por sessão → "Roblox invalidated this session. Re-login required.
 3. Extrai o novo `.ROBLOSECURITY` dos headers `set-cookie`.
 4. Sem cookie novo (ou vazio) → `"Roblox invalidated this session. Re-login required."`.
 5. `persist_cookie_update`: grava o novo `SecurityToken` e `Valid = true`.
+
+### Cookie novo devolvido numa resposta qualquer — `api::cookie_rotation`
+
+Às vezes o Roblox troca o cookie da conta no meio de uma chamada comum (`Set-Cookie: .ROBLOSECURITY=…`). Antes só o refresh e a troca de senha liam esse header; em qualquer outra hora a conta salva ficava com o cookie velho e aparecia "inválida" sem motivo.
+
+1. Todo envio da camada de API passa por `cookie_rotation::send` (`.send_noting()` no lugar de `.send()`): em `auth.rs`, em `send_with_csrf_retry`, em `send_with_retry` e nos módulos `api/roblox/*` e `api/batch.rs`. Ele lê o cookie que **foi enviado** no pedido e, se a resposta traz um `.ROBLOSECURITY` novo, guarda em memória: cookie velho → cookie novo.
+2. `read_without_refresh` e `run_with_session_retry` ([account_api.rs](../../src-tauri/src/commands/account_api.rs)), depois da chamada (com sucesso **ou** erro), chamam `adopt_rotated_cookie`, que tira o novo da memória e grava com `AccountStore::replace_token_if` — **só se a conta ainda estiver com o cookie enviado** (um login novo no meio-tempo não é sobrescrito), sob o lock do store e pelo caminho criptografado normal. Marca `Valid = true`.
+3. Ignorado: `Set-Cookie` de outro nome, valor vazio, curto (< 50 caracteres) ou com caractere inválido, e cookie de **apagar** (`Max-Age=0` / `Expires` em 1970 — é como o Roblox desloga). Igual ao enviado também não conta.
+4. **O valor nunca vai para log nem para mensagem de erro.** Leituras que pegam o cookie direto com `get_cookie` (amigos, presença, lote de avatares) não recolhem a rotação; o mapa em memória tem teto (256) para não crescer.
+
+Travado por `cookie_rotation_tests` (parser), `account_token_swap_tests` (store) e `cookie_rotation_command_tests` (wiremock: resposta com cookie novo → conta atualizada; sem → igual; malformado → ignorado; pelos dois caminhos de comando).
 
 ### Auto-refresh (frontend)
 

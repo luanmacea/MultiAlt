@@ -4,6 +4,8 @@ import { AGED_COLOR_FROM, AGED_COLOR_TO } from "../../types";
 import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 import { TONE_STYLES } from "../../utils/toastTone";
+import { StatusBadge } from "../accounts/StatusBadge";
+import { moderationBadge } from "../../utils/moderation";
 
 /**
  * O chip do rodapé cobre as duas formas de criar conta, e o destino do clique
@@ -35,6 +37,11 @@ export function StatusBar() {
     showPresence
       ? store.accounts.filter((a) => match(store.presenceByUserId.get(a.UserID) ?? 0)).length
       : 0;
+  const moderationKinds = new Set(
+    store.accounts
+      .map((a) => moderationBadge(store.moderationByUserId?.get(a.UserID)))
+      .filter((kind): kind is "banned" | "warned" => kind !== null)
+  );
   const onlineCount = countPresence((p) => p === 1);
   const inGameCount = countPresence((p) => p >= 2 && p !== 3);
   const studioCount = countPresence((p) => p === 3);
@@ -172,41 +179,56 @@ export function StatusBar() {
           )}
         </div>
       </div>
-      <div className="theme-muted flex items-center gap-3 shrink-0 text-[12px]">
+      {/* Cor e ícone em cada estado: quem não distingue as cores reconhece pela
+          forma (StatusBadge, o mesmo selo das linhas de conta). */}
+      <div data-testid="status-legend" className="theme-muted flex items-center gap-3 shrink-0 text-[12px]">
         <span className="shrink-0 font-medium">{t("Legend:")}</span>
         <span className="inline-flex items-center gap-1 shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-red-500" style={{ boxShadow: "0 0 0 1px var(--app-bg)" }} />
+          <StatusBadge kind="invalid" label={t("invalid")} decorative />
           {t("invalid")}
         </span>
-        {/* O ponto e um degrade porque a cor real caminha de ambar a laranja com a idade. */}
+        {/* O fundo e um degrade porque a cor real caminha de ambar a laranja com a idade. */}
         <Tooltip content={t("No use recorded for 20 days or more — the dot deepens toward orange as it ages.")}>
           <span className="inline-flex items-center gap-1 shrink-0">
-            <span
-              className="w-2.5 h-2.5 rounded-full"
-              style={{
-                background: `linear-gradient(135deg, ${AGED_COLOR_FROM}, ${AGED_COLOR_TO})`,
-                boxShadow: "0 0 0 1px var(--app-bg)",
-              }}
+            <StatusBadge
+              kind="aged"
+              label={t("idle 20d+")}
+              decorative
+              background={`linear-gradient(135deg, ${AGED_COLOR_FROM}, ${AGED_COLOR_TO})`}
             />
             {t("idle 20d+")}
           </span>
         </Tooltip>
         <span className="inline-flex items-center gap-1 shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-amber-500" style={{ boxShadow: "0 0 0 1px var(--app-bg)" }} />
+          <StatusBadge kind="launched" label={t("launched")} decorative />
           {t("launched")}
         </span>
         <span className="inline-flex items-center gap-1 shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-sky-500" style={{ boxShadow: "0 0 0 1px var(--app-bg)" }} />
+          <StatusBadge kind="online" label={t("online")} decorative />
           {t("online")}
         </span>
         <span className="inline-flex items-center gap-1 shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" style={{ boxShadow: "0 0 0 1px var(--app-bg)" }} />
+          <StatusBadge kind="ingame" label={t("in game")} decorative />
           {t("in game")}
         </span>
         <span className="inline-flex items-center gap-1 shrink-0">
-          <span className="w-2.5 h-2.5 rounded-full bg-violet-500" style={{ boxShadow: "0 0 0 1px var(--app-bg)" }} />
+          <StatusBadge kind="studio" label={t("studio")} decorative />
           {t("studio")}
         </span>
+        {/* Moderação só entra na legenda quando alguma conta tem o selo: são
+            estados raros, e a legenda fixa já é longa. */}
+        {moderationKinds.has("banned") && (
+          <span className="inline-flex items-center gap-1 shrink-0">
+            <StatusBadge kind="banned" label={t("banned")} decorative />
+            {t("banned")}
+          </span>
+        )}
+        {moderationKinds.has("warned") && (
+          <span className="inline-flex items-center gap-1 shrink-0">
+            <StatusBadge kind="warned" label={t("warned")} decorative />
+            {t("warned")}
+          </span>
+        )}
       </div>
     </div>
   );

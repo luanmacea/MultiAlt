@@ -1,3 +1,4 @@
+use crate::api::cookie_rotation::SendNoting;
 use crate::api::endpoints;
 use crate::api::http_client;
 use reqwest::header::COOKIE;
@@ -321,7 +322,7 @@ impl ImageCache {
             request = request.header(COOKIE, cookie_header(token));
         }
 
-        let response = request.send().await.ok()?;
+        let response = request.send_noting().await.ok()?;
         if !response.status().is_success() {
             return None;
         }
@@ -461,7 +462,7 @@ impl ImageCache {
                     let response = client
                         .post(format!("{}/v1/batch", endpoints::host("thumbnails")))
                         .json(&batch_body)
-                        .send()
+                        .send_noting()
                         .await;
 
                     if let Ok(resp) = response {
@@ -624,7 +625,7 @@ async fn get_asset_image_fallback(
     }
 
     let response = request
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 

@@ -31,7 +31,7 @@ pub async fn get_asset_details(asset_id: i64, security_token: Option<&str>) -> R
         request = request.header(COOKIE, cookie_header(token));
     }
 
-    let response = request.send().await.map_err(|e| http_client::describe_error(&e))?;
+    let response = request.send_noting().await.map_err(|e| http_client::describe_error(&e))?;
 
     if !response.status().is_success() {
         return Err(format!("Failed to get asset details (status {})", response.status().as_u16()));

@@ -187,3 +187,63 @@ describe("ImportDialog — importing cookies", () => {
     expect(validated).toHaveLength(1);
   });
 });
+
+/**
+ * Teste do dono (10/10/2026): com várias linhas, o erro saía só como
+ * "Failed: …" — com 10 contas e uma banida, não dava para saber qual. Cada
+ * falha diz de que conta (ou de que linha) é, e a de conta moderada vem
+ * traduzida em vez do texto cru do backend.
+ */
+describe("ImportDialog — failures name the account", () => {
+  const MODERATED =
+    "Roblox is restricting this account (moderated: banned, warned or under review). Check it at roblox.com/not-approved, then add it again.";
+
+  it("prefixes each user:pass failure with its username", async () => {
+    setInvokeMap({
+      import_userpass: (args: unknown) => {
+        if ((args as { username: string }).username === "alt_bad") throw MODERATED;
+        return { user_id: 7, name: "alt_ok" };
+      },
+    });
+    setStore({ accounts: [] });
+    render(<ImportDialog open onClose={vi.fn()} defaultTab="userpass" />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "alt_ok:pw1\nalt_bad:pw2" } });
+    await userEvent.click(screen.getByRole("button", { name: "Log in & Add" }));
+
+    expect(await screen.findByText(/^alt_bad — failed:/)).toBeInTheDocument();
+    expect(screen.getByText(/alt_bad — failed:/)).toHaveTextContent(/banned, warned or under review/);
+    expect(screen.getByText("Added alt_ok")).toBeInTheDocument();
+  });
+
+  it("names the line when a pasted cookie fails", async () => {
+    setInvokeMap({
+      validate_cookie: () => {
+        throw "Invalid cookie (status 401)";
+      },
+    });
+    renderDialog();
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: COOKIE } });
+    await userEvent.click(screen.getByRole("button", { name: "Import" }));
+
+    expect(await screen.findByText(/^Line 1 — failed: Invalid cookie/)).toBeInTheDocument();
+  });
+
+  it("keeps a hidden username hidden in the failure", async () => {
+    setInvokeMap({
+      import_userpass: () => {
+        throw MODERATED;
+      },
+    });
+    setStore({ accounts: [], hideUsernames: true, hiddenNameLetters: 0 });
+    render(<ImportDialog open onClose={vi.fn()} defaultTab="userpass" />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "secret_alt:pw" } });
+    await userEvent.click(screen.getByRole("button", { name: "Log in & Add" }));
+
+    // A caixa de texto mostra o que a pessoa colou; o resultado não repete o nome.
+    const line = await screen.findByText(/^\*+ — failed:/);
+    expect(line).not.toHaveTextContent("secret_alt");
+  });
+});
