@@ -2117,13 +2117,10 @@
   "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "O Roblox está restringindo esta conta (banida, advertida ou em análise). Confira em roblox.com/not-approved e depois adicione de novo.",
   "Applies right away": "Vale na hora",
   "Follow the window in use": "Seguir a janela em uso",
-  "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.": "A que você está jogando roda a toda velocidade, as outras desaceleram. Só janelas abertas pelo MultiAlt; uma nova tem 35 s para carregar antes.",
   "While you play": "Enquanto você joga",
   "Mute the Roblox windows you're not using": "Silenciar as janelas do Roblox que você não está usando",
   "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them.": "Só a janela que você está jogando faz som. Só janelas abertas pelo MultiAlt; desligar devolve o som a elas.",
   "Allow smaller windows in the grid": "Permitir janelas menores na grade",
-  "Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen.": "As células da grade podem ser menores que o tamanho mínimo de janela do Roblox, e mais janelas cabem na tela.",
-  "Grid windows lose their title bar and border so they sit edge to edge. Turning this off gives the borders back.": "As janelas da grade perdem a barra de título e a borda e ficam encostadas. Desligar devolve as bordas.",
   "Remove window borders in the grid": "Tirar a moldura das janelas da grade",
   "Starts the next account as soon as the previous one is in the game: never sooner than 8 seconds, at most 20 (or the delay above, if longer).": "Inicia a próxima conta assim que a anterior entra no jogo: nunca antes de 8 segundos, no máximo 20 (ou o atraso acima, se for maior).",
   "Wait for each account to get into the game": "Esperar cada conta entrar no jogo",
@@ -2158,5 +2155,9 @@
   "Waiting for the internet to come back (attempt {{attempt}}/{{max}})": "Esperando a internet voltar (tentativa {{attempt}}/{{max}})",
   "Auto-reconnect is bringing back {{count}} accounts.": "A reconexão automática está trazendo de volta {{count}} contas.",
   "Keep the PC awake while AFK Mode or Auto Rejoin runs": "Manter o PC acordado enquanto o Modo AFK ou o Auto Rejoin roda",
-  "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off.": "Impede o Windows de entrar em suspensão enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda. A tela ainda pode apagar."
+  "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off.": "Impede o Windows de entrar em suspensão enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda. A tela ainda pode apagar.",
+  "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.": "A que você está jogando roda a toda velocidade, as outras desaceleram. Só janelas abertas pelo MultiAlt; uma nova tem 35 s para carregar antes.",
+  "Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen. Also applies to the Arrange in grid button.": "As células da grade podem ser menores que o tamanho mínimo de janela do Roblox, para caber mais janelas na tela. Vale também para o botão Organizar em grade.",
+  "Grid windows lose their title bar and border so they sit edge to edge. Also applies to the Arrange in grid button; turning this off gives the borders back.": "As janelas da grade perdem a barra de título e a borda e ficam coladas. Vale também para o botão Organizar em grade; desligar devolve as bordas.",
+  "Grid options are the same for every profile.": "As opções da grade são as mesmas para todos os perfis."
 }

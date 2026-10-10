@@ -851,6 +851,56 @@ describe("OptimizationTab", () => {
     ).not.toBeInTheDocument();
   });
 
+  /**
+   * Revisão no harness (10/10/2026): "While you play" (vale na hora) ficava
+   * entre o cabeçalho dos perfis (vale no próximo launch) e o card do perfil,
+   * separando o seletor de perfil das opções que ele controla.
+   */
+  it("puts the 'While you play' box above the per-profile settings", async () => {
+    renderOptimization({});
+    const whilePlaying = await screen.findByText("While you play");
+    const profiles = screen.getByText("Optimization Profiles");
+    expect(
+      whilePlaying.compareDocumentPosition(profiles) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  /** "35 s" quebrava entre o número e a unidade na janela estreita. */
+  it("keeps '35 s' on one line", async () => {
+    renderOptimization({});
+    // O normalizador padrão do testing-library troca o espaço rígido por um
+    // comum: confere o texto cru.
+    const description = await screen.findByText(/to load first/);
+    expect(description.textContent).toContain("35 s");
+  });
+
+  /** As duas opções também valem para o botão Arrange in grid, mesmo sem a grade no launch. */
+  it.each([
+    "Allow smaller windows in the grid",
+    "Remove window borders in the grid",
+  ])("says %s also applies to the Arrange in grid button", async (label) => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: new RegExp(label) });
+    expect(toggle.closest("label") ?? toggle.parentElement?.parentElement).toHaveTextContent(
+      /Arrange in grid button/
+    );
+  });
+
+  /** A grade é uma só para todos os perfis: com perfis separados, o card diz isso. */
+  it("says the grid options are shared when Auto Rejoin profiles are split", async () => {
+    renderOptimization({
+      General: { BottingEnabled: "true", BottingUseSharedClientProfile: "false" },
+    });
+    await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(screen.getByText(/Grid options are the same for every profile/)).toBeInTheDocument();
+  });
+
+  it("does not mention profiles in the grid when there is only one", async () => {
+    renderOptimization({});
+    await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(screen.queryByText(/Grid options are the same for every profile/)).not.toBeInTheDocument();
+  });
+
   it("hides the focus-following optimization outside Windows", async () => {
     renderOptimization({}, "macos");
     await screen.findByText("Override Window Size");
