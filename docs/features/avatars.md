@@ -27,16 +27,16 @@ Especificação: [docs/superpowers/specs/2026-10-02-free-avatars-design.md](../s
 
 ## As duas edições
 
-**Hoje a distribuição em lote vai nas duas edições** (decisão do dono, 08/10/2026): ela chegou a sair da padrão, mas tirá-la não mudou nada que importasse e o usuário perdia a função. O mecanismo ficou como **interruptor desligado** — a feature `avatar-batch`, os stubs, o cartão e a troca de edição pelo app continuam no código e testados. Para tirar o lote da padrão de novo: no `release-v4.yml`, passo "Build and publish standard release", trocar `VITE_ENABLE_AVATAR_BATCH` para `"false"` e o `args` para só `-- --no-default-features` (e o teste `edicoes no release-v4.yml` em [release-workflow.test.mjs](../../.github/scripts/release-workflow.test.mjs)). A tabela abaixo descreve o comportamento **com o interruptor ligado** (lote só na completa):
+**Hoje a distribuição em lote vai nas duas edições** (decisão do dono, 08/10/2026): ela chegou a sair da padrão, mas tirá-la não mudou nada que importasse e o usuário perdia a função. O mecanismo ficou como **interruptor desligado** — a feature `avatar-batch`, os stubs, o cartão e a troca de edição pelo app continuam no código e testados. Para tirar o lote da padrão de novo: tirar `avatar-batch` da feature `standard` do [Cargo.toml](../../src-tauri/Cargo.toml) e, no `release-v4.yml`, passo "Build and publish standard release", trocar `VITE_ENABLE_AVATAR_BATCH` para `"false"` (e o teste `edicoes no release-v4.yml` em [release-workflow.test.mjs](../../.github/scripts/release-workflow.test.mjs)). A tabela abaixo descreve o comportamento **com o interruptor ligado** (lote só na completa):
 
 | | Padrão sem o lote | Completa |
 |---|---|---|
-| Cargo | `--no-default-features` | `--features full` |
+| Cargo | `--no-default-features --features standard` (sem `avatar-batch` no `standard`) | `--features full` |
 | Frontend | `VITE_ENABLE_AVATAR_BATCH=false` | `VITE_ENABLE_AVATAR_BATCH=true` |
 | Backend do lote | não compila (`avatar_batch.rs`, `avatar_claim.rs`); `avatar_apply_batch` e `avatar_cancel_batch` respondem `Avatar distribution is not in this edition`, `get_avatar_batch_state` devolve o lote parado | completo |
 | Aba Distribute | cartão "Distributing avatars is an extra" com o botão **Get the complete edition** | o lote |
 
-Os builds de desenvolvimento (`cargo build`, `bun run tauri dev`, `cargo test --all-features`) têm tudo: o `default` do Cargo é o `full`, que liga `avatar-batch`, e a flag do frontend vale `true` sem a variável.
+Os builds de desenvolvimento (`cargo build`, `bun run tauri dev`, `cargo test --all-features`) têm tudo: o `default` do Cargo é o `full`, que liga `avatar-batch` (via `standard`), e a flag do frontend vale `true` sem a variável.
 
 ### Trocar para a edição completa pelo app
 

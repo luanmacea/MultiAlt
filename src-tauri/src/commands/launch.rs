@@ -3636,7 +3636,7 @@ mod launch_command_tests {
                     message: Some("bye".into()),
                     since_ms: 5,
                 }),
-                window_title: Some("Roblox — Main".into()),
+                window_title: Some("Main — Roblox".into()),
                 not_responding: true,
                 in_game: false,
                 destination: Some(JoinedDestination {

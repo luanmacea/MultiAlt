@@ -76,7 +76,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `AutoCloseRobloxForMultiRbx` | `false` | Fecha Roblox abertos se não conseguir ativar multi-Roblox. |
 | `EnableMultiRbx` | — (false) | Multi-Roblox; também controla a limpeza ao sair do app. |
 | `ShowPresence` | `true` | Mostra presença na lista. |
-| `ShowAccountNameOnWindow` | `true` | Só Windows: título "Roblox — conta" em cada janela que o app acompanha (mascarado com `HideUsernames`). Ver [watcher.md](watcher.md#nome-da-conta-na-janela). |
+| `ShowAccountNameOnWindow` | `true` | Só Windows: título "conta — Roblox" (nome primeiro) em cada janela que o app acompanha (mascarado com `HideUsernames`). Ver [watcher.md](watcher.md#nome-da-conta-na-janela). |
 | `PresenceUpdateRate` | `5` | Minutos entre atualizações de presença (mínimo efetivo 30 s). |
 | `WarnOnOnlineJoin` | `true` | Confirma antes de entrar com conta online. |
 | `WarnOnCopyCredential` | `true` | Confirma antes de copiar cookie/senha para a área de transferência (opt-out no próprio aviso). |
