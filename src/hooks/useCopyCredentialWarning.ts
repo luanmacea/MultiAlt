@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { useConfirmWithOptOut } from "./usePrompt";
 import { tr } from "../i18n/text";
+import { isWindowsPlatform } from "../utils/platform";
+import { SECRET_CLEAR_SECONDS } from "../utils/copySecret";
 
 /**
  * Confirmação antes de uma credencial ir para a área de transferência.
@@ -56,9 +58,15 @@ export function useCopyCredentialWarning() {
     if (count <= 0) return true;
     if (store.settings?.General?.WarnOnCopyCredential === "false") return true;
 
-    const message = `${credentialSentence(kind, count)} ${tr(
-      "Anything else running on this PC can read the clipboard until you copy something else."
-    )}`;
+    // No Windows a cópia vai pelo backend (utils/copySecret.ts): fica fora do
+    // histórico do Win+V e é apagada sozinha. Fora dele, vale o aviso antigo.
+    const clipboardNote = isWindowsPlatform(store.platformCapabilities)
+      ? tr(
+          "Anything else running on this PC can read the clipboard while it is there. Cleared from the clipboard in {{seconds}} s, and kept out of the Win+V history.",
+          { seconds: SECRET_CLEAR_SECONDS }
+        )
+      : tr("Anything else running on this PC can read the clipboard until you copy something else.");
+    const message = `${credentialSentence(kind, count)} ${clipboardNote}`;
 
     const result = await confirmWithOptOut(message, {
       destructive: true,

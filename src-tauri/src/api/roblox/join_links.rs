@@ -185,7 +185,7 @@ fn join_link_is_server_type(link_type: Option<&str>) -> bool {
 
 /// Follows one redirect for `ro.blox.com`-style short links.
 async fn join_link_follow_short_link(url: &str) -> Option<String> {
-    let response = no_redirect_client().get(url).send().await.ok()?;
+    let response = no_redirect_client().get(url).send_noting().await.ok()?;
     let location = response.headers().get(reqwest::header::LOCATION)?;
     location.to_str().ok().map(|v| v.to_string())
 }
