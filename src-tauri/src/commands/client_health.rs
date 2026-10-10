@@ -200,6 +200,14 @@ impl ClientDrop {
     }
 }
 
+/// Onde a conta entrou por último (`! Joining game '<job>' place <place>`).
+/// A reconexão (commands/reconnect.rs) volta para cá; nunca vai para a tela.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinedDestination {
+    pub place_id: i64,
+    pub job_id: Option<String>,
+}
+
 /// O que o log disse até agora sobre a sessão de um cliente.
 #[derive(Debug, Clone, Default)]
 pub struct ClientLogSession {
@@ -210,18 +218,25 @@ pub struct ClientLogSession {
     left: bool,
     /// Já entrou num jogo alguma vez (cliente parado no mutex nunca entra).
     joined: bool,
+    destination: Option<JoinedDestination>,
 }
 
 impl ClientLogSession {
     pub fn apply(&mut self, event: &ClientLogEvent, now_ms: i64) {
         match event {
-            ClientLogEvent::JoinedGame { .. } => {
+            ClientLogEvent::JoinedGame { place_id, job_id } => {
                 // Entrou num jogo (de novo): o que caiu antes já não vale.
                 self.pending = None;
                 self.drop = None;
                 self.left = false;
                 self.joined = true;
                 self.last_teleport_ms = None;
+                if let Some(place_id) = place_id {
+                    self.destination = Some(JoinedDestination {
+                        place_id: *place_id,
+                        job_id: job_id.clone(),
+                    });
+                }
             }
             ClientLogEvent::TeleportStarted => self.last_teleport_ms = Some(now_ms),
             ClientLogEvent::LeftVoluntarily => self.left = true,
@@ -290,6 +305,17 @@ impl ClientLogSession {
 
     pub fn current_drop(&self) -> Option<&ClientDrop> {
         self.drop.as_ref()
+    }
+
+    /// Está num jogo agora: entrou, e depois disso não caiu nem saiu. É o
+    /// sinal que a fila de launch espera antes da próxima conta (launch.rs).
+    pub fn in_game(&self) -> bool {
+        self.joined && !self.left && self.drop.is_none() && self.pending.is_none()
+    }
+
+    /// Onde a conta entrou por último, se o log disse.
+    pub fn destination(&self) -> Option<&JoinedDestination> {
+        self.destination.as_ref()
     }
 
     /// O processo terminou dentro de um jogo, sem sair e sem queda: fechou
@@ -457,6 +483,14 @@ pub struct ClientHealthView {
     pub window_title: Option<String>,
     /// A janela está "Não respondendo" há 30 s ou mais (só clientes do app).
     pub not_responding: bool,
+    /// Está num jogo agora (o log disse que entrou, e não caiu nem saiu).
+    pub in_game: bool,
+    /// Onde entrou por último — só para a reconexão, não vai para a tela.
+    #[serde(skip)]
+    pub destination: Option<JoinedDestination>,
+    /// O processo terminou (e o monitor viu).
+    #[serde(skip)]
+    pub exited: bool,
 }
 
 /// Quanto tempo a janela fica "Não respondendo" antes de o app avisar (e de
@@ -678,6 +712,9 @@ impl ClientHealthMonitor {
                         drop: entry.current_drop().cloned(),
                         window_title: entry.applied_title.clone(),
                         not_responding: entry.not_responding,
+                        in_game: !entry.exit_seen && entry.session.in_game(),
+                        destination: entry.session.destination().cloned(),
+                        exited: entry.exit_seen,
                     },
                 )
             })
@@ -1192,6 +1229,62 @@ mod client_log_session_tests {
     }
 
     #[test]
+    fn in_game_means_joined_and_nothing_happened_since() {
+        let mut s = ClientLogSession::default();
+        assert!(!s.in_game(), "never joined");
+        s.apply(&joined(), T0);
+        assert!(s.in_game());
+        s.apply(&lost(), T0 + 1_000);
+        assert!(!s.in_game(), "a pending drop is not in game");
+        s.settle(T0 + 1_000);
+        assert!(!s.in_game());
+        s.apply(&joined(), T0 + 30_000);
+        assert!(s.in_game(), "joined again");
+        s.apply(&ClientLogEvent::LeftVoluntarily, T0 + 40_000);
+        assert!(!s.in_game(), "left");
+    }
+
+    #[test]
+    fn the_destination_is_the_last_game_joined() {
+        let mut s = ClientLogSession::default();
+        assert_eq!(s.destination(), None);
+        s.apply(
+            &ClientLogEvent::JoinedGame {
+                place_id: Some(10),
+                job_id: Some("a".into()),
+            },
+            T0,
+        );
+        s.apply(
+            &ClientLogEvent::JoinedGame {
+                place_id: Some(20),
+                job_id: None,
+            },
+            T0 + 1_000,
+        );
+        assert_eq!(
+            s.destination(),
+            Some(&JoinedDestination {
+                place_id: 20,
+                job_id: None
+            })
+        );
+        // Uma linha sem place não apaga o destino conhecido.
+        s.apply(
+            &ClientLogEvent::JoinedGame {
+                place_id: None,
+                job_id: Some("b".into()),
+            },
+            T0 + 2_000,
+        );
+        assert_eq!(s.destination().map(|d| d.place_id), Some(20));
+        // A queda também não: é para lá que a reconexão volta.
+        s.apply(&lost(), T0 + 3_000);
+        s.settle(T0 + 3_000);
+        assert_eq!(s.destination().map(|d| d.place_id), Some(20));
+    }
+
+    #[test]
     fn replaying_a_whole_log_ends_in_its_last_state() {
         // O monitor lê o log inteiro na 1ª vez (app reaberto com o cliente já
         // em jogo): queda antiga seguida de join não aparece.
@@ -1322,6 +1415,35 @@ mod client_health_monitor_tests {
         let view = monitor.views().remove(&1).unwrap();
         assert!(view.log_found);
         assert_eq!(view.drop.unwrap().reason, Some(DropReason::ConnectionLost));
+    }
+
+    #[test]
+    fn the_view_says_in_game_and_where_until_the_client_ends() {
+        let os = FakeOs::with_client(100, "");
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[ours(1, 100)], T0);
+        let view = &monitor.views()[&1];
+        assert!(view.log_found);
+        assert!(!view.in_game, "still loading");
+        assert!(!view.exited);
+
+        os.append(100, JOIN);
+        monitor.tick(&os, &[ours(1, 100)], T0 + 2_000);
+        let view = &monitor.views()[&1];
+        assert!(view.in_game);
+        assert_eq!(
+            view.destination,
+            Some(JoinedDestination {
+                place_id: 1,
+                job_id: Some("a".into())
+            })
+        );
+
+        os.alive.borrow_mut().clear();
+        monitor.tick(&os, &[ours(1, 100)], T0 + 4_000);
+        let view = &monitor.views()[&1];
+        assert!(!view.in_game, "the process is gone");
+        assert!(view.exited);
     }
 
     #[test]

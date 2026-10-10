@@ -29,6 +29,8 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_command_tests",
       "http_timeout_tests",
       "launch_queue_tests",
+      // Fila que espera o cliente entrar no jogo (launch.rs, General.WaitForGameJoin).
+      "launch_join_wait_tests",
       "singleton_event_tests",
       "multi_roblox_decision_tests",
       "exit_cleanup_tests",

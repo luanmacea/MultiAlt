@@ -54,6 +54,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `UpdaterFeatureChannel` | a edição que está rodando (`standard` na padrão, `nexus-ws` na completa) | Canal de features do updater. Gravado no INI, nunca é reposto por uma versão nova; o botão "Get the complete edition" da página Avatars grava `nexus-ws` ([avatars.md](avatars.md#trocar-para-a-edição-completa-pelo-app)). |
 | `AccountJoinDelay` | `8` | Segundos entre contas no multi-launch. |
 | `AsyncJoin` | `false` | Esperar cada conta abrir antes da próxima. |
+| `WaitForGameJoin` | `true` | Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |

@@ -2114,5 +2114,7 @@
   "Session and ban status. Read-only: it doesn't sign anything out.": "Sessão e banimento. Só leitura: não desconecta nada.",
   "{{who}} — failed: {{error}}": "{{who}} — falhou: {{error}}",
   "Line {{n}}": "Linha {{n}}",
-  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "O Roblox está restringindo esta conta (banida, advertida ou em análise). Confira em roblox.com/not-approved e depois adicione de novo."
+  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "O Roblox está restringindo esta conta (banida, advertida ou em análise). Confira em roblox.com/not-approved e depois adicione de novo.",
+  "Starts the next account as soon as the previous one is in the game: never sooner than 8 seconds, at most 20 (or the delay above, if longer).": "Inicia a próxima conta assim que a anterior entra no jogo: nunca antes de 8 segundos, no máximo 20 (ou o atraso acima, se for maior).",
+  "Wait for each account to get into the game": "Esperar cada conta entrar no jogo"
 }

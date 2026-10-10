@@ -171,6 +171,66 @@ fn next_account_wait(
         + std::time::Duration::from_millis(jitter_ms)
 }
 
+/// Teto da espera pelo jogo (`General.WaitForGameJoin`), contado do início do
+/// launch da conta: passado isto, a fila segue mesmo sem a conta ter entrado.
+/// Um `AccountJoinDelay` maior que isto vira o teto.
+const JOIN_WAIT_CAP_SECS: u64 = 20;
+
+/// O que o log do cliente (commands/client_health.rs) diz da conta que acabou
+/// de abrir, para a fila decidir se já pode seguir.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JoinSignal {
+    /// O log do cliente não foi achado (ou ele caiu): vale a espera fixa de sempre.
+    NoLog,
+    /// O log foi achado e a conta ainda não entrou no jogo.
+    Loading,
+    /// O log diz que a conta entrou no jogo.
+    InGame,
+}
+
+/// Os três prazos da espera pelo jogo, todos contados como a espera fixa (do
+/// início do launch da conta, com o mesmo resíduo mínimo e o mesmo jitter):
+/// `floor` é o piso anti-captcha (nunca segue antes), `fixed` é a espera de
+/// sempre (vale sem log) e `cap` é o teto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct JoinWaitPlan {
+    floor: std::time::Duration,
+    fixed: std::time::Duration,
+    cap: std::time::Duration,
+}
+
+fn join_wait_plan(delay_seconds: u64, elapsed: std::time::Duration, jitter_ms: u64) -> JoinWaitPlan {
+    JoinWaitPlan {
+        floor: next_account_wait(MIN_JOIN_GAP_SECS, elapsed, jitter_ms),
+        fixed: next_account_wait(delay_seconds, elapsed, jitter_ms),
+        cap: next_account_wait(JOIN_WAIT_CAP_SECS.max(delay_seconds), elapsed, jitter_ms),
+    }
+}
+
+/// A fila já pode seguir para a próxima conta? Nunca antes do piso
+/// anti-captcha; com o log achado, assim que a conta entrar no jogo (ou no
+/// teto); sem log, na espera fixa de sempre.
+fn join_wait_done(waited: std::time::Duration, plan: JoinWaitPlan, signal: JoinSignal) -> bool {
+    if waited < plan.floor {
+        return false;
+    }
+    match signal {
+        JoinSignal::InGame => true,
+        JoinSignal::NoLog => waited >= plan.fixed,
+        JoinSignal::Loading => waited >= plan.cap,
+    }
+}
+
+/// O sinal do log para o cliente `pid` da conta. Queda também vira `NoLog`:
+/// ela não vai entrar, então vale a espera fixa.
+fn join_signal_from(view: Option<&ClientHealthView>) -> JoinSignal {
+    match view {
+        Some(view) if view.log_found && view.in_game => JoinSignal::InGame,
+        Some(view) if view.log_found && view.drop.is_none() && !view.exited => JoinSignal::Loading,
+        _ => JoinSignal::NoLog,
+    }
+}
+
 /// Tamanho da fatia da espera entre contas. A espera inteira num `sleep` só não
 /// dá chance de olhar a fila: enquanto ela dorme, o painel mostra "0 na fila" e
 /// o app recusa qualquer launch novo. Curta o suficiente para o usuário não
@@ -213,6 +273,31 @@ async fn wait_before_next_account(
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if !keep_waiting_for_next_account(remaining, cancelled(), sequence.queued_count()) {
             return;
+        }
+        tokio::time::sleep(next_wait_slice(remaining)).await;
+    }
+}
+
+/// Espera a conta que acabou de abrir entrar no jogo (`General.WaitForGameJoin`):
+/// segue assim que o log disser que ela entrou, sem passar do piso
+/// anti-captcha nem do teto. Sai também quando a fila para ou é cancelada,
+/// como `wait_before_next_account`. Devolve se a conta entrou no jogo.
+async fn wait_for_game_join(
+    sequence: &LaunchSequenceGuard,
+    plan: JoinWaitPlan,
+    signal: impl Fn() -> JoinSignal,
+    cancelled: impl Fn() -> bool,
+) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        let waited = started.elapsed();
+        let now = signal();
+        if join_wait_done(waited, plan, now) {
+            return now == JoinSignal::InGame;
+        }
+        let remaining = plan.cap.saturating_sub(waited);
+        if !keep_waiting_for_next_account(remaining, cancelled(), sequence.queued_count()) {
+            return false;
         }
         tokio::time::sleep(next_wait_slice(remaining)).await;
     }
@@ -1719,15 +1804,48 @@ async fn launch_multiple(
                         .map(|d| d.subsec_millis())
                         .unwrap_or(0),
                 );
-                let wait = next_account_wait(delay, iter_start.elapsed(), jitter_ms);
-                emit_launch_log(
-                    &app,
-                    uid,
-                    "info",
-                    "wait",
-                    format!("Aguardando {}s antes da próxima conta (anti-captcha)", wait.as_secs()),
-                );
-                wait_before_next_account(&sequence, wait, || tracker.is_launch_cancelled()).await;
+                // Lido a cada conta: desligar no meio da fila já vale.
+                let wait_for_join = settings.get_string("General", "WaitForGameJoin") != "false";
+                match acct_detected_pid.filter(|_| wait_for_join) {
+                    Some(pid) => {
+                        // Segue assim que o log disser que a conta entrou no
+                        // jogo (client_health.rs), nunca antes do piso
+                        // anti-captcha; sem log, a espera fixa de sempre.
+                        let plan = join_wait_plan(delay, iter_start.elapsed(), jitter_ms);
+                        emit_launch_log(
+                            &app,
+                            uid,
+                            "info",
+                            "wait",
+                            format!(
+                                "Esperando a conta entrar no jogo antes da próxima (entre {}s e {}s)",
+                                plan.floor.as_secs(),
+                                plan.cap.as_secs()
+                            ),
+                        );
+                        let joined = wait_for_game_join(
+                            &sequence,
+                            plan,
+                            || join_signal_from(client_health_of(uid, pid).as_ref()),
+                            || tracker.is_launch_cancelled(),
+                        )
+                        .await;
+                        if joined {
+                            emit_launch_log(&app, uid, "info", "wait", "Entrou no jogo: próxima conta");
+                        }
+                    }
+                    None => {
+                        let wait = next_account_wait(delay, iter_start.elapsed(), jitter_ms);
+                        emit_launch_log(
+                            &app,
+                            uid,
+                            "info",
+                            "wait",
+                            format!("Aguardando {}s antes da próxima conta (anti-captcha)", wait.as_secs()),
+                        );
+                        wait_before_next_account(&sequence, wait, || tracker.is_launch_cancelled()).await;
+                    }
+                }
             }
         }
     }
@@ -3479,6 +3597,12 @@ mod launch_command_tests {
                 }),
                 window_title: Some("Roblox — Main".into()),
                 not_responding: true,
+                in_game: false,
+                destination: Some(JoinedDestination {
+                    place_id: 1,
+                    job_id: Some("job".into()),
+                }),
+                exited: false,
             }),
         })
         .unwrap();
@@ -3493,5 +3617,92 @@ mod launch_command_tests {
         assert_eq!(json["health"]["drop"]["message"], "bye");
         assert_eq!(json["health"]["drop"]["sinceMs"], 5);
         assert_eq!(json["health"]["notResponding"], true);
+        assert_eq!(json["health"]["inGame"], false);
+        // O destino (Job ID) é só da reconexão: não vai para a tela.
+        assert!(json["health"].get("destination").is_none());
+        assert!(json["health"].get("exited").is_none());
+    }
+}
+
+#[cfg(test)]
+mod launch_join_wait_tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Conta que levou 3 s para abrir (auth + PID), sem jitter.
+    fn plan(delay: u64) -> JoinWaitPlan {
+        join_wait_plan(delay, Duration::from_secs(3), 0)
+    }
+
+    #[test]
+    fn the_plan_keeps_the_anti_captcha_floor_and_caps_at_20_seconds() {
+        let p = plan(8);
+        assert_eq!(p.floor, Duration::from_secs(5), "8 s from the start of the launch");
+        assert_eq!(p.fixed, Duration::from_secs(5));
+        assert_eq!(p.cap, Duration::from_secs(17), "20 s from the start of the launch");
+        // Um AccountJoinDelay maior que o teto vira o teto.
+        assert_eq!(plan(30).cap, Duration::from_secs(27));
+        // O piso nunca desce do anti-captcha, nem com delay abaixo dele.
+        assert_eq!(plan(0).floor, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn it_never_moves_on_before_the_floor_even_in_game() {
+        let p = plan(8);
+        assert!(!join_wait_done(Duration::from_secs(4), p, JoinSignal::InGame));
+        assert!(join_wait_done(Duration::from_secs(5), p, JoinSignal::InGame));
+    }
+
+    #[test]
+    fn in_game_moves_on_before_a_longer_configured_delay() {
+        // AccountJoinDelay 30: a conta entrou com 12 s, a fila não espera os 30.
+        let p = plan(30);
+        assert!(join_wait_done(Duration::from_secs(9), p, JoinSignal::InGame));
+        assert!(!join_wait_done(Duration::from_secs(9), p, JoinSignal::Loading));
+    }
+
+    #[test]
+    fn still_loading_waits_until_the_cap() {
+        let p = plan(8);
+        assert!(!join_wait_done(Duration::from_secs(16), p, JoinSignal::Loading));
+        assert!(join_wait_done(Duration::from_secs(17), p, JoinSignal::Loading));
+    }
+
+    #[test]
+    fn without_a_log_it_is_the_fixed_wait_of_before() {
+        let p = plan(12);
+        assert!(!join_wait_done(Duration::from_secs(8), p, JoinSignal::NoLog));
+        assert!(join_wait_done(p.fixed, p, JoinSignal::NoLog));
+        assert_eq!(p.fixed, next_account_wait(12, Duration::from_secs(3), 0));
+    }
+
+    fn view(log_found: bool, in_game: bool, dropped: bool, exited: bool) -> ClientHealthView {
+        ClientHealthView {
+            pid: 1,
+            log_found,
+            drop: dropped.then(|| ClientDrop {
+                kind: DropKind::Disconnected,
+                reason: Some(DropReason::ConnectionLost),
+                code: Some(277),
+                message: None,
+                since_ms: 0,
+            }),
+            window_title: None,
+            not_responding: false,
+            in_game,
+            destination: None,
+            exited,
+        }
+    }
+
+    #[test]
+    fn the_signal_comes_from_the_client_log() {
+        assert_eq!(join_signal_from(None), JoinSignal::NoLog, "the monitor has not seen it yet");
+        assert_eq!(join_signal_from(Some(&view(false, false, false, false))), JoinSignal::NoLog);
+        assert_eq!(join_signal_from(Some(&view(true, false, false, false))), JoinSignal::Loading);
+        assert_eq!(join_signal_from(Some(&view(true, true, false, false))), JoinSignal::InGame);
+        // Caiu ou fechou antes de entrar: não vai entrar, vale a espera fixa.
+        assert_eq!(join_signal_from(Some(&view(true, false, true, false))), JoinSignal::NoLog);
+        assert_eq!(join_signal_from(Some(&view(true, false, false, true))), JoinSignal::NoLog);
     }
 }
