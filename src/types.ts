@@ -827,6 +827,8 @@ export interface LaunchPresetView extends LaunchPreset {
   nextCloseAt: number | null;
   /** Clientes que as execuções deste preset abriram e que seguem abertos. */
   openClients: number;
+  /** As contas desses clientes — o "fechar" pergunta antes nomeando cada uma. */
+  openUserIds: number[];
 }
 
 /**

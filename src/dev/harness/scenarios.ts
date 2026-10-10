@@ -1360,6 +1360,7 @@ const SCENARIOS: Record<string, () => void> = {
         nextOpenAt: Date.now() + 14 * hour,
         nextCloseAt: Date.now() + 4 * hour,
         openClients: 2,
+        openUserIds: accounts.slice(0, 2).map((a) => a.UserID),
       },
       {
         id: "preset-2",
@@ -1396,7 +1397,7 @@ const SCENARIOS: Record<string, () => void> = {
       if (cmd === "save_launch_preset") {
         const preset = { ...(args?.preset as Record<string, unknown>) };
         if (!preset.id) preset.id = `preset-${++serial}`;
-        const view = { nextOpenAt: null, nextCloseAt: null, openClients: 0, ...preset };
+        const view = { nextOpenAt: null, nextCloseAt: null, openClients: 0, openUserIds: [], ...preset };
         presets = presets.some((p) => p.id === preset.id)
           ? presets.map((p) => (p.id === preset.id ? { ...p, ...view } : p))
           : [...presets, view];
@@ -1408,7 +1409,7 @@ const SCENARIOS: Record<string, () => void> = {
       }
       if (cmd === "launch_preset") return 2;
       if (cmd === "close_preset_clients") {
-        presets = presets.map((p) => (p.id === args?.id ? { ...p, openClients: 0 } : p));
+        presets = presets.map((p) => (p.id === args?.id ? { ...p, openClients: 0, openUserIds: [] } : p));
         return 2;
       }
       return baseHandler(cmd, args);

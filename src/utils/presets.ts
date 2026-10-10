@@ -72,14 +72,48 @@ export function matchingTarget(options: PresetTargetOption[], placeId: number, j
   return options.find((o) => o.placeId === placeId && o.jobId === jobId.trim()) ?? null;
 }
 
+/** O campo do editor em que o problema aparece. */
+export type PresetField = "name" | "accounts" | "game" | "schedule";
+
+/** "HH:MM" que o backend aceita (`parse_hhmm`): hora de 1–2 dígitos, minuto de 2. */
+export function isPresetTime(text: string): boolean {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(text.trim());
+  return !!m && Number(m[1]) <= 23 && Number(m[2]) <= 59;
+}
+
+/**
+ * O preset está pronto para salvar? Devolve o campo e a frase (inglês) do que
+ * falta, na ordem em que o formulário se lê — o editor mostra a frase ao lado
+ * do campo. As mesmas regras do `normalize_preset` do backend, e mais duas
+ * que só a tela sabe: o Place ID digitado que não é número (`placeText`) e as
+ * contas que já saíram do app (`knownUserIds`).
+ */
+export function presetFieldProblem(
+  preset: LaunchPreset,
+  context: { placeText?: string; knownUserIds?: Iterable<number> } = {}
+): { field: PresetField; message: string } | null {
+  if (!preset.name.trim()) return { field: "name", message: "Give the preset a name." };
+  if (preset.userIds.length === 0) return { field: "accounts", message: "Pick at least one account." };
+  if (context.knownUserIds) {
+    const known = new Set(context.knownUserIds);
+    if (!preset.userIds.some((id) => known.has(id))) {
+      return { field: "accounts", message: "None of this preset's accounts are in the app anymore." };
+    }
+  }
+  if (!Number.isSafeInteger(preset.placeId) || preset.placeId <= 0) {
+    const typed = context.placeText?.trim();
+    return { field: "game", message: typed ? "That Place ID is not valid." : "Pick a game (Place ID)." };
+  }
+  const s = preset.schedule;
+  if (s?.openEnabled && !isPresetTime(s.openAt)) return { field: "schedule", message: "Pick a time to open." };
+  if (s?.openEnabled && s.days.length === 0) return { field: "schedule", message: "Pick at least one day to open." };
+  if (s?.closeEnabled && !isPresetTime(s.closeAt)) return { field: "schedule", message: "Pick a time to close." };
+  return null;
+}
+
 /** O preset está pronto para salvar? Devolve a frase (inglês) do que falta. */
 export function presetProblem(preset: LaunchPreset): string | null {
-  if (!preset.name.trim()) return "Give the preset a name.";
-  if (preset.userIds.length === 0) return "Pick at least one account.";
-  if (!Number.isSafeInteger(preset.placeId) || preset.placeId <= 0) return "Pick a game (Place ID).";
-  const s = preset.schedule;
-  if (s?.openEnabled && s.days.length === 0) return "Pick at least one day to open.";
-  return null;
+  return presetFieldProblem(preset)?.message ?? null;
 }
 
 /**

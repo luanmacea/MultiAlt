@@ -5,6 +5,7 @@ import {
   matchingTarget,
   newPresetDraft,
   presetDayToJsDay,
+  presetFieldProblem,
   presetProblem,
   vipJobFromLink,
 } from "./presets";
@@ -64,6 +65,48 @@ describe("presets — rascunho e validação", () => {
         schedule: { openEnabled: true, openAt: "08:00", days: [], closeEnabled: false, closeAt: "18:00" },
       })
     ).toBe("Pick at least one day to open.");
+  });
+});
+
+describe("presets — validação por campo", () => {
+  const ok = { ...newPresetDraft([1], 42), name: "Farm" };
+  const schedule = { openEnabled: false, openAt: "08:00", days: [0], closeEnabled: false, closeAt: "18:00" };
+
+  it("points at the field that is wrong", () => {
+    expect(presetFieldProblem(ok)).toBeNull();
+    expect(presetFieldProblem({ ...ok, name: "" })?.field).toBe("name");
+    expect(presetFieldProblem({ ...ok, userIds: [] })?.field).toBe("accounts");
+    expect(presetFieldProblem({ ...ok, placeId: 0 })?.field).toBe("game");
+    expect(presetFieldProblem({ ...ok, schedule: { ...schedule, openEnabled: true, days: [] } })?.field).toBe("schedule");
+  });
+
+  it("a typed Place ID that is not a number says it is invalid, not 'pick a game'", () => {
+    expect(presetFieldProblem({ ...ok, placeId: 0 }, { placeText: "abc" })).toEqual({
+      field: "game",
+      message: "That Place ID is not valid.",
+    });
+    expect(presetFieldProblem({ ...ok, placeId: 0 }, { placeText: "  " })?.message).toBe("Pick a game (Place ID).");
+  });
+
+  it("accounts that left the app do not count: at least one still has to be here", () => {
+    expect(presetFieldProblem({ ...ok, userIds: [99] }, { knownUserIds: [1, 2] })).toEqual({
+      field: "accounts",
+      message: "None of this preset's accounts are in the app anymore.",
+    });
+    expect(presetFieldProblem({ ...ok, userIds: [99, 2] }, { knownUserIds: [1, 2] })).toBeNull();
+  });
+
+  it("an empty or broken time is caught here, before the backend refuses it", () => {
+    expect(presetFieldProblem({ ...ok, schedule: { ...schedule, openEnabled: true, openAt: "" } })).toEqual({
+      field: "schedule",
+      message: "Pick a time to open.",
+    });
+    expect(presetFieldProblem({ ...ok, schedule: { ...schedule, closeEnabled: true, closeAt: "25:00" } })).toEqual({
+      field: "schedule",
+      message: "Pick a time to close.",
+    });
+    // Desligado, o horário não importa.
+    expect(presetFieldProblem({ ...ok, schedule: { ...schedule, openAt: "" } })).toBeNull();
   });
 });
 

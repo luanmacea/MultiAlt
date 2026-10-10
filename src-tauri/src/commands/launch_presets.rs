@@ -171,6 +171,8 @@ struct LaunchPresetView {
     next_open_at: Option<i64>,
     next_close_at: Option<i64>,
     open_clients: usize,
+    /// As contas desses clientes: a tela pergunta antes de fechar, nomeando-as.
+    open_user_ids: Vec<i64>,
 }
 
 fn local_naive_to_ms(at: chrono::NaiveDateTime) -> Option<i64> {
@@ -190,11 +192,12 @@ fn get_launch_presets(store: tauri::State<'_, LaunchPresetStore>) -> Result<Vec<
         .into_iter()
         .map(|preset| {
             let schedule = preset.schedule.clone().unwrap_or_default();
-            let open_clients = preset_clients_still_open(&preset_run_snapshot(&preset.id), &tracked).len();
+            let still_open = preset_clients_still_open(&preset_run_snapshot(&preset.id), &tracked);
             LaunchPresetView {
                 next_open_at: next_open_after(&schedule, now).and_then(local_naive_to_ms),
                 next_close_at: next_close_after(&schedule, now).and_then(local_naive_to_ms),
-                open_clients,
+                open_clients: still_open.len(),
+                open_user_ids: still_open.iter().map(|c| c.user_id).collect(),
                 preset,
             }
         })
@@ -476,6 +479,22 @@ mod launch_preset_run_tests {
             merge_preset_run(&existing, &opened, &tracked),
             vec![client(1, 101), client(2, 201)]
         );
+    }
+
+    #[test]
+    fn the_view_names_the_accounts_whose_windows_are_still_open() {
+        // A tela pergunta antes de fechar e lista essas contas (`openUserIds`).
+        let view = LaunchPresetView {
+            preset: LaunchPreset { id: "p".into(), name: "Farm".into(), ..Default::default() },
+            next_open_at: None,
+            next_close_at: None,
+            open_clients: 2,
+            open_user_ids: vec![1, 2],
+        };
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["openClients"], 2);
+        assert_eq!(json["openUserIds"], serde_json::json!([1, 2]));
+        assert_eq!(json["name"], "Farm");
     }
 
     #[test]

@@ -31,8 +31,20 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
    O VIP vira `vip:<código>` (`vipJobFromLink`), a forma que a fila de várias contas entende;
    o preset guarda essa cópia, então apagar o favorito depois não estraga o preset. "Other
    game" aceita Place ID (ou link do jogo) e um Job ID opcional.
-3. **Salvar:** `save_launch_preset` → `LaunchPresetStore::upsert` normaliza (`normalize_preset`)
-   e grava. Id vazio = preset novo (`preset-<ms>`).
+3. **Salvar:** a tela valida antes (`presetFieldProblem`, mesmas regras do backend e mais duas:
+   Place ID digitado que não é número — "That Place ID is not valid." — e pelo menos uma conta
+   que **ainda existe** no app). O aviso aparece **ao lado do campo** (`role="alert"`,
+   `aria-invalid` + `aria-describedby` no campo), e a tela rola e põe o foco nele: no fim da
+   área rolável ele ficava fora da tela em 1100x700 e o Save parecia não fazer nada. Horário
+   ligado com a hora vazia é pego aqui ("Pick a time to open."), não pelo backend. Passou:
+   `save_launch_preset` → `LaunchPresetStore::upsert` normaliza (`normalize_preset`) e grava.
+   Id vazio = preset novo (`preset-<ms>`). Erro que só o backend vê aparece numa faixa fixa
+   acima do Save.
+   - **Editor:** "New preset" põe o foco no Nome; perto dos 60 caracteres aparece o contador
+     (`55/60`). Contas que saíram do app não entram na contagem "Accounts (N)": aparecem numa
+     nota ("N account(s) of this preset are no longer in the app") com **Remove them**.
+   - **Esc = Cancel:** volta para a lista (antes fechava o diálogo todo). Com mudança não salva,
+     pergunta antes de descartar ("Discard the changes to this preset?").
 4. **Launch:** botão **Launch** da linha → aviso de conta online (`useJoinOnlineWarning`) →
    `store.launchPreset` → `launch_preset(id)` → `run_launch_preset`:
    1. só as contas do preset que ainda existem no app;
@@ -47,7 +59,10 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
 5. **Fechar:** **Close them** (aparece quando o preset tem cliente aberto) ou o horário de
    fechar → `close_preset_run`: para cada cliente da execução, **confere de novo** que o tracker
    ainda tem aquele PID para aquela conta e que não é cliente adotado do site, e só então
-   `kill_for_user`.
+   `kill_for_user`. O botão **pergunta antes**, nomeando as contas que vão fechar (`openUserIds`
+   da linha, que o `get_launch_presets` devolve junto de `openClients`); fica desabilitado
+   ("Closing...") enquanto fecha — duplo clique fecha uma vez só — e a lista relê na hora,
+   sem depender do evento `launch-preset` chegar.
 6. **Resultado:** linha no Console (`step: "preset"`, sem conta) e evento `launch-preset`
    (`presetId`, `name`, `action`, `scheduled`, `ok`, `count`, `error`). O que veio do horário
    vira toast (ninguém clicou).
@@ -128,3 +143,7 @@ clientes abertos, um com VIP dos favoritos, um com conta que saiu do app). Toolb
 - A grade depois do launch é a mesma do botão manual: organiza **todas** as janelas do Roblox
   abertas (as contas com janela própria ficam de fora), não só as do preset.
 - macOS: o launch funciona pelo `launch_multiple` de lá; a grade não existe no Mac.
+- **Tradução:** em português o título é "Presets para iniciar" (o botão é "Iniciar"; "launch"
+  não aparece na tela), e os botões da lista de contas são "Todas"/"Nenhuma" — chaves próprias
+  (`preset-accounts-all`/`preset-accounts-none`), porque o "All" genérico é "Todos" em outras
+  telas (níveis de log).
