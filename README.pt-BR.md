@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://multialt.pages.dev/get/readme/"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/MultiAlt/releases/latest">outros downloads (versão completa)</a> · <a href="https://multialt.pages.dev/pt/">🌐 site</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
+  <sub>Windows 10/11 · <a href="https://multialt.pages.dev/pt/">🌐 site</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
@@ -27,10 +27,7 @@ Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link p
 # Download
 **[⬇ Baixar o instalador (.msi)](https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi)** — é só isso que a maioria precisa. Sai 0/75 no VirusTotal, instala só para o seu usuário (**sem pedir administrador**) e se atualiza sozinho.
 
-Baixe só deste repositório. A [página da release](https://github.com/luanmacea/MultiAlt/releases/latest) também tem:
-
-- **Arquivos com `_full-nexus-ws`:** a versão completa, com a API HTTP local e o Nexus (abre portas de rede locais). Só se você precisar.
-- Os arquivos `zz-…sig` são da atualização automática: não precisa baixá-los.
+Baixe só deste repositório. Os arquivos `zz-…sig` da [página da release](https://github.com/luanmacea/MultiAlt/releases/latest) são da atualização automática: não precisa baixá-los.
 
 > Procurando o `.exe` portátil? Ele não está sendo publicado por enquanto (um antivírus o marcou 1/75); o `.msi` também não pede administrador.
 
@@ -73,7 +70,7 @@ Baixe só deste repositório. A [página da release](https://github.com/luanmace
 | Otimização | Limite de FPS, gráficos, tamanho de janela, prioridade do processo, EcoQoS, limites de CPU/memória e FastFlags — um perfil para jogar normal e perfis separados para mains e alts do Auto Rejoin |
 | Isolamento pré-launch | Limpa cache, rastros no registro, MachineGuid e MAC antes de cada launch para uma conta não herdar a sessão da outra (Windows, só com nenhum cliente aberto) |
 | Scripts | Automação em JavaScript dentro do gerenciador (isolada, com permissões por script) pela API `ram.*` |
-| API Web local / Nexus | API HTTP local e servidor WebSocket para ferramentas externas e o `Nexus.lua` (na build `_full-nexus-ws`) |
+| API Web local / Nexus | API HTTP local e servidor WebSocket para ferramentas externas e o `Nexus.lua` (não vem no instalador padrão) |
 
 ### App
 | Funcionalidade | O que faz |
