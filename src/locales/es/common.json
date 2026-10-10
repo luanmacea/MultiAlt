@@ -2079,7 +2079,7 @@
   "The server shut down": "El servidor se cerró",
   "Disconnected from the game": "Se cayó del juego",
   "Show Account Name on Roblox Window": "Mostrar el nombre de la cuenta en la ventana de Roblox",
-  "Titles each Roblox window “Roblox — account” so you can tell them apart on the taskbar. Hidden names stay hidden.": "Cambia el título de cada ventana de Roblox a “Roblox — cuenta”, para saber cuál es cuál en la barra de tareas. Los nombres ocultos siguen ocultos.",
+  "Titles each Roblox window “account — Roblox”, name first, so you can tell them apart on the taskbar. Hidden names stay hidden.": "Cambia el título de cada ventana de Roblox a “cuenta — Roblox”, con el nombre primero, para saber cuál es cuál en la barra de tareas. Los nombres ocultos siguen ocultos.",
   "Close If Not Responding": "Cerrar si no responde",
   "Closes a client whose window stays “Not responding” for 30 seconds.": "Cierra el cliente cuya ventana queda en “No responde” durante 30 segundos.",
   "Not responding": "No responde",

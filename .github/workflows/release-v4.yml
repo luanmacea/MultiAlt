@@ -68,7 +68,9 @@ jobs:
       #
       # A edicao completa (decisao do dono, 10/10/2026) sai como
       # `MultiAlt_<v>_Full-Setup.msi`, compilada com `--features full` (toda
-      # feature opcional; a lista mora no Cargo.toml). Ela so aparece nos
+      # feature opcional; a lista mora no Cargo.toml). A padrao compila com
+      # `--no-default-features --features standard`: tudo menos o que fica so
+      # na completa (hoje Nexus e Web API). Ela so aparece nos
       # anexos da release e na secao "Full installer" do texto dela — README,
       # site e app nao apontam para ela. O canal do updater dela continua
       # `<canal>-nexus-ws`: e o que quem ja a tem instalada consulta.
@@ -226,13 +228,16 @@ jobs:
           VITE_ENABLE_NEXUS: "false"
           VITE_ENABLE_WEBSERVER: "false"
           # A distribuicao de avatares vai nas duas edicoes (decisao do dono,
-          # 08/10/2026). Para tira-la da padrao: "false" aqui e sem o
-          # `--features avatar-batch` abaixo (ver release-workflow.test.mjs).
+          # 08/10/2026). Para tira-la da padrao: "false" aqui e `avatar-batch`
+          # fora da feature `standard` do Cargo.toml (ver release-workflow.test.mjs).
           VITE_ENABLE_AVATAR_BATCH: "true"
         with:
           projectPath: "."
           tauriScript: "bun tauri"
-          args: -- --no-default-features --features avatar-batch
+          # O que a padrao leva mora na feature `standard` do Cargo.toml (decisao
+          # do dono, 10/10/2026: tudo menos o que faz o scan marca-la); sem lista
+          # aqui.
+          args: -- --no-default-features --features standard
           tagName: ${{ steps.meta.outputs.tag }}
           releaseName: ${{ steps.meta.outputs.release_title }}
           releaseBody: ${{ steps.meta.outputs.release_body }}
