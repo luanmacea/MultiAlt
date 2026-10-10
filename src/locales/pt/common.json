@@ -2148,5 +2148,9 @@
   "Waiting for the internet to come back (attempt {{attempt}}/{{max}})": "Esperando a internet voltar (tentativa {{attempt}}/{{max}})",
   "Auto-reconnect is bringing back {{count}} accounts.": "A reconexão automática está trazendo de volta {{count}} contas.",
   "Keep the PC awake while AFK Mode or Auto Rejoin runs": "Manter o PC acordado enquanto o Modo AFK ou o Auto Rejoin roda",
-  "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off.": "Impede o Windows de entrar em suspensão enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda. A tela ainda pode apagar."
+  "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off.": "Impede o Windows de entrar em suspensão enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda. A tela ainda pode apagar.",
+  "It did not get into the game in 2 minutes": "Não entrou no jogo em 2 minutos",
+  "The client was closed": "A janela do Roblox foi fechada",
+  "The old client did not close": "A janela antiga do Roblox não fechou",
+  "The Roblox client did not start": "O Roblox não abriu"
 }
