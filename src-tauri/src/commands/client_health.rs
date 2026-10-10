@@ -361,16 +361,34 @@ pub fn window_account_label(alias: &str, username: &str, hidden: bool, preview_l
     mask_account_name(raw, hidden, preview_letters)
 }
 
-/// `Roblox — <conta>`.
+/// Entre o nome da conta e "Roblox" no título.
+const WINDOW_TITLE_SEPARATOR: &str = " — ";
+
+/// `<conta> — Roblox`. O nome vem primeiro (decisão do dono, 10/10/2026): ao
+/// passar o mouse na barra de tarefas, o Windows mostra o começo do título, e
+/// o nome aparece inteiro.
 pub fn client_window_title(label: &str) -> String {
-    format!("{ROBLOX_WINDOW_TITLE} — {label}")
+    format!("{label}{WINDOW_TITLE_SEPARATOR}{ROBLOX_WINDOW_TITLE}")
+}
+
+/// O mesmo título na ordem que a versão anterior punha (`Roblox — <conta>`).
+/// Uma janela renomeada por ela e ainda aberta depois da atualização tem que
+/// ser reconhecida como nossa (e passar para a ordem nova), não como título
+/// estranho para as regras do Watcher.
+fn previous_order_title(desired: &str) -> Option<String> {
+    let label = desired.strip_suffix(&format!("{WINDOW_TITLE_SEPARATOR}{ROBLOX_WINDOW_TITLE}"))?;
+    Some(format!("{ROBLOX_WINDOW_TITLE}{WINDOW_TITLE_SEPARATOR}{label}"))
 }
 
 /// O título como o Roblox o pôs: se o atual é o que o app pôs (ou poria agora,
-/// depois de reabrir), vale "Roblox". As regras do Watcher que olham o título
-/// (título esperado, beta, sem conexão) comparam isto, nunca o nome da conta.
+/// depois de reabrir, inclusive na ordem da versão anterior), vale "Roblox". As
+/// regras do Watcher que olham o título (título esperado, beta, sem conexão)
+/// comparam isto, nunca o nome da conta.
 pub fn effective_client_title<'a>(current: &'a str, applied: Option<&str>, desired: Option<&str>) -> &'a str {
-    let ours = !current.is_empty() && (applied == Some(current) || desired == Some(current));
+    let ours = !current.is_empty()
+        && (applied == Some(current)
+            || desired == Some(current)
+            || desired.and_then(previous_order_title).as_deref() == Some(current));
     if ours {
         ROBLOX_WINDOW_TITLE
     } else {

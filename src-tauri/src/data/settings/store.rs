@@ -72,7 +72,7 @@ impl SettingsStore {
             (
                 "ShowAccountNameOnWindow",
                 "true",
-                Some("Titles each Roblox window this app tracks \"Roblox — <account>\" (masked when names are hidden)"),
+                Some("Titles each Roblox window this app tracks \"<account> — Roblox\", name first (masked when names are hidden)"),
             ),
             ("PresenceUpdateRate", "5", None),
             ("WarnOnOnlineJoin", "true", None),
