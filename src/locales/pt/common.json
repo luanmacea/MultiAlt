@@ -2094,5 +2094,8 @@
   "Check Accounts ({{count}})": "Conferir contas ({{count}})",
   "Check failed: {{error}}": "Falha ao conferir: {{error}}",
   "Checking {{done}}/{{total}}...": "Conferindo {{done}}/{{total}}...",
-  "Session and ban status. Read-only: it doesn't sign anything out.": "Sessão e banimento. Só leitura: não desconecta nada."
+  "Session and ban status. Read-only: it doesn't sign anything out.": "Sessão e banimento. Só leitura: não desconecta nada.",
+  "{{who}} — failed: {{error}}": "{{who}} — falhou: {{error}}",
+  "Line {{n}}": "Linha {{n}}",
+  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "O Roblox está restringindo esta conta (banida, advertida ou em análise). Confira em roblox.com/not-approved e depois adicione de novo."
 }
