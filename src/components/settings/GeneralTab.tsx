@@ -417,7 +417,7 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
           checked={s.get("General", "ShowAccountNameOnWindow", "true") !== "false"}
           onChange={(v) => s.setBool("General", "ShowAccountNameOnWindow", v)}
           label="Show Account Name on Roblox Window"
-          description="Titles each Roblox window “Roblox — account” so you can tell them apart on the taskbar. Hidden names stay hidden."
+          description="Titles each Roblox window “account — Roblox”, name first, so you can tell them apart on the taskbar. Hidden names stay hidden."
         />
       )}
 

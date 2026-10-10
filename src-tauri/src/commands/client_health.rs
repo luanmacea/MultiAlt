@@ -361,16 +361,34 @@ pub fn window_account_label(alias: &str, username: &str, hidden: bool, preview_l
     mask_account_name(raw, hidden, preview_letters)
 }
 
-/// `Roblox — <conta>`.
+/// Entre o nome da conta e "Roblox" no título.
+const WINDOW_TITLE_SEPARATOR: &str = " — ";
+
+/// `<conta> — Roblox`. O nome vem primeiro (decisão do dono, 10/10/2026): ao
+/// passar o mouse na barra de tarefas, o Windows mostra o começo do título, e
+/// o nome aparece inteiro.
 pub fn client_window_title(label: &str) -> String {
-    format!("{ROBLOX_WINDOW_TITLE} — {label}")
+    format!("{label}{WINDOW_TITLE_SEPARATOR}{ROBLOX_WINDOW_TITLE}")
+}
+
+/// O mesmo título na ordem que a versão anterior punha (`Roblox — <conta>`).
+/// Uma janela renomeada por ela e ainda aberta depois da atualização tem que
+/// ser reconhecida como nossa (e passar para a ordem nova), não como título
+/// estranho para as regras do Watcher.
+fn previous_order_title(desired: &str) -> Option<String> {
+    let label = desired.strip_suffix(&format!("{WINDOW_TITLE_SEPARATOR}{ROBLOX_WINDOW_TITLE}"))?;
+    Some(format!("{ROBLOX_WINDOW_TITLE}{WINDOW_TITLE_SEPARATOR}{label}"))
 }
 
 /// O título como o Roblox o pôs: se o atual é o que o app pôs (ou poria agora,
-/// depois de reabrir), vale "Roblox". As regras do Watcher que olham o título
-/// (título esperado, beta, sem conexão) comparam isto, nunca o nome da conta.
+/// depois de reabrir, inclusive na ordem da versão anterior), vale "Roblox". As
+/// regras do Watcher que olham o título (título esperado, beta, sem conexão)
+/// comparam isto, nunca o nome da conta.
 pub fn effective_client_title<'a>(current: &'a str, applied: Option<&str>, desired: Option<&str>) -> &'a str {
-    let ours = !current.is_empty() && (applied == Some(current) || desired == Some(current));
+    let ours = !current.is_empty()
+        && (applied == Some(current)
+            || desired == Some(current)
+            || desired.and_then(previous_order_title).as_deref() == Some(current));
     if ours {
         ROBLOX_WINDOW_TITLE
     } else {
@@ -1467,8 +1485,9 @@ mod client_health_monitor_tests {
         let os = with_window(100, "Roblox");
         let mut monitor = ClientHealthMonitor::new();
         monitor.tick(&os, &[named(1, 100, "Main")], T0);
-        assert_eq!(os.titles.borrow()[&100], "Roblox — Main");
-        assert_eq!(monitor.views()[&1].window_title.as_deref(), Some("Roblox — Main"));
+        // O nome vem primeiro: a barra de tarefas mostra o começo do título.
+        assert_eq!(os.titles.borrow()[&100], "Main — Roblox");
+        assert_eq!(monitor.views()[&1].window_title.as_deref(), Some("Main — Roblox"));
 
         // Nada mudou: não escreve de novo.
         monitor.tick(&os, &[named(1, 100, "Main")], T0 + 2_000);
@@ -1477,7 +1496,7 @@ mod client_health_monitor_tests {
         // O Roblox pôs "Roblox" de volta (teleporte): põe o nome de novo.
         os.titles.borrow_mut().insert(100, "Roblox".into());
         monitor.tick(&os, &[named(1, 100, "Main")], T0 + 4_000);
-        assert_eq!(os.titles.borrow()[&100], "Roblox — Main");
+        assert_eq!(os.titles.borrow()[&100], "Main — Roblox");
     }
 
     #[test]
@@ -1497,7 +1516,7 @@ mod client_health_monitor_tests {
         monitor.tick(&os, &[named(1, 100, "Main")], T0);
         let masked = window_account_label("Main", "annabelle", true, 1);
         monitor.tick(&os, &[named(1, 100, &masked)], T0 + 2_000);
-        assert_eq!(os.titles.borrow()[&100], "Roblox — M********");
+        assert_eq!(os.titles.borrow()[&100], "M******** — Roblox");
     }
 
     #[test]
@@ -1514,11 +1533,35 @@ mod client_health_monitor_tests {
     fn after_the_app_reopens_its_own_title_is_recognized() {
         // O app fechou e abriu de novo: o título já tem o nome, o monitor
         // nasce sem memória e reconhece o título como seu.
-        let os = with_window(100, "Roblox — Main");
+        let os = with_window(100, "Main — Roblox");
         let mut monitor = ClientHealthMonitor::new();
         monitor.tick(&os, &[named(1, 100, "Main")], T0);
         assert_eq!(*os.set_calls.borrow(), 0);
-        assert_eq!(monitor.views()[&1].window_title.as_deref(), Some("Roblox — Main"));
+        assert_eq!(monitor.views()[&1].window_title.as_deref(), Some("Main — Roblox"));
+    }
+
+    #[test]
+    fn a_title_from_the_previous_version_is_switched_to_the_new_order() {
+        // A versão anterior punha "Roblox — <conta>". Depois de atualizar, a
+        // janela que ficou aberta é reconhecida como nossa (não é erro nem
+        // título estranho) e passa para "<conta> — Roblox".
+        let os = with_window(100, "Roblox — Main");
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[named(1, 100, "Main")], T0);
+        assert_eq!(os.titles.borrow()[&100], "Main — Roblox");
+        assert_eq!(*os.set_calls.borrow(), 1);
+        assert_eq!(monitor.views()[&1].window_title.as_deref(), Some("Main — Roblox"));
+    }
+
+    #[test]
+    fn a_previous_version_title_with_another_name_is_left_alone() {
+        // Só o nome que o app poria agora é reconhecido; outro texto depois de
+        // "Roblox — " pode ser o Roblox mostrando um erro.
+        let os = with_window(100, "Roblox — Error Code: 429");
+        let mut monitor = ClientHealthMonitor::new();
+        monitor.tick(&os, &[named(1, 100, "Main")], T0);
+        assert_eq!(os.titles.borrow()[&100], "Roblox — Error Code: 429");
+        assert_eq!(*os.set_calls.borrow(), 0);
     }
 
     // ---- "Não respondendo" --------------------------------------------------
@@ -1592,7 +1635,7 @@ mod client_health_monitor_tests {
         assert_eq!(*os.set_calls.borrow(), 0);
         os.hung.borrow_mut().clear();
         monitor.tick(&os, &[named(1, 100, "Main")], T0 + 2_000);
-        assert_eq!(os.titles.borrow()[&100], "Roblox — Main");
+        assert_eq!(os.titles.borrow()[&100], "Main — Roblox");
     }
 
     #[test]
@@ -1640,6 +1683,25 @@ mod client_window_title_tests {
         assert_eq!(window_account_label("", "annabelle", false, 0), "annabelle");
         assert_eq!(window_account_label("", "annabelle", true, 3), "ann********");
         assert_eq!(window_account_label("", "annabelle", true, 0), "************");
+    }
+
+    #[test]
+    fn the_account_name_comes_first() {
+        assert_eq!(client_window_title("Main"), "Main — Roblox");
+        assert_eq!(client_window_title("M********"), "M******** — Roblox");
+    }
+
+    #[test]
+    fn the_effective_title_also_recognizes_the_previous_order() {
+        let ours = client_window_title("Main");
+        // O título que a versão anterior punha, com o mesmo nome.
+        assert_eq!(effective_client_title("Roblox — Main", None, Some(&ours)), "Roblox");
+        assert_eq!(effective_client_title("Roblox — Main", Some("Roblox — Main"), Some(&ours)), "Roblox");
+        // Outro nome (ou erro) no formato antigo não é nosso.
+        assert_eq!(effective_client_title("Roblox — Other", None, Some(&ours)), "Roblox — Other");
+        assert_eq!(effective_client_title("Roblox — Main", None, None), "Roblox — Main");
+        // O plano troca o antigo pelo novo.
+        assert_eq!(plan_window_title("Roblox — Main", None, Some(&ours)), Some(ours.clone()));
     }
 
     #[test]

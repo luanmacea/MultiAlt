@@ -116,8 +116,17 @@ que** a conta caiu. Só lê: o log (aberto só para leitura) e a lista de proces
 Também no monitor de [client_health.rs](../../src-tauri/src/commands/client_health.rs),
 com o Watcher ligado ou não: cada janela de cliente rastreado (lançado pelo app
 ou adotado do site — adotado quer dizer que a conta já foi identificada) ganha o
-título **`Roblox — <alias ou username>`**, para saber quem é quem na barra de
+título **`<alias ou username> — Roblox`**, para saber quem é quem na barra de
 tarefas. Opção `General.ShowAccountNameOnWindow` (padrão ligado, só Windows).
+
+- **Nome primeiro** (decisão do dono, 10/10/2026): ao passar o mouse na barra
+  de tarefas, o Windows corta o título no fim; com o nome na frente ele aparece
+  inteiro. Até então era `Roblox — <conta>`: uma janela renomeada assim pela
+  versão anterior e ainda aberta depois da atualização é reconhecida como nossa
+  (`effective_client_title` aceita a ordem antiga com o nome que o app poria
+  agora) e passa para a ordem nova na passada seguinte — não vira título
+  estranho para as regras do Watcher. Outro texto depois de `Roblox — ` (um
+  erro do Roblox, por exemplo) continua intocado.
 
 - **Nomes ocultos:** o nome sai mascarado exatamente como a tela do app mostra
   (`mask_account_name`, espelho de `maskAccountName`; os dois lados testam os
