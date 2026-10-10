@@ -1283,6 +1283,54 @@ const SCENARIOS: Record<string, () => void> = {
   },
 
   /**
+   * Histórico de sessões (ideia 6): a conta 1 tem duas semanas de sessões em
+   * três jogos — em jogo agora, quedas com motivo, teleporte, saída, o app
+   * fechado no meio e um aviso de moderação; a conta 2 não tem nada. Abra o
+   * painel da conta (selecione TestAccount1). O backend mandaria a lista já
+   * montada, da mais nova para a mais velha: é o que vai aqui.
+   */
+  history() {
+    const now = Date.now();
+    const min = 60_000;
+    const day = 86_400_000;
+    const s = (
+      startAgo: number,
+      minutes: number | null,
+      placeId: number | null,
+      end: string,
+      extra: Record<string, unknown> = {}
+    ) => ({
+      startedAt: now - startAgo,
+      endedAt: minutes === null ? null : now - startAgo + minutes * min,
+      placeId,
+      jobId: placeId ? `job-${Math.round(startAgo / min)}` : null,
+      end,
+      dropKind: null,
+      reason: null,
+      code: null,
+      message: null,
+      ...extra,
+    });
+    const first = [
+      s(25 * min, null, 6516141723, "ongoing"),
+      s(95 * min, 62, 6516141723, "dropped", { dropKind: "disconnected", reason: "connectionLost", code: 277 }),
+      s(3 * 60 * min, 40, 606849621, "teleported"),
+      s(day + 2 * 60 * min, 120, 606849621, "dropped", { dropKind: "kicked", code: 267, message: "You were AFK for too long" }),
+      s(day + 5 * 60 * min, 0, null, "moderated"),
+      s(2 * day, 180, 15101393044, "left"),
+      s(3 * day, 95, 6516141723, "appClosed"),
+      s(5 * day, 30, 6516141723, "dropped", { dropKind: "serverShutdown", code: 274 }),
+      s(9 * day, 240, 606849621, "closed"),
+      s(20 * day, 300, 15101393044, "left"),
+    ];
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_session_history") return Number(args?.userId) === accounts[0].UserID ? first : [];
+      if (cmd === "save_history_export") return "C:/Users/you/AppData/Local/Roblox Account Manager/exports/history.csv";
+      return baseHandler(cmd, args);
+    });
+  },
+
+  /**
    * Presets de launch (ideia 13): três presets como o backend devolve — um com
    * horário de abrir e fechar e dois clientes ainda abertos, um com VIP dos
    * favoritos e um com uma conta que saiu do app. Salvar e apagar ficam em

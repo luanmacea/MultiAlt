@@ -126,7 +126,7 @@ O botão da toolbar existe para gravar ou compartilhar a tela sem expor as conta
 
 ### Sidebar de conta única (`SingleSelectSidebar`)
 
-Alias, descrição, validade, presença, **Roblox Version (all accounts)** — grava a `Versions.DefaultVersion` **global**, não o campo `RobloxVersion` da conta (com "Latest installed" e "Manage versions...", e só aparece com alguma versão no catálogo) —, Join Group, Browser (abre navegador logado), Server List e Utilities (`AccountUtilsDialog`). A versão **por conta** existe no backend (`RobloxVersion`, `versions_set_account_override`), mas nenhuma tela a define — ver [roblox-versions.md](roblox-versions.md).
+Alias, descrição, validade, presença, **History** (sessões recentes, tempo de jogo de 14 dias, "Join again" e export CSV — [history.md](history.md)), **Roblox Version (all accounts)** — grava a `Versions.DefaultVersion` **global**, não o campo `RobloxVersion` da conta (com "Latest installed" e "Manage versions...", e só aparece com alguma versão no catálogo) —, Join Group, Browser (abre navegador logado), Server List e Utilities (`AccountUtilsDialog`). A versão **por conta** existe no backend (`RobloxVersion`, `versions_set_account_override`), mas nenhuma tela a define — ver [roblox-versions.md](roblox-versions.md).
 
 ### Barra de ações em lote (`BottomActionBar`)
 

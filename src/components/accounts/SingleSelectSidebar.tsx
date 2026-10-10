@@ -6,6 +6,7 @@ import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/acc
 import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
 import { AccountLaunchOverrides } from "./AccountLaunchOverrides";
+import { AccountHistory } from "./AccountHistory";
 import { ClientHealthNote } from "../session/ClientHealthNote";
 import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
@@ -212,6 +213,9 @@ export function SingleSelectSidebar() {
             {t("Save")}
           </button>
         </SidebarSection>
+
+        {/* Histórico de sessões (ideia 6): onde jogou, quanto e como terminou. */}
+        <AccountHistory account={account} />
 
         {/* A versão gravada aqui é a global (Settings > Versions, chave
             Versions.DefaultVersion) — não existe versão por conta. A seção

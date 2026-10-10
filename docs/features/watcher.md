@@ -100,6 +100,7 @@ que** a conta caiu. Só lê: o log (aberto só para leitura) e a lista de proces
 - **Fechou sozinho:** o processo terminou dentro de um jogo, sem linha de saída,
   sem queda e **sem o app tê-lo fechado** (`kill_process` anota o PID —
   `was_terminated_by_app`). Sem log achado não chuta nada.
+- **Histórico de sessões:** a cada passada o monitor entrega também onde cada cliente está (place, Job ID do último `Joining game`), se caiu, se saiu e se terminou (`session_snapshots`), e o histórico grava o que mudou — ver [history.md](history.md).
 - **O que sai:** `health` em `get_running_instances` (Sessão e painel da conta),
   o evento `roblox-client-health` (toast) e uma linha no Console
   (`step: "client"`, ex.: "Caiu: perdeu a conexão (código 277)").

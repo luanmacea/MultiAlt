@@ -63,6 +63,7 @@ pub(crate) fn mark_account_moderated(store: &AccountStore, app: &tauri::AppHandl
                     "account-moderated",
                     serde_json::json!({ "userId": user_id, "group": MODERATED_GROUP }),
                 );
+                record_moderated_history(app, user_id);
             }
         }
     }

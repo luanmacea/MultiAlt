@@ -15,9 +15,10 @@ use data::avatars::AvatarStore;
 use data::crypto;
 use data::game_lists::GameListsStore;
 use data::launch_presets::LaunchPresetStore;
+use data::session_history::SessionHistoryStore;
 use data::scripts::ScriptStore;
 use data::settings::{
-    get_avatars_path, get_game_lists_path, get_launch_presets_path, get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path,
+    get_avatars_path, get_game_lists_path, get_launch_presets_path, get_scripts_path, get_session_history_path, get_settings_path, get_theme_path, get_theme_presets_path,
     SettingsStore, ThemePresetStore, ThemeStore,
 };
 use data::versions::{get_versions_catalog_path, VersionsCatalogStore};
@@ -51,6 +52,7 @@ include!("commands/avatars.rs");
 include!("commands/groups.rs");
 include!("commands/external_clients.rs");
 include!("commands/client_health.rs");
+include!("commands/session_history.rs");
 include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
@@ -241,6 +243,7 @@ pub fn run() {
     let avatar_store = AvatarStore::new(get_avatars_path());
     let game_lists_store = GameListsStore::new(get_game_lists_path());
     let launch_preset_store = LaunchPresetStore::new(get_launch_presets_path());
+    let session_history_store = SessionHistoryStore::new(get_session_history_path());
     let versions_catalog = VersionsCatalogStore::new(get_versions_catalog_path());
     let image_cache = ImageCache::new();
 
@@ -267,6 +270,7 @@ pub fn run() {
         .manage(avatar_store)
         .manage(game_lists_store)
         .manage(launch_preset_store)
+        .manage(session_history_store)
         .manage(versions_catalog)
         .manage(image_cache)
         .manage(UpdaterRuntimeState::default())
@@ -289,6 +293,10 @@ pub fn run() {
                 app.handle(),
                 app.state::<AccountStore>().inner(),
             );
+
+            // Histórico de sessões: fecha o que a última execução deixou aberto
+            // (antes de o monitor de quedas começar a gravar o novo).
+            start_session_history(app.handle());
 
             // Clientes abertos pelo site (ou antes de o app abrir) entram no
             // "Em jogo" pelo log do Roblox — ver commands/external_clients.rs.
@@ -513,6 +521,8 @@ pub fn run() {
             delete_launch_preset,
             launch_preset,
             close_preset_clients,
+            get_session_history,
+            save_history_export,
             cancel_launch,
             get_launch_queue,
             cancel_account_launch,
