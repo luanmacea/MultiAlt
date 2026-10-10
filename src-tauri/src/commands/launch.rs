@@ -873,6 +873,7 @@ async fn launch_roblox(
         join_vip,
         link_code,
         shuffle_job,
+        true,
     )
     .await;
     if let Err(err) = &result {
@@ -902,6 +903,10 @@ async fn launch_roblox_windows(
     join_vip: bool,
     link_code: String,
     shuffle_job: Option<bool>,
+    // `false` na reconexão automática (reconnect.rs): ninguém está olhando, e
+    // o refresh da sessão desloga a conta de todo lugar. Sessão expirada vira
+    // erro e a reconexão para.
+    allow_session_refresh: bool,
 ) -> Result<(), String> {
     use platform::windows;
 
@@ -1021,11 +1026,15 @@ async fn launch_roblox_windows(
 
     let browser_tracker_id = get_or_create_browser_tracker_id(&state, user_id)?;
     emit_launch_log(&app, user_id, "info", "auth", "Solicitando authentication ticket...");
-    let ticket = match run_with_session_retry(state.inner(), user_id, |cookie| async move {
-        api::auth::get_auth_ticket(&cookie).await
-    })
-    .await
-    {
+    let ticket_result = if allow_session_refresh {
+        run_with_session_retry(state.inner(), user_id, |cookie| async move {
+            api::auth::get_auth_ticket(&cookie).await
+        })
+        .await
+    } else {
+        auth_ticket_without_refresh(state.inner(), user_id).await
+    };
+    let ticket = match ticket_result {
         Ok(t) => {
             emit_launch_log(&app, user_id, "success", "auth", "Authentication ticket obtido");
             t
@@ -1039,11 +1048,19 @@ async fn launch_roblox_windows(
             return Err(e);
         }
     };
-    let private_join = run_with_session_retry(state.inner(), user_id, |cookie| {
+    let private_join = if allow_session_refresh {
+        run_with_session_retry(state.inner(), user_id, |cookie| {
+            let resolved_launch = resolved_launch.clone();
+            async move { resolve_private_join(&cookie, place_id, &resolved_launch).await }
+        })
+        .await?
+    } else {
         let resolved_launch = resolved_launch.clone();
-        async move { resolve_private_join(&cookie, place_id, &resolved_launch).await }
-    })
-    .await?;
+        read_without_refresh(state.inner(), user_id, move |cookie| async move {
+            resolve_private_join(&cookie, place_id, &resolved_launch).await
+        })
+        .await?
+    };
     if private_join.use_private_join {
         emit_launch_log(&app, user_id, "info", "target", "Alvo resolvido: servidor privado/VIP");
     } else if !actual_job.trim().is_empty() {
@@ -1123,6 +1140,18 @@ async fn launch_roblox_windows(
         emit_launch_log(&app, user_id, "success", "pid", format!("Cliente iniciado (PID {pid})"));
         sequence.mark(user_id, LaunchQueueState::Done, None);
         tracker.clear_pending_launch(pending_id);
+        // Para onde a reconexão automática volta (reconnect.rs).
+        remember_launch_target(
+            user_id,
+            LaunchedTarget {
+                place_id,
+                job_id: job_id.clone(),
+                launch_data: launch_data.clone(),
+                join_vip,
+                link_code: link_code.clone(),
+                private: private_join.use_private_join,
+            },
+        );
         tracker.track_with_version(
             user_id,
             pid,
@@ -1734,6 +1763,18 @@ async fn launch_multiple(
             emit_launch_log(&app, uid, "success", "pid", format!("Cliente iniciado (PID {pid})"));
             sequence.mark(uid, LaunchQueueState::Done, None);
             tracker.clear_pending_launch(acct_pending_id);
+            // Para onde a reconexão automática volta (reconnect.rs).
+            remember_launch_target(
+                uid,
+                LaunchedTarget {
+                    place_id: acct_place,
+                    job_id: acct_job.clone(),
+                    launch_data: launch_data.clone(),
+                    join_vip: false,
+                    link_code: String::new(),
+                    private: private_join.use_private_join,
+                },
+            );
             tracker.track_with_version(uid, pid, browser_tracker_id, acct_version_id.clone());
             if let Some(version_id) = acct_version_id.as_deref() {
                 if let Some((channel, hash)) = version_id.split_once(':') {

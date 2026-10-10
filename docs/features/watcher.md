@@ -10,6 +10,7 @@ Varredura periódica dos clientes Roblox **lançados e rastreados pelo app** par
 |---|---|
 | [watcher.rs](../../src-tauri/src/commands/watcher.rs) | `start_watcher` (Windows e macOS), `stop_watcher`, config `load_windows_watcher_config` |
 | [client_health.rs](../../src-tauri/src/commands/client_health.rs) | Monitor de quedas: classificador do log, máquina de estados da sessão, laço de 2 s (sempre ligado no Windows) |
+| [reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | [Reconexão automática](#reconexão-automática) da conta que caiu, a cada passada do monitor de quedas |
 | [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | Sessão do watcher (`try_start_watcher`, `is_watcher_session_active`, `stop_watcher`), `cleanup_dead_processes`, `kill_for_user` |
 | [platform/windows/windowing.rs](../../src-tauri/src/platform/windows/windowing.rs) | `find_main_window`, `get_window_title`, `get_window_position`, `get_process_memory_mb` (working set) |
 | [store.tsx](../../src/store.tsx) | Liga/desliga conforme `Watcher.Enabled` e mostra toasts dos eventos |
@@ -54,6 +55,7 @@ sequenceDiagram
 ## Regras de negócio
 
 - Só age sobre processos **no tracker** (lançados pelo app com PID detectado). Clientes abertos por fora são ignorados.
+- O Watcher continua sem relançar. Quem relança a conta que caiu é a [reconexão automática](#reconexão-automática), opcional e separada.
 - A janela em primeiro plano nunca é avaliada (nem para kill, nem para salvar posição).
 - *Startup grace* fixa de 30 s por PID vale para memória, título e posição; **não** vale para beta e sem conexão.
 - A regra de memória é de **memória baixa** (cliente que caiu para um working set pequeno, típico de travado/erro), não de consumo alto.
@@ -155,6 +157,68 @@ contagem: carga pesada de jogo não vira aviso.
   ("Close If Not Responding") fecha **só aquele cliente** (`kill_for_user`),
   com o Watcher ligado, pulando a janela em primeiro plano como as outras regras.
 - Janela travada não tem o título mexido (nome da conta) até voltar a responder.
+
+## Reconexão automática
+
+[reconnect.rs](../../src-tauri/src/commands/reconnect.rs). Quando o monitor de
+quedas acima diz que a conta caiu, o app reabre **só aquela conta**, no mesmo
+jogo. Desligada por padrão; vale com o Watcher desligado também (o Watcher
+continua sem relançar nada).
+
+- **Onde liga:** por conta, no painel da conta ("Reconnect automatically if it
+  drops", campo `AutoReconnect` = `true`/`false`); sem o campo, vale o padrão
+  `General.AutoReconnect` (Settings › General, "Reconnect accounts that drop").
+  O `AutoRelaunch` do Nexus também liga a conta (mesmo nome de usuário).
+- **Quando reconecta:** queda com motivo (perdeu a conexão, parada tempo demais,
+  outro código), expulsão, servidor fechado, ou o cliente fechou sem sair do
+  jogo. Só cliente **que o app abriu**: cliente do site (adotado) nunca é
+  fechado nem relançado.
+- **Quando não reconecta, e para de vez** (a linha fica na Sessão com o motivo):
+  - **a conta entrou em outro lugar** (264/273): relançar faria as duas sessões
+    se derrubarem em laço;
+  - **a pessoa fechou o cliente** enquanto a reconexão esperava, ou o cliente
+    relançado (processo terminou sem queda e sem o app fechá-lo). Saída
+    voluntária sem queda nunca começa reconexão;
+  - **conta banida/encerrada:** a 1ª tentativa pergunta de novo ao Roblox
+    (`fetch_moderation`, leitura sem refresh, cache esquecido) — ban costuma
+    vir logo depois de um kick; o erro de moderação do próprio launch também para;
+  - **sessão expirada:** o relaunch **não renova a sessão**
+    (`launch_roblox_windows(..., allow_session_refresh = false)`: ticket por
+    `auth_ticket_without_refresh`); erro de sessão para em vez de deslogar a conta
+    de todo lugar sem ninguém olhando;
+  - a conta foi aberta fora do app, ou não se sabe para onde voltar.
+- **Destino:** servidor privado/VIP → os **mesmos dados** que o app usou no
+  launch (`remember_launch_target`, em memória), nunca um link inventado.
+  Público → place e Job ID do último `Joining game` do log (depois de um
+  teleporte, o place novo; o launch data só vai junto no mesmo place);
+  servidor fechado → só o place (qualquer servidor). Sem log, o que o app pediu.
+- **Espera:** 10 s, 30 s, 1 min, 2 min, 5 min (teto). Cada tentativa: confere a
+  internet (HEAD em `endpoints::host("www")`; qualquer resposta HTTP conta; sem
+  internet espera 10 s e confere de novo **sem gastar tentativa**), o ban, fecha
+  o cliente velho **da própria conta** (só se ele não voltou ao jogo sozinho) e
+  chama o launch normal pela fila (`launch_queue_start` com uma conta; fila
+  ocupada por outro launch → tenta 5 s depois, sem gastar tentativa).
+- **Deu certo** quando o cliente novo fica **2 min** no jogo (sem log achado:
+  2 min aberto). Aí a contagem zera. Relançado que cai de novo antes, ou que
+  não entra no jogo em 2 min (com log), é a próxima tentativa; **5 seguidas**
+  sem ficar → "Gave up after 5 tries".
+- **Voltou sozinho:** se o Roblox reconectar por conta própria (ou a pessoa
+  clicar em "Reconnect"/abrir a conta de novo) enquanto a reconexão espera, ela
+  é dispensada.
+- **Auto Rejoin manda:** conta gerenciada pelo Auto Rejoin (sessão ativa e a
+  conta na lista) não entra na reconexão; se ele assumir no meio, a reconexão sai.
+- **Ao reabrir o app nada é retomado sozinho:** o estado é só em memória, e os
+  clientes de antes voltam como "abertos fora do app" (adotados), que a
+  reconexão não toca.
+- **Na tela:** seção "Reconnecting" do Painel de Sessão ("Reconnecting in 30 s
+  (attempt 2/5)", "Waiting for the internet to come back", "Reopened, checking
+  it stays in the game", "Gave up after 5 tries", "Not reconnecting: …"), com
+  "Try now"/"Try again" e "Stop" (nunca fecha cliente). O painel da conta
+  mostra a mesma linha. Evento `auto-reconnect` (`{entries, reconnected}`),
+  comandos `get_auto_reconnect_status`, `stop_auto_reconnect`,
+  `retry_auto_reconnect`; linhas no Console com `step: "reconnect"`.
+- Testes: `auto_reconnect_tests` (máquina de estados) e
+  `auto_reconnect_target_tests` (destino e internet).
 
 ## Configurações relacionadas
 

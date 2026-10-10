@@ -52,7 +52,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/groups.md](features/groups.md) — página Groups: busca de grupos do Roblox e entrada das contas marcadas, uma por vez; captcha resolvido pela pessoa no navegador da conta.
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).
 - [features/roblox-versions.md](features/roblox-versions.md) — instalação e seleção de versões do cliente Roblox.
-- [features/watcher.md](features/watcher.md) — monitoramento de processos Roblox.
+- [features/watcher.md](features/watcher.md) — monitoramento de processos Roblox, quedas lidas do log e [reconexão automática](features/watcher.md#reconexão-automática).
 
 ### Integrações
 - [features/webserver.md](features/webserver.md) — API HTTP local (feature `webserver`).

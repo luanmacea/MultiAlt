@@ -536,6 +536,15 @@ describe("GeneralTab", () => {
       expect(toggle).toHaveAttribute("aria-disabled", "true");
       expect(screen.getAllByText("Not used while accounts launch one at a time.")).toHaveLength(2);
     });
+
+    /** commands/reconnect.rs: padrão de todas as contas, nasce desligado. */
+    it("has the auto-reconnect default off, and turning it on saves true", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Reconnect accounts that drop")).closest("[role=switch]");
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "AutoReconnect", "true");
+    });
   });
 
   it("registers the app with the OS autostart when Run on Windows Startup is turned on", async () => {

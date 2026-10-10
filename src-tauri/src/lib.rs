@@ -52,6 +52,7 @@ include!("commands/client_health.rs");
 include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
+include!("commands/reconnect.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -553,6 +554,9 @@ pub fn run() {
             get_afk_keys,
             afk_trigger_now,
             afk_capture_point,
+            get_auto_reconnect_status,
+            stop_auto_reconnect,
+            retry_auto_reconnect,
             chromium::commands::open_login_browser,
             chromium::commands::extract_browser_cookie,
             chromium::commands::close_login_browser,

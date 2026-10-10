@@ -3153,3 +3153,56 @@ describe("activePage", () => {
     expect(result.current.activePage).toBe("accounts");
   });
 });
+
+/**
+ * Reconexão automática (commands/reconnect.rs): a lista vem inteira do
+ * backend, e o aviso sai na mudança (desistiu / parou / voltou ao jogo).
+ */
+describe("auto-reconnect", () => {
+  function entry(userId: number, phase: string, attempt = 1) {
+    return {
+      userId,
+      phase,
+      attempt,
+      maxAttempts: 5,
+      nextAttemptAtMs: null,
+      reason: null,
+      error: null,
+      drop: { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 0 },
+    };
+  }
+
+  /**
+   * Achado no harness: um `[]` no lugar do objeto tem `.entries` (o método do
+   * Array), e a função no setState virava updater do React — a tela inteira
+   * quebrava.
+   */
+  it("an array in place of the payload leaves the list empty instead of breaking", async () => {
+    results.set("get_auto_reconnect_status", []);
+    const { result } = await renderStore();
+    await waitFor(() => expect(invokeCalls("get_auto_reconnect_status")).toHaveLength(1));
+    expect(result.current.autoReconnect).toEqual([]);
+    act(() => emit("auto-reconnect", []));
+    expect(result.current.autoReconnect).toEqual([]);
+  });
+
+  it("follows the event and warns once when an account gives up", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    act(() => emit("auto-reconnect", { entries: [entry(1, "waiting")] }));
+    expect(result.current.autoReconnect.map((e) => e.phase)).toEqual(["waiting"]);
+    expect(result.current.toasts.some((t) => t.message.includes("Auto-reconnect"))).toBe(false);
+
+    act(() => emit("auto-reconnect", { entries: [entry(1, "gaveUp", 5)] }));
+    act(() => emit("auto-reconnect", { entries: [entry(1, "gaveUp", 5)] }));
+    const warnings = result.current.toasts.filter((t) => t.message.includes("Gave up after 5 tries"));
+    expect(warnings.map((t) => t.message)).toEqual(["Auto-reconnect — user1: Gave up after 5 tries"]);
+  });
+
+  it("says when a reopened account stayed in the game", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    act(() => emit("auto-reconnect", { entries: [], reconnected: [1] }));
+    expect(result.current.toasts.map((t) => t.message)).toContain("user1 is back in the game");
+  });
+});

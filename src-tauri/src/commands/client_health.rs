@@ -853,9 +853,11 @@ pub(crate) fn start_client_health_monitor(app: tauri::AppHandle) {
             let notices = tokio::task::spawn_blocking(move || run_client_health_tick(&handle))
                 .await
                 .unwrap_or_default();
-            for notice in notices {
-                emit_health_notice(&app, &notice);
+            for notice in &notices {
+                emit_health_notice(&app, notice);
             }
+            // Reconexão automática da conta que caiu (commands/reconnect.rs).
+            reconnect_after_health_tick(&app, &notices);
             tokio::time::sleep(CLIENT_HEALTH_TICK).await;
         }
     });

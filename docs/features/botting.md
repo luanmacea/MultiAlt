@@ -91,6 +91,8 @@ Pedido do dono: a tela tinha conteúdo demais. Saíram o cartão "Targets", o co
 
 ## Regras de negócio
 
+- **Auto Rejoin x reconexão automática:** conta gerenciada pelo Auto Rejoin (sessão ativa, conta na lista) fica fora da [reconexão automática](watcher.md#reconexão-automática), mesmo com a opção ligada: quem relança é o ciclo do Auto Rejoin. Se o Auto Rejoin assumir uma conta no meio da reconexão, ela é cancelada.
+
 - **Adotar contas que já estão em jogo** (`adoptRunning` no backend): o Start normal **fecha e relança** cada conta na primeira passagem — ligar o ciclo em contas que já estavam jogando derrubava todas elas. Com a adoção, quem já tem cliente aberto não é tocado: entra no ciclo valendo um intervalo inteiro a partir de agora, e o primeiro reinício acontece no vencimento. Decidido em `botting_first_pass` (adota / lança / pula desconectada), com teste. Na tela é a opção padrão do servidor ("The game they are playing now").
   - O gesto do **Painel de Sessão**, seção "In game": o botão **AFK Mode** abre o [Modo AFK](#modo-afk-a-tela) com as contas marcadas ou, sem marcação, todas as que estão rodando (`openAfkMode({ tab, targetUserIds, adoptRunning: true })`: abre nos cliques AFK, a não ser que só o Auto Rejoin esteja ligado — aí abre nele). **Ele não liga nada**: as duas abas chegam com essas contas marcadas, e o **Start** do Auto Rejoin é que adota.
   - **O place vem da presença da conta** (`get_account_game_location`, presença autenticada), não de campo nem do rascunho: com o place errado, o primeiro reinício jogaria a conta em outro jogo. Essa leitura **não** passa por `run_with_session_retry` — o refresh derruba as sessões abertas, que são justamente os clientes que se quer preservar.
