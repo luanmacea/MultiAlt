@@ -431,6 +431,8 @@ export interface ClientHealth {
   drop: ClientDrop | null;
   /** A janela está "Não respondendo" há 30 s (só clientes abertos pelo app). */
   notResponding?: boolean;
+  /** O log diz que a conta está num jogo agora (entrou, sem queda nem saída). */
+  inGame?: boolean;
 }
 
 export interface LaunchQueuePayload {

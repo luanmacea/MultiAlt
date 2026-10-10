@@ -2114,5 +2114,7 @@
   "Session and ban status. Read-only: it doesn't sign anything out.": "Session and ban status. Read-only: it doesn't sign anything out.",
   "{{who}} — failed: {{error}}": "{{who}} — failed: {{error}}",
   "Line {{n}}": "Line {{n}}",
-  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again."
+  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.",
+  "Starts the next account as soon as the previous one is in the game: never sooner than 8 seconds, at most 20 (or the delay above, if longer).": "Starts the next account as soon as the previous one is in the game: never sooner than 8 seconds, at most 20 (or the delay above, if longer).",
+  "Wait for each account to get into the game": "Wait for each account to get into the game"
 }

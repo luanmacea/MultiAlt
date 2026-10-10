@@ -171,6 +171,66 @@ fn next_account_wait(
         + std::time::Duration::from_millis(jitter_ms)
 }
 
+/// Teto da espera pelo jogo (`General.WaitForGameJoin`), contado do início do
+/// launch da conta: passado isto, a fila segue mesmo sem a conta ter entrado.
+/// Um `AccountJoinDelay` maior que isto vira o teto.
+const JOIN_WAIT_CAP_SECS: u64 = 20;
+
+/// O que o log do cliente (commands/client_health.rs) diz da conta que acabou
+/// de abrir, para a fila decidir se já pode seguir.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JoinSignal {
+    /// O log do cliente não foi achado (ou ele caiu): vale a espera fixa de sempre.
+    NoLog,
+    /// O log foi achado e a conta ainda não entrou no jogo.
+    Loading,
+    /// O log diz que a conta entrou no jogo.
+    InGame,
+}
+
+/// Os três prazos da espera pelo jogo, todos contados como a espera fixa (do
+/// início do launch da conta, com o mesmo resíduo mínimo e o mesmo jitter):
+/// `floor` é o piso anti-captcha (nunca segue antes), `fixed` é a espera de
+/// sempre (vale sem log) e `cap` é o teto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct JoinWaitPlan {
+    floor: std::time::Duration,
+    fixed: std::time::Duration,
+    cap: std::time::Duration,
+}
+
+fn join_wait_plan(delay_seconds: u64, elapsed: std::time::Duration, jitter_ms: u64) -> JoinWaitPlan {
+    JoinWaitPlan {
+        floor: next_account_wait(MIN_JOIN_GAP_SECS, elapsed, jitter_ms),
+        fixed: next_account_wait(delay_seconds, elapsed, jitter_ms),
+        cap: next_account_wait(JOIN_WAIT_CAP_SECS.max(delay_seconds), elapsed, jitter_ms),
+    }
+}
+
+/// A fila já pode seguir para a próxima conta? Nunca antes do piso
+/// anti-captcha; com o log achado, assim que a conta entrar no jogo (ou no
+/// teto); sem log, na espera fixa de sempre.
+fn join_wait_done(waited: std::time::Duration, plan: JoinWaitPlan, signal: JoinSignal) -> bool {
+    if waited < plan.floor {
+        return false;
+    }
+    match signal {
+        JoinSignal::InGame => true,
+        JoinSignal::NoLog => waited >= plan.fixed,
+        JoinSignal::Loading => waited >= plan.cap,
+    }
+}
+
+/// O sinal do log para o cliente `pid` da conta. Queda também vira `NoLog`:
+/// ela não vai entrar, então vale a espera fixa.
+fn join_signal_from(view: Option<&ClientHealthView>) -> JoinSignal {
+    match view {
+        Some(view) if view.log_found && view.in_game => JoinSignal::InGame,
+        Some(view) if view.log_found && view.drop.is_none() && !view.exited => JoinSignal::Loading,
+        _ => JoinSignal::NoLog,
+    }
+}
+
 /// Tamanho da fatia da espera entre contas. A espera inteira num `sleep` só não
 /// dá chance de olhar a fila: enquanto ela dorme, o painel mostra "0 na fila" e
 /// o app recusa qualquer launch novo. Curta o suficiente para o usuário não
@@ -213,6 +273,31 @@ async fn wait_before_next_account(
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if !keep_waiting_for_next_account(remaining, cancelled(), sequence.queued_count()) {
             return;
+        }
+        tokio::time::sleep(next_wait_slice(remaining)).await;
+    }
+}
+
+/// Espera a conta que acabou de abrir entrar no jogo (`General.WaitForGameJoin`):
+/// segue assim que o log disser que ela entrou, sem passar do piso
+/// anti-captcha nem do teto. Sai também quando a fila para ou é cancelada,
+/// como `wait_before_next_account`. Devolve se a conta entrou no jogo.
+async fn wait_for_game_join(
+    sequence: &LaunchSequenceGuard,
+    plan: JoinWaitPlan,
+    signal: impl Fn() -> JoinSignal,
+    cancelled: impl Fn() -> bool,
+) -> bool {
+    let started = std::time::Instant::now();
+    loop {
+        let waited = started.elapsed();
+        let now = signal();
+        if join_wait_done(waited, plan, now) {
+            return now == JoinSignal::InGame;
+        }
+        let remaining = plan.cap.saturating_sub(waited);
+        if !keep_waiting_for_next_account(remaining, cancelled(), sequence.queued_count()) {
+            return false;
         }
         tokio::time::sleep(next_wait_slice(remaining)).await;
     }
@@ -1719,15 +1804,48 @@ async fn launch_multiple(
                         .map(|d| d.subsec_millis())
                         .unwrap_or(0),
                 );
-                let wait = next_account_wait(delay, iter_start.elapsed(), jitter_ms);
-                emit_launch_log(
-                    &app,
-                    uid,
-                    "info",
-                    "wait",
-                    format!("Aguardando {}s antes da próxima conta (anti-captcha)", wait.as_secs()),
-                );
-                wait_before_next_account(&sequence, wait, || tracker.is_launch_cancelled()).await;
+                // Lido a cada conta: desligar no meio da fila já vale.
+                let wait_for_join = settings.get_string("General", "WaitForGameJoin") != "false";
+                match acct_detected_pid.filter(|_| wait_for_join) {
+                    Some(pid) => {
+                        // Segue assim que o log disser que a conta entrou no
+                        // jogo (client_health.rs), nunca antes do piso
+                        // anti-captcha; sem log, a espera fixa de sempre.
+                        let plan = join_wait_plan(delay, iter_start.elapsed(), jitter_ms);
+                        emit_launch_log(
+                            &app,
+                            uid,
+                            "info",
+                            "wait",
+                            format!(
+                                "Esperando a conta entrar no jogo antes da próxima (entre {}s e {}s)",
+                                plan.floor.as_secs(),
+                                plan.cap.as_secs()
+                            ),
+                        );
+                        let joined = wait_for_game_join(
+                            &sequence,
+                            plan,
+                            || join_signal_from(client_health_of(uid, pid).as_ref()),
+                            || tracker.is_launch_cancelled(),
+                        )
+                        .await;
+                        if joined {
+                            emit_launch_log(&app, uid, "info", "wait", "Entrou no jogo: próxima conta");
+                        }
+                    }
+                    None => {
+                        let wait = next_account_wait(delay, iter_start.elapsed(), jitter_ms);
+                        emit_launch_log(
+                            &app,
+                            uid,
+                            "info",
+                            "wait",
+                            format!("Aguardando {}s antes da próxima conta (anti-captcha)", wait.as_secs()),
+                        );
+                        wait_before_next_account(&sequence, wait, || tracker.is_launch_cancelled()).await;
+                    }
+                }
             }
         }
     }

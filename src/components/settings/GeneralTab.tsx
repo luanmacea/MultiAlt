@@ -276,6 +276,22 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         step={0.5}
         suffix="sec"
       />
+      {/* launch.rs (`wait_for_game_join`): segue quando o log do Roblox diz que
+          a conta entrou; sem log achado, vale o delay acima. Só no Windows,
+          onde o log é lido (client_health.rs). */}
+      {isWindows && (
+        <Toggle
+          checked={s.get("General", "WaitForGameJoin", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "WaitForGameJoin", v)}
+          label="Wait for each account to get into the game"
+          description={
+            serialLaunch
+              ? "Not used while accounts launch one at a time."
+              : "Starts the next account as soon as the previous one is in the game: never sooner than 8 seconds, at most 20 (or the delay above, if longer)."
+          }
+          disabled={serialLaunch}
+        />
+      )}
       <Toggle
         checked={s.getBool("General", "WrapLongNames")}
         onChange={(v) => s.setBool("General", "WrapLongNames", v)}
