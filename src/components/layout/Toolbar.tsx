@@ -6,7 +6,7 @@ import { tr, useTr } from "../../i18n/text";
 import { quickAddAccount } from "../../utils/quickAdd";
 import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 import { TourButton } from "../tour/TourButton";
-import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus } from "lucide-react";
+import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus, Bookmark } from "lucide-react";
 
 /**
  * Barra de cima da página de contas: filtro, selecionar tudo, nomes, painel
@@ -197,6 +197,18 @@ export function Toolbar() {
         {/* Tutorial desta tela: opcional, nunca abre sozinho (components/tour/).
             Com a Choose Game aberta, o Tutorial que vale é o dela. */}
         {!store.chooseGameOpen && <TourButton tour="accounts" />}
+
+        {/* Presets de launch (ideia 13): contas → jogo salvos, com horário. */}
+        <Tooltip content={t("Saved launches: these accounts into this game, in one click")} side="bottom">
+          <button
+            onClick={() => store.openPresetsDialog()}
+            data-tour="toolbar-presets"
+            className="theme-btn-ghost flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors"
+          >
+            <Bookmark size={13} strokeWidth={2} />
+            {t("Presets")}
+          </button>
+        </Tooltip>
 
         <div ref={addRef} className="relative">
           <button
