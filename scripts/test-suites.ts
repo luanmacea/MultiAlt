@@ -84,6 +84,15 @@ export const SUITES: Record<string, TestSuite> = {
       "account_api_tests",
       "read_only_retry_tests",
       "account_api_http_tests",
+      "cookie_rotation_command_tests",
+      "account_token_swap_tests",
+      "clipboard_command_tests",
+      "win_clipboard_tests",
+      "clipboard_write_only_tests",
+      "moderation_http_tests",
+      "moderation_command_tests",
+      "session_check_http_tests",
+      "account_check_tests",
       "remember_unlock_tests",
       "crypto_tests",
       "vault_key_tests",
@@ -98,6 +107,13 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
       "src/components/dialogs/ImportDialog.test.tsx",
       "src/components/layout/VaultKeyBanner.test.tsx",
+      // Cópia de credencial pelo backend (ideia 26).
+      "src/components/menus/ContextMenu.test.tsx",
+      "src/components/layout/BottomActionBar.test.tsx",
+      // Moderação (ideia 8): selos e legenda.
+      "src/utils/moderation.test.ts",
+      "src/utils/accountCheck.test.ts",
+      "src/components/layout/StatusBar.test.tsx",
     ],
   },
   botting: {
@@ -163,6 +179,8 @@ export const SUITES: Record<string, TestSuite> = {
     rust: [
       "auth_http_tests",
       "auth_extra_tests",
+      "auth_challenge_tests",
+      "cookie_rotation_tests",
       "csrf_retry_tests",
       "user_api_tests",
       "user_http_tests",

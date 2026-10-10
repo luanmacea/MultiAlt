@@ -16,6 +16,23 @@ export interface Account {
   BrowserTrackerID: string;
 }
 
+/**
+ * Moderação da conta, como o backend lê de `usermoderation/v1/not-approved`
+ * (ver `commands/moderation.rs`). Só em memória: não vai para o
+ * `AccountData.json`.
+ */
+export type ModerationState = "clean" | "warned" | "banned" | "terminated";
+
+export interface ModerationStatus {
+  state: ModerationState;
+  /** Fim do ban (ISO 8601), quando o Roblox informa. */
+  until: string | null;
+  /** Nota do moderador. */
+  note: string | null;
+  /** O tipo como o Roblox escreve ("Ban 3 Days", "Warn", "Delete"…). */
+  punishment: string | null;
+}
+
 export interface ThemeData {
   accounts_background: string;
   accounts_foreground: string;

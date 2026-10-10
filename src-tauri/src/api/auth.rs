@@ -1,3 +1,7 @@
+// `send_noting` no lugar de `send`: o `.ROBLOSECURITY` novo que o Roblox
+// devolver em qualquer resposta fica registrado para a conta (ver
+// `api::cookie_rotation`).
+use crate::api::cookie_rotation::SendNoting;
 use crate::api::endpoints;
 use crate::api::http_client;
 use reqwest::header::{COOKIE, REFERER};
@@ -53,9 +57,21 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
     let response = client
         .get(format!("{}/my/account/json", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
+
+    // Conta moderada (banida, advertida, em análise): o site redireciona a
+    // página para `/not-approved` em vez de responder. O cookie é bom; quem
+    // diz de quem ele é passa a ser a API de usuários, que não redireciona.
+    if response.status().is_redirection() {
+        let to_moderation = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|loc| loc.contains("not-approved"));
+        return validate_cookie_via_users_api(security_token, to_moderation).await;
+    }
 
     if !response.status().is_success() {
         return Err(format!(
@@ -78,6 +94,53 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
     })
 }
 
+/// Reserva do [`validate_cookie`] quando o site redireciona: a API de
+/// usuários diz id e nome sem passar pela página que a moderação bloqueia.
+/// `to_moderation` = o redirecionamento ia para `/not-approved`.
+async fn validate_cookie_via_users_api(
+    security_token: &str,
+    to_moderation: bool,
+) -> Result<AccountInfo, String> {
+    #[derive(Deserialize)]
+    struct AuthenticatedUser {
+        id: i64,
+        name: String,
+        #[serde(rename = "displayName", default)]
+        display_name: String,
+    }
+
+    let response = build_client()
+        .get(format!("{}/v1/users/authenticated", endpoints::host("users")))
+        .header(COOKIE, cookie_header(security_token))
+        .send_noting()
+        .await
+        .map_err(|e| http_client::describe_error(&e))?;
+    let status = response.status();
+
+    if status.is_success() {
+        let body = response
+            .text()
+            .await
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+        let user = serde_json::from_str::<AuthenticatedUser>(&body)
+            .map_err(|e| format!("Failed to parse account info: {}", e))?;
+        return Ok(AccountInfo {
+            user_id: user.id,
+            display_name: if user.display_name.is_empty() { user.name.clone() } else { user.display_name },
+            name: user.name,
+            user_email: None,
+            is_email_verified: false,
+            age_bracket: 0,
+            user_above_13: false,
+        });
+    }
+    if status.as_u16() == 401 || !to_moderation {
+        return Err(format!("Invalid cookie (status {})", status.as_u16()));
+    }
+    Err("Roblox is restricting this account (moderated: banned, warned or under review).          Check it at roblox.com/not-approved, then add it again."
+        .to_string())
+}
+
 pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
     let client = build_client();
 
@@ -86,7 +149,7 @@ pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, referer_url())
         .header("RBXAuthenticationNegotiation", "1")
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -131,7 +194,7 @@ pub async fn send_with_csrf_retry(
     let retry = builder.try_clone();
     let response = builder
         .header("X-CSRF-TOKEN", csrf)
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -149,7 +212,7 @@ pub async fn send_with_csrf_retry(
     match (fresh, retry) {
         (Some(fresh), Some(retry)) => retry
             .header("X-CSRF-TOKEN", fresh)
-            .send()
+            .send_noting()
             .await
             .map_err(|e| http_client::describe_error(&e)),
         // No token to retry with (or a streaming body): keep the original 403
@@ -171,7 +234,7 @@ pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
         .header("RBXAuthenticationNegotiation", "1")
         .header("Content-Type", "application/json")
         .body("")
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -185,12 +248,52 @@ pub async fn get_auth_ticket(security_token: &str) -> Result<String, String> {
         return Ok(ticket);
     }
 
+    if let Some(message) = challenge_message(response.headers()) {
+        return Err(message);
+    }
+
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     Err(format!(
         "Failed to get authentication ticket (status {}): {}",
         status.as_u16(),
         body
+    ))
+}
+
+/// Nome curto do tipo de verificação que o Roblox pediu (`rblx-challenge-type`).
+/// Tipo desconhecido vira "a security check": a mensagem continua útil mesmo
+/// quando o Roblox inventa um desafio novo.
+fn challenge_kind_label(kind: &str) -> &'static str {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "twostepverification" | "forcetwostepverification" => "2-step verification",
+        "captcha" => "a CAPTCHA",
+        "reauthentication" => "your password again",
+        _ => "a security check",
+    }
+}
+
+/// Mensagem para quando o Roblox responde com um desafio (`rblx-challenge-id` /
+/// `rblx-challenge-type`) em vez do ticket. O app **nunca** tenta resolver o
+/// desafio: só diz onde terminá-lo. O texto evita de propósito as palavras que
+/// `is_auth_session_error` (renovaria a sessão) e `is_moderated_error` (moveria
+/// a conta para "moderadas") reconhecem.
+fn challenge_message(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    let read = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let id = read("rblx-challenge-id");
+    let kind = read("rblx-challenge-type");
+    if id.is_none() && kind.is_none() {
+        return None;
+    }
+    Some(format!(
+        "Roblox wants to verify this account ({}). Open it in the browser (account panel › Tools › Browser), finish the check there, then try again.",
+        challenge_kind_label(kind.as_deref().unwrap_or(""))
     ))
 }
 
@@ -211,7 +314,7 @@ pub async fn check_pin(security_token: &str) -> Result<bool, String> {
         .get(format!("{}/v1/account/pin/", endpoints::host("auth")))
         .header(COOKIE, cookie_header(security_token))
         .header(REFERER, format!("{}/", endpoints::host("www")))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -517,6 +620,74 @@ mod auth_http_tests {
         assert_eq!(err, "Invalid cookie (status 401)");
     }
 
+    /// Conta moderada: a página `/my/account/json` redireciona (302) para
+    /// `/not-approved`. O cookie é bom — antes isso virava "Invalid cookie
+    /// (status 302)" e a conta não entrava (teste do dono, 10/10/2026).
+    #[tokio::test]
+    async fn validate_cookie_accepts_a_moderated_account_through_the_users_api() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/my/account/json")))
+            .and(header("cookie", cookie_of("moderated-cookie")))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", "https://www.roblox.com/not-approved"))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/authenticated")))
+            .and(header("cookie", cookie_of("moderated-cookie")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 5678, "name": "banned_alt", "displayName": "Banned Alt"
+            })))
+            .mount(server)
+            .await;
+
+        let info = validate_cookie("moderated-cookie").await.expect("account info");
+        assert_eq!(info.user_id, 5678);
+        assert_eq!(info.name, "banned_alt");
+        assert_eq!(info.display_name, "Banned Alt");
+    }
+
+    #[tokio::test]
+    async fn validate_cookie_explains_a_moderated_account_the_users_api_refuses() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/my/account/json")))
+            .and(header("cookie", cookie_of("locked-cookie")))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", "https://www.roblox.com/not-approved"))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/authenticated")))
+            .and(header("cookie", cookie_of("locked-cookie")))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(server)
+            .await;
+
+        let err = validate_cookie("locked-cookie").await.unwrap_err();
+        assert!(err.contains("moderat"), "{err}");
+        assert!(!err.contains("Invalid cookie"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn validate_cookie_still_rejects_a_dead_cookie_after_a_redirect() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/my/account/json")))
+            .and(header("cookie", cookie_of("dead-redirect")))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", "https://www.roblox.com/login"))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/authenticated")))
+            .and(header("cookie", cookie_of("dead-redirect")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(server)
+            .await;
+
+        let err = validate_cookie("dead-redirect").await.unwrap_err();
+        assert_eq!(err, "Invalid cookie (status 401)");
+    }
+
     #[tokio::test]
     async fn validate_cookie_reports_non_json_body() {
         let server = mock_server().await;
@@ -790,6 +961,92 @@ mod csrf_retry_tests {
 
         assert_eq!(response.status().as_u16(), 403);
         assert_eq!(hits(&route).await, 1);
+    }
+}
+
+/// Roblox asking for a verification (2-step, CAPTCHA, password again…) on the
+/// auth-ticket POST. It answers 403 with `rblx-challenge-*` headers; the raw
+/// 403 used to reach the user as "Failed to get authentication ticket (status
+/// 403)", which says nothing about what to do. The app never tries to solve the
+/// challenge — it only says where to finish it.
+#[cfg(test)]
+mod auth_challenge_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
+    use wiremock::matchers::{header, header_exists, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    async fn mount_challenge(token: &str, challenge_type: Option<&str>) {
+        mount_csrf(token, &format!("csrf-{token}")).await;
+        let mut response = ResponseTemplate::new(403)
+            .insert_header("rblx-challenge-id", "11111111-2222-3333-4444-555555555555")
+            .insert_header("rblx-challenge-metadata", "eyJ1c2VySWQiOiIxIn0=")
+            .set_body_json(serde_json::json!({
+                "errors": [{ "code": 0, "message": "Challenge is required to authorize the request" }]
+            }));
+        if let Some(kind) = challenge_type {
+            response = response.insert_header("rblx-challenge-type", kind);
+        }
+        Mock::given(method("POST"))
+            .and(path(mock_path("auth", "/v1/authentication-ticket/")))
+            .and(header("cookie", cookie_of(token)))
+            .and(header_exists("x-csrf-token"))
+            .respond_with(response)
+            .mount(mock_server().await)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_two_step_challenge_becomes_a_clear_message() {
+        mount_challenge("challenge-2sv", Some("twostepverification")).await;
+        let err = get_auth_ticket("challenge-2sv").await.unwrap_err();
+        assert!(err.starts_with("Roblox wants to verify this account"), "{err}");
+        assert!(err.contains("2-step verification"), "{err}");
+        assert!(err.contains("Browser"), "must say where to finish it: {err}");
+        assert!(!err.contains("status 403"), "raw status leaked: {err}");
+    }
+
+    #[tokio::test]
+    async fn a_captcha_challenge_names_the_captcha() {
+        mount_challenge("challenge-captcha", Some("captcha")).await;
+        let err = get_auth_ticket("challenge-captcha").await.unwrap_err();
+        assert!(err.contains("CAPTCHA"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_challenge_type_still_gets_the_message() {
+        mount_challenge("challenge-unknown", Some("somethingnew")).await;
+        let err = get_auth_ticket("challenge-unknown").await.unwrap_err();
+        assert!(err.starts_with("Roblox wants to verify this account"), "{err}");
+        assert!(err.contains("a security check"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_challenge_id_without_a_type_is_still_a_challenge() {
+        mount_challenge("challenge-no-type", None).await;
+        let err = get_auth_ticket("challenge-no-type").await.unwrap_err();
+        assert!(err.starts_with("Roblox wants to verify this account"), "{err}");
+    }
+
+    /// The message must not trip the classifiers that act on launch errors:
+    /// a session error would trigger the sign-out refresh, and a moderated one
+    /// would move the account into "moderadas".
+    #[tokio::test]
+    async fn the_message_is_neither_a_session_nor_a_moderation_error() {
+        mount_challenge("challenge-classify", Some("reauthentication")).await;
+        let err = get_auth_ticket("challenge-classify").await.unwrap_err();
+        assert!(!crate::is_moderated_error(&err), "{err}");
+        assert!(!crate::is_auth_session_error(&err), "{err}");
+    }
+
+    #[test]
+    fn challenge_kinds_map_to_short_names() {
+        assert_eq!(challenge_kind_label("twostepverification"), "2-step verification");
+        assert_eq!(challenge_kind_label("TwoStepVerification"), "2-step verification");
+        assert_eq!(challenge_kind_label("captcha"), "a CAPTCHA");
+        assert_eq!(challenge_kind_label("reauthentication"), "your password again");
+        assert_eq!(challenge_kind_label("proofofwork"), "a security check");
+        assert_eq!(challenge_kind_label(""), "a security check");
     }
 }
 

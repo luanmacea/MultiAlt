@@ -454,6 +454,12 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         description="Show a confirmation before a cookie or password goes to the clipboard"
       />
       <Toggle
+        checked={s.get("General", "CheckModerationBeforeLaunch", "true") === "true"}
+        onChange={(v) => s.setBool("General", "CheckModerationBeforeLaunch", v)}
+        label="Check Bans Before Launch"
+        description="Ask Roblox if an account is banned right before opening it, and skip it if so"
+      />
+      <Toggle
         checked={s.getBool("General", "AutoCookieRefresh")}
         onChange={(v) => s.setBool("General", "AutoCookieRefresh", v)}
         label="Auto Cookie Refresh"

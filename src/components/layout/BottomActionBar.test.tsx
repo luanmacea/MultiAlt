@@ -140,12 +140,65 @@ describe("BottomActionBar — actions", () => {
     expect(store.setSidebarOpen).toHaveBeenCalledWith(true);
   });
 
-  it("copies the selected cookies one per line once the warning is accepted", async () => {
+  /**
+   * Ideia 26: o cookie vai pelo backend, que o marca fora do histórico do
+   * Win+V e o apaga em 30 s. O texto sai do store do backend, então a tela só
+   * manda os ids — nada de `navigator.clipboard` no Windows.
+   */
+  it("copies the selected cookies through the backend once the warning is accepted", async () => {
     promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
-    renderBar();
+    setInvokeHandler((cmd) =>
+      cmd === "copy_account_secret" ? { count: 2, clearsInSecs: 30 } : undefined
+    );
+    const store = renderBar();
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("copy_account_secret", { userIds: [1, 2], kind: "cookie" })
+    );
+    expect(writeText).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(
+        "Copied 2 cookies. Cleared from the clipboard in 30 s."
+      )
+    );
+  });
+
+  it("falls back to the plain clipboard where the protected copy does not exist", async () => {
+    promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
+    setInvokeHandler((cmd) => {
+      if (cmd === "copy_account_secret") throw "CLIPBOARD_UNSUPPORTED";
+      return undefined;
+    });
+    const store = renderBar();
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
+    await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Copied 2 cookies"));
+  });
+
+  /** Erro do Windows (área de transferência ocupada) não cai no caminho sem proteção. */
+  it("does not fall back to the unprotected clipboard on a real error", async () => {
+    promptAnswers.confirmWithOptOut = { confirmed: true, dontShowAgain: false };
+    setInvokeHandler((cmd) => {
+      if (cmd === "copy_account_secret") throw "The clipboard is busy";
+      return undefined;
+    });
+    const store = renderBar();
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
+    await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Failed to copy"));
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("says in the warning that the copy is cleared in 30 s", async () => {
+    renderBar();
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
+    await waitFor(() => expect(confirmWithOptOutMock).toHaveBeenCalledTimes(1));
+    const [message] = confirmWithOptOutMock.mock.calls[0];
+    expect(message).toContain("Cleared from the clipboard in 30 s");
+    expect(message).toContain("Win+V");
   });
 
   /**
@@ -183,8 +236,25 @@ describe("BottomActionBar — actions", () => {
     renderBar([A, B], { settings });
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Copy All Cookies/ }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("cookie-1\ncookie-2"));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("copy_account_secret", { userIds: [1, 2], kind: "cookie" })
+    );
     expect(confirmWithOptOutMock).not.toHaveBeenCalled();
+  });
+
+  /** Ideia 9: conferir sessão e moderação da seleção, só leitura. */
+  it("checks the selected accounts and says it is read-only", async () => {
+    const store = renderBar();
+    await openActions();
+    const button = screen.getByRole("button", { name: /Check Accounts \(2\)/ });
+    expect(button).toHaveTextContent(/doesn't sign anything out/);
+    await userEvent.click(button);
+    expect(store.checkAccounts).toHaveBeenCalledWith([1, 2]);
+  });
+
+  it("shows the progress of a running check on the Actions button", () => {
+    renderBar([A, B], { accountCheckProgress: { done: 3, total: 20 } });
+    expect(screen.getByRole("button", { name: /^Checking 3\/20/ })).toBeInTheDocument();
   });
 
   it("lists the existing groups and moves the selection into one", async () => {

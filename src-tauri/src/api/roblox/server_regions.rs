@@ -220,7 +220,7 @@ async fn fetch_json(url: &str) -> Option<serde_json::Value> {
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .ok()?;
-    let response = client.get(url).send().await.ok()?;
+    let response = client.get(url).send_noting().await.ok()?;
     if !response.status().is_success() {
         return None;
     }
