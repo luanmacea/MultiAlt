@@ -9,8 +9,8 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { AccountHistory } from "./AccountHistory";
-import { makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
-import { resetPromptMocks } from "../../test-utils/promptMocks";
+import { defaultSettings, makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
+import { confirmWithOptOutMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import { clearGameIdentityCache } from "../../hooks/useGameIdentity";
 import type { SessionRecord } from "../../types";
@@ -82,6 +82,46 @@ describe("AccountHistory", () => {
     );
   });
 
+  it("Join again shows it is working and says when the launch did not start", async () => {
+    setInvokeMap({ get_session_history: [session()] });
+    let finish: (v: "started" | "failed") => void = () => {};
+    const { store } = renderWithStore(<AccountHistory account={ACCOUNT} />, {
+      accounts: [ACCOUNT],
+      joinServer: vi.fn(() => new Promise<"started" | "failed">((resolve) => (finish = resolve))),
+    });
+    const button = await screen.findByRole("button", { name: /Join again/ });
+    await userEvent.click(button);
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button).toHaveTextContent("Joining...");
+    // Clique de novo enquanto abre: não dispara outro launch.
+    await userEvent.click(button);
+    expect(store.joinServer).toHaveBeenCalledTimes(1);
+
+    finish("failed");
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(store.addToast).toHaveBeenCalledWith(expect.stringMatching(/Could not join/), "error");
+  });
+
+  it("Join again warns first when the history says the account is playing right now", async () => {
+    // A presença pode dizer offline (privacidade, atraso): o próprio histórico
+    // sabe que a conta está num jogo, e um segundo launch tomaria a sessão.
+    setInvokeMap({
+      get_session_history: [
+        session({ end: "ongoing", endedAt: null, jobId: "job-now" }),
+        session({ startedAt: Date.now() - 120 * MIN, endedAt: Date.now() - 90 * MIN }),
+      ],
+      get_presence: [{ userId: 7, userPresenceType: 0 }],
+    });
+    promptAnswers.confirmWithOptOut = { confirmed: false, dontShowAgain: false };
+    const settings = defaultSettings();
+    settings.General.WarnOnOnlineJoin = "true";
+    const { store } = renderWithStore(<AccountHistory account={ACCOUNT} />, { accounts: [ACCOUNT], settings });
+    await userEvent.click(await screen.findByRole("button", { name: /Join again/ }));
+    await waitFor(() => expect(confirmWithOptOutMock).toHaveBeenCalledTimes(1));
+    expect(confirmWithOptOutMock.mock.calls[0][0]).toMatch(/BobAlt is currently In Game/);
+    expect(store.joinServer).not.toHaveBeenCalled();
+  });
+
   it("no Join again while the account is still in that server", async () => {
     setInvokeMap({ get_session_history: [session({ end: "ongoing", endedAt: null })] });
     renderWithStore(<AccountHistory account={ACCOUNT} />, { accounts: [ACCOUNT] });
@@ -107,6 +147,8 @@ describe("AccountHistory", () => {
     const args = callsFor("save_history_export")[0][1] as { userId: number; csv: string };
     expect(args.userId).toBe(7);
     expect(args.csv.split("\r\n")[0]).toContain("How it ended");
+    // Inglês: vírgula, como o Excel em inglês espera.
+    expect(args.csv.split("\r\n")[0]).toContain("Start time,End time");
   });
 
   it("with names hidden a kick message does not show the account name", async () => {

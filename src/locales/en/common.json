@@ -2182,6 +2182,7 @@
   "Remove them": "Remove them",
   "Close the {{count}} window(s) opened by {{name}}? Accounts: {{list}}": "Close the {{count}} window(s) opened by {{name}}? Accounts: {{list}}",
   "Discard the changes to this preset?": "Discard the changes to this preset?",
+  "Could not join this server again": "Could not join this server again",
   "Client closed": "Client closed",
   "Could not export: {{error}}": "Could not export: {{error}}",
   "Export CSV": "Export CSV",

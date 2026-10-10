@@ -1,4 +1,4 @@
-import { useState, useEffect, type CSSProperties } from "react";
+import { useState, useEffect, useRef, type CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useStore } from "../../store";
@@ -27,9 +27,13 @@ export function SingleSelectSidebar() {
     { channel: string; versionHash: string; displayVersion: string | null; userLabel: string | null }[]
   >([]);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     setAlias(account.Alias);
     setDescription(account.Description);
+    // Outra conta abre no topo, não na posição em que a anterior foi rolada.
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
 
     invoke<typeof installedVersions>("versions_list_installed")
       .then((list) => setInstalledVersions(list))
@@ -141,7 +145,7 @@ export function SingleSelectSidebar() {
         {/* Cliente desta conta caiu: o mesmo aviso da Sessão. */}
         {store.launchedByProgram.has(account.UserID) && (
           <div className="mt-1.5 text-[11px] flex min-w-0">
-            <ClientHealthNote health={store.clientHealth?.get(account.UserID)} />
+            <ClientHealthNote health={store.clientHealth?.get(account.UserID)} wrap />
           </div>
         )}
 
@@ -180,8 +184,75 @@ export function SingleSelectSidebar() {
         </div>
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+      {/* Scrollable content. Ordem: o uso diário primeiro (ferramentas,
+          reconexão, exceções de launch), as notas depois e o histórico — que é
+          longo — por último, recolhível. */}
+      <div ref={scrollRef} data-testid="account-sidebar-scroll" className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
+        <SidebarSection title={t("Tools")}>
+          <p className="text-[11px] theme-muted mb-1.5">{t("Account utilities and quick actions")}</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              onClick={() => store.setServerListOpen(true)}
+              className="sidebar-btn-tool"
+            >
+              {t("Server List")}
+            </button>
+            <button
+              onClick={() => store.setAccountUtilsOpen(true)}
+              className="sidebar-btn-tool"
+            >
+              {t("Utilities")}
+            </button>
+            <button
+              onClick={() => store.openAccountBrowser(account.UserID)}
+              className="sidebar-btn-tool"
+            >
+              {t("Browser")}
+            </button>
+            <button
+              onClick={handleJoinGroup}
+              className="sidebar-btn-tool"
+            >
+              {t("Join Group")}
+            </button>
+          </div>
+        </SidebarSection>
+
+        <AccountAutoReconnect account={account} />
+
+        <AccountLaunchOverrides account={account} />
+
+        {/* A versão gravada aqui é a global (Settings > Versions, chave
+            Versions.DefaultVersion) — não existe versão por conta. A seção
+            continua no painel da conta por ser onde se lança, mas o rótulo e a
+            descrição precisam dizer que o ajuste vale para todas as contas. */}
+        {installedVersions.length > 0 && (
+          <SidebarSection title={t("Roblox Version (all accounts)")}>
+            <p className="text-[11px] theme-muted mb-1.5">{t("Global setting — every account launches with this version, not just this one.")}</p>
+            <Select
+              value={store.settings?.Versions?.DefaultVersion ?? ""}
+              options={[
+                { value: "", label: t("Latest installed") },
+                ...installedVersions.map((v) => ({
+                  value: `${v.channel}:${v.versionHash}`,
+                  label:
+                    v.userLabel ??
+                    `${v.channel} · ${v.displayVersion ?? v.versionHash.slice(8, 16)}`,
+                })),
+              ]}
+              onChange={(versionId) => store.setDefaultVersion(versionId || null)}
+              className="w-full"
+            />
+            <button
+              onClick={() => store.setVersionsDialogOpen(true)}
+              className="flex items-center gap-1 mt-1.5 text-[12px] text-sky-400 hover:text-sky-300"
+            >
+              <Package size={11} strokeWidth={1.5} />
+              {t("Manage versions...")}
+            </button>
+          </SidebarSection>
+        )}
+
         <SidebarSection title={t("Alias")}>
           <p className="text-[11px] theme-muted mb-1.5">{t("Display name shown in the account list")}</p>
           <div className="flex gap-1.5">
@@ -215,73 +286,9 @@ export function SingleSelectSidebar() {
           </button>
         </SidebarSection>
 
-        {/* Histórico de sessões (ideia 6): onde jogou, quanto e como terminou. */}
+        {/* Histórico de sessões (ideia 6): onde jogou, quanto e como terminou.
+            Por último e recolhível: é a seção mais longa do painel. */}
         <AccountHistory account={account} />
-
-        {/* A versão gravada aqui é a global (Settings > Versions, chave
-            Versions.DefaultVersion) — não existe versão por conta. A seção
-            continua no painel da conta por ser onde se lança, mas o rótulo e a
-            descrição precisam dizer que o ajuste vale para todas as contas. */}
-        {installedVersions.length > 0 && (
-          <SidebarSection title={t("Roblox Version (all accounts)")}>
-            <p className="text-[11px] theme-muted mb-1.5">{t("Global setting — every account launches with this version, not just this one.")}</p>
-            <Select
-              value={store.settings?.Versions?.DefaultVersion ?? ""}
-              options={[
-                { value: "", label: t("Latest installed") },
-                ...installedVersions.map((v) => ({
-                  value: `${v.channel}:${v.versionHash}`,
-                  label:
-                    v.userLabel ??
-                    `${v.channel} · ${v.displayVersion ?? v.versionHash.slice(8, 16)}`,
-                })),
-              ]}
-              onChange={(versionId) => store.setDefaultVersion(versionId || null)}
-              className="w-full"
-            />
-            <button
-              onClick={() => store.setVersionsDialogOpen(true)}
-              className="flex items-center gap-1 mt-1.5 text-[12px] text-sky-400 hover:text-sky-300"
-            >
-              <Package size={11} strokeWidth={1.5} />
-              {t("Manage versions...")}
-            </button>
-          </SidebarSection>
-        )}
-
-        <AccountAutoReconnect account={account} />
-
-        <AccountLaunchOverrides account={account} />
-
-        <SidebarSection title={t("Tools")}>
-          <p className="text-[11px] theme-muted mb-1.5">{t("Account utilities and quick actions")}</p>
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              onClick={() => store.setServerListOpen(true)}
-              className="sidebar-btn-tool"
-            >
-              {t("Server List")}
-            </button>
-            <button
-              onClick={() => store.setAccountUtilsOpen(true)}
-              className="sidebar-btn-tool"
-            >
-              {t("Utilities")}
-            </button>
-            <button
-              onClick={() => store.openAccountBrowser(account.UserID)}
-              className="sidebar-btn-tool"
-            >
-              {t("Browser")}
-            </button>
-            <button
-              onClick={handleJoinGroup}
-              className="sidebar-btn-tool"
-            >
-              {t("Join Group")}
-            </button>
-          </div>
-        </SidebarSection>
       </div>
     </div>
   );

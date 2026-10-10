@@ -4,6 +4,7 @@ import {
   JOIN_AGAIN_WINDOW_MS,
   canJoinAgain,
   csvCell,
+  csvSeparatorFor,
   formatDuration,
   historyCsv,
   maskNamesInText,
@@ -132,5 +133,42 @@ describe("histórico — CSV", () => {
     // A mensagem do jogo virou texto, não fórmula.
     expect(row).toContain(`"'=cmd|' /C calc'!A0"`.replace(/^"|"$/g, ""));
     expect(row).not.toMatch(/,=cmd/);
+  });
+
+  it("languages that write 1,5 get ';' (Excel's list separator there); English keeps ','", () => {
+    expect(csvSeparatorFor("en")).toBe(",");
+    expect(csvSeparatorFor("en-US")).toBe(",");
+    expect(csvSeparatorFor("pt")).toBe(";");
+    expect(csvSeparatorFor("pt-BR")).toBe(";");
+    expect(csvSeparatorFor("es")).toBe(";");
+    expect(csvSeparatorFor("de")).toBe(";");
+    expect(csvSeparatorFor("not a language")).toBe(",");
+  });
+
+  it("with ';' each field is its own column, and quoting/escaping/formula guard still hold", () => {
+    const csv = historyCsv(
+      [
+        session({
+          end: "dropped",
+          dropKind: "kicked",
+          code: 267,
+          message: '=1+1; "AFK", bye',
+        }),
+      ],
+      () => "Blox; Fruits",
+      t,
+      NOW,
+      (x) => x,
+      ";"
+    );
+    const [header, row] = csv.trim().split("\r\n");
+    expect(header).toBe("Start time;End time;Minutes;Game;Place ID;Server (Job ID);How it ended;Code;Message");
+    expect(row).toContain(";30;");
+    // Célula com ';' vai entre aspas; vírgula sozinha não quebra mais coluna, mas aspas dobram.
+    expect(row).toContain('"Blox; Fruits"');
+    expect(row).toContain(`"'=1+1; ""AFK"", bye"`);
+    // Nove colunas: as aspas seguram o ';' de dentro das células.
+    const cells = row.match(/("([^"]|"")*"|[^;]*)(;|$)/g)?.filter((c) => c !== "") ?? [];
+    expect(cells).toHaveLength(9);
   });
 });

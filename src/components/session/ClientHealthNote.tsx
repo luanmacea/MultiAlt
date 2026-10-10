@@ -11,9 +11,16 @@ import { clientHealthLabel } from "../../utils/clientHealth";
 export function ClientHealthNote({
   health,
   className = "",
+  wrap = false,
 }: {
   health: ClientHealth | null | undefined;
   className?: string;
+  /**
+   * Quebra em até 3 linhas em vez de cortar numa só. O painel da conta tem
+   * espaço na vertical, e a mensagem de kick ("Kicked: You have been kicked
+   * for being A…") não dizia nada cortada. O texto inteiro segue no tooltip.
+   */
+  wrap?: boolean;
 }) {
   const t = useTr();
   const info = clientHealthLabel(health, t);
@@ -25,11 +32,11 @@ export function ClientHealthNote({
     <span
       data-testid="client-health-note"
       data-tone={info.tone}
-      className={`inline-flex items-center gap-1 min-w-0 ${color} ${className}`}
+      className={`inline-flex ${wrap ? "items-start" : "items-center"} gap-1 min-w-0 ${color} ${className}`}
       title={tooltip}
     >
-      <Icon size={11} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
-      <span className="truncate">{info.label}</span>
+      <Icon size={11} strokeWidth={1.75} className={`shrink-0${wrap ? " mt-[2px]" : ""}`} aria-hidden="true" />
+      <span className={wrap ? "line-clamp-3 break-words" : "truncate"}>{info.label}</span>
     </span>
   );
 }

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -238,5 +238,69 @@ describe("DetailSidebar — moderation", () => {
       moderationByUserId: new Map([[1, { state: "clean", until: null, note: null, punishment: null }]]),
     });
     expect(screen.getByText("No moderation")).toBeInTheDocument();
+  });
+});
+
+/** Revisão da UI (pacote Organização): o painel cresceu e o uso diário ficou lá embaixo. */
+describe("DetailSidebar — layout", () => {
+  beforeEach(() => {
+    try {
+      window.localStorage.clear();
+    } catch {
+      // sem storage: os testes abaixo não dependem dele existir
+    }
+  });
+
+  function sectionOrder(): string[] {
+    return [...document.querySelectorAll<HTMLElement>("[data-sidebar-section]")].map(
+      (el) => el.dataset.sidebarSection ?? ""
+    );
+  }
+
+  it("puts the everyday controls first and the history last", async () => {
+    renderSidebar();
+    await screen.findByText(/Nothing yet/);
+    expect(sectionOrder()).toEqual(["Tools", "Auto-reconnect", "Launch Exceptions", "Alias", "Description", "History"]);
+  });
+
+  it("history can be collapsed, and stays collapsed next time", async () => {
+    renderSidebar();
+    const toggle = await screen.findByRole("button", { name: "History" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByText(/Nothing yet/)).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/Nothing yet/)).not.toBeInTheDocument();
+
+    cleanup();
+    renderSidebar();
+    expect(await screen.findByRole("button", { name: "History" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens the next account at the top, not where the last one was scrolled", () => {
+    setStore({ accounts: [A, B], selectedIds: new Set([1]), selectedAccounts: [A], selectedAccount: A });
+    const { rerender } = render(<DetailSidebar />);
+    const scroller = screen.getByTestId("account-sidebar-scroll");
+    scroller.scrollTop = 900;
+
+    setStore({ accounts: [A, B], selectedIds: new Set([2]), selectedAccounts: [B], selectedAccount: B });
+    rerender(<DetailSidebar />);
+    expect(screen.getByTestId("account-sidebar-scroll").scrollTop).toBe(0);
+  });
+
+  it("a long kick message wraps (up to 3 lines) with the full text in the tooltip", () => {
+    const message = "You have been kicked for being AFK too long in this server, please rejoin later";
+    renderSidebar({
+      launchedByProgram: new Set([1]),
+      clientHealth: new Map([
+        [1, { pid: 10, logFound: true, drop: { kind: "kicked", reason: null, code: 267, message, sinceMs: 0 } }],
+      ]),
+    });
+    const note = screen.getByTestId("client-health-note");
+    expect(note.getAttribute("title")).toContain(message);
+    const text = within(note).getByText(new RegExp(message.slice(0, 20)));
+    expect(text).toHaveClass("line-clamp-3");
+    expect(text).not.toHaveClass("truncate");
   });
 });

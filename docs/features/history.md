@@ -65,10 +65,27 @@ voltar ao servidor de uma sessão recente e o export em CSV. É a ideia 6 de
   chama `joinServer(userId, { placeId, jobId })` — o launch normal de uma conta. O servidor pode
   já não existir (o Roblox então manda para outro do mesmo jogo, ou recusa); servidor privado não
   abre só pelo Job ID.
+  - O aviso de conta online leva em conta o **próprio histórico**: se uma sessão está "Playing
+    now", a conta conta como "In Game" mesmo com a presença do Roblox dizendo offline (privacidade,
+    atraso) ou falhando — um segundo launch tomaria essa sessão (`useJoinOnlineWarning`,
+    parâmetro `knownInGame`). Quem desligou o aviso em Settings continua sem ele.
+  - Enquanto abre, o botão fica "Joining..." e desabilitado (todos os "Join again" do painel: um
+    launch por vez). Começou: o toast "Launching game..." do `joinServer`. Falhou: toast "Could not
+    join this server again" (antes só a barra de status dizia).
 - **Export CSV:** monta o CSV na tela (nomes dos jogos já resolvidos) e o backend grava em
   `<pasta de dados>/exports/multialt-history-<userId>-<data>.csv` (com BOM, para o Excel) e abre o
   Explorer com o arquivo selecionado. Colunas: início, fim, minutos, jogo, Place ID, servidor,
   como terminou, código, mensagem.
+  - **Separador pelo idioma da tela** (`csvSeparatorFor`): `;` onde o decimal é vírgula (pt, es,
+    de…), `,` em inglês. O Excel abre `.csv` com o separador de lista do Windows; em pt-BR é `;`,
+    e com `,` tudo caía na coluna A. Os cabeçalhos já saem traduzidos, então o idioma da tela é o
+    sinal certo.
+  - O toast de sucesso aparece no canto de baixo à direita, por cima do botão "Choose Game" por
+    alguns segundos: é a posição de **todos** os toasts do app (`App.tsx`), não algo do histórico.
+- **Painel:** History é a **última** seção do painel da conta e **recolhível** (clique no título;
+  a escolha fica no `localStorage` do navegador, `multialt.sidebarSection.collapsed.history`).
+- **Aviso de queda no topo do painel:** a mensagem de kick quebra em até 3 linhas
+  (`ClientHealthNote wrap`) em vez de ser cortada numa; o texto inteiro fica no tooltip.
 - Conta sem nada: "Nothing yet. Games this account plays while MultiAlt is open show up here."
 
 ## Regras de negócio
