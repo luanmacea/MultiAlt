@@ -7,6 +7,7 @@ import {
   type CopyCredentialKind,
 } from "../../hooks/useCopyCredentialWarning";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
+import { copyAccountSecret } from "../../utils/copySecret";
 import { useTr } from "../../i18n/text";
 import { MAX_ALIAS_LENGTH } from "../../types";
 import { accountLabel, maskAccountName } from "../../utils/accountName";
@@ -85,9 +86,28 @@ export function ContextMenu() {
     label: string,
     credential?: CopyCredentialKind
   ) {
-    if (credential && !(await confirmCopyCredential(credential, accounts.length))) return;
-    const text = accounts.map(getter).join("\n");
-    await copyToClipboard(text, label);
+    if (!credential) {
+      await copyToClipboard(accounts.map(getter).join("\n"), label);
+      return;
+    }
+    if (!(await confirmCopyCredential(credential, accounts.length))) return;
+    // Credencial vai pelo backend: fora do histórico do Win+V e apagada
+    // sozinha depois de 30 s (ver utils/copySecret.ts).
+    try {
+      const result = await copyAccountSecret(userIds, credential, () =>
+        accounts.map(getter).join("\n")
+      );
+      store.addToast(
+        result.clearsInSecs
+          ? t("Copied {{label}}. Cleared from the clipboard in {{seconds}} s.", {
+              label,
+              seconds: result.clearsInSecs,
+            })
+          : t("Copied {{label}}", { label })
+      );
+    } catch {
+      store.addToast(t("Failed to copy"));
+    }
   }
 
   const copySubmenu: MenuItem[] = [

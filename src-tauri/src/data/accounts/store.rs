@@ -1284,6 +1284,47 @@ impl AccountStore {
         }
     }
 
+    /// Troca o cookie da conta por `new_token` **só se** ela ainda estiver com
+    /// `old_token` — tudo sob o mesmo lock, e gravado pelo caminho normal
+    /// (criptografado). É o que grava o cookie novo que o Roblox devolveu numa
+    /// resposta (`api::cookie_rotation`): se a conta já ganhou outro cookie
+    /// nesse meio-tempo (novo login, refresh), o da resposta velha não passa
+    /// por cima. Marca `valid = true`: o Roblox acabou de entregar sessão nova.
+    pub fn replace_token_if(
+        &self,
+        user_id: i64,
+        old_token: &str,
+        new_token: &str,
+    ) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts
+            .iter_mut()
+            .find(|a| a.user_id == user_id && a.security_token == old_token)
+        else {
+            return Ok(false);
+        };
+        account.security_token = new_token.to_string();
+        account.valid = true;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
+    /// Grava o `valid` da conta (o ponto vermelho de sessão inválida). Só
+    /// regrava o arquivo quando o valor muda — conferir 50 contas boas não pode
+    /// virar 50 gravações. Devolve `true` quando mudou.
+    pub fn set_valid(&self, user_id: i64, valid: bool) -> Result<bool, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let Some(account) = accounts.iter_mut().find(|a| a.user_id == user_id) else {
+            return Ok(false);
+        };
+        if account.valid == valid {
+            return Ok(false);
+        }
+        account.valid = valid;
+        self.save_locked(&accounts)?;
+        Ok(true)
+    }
+
     /// Marca que a conta **foi usada agora**. Chamado no sucesso do launch (app,
     /// botting e web server): sem isso `last_use` só era escrito ao criar ou
     /// re-adicionar a conta, e a coluna "3d"/"2mo" da lista media idade do

@@ -1,3 +1,4 @@
+use crate::api::cookie_rotation::SendNoting;
 use crate::api::endpoints;
 use crate::api::http_client;
 use reqwest::header::COOKIE;
@@ -18,3 +19,5 @@ include!("roblox/thumbnails.rs");
 include!("roblox/economy.rs");
 include!("roblox/avatar_catalog.rs");
 include!("roblox/groups.rs");
+include!("roblox/moderation.rs");
+include!("roblox/session_check.rs");

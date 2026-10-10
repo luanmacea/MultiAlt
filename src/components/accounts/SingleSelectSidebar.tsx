@@ -10,6 +10,8 @@ import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
 import { MAX_ALIAS_LENGTH } from "../../types";
 import { User, Package } from "lucide-react";
+import { StatusBadge } from "./StatusBadge";
+import { moderationBadge, moderationLabel } from "../../utils/moderation";
 
 export function SingleSelectSidebar() {
   const t = useTr();
@@ -70,6 +72,22 @@ export function SingleSelectSidebar() {
     }
   }
 
+  const [checkingModeration, setCheckingModeration] = useState(false);
+  const moderation = store.moderationByUserId?.get(account.UserID);
+  const moderationKind = moderationBadge(moderation);
+  const moderationText = moderation
+    ? moderationLabel(moderation, t)
+    : t("Ban status not checked yet");
+
+  async function handleCheckModeration() {
+    setCheckingModeration(true);
+    try {
+      await store.checkModeration(account.UserID);
+    } finally {
+      setCheckingModeration(false);
+    }
+  }
+
   const avatarUrl = store.avatarUrls.get(account.UserID);
   const displayName = accountLabel(account, store);
   const hideAvatar = hideAccountAvatar(store);
@@ -124,6 +142,31 @@ export function SingleSelectSidebar() {
           {!store.hideUsernames && (
             <span className="theme-muted font-mono ml-2">ID: {account.UserID}</span>
           )}
+        </div>
+
+        {/* Moderação (ideia 8): leitura no Roblox, sem renovar a sessão. */}
+        <div className="mt-1.5 text-[12px] flex items-start gap-1.5" data-testid="moderation-status">
+          {moderation && moderationKind && (
+            <StatusBadge kind={moderationKind} label={moderationText} size={14} decorative />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className={moderationKind ? "text-[var(--panel-fg)] font-medium" : "theme-muted"}>
+              {moderationText}
+            </div>
+            {moderation?.note?.trim() && (
+              <div className="theme-muted text-[11px] break-words">
+                {t("Moderator note: {{note}}", { note: moderation.note.trim() })}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={handleCheckModeration}
+            disabled={checkingModeration}
+            className="sidebar-btn-sm shrink-0 disabled:opacity-50"
+            title={t("Asks Roblox if this account is banned or warned. Read-only: it doesn't sign anything out.")}
+          >
+            {checkingModeration ? t("Checking...") : t("Check ban status")}
+          </button>
         </div>
       </div>
 

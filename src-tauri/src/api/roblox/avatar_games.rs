@@ -65,7 +65,7 @@ pub async fn get_outfits(user_id: i64) -> Result<Vec<OutfitInfo>, String> {
 
     let response = client
         .get(format!("{}/v1/users/{}/outfits?page=1&itemsPerPage=50", endpoints::host("avatar"), user_id))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -89,7 +89,7 @@ pub async fn get_outfit_details(outfit_id: i64) -> Result<serde_json::Value, Str
 
     let response = client
         .get(format!("{}/v1/outfits/{}/details", endpoints::host("avatar"), outfit_id))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -137,7 +137,7 @@ pub async fn get_place_details(place_ids: &[i64], security_token: Option<&str>) 
             request = request.header(COOKIE, cookie_header(token));
         }
 
-        let response = request.send().await.map_err(|e| http_client::describe_error(&e))?;
+        let response = request.send_noting().await.map_err(|e| http_client::describe_error(&e))?;
 
         if response.status().is_success() {
             let details: Vec<PlaceDetails> = response.json().await.map_err(|e| format!("Failed to parse: {}", e))?;
@@ -386,7 +386,7 @@ pub async fn get_universe_places(universe_id: i64, security_token: Option<&str>)
             request = request.header(COOKIE, cookie_header(token));
         }
 
-        let response = request.send().await.map_err(|e| http_client::describe_error(&e))?;
+        let response = request.send_noting().await.map_err(|e| http_client::describe_error(&e))?;
 
         if !response.status().is_success() {
             break;

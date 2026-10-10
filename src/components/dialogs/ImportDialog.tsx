@@ -37,6 +37,18 @@ export function ImportDialog({
   const store = useStore();
   /** Nome no resultado da importação, mascarado com "Names hidden". */
   const shown = (name: string) => maskAccountName(name, store.hideUsernames, store.hiddenNameLetters);
+  /**
+   * Falha de uma linha diz **de quem** é (teste do dono, 10/10/2026: com 10
+   * contas e uma banida, "Failed: …" não dizia qual). Conta moderada vem com a
+   * frase traduzida em vez do texto cru do backend.
+   */
+  const failure = (who: string, e: unknown) => {
+    const raw = String(e);
+    const error = raw.startsWith("Roblox is restricting this account")
+      ? t("Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.")
+      : raw;
+    return { text: t("{{who}} — failed: {{error}}", { who, error }), ok: false };
+  };
   const prompt = usePrompt();
   const { visible, closing, handleClose } = useModalClose(open, onClose);
   const backdropClose = useBackdropClose(handleClose);
@@ -74,9 +86,12 @@ export function ImportDialog({
    * exatamente como era.
    */
   async function importByCookie(
-    parsed: { password: string; cookie: string },
-    existingIds: Set<number>
+    parsed: { password: string; cookie: string; username?: string },
+    existingIds: Set<number>,
+    lineNumber: number
   ): Promise<ImportResult> {
+    // Quem é a linha antes de o Roblox responder: o username dela, se veio, ou o número.
+    const lineLabel = parsed.username ? shown(parsed.username) : t("Line {{n}}", { n: lineNumber });
     try {
       const info = await invoke<{ user_id: number; name: string }>("validate_cookie", {
         cookie: parsed.cookie,
@@ -103,7 +118,7 @@ export function ImportDialog({
       existingIds.add(info.user_id);
       return { text: t("Added {{name}}", { name: shown(info.name) }), ok: true };
     } catch (e) {
-      return { text: t("Failed: {{error}}", { error: String(e) }), ok: false };
+      return failure(lineLabel, e);
     }
   }
 
@@ -127,7 +142,7 @@ export function ImportDialog({
           ok: false,
         });
       } else {
-        out.push(await importByCookie(parsed, existingIds));
+        out.push(await importByCookie(parsed, existingIds, i + 1));
       }
       setResults([...out]);
     }
@@ -151,7 +166,7 @@ export function ImportDialog({
       // Linha que já traz o cookie não precisa de navegador nenhum: a sessão
       // está ali, e abrir o login seria pedir CAPTCHA por nada.
       if (parsed.kind === "cookie") {
-        out.push(await importByCookie(parsed, existingIds));
+        out.push(await importByCookie(parsed, existingIds, i + 1));
         setResults([...out]);
         continue;
       }
@@ -168,7 +183,7 @@ export function ImportDialog({
         existingIds.add(info.user_id);
         out.push({ text: t("Added {{name}}", { name: shown(info.name) }), ok: true });
       } catch (e) {
-        out.push({ text: t("Failed: {{error}}", { error: String(e) }), ok: false });
+        out.push(failure(shown(parsed.username), e));
       }
       setResults([...out]);
     }
