@@ -152,8 +152,8 @@ pub fn cursor_position() -> Option<(i32, i32)> {
 }
 
 /// Um evento de mouse cru: movimento (`dx`, `dy`) e/ou botão, conforme `flags`.
-/// Privado: a única porta é `click_afk_point`, que decide tudo a partir da
-/// janela, da porcentagem e da receita do clique.
+/// Privado: as portas são `click_afk_point`, que decide tudo a partir da
+/// janela, da porcentagem e da receita do clique, e `nudge_for_focus_back`.
 fn send_mouse(dx: i32, dy: i32, flags: u32) -> bool {
     let input = INPUT {
         r#type: INPUT_MOUSE,
@@ -169,6 +169,19 @@ fn send_mouse(dx: i32, dy: i32, flags: u32) -> bool {
         },
     };
     unsafe { SendInput(1, &input, std::mem::size_of::<INPUT>() as i32) == 1 }
+}
+
+/// Um movimento de mouse de **zero** pixel, para o AFK mode poder trazer a janela
+/// da conta e, no fim do ciclo, devolver o foco (issue #23).
+///
+/// O Windows só aceita o `SetForegroundWindow` de quem gerou a última entrada.
+/// No ciclo normal essa entrada é a tecla ou o clique do AFK; se o usuário
+/// mexe em outra janela depois dela (o outro monitor), a volta do foco é
+/// recusada e o Roblox fica na frente. Este evento não move o cursor, não
+/// aperta nada e não lê nada: só faz deste processo, de novo, o da última
+/// entrada. Medido em 10/10/2026: recusado sem ele, aceito com ele (4 de 4).
+pub fn nudge_for_focus_back() -> bool {
+    send_mouse(0, 0, MOUSEEVENTF_MOVE)
 }
 
 /// A área de trabalho virtual (todos os monitores), em pixels de tela.

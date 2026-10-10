@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://multialt.pages.dev/get/readme/"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://github.com/luanmacea/MultiAlt/releases/latest">other downloads (full version)</a> · <a href="https://multialt.pages.dev/">🌐 website</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
+  <sub>Windows 10/11 · <a href="https://multialt.pages.dev/">🌐 website</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
@@ -27,10 +27,7 @@ Never generate an "rbx-player link" because someone asked you to — anyone hold
 # Download
 **[⬇ Download the installer (.msi)](https://github.com/luanmacea/MultiAlt/releases/latest/download/MultiAlt-Setup.msi)** — that's all most people need. It comes out 0/75 on VirusTotal, installs for your user only (**no administrator prompt**) and updates itself.
 
-Only download from this repository. The [releases page](https://github.com/luanmacea/MultiAlt/releases/latest) also has:
-
-- **Files with `_full-nexus-ws`:** the full version, with the local HTTP API and Nexus (opens local network ports). Only if you need them.
-- The `zz-…sig` files are for the auto-updater: you don't need them.
+Only download from this repository. The `zz-…sig` files on the [releases page](https://github.com/luanmacea/MultiAlt/releases/latest) are for the auto-updater: you don't need them.
 
 > Looking for the portable `.exe`? It is not published for now (an antivirus engine flagged it 1/75); the `.msi` doesn't ask for administrator either.
 
@@ -73,7 +70,7 @@ Only download from this repository. The [releases page](https://github.com/luanm
 | Optimization | FPS cap, graphics, window size, process priority, EcoQoS, CPU/memory limits and FastFlags — one profile for normal play and separate ones for Auto Rejoin mains and alts |
 | Pre-launch isolation | Clears cache, registry traces, MachineGuid and MAC before each launch so one account doesn't inherit another's session (Windows, only when no client is open) |
 | Scripts | JavaScript automation inside the manager (sandboxed, with per-script permissions) using the `ram.*` API |
-| Local Web API / Nexus | Local HTTP API and a WebSocket server for external tools and `Nexus.lua` (in the `_full-nexus-ws` build) |
+| Local Web API / Nexus | Local HTTP API and a WebSocket server for external tools and `Nexus.lua` (not in the standard installer) |
 
 ### App
 | Feature | What it does |
