@@ -13,6 +13,10 @@ Ordem de trabalho das ideias de [ideias-de-outros-gerenciadores.md](ideias-de-ou
   `.exe` ser marcado fica fora, ou atrás de um interruptor, até a decisão do dono.
 - **Fácil de entender:** opção nova vem desligada ou com padrão seguro, com uma
   frase dizendo o que faz; nada de tela nova onde um interruptor resolve.
+- **Versões em escada** (pedido do dono, 10/10/2026): cada pacote sai da branch
+  do anterior, na ordem de publicação, e leva tudo o que veio antes. A 1.6 tem
+  o conteúdo da 1.3, 1.4 e 1.5. Pacote feito em paralelo recebe o merge do
+  anterior antes do build de teste.
 
 ## Ritmo das versões
 
@@ -29,8 +33,9 @@ de subir a próxima:
 |---|---|---|---|---|
 | 1.1.0 | telas pequenas, feedback, tamanho da interface | — | 08/10/2026 | |
 | 1.2.0 | **Conta** (8, 10, 26, 7, 9) + ícones na legenda de status | 10/10/2026 | 10/10/2026 | "minor update"; `.exe` e MSI limpos no Defender e VirusTotal |
-| próxima | **Quedas** (1, 19, 4) | branch `feature/quedas` | — | não antes de 12/10/2026; falta teste do dono com cliente real |
-| — | **Desempenho** (18, 20, 22) | branch própria (10/10/2026) | — | tudo opcional e desligado; volume ao vivo (20) atrás da feature `live-audio`, fora das duas edições até o scan; falta build + scan e teste do dono com cliente real ([performance.md](features/performance.md)) |
+| 1.3 (próxima) | **Quedas** (1, 19, 4) | branch `feature/quedas` | — | não antes de 12/10/2026; falta teste do dono com cliente real |
+| 1.4 | **Reconexão** (2, 14, 23) — inclui a 1.3 | branch `feature/reconexao` (sai da `feature/quedas`) | — | API nativa nova (`SetThreadExecutionState`); falta teste do dono com cliente real |
+| 1.5 | **Desempenho** (18, 20, 22) — inclui a 1.3 e a 1.4 | branch `feature/desempenho` (recebeu a `feature/reconexao`) | — | tudo opcional e desligado; volume ao vivo (20) fica fora (feature `live-audio`); falta teste do dono com cliente real ([performance.md](features/performance.md)) |
 
 ## Pacotes
 

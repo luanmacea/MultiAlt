@@ -29,6 +29,8 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_command_tests",
       "http_timeout_tests",
       "launch_queue_tests",
+      // Fila que espera o cliente entrar no jogo (launch.rs, General.WaitForGameJoin).
+      "launch_join_wait_tests",
       "singleton_event_tests",
       "multi_roblox_decision_tests",
       "exit_cleanup_tests",
@@ -117,23 +119,43 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   botting: {
-    description: "Modo botting e watcher de processos",
+    description: "Modo botting, watcher de processos, quedas lidas do log do cliente e reconexão automática",
     rust: [
       "botting_command_tests",
       "botting_console_tests",
       "auto_rejoin_naming_tests",
       "watcher_tests",
       "watcher_console_tests",
+      // Quedas lidas do log do cliente (commands/client_health.rs).
+      "client_log_classifier_tests",
+      "client_log_session_tests",
+      "client_health_monitor_tests",
+      "client_window_title_tests",
+      // Reconexão automática da conta que caiu (commands/reconnect.rs).
+      "auto_reconnect_tests",
+      "auto_reconnect_target_tests",
     ],
     // A aba Auto Rejoin do Modo AFK e a moldura (abas, modal) que a abre.
     front: [
       "src/components/afk-mode/RejoinTab.test.tsx",
       "src/components/afk-mode/AfkModeView.test.tsx",
+      "src/utils/clientHealth.test.ts",
+      "src/components/session/SessionPanel.test.tsx",
+      "src/utils/autoReconnect.test.ts",
+      "src/components/accounts/AccountAutoReconnect.test.tsx",
     ],
   },
   afk: {
     description: "AFK mode: teclas permitidas, modo clique, agendamento por conta e parada do ciclo",
-    rust: ["afk_command_tests", "afk_input_safety_tests", "win_input_tests", "win_focus_tests"],
+    rust: [
+      "afk_command_tests",
+      "afk_input_safety_tests",
+      "win_input_tests",
+      "win_focus_tests",
+      // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs, power.rs).
+      "keep_awake_tests",
+      "win_power_tests",
+    ],
     // `store.test.ts` entra pelo bloco "AFK mode" (os toasts do start).
     front: [
       "src/components/afk-mode/ClicksTab.test.tsx",

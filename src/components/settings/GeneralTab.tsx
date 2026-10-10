@@ -276,6 +276,22 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         step={0.5}
         suffix="sec"
       />
+      {/* launch.rs (`wait_for_game_join`): segue quando o log do Roblox diz que
+          a conta entrou; sem log achado, vale o delay acima. Só no Windows,
+          onde o log é lido (client_health.rs). */}
+      {isWindows && (
+        <Toggle
+          checked={s.get("General", "WaitForGameJoin", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "WaitForGameJoin", v)}
+          label="Wait for each account to get into the game"
+          description={
+            serialLaunch
+              ? "Not used while accounts launch one at a time."
+              : "Starts the next account as soon as the previous one is in the game: never sooner than 8 seconds, at most 20 (or the delay above, if longer)."
+          }
+          disabled={serialLaunch}
+        />
+      )}
       <Toggle
         checked={s.getBool("General", "WrapLongNames")}
         onChange={(v) => s.setBool("General", "WrapLongNames", v)}
@@ -411,6 +427,15 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         label="Hide Robux When Hidden"
         description="Mask the Robux balance in the sidebar when names are hidden"
       />
+      {/* commands/client_health.rs: SetWindowText nas janelas que o app acompanha. */}
+      {isWindows && (
+        <Toggle
+          checked={s.get("General", "ShowAccountNameOnWindow", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "ShowAccountNameOnWindow", v)}
+          label="Show Account Name on Roblox Window"
+          description="Titles each Roblox window “Roblox — account” so you can tell them apart on the taskbar. Hidden names stay hidden."
+        />
+      )}
 
       <Divider />
 
@@ -426,6 +451,26 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         label={<>Auto Rejoin<WarningBadge>advanced</WarningBadge></>}
         description="Enable account cycling tools to keep selected alts rejoining automatically"
       />
+      {/* commands/reconnect.rs: padrão de todas as contas; o campo
+          `AutoReconnect` da conta (painel da conta) vence. */}
+      {isWindows && (
+        <Toggle
+          checked={s.getBool("General", "AutoReconnect")}
+          onChange={(v) => s.setBool("General", "AutoReconnect", v)}
+          label="Reconnect accounts that drop"
+          description="Default for every account (each one can change it in its panel): reopens a client this app opened in the same game after a lost connection, a kick or a crash."
+        />
+      )}
+      {/* commands/keep_awake.rs: SetThreadExecutionState só com o sistema
+          exigido — a tela continua apagando. */}
+      {isWindows && (
+        <Toggle
+          checked={s.get("General", "KeepPcAwake", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "KeepPcAwake", v)}
+          label="Keep the PC awake while AFK Mode or Auto Rejoin runs"
+          description="Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off."
+        />
+      )}
       <Toggle
         checked={s.getBool("General", "ShowPresence")}
         onChange={(v) => s.setBool("General", "ShowPresence", v)}

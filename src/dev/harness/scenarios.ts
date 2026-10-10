@@ -1868,6 +1868,166 @@ const SCENARIOS: Record<string, () => void> = {
   },
 
   /**
+   * Quedas lidas do log do Roblox (Painel de Sessão → Em jogo, e o painel da
+   * conta). Todas as contas começam em jogo; as quedas chegam aos poucos, como
+   * o monitor do backend (`commands/client_health.rs`) as manda: o evento
+   * `roblox-client-health` e o mesmo dado no polling de `get_running_instances`.
+   * A 4ª conta foi aberta pelo site (adotada); a 5ª fica "Não respondendo".
+   * Depois de um tempo a 1ª volta a um jogo e o aviso some. O cenário só
+   * entrega dados.
+   *
+   * Reconexão automática (`commands/reconnect.rs`, evento `auto-reconnect`),
+   * na ordem em que o backend a mandaria: a 1ª espera 10 s, tenta, confere e
+   * volta ao jogo; a 2ª está na 2ª tentativa (a 1ª não entrou no jogo); a 3ª
+   * espera a internet voltar; a 6ª (fora do "Em jogo": o cliente fechou
+   * sozinho) desistiu depois de 5 tentativas. A 4ª, do site, nunca reconecta.
+   */
+  "client-drops"() {
+    type Drop = {
+      kind: string;
+      reason: string | null;
+      code: number | null;
+      message: string | null;
+      sinceMs: number;
+    };
+    const rows = accounts.slice(0, Math.min(accountCount, 5)).map((a, i) => ({
+      userId: a.UserID,
+      pid: 8200 + i,
+      adopted: i === 3,
+      drop: null as Drop | null,
+    }));
+    const drops: [number, Omit<Drop, "sinceMs">][] = [
+      [0, { kind: "disconnected", reason: "connectionLost", code: 277, message: null }],
+      [1, { kind: "kicked", reason: null, code: 267, message: "You have been kicked for being AFK too long" }],
+      [2, { kind: "serverShutdown", reason: null, code: 274, message: null }],
+      [3, { kind: "disconnected", reason: "joinedElsewhere", code: 273, message: null }],
+    ];
+    drops.forEach(([index, drop], order) => {
+      const row = rows[index];
+      if (!row) return;
+      setTimeout(() => {
+        row.drop = { ...drop, sinceMs: Date.now() };
+        harnessEmit("roblox-client-health", { userId: row.userId, drop: row.drop, adopted: row.adopted });
+      }, 1200 * (order + 1));
+    });
+    setTimeout(() => {
+      if (!rows[0]) return;
+      rows[0].drop = null;
+      harnessEmit("roblox-client-health", { userId: rows[0].userId, drop: null });
+    }, 15_000);
+    // A 5ª trava: a janela fica "Não respondendo" (o backend só avisa depois
+    // de 30 s; aqui chega em 6 s para não esperar).
+    let hungUserId: number | null = null;
+    setTimeout(() => {
+      if (!rows[4]) return;
+      hungUserId = rows[4].userId;
+      harnessEmit("roblox-client-health", { userId: hungUserId, notResponding: true });
+    }, 6_000);
+    type Reconnect = {
+      userId: number;
+      phase: string;
+      attempt: number;
+      maxAttempts: number;
+      nextAttemptAtMs: number | null;
+      reason: string | null;
+      error: string | null;
+      drop: Drop;
+    };
+    let reconnect: Reconnect[] = [];
+    const sendReconnect = (reconnected: number[] = []) =>
+      harnessEmit("auto-reconnect", { entries: reconnect, reconnected });
+    const setReconnect = (userId: number, patch: Partial<Reconnect> | null, reconnected: number[] = []) => {
+      const others = reconnect.filter((r) => r.userId !== userId);
+      const current = reconnect.find((r) => r.userId === userId);
+      reconnect =
+        patch === null
+          ? others
+          : [
+              ...others,
+              {
+                userId,
+                phase: "waiting",
+                attempt: 1,
+                maxAttempts: 5,
+                nextAttemptAtMs: null,
+                reason: null,
+                error: null,
+                drop: { ...drops[0][1], sinceMs: Date.now() },
+                ...current,
+                ...patch,
+              },
+            ].sort((a, b) => a.userId - b.userId);
+      sendReconnect(reconnected);
+    };
+    const first = rows[0];
+    if (first) {
+      setTimeout(() => setReconnect(first.userId, { nextAttemptAtMs: Date.now() + 10_000 }), 1_400);
+      setTimeout(() => setReconnect(first.userId, { phase: "launching", nextAttemptAtMs: null }), 11_400);
+      setTimeout(() => setReconnect(first.userId, { phase: "checking" }), 13_000);
+      setTimeout(() => setReconnect(first.userId, null, [first.userId]), 17_000);
+    }
+    const second = rows[1];
+    if (second) {
+      setTimeout(
+        () =>
+          setReconnect(second.userId, {
+            attempt: 2,
+            nextAttemptAtMs: Date.now() + 30_000,
+            error: "It did not get into the game in 2 minutes",
+            drop: { ...drops[1][1], sinceMs: Date.now() },
+          }),
+        2_600
+      );
+    }
+    const third = rows[2];
+    if (third) {
+      setTimeout(
+        () =>
+          setReconnect(third.userId, {
+            phase: "waitingForInternet",
+            drop: { ...drops[2][1], sinceMs: Date.now() },
+          }),
+        3_800
+      );
+    }
+    const sixth = accounts[5];
+    if (sixth) {
+      setTimeout(
+        () =>
+          setReconnect(sixth.UserID, {
+            phase: "gaveUp",
+            attempt: 5,
+            error: "The Roblox client did not start",
+            drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: Date.now() },
+          }),
+        500
+      );
+    }
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_running_instances") {
+        return rows.map((row) => ({
+          pid: row.pid,
+          user_id: row.userId,
+          browser_tracker_id: `${row.userId}0001`,
+          adopted: row.adopted,
+          health: {
+            pid: row.pid,
+            logFound: true,
+            drop: row.drop,
+            windowTitle: `Roblox — ${row.userId}`,
+            notResponding: row.userId === hungUserId,
+            inGame: !row.drop,
+          },
+        }));
+      }
+      if (cmd === "get_auto_reconnect_status") return { entries: reconnect };
+      // Os botões só chegam ao backend: quem muda o estado é ele, e aqui não há backend.
+      if (cmd === "stop_auto_reconnect" || cmd === "retry_auto_reconnect") return true;
+      return baseHandler(cmd, args);
+    });
+  },
+
+  /**
    * AFK mode desligado, como num INI novo: sem tecla escolhida (`Afk.Key` nasce
    * vazia e nem chega ao INI), intervalo 10, bipe desligado. As quatro primeiras
    * contas têm cliente aberto por este app. No ciclo automático o Windows mantém

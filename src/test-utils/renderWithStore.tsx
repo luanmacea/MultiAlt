@@ -223,6 +223,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     launchedByProgram: new Set<number>(),
     adoptedClients: new Set<number>(),
     unidentifiedClients: [],
+    clientHealth: new Map(),
     identifyExternalClient: vi.fn(async () => true),
     focusClientWindow: vi.fn(async () => true),
 
@@ -237,6 +238,9 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     refreshLaunchQueue: vi.fn(async () => {}),
     cancelAccountLaunch: vi.fn(async () => true),
     stopLaunchQueue: vi.fn(async () => 0),
+    autoReconnect: [],
+    stopAutoReconnect: vi.fn(async () => true),
+    retryAutoReconnect: vi.fn(async () => true),
     startBottingMode: vi.fn(async () => {}),
     adoptRunningIntoBotting: vi.fn(async () => {}),
     detectRunningGamePlace: vi.fn(async () => null),

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AppWindow,
   Check,
@@ -8,6 +8,7 @@ import {
   Globe,
   ListX,
   PowerOff,
+  RotateCw,
   SquareStop,
   UserCheck,
   UserPlus,
@@ -17,6 +18,8 @@ import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
+import { ClientHealthNote } from "./ClientHealthNote";
+import { autoReconnectLabel } from "../../utils/autoReconnect";
 import type {
   FriendLinkAccountState,
   LaunchQueueEntry,
@@ -168,6 +171,18 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   // A seleção é derivada: contas que fecharam sozinhas somem do lote.
   const selected = runningIds.filter((id) => checked.has(id));
 
+  // Reconexão automática (commands/reconnect.rs). A contagem regressiva
+  // ("em 30 s") só anda enquanto alguma conta espera a próxima tentativa.
+  const reconnecting = store.autoReconnect ?? [];
+  const countingDown = reconnecting.some((entry) => entry.phase === "waiting");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!countingDown) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [countingDown]);
+
   function nameFor(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
     return accountLabel(account, store, userId);
@@ -199,6 +214,24 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     setError(null);
     try {
       await store.stopLaunchQueue();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleStopReconnect(userId: number) {
+    setError(null);
+    try {
+      await store.stopAutoReconnect(userId);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function handleRetryReconnect(userId: number) {
+    setError(null);
+    try {
+      await store.retryAutoReconnect(userId);
     } catch (e) {
       setError(String(e));
     }
@@ -423,6 +456,78 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         </section>
       )}
 
+      {/* ── Reconectando ───────────────────────────────────────────────── */}
+      {reconnecting.length > 0 && (
+        <section data-testid="auto-reconnect-panel" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
+          <header className="flex items-center gap-2 px-3 py-2 border-b theme-border min-w-0">
+            <h3 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
+              <RotateCw size={13} strokeWidth={1.5} />
+              {t("Reconnecting")}
+            </h3>
+            <span className="text-[12px] theme-muted truncate">
+              {t("Accounts that dropped go back to the same game on their own")}
+            </span>
+          </header>
+          <ul className="max-h-48 overflow-y-auto py-1">
+            {reconnecting.map((entry) => {
+              const info = autoReconnectLabel(entry, now, t);
+              const name = nameFor(entry.userId);
+              const pending = info.tone === "pending";
+              return (
+                <li
+                  key={entry.userId}
+                  data-testid={`session-reconnect-${entry.userId}`}
+                  data-phase={entry.phase}
+                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
+                >
+                  <span
+                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${pending ? "bg-amber-400 animate-pulse" : "bg-red-500"}`}
+                  />
+                  <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
+                  <span
+                    className={`truncate ${pending ? "text-amber-400" : "text-red-400"}`}
+                    title={info.detail ? `${info.label} — ${info.detail}` : info.label}
+                  >
+                    {info.label}
+                  </span>
+                  <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                    {(info.canTryNow || info.canTryAgain) && (
+                      <button
+                        onClick={() => void handleRetryReconnect(entry.userId)}
+                        className="sidebar-btn-sm flex items-center gap-1.5"
+                        title={t("Reopen this account now, in the same game")}
+                      >
+                        <RotateCw size={12} strokeWidth={1.5} />
+                        {info.canTryNow ? t("Try now") : t("Try again")}
+                      </button>
+                    )}
+                    {pending ? (
+                      <button
+                        onClick={() => void handleStopReconnect(entry.userId)}
+                        className="sidebar-btn-sm flex items-center gap-1.5"
+                        title={t("Stop reconnecting this account (does not close any client)")}
+                      >
+                        <SquareStop size={12} strokeWidth={1.5} />
+                        {t("Stop")}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => void handleStopReconnect(entry.userId)}
+                        aria-label={t("Dismiss {{name}}", { name })}
+                        title={t("Hide this line")}
+                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors"
+                      >
+                        <X size={13} strokeWidth={2} />
+                      </button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {/* ── Em jogo ────────────────────────────────────────────────────── */}
       <section data-tour="session-in-game" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
         <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
@@ -508,7 +613,10 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                     onChange={() => toggleChecked(userId)}
                     className="accent-[var(--accent-color)]"
                   />
-                  <span className="text-[var(--panel-fg)] truncate">{name}</span>
+                  {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
+                  <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
+                  {/* Queda com motivo, lida do log do Roblox (client_health.rs). */}
+                  <ClientHealthNote health={store.clientHealth?.get(userId)} className="shrink" />
                   {store.adoptedClients.has(userId) && (
                     <span
                       className="shrink-0 flex items-center gap-1 theme-muted"

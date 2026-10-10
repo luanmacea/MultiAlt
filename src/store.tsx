@@ -21,6 +21,10 @@ import type {
   ModerationStatus,
   ServerPreference,
   UnidentifiedClient,
+  ClientDrop,
+  ClientHealth,
+  AutoReconnectEntry,
+  AutoReconnectPayload,
   VaultKeyWarning,
 } from "./types";
 import { playAfkBeep } from "./utils/afkBeep";
@@ -123,6 +127,8 @@ import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import { accountLabel, maskAccountName } from "./utils/accountName";
+import { clientHealthLabel } from "./utils/clientHealth";
+import { autoReconnectLabel } from "./utils/autoReconnect";
 import { accountCheckSummaryText, type AccountCheckSummary } from "./utils/accountCheck";
 import {
   type UpdaterReleaseChannel,
@@ -146,6 +152,8 @@ interface RunningInstanceEntry {
   pid?: number;
   /** Aberto fora do app (pelo site) e reconhecido depois. */
   adopted?: boolean;
+  /** Queda lida do log (`commands/client_health.rs`). */
+  health?: ClientHealth | null;
 }
 
 interface OptimizationWarningPayload {
@@ -478,6 +486,8 @@ export interface StoreValue {
   adoptedClients: Set<number>;
   /** Clientes abertos fora do app que o backend não reconheceu sozinho. */
   unidentifiedClients: UnidentifiedClient[];
+  /** Queda (com motivo) de cada conta em jogo, lida do log do Roblox. */
+  clientHealth: Map<number, ClientHealth>;
   /** Diz ao app de quem é um cliente não identificado (não fecha nada). */
   identifyExternalClient: (pid: number, userId: number) => Promise<boolean>;
   /** Traz para a frente a janela de um cliente pelo PID. */
@@ -505,6 +515,15 @@ export interface StoreValue {
   cancelAccountLaunch: (userId: number) => Promise<boolean>;
   /** Esvazia a fila; devolve quantas contas saíram. Não fecha clientes. */
   stopLaunchQueue: () => Promise<number>;
+  /**
+   * Reconexão automática das contas que caíram (`commands/reconnect.rs`):
+   * vem inteira do backend (evento `auto-reconnect`).
+   */
+  autoReconnect: AutoReconnectEntry[];
+  /** "Parar" / "Dispensar": a conta sai da reconexão. Não fecha cliente. */
+  stopAutoReconnect: (userId: number) => Promise<boolean>;
+  /** "Tentar agora" / "Tentar de novo". */
+  retryAutoReconnect: (userId: number) => Promise<boolean>;
   startBottingMode: (config: BottingStartConfig) => Promise<void>;
   /**
    * Liga o Auto Rejoin nas contas que **já estão em jogo**, sem fechar nem
@@ -808,6 +827,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [launchedByProgram, setLaunchedByProgram] = useState<Set<number>>(new Set());
   const [adoptedClients, setAdoptedClients] = useState<Set<number>>(new Set());
   const [unidentifiedClients, setUnidentifiedClients] = useState<UnidentifiedClient[]>([]);
+  const [clientHealth, setClientHealth] = useState<Map<number, ClientHealth>>(new Map());
   // O efeito do polling registra aqui o seu refresh, para identificar um
   // cliente refletir na hora em vez de esperar o próximo tique.
   const refreshRunningRef = useRef<() => Promise<void>>(async () => {});
@@ -875,6 +895,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
   const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
   const [friendLinkState, setFriendLinkState] = useState<FriendLinkState | null>(null);
+  const [autoReconnect, setAutoReconnect] = useState<AutoReconnectEntry[]>([]);
+  // Retrato anterior, para avisar só na mudança (desistiu, parou, reconectou).
+  const autoReconnectRef = useRef<AutoReconnectEntry[]>([]);
   const [missingAssets, setMissingAssets] = useState<{ userId: number; username: string; assetIds: number[] } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
@@ -1836,6 +1859,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return removed;
   }
 
+  async function stopAutoReconnect(userId: number): Promise<boolean> {
+    return invoke<boolean>("stop_auto_reconnect", { userId });
+  }
+
+  async function retryAutoReconnect(userId: number): Promise<boolean> {
+    return invoke<boolean>("retry_auto_reconnect", { userId });
+  }
+
   async function restartRobloxClients(userIds: number[]) {
     const uniqueIds = Array.from(new Set(userIds));
     const launchedIds = uniqueIds.filter((userId) => launchedByProgram.has(userId));
@@ -2681,6 +2712,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
         }
       ),
+      // Queda lida do log do Roblox (commands/client_health.rs): vale com o
+      // Watcher desligado também — só avisa, não fecha nada.
+      listen<{ userId: number; drop?: ClientDrop | null; notResponding?: boolean }>("roblox-client-health", (e) => {
+        const { userId, drop, notResponding } = e.payload;
+        void refreshRunningRef.current();
+        if (!drop && !notResponding) return;
+        const status = clientHealthLabel({ pid: 0, logFound: true, drop: drop ?? null, notResponding }, tr);
+        if (!status) return;
+        const acct = accountsRef.current.find((a) => a.UserID === userId);
+        const name = accountLabel(acct, nameMaskingRef.current, userId);
+        addToast(tr("{{name}} in Roblox: {{status}}", { name, status: status.label }), "warn");
+      }),
       // Moderação lida pelo backend (painel, "conferir contas", antes do launch).
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
         if (e.payload?.status) rememberModeration(e.payload.userId, e.payload.status);
@@ -2904,6 +2947,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .then((fn) => (disposed ? fn() : unsubs.push(fn)))
       .catch(() => {});
 
+    // Reconexão automática (commands/reconnect.rs): mesmo par. Avisa quando
+    // uma conta desiste, para de vez ou volta ao jogo depois de relançada.
+    // Só aceita a lista de verdade: um `[]` no lugar do objeto tem `.entries`
+    // (o método do Array), e uma função no setState vira updater do React.
+    const entriesOf = (payload: AutoReconnectPayload | null | undefined): AutoReconnectEntry[] =>
+      Array.isArray(payload?.entries) ? payload.entries : [];
+    invoke<AutoReconnectPayload>("get_auto_reconnect_status")
+      .then((payload) => {
+        if (disposed) return;
+        autoReconnectRef.current = entriesOf(payload);
+        setAutoReconnect(autoReconnectRef.current);
+      })
+      .catch(() => {});
+    listen<AutoReconnectPayload>("auto-reconnect", (e) => {
+      const next = entriesOf(e.payload);
+      const before = new Map(autoReconnectRef.current.map((entry) => [entry.userId, entry]));
+      autoReconnectRef.current = next;
+      setAutoReconnect(next);
+      const nameOf = (userId: number) =>
+        accountLabel(accountsRef.current.find((a) => a.UserID === userId), nameMaskingRef.current, userId);
+      for (const entry of next) {
+        const previous = before.get(entry.userId);
+        const final = entry.phase === "gaveUp" || entry.phase === "stopped";
+        if (!final || previous?.phase === entry.phase) continue;
+        const status = autoReconnectLabel(entry, Date.now(), tr).label;
+        addToast(tr("Auto-reconnect — {{name}}: {{status}}", { name: nameOf(entry.userId), status }), "warn");
+      }
+      // Relançada e conferida: ficou no jogo.
+      for (const userId of Array.isArray(e.payload?.reconnected) ? e.payload.reconnected : []) {
+        addToast(tr("{{name}} is back in the game", { name: nameOf(userId) }), "success");
+      }
+    })
+      .then((fn) => (disposed ? fn() : unsubs.push(fn)))
+      .catch(() => {});
+
     return () => {
       disposed = true;
       unsubs.forEach((fn) => fn());
@@ -2919,16 +2997,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const rows = await invoke<RunningInstanceEntry[]>("get_running_instances");
         const next = new Set<number>();
         const adopted = new Set<number>();
+        const health = new Map<number, ClientHealth>();
         for (const row of rows) {
           const userId = row.userId ?? row.user_id;
           if (typeof userId === "number") {
             next.add(userId);
             if (row.adopted) adopted.add(userId);
+            if (row.health) health.set(userId, row.health);
           }
         }
         if (!cancelled) {
           setLaunchedByProgram(next);
           setAdoptedClients(adopted);
+          setClientHealth(health);
         }
       } catch {
       }
@@ -3070,6 +3151,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       listen<{ userId: number; timeout: number }>("roblox-no-connection", (e) => {
         addToast(tr("Watcher: no connection timeout ({{timeout}}s) for {{userId}}", { timeout: e.payload.timeout, userId: e.payload.userId }));
+      }),
+      listen<{ userId: number; seconds: number }>("roblox-not-responding", (e) => {
+        addToast(tr("Watcher: closed a client that stopped responding ({{userId}})", { userId: e.payload.userId }));
       }),
     ];
 
@@ -3294,6 +3378,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     launchedByProgram,
     adoptedClients,
     unidentifiedClients,
+    clientHealth,
     identifyExternalClient,
     focusClientWindow,
     joinServer,
@@ -3307,6 +3392,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     refreshLaunchQueue,
     cancelAccountLaunch,
     stopLaunchQueue,
+    autoReconnect,
+    stopAutoReconnect,
+    retryAutoReconnect,
     startBottingMode,
     adoptRunningIntoBotting,
     detectRunningGamePlace,

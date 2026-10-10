@@ -6,6 +6,8 @@ import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/acc
 import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
 import { AccountLaunchOverrides } from "./AccountLaunchOverrides";
+import { AccountAutoReconnect } from "./AccountAutoReconnect";
+import { ClientHealthNote } from "../session/ClientHealthNote";
 import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
 import { MAX_ALIAS_LENGTH } from "../../types";
@@ -135,6 +137,13 @@ export function SingleSelectSidebar() {
           </div>
         </div>
 
+        {/* Cliente desta conta caiu: o mesmo aviso da Sessão. */}
+        {store.launchedByProgram.has(account.UserID) && (
+          <div className="mt-1.5 text-[11px] flex min-w-0">
+            <ClientHealthNote health={store.clientHealth?.get(account.UserID)} />
+          </div>
+        )}
+
         <div className="mt-2 text-[12px]">
           <span className={account.Valid ? "text-emerald-500" : "text-red-400"}>
             {account.Valid ? t("Valid") : t("Invalid")}
@@ -235,6 +244,8 @@ export function SingleSelectSidebar() {
             </button>
           </SidebarSection>
         )}
+
+        <AccountAutoReconnect account={account} />
 
         <AccountLaunchOverrides account={account} />
 

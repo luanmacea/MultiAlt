@@ -505,6 +505,59 @@ describe("GeneralTab", () => {
     ).toBeInTheDocument();
   });
 
+  /**
+   * launch.rs (`wait_for_game_join`): a fila segue quando o log diz que a
+   * conta entrou. Só no Windows, onde o log é lido; nasce ligado.
+   */
+  describe("Wait for each account to get into the game", () => {
+    let userAgent: { mockRestore: () => void } | null = null;
+    beforeEach(() => {
+      userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    });
+    afterEach(() => {
+      userAgent?.mockRestore();
+    });
+
+    it("is on by default and turning it off saves false", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Wait for each account to get into the game")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "WaitForGameJoin", "false");
+    });
+
+    it("is not used while accounts launch one at a time", async () => {
+      renderGeneral({ General: { AsyncJoin: "true" } });
+      const toggle = (await screen.findByText("Wait for each account to get into the game")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getAllByText("Not used while accounts launch one at a time.")).toHaveLength(2);
+    });
+
+    /** commands/reconnect.rs: padrão de todas as contas, nasce desligado. */
+    it("has the auto-reconnect default off, and turning it on saves true", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Reconnect accounts that drop")).closest("[role=switch]");
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "AutoReconnect", "true");
+    });
+
+    /** commands/keep_awake.rs: nasce ligado; desligar grava false. */
+    it("keeps the PC awake by default, and turning it off saves false", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Keep the PC awake while AFK Mode or Auto Rejoin runs")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "KeepPcAwake", "false");
+    });
+  });
+
   it("registers the app with the OS autostart when Run on Windows Startup is turned on", async () => {
     const autostart = await import("@tauri-apps/plugin-autostart");
     renderGeneral();

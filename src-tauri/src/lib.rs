@@ -49,9 +49,12 @@ include!("commands/avatars.rs");
 include!("commands/groups.rs");
 include!("commands/external_clients.rs");
 include!("commands/focus_follow.rs");
+include!("commands/client_health.rs");
 include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
+include!("commands/reconnect.rs");
+include!("commands/keep_awake.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -290,6 +293,10 @@ pub fn run() {
             // "Em jogo" pelo log do Roblox — ver commands/external_clients.rs.
             #[cfg(target_os = "windows")]
             start_external_client_scanner(app.handle().clone());
+            // Quedas com motivo, lidas do log de cada cliente rastreado — ver
+            // commands/client_health.rs.
+            #[cfg(target_os = "windows")]
+            start_client_health_monitor(app.handle().clone());
 
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
@@ -553,6 +560,9 @@ pub fn run() {
             get_afk_keys,
             afk_trigger_now,
             afk_capture_point,
+            get_auto_reconnect_status,
+            stop_auto_reconnect,
+            retry_auto_reconnect,
             chromium::commands::open_login_browser,
             chromium::commands::extract_browser_cookie,
             chromium::commands::close_login_browser,
@@ -593,6 +603,9 @@ pub fn run() {
                 release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
+                // Devolve o PC ao normal (commands/keep_awake.rs).
+                #[cfg(target_os = "windows")]
+                keep_awake_release_on_exit();
                 #[cfg(target_os = "macos")]
                 cleanup_multi_roblox_on_exit(app);
             }
@@ -601,6 +614,8 @@ pub fn run() {
                 release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
+                #[cfg(target_os = "windows")]
+                keep_awake_release_on_exit();
                 #[cfg(target_os = "macos")]
                 cleanup_multi_roblox_on_exit(app);
                 app.state::<chromium::ChromiumManager>().close_login_session();
