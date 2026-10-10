@@ -1,7 +1,15 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { defenderResult, scanSummary, virusTotalResult } from "./scanVerdict";
+import {
+  classifyVirusTotal,
+  defenderResult,
+  parseEdition,
+  scanSummary,
+  scanTargets,
+  virusTotalExitCode,
+  virusTotalResult,
+} from "./scanVerdict";
 
 describe("veredito do bun run scan", () => {
   it("lê o código de saída de cada motor", () => {
@@ -50,5 +58,71 @@ describe("veredito do bun run scan", () => {
     const bytes = readFileSync(join(import.meta.dirname, "defender-scan.ps1"));
     const fora = [...bytes].findIndex((b) => b > 0x7f);
     expect(fora, `byte não ASCII na posição ${fora}`).toBe(-1);
+  });
+});
+
+/**
+ * Política das duas edições (decisão do dono, 10/10/2026): a padrão não aceita
+ * marcação nenhuma; a completa aceita **só** o Trapmine com rótulo de ML
+ * (`*.ml.score`). Qualquer outro motor, ou o Defender, reprova as duas.
+ */
+describe("veredito do VirusTotal por edição", () => {
+  const trapmine = { engine: "Trapmine", result: "malicious.moderate.ml.score", category: "malicious" };
+  const outro = { engine: "Microsoft", result: "Trojan:Win32/Wacatac.B!ml", category: "malicious" };
+
+  it("sem marcação é limpo nas duas edições", () => {
+    expect(classifyVirusTotal([], "standard")).toBe("clean");
+    expect(classifyVirusTotal([], "full")).toBe("clean");
+  });
+
+  it("na padrão qualquer motor reprova, até o Trapmine de ML", () => {
+    expect(classifyVirusTotal([trapmine], "standard")).toBe("flagged");
+    expect(classifyVirusTotal([outro], "standard")).toBe("flagged");
+  });
+
+  it("na completa só o Trapmine de ML sozinho é aceito", () => {
+    expect(classifyVirusTotal([trapmine], "full")).toBe("accepted");
+    expect(classifyVirusTotal([{ ...trapmine, engine: "trapmine", category: "suspicious" }], "full")).toBe("accepted");
+    expect(classifyVirusTotal([trapmine, outro], "full")).toBe("flagged");
+    expect(classifyVirusTotal([outro], "full")).toBe("flagged");
+    // Trapmine com rótulo que não é o de ML (assinatura de verdade) reprova.
+    expect(classifyVirusTotal([{ ...trapmine, result: "malicious.trojan" }], "full")).toBe("flagged");
+    expect(classifyVirusTotal([{ ...trapmine, result: "malicious.ml.score.v2" }], "full")).toBe("flagged");
+    expect(classifyVirusTotal([{ ...trapmine, result: null }], "full")).toBe("flagged");
+    // Outro motor com rótulo de ML não ganha a exceção.
+    expect(classifyVirusTotal([{ ...outro, result: "malicious.moderate.ml.score" }], "full")).toBe("flagged");
+  });
+
+  it("o código de saída do virustotal.ts leva o aceito até o scan.ts", () => {
+    for (const r of ["clean", "flagged", "accepted", "inconclusive"] as const) {
+      expect(virusTotalResult(virusTotalExitCode(r))).toBe(r);
+    }
+    expect(virusTotalExitCode("clean")).toBe(0);
+    expect(virusTotalExitCode("flagged")).toBe(2);
+  });
+
+  it("lê a edição dos argumentos, padrão por omissão", () => {
+    expect(parseEdition([])).toBe("standard");
+    expect(parseEdition(["app.msi"])).toBe("standard");
+    expect(parseEdition(["--edition", "full", "app.msi"])).toBe("full");
+    expect(parseEdition(["--edition=full"])).toBe("full");
+    expect(parseEdition(["--edition", "standard"])).toBe("standard");
+    expect(() => parseEdition(["--edition", "completa"])).toThrow(/edição/);
+    expect(() => parseEdition(["--edition"])).toThrow(/edição/);
+  });
+
+  it("o valor da edição não vira arquivo a escanear", () => {
+    expect(scanTargets(["--edition", "full", "a.msi", "b.exe"])).toEqual(["a.msi", "b.exe"]);
+    expect(scanTargets(["--edition=full", "a.msi"])).toEqual(["a.msi"]);
+  });
+
+  it("o resumo diz aceito na completa e sai 0; o Defender continua reprovando", () => {
+    const aceito = scanSummary([{ file: "full.msi", defender: "clean", virustotal: "accepted" }]);
+    expect(aceito.exitCode).toBe(0);
+    expect(aceito.lines.join("\n")).toMatch(/VirusTotal: aceito \(edição completa: só o Trapmine de ML\)\s+full\.msi/);
+    expect(aceito.lines.join("\n")).not.toMatch(/tudo limpo/);
+
+    const defender = scanSummary([{ file: "full.msi", defender: "flagged", virustotal: "accepted" }]);
+    expect(defender.exitCode).toBe(2);
   });
 });

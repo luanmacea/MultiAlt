@@ -137,6 +137,140 @@ pub fn give_focus_back(hwnd: HWND) -> bool {
     bring_to_foreground(hwnd, FocusPurpose::GiveBack)
 }
 
+/// Como terminou a devolução do foco no fim de um ciclo do AFK mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GiveBack {
+    /// A janela do usuário está na frente de novo.
+    Restored,
+    /// O usuário escolheu outra janela durante o ciclo: ela fica na frente.
+    UserMovedOn,
+    /// A janela de antes não existe mais.
+    Gone,
+    /// O Windows recusou todas as tentativas.
+    Denied,
+}
+
+/// O que a devolução do foco usa do Windows — trocável nos testes.
+trait ForegroundApi {
+    fn foreground(&self) -> isize;
+    fn exists(&self, hwnd: isize) -> bool;
+    fn set_foreground(&self, hwnd: isize) -> bool;
+    /// `SetForegroundWindow` depois de um movimento de mouse de zero pixel
+    /// (`nudge_for_focus_back`): o Windows só aceita o pedido de quem gerou a
+    /// última entrada, e o usuário pode ter mexido em outra janela depois da
+    /// tecla do ciclo. Não lê entrada nenhuma.
+    fn set_foreground_after_nudge(&self, hwnd: isize) -> bool;
+    /// `focus_window`: traz a janela da conta (desminimiza, se preciso).
+    fn bring(&self, hwnd: isize) -> bool;
+    /// `focus_window` depois do movimento de zero pixel.
+    fn bring_after_nudge(&self, hwnd: isize) -> bool;
+    fn settle(&self);
+}
+
+/// Tentativas ao todo: a simples e, se recusada, as depois do movimento de zero pixel.
+const GIVE_BACK_ATTEMPTS: usize = 3;
+const GIVE_BACK_SETTLE_MS: u64 = 60;
+
+/// Devolve o primeiro plano a `target` depois de o ciclo ter trazido as
+/// janelas `cycle_windows` para frente (issue #23).
+///
+/// O `SetForegroundWindow` é recusado sem aviso quando outra janela recebeu a
+/// última entrada do usuário — quem trabalha no outro monitor durante o ciclo.
+/// Por isso o resultado é conferido na tela e a volta tenta de novo; e se o que
+/// está na frente não é nenhuma janela do ciclo, foi o usuário que escolheu
+/// outra janela, e ela fica.
+fn give_focus_back_with(api: &impl ForegroundApi, target: isize, cycle_windows: &[isize]) -> GiveBack {
+    if !api.exists(target) {
+        return GiveBack::Gone;
+    }
+    for attempt in 0..GIVE_BACK_ATTEMPTS {
+        let front = api.foreground();
+        if front == target {
+            return GiveBack::Restored;
+        }
+        if front != 0 && !cycle_windows.contains(&front) {
+            return GiveBack::UserMovedOn;
+        }
+        if attempt == 0 {
+            api.set_foreground(target);
+        } else {
+            api.set_foreground_after_nudge(target);
+        }
+        api.settle();
+    }
+    let front = api.foreground();
+    if front == target {
+        GiveBack::Restored
+    } else if front != 0 && !cycle_windows.contains(&front) {
+        GiveBack::UserMovedOn
+    } else {
+        GiveBack::Denied
+    }
+}
+
+/// Traz a janela da conta para frente no começo do envio do AFK mode e diz se
+/// ela ficou na frente.
+///
+/// Mesma regra da volta: o Windows recusa quem não gerou a última entrada — o
+/// usuário trabalhando em outra janela. Recusado, manda o movimento de zero
+/// pixel e tenta mais uma vez. Medido no teste do dono (10/10/2026): sem isso,
+/// com o foco devolvido de verdade no fim do ciclo, todo ciclo seguinte pulava
+/// todas as contas.
+fn bring_forward_with(api: &impl ForegroundApi, target: isize) -> bool {
+    if api.foreground() == target {
+        return true;
+    }
+    api.bring(target);
+    api.settle();
+    if api.foreground() == target {
+        return true;
+    }
+    api.bring_after_nudge(target);
+    api.settle();
+    api.foreground() == target
+}
+
+struct RealDesktop;
+
+impl ForegroundApi for RealDesktop {
+    fn foreground(&self) -> isize {
+        unsafe { GetForegroundWindow() as isize }
+    }
+    fn exists(&self, hwnd: isize) -> bool {
+        hwnd != 0 && window_exists(hwnd as HWND)
+    }
+    fn set_foreground(&self, hwnd: isize) -> bool {
+        give_focus_back(hwnd as HWND)
+    }
+    fn set_foreground_after_nudge(&self, hwnd: isize) -> bool {
+        nudge_for_focus_back();
+        give_focus_back(hwnd as HWND)
+    }
+    fn bring(&self, hwnd: isize) -> bool {
+        focus_window(hwnd as HWND)
+    }
+    fn bring_after_nudge(&self, hwnd: isize) -> bool {
+        nudge_for_focus_back();
+        focus_window(hwnd as HWND)
+    }
+    fn settle(&self) {
+        std::thread::sleep(Duration::from_millis(GIVE_BACK_SETTLE_MS));
+    }
+}
+
+/// Começo do envio do AFK mode para uma conta: traz a janela dela e diz se
+/// ficou na frente, tentando de novo se o Windows recusar.
+pub fn bring_forward_for_cycle(hwnd: HWND) -> bool {
+    bring_forward_with(&RealDesktop, hwnd as isize)
+}
+
+/// Fim do ciclo do AFK mode: devolve o foco à janela em que o usuário estava,
+/// conferindo na tela e tentando de novo se o Windows recusar.
+pub fn give_focus_back_after_cycle(target: HWND, cycle_windows: &[HWND]) -> GiveBack {
+    let cycle: Vec<isize> = cycle_windows.iter().map(|h| *h as isize).collect();
+    give_focus_back_with(&RealDesktop, target as isize, &cycle)
+}
+
 fn wait_for_process_exit(pid: u32, timeout: Duration) -> bool {
     let started = std::time::Instant::now();
     while started.elapsed() < timeout {
@@ -1960,5 +2094,209 @@ mod win_focus_tests {
     fn giving_the_focus_back_never_changes_the_window_state() {
         assert_eq!(show_command_before_focus(FocusPurpose::GiveBack, false), None);
         assert_eq!(show_command_before_focus(FocusPurpose::GiveBack, true), None);
+    }
+
+    // ── devolver o foco depois do ciclo (issue #23) ─────────────────────────
+
+    /// Windows de mentira: guarda quem está na frente e recusa o
+    /// `SetForegroundWindow` quantas vezes mandarem — o que o Windows faz
+    /// quando o usuário mexe em outra janela durante o ciclo.
+    struct FakeDesktop {
+        foreground: std::cell::Cell<isize>,
+        plain_refusals: std::cell::Cell<u32>,
+        nudged_refusals: std::cell::Cell<u32>,
+        user_clicks_during_settle: Option<isize>,
+        calls: std::cell::RefCell<Vec<&'static str>>,
+    }
+
+    impl FakeDesktop {
+        fn new(foreground: isize) -> Self {
+            Self {
+                foreground: std::cell::Cell::new(foreground),
+                plain_refusals: std::cell::Cell::new(0),
+                nudged_refusals: std::cell::Cell::new(0),
+                user_clicks_during_settle: None,
+                calls: std::cell::RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl ForegroundApi for FakeDesktop {
+        fn foreground(&self) -> isize {
+            self.foreground.get()
+        }
+        fn exists(&self, hwnd: isize) -> bool {
+            hwnd != 0
+        }
+        fn set_foreground(&self, hwnd: isize) -> bool {
+            self.calls.borrow_mut().push("plain");
+            if self.plain_refusals.get() > 0 {
+                self.plain_refusals.set(self.plain_refusals.get() - 1);
+                return false;
+            }
+            self.foreground.set(hwnd);
+            true
+        }
+        fn set_foreground_after_nudge(&self, hwnd: isize) -> bool {
+            self.calls.borrow_mut().push("nudged");
+            if self.nudged_refusals.get() > 0 {
+                self.nudged_refusals.set(self.nudged_refusals.get() - 1);
+                return false;
+            }
+            self.foreground.set(hwnd);
+            true
+        }
+        fn bring(&self, hwnd: isize) -> bool {
+            self.calls.borrow_mut().push("bring");
+            if self.plain_refusals.get() > 0 {
+                self.plain_refusals.set(self.plain_refusals.get() - 1);
+                return false;
+            }
+            self.foreground.set(hwnd);
+            true
+        }
+        fn bring_after_nudge(&self, hwnd: isize) -> bool {
+            self.calls.borrow_mut().push("bring_nudged");
+            if self.nudged_refusals.get() > 0 {
+                self.nudged_refusals.set(self.nudged_refusals.get() - 1);
+                return false;
+            }
+            self.foreground.set(hwnd);
+            true
+        }
+        fn settle(&self) {
+            if let Some(other) = self.user_clicks_during_settle {
+                self.foreground.set(other);
+            }
+        }
+    }
+
+    const USER: isize = 100;
+    const ROBLOX: isize = 7;
+
+    #[test]
+    fn the_focus_goes_back_when_windows_allows_it() {
+        let desk = FakeDesktop::new(ROBLOX);
+        assert_eq!(give_focus_back_with(&desk, USER, &[ROBLOX]), GiveBack::Restored);
+        assert_eq!(desk.foreground(), USER);
+    }
+
+    /// Issue #23: com o usuário mexendo no outro monitor, o Windows recusa o
+    /// `SetForegroundWindow` e o Roblox ficava na frente. Agora a recusa é
+    /// vista e a volta tenta de novo depois de um movimento de mouse de zero
+    /// pixel, que devolve a este processo o direito de trocar o foco.
+    #[test]
+    fn a_refused_give_back_is_retried_and_the_focus_returns() {
+        let desk = FakeDesktop::new(ROBLOX);
+        desk.plain_refusals.set(5);
+        assert_eq!(give_focus_back_with(&desk, USER, &[ROBLOX]), GiveBack::Restored);
+        assert_eq!(desk.foreground(), USER);
+        assert!(desk.calls.borrow().contains(&"nudged"));
+    }
+
+    /// A chamada pode "dar certo" e a janela não vir: vale o que está na
+    /// frente depois, não o retorno.
+    #[test]
+    fn the_result_is_checked_on_screen_not_trusted_from_the_call() {
+        struct Liar(std::cell::Cell<isize>);
+        impl ForegroundApi for Liar {
+            fn foreground(&self) -> isize {
+                self.0.get()
+            }
+            fn exists(&self, _: isize) -> bool {
+                true
+            }
+            fn set_foreground(&self, _: isize) -> bool {
+                true
+            }
+            fn set_foreground_after_nudge(&self, hwnd: isize) -> bool {
+                self.0.set(hwnd);
+                true
+            }
+            fn bring(&self, _: isize) -> bool {
+                true
+            }
+            fn bring_after_nudge(&self, hwnd: isize) -> bool {
+                self.0.set(hwnd);
+                true
+            }
+            fn settle(&self) {}
+        }
+        let desk = Liar(std::cell::Cell::new(ROBLOX));
+        assert_eq!(give_focus_back_with(&desk, USER, &[ROBLOX]), GiveBack::Restored);
+        assert_eq!(desk.foreground(), USER);
+    }
+
+    /// Tudo recusado: o resultado diz isso, sem insistir para sempre.
+    #[test]
+    fn a_give_back_refused_every_time_is_reported_and_stops() {
+        let desk = FakeDesktop::new(ROBLOX);
+        desk.plain_refusals.set(99);
+        desk.nudged_refusals.set(99);
+        assert_eq!(give_focus_back_with(&desk, USER, &[ROBLOX]), GiveBack::Denied);
+        assert!(desk.calls.borrow().len() <= 4);
+    }
+
+    /// Clicou em outra janela durante o ciclo: a pessoa já foi para outro
+    /// lugar. Puxar de volta a janela de antes roubaria o foco dela.
+    #[test]
+    fn a_window_the_user_picked_during_the_cycle_keeps_the_focus() {
+        let desk = FakeDesktop::new(55);
+        assert_eq!(give_focus_back_with(&desk, USER, &[ROBLOX]), GiveBack::UserMovedOn);
+        assert_eq!(desk.foreground(), 55);
+        assert!(desk.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_user_click_while_waiting_stops_the_retries() {
+        let mut desk = FakeDesktop::new(ROBLOX);
+        desk.plain_refusals.set(5);
+        desk.user_clicks_during_settle = Some(55);
+        assert_eq!(give_focus_back_with(&desk, USER, &[ROBLOX]), GiveBack::UserMovedOn);
+        assert_eq!(desk.foreground(), 55);
+    }
+
+    // ── trazer a janela da conta no começo do envio ─────────────────────────
+
+    /// Teste do dono (10/10/2026) com o hotfix do #23: com o foco devolvido de
+    /// verdade, o ciclo seguinte encontrava a janela dele na frente e o Windows
+    /// recusava trazer o Roblox — todas as contas ficavam "não enviada". Mesma
+    /// causa e mesma saída: o movimento de zero pixel e uma nova tentativa.
+    #[test]
+    fn a_refused_bring_is_retried_after_the_nudge() {
+        let desk = FakeDesktop::new(USER);
+        desk.plain_refusals.set(1);
+        assert!(bring_forward_with(&desk, ROBLOX));
+        assert_eq!(desk.foreground(), ROBLOX);
+        assert_eq!(*desk.calls.borrow(), vec!["bring", "bring_nudged"]);
+    }
+
+    #[test]
+    fn a_bring_that_works_needs_no_nudge() {
+        let desk = FakeDesktop::new(USER);
+        assert!(bring_forward_with(&desk, ROBLOX));
+        assert_eq!(*desk.calls.borrow(), vec!["bring"]);
+    }
+
+    /// Recusado mesmo assim: devolve falso e o ciclo não envia nada (a
+    /// conferência de `afk_window_is_ready` continua valendo).
+    #[test]
+    fn a_bring_refused_twice_reports_false() {
+        let desk = FakeDesktop::new(USER);
+        desk.plain_refusals.set(9);
+        desk.nudged_refusals.set(9);
+        assert!(!bring_forward_with(&desk, ROBLOX));
+        assert_eq!(desk.foreground(), USER);
+        assert_eq!(desk.calls.borrow().len(), 2);
+    }
+
+    #[test]
+    fn nothing_is_done_when_the_focus_is_already_back_or_the_window_is_gone() {
+        let desk = FakeDesktop::new(USER);
+        assert_eq!(give_focus_back_with(&desk, USER, &[ROBLOX]), GiveBack::Restored);
+        assert!(desk.calls.borrow().is_empty());
+        let desk = FakeDesktop::new(ROBLOX);
+        assert_eq!(give_focus_back_with(&desk, 0, &[ROBLOX]), GiveBack::Gone);
+        assert!(desk.calls.borrow().is_empty());
     }
 }

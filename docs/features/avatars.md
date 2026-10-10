@@ -31,12 +31,12 @@ Especificação: [docs/superpowers/specs/2026-10-02-free-avatars-design.md](../s
 
 | | Padrão sem o lote | Completa |
 |---|---|---|
-| Cargo | `--no-default-features` | `--features nexus,webserver,avatar-batch` |
+| Cargo | `--no-default-features` | `--features full` |
 | Frontend | `VITE_ENABLE_AVATAR_BATCH=false` | `VITE_ENABLE_AVATAR_BATCH=true` |
 | Backend do lote | não compila (`avatar_batch.rs`, `avatar_claim.rs`); `avatar_apply_batch` e `avatar_cancel_batch` respondem `Avatar distribution is not in this edition`, `get_avatar_batch_state` devolve o lote parado | completo |
 | Aba Distribute | cartão "Distributing avatars is an extra" com o botão **Get the complete edition** | o lote |
 
-Os builds de desenvolvimento (`cargo build`, `bun run tauri dev`, `cargo test --all-features`) têm tudo: `avatar-batch` está no `default` do Cargo e a flag do frontend vale `true` sem a variável.
+Os builds de desenvolvimento (`cargo build`, `bun run tauri dev`, `cargo test --all-features`) têm tudo: o `default` do Cargo é o `full`, que liga `avatar-batch`, e a flag do frontend vale `true` sem a variável.
 
 ### Trocar para a edição completa pelo app
 

@@ -83,7 +83,7 @@ describe("interruptor do portatil no release-v4.yml", () => {
   });
 
   it("a copia do portatil para a pasta da release so acontece com o interruptor ligado", () => {
-    const prepare = steps().find((s) => s.name === "Prepare full feature assets and manifest");
+    const prepare = steps().find((s) => s.name === "Prepare full edition assets and manifest");
     expect(prepare).toBeDefined();
     const outside = linesOutsideGuard(prepare.lines, /if \(\$env:PUBLISH_PORTABLE -eq "true"\) \{\s*$/);
     const leaked = outside.filter((l) => /Copy-Item \$(standard|full)PortableSrc/.test(l) || /Portable binary not found/i.test(l));
@@ -361,11 +361,89 @@ describe("edicoes no release-v4.yml", () => {
     expect(text).toMatch(/VITE_ENABLE_WEBSERVER: "false"/);
   });
 
-  it("a completa compila Nexus, Web Server e a distribuicao de avatares", () => {
-    const text = stepText("Build full feature variant (Nexus + WebServer + avatar distribution)");
-    expect(text).toContain("bun tauri build -- --features nexus,webserver,avatar-batch");
-    expect(text).toMatch(/VITE_ENABLE_AVATAR_BATCH: "true"/);
-    expect(text).toMatch(/VITE_ENABLE_NEXUS: "true"/);
-    expect(text).toMatch(/VITE_ENABLE_WEBSERVER: "true"/);
+  /**
+   * Decisao do dono (10/10/2026): a completa tem **toda** feature opcional
+   * (nexus, webserver, avatar-batch, live-audio...). A lista mora num lugar so,
+   * a feature `full` do Cargo.toml, e o workflow compila `--features full` sem
+   * lista escrita: feature nova que fica fora da padrao entra no `full` e a
+   * completa a pega sozinha.
+   */
+  it("a completa compila so a feature full, com toda a UI ligada", () => {
+    const text = stepText("Build full edition (every feature)");
+    expect(text).toContain("bun tauri build -- --features full");
+    expect(text).not.toMatch(/--features full,|--features [\w-]+,/);
+    const flags = (step) => [...step.matchAll(/^\s+(VITE_ENABLE_\w+): "(\w+)"/gm)].map((m) => [m[1], m[2]]);
+    const standardFlags = flags(stepText("Build and publish standard release")).map(([name]) => name);
+    const fullFlags = new Map(flags(text));
+    expect(standardFlags.length).toBeGreaterThan(0);
+    for (const name of standardFlags) {
+      expect(fullFlags.get(name), name).toBe("true");
+    }
+    for (const [name, value] of fullFlags) {
+      expect(value, name).toBe("true");
+    }
+  });
+
+  it("a feature full do Cargo liga toda feature opcional, e o default e ela", () => {
+    const cargo = readFileSync(path.resolve(__dirname, "..", "..", "src-tauri", "Cargo.toml"), "utf8").replace(/\r\n/g, "\n");
+    const section = /\n\[features\]\n([\s\S]*?)\n\[/.exec(cargo)[1];
+    const features = new Map(
+      [...section.matchAll(/^([\w-]+)\s*=\s*\[([^\]]*)\]/gm)].map((m) => [
+        m[1],
+        [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]),
+      ])
+    );
+    const optional = [...features.keys()].filter((name) => name !== "default" && name !== "full");
+    expect(optional).toEqual(expect.arrayContaining(["nexus", "webserver", "avatar-batch"]));
+    expect([...features.get("full")].sort()).toEqual([...optional].sort());
+    expect(features.get("default")).toEqual(["full"]);
+  });
+
+  /**
+   * O canal do updater da completa continua `<canal>-nexus-ws`: e o endereco
+   * que quem ja tem a completa instalada consulta. So o nome do arquivo mudou.
+   */
+  it("o MSI da completa sai como MultiAlt_<v>_Full-Setup.msi, no mesmo canal do updater", () => {
+    const prepare = stepText("Prepare full edition assets and manifest");
+    expect(prepare).toContain('$fullMsiName = "MultiAlt_${v}_Full-Setup.msi"');
+    expect(prepare).toContain('url = "$baseUrl/$fullMsiName"');
+    expect(stepText("Configure updater endpoint for full edition")).toContain(
+      "update-manifests/$channel-nexus-ws/latest.json"
+    );
+    expect(stepText("Generate and push full edition update manifest")).toContain(
+      "RELEASE_CHANNEL: ${{ format('{0}-nexus-ws', steps.controls.outputs.channel) }}"
+    );
+    expect(yaml).not.toMatch(/_full-nexus-ws/);
+  });
+});
+
+/**
+ * A completa so aparece nos arquivos da release (decisao do dono, 10/10/2026).
+ * O texto da release diz o que ela e, em termos neutros, e manda a maioria
+ * para o `MultiAlt-Setup.msi`. Fica dentro da secao "## Download", que a
+ * janela de atualizacao do app descarta (src/releaseNotes.ts).
+ */
+describe("a edicao completa no texto da release", () => {
+  const finalizeLines = () => steps().find((s) => s.name === "Finalize release notes").lines;
+
+  it("tem a secao fixa do instalador completo, dentro do Download", () => {
+    // Os acentos graves vem escapados (`\``) dentro do template literal.
+    const body = finalizeLines().join("\n").replace(/\\`/g, "`");
+    expect(body).toContain('"### Full installer"');
+    expect(body).toContain(
+      "`MultiAlt_${version}_Full-Setup.msi` has every feature, including extra Windows integrations (window and audio control, local Web API, Nexus)."
+    );
+    expect(body).toContain("most people should use `MultiAlt-Setup.msi`.");
+    expect(body).toContain("It updates itself to the next full version.");
+    expect(body.indexOf("...fullInstaller")).toBeGreaterThan(body.indexOf('"## Download"'));
+    expect(body.indexOf("...fullInstaller")).toBeLessThan(body.indexOf("changesBlock,"));
+  });
+
+  it("o texto publicado nao fala de antivirus nem cita o nome antigo do arquivo", () => {
+    const code = finalizeLines()
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+    expect(code).not.toMatch(/virus|virustotal|trapmine|defender|malware|false positive/i);
+    expect(code).not.toMatch(/full-nexus-ws/);
   });
 });
