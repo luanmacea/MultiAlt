@@ -19,8 +19,9 @@ import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
 import { ClientHealthNote } from "./ClientHealthNote";
-import { autoReconnectLabel } from "../../utils/autoReconnect";
+import { autoReconnectLabel, reconnectErrorText } from "../../utils/autoReconnect";
 import type {
+  AutoReconnectEntry,
   FriendLinkAccountState,
   LaunchQueueEntry,
   LaunchQueueState,
@@ -133,6 +134,11 @@ function isPending(entry: LaunchQueueEntry): boolean {
   return entry.state === "queued" || entry.state === "launching";
 }
 
+/** Uma queda de uma conta: a mesma conta caindo de novo é outra chave. */
+function dropKey(entry: AutoReconnectEntry): string {
+  return `${entry.userId}:${entry.drop?.sinceMs ?? 0}`;
+}
+
 interface SessionPanelProps {
   className?: string;
 }
@@ -173,7 +179,12 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
 
   // Reconexão automática (commands/reconnect.rs). A contagem regressiva
   // ("em 30 s") só anda enquanto alguma conta espera a próxima tentativa.
-  const reconnecting = store.autoReconnect ?? [];
+  // "Dispensar" esconde a linha na hora, sem esperar o evento do backend. A
+  // chave é a queda (conta + início): se a conta cair de novo, a linha volta.
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  // Contas com um comando de reconexão em andamento (botões desabilitados).
+  const [reconnectBusy, setReconnectBusy] = useState<Set<number>>(() => new Set());
+  const reconnecting = (store.autoReconnect ?? []).filter((entry) => !dismissed.has(dropKey(entry)));
   const countingDown = reconnecting.some((entry) => entry.phase === "waiting");
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -219,21 +230,38 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     }
   }
 
-  async function handleStopReconnect(userId: number) {
+  /**
+   * "Tentar agora" / "Parar" / dispensar. `false` do backend: a conta já não
+   * está na reconexão (a lista da tela estava velha) — avisa em vez de calar.
+   */
+  async function handleReconnectAction(entry: AutoReconnectEntry, action: "retry" | "stop" | "dismiss") {
+    const { userId } = entry;
+    if (reconnectBusy.has(userId)) return;
+    const key = dropKey(entry);
     setError(null);
+    setReconnectBusy((prev) => new Set(prev).add(userId));
+    if (action === "dismiss") setDismissed((prev) => new Set(prev).add(key));
     try {
-      await store.stopAutoReconnect(userId);
+      const ok =
+        action === "retry" ? await store.retryAutoReconnect(userId) : await store.stopAutoReconnect(userId);
+      if (!ok) {
+        store.addToast(t("{{name}} is no longer being reconnected.", { name: nameFor(userId) }), "info");
+      }
     } catch (e) {
+      if (action === "dismiss") {
+        setDismissed((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
       setError(String(e));
-    }
-  }
-
-  async function handleRetryReconnect(userId: number) {
-    setError(null);
-    try {
-      await store.retryAutoReconnect(userId);
-    } catch (e) {
-      setError(String(e));
+    } finally {
+      setReconnectBusy((prev) => {
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
     }
   }
 
@@ -368,6 +396,8 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
             {entries.map((entry) => {
               const style = STATE_STYLES[entry.state] ?? STATE_STYLES.queued;
               const name = nameFor(entry.userId);
+              // A tentativa da reconexão automática também passa pela fila.
+              const error = entry.error ? reconnectErrorText(entry.error, t) : null;
               return (
                 <li
                   key={entry.userId}
@@ -377,9 +407,9 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                   <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
                   <span className="text-[var(--panel-fg)] truncate max-w-[40%]">{name}</span>
                   <span className={`shrink-0 ${style.text}`}>{stateLabel(entry.state, t)}</span>
-                  {entry.error && (
-                    <span className="text-red-400 truncate" title={entry.error}>
-                      {entry.error}
+                  {error && (
+                    <span className="text-red-400 truncate" title={error}>
+                      {error}
                     </span>
                   )}
                   <span className="ml-auto shrink-0">
@@ -473,38 +503,54 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
               const info = autoReconnectLabel(entry, now, t);
               const name = nameFor(entry.userId);
               const pending = info.tone === "pending";
+              const busy = reconnectBusy.has(entry.userId);
               return (
                 <li
                   key={entry.userId}
                   data-testid={`session-reconnect-${entry.userId}`}
                   data-phase={entry.phase}
+                  aria-busy={busy || undefined}
                   className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
                 >
                   <span
                     className={`shrink-0 w-1.5 h-1.5 rounded-full ${pending ? "bg-amber-400 animate-pulse" : "bg-red-500"}`}
                   />
                   <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
-                  <span
-                    className={`truncate ${pending ? "text-amber-400" : "text-red-400"}`}
-                    title={info.detail ? `${info.label} — ${info.detail}` : info.label}
-                  >
-                    {info.label}
+                  {/* A causa (erro da última tentativa) fica à vista, embaixo. */}
+                  <span className="min-w-0 flex flex-col">
+                    <span
+                      className={`truncate ${pending ? "text-amber-400" : "text-red-400"}`}
+                      title={info.label}
+                    >
+                      {info.label}
+                    </span>
+                    {info.detail && (
+                      <span
+                        data-testid={`session-reconnect-detail-${entry.userId}`}
+                        className="truncate text-[11px] theme-muted"
+                        title={info.detail}
+                      >
+                        {info.detail}
+                      </span>
+                    )}
                   </span>
                   <span className="ml-auto flex items-center gap-1.5 shrink-0">
                     {(info.canTryNow || info.canTryAgain) && (
                       <button
-                        onClick={() => void handleRetryReconnect(entry.userId)}
-                        className="sidebar-btn-sm flex items-center gap-1.5"
+                        onClick={() => void handleReconnectAction(entry, "retry")}
+                        disabled={busy}
+                        className="sidebar-btn-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-default"
                         title={t("Reopen this account now, in the same game")}
                       >
-                        <RotateCw size={12} strokeWidth={1.5} />
+                        <RotateCw size={12} strokeWidth={1.5} className={busy ? "animate-spin" : undefined} />
                         {info.canTryNow ? t("Try now") : t("Try again")}
                       </button>
                     )}
                     {pending ? (
                       <button
-                        onClick={() => void handleStopReconnect(entry.userId)}
-                        className="sidebar-btn-sm flex items-center gap-1.5"
+                        onClick={() => void handleReconnectAction(entry, "stop")}
+                        disabled={busy}
+                        className="sidebar-btn-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-default"
                         title={t("Stop reconnecting this account (does not close any client)")}
                       >
                         <SquareStop size={12} strokeWidth={1.5} />
@@ -512,10 +558,11 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                       </button>
                     ) : (
                       <button
-                        onClick={() => void handleStopReconnect(entry.userId)}
+                        onClick={() => void handleReconnectAction(entry, "dismiss")}
+                        disabled={busy}
                         aria-label={t("Dismiss {{name}}", { name })}
                         title={t("Hide this line")}
-                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors"
+                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors disabled:opacity-50"
                       >
                         <X size={13} strokeWidth={2} />
                       </button>

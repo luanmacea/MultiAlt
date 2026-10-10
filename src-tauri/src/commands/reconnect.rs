@@ -32,6 +32,21 @@ pub const RECONNECT_OFFLINE_RETRY_MS: i64 = 10_000;
 /// A fila de launch está ocupada (outro launch rodando): tenta de novo depois disto.
 pub const RECONNECT_BUSY_RETRY_MS: i64 = 5_000;
 
+// O erro de uma tentativa, como vai para a tela (`error` da entrada). Em inglês
+// porque a tradução é do front (`reconnectErrorText` em
+// src/utils/autoReconnect.ts, que lê esta lista no teste): frase nova aqui
+// precisa entrar lá, senão aparece crua na tela em português.
+/// O cliente relançado foi fechado pelo próprio app antes de ficar no jogo.
+pub const RECONNECT_ERROR_CLIENT_CLOSED: &str = "The client was closed";
+/// Relançado, não entrou no jogo em `RECONNECT_JOIN_TIMEOUT_MS`.
+pub const RECONNECT_ERROR_NOT_IN_GAME: &str = "It did not get into the game in 2 minutes";
+/// O cliente caído da própria conta não fechou antes do relaunch.
+#[allow(dead_code)]
+pub const RECONNECT_ERROR_OLD_CLIENT_OPEN: &str = "The old client did not close";
+/// O launch terminou sem cliente do app aberto.
+#[allow(dead_code)]
+pub const RECONNECT_ERROR_DID_NOT_START: &str = "The Roblox client did not start";
+
 /// Espera antes da tentativa `attempt` (1, 2, ...).
 pub fn reconnect_backoff_ms(attempt: u32) -> i64 {
     let index = (attempt.max(1) - 1).min(RECONNECT_BACKOFF_SECS.len() as u32 - 1) as usize;
@@ -485,7 +500,7 @@ impl ReconnectBook {
                             let notice = Self::fail_attempt(
                                 entry,
                                 user_id,
-                                Some("The client was closed".to_string()),
+                                Some(RECONNECT_ERROR_CLIENT_CLOSED.to_string()),
                                 now_ms,
                             );
                             notices.push(notice);
@@ -501,7 +516,7 @@ impl ReconnectBook {
                             let notice = Self::fail_attempt(
                                 entry,
                                 user_id,
-                                Some("It did not get into the game in 2 minutes".to_string()),
+                                Some(RECONNECT_ERROR_NOT_IN_GAME.to_string()),
                                 now_ms,
                             );
                             notices.push(notice);
@@ -1105,7 +1120,7 @@ async fn run_reconnect_attempt(
             return AttemptOutcome::Stop(ReconnectStopReason::OpenedOutsideApp, None);
         }
         if !tracker.kill_for_user_graceful_async(user_id, 4500).await {
-            let error = "The old client did not close".to_string();
+            let error = RECONNECT_ERROR_OLD_CLIENT_OPEN.to_string();
             sequence.mark(user_id, LaunchQueueState::Failed, Some(error.clone()));
             sequence.finish();
             return AttemptOutcome::Failed(error);
@@ -1137,7 +1152,7 @@ async fn run_reconnect_attempt(
     match result {
         Ok(()) => match tracker.get_all().into_iter().find(|p| p.user_id == user_id) {
             Some(p) if !p.adopted => AttemptOutcome::Launched { pid: p.pid },
-            _ => AttemptOutcome::Failed("The Roblox client did not start".to_string()),
+            _ => AttemptOutcome::Failed(RECONNECT_ERROR_DID_NOT_START.to_string()),
         },
         Err(error) => attempt_outcome_for_launch_error(&error),
     }
