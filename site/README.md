@@ -15,7 +15,7 @@ Página pública do app (recursos, download, segurança, dúvidas). HTML, CSS e 
 
 ## Download sempre na versão nova
 
-Os botões não têm versão escrita: o `main.js` lê `api.github.com/repos/luanmacea/MultiAlt/releases` e aponta para o `.msi` (sem `_full-nexus-ws`) da release mais recente. É a lista, e não `/releases/latest`, porque a série 0.x sai como pre-release e o `latest` do GitHub ignora pre-release. Se a API falhar (limite de 60 pedidos por hora por IP), os botões continuam levando à página de releases. **Renomear os arquivos da release quebra a escolha** — as regras estão em `pickAssets`.
+Os botões não têm versão escrita: o `main.js` lê `api.github.com/repos/luanmacea/MultiAlt/releases` e aponta para o `.msi` da edição padrão da release mais recente — arquivo com `_full-`/`_Full-` no nome (a edição completa) nunca entra: ela só aparece nos anexos da release (decisão do dono, 10/10/2026; `scripts/site/editions.test.ts`). É a lista, e não `/releases/latest`, porque a série 0.x sai como pre-release e o `latest` do GitHub ignora pre-release. Se a API falhar (limite de 60 pedidos por hora por IP), os botões continuam levando à página de releases. **Renomear os arquivos da release quebra a escolha** — as regras estão em `pickAssets`.
 
 ## De onde vem cada download
 

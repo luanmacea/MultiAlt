@@ -5,12 +5,12 @@
 // mixer de volume do Windows (sessões de áudio por processo), com o jogo
 // aberto — não mexe no arquivo de configurações do Roblox.
 //
-// **Atrás da feature `live-audio` do Cargo, desligada nas duas edições.** A
-// sessão de áudio só se alcança por COM (`IAudioSessionManager2`), que é
-// código nativo novo no binário — e antivírus olham para isso. Sem a feature
-// este arquivo compila só a decisão (função pura, testada) e a opção some da
-// tela (`supportsLiveAudio = false`). Ligar é `--features live-audio`, sem
-// mexer em código. Ver docs/features/performance.md.
+// **Atrás da feature `live-audio` do Cargo, só na edição completa** (entra
+// pelo `full`). A sessão de áudio só se alcança por COM
+// (`IAudioSessionManager2`), que é código nativo novo no binário — e antivírus
+// olham para isso. Sem a feature (edição padrão) este arquivo compila só a
+// decisão (função pura, testada) e a opção some da tela
+// (`supportsLiveAudio = false`). Ver docs/features/performance.md.
 //
 // Sem crate novo: o `windows-sys` não traz interfaces COM, então as cinco
 // tabelas de métodos usadas (enumerador de dispositivos, dispositivo, gerenciador
