@@ -2123,7 +2123,6 @@
   "Auto-reconnect — {{name}}: {{status}}": "Reconexão automática — {{name}}: {{status}}",
   "Default for every account (each one can change it in its panel): reopens a client this app opened in the same game after a lost connection, a kick or a crash.": "Padrão de todas as contas (cada uma pode mudar no seu painel): reabre no mesmo jogo um cliente que este app abriu, depois de perder a conexão, ser expulso ou fechar sozinho.",
   "Dismiss {{name}}": "Dispensar {{name}}",
-  "Following the default in Settings › General.": "Seguindo o padrão em Configurações › Geral.",
   "Gave up after {{count}} tries": "Desistiu depois de {{count}} tentativas",
   "Hide this line": "Esconder esta linha",
   "Not reconnecting": "Sem reconexão",
@@ -2141,10 +2140,8 @@
   "Reconnecting now (attempt {{attempt}}/{{max}})": "Reconectando agora (tentativa {{attempt}}/{{max}})",
   "Reopen this account now, in the same game": "Reabrir esta conta agora, no mesmo jogo",
   "Reopened, checking it stays in the game (attempt {{attempt}}/{{max}})": "Reaberta, conferindo se fica no jogo (tentativa {{attempt}}/{{max}})",
-  "Reopens it in the same game after a lost connection, a kick or a crash. Never when you close it or the account joins somewhere else.": "Reabre no mesmo jogo depois de perder a conexão, ser expulsa ou fechar sozinha. Nunca quando você a fecha ou ela entra em outro lugar.",
   "Stop reconnecting this account (does not close any client)": "Parar de reconectar esta conta (não fecha nenhum cliente)",
   "Try now": "Tentar agora",
-  "Use the default from Settings › General": "Usar o padrão de Configurações › Geral",
   "Waiting for the internet to come back (attempt {{attempt}}/{{max}})": "Esperando a internet voltar (tentativa {{attempt}}/{{max}})",
   "Auto-reconnect is bringing back {{count}} accounts.": "A reconexão automática está trazendo de volta {{count}} contas.",
   "Keep the PC awake while AFK Mode or Auto Rejoin runs": "Manter o PC acordado enquanto o Modo AFK ou o Auto Rejoin roda",
@@ -2156,5 +2153,12 @@
   "Auto Rejoin is running for 1 account.": "O Auto Rejoin está rodando em 1 conta.",
   "AFK Mode is on for 1 account.": "O Modo AFK está ligado em 1 conta.",
   "Auto-reconnect is bringing back 1 account.": "A reconexão automática está trazendo de volta 1 conta.",
-  "{{name}} is no longer being reconnected.": "{{name}} já não está sendo reconectada."
+  "{{name}} is no longer being reconnected.": "{{name}} já não está sendo reconectada.",
+  "Reopens it in the same game after a lost connection, a kick or a crash. Never when you close it, when it joins somewhere else, or for windows opened from the website.": "Reabre no mesmo jogo depois de perder a conexão, ser expulsa ou fechar sozinha. Nunca quando você a fecha, quando ela entra em outro lugar, nem em janelas abertas pelo site.",
+  "Nexus AutoRelaunch is on for this account, so it reconnects even with this off.": "O AutoRelaunch do Nexus está ligado para esta conta, então ela reconecta mesmo com esta opção desligada.",
+  "Following the default from Settings › General (on).": "Seguindo o padrão de Configurações › Geral (ligado).",
+  "Following the default from Settings › General (off).": "Seguindo o padrão de Configurações › Geral (desligado).",
+  "Use the default from Settings › General (on)": "Usar o padrão de Configurações › Geral (ligado)",
+  "Use the default from Settings › General (off)": "Usar o padrão de Configurações › Geral (desligado)",
+  "Turned off: it stops after the attempt in progress.": "Desligada: para depois da tentativa em andamento."
 }
