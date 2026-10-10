@@ -1,11 +1,11 @@
 {
-  "version": "1.2.0",
-  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!NOTE]\nThis is a stable release intended for general use.\n\nChannel: Stable\nRelease commit: b743bc2\nApp version: 1.2.0\n\n## What's Changed\n* Community files: code of conduct, contributing, security policy, PR template by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/20\n* MultiAlt 1.2 — minor update: checks for banned accounts by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/22\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v1.1.0...v1.2.0",
-  "pub_date": "2026-10-10T04:11:57.170Z",
+  "version": "1.2.1",
+  "notes": "<!-- release-kind: fix -->\n**🩹 Hotfix**\n\n> [!NOTE]\nThis is a stable release intended for general use.\n\nChannel: Stable\nRelease commit: e5267d6\nApp version: 1.2.1\n\n## What's Changed\n* Hotfix: AFK mode focus (#23) [channel:stable] [type:fix] by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/24\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v1.2.0...v1.2.1",
+  "pub_date": "2026-10-10T20:02:09.650Z",
   "platforms": {
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmJRTTlEVTBHNzFYbjAxa3phb2p4TkhNZzNTalJNR0I3Z1BSZzBBSjFYdWpDdDNENm1pSDNVOHpMM3lqVHVRdTcrbDJ4a0pvYklwanpsSitBNDA5L1FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNjA1NTE0CWZpbGU6TXVsdGlBbHRfMS4yLjBfeDY0X2VuLVVTLm1zaQprOFVucDZSUDBoeDFRWGhLNXVvQm04ZVJqOVhqZ0ZuYlFxUHZtekJnN2JYZ1dJUVJCN243cCtnNkhVZWlJeXVnRDZQeGJRUFRQa2xWVEdpOGw5Z2RDUT09Cg==",
-      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v1.2.0/MultiAlt-Setup.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkcmZvYW5UeFF6UERFeFVMUXVWbG1TSGZnVTZLK2dtNm02RWZ0NFVjZmRjeHY3bmVaSEVNWEdLRGYzaklZUGRKWFYwZEVTM1FEWEJibkk2K2FURVQ1Y0FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNjYyNTI1CWZpbGU6TXVsdGlBbHRfMS4yLjFfeDY0X2VuLVVTLm1zaQo2ZVYyMGRsUkJwV0NSdDdOT0tINGlBWFRBYmpQeFJJTXg4L2ZJdC9jUlQyWElSbGNpaUxEZlYwaWo2cW5VTzB1SGNXNmJiWXFaenk1SFpBYnR0S1JCZz09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v1.2.1/MultiAlt-Setup.msi"
     }
   }
 }
