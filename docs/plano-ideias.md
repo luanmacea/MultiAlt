@@ -30,6 +30,7 @@ de subir a próxima:
 | 1.1.0 | telas pequenas, feedback, tamanho da interface | — | 08/10/2026 | |
 | 1.2.0 | **Conta** (8, 10, 26, 7, 9) + ícones na legenda de status | 10/10/2026 | 10/10/2026 | "minor update"; `.exe` e MSI limpos no Defender e VirusTotal |
 | próxima | **Quedas** (1, 19, 4) | branch `feature/quedas` | — | não antes de 12/10/2026; falta teste do dono com cliente real |
+| depois | **Reconexão** (2, 14, 23) | branch a partir de `feature/quedas` (10/10/2026) | — | falta build, scan (API nativa nova: `SetThreadExecutionState`) e teste do dono com cliente real |
 
 ## Pacotes
 
