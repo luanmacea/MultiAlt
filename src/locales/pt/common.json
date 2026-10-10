@@ -2114,5 +2114,8 @@
   "Session and ban status. Read-only: it doesn't sign anything out.": "Sessão e banimento. Só leitura: não desconecta nada.",
   "{{who}} — failed: {{error}}": "{{who}} — falhou: {{error}}",
   "Line {{n}}": "Linha {{n}}",
-  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "O Roblox está restringindo esta conta (banida, advertida ou em análise). Confira em roblox.com/not-approved e depois adicione de novo."
+  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "O Roblox está restringindo esta conta (banida, advertida ou em análise). Confira em roblox.com/not-approved e depois adicione de novo.",
+  "At least 5 seconds.": "No mínimo 5 segundos.",
+  "Send every: minutes": "Enviar a cada: minutos",
+  "Send every: seconds": "Enviar a cada: segundos"
 }
