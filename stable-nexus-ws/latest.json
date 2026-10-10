@@ -1,11 +1,11 @@
 {
-  "version": "1.1.0",
-  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!NOTE]\nThis is a stable release intended for general use.\n\nChannel: Stable\nRelease commit: 8199ee7\nApp version: 1.1.0\n\n## What's Changed\n* MultiAlt 1.1: fits smaller screens, Send feedback, interface size by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/19\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v1.0.1...v1.1.0",
-  "pub_date": "2026-10-08T09:35:46.0807268Z",
+  "version": "1.2.0",
+  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!NOTE]\nThis is a stable release intended for general use.\n\nChannel: Stable\nRelease commit: b743bc2\nApp version: 1.2.0\n\n## What's Changed\n* Community files: code of conduct, contributing, security policy, PR template by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/20\n* MultiAlt 1.2 — minor update: checks for banned accounts by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/22\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v1.1.0...v1.2.0",
+  "pub_date": "2026-10-10T04:15:37.7866248Z",
   "platforms": {
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclVOQWRqQ1pLUkc1aUNuWGJ5czE2S2VKNnk2OVIwY3Q4dWV1VUxHdEpBRG9jOUZKbWlMaE95K0hrYUs4Qy91RGhGM0tUd0JOazZtMlJMdm0rd1FmSXdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNDUyMTQ1CWZpbGU6TXVsdGlBbHRfMS4xLjBfeDY0X2VuLVVTLm1zaQpON0VCakk2aHZIeXVCK0VNWk9vM016RHZpZ0QvR1B1bGN3aTJsVjVYLy9LVGpvb2I0NzBzWDk3em9rWVdLU0dWb1Y0KzJEUVBIQmJ6ZlZpbW4rcVZBdz09Cg==",
-      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v1.1.0/MultiAlt_1.1.0_x64_en-US_full-nexus-ws.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclN5Rmd4dTFZM2FLemU2THJKdDNqcGJvSGFja3p6Yk8yRnpNVlpWcjZMTVNlRzhkbUZOeWpGdURTSjJhWUlIbEY1WXVLZGdERmxCczV0NEJZTkQwZEFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNjA1NzM3CWZpbGU6TXVsdGlBbHRfMS4yLjBfeDY0X2VuLVVTLm1zaQpzc20xWUc5V25LYmR2ZTNqZnJUei9SQ3ZrTFJ1bTgyS0RkaUxVUDdwSGJ2NnRuSmQvSXNMK3VwTm9WYmh6bWdtRFJ0RXlwK09QcUxWVktWUnFZYVhBQT09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v1.2.0/MultiAlt_1.2.0_x64_en-US_full-nexus-ws.msi"
     }
   }
 }
