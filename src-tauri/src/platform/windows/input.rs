@@ -171,8 +171,8 @@ fn send_mouse(dx: i32, dy: i32, flags: u32) -> bool {
     unsafe { SendInput(1, &input, std::mem::size_of::<INPUT>() as i32) == 1 }
 }
 
-/// Um movimento de mouse de **zero** pixel, para o fim do ciclo do AFK mode
-/// poder devolver o foco (issue #23).
+/// Um movimento de mouse de **zero** pixel, para o AFK mode poder trazer a janela
+/// da conta e, no fim do ciclo, devolver o foco (issue #23).
 ///
 /// O Windows só aceita o `SetForegroundWindow` de quem gerou a última entrada.
 /// No ciclo normal essa entrada é a tecla ou o clique do AFK; se o usuário

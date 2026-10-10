@@ -802,7 +802,10 @@ fn run_afk_cycle_blocking(
                 // Quem trabalha com os clientes minimizados não pediu para
                 // vê-los: o estado é devolvido depois do envio.
                 let was_minimized = windows::window_is_minimized(hwnd);
-                let requested = windows::focus_window(hwnd);
+                // Recusado (o usuário mexeu em outra janela), tenta de novo
+                // depois de um movimento de mouse de zero pixel — ver
+                // `bring_forward_for_cycle`.
+                let requested = windows::bring_forward_for_cycle(hwnd);
                 focus_taken = true;
                 cycle_windows.push(hwnd);
                 std::thread::sleep(std::time::Duration::from_millis(AFK_FOCUS_SETTLE_MS));

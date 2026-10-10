@@ -159,6 +159,10 @@ trait ForegroundApi {
     /// última entrada, e o usuário pode ter mexido em outra janela depois da
     /// tecla do ciclo. Não lê entrada nenhuma.
     fn set_foreground_after_nudge(&self, hwnd: isize) -> bool;
+    /// `focus_window`: traz a janela da conta (desminimiza, se preciso).
+    fn bring(&self, hwnd: isize) -> bool;
+    /// `focus_window` depois do movimento de zero pixel.
+    fn bring_after_nudge(&self, hwnd: isize) -> bool;
     fn settle(&self);
 }
 
@@ -203,6 +207,28 @@ fn give_focus_back_with(api: &impl ForegroundApi, target: isize, cycle_windows: 
     }
 }
 
+/// Traz a janela da conta para frente no começo do envio do AFK mode e diz se
+/// ela ficou na frente.
+///
+/// Mesma regra da volta: o Windows recusa quem não gerou a última entrada — o
+/// usuário trabalhando em outra janela. Recusado, manda o movimento de zero
+/// pixel e tenta mais uma vez. Medido no teste do dono (10/10/2026): sem isso,
+/// com o foco devolvido de verdade no fim do ciclo, todo ciclo seguinte pulava
+/// todas as contas.
+fn bring_forward_with(api: &impl ForegroundApi, target: isize) -> bool {
+    if api.foreground() == target {
+        return true;
+    }
+    api.bring(target);
+    api.settle();
+    if api.foreground() == target {
+        return true;
+    }
+    api.bring_after_nudge(target);
+    api.settle();
+    api.foreground() == target
+}
+
 struct RealDesktop;
 
 impl ForegroundApi for RealDesktop {
@@ -219,9 +245,22 @@ impl ForegroundApi for RealDesktop {
         nudge_for_focus_back();
         give_focus_back(hwnd as HWND)
     }
+    fn bring(&self, hwnd: isize) -> bool {
+        focus_window(hwnd as HWND)
+    }
+    fn bring_after_nudge(&self, hwnd: isize) -> bool {
+        nudge_for_focus_back();
+        focus_window(hwnd as HWND)
+    }
     fn settle(&self) {
         std::thread::sleep(Duration::from_millis(GIVE_BACK_SETTLE_MS));
     }
+}
+
+/// Começo do envio do AFK mode para uma conta: traz a janela dela e diz se
+/// ficou na frente, tentando de novo se o Windows recusar.
+pub fn bring_forward_for_cycle(hwnd: HWND) -> bool {
+    bring_forward_with(&RealDesktop, hwnd as isize)
 }
 
 /// Fim do ciclo do AFK mode: devolve o foco à janela em que o usuário estava,
