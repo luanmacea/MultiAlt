@@ -2069,7 +2069,6 @@
   "Type at least 2 characters to search.": "Escribe al menos 2 caracteres para buscar.",
   "type: {{type}}": "tipo: {{type}}",
   "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Entrada al grupo terminada: {{joined}} entraron, {{pending}} pendientes, {{confirm}} necesitan confirmación",
-  "{{name}} in Roblox: {{status}}": "{{name}} en Roblox: {{status}}",
   "Closed without leaving the game": "Se cerró sin salir del juego",
   "Disconnected: idle for too long": "Se cayó: estuvo inactiva demasiado tiempo",
   "Disconnected: lost connection": "Se cayó: perdió la conexión",
@@ -2116,7 +2115,6 @@
   "{{name}} is back in the game": "{{name}} volvió al juego",
   "Accounts that dropped go back to the same game on their own": "Las cuentas que se cayeron vuelven solas al mismo juego",
   "Auto-reconnect": "Reconexión automática",
-  "Auto-reconnect — {{name}}: {{status}}": "Reconexión automática — {{name}}: {{status}}",
   "Dismiss {{name}}": "Descartar {{name}}",
   "Gave up after {{count}} tries": "Se rindió después de {{count}} intentos",
   "Hide this line": "Ocultar esta línea",
@@ -2160,5 +2158,7 @@
   "Leaves 2 minutes between accounts, so each one has time to load. The slowest option. Off: accounts start spaced by the delay below.": "Deja 2 minutos entre una cuenta y la siguiente, para que cada una tenga tiempo de cargar. Es la opción más lenta. Desactivado: las cuentas empiezan espaciadas por el retraso de abajo.",
   "Not used while “Launch one account at a time” is on. It applies again when you turn that off.": "No se usa mientras “Iniciar una cuenta a la vez” está activado. Vuelve a aplicarse cuando desactives esa opción.",
   "Start the next account once the previous one is in the game": "Empezar la siguiente cuenta en cuanto la anterior esté en el juego",
-  "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer).": "No espera todo el retraso de arriba: nunca antes de 8 segundos, como máximo 20 (o el retraso, si es mayor)."
+  "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer).": "No espera todo el retraso de arriba: nunca antes de 8 segundos, como máximo 20 (o el retraso, si es mayor).",
+  "{{name}} in Roblox — {{status}}": "{{name}} en Roblox — {{status}}",
+  "Auto-reconnect ({{name}}) — {{status}}": "Reconexión automática ({{name}}) — {{status}}"
 }
