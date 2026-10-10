@@ -2146,5 +2146,7 @@
   "Try now": "Try now",
   "Use the default from Settings › General": "Use the default from Settings › General",
   "Waiting for the internet to come back (attempt {{attempt}}/{{max}})": "Waiting for the internet to come back (attempt {{attempt}}/{{max}})",
-  "Auto-reconnect is bringing back {{count}} accounts.": "Auto-reconnect is bringing back {{count}} accounts."
+  "Auto-reconnect is bringing back {{count}} accounts.": "Auto-reconnect is bringing back {{count}} accounts.",
+  "Keep the PC awake while AFK Mode or Auto Rejoin runs": "Keep the PC awake while AFK Mode or Auto Rejoin runs",
+  "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off.": "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off."
 }

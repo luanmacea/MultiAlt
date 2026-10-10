@@ -461,6 +461,16 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
           description="Default for every account (each one can change it in its panel): reopens a client this app opened in the same game after a lost connection, a kick or a crash."
         />
       )}
+      {/* commands/keep_awake.rs: SetThreadExecutionState só com o sistema
+          exigido — a tela continua apagando. */}
+      {isWindows && (
+        <Toggle
+          checked={s.get("General", "KeepPcAwake", "true") !== "false"}
+          onChange={(v) => s.setBool("General", "KeepPcAwake", v)}
+          label="Keep the PC awake while AFK Mode or Auto Rejoin runs"
+          description="Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off."
+        />
+      )}
       <Toggle
         checked={s.getBool("General", "ShowPresence")}
         onChange={(v) => s.setBool("General", "ShowPresence", v)}
