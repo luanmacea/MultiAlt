@@ -339,12 +339,14 @@ describe("automacao nao infla o contador de downloads", () => {
 
 /**
  * As duas edicoes: a padrao (o `MultiAlt-Setup.msi`) sai sem Nexus e sem Web
- * Server; a completa liga os dois. A distribuicao de avatares em lote
- * (`avatar-batch`) vai nas **duas** (decisao do dono, 08/10/2026): ela chegou a
- * sair da padrao, mas tira-la nao mudou nada que importasse, e o usuario perdia
- * a funcao. O interruptor fica: para tira-la da padrao de novo, e trocar o
- * `--features avatar-batch` e o `VITE_ENABLE_AVATAR_BATCH` da padrao (e estes
- * testes) — o cartao "edicao completa" e a troca de edicao pelo app ja existem.
+ * Server; a completa liga os dois. Decisao do dono (10/10/2026): a padrao leva
+ * **tudo menos o que faz o scan marca-la** — hoje so Nexus e Web API ficam so na
+ * completa. O que a padrao leva mora na feature `standard` do Cargo.toml, e o
+ * workflow compila `--features standard` sem lista escrita. A distribuicao de
+ * avatares em lote (`avatar-batch`) esta no `standard` desde 08/10/2026; para
+ * tira-la da padrao de novo, e tira-la do `standard` e trocar o
+ * `VITE_ENABLE_AVATAR_BATCH` da padrao (e estes testes) — o cartao "edicao
+ * completa" e a troca de edicao pelo app ja existem.
  */
 describe("edicoes no release-v4.yml", () => {
   const stepText = (name) => {
@@ -353,20 +355,52 @@ describe("edicoes no release-v4.yml", () => {
     return step.lines.join("\n");
   };
 
-  it("a padrao compila sem Nexus e Web Server, com a distribuicao de avatares", () => {
+  const cargoFeatures = () => {
+    const cargo = readFileSync(path.resolve(__dirname, "..", "..", "src-tauri", "Cargo.toml"), "utf8").replace(/\r\n/g, "\n");
+    const section = /\n\[features\]\n([\s\S]*?)\n\[/.exec(cargo)[1];
+    return new Map(
+      [...section.matchAll(/^([\w-]+)\s*=\s*\[([^\]]*)\]/gm)].map((m) => [
+        m[1],
+        [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]),
+      ])
+    );
+  };
+
+  /** Tudo o que uma feature liga, seguindo as features que ela inclui. */
+  const expand = (features, name, seen = new Set()) => {
+    for (const dep of features.get(name) ?? []) {
+      if (seen.has(dep) || !features.has(dep)) continue;
+      seen.add(dep);
+      expand(features, dep, seen);
+    }
+    return seen;
+  };
+
+  it("a padrao compila so a feature standard, sem Nexus e Web Server, com a distribuicao de avatares", () => {
     const text = stepText("Build and publish standard release");
-    expect(text).toContain("args: -- --no-default-features --features avatar-batch");
+    expect(text).toContain("args: -- --no-default-features --features standard");
+    expect(text).not.toMatch(/--features standard,|--features [\w-]+,/);
     expect(text).toMatch(/VITE_ENABLE_AVATAR_BATCH: "true"/);
     expect(text).toMatch(/VITE_ENABLE_NEXUS: "false"/);
     expect(text).toMatch(/VITE_ENABLE_WEBSERVER: "false"/);
   });
 
+  it("a feature standard do Cargo leva o lote de avatares e deixa Nexus e Web API so na completa", () => {
+    const features = cargoFeatures();
+    expect(features.has("standard")).toBe(true);
+    const standard = expand(features, "standard");
+    expect(standard.has("avatar-batch")).toBe(true);
+    expect(standard.has("nexus")).toBe(false);
+    expect(standard.has("webserver")).toBe(false);
+    expect(standard.has("full")).toBe(false);
+  });
+
   /**
    * Decisao do dono (10/10/2026): a completa tem **toda** feature opcional
    * (nexus, webserver, avatar-batch, live-audio...). A lista mora num lugar so,
-   * a feature `full` do Cargo.toml, e o workflow compila `--features full` sem
-   * lista escrita: feature nova que fica fora da padrao entra no `full` e a
-   * completa a pega sozinha.
+   * o Cargo.toml (`full` = `standard` + o que fica so na completa), e o workflow
+   * compila `--features full` sem lista escrita: feature nova entra no
+   * `standard` ou no `full` e a completa a pega sozinha.
    */
   it("a completa compila so a feature full, com toda a UI ligada", () => {
     const text = stepText("Build full edition (every feature)");
@@ -384,18 +418,14 @@ describe("edicoes no release-v4.yml", () => {
     }
   });
 
-  it("a feature full do Cargo liga toda feature opcional, e o default e ela", () => {
-    const cargo = readFileSync(path.resolve(__dirname, "..", "..", "src-tauri", "Cargo.toml"), "utf8").replace(/\r\n/g, "\n");
-    const section = /\n\[features\]\n([\s\S]*?)\n\[/.exec(cargo)[1];
-    const features = new Map(
-      [...section.matchAll(/^([\w-]+)\s*=\s*\[([^\]]*)\]/gm)].map((m) => [
-        m[1],
-        [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]),
-      ])
-    );
-    const optional = [...features.keys()].filter((name) => name !== "default" && name !== "full");
+  it("a feature full do Cargo liga toda feature opcional (direto ou via standard), e o default e ela", () => {
+    const features = cargoFeatures();
+    const optional = [...features.keys()].filter((name) => !["default", "full", "standard"].includes(name));
     expect(optional).toEqual(expect.arrayContaining(["nexus", "webserver", "avatar-batch"]));
-    expect([...features.get("full")].sort()).toEqual([...optional].sort());
+    expect(features.get("full")).toContain("standard");
+    const full = expand(features, "full");
+    full.delete("standard");
+    expect([...full].sort()).toEqual([...optional].sort());
     expect(features.get("default")).toEqual(["full"]);
   });
 
