@@ -33,7 +33,7 @@ struct PlatformCapabilities {
     supports_updater: bool,
     supports_client_settings: bool,
     /// Volume ao vivo por cliente: só no Windows e só com a feature
-    /// `live-audio` no binário (fora das duas edições por padrão).
+    /// `live-audio` no binário (só na edição completa).
     supports_live_audio: bool,
     reasons: Vec<String>,
     warnings: Vec<String>,

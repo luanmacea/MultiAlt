@@ -41,7 +41,7 @@ function afk(active: boolean): AfkStatus {
   return {
     active,
     startedAtMs: active ? 1 : null,
-    intervalMinutes: 10,
+    intervalSeconds: 600,
     key: "space",
     mode: "key",
     clickX: 50,

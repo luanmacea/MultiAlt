@@ -271,7 +271,8 @@ interface AfkRuntime {
 
 interface AfkSessionFields {
   startedAtMs: number;
-  intervalMinutes: number;
+  /** Segundos entre dois envios da mesma conta (`clamp_afk_interval_seconds`). */
+  intervalSeconds: number;
   key: string;
   /** `AfkMode::as_str()`. */
   mode: "key" | "click";
@@ -329,11 +330,12 @@ function afkJoined(userId: number, atMs: number): AfkRuntime {
  * `focusDenied`.
  */
 function afkRunningSession(world: AfkWorld, sinceMinutes: number): AfkSessionFields {
-  const intervalMinutes = 10;
+  const intervalSeconds = 600;
   const startedAtMs = Date.now() - sinceMinutes * 60_000;
-  const cycles = Math.floor(sinceMinutes / intervalMinutes);
-  // Todo ciclo remarca o relógio de quem ele visitou — com ou sem envio.
-  const lastVisitAtMs = startedAtMs + cycles * intervalMinutes * 60_000;
+  const cycles = Math.floor((sinceMinutes * 60) / intervalSeconds);
+  // Todo ciclo remarca o relógio de quem ele visitou — com ou sem envio. (O fim
+  // de cada ciclo empurra o seguinte uns segundos; aqui não faz diferença.)
+  const lastVisitAtMs = startedAtMs + cycles * intervalSeconds * 1000;
   const inMode = [
     ...accounts.filter((a) => world.withClient.has(a.UserID)).slice(0, 3),
     ...accounts.filter((a) => !world.withClient.has(a.UserID)).slice(0, 1),
@@ -359,7 +361,7 @@ function afkRunningSession(world: AfkWorld, sinceMinutes: number): AfkSessionFie
   });
   return {
     startedAtMs,
-    intervalMinutes,
+    intervalSeconds,
     key: "Space",
     mode: "key",
     clickX: 50,
@@ -425,7 +427,7 @@ function afkHandler(
       return {
         active: false,
         startedAtMs: null,
-        intervalMinutes: 0,
+        intervalSeconds: 0,
         key: "",
         mode: "key",
         clickX: 50,
@@ -433,11 +435,11 @@ function afkHandler(
         accounts: [],
       };
     }
-    const intervalMs = session.intervalMinutes * 60_000;
+    const intervalMs = session.intervalSeconds * 1000;
     return {
       active: true,
       startedAtMs: session.startedAtMs,
-      intervalMinutes: session.intervalMinutes,
+      intervalSeconds: session.intervalSeconds,
       key: session.key,
       mode: session.mode,
       clickX: session.clickX,
@@ -503,17 +505,18 @@ function afkHandler(
   function tick(current: Session) {
     loopTimer = window.setTimeout(async () => {
       if (session !== current || current.stopping) return;
-      const intervalMs = current.intervalMinutes * 60_000;
-      // Marcado antes do ciclo, como o `cycle_at` do laço.
-      const cycleAtMs = Date.now();
+      const intervalMs = current.intervalSeconds * 1000;
+      const now = Date.now();
       const due = [...current.accounts.values()]
-        .filter((entry) => cycleAtMs - entry.lastSendAtMs >= intervalMs)
+        .filter((entry) => now - entry.lastSendAtMs >= intervalMs)
         .map((entry) => entry.userId)
         .sort((a, b) => a - b);
       if (due.length > 0) {
         const outcome = await runCycle(due, true);
         if (session !== current || current.stopping) return;
-        apply(current, outcome, cycleAtMs);
+        // Marcado com o fim do ciclo, como o `finished_at` do laço: a espera
+        // conta de quando o ciclo acabou.
+        apply(current, outcome, Date.now());
         publish();
         const sent = sentIn(outcome);
         if (sent > 0) harnessEmit("afk-cycle", { sent });
@@ -566,8 +569,8 @@ function afkHandler(
           const now = Date.now();
           begin({
             startedAtMs: now,
-            // `clamp_afk_interval_minutes`
-            intervalMinutes: Math.min(120, Math.max(1, Math.trunc(Number(args.intervalMinutes) || 0))),
+            // `clamp_afk_interval_seconds`
+            intervalSeconds: Math.min(7_200, Math.max(5, Math.trunc(Number(args.intervalSeconds) || 0))),
             key,
             mode,
             clickX: clampPercent(args.clickX),
@@ -2184,6 +2187,7 @@ const SCENARIOS: Record<string, () => void> = {
   "afk-mode"() {
     settings.Afk = {
       IntervalMinutes: "10",
+      IntervalSeconds: "0",
       BeepOnCycle: "false",
       Mode: "key",
       ClickX: "50",
@@ -2204,6 +2208,7 @@ const SCENARIOS: Record<string, () => void> = {
   "afk-mode-running"() {
     settings.Afk = {
       IntervalMinutes: "10",
+      IntervalSeconds: "0",
       Key: "Space",
       BeepOnCycle: "false",
       Mode: "key",

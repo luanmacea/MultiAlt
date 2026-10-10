@@ -5,12 +5,12 @@
 // mixer de volume do Windows (sessões de áudio por processo), com o jogo
 // aberto — não mexe no arquivo de configurações do Roblox.
 //
-// **Atrás da feature `live-audio` do Cargo, desligada nas duas edições.** A
-// sessão de áudio só se alcança por COM (`IAudioSessionManager2`), que é
-// código nativo novo no binário — e antivírus olham para isso. Sem a feature
-// este arquivo compila só a decisão (função pura, testada) e a opção some da
-// tela (`supportsLiveAudio = false`). Ligar é `--features live-audio`, sem
-// mexer em código. Ver docs/features/performance.md.
+// **Atrás da feature `live-audio` do Cargo, só na edição completa** (entra
+// pelo `full`). A sessão de áudio só se alcança por COM
+// (`IAudioSessionManager2`), que é código nativo novo no binário — e antivírus
+// olham para isso. Sem a feature (edição padrão) este arquivo compila só a
+// decisão (função pura, testada) e a opção some da tela
+// (`supportsLiveAudio = false`). Ver docs/features/performance.md.
 //
 // Sem crate novo: o `windows-sys` não traz interfaces COM, então as cinco
 // tabelas de métodos usadas (enumerador de dispositivos, dispositivo, gerenciador
@@ -537,28 +537,40 @@ mod live_audio_tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// O que decide se a feature vai para a release: o Cargo.toml.
+    /// O que decide em que edição a feature vai: o Cargo.toml (lista do
+    /// `full`) e as linhas de build do workflow.
     #[test]
-    fn live_audio_is_off_in_both_release_editions() {
+    fn live_audio_ships_only_in_the_full_edition() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        let default_line = manifest
+        let full_line = manifest
             .lines()
-            .find(|l| l.trim_start().starts_with("default ="))
-            .expect("default features");
+            .find(|l| l.trim_start().starts_with("full ="))
+            .expect("feature full");
         assert!(
-            !default_line.contains("live-audio"),
-            "live-audio entrou na edição completa: {default_line}"
+            full_line.contains("\"live-audio\""),
+            "live-audio saiu da edição completa: {full_line}"
         );
         assert!(
             manifest.contains("live-audio = [\"windows-sys/Win32_System_Com\"]"),
             "a feature live-audio só pode ligar o COM do windows-sys"
         );
-        // A edição completa da release liga features pelo nome; a padrão sai
-        // com --no-default-features. Nenhuma das duas cita live-audio.
+        // A completa compila só `--features full`; a padrão sai com
+        // `--no-default-features` e liga features pelo nome — nunca live-audio.
         let workflow =
             std::fs::read_to_string(root.join("../.github/workflows/release-v4.yml")).unwrap();
-        assert!(!workflow.contains("live-audio"));
+        let standard_args: Vec<&str> = workflow
+            .lines()
+            .filter(|l| l.contains("--no-default-features"))
+            .collect();
+        assert!(!standard_args.is_empty(), "build da edição padrão sumiu do workflow");
+        for line in &standard_args {
+            assert!(
+                !line.contains("live-audio") && !line.contains("full"),
+                "live-audio entrou na edição padrão: {line}"
+            );
+        }
+        assert!(!workflow.contains("live-audio"), "a completa não lista features à parte");
     }
 
     /// COM fica isolado aqui, atrás da feature: nenhum outro arquivo do

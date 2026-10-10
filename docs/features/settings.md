@@ -165,7 +165,7 @@ Fora dos perfis, uma chave para todos os clientes (cartão **While you play** da
 | Chave | Default | Significado |
 |---|---|---|
 | `FollowFocus` | `false` | Otimização que segue o foco: o cliente em uso (que o app abriu) a toda velocidade, os outros com a política de fundo; 35 s de carência para cliente novo. |
-| `MuteBackgroundClients` | `false` | Fundo mudo: só o cliente em uso faz som (mixer do Windows). Só vale no binário com a feature `live-audio` (fora das duas edições); sem ela a opção nem aparece. |
+| `MuteBackgroundClients` | `false` | Fundo mudo: só o cliente em uso faz som (mixer do Windows). Só vale no binário com a feature `live-audio` (só na edição completa); sem ela (edição padrão) a opção nem aparece. |
 
 Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
 
@@ -188,7 +188,8 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 
 | Chave | Default | Significado |
 |---|---|---|
-| `IntervalMinutes` | `10` | Minutos entre dois envios de tecla da **mesma** conta (1–120). |
+| `IntervalMinutes` | `10` | Parte em minutos do intervalo entre dois envios da **mesma** conta (0–120). |
+| `IntervalSeconds` | `0` | Parte em segundos do mesmo intervalo (0–59). O total (mínimo 5 s, máximo 120 min) conta do **fim** de cada ciclo. |
 | `Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada do AFK mode. Vazio = o modo não liga. |
 | `BeepOnCycle` | `false` | Bipe curto (sintetizado, sem arquivo de áudio) quando um ciclo de envio termina. |
 

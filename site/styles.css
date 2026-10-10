@@ -312,14 +312,6 @@ section { scroll-margin-top: 72px; }
 .formats { margin-top: clamp(48px, 7vw, 80px); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: clamp(20px, 3vw, 32px); background: var(--deep); }
 .formats-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
 .formats-head h3 { font-size: 1.35rem; letter-spacing: -.02em; }
-.formats-note { margin-top: 10px; color: var(--muted); font-size: 15px; max-width: 46em; }
-.switch { display: inline-flex; align-items: center; gap: 10px; font-size: 14.5px; color: var(--muted); cursor: pointer; user-select: none; }
-.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.switch-ui { width: 38px; height: 22px; border-radius: 99px; background: var(--line-2); position: relative; transition: background-color .2s; flex: none; }
-.switch-ui::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s; }
-.switch input:checked + .switch-ui { background: var(--indigo); }
-.switch input:checked + .switch-ui::after { transform: translateX(16px); }
-.switch input:focus-visible + .switch-ui { outline: 2px solid var(--sky); outline-offset: 3px; }
 table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 15.5px; }
 th { text-align: left; font-weight: 600; color: var(--faint); font-size: 13.5px; padding: 0 12px 10px 0; border-bottom: 1px solid var(--line-2); }
 td { padding: 16px 12px 16px 0; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--muted); }

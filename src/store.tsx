@@ -270,7 +270,8 @@ export interface AfkAccountStatus {
 export interface AfkStatus {
   active: boolean;
   startedAtMs: number | null;
-  intervalMinutes: number;
+  /** Segundos entre dois envios da mesma conta, contados do fim do ciclo. */
+  intervalSeconds: number;
   key: string;
   mode: AfkMode;
   /** Ponto padrão do modo clique, em % da janela. */
@@ -281,7 +282,8 @@ export interface AfkStatus {
 
 export interface AfkStartConfig {
   userIds: number[];
-  intervalMinutes: number;
+  /** Minutos e segundos da tela somados; o backend trava em 5..=7200. */
+  intervalSeconds: number;
   /** Uma das teclas de `afkKeys`; o backend recusa qualquer outra. No modo clique, ignorada. */
   key: string;
   mode: AfkMode;
@@ -2122,7 +2124,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try {
       const status = await invoke<AfkStatus>("start_afk_mode", {
         userIds: config.userIds,
-        intervalMinutes: config.intervalMinutes,
+        intervalSeconds: config.intervalSeconds,
         key: config.key,
         mode: config.mode,
         clickX: config.clickX,

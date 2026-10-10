@@ -436,8 +436,11 @@ impl SettingsStore {
         // usuario o modo nao liga, e chave vazia nao chega a ser gravada no INI
         // (`IniSection::set` trata valor em branco como remocao). `Mode` nasce
         // `key` (o modo que ja existia) e o ponto do modo clique no meio da janela.
+        // O intervalo e `IntervalMinutes` + `IntervalSeconds`; os segundos nascem
+        // `0`, entao quem ja usava o modo continua com o mesmo intervalo.
         let afk_defaults: &[(&str, &str)] = &[
             ("IntervalMinutes", "10"),
+            ("IntervalSeconds", "0"),
             ("Key", ""),
             ("BeepOnCycle", "false"),
             ("Mode", "key"),
@@ -790,6 +793,7 @@ mod settings_store_tests {
             "Afk",
             &[
                 ("IntervalMinutes", "10"),
+                ("IntervalSeconds", "0"),
                 ("BeepOnCycle", "false"),
                 ("Mode", "key"),
                 ("ClickX", "50"),
@@ -909,6 +913,19 @@ mod settings_store_tests {
             undocumented.is_empty(),
             "undocumented defaults (update docs/features/settings.md): {undocumented:?}"
         );
+    }
+
+    /// O intervalo do AFK mode ganhou segundos: quem já tinha `IntervalMinutes`
+    /// continua com os minutos dele e ganha `IntervalSeconds = 0` — o mesmo
+    /// intervalo de antes.
+    #[test]
+    fn an_existing_afk_interval_keeps_its_minutes_and_gains_zero_seconds() {
+        let s = from_existing("afk-seconds", "[Afk]
+IntervalMinutes=25
+Key=Space
+");
+        assert_eq!(s.get("Afk", "IntervalMinutes").unwrap().as_deref(), Some("25"));
+        assert_eq!(s.get("Afk", "IntervalSeconds").unwrap().as_deref(), Some("0"));
     }
 
     #[test]

@@ -30,7 +30,7 @@ function afkRunning(): AfkStatus {
   return {
     active: true,
     startedAtMs: 1_000,
-    intervalMinutes: 10,
+    intervalSeconds: 600,
     key: "Space",
     mode: "key",
     clickX: 50,
