@@ -171,6 +171,8 @@ struct LaunchPresetView {
     next_open_at: Option<i64>,
     next_close_at: Option<i64>,
     open_clients: usize,
+    /// As contas desses clientes: a tela pergunta antes de fechar, nomeando-as.
+    open_user_ids: Vec<i64>,
 }
 
 fn local_naive_to_ms(at: chrono::NaiveDateTime) -> Option<i64> {
@@ -190,11 +192,12 @@ fn get_launch_presets(store: tauri::State<'_, LaunchPresetStore>) -> Result<Vec<
         .into_iter()
         .map(|preset| {
             let schedule = preset.schedule.clone().unwrap_or_default();
-            let open_clients = preset_clients_still_open(&preset_run_snapshot(&preset.id), &tracked).len();
+            let still_open = preset_clients_still_open(&preset_run_snapshot(&preset.id), &tracked);
             LaunchPresetView {
                 next_open_at: next_open_after(&schedule, now).and_then(local_naive_to_ms),
                 next_close_at: next_close_after(&schedule, now).and_then(local_naive_to_ms),
-                open_clients,
+                open_clients: still_open.len(),
+                open_user_ids: still_open.iter().map(|c| c.user_id).collect(),
                 preset,
             }
         })

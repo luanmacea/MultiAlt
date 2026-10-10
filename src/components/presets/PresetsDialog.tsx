@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { X, Play, Pencil, Plus, Clock, Trash2, AlertTriangle } from "lucide-react";
@@ -6,6 +6,7 @@ import { useStore } from "../../store";
 import { useModalClose } from "../../hooks/useModalClose";
 import { useBackdropClose } from "../../hooks/useBackdropClose";
 import { useConfirm } from "../../hooks/usePrompt";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useJoinOnlineWarning } from "../../hooks/useJoinOnlineWarning";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import { useTr } from "../../i18n/text";
@@ -23,10 +24,15 @@ import {
   matchingTarget,
   newPresetDraft,
   presetDayToJsDay,
-  presetProblem,
+  presetFieldProblem,
+  type PresetField,
 } from "../../utils/presets";
 
 const CUSTOM_TARGET = "custom";
+/** O mesmo teto do backend (`MAX_PRESET_NAME_CHARS`). */
+const MAX_NAME_CHARS = 60;
+/** A partir de quantos caracteres o contador aparece. */
+const NAME_COUNTER_FROM = MAX_NAME_CHARS - 10;
 
 /** Nome curto do dia no idioma do app (0 = domingo, como o JS). */
 function weekdayShort(jsDay: number, language: string): string {
@@ -51,12 +57,20 @@ export function PresetsDialog() {
   const { visible, closing, handleClose } = useModalClose(open, store.closePresetsDialog);
   const backdropClose = useBackdropClose(handleClose);
   const [editing, setEditing] = useState<LaunchPreset | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Cada abertura começa no que pediu quem abriu: lista, ou o editor com o
   // rascunho (Choose Game).
   useEffect(() => {
     if (open) setEditing(store.presetsDialog?.draft ?? null);
   }, [open, store.presetsDialog]);
+
+  // O foco entra no diálogo ao abrir e ao trocar lista ↔ editor (o botão que
+  // tinha o foco some). Se o editor já pôs o foco no Nome, fica lá.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (visible && dialog && !dialog.contains(document.activeElement)) dialog.focus();
+  }, [visible, editing]);
 
   if (!visible) return null;
 
@@ -68,11 +82,13 @@ export function PresetsDialog() {
       {...backdropClose}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("Launch presets")}
         data-testid="presets-dialog"
-        className={`theme-modal-scope theme-panel theme-border border rounded-2xl shadow-2xl w-[600px] max-w-[calc(100vw-24px)] max-h-[min(720px,calc(100vh-112px))] flex flex-col overflow-hidden ${
+        tabIndex={-1}
+        className={`outline-none theme-modal-scope theme-panel theme-border border rounded-2xl shadow-2xl w-[600px] max-w-[calc(100vw-24px)] max-h-[min(720px,calc(100vh-112px))] flex flex-col overflow-hidden ${
           closing ? "animate-scale-out" : "animate-scale-in"
         }`}
         onClick={(e) => e.stopPropagation()}
@@ -124,6 +140,9 @@ function PresetList({
   const store = useStore();
   const [presets, setPresets] = useState<LaunchPresetView[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Releitura local depois de uma ação na linha ("Close them"): não depende
+  // do evento do backend chegar para a linha parar de mostrar o que já fechou.
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -137,7 +156,7 @@ function PresetList({
     return () => {
       alive = false;
     };
-  }, [store.presetsRevision]);
+  }, [store.presetsRevision, reload]);
 
   return (
     <>
@@ -157,7 +176,13 @@ function PresetList({
           </div>
         )}
         {presets?.map((preset) => (
-          <PresetRow key={preset.id} preset={preset} onEdit={() => onEdit(preset)} onLaunched={onLaunched} />
+          <PresetRow
+            key={preset.id}
+            preset={preset}
+            onEdit={() => onEdit(preset)}
+            onLaunched={onLaunched}
+            onChanged={() => setReload((n) => n + 1)}
+          />
         ))}
       </div>
       <div className="shrink-0 flex items-center justify-between gap-2 px-5 py-3 border-t theme-border">
@@ -181,17 +206,24 @@ function PresetRow({
   preset,
   onEdit,
   onLaunched,
+  onChanged,
 }: {
   preset: LaunchPresetView;
   onEdit: () => void;
   onLaunched: () => void;
+  onChanged: () => void;
 }) {
   const t = useTr();
   const store = useStore();
+  const confirm = useConfirm();
   const { i18n } = useTranslation();
   const confirmJoinOnline = useJoinOnlineWarning();
   const identity = useGameIdentity(preset.placeId);
   const [busy, setBusy] = useState(false);
+  const [closing, setClosing] = useState(false);
+  // Trava síncrona: o segundo clique de um duplo clique chega antes do
+  // `setClosing` re-renderizar o botão desabilitado.
+  const closingRef = useRef(false);
 
   const known = new Set(store.accounts.map((a) => a.UserID));
   const present = preset.userIds.filter((id) => known.has(id));
@@ -226,11 +258,36 @@ function PresetRow({
   }
 
   async function closeTheirs() {
+    if (closingRef.current) return;
+    closingRef.current = true;
     try {
+      // Pergunta antes, nomeando quem vai fechar (como o Delete já pergunta).
+      const ids = preset.openUserIds?.length ? preset.openUserIds : present;
+      const names = ids.map((id) =>
+        accountLabel(
+          store.accounts.find((a) => a.UserID === id),
+          store,
+          t("User {{id}}", { id })
+        )
+      );
+      const ok = await confirm(
+        t("Close the {{count}} window(s) opened by {{name}}? Accounts: {{list}}", {
+          count: preset.openClients,
+          name: preset.name,
+          list: names.join(", "),
+        }),
+        true
+      );
+      if (!ok) return;
+      setClosing(true);
       const closed = await invoke<number>("close_preset_clients", { id: preset.id });
       store.addToast(t("Closed {{count}} window(s) opened by {{name}}", { count: closed, name: preset.name }));
+      onChanged();
     } catch (e) {
       store.addToast(t("Could not close: {{error}}", { error: String(e) }), "error");
+    } finally {
+      closingRef.current = false;
+      setClosing(false);
     }
   }
 
@@ -287,8 +344,13 @@ function PresetRow({
           <span className="theme-muted">
             {t("{{count}} window(s) opened by this preset are still open", { count: preset.openClients })}
           </span>
-          <button onClick={closeTheirs} className="sidebar-btn-sm shrink-0">
-            {t("Close them")}
+          <button
+            onClick={closeTheirs}
+            disabled={closing}
+            aria-busy={closing || undefined}
+            className="sidebar-btn-sm shrink-0 disabled:opacity-50"
+          >
+            {closing ? t("Closing...") : t("Close them")}
           </button>
         </div>
       )}
@@ -306,12 +368,61 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
   const [draft, setDraft] = useState<LaunchPreset>(initial);
   const [placeText, setPlaceText] = useState(initial.placeId > 0 ? String(initial.placeId) : "");
   const [saving, setSaving] = useState(false);
+  // Erro do backend (o resto aparece ao lado do campo, em `fieldError`).
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<{ field: PresetField; message: string } | null>(null);
+  const [focusTick, setFocusTick] = useState(0);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const accountsRef = useRef<HTMLDivElement>(null);
+  const gameRef = useRef<HTMLDivElement>(null);
+  const placeRef = useRef<HTMLInputElement>(null);
+  const scheduleRef = useRef<HTMLDivElement>(null);
+  const openTimeRef = useRef<HTMLInputElement>(null);
+  const closeTimeRef = useRef<HTMLInputElement>(null);
 
   const targets = useMemo(() => favoriteTargets(loadFavorites()), []);
   const [targetKey, setTargetKey] = useState<string>(
     () => matchingTarget(targets, initial.placeId, initial.jobId)?.key ?? (targets.length > 0 && initial.placeId <= 0 ? targets[0].key : CUSTOM_TARGET)
   );
+  // O que estava ao abrir: Esc/Cancel com algo diferente disso pergunta antes.
+  const [initialSnapshot] = useState(() => JSON.stringify({ draft: initial, placeText, targetKey }));
+  const dirty = JSON.stringify({ draft, placeText, targetKey }) !== initialSnapshot;
+
+  const knownIds = useMemo(() => new Set(store.accounts.map((a) => a.UserID)), [store.accounts]);
+  const presentCount = draft.userIds.filter((id) => knownIds.has(id)).length;
+  const missingCount = draft.userIds.length - presentCount;
+
+  // Preset novo: o primeiro campo a preencher é o Nome.
+  useEffect(() => {
+    if (!initial.id) nameRef.current?.focus();
+    // Só ao montar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mexeu no formulário: o aviso do campo sai (volta no próximo Save, se for o caso).
+  useEffect(() => {
+    setFieldError(null);
+  }, [draft, placeText, targetKey]);
+
+  // Save recusado: leva a tela e o foco até o campo com problema. O aviso está
+  // ao lado dele — no fim da área rolável ele ficava fora da tela.
+  useEffect(() => {
+    if (!fieldError) return;
+    const s = draft.schedule ?? EMPTY_SCHEDULE;
+    let target: HTMLElement | null = null;
+    if (fieldError.field === "name") target = nameRef.current;
+    else if (fieldError.field === "accounts")
+      target = accountsRef.current?.querySelector<HTMLElement>("input, button") ?? null;
+    else if (fieldError.field === "game")
+      target = placeRef.current ?? gameRef.current?.querySelector<HTMLElement>("button") ?? null;
+    else if (s.openEnabled && fieldError.message === "Pick a time to open.") target = openTimeRef.current;
+    else if (s.closeEnabled && fieldError.message === "Pick a time to close.") target = closeTimeRef.current;
+    else target = scheduleRef.current?.querySelector<HTMLElement>("button[aria-pressed], [role=switch]") ?? null;
+    target?.scrollIntoView?.({ block: "center" });
+    target?.focus();
+    // Só quando um Save pede.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTick]);
   const chosen = targets.find((o) => o.key === targetKey) ?? null;
   const identity = useGameIdentity(chosen ? null : placeText);
   const schedule: PresetSchedule = draft.schedule ?? EMPTY_SCHEDULE;
@@ -343,18 +454,24 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
   }
 
   async function save() {
-    const problem = presetProblem(resolved);
+    if (saving) return;
+    const toSave: LaunchPreset = {
+      ...resolved,
+      schedule: schedule.openEnabled || schedule.closeEnabled ? schedule : null,
+    };
+    const problem = presetFieldProblem(toSave, {
+      placeText: chosen ? undefined : placeText,
+      knownUserIds: knownIds,
+    });
     if (problem) {
-      setError(t(problem));
+      setError(null);
+      setFieldError(problem);
+      setFocusTick((n) => n + 1);
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      const toSave: LaunchPreset = {
-        ...resolved,
-        schedule: schedule.openEnabled || schedule.closeEnabled ? schedule : null,
-      };
       await invoke<LaunchPreset>("save_launch_preset", { preset: toSave });
       store.addToast(t("Preset saved"), "success");
       onDone();
@@ -376,6 +493,33 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
     }
   }
 
+  // Esc faz o mesmo que Cancel: volta para a lista (antes fechava o diálogo
+  // todo e jogava a edição fora sem perguntar). Fica no topo da pilha do Esc,
+  // acima do diálogo, enquanto o editor está montado.
+  async function cancel() {
+    if (dirty && !(await confirm(t("Discard the changes to this preset?"), true))) return;
+    onDone();
+  }
+  useEscapeStack(true, () => void cancel());
+
+  function errorFor(field: PresetField) {
+    if (fieldError?.field !== field) return null;
+    return (
+      <p
+        id={`preset-error-${field}`}
+        role="alert"
+        className="flex items-start gap-1.5 text-[11px] text-red-400 mt-1"
+      >
+        <AlertTriangle size={12} strokeWidth={1.75} className="shrink-0 mt-[1px]" aria-hidden="true" />
+        <span className="break-words">{t(fieldError.message)}</span>
+      </p>
+    );
+  }
+  const invalidProps = (field: PresetField) =>
+    fieldError?.field === field
+      ? { "aria-invalid": true as const, "aria-describedby": `preset-error-${field}` }
+      : {};
+
   const targetOptions = [
     ...targets.map((o) => ({
       value: o.key,
@@ -390,35 +534,59 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
     <>
       <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-4">
         <div>
-          <label className={labelClass} htmlFor="preset-name">{t("Name")}</label>
+          <div className="flex items-baseline justify-between gap-2">
+            <label className={labelClass} htmlFor="preset-name">{t("Name")}</label>
+            {/* O limite cortava calado: perto dele, o contador aparece. */}
+            {draft.name.length >= NAME_COUNTER_FROM && (
+              <span className="text-[11px] theme-muted tabular-nums" aria-live="polite">
+                {`${draft.name.length}/${MAX_NAME_CHARS}`}
+              </span>
+            )}
+          </div>
           <input
             id="preset-name"
+            ref={nameRef}
             value={draft.name}
-            maxLength={60}
+            maxLength={MAX_NAME_CHARS}
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
             placeholder={t("e.g. Morning farm")}
             className="sidebar-input w-full"
             autoComplete="off"
+            {...invalidProps("name")}
           />
+          {errorFor("name")}
         </div>
 
-        <div>
+        <div ref={accountsRef}>
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[12px] theme-label font-medium">
-              {t("Accounts ({{count}})", { count: draft.userIds.length })}
+              {t("Accounts ({{count}})", { count: presentCount })}
             </span>
             <div className="flex gap-2 text-[11px]">
               <button
                 className="theme-muted hover:text-[var(--panel-fg)]"
                 onClick={() => setDraft((d) => ({ ...d, userIds: store.accounts.map((a) => a.UserID) }))}
               >
-                {t("All")}
+                {t("preset-accounts-all")}
               </button>
               <button className="theme-muted hover:text-[var(--panel-fg)]" onClick={() => setDraft((d) => ({ ...d, userIds: [] }))}>
-                {t("None")}
+                {t("preset-accounts-none")}
               </button>
             </div>
           </div>
+          {missingCount > 0 && (
+            <div className="flex items-center justify-between gap-2 mb-1.5 text-[11px]">
+              <span className="text-amber-400">
+                {t("{{count}} account(s) of this preset are no longer in the app", { count: missingCount })}
+              </span>
+              <button
+                className="theme-muted hover:text-[var(--panel-fg)] shrink-0 underline"
+                onClick={() => setDraft((d) => ({ ...d, userIds: d.userIds.filter((id) => knownIds.has(id)) }))}
+              >
+                {t("Remove them")}
+              </button>
+            </div>
+          )}
           <div className="max-h-[150px] overflow-y-auto rounded-lg border theme-border divide-y divide-[var(--border-color)]">
             {store.accounts.map((a) => (
               <label key={a.UserID} className="flex items-center gap-2 px-2.5 py-1.5 text-[12px] cursor-pointer hover:bg-[var(--panel-soft)]">
@@ -431,25 +599,30 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
               </label>
             ))}
           </div>
+          {errorFor("accounts")}
           <p className="text-[11px] theme-muted mt-1">{t("They open one at a time, in this list's order.")}</p>
         </div>
 
-        <div>
+        <div ref={gameRef}>
           <span className={labelClass}>{t("Game")}</span>
           <Select value={targetKey} options={targetOptions} onChange={setTargetKey} className="w-full" ariaLabel="Game" />
+          {chosen && errorFor("game")}
           {!chosen && (
             <div className="mt-2 grid grid-cols-2 gap-2">
               <div>
                 <label className={labelClass} htmlFor="preset-place">{t("Place ID")}</label>
                 <input
                   id="preset-place"
+                  ref={placeRef}
                   value={placeText}
                   onChange={(e) => setPlaceText(e.target.value)}
                   placeholder={t("Place ID or game link")}
                   className="sidebar-input w-full"
                   spellCheck={false}
                   autoComplete="off"
+                  {...invalidProps("game")}
                 />
+                {errorFor("game")}
                 {identity && <GameBadge name={identity.name} iconUrl={identity.iconUrl} placeId={identity.placeId} className="mt-1" />}
               </div>
               <div>
@@ -480,7 +653,7 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
           description="Same as the Arrange in grid button in Choose Game > Windows."
         />
 
-        <div className="rounded-xl border theme-border p-3 space-y-2">
+        <div ref={scheduleRef} className="rounded-xl border theme-border p-3 space-y-2">
           <Toggle
             checked={schedule.openEnabled}
             onChange={(v) => setSchedule({ openEnabled: v })}
@@ -491,7 +664,9 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
             <div className="flex flex-wrap items-center gap-2 pl-1">
               <input
                 type="time"
+                ref={openTimeRef}
                 aria-label={t("Open time")}
+                {...(fieldError?.message === "Pick a time to open." ? invalidProps("schedule") : {})}
                 value={schedule.openAt}
                 onChange={(e) => setSchedule({ openAt: e.target.value })}
                 style={{ width: 112 }}
@@ -529,7 +704,9 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
             <div className="pl-1">
               <input
                 type="time"
+                ref={closeTimeRef}
                 aria-label={t("Close time")}
+                {...(fieldError?.message === "Pick a time to close." ? invalidProps("schedule") : {})}
                 value={schedule.closeAt}
                 onChange={(e) => setSchedule({ closeAt: e.target.value })}
                 style={{ width: 112 }}
@@ -537,15 +714,20 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
               />
             </div>
           )}
+          {errorFor("schedule")}
         </div>
-
-        {error && (
-          <div className="flex items-start gap-2 text-[12px] text-red-400 bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2">
-            <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
-            <span className="break-words">{error}</span>
-          </div>
-        )}
       </div>
+
+      {/* Erro do backend: fora da área rolável, sempre à vista junto do Save. */}
+      {error && (
+        <div
+          role="alert"
+          className="shrink-0 mx-5 mt-2 flex items-start gap-2 text-[12px] text-red-400 bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2"
+        >
+          <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
+          <span className="break-words">{error}</span>
+        </div>
+      )}
 
       <div className="shrink-0 flex items-center gap-2 px-5 py-3 border-t theme-border">
         {draft.id && (
@@ -555,7 +737,7 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
           </button>
         )}
         <div className="ml-auto flex gap-2">
-          <button onClick={onDone} className="sidebar-btn-sm">
+          <button onClick={() => void cancel()} className="sidebar-btn-sm">
             {t("Cancel")}
           </button>
           <button
