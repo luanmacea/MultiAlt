@@ -207,6 +207,9 @@ continua sem relançar nada).
   é dispensada.
 - **Auto Rejoin manda:** conta gerenciada pelo Auto Rejoin (sessão ativa e a
   conta na lista) não entra na reconexão; se ele assumir no meio, a reconexão sai.
+- **PC acordado:** enquanto alguma conta com a opção ligada tem cliente aberto
+  pelo app (ou há reconexão em andamento), o Windows não dorme
+  (`General.KeepPcAwake`, ver [afk-mode.md](afk-mode.md#pc-acordado)).
 - **Ao reabrir o app nada é retomado sozinho:** o estado é só em memória, e os
   clientes de antes voltam como "abertos fora do app" (adotados), que a
   reconexão não toca.

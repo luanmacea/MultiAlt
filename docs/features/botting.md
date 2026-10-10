@@ -91,6 +91,7 @@ Pedido do dono: a tela tinha conteúdo demais. Saíram o cartão "Targets", o co
 
 ## Regras de negócio
 
+- **PC acordado:** com o Auto Rejoin ativo o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado; a tela pode apagar) — ver [afk-mode.md](afk-mode.md#pc-acordado).
 - **Auto Rejoin x reconexão automática:** conta gerenciada pelo Auto Rejoin (sessão ativa, conta na lista) fica fora da [reconexão automática](watcher.md#reconexão-automática), mesmo com a opção ligada: quem relança é o ciclo do Auto Rejoin. Se o Auto Rejoin assumir uma conta no meio da reconexão, ela é cancelada.
 
 - **Adotar contas que já estão em jogo** (`adoptRunning` no backend): o Start normal **fecha e relança** cada conta na primeira passagem — ligar o ciclo em contas que já estavam jogando derrubava todas elas. Com a adoção, quem já tem cliente aberto não é tocado: entra no ciclo valendo um intervalo inteiro a partir de agora, e o primeiro reinício acontece no vencimento. Decidido em `botting_first_pass` (adota / lança / pula desconectada), com teste. Na tela é a opção padrão do servidor ("The game they are playing now").

@@ -99,10 +99,43 @@ sequenceDiagram
 - **Config de sessão em andamento é derivada da sessão**, nunca copiada para o estado da tela: o efeito que relê o INI ao abrir corria contra a cópia e zerava a tecla escolhida (o botão de enviar ficava desabilitado com a sessão rodando).
 - **Parar não esquece quem estava no modo.** Com a sessão ligada, a seleção da tela acompanha as contas da sessão; quando a sessão acaba, continuam marcadas as que estavam nela — inclusive a que entrou com a sessão ligada, e também quando a tela abriu com uma sessão que já rodava —, e religar leva as mesmas. Intervalo e tecla só mudam com o modo parado, então "parar → mudar → ligar" é o caminho normal; antes a seleção voltava à de antes do start, e a conta acrescentada durante a sessão ficava de fora do próximo start sem aviso (e podia cair por inatividade). Desmarcar a última conta é a exceção: ela fica desmarcada, que é o que o usuário pediu.
 
+## PC acordado
+
+[keep_awake.rs](../../src-tauri/src/commands/keep_awake.rs) e
+[platform/windows/power.rs](../../src-tauri/src/platform/windows/power.rs).
+Enquanto o **Modo AFK**, o **Auto Rejoin** ou a **reconexão automática** roda,
+o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado,
+"Keep the PC awake while AFK Mode or Auto Rejoin runs" em Settings › General).
+
+- **Só o sistema, nunca a tela:** `SetThreadExecutionState(ES_CONTINUOUS |
+  ES_SYSTEM_REQUIRED)`. A tela continua apagando no tempo do Windows (o pedido
+  de tela nunca é feito — `keep_awake_tests` lê o `power.rs` e reprova).
+- **Quem conta:** sessão do Modo AFK ligada; sessão do Auto Rejoin ativa;
+  reconexão automática em andamento **ou de guarda** (alguma conta com a opção
+  ligada tem um cliente aberto pelo app — é quando uma queda de madrugada
+  precisa do PC acordado para reconectar).
+- **Um dono só:** `KeepAwake` junta os motivos a cada 2 s (no laço do monitor
+  de quedas) e só fala com o Windows quando "precisa ficar acordado" muda:
+  liga no primeiro motivo, solta quando o último para, quando a opção é
+  desligada e **ao fechar o app** (`keep_awake_release_on_exit`, em
+  `ExitRequested` e `Exit`). Pedido recusado é tentado de novo na passada
+  seguinte.
+- **Thread dedicada:** o pedido do Windows vale para a thread que o fez, então
+  sai sempre da mesma thread (`keep-awake`), e não das threads do tokio. Se
+  ela morrer, o Windows solta o pedido sozinho.
+- **Console:** "PC mantido acordado enquanto roda: Modo AFK, …" e "PC liberado
+  para dormir" (`step: "power"`).
+- **API nativa nova no binário:** `SetThreadExecutionState` (kernel32), pela
+  feature `Win32_System_Power` do `windows-sys` (nenhuma crate nova). Ao mexer,
+  escanear os instaladores (`bun run scan --release`).
+- Testes: `keep_awake_tests` (dono do estado com dublê) e `win_power_tests`
+  (bits do pedido; nenhum teste chama a API de verdade).
+
 ## Configurações relacionadas
 
 | Chave | Default | Significado |
 |---|---|---|
+| `General.KeepPcAwake` | `true` | Não deixa o Windows dormir enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda (a tela pode apagar). Ver [PC acordado](#pc-acordado). |
 | `Afk.IntervalMinutes` | `10` | Minutos entre dois envios da **mesma** conta (1–120). |
 | `Afk.Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada. Vazio = o modo não liga (chave vazia não é gravada no INI). |
 | `Afk.BeepOnCycle` | `false` | Bipe curto quando um ciclo manda tecla. |

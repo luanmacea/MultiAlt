@@ -109,6 +109,11 @@ impl SettingsStore {
             ("RestrictedBackgroundStyle", "warp", None),
             ("BottingEnabled", "false", None),
             (
+                "KeepPcAwake",
+                "true",
+                Some("Keep the PC from sleeping (the screen may still turn off) while AFK Mode, Auto Rejoin or auto-reconnect runs"),
+            ),
+            (
                 "AutoReconnect",
                 "false",
                 Some("Default for every account: reopen a client this app opened in the same game when it drops (each account's AutoReconnect field wins)"),
@@ -600,6 +605,7 @@ mod settings_store_tests {
                 ("ThemeWindowsNavbarAutoEnabledV1", "true"),
                 ("RestrictedBackgroundStyle", "warp"),
                 ("BottingEnabled", "false"),
+                ("KeepPcAwake", "true"),
                 ("AutoReconnect", "false"),
                 ("BottingUseSharedClientProfile", "true"),
                 ("BottingAutoShareLaunchFields", "true"),

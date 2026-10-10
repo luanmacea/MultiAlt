@@ -545,6 +545,17 @@ describe("GeneralTab", () => {
       await userEvent.click(toggle as HTMLElement);
       await expectSaved("General", "AutoReconnect", "true");
     });
+
+    /** commands/keep_awake.rs: nasce ligado; desligar grava false. */
+    it("keeps the PC awake by default, and turning it off saves false", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Keep the PC awake while AFK Mode or Auto Rejoin runs")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "KeepPcAwake", "false");
+    });
   });
 
   it("registers the app with the OS autostart when Run on Windows Startup is turned on", async () => {

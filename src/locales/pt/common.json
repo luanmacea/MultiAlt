@@ -2146,5 +2146,7 @@
   "Try now": "Tentar agora",
   "Use the default from Settings › General": "Usar o padrão de Configurações › Geral",
   "Waiting for the internet to come back (attempt {{attempt}}/{{max}})": "Esperando a internet voltar (tentativa {{attempt}}/{{max}})",
-  "Auto-reconnect is bringing back {{count}} accounts.": "A reconexão automática está trazendo de volta {{count}} contas."
+  "Auto-reconnect is bringing back {{count}} accounts.": "A reconexão automática está trazendo de volta {{count}} contas.",
+  "Keep the PC awake while AFK Mode or Auto Rejoin runs": "Manter o PC acordado enquanto o Modo AFK ou o Auto Rejoin roda",
+  "Stops Windows from going to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off.": "Impede o Windows de entrar em suspensão enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda. A tela ainda pode apagar."
 }

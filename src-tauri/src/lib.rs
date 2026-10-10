@@ -53,6 +53,7 @@ include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
 include!("commands/reconnect.rs");
+include!("commands/keep_awake.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -594,12 +595,17 @@ pub fn run() {
             tauri::RunEvent::ExitRequested { .. } => {
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
+                // Devolve o PC ao normal (commands/keep_awake.rs).
+                #[cfg(target_os = "windows")]
+                keep_awake_release_on_exit();
                 #[cfg(target_os = "macos")]
                 cleanup_multi_roblox_on_exit(app);
             }
             tauri::RunEvent::Exit => {
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
+                #[cfg(target_os = "windows")]
+                keep_awake_release_on_exit();
                 #[cfg(target_os = "macos")]
                 cleanup_multi_roblox_on_exit(app);
                 app.state::<chromium::ChromiumManager>().close_login_session();

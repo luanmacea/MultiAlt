@@ -147,7 +147,15 @@ export const SUITES: Record<string, TestSuite> = {
   },
   afk: {
     description: "AFK mode: teclas permitidas, modo clique, agendamento por conta e parada do ciclo",
-    rust: ["afk_command_tests", "afk_input_safety_tests", "win_input_tests", "win_focus_tests"],
+    rust: [
+      "afk_command_tests",
+      "afk_input_safety_tests",
+      "win_input_tests",
+      "win_focus_tests",
+      // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs, power.rs).
+      "keep_awake_tests",
+      "win_power_tests",
+    ],
     // `store.test.ts` entra pelo bloco "AFK mode" (os toasts do start).
     front: [
       "src/components/afk-mode/ClicksTab.test.tsx",
