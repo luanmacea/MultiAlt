@@ -142,6 +142,12 @@ const baseHandler: InvokeHandler = (cmd, args) => {
         iconUrl: game ? iconForGame(id, game.name) : null,
       };
     }
+    // Cópia de credencial: o backend devolve quantas linhas copiou e em quanto
+    // tempo apaga. O harness não toca na área de transferência de verdade.
+    case "copy_account_secret": {
+      const ids = ((args?.userIds as number[] | undefined) ?? []).map(Number);
+      return { count: ids.length, clearsInSecs: 30 };
+    }
     // Sem atualização: o diálogo de update não pode tapar a tela em teste.
     case "check_for_updates_with_channels":
       return null;
@@ -1239,9 +1245,110 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
   };
 }
 
+/**
+ * Moderação como o backend devolve (`check_account_moderation`): o mesmo
+ * resumo que `usermoderation/v1/not-approved` vira em `commands/moderation.rs`.
+ * Conta 2 banida por 3 dias com nota, 3 advertida, 4 encerrada, 5 com o Roblox
+ * limitando (429), o resto limpa.
+ */
+function harnessModeration(userId: number): { status?: Record<string, unknown>; error?: string } {
+  const slot = userId - 1000;
+  if (slot === 2) {
+    return {
+      status: {
+        state: "banned",
+        until: new Date(Date.now() + 3 * 86400000).toISOString(),
+        note: "Exploiting",
+        punishment: "Ban 3 Days",
+      },
+    };
+  }
+  if (slot === 3) {
+    return { status: { state: "warned", until: null, note: "Be respectful in chat", punishment: "Warn" } };
+  }
+  if (slot === 4) {
+    return { status: { state: "terminated", until: null, note: null, punishment: "Delete" } };
+  }
+  if (slot === 5) return { error: "Roblox is limiting requests right now. Try again in a minute." };
+  return { status: { state: "clean", until: null, note: null, punishment: null } };
+}
+
+/** O texto que `auth.rs` devolve quando o Roblox pede verificação (ideia 10). */
+const HARNESS_CHALLENGE_ERROR =
+  "Roblox wants to verify this account (2-step verification). Open it in the browser (account panel › Tools › Browser), finish the check there, then try again.";
+
 const SCENARIOS: Record<string, () => void> = {
   default() {
     setInvokeHandler(baseHandler);
+  },
+
+  /**
+   * Contas banidas/advertidas/encerradas (ideia 8) e uma que pede verificação
+   * ao abrir (ideia 10, conta 6). Ver `harnessModeration`.
+   */
+  moderation() {
+    const deadAfterCheck = new Set<number>();
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "check_account_moderation") {
+        const userId = Number(args?.userId);
+        const result = harnessModeration(userId);
+        if (result.error) throw result.error;
+        harnessEmit("account-moderation", { userId, status: result.status });
+        return result.status;
+      }
+      if (cmd === "check_accounts") {
+        // O que o backend devolveria (`commands/account_check.rs`), aos poucos:
+        // progresso a cada conta, moderação de quem respondeu e o resumo. A
+        // conta 6 tem o cookie morto (401), a 5 pegou o limite do Roblox.
+        const ids = ((args?.userIds as number[] | undefined) ?? []).map(Number);
+        return new Promise((resolve) => {
+          const summary = { total: 0, ok: 0, warned: 0, invalid: 0, banned: 0, unknown: 0, results: [] as unknown[] };
+          harnessEmit("account-check-progress", { done: 0, total: ids.length });
+          ids.forEach((userId, index) => {
+            setTimeout(() => {
+              const result = harnessModeration(userId);
+              let outcome: "ok" | "warned" | "invalid" | "banned" | "unknown";
+              if (userId === 1006) {
+                outcome = "invalid";
+                deadAfterCheck.add(userId);
+              }
+              else if (result.error) outcome = "unknown";
+              else {
+                harnessEmit("account-moderation", { userId, status: result.status });
+                const state = result.status?.state;
+                outcome = state === "banned" || state === "terminated" ? "banned" : state === "warned" ? "warned" : "ok";
+              }
+              summary.total += 1;
+              summary[outcome] += 1;
+              summary.results.push({ userId, outcome });
+              harnessEmit("account-check-progress", { done: summary.total, total: ids.length });
+              if (summary.total === ids.length) resolve(summary);
+            }, 500 * (index + 1));
+          });
+          if (ids.length === 0) resolve(summary);
+        });
+      }
+      if (cmd === "get_accounts") {
+        // O backend grava `Valid = false` em quem respondeu 401 no check.
+        return accounts.map((a) => (deadAfterCheck.has(a.UserID) ? { ...a, Valid: false } : a));
+      }
+      if (cmd === "launch_roblox") {
+        const userId = Number(args?.userId);
+        if (userId === 1006) throw HARNESS_CHALLENGE_ERROR;
+        const result = harnessModeration(userId);
+        const state = result.status?.state;
+        if (state === "banned" || state === "terminated") {
+          harnessEmit("account-moderation", { userId, status: result.status });
+          throw state === "terminated"
+            ? "Skipped: Roblox terminated this account."
+            : "Skipped: this account is banned until " +
+                new Date(String(result.status?.until)).toLocaleString() +
+                '. Moderator note: "Exploiting"';
+        }
+        return null;
+      }
+      return baseHandler(cmd, args);
+    });
   },
 
   /**

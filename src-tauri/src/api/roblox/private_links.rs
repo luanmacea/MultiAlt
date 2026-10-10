@@ -157,7 +157,7 @@ async fn get_root_place_id_from_universe(
             universe_id
         ))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 

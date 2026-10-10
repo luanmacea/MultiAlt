@@ -28,7 +28,9 @@ where
     let mut last_error = String::new();
 
     for attempt in 0..3 {
-        match make_request().send().await {
+        // O `.ROBLOSECURITY` novo que a resposta trouxer fica registrado para
+        // a conta que mandou o pedido (`cookie_rotation`).
+        match crate::api::cookie_rotation::send(make_request()).await {
             Ok(response) => {
                 if response.status().as_u16() == 429 && attempt < 2 {
                     let delay = Duration::from_millis(400 * 2_u64.pow(attempt as u32));

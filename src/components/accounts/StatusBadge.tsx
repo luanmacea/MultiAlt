@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Clock, Gamepad2, Hammer, Rocket, Wifi, X, type LucideIcon } from "lucide-react";
+import { Ban, Clock, Gamepad2, Hammer, Rocket, TriangleAlert, Wifi, X, type LucideIcon } from "lucide-react";
 
 /**
  * Selo de estado da conta (bolinha da linha e da legenda da barra de status).
@@ -9,7 +9,16 @@ import { Clock, Gamepad2, Hammer, Rocket, Wifi, X, type LucideIcon } from "lucid
  * ACCESSIBILITY.md). As cores são as de antes; o ícone é a pista que não
  * depende delas.
  */
-export const STATUS_KINDS = ["invalid", "aged", "launched", "online", "ingame", "studio"] as const;
+export const STATUS_KINDS = [
+  "invalid",
+  "aged",
+  "launched",
+  "online",
+  "ingame",
+  "studio",
+  "banned",
+  "warned",
+] as const;
 export type StatusKind = (typeof STATUS_KINDS)[number];
 
 const ICONS: Record<StatusKind, LucideIcon> = {
@@ -19,6 +28,9 @@ const ICONS: Record<StatusKind, LucideIcon> = {
   online: Wifi,
   ingame: Gamepad2,
   studio: Hammer,
+  // Moderação (ver utils/moderation.ts): banida/encerrada e advertida.
+  banned: Ban,
+  warned: TriangleAlert,
 };
 
 /** Cores de sempre (as mesmas da legenda antiga). `aged` muda com a idade: vem por `color`. */
@@ -29,6 +41,8 @@ export const STATUS_COLORS: Record<StatusKind, string> = {
   online: "#00a2ff",
   ingame: "#02b757",
   studio: "#4629d8",
+  banned: "#9f1239",
+  warned: "#ca8a04",
 };
 
 export function StatusBadge({

@@ -18,7 +18,7 @@ pub async fn get_user_id(security_token: Option<&str>, username: &str) -> Result
     }
 
     let response = request
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -67,7 +67,7 @@ pub async fn get_user_info(security_token: Option<&str>, user_id: i64) -> Result
     }
 
     let response = request
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -87,7 +87,7 @@ pub async fn get_robux(security_token: &str) -> Result<i64, String> {
     let response = client
         .get(format!("{}/v1/user/currency", endpoints::host("economy")))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -105,7 +105,7 @@ pub async fn get_robux(security_token: &str) -> Result<i64, String> {
         .get(format!("{}/mobileapi/userinfo", endpoints::host("www")))
         .header(COOKIE, cookie_header(security_token))
         .header("Accept", "application/json")
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -130,7 +130,7 @@ pub async fn get_email_info(security_token: &str) -> Result<serde_json::Value, S
     let response = client
         .get(format!("{}/v1/email", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -182,7 +182,7 @@ pub async fn get_friend_ids(security_token: &str, user_id: i64) -> Result<Vec<i6
     let response = client
         .get(format!("{}/v1/users/{}/friends", endpoints::host("friends"), user_id))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -251,7 +251,7 @@ pub async fn get_blocked_users(security_token: &str) -> Result<Vec<BlockedUser>,
     let response = client
         .get(format!("{}/user-blocking-api/v1/users/get-blocked-users", endpoints::host("apis")))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
@@ -302,7 +302,7 @@ async fn lookup_user_names(user_ids: &[i64]) -> Result<Vec<UserLookupResult>, St
         let response = client
             .post(format!("{}/v1/users", endpoints::host("users")))
             .json(&serde_json::json!({ "userIds": chunk }))
-            .send()
+            .send_noting()
             .await
             .map_err(|e| http_client::describe_error(&e))?;
 
@@ -359,7 +359,7 @@ pub async fn get_private_server_invite_privacy(security_token: &str) -> Result<S
     let response = client
         .get(format!("{}/v1/privacy", endpoints::host("accountsettings")))
         .header(COOKIE, cookie_header(security_token))
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 

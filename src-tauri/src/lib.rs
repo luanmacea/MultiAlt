@@ -48,6 +48,9 @@ include!("commands/backups.rs");
 include!("commands/avatars.rs");
 include!("commands/groups.rs");
 include!("commands/external_clients.rs");
+include!("commands/clipboard.rs");
+include!("commands/moderation.rs");
+include!("commands/account_check.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -420,6 +423,9 @@ pub fn run() {
             check_pin,
             unlock_pin,
             refresh_cookie,
+            copy_account_secret,
+            check_account_moderation,
+            check_accounts,
             get_robux,
             get_user_info,
             lookup_user,

@@ -69,7 +69,7 @@ pub async fn check_signup_username(
 
     let response = http_client::client()
         .get(&url)
-        .send()
+        .send_noting()
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
