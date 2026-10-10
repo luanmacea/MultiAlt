@@ -168,7 +168,13 @@ continua sem relançar nada).
 - **Onde liga:** por conta, no painel da conta ("Reconnect automatically if it
   drops", campo `AutoReconnect` = `true`/`false`); sem o campo, vale o padrão
   `General.AutoReconnect` (Settings › General, "Reconnect accounts that drop").
-  O `AutoRelaunch` do Nexus também liga a conta (mesmo nome de usuário).
+  O `AutoRelaunch` do Nexus também liga a conta (mesmo nome de usuário), mesmo
+  com o campo em `false`. O painel diz isso: com o AutoRelaunch ligado
+  (`get_nexus_accounts`), o interruptor aparece ligado e travado, com o aviso
+  de que o Nexus mantém a reconexão. "Following the default…" e "Use the
+  default…" dizem se o padrão está ligado ou desligado; desligada com uma
+  tentativa em andamento, o painel diz que ela para depois dessa tentativa (o
+  backend só solta a conta fora da fase `launching`).
 - **Quando reconecta:** queda com motivo (perdeu a conexão, parada tempo demais,
   outro código), expulsão, servidor fechado, ou o cliente fechou sem sair do
   jogo. Só cliente **que o app abriu**: cliente do site (adotado) nunca é
@@ -217,7 +223,16 @@ continua sem relançar nada).
   (attempt 2/5)", "Waiting for the internet to come back", "Reopened, checking
   it stays in the game", "Gave up after 5 tries", "Not reconnecting: …"), com
   "Try now"/"Try again" e "Stop" (nunca fecha cliente). O painel da conta
-  mostra a mesma linha. Evento `auto-reconnect` (`{entries, reconnected}`),
+  mostra a mesma linha. O erro da última tentativa vai numa **segunda linha**
+  embaixo do estado (não só no tooltip), traduzido: as frases que o backend
+  escreve são as constantes `RECONNECT_ERROR_*` de reconnect.rs, traduzidas
+  por `reconnectErrorText` (src/utils/autoReconnect.ts — o teste lê a lista do
+  fonte do Rust; erro do launch passa como veio). Enquanto um botão roda, os
+  da linha ficam desabilitados; o X esconde a linha na hora (volta se o
+  comando falhar; outra queda da mesma conta aparece de novo); `false` do
+  backend (a conta já saiu da reconexão) vira um aviso curto. Toasts:
+  "Auto-reconnect (conta) — estado" e, para a queda, "conta in Roblox —
+  motivo" (sem dois-pontos em dobro). Evento `auto-reconnect` (`{entries, reconnected}`),
   comandos `get_auto_reconnect_status`, `stop_auto_reconnect`,
   `retry_auto_reconnect`; linhas no Console com `step: "reconnect"`.
 - Testes: `auto_reconnect_tests` (máquina de estados) e
