@@ -146,13 +146,31 @@ function localStamp(ms: number | null): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
+/**
+ * Separador do CSV para o idioma da tela. O Excel abre o `.csv` com o
+ * separador de lista do Windows, que é `;` onde o decimal é vírgula (pt-BR,
+ * es, de...): com `,` tudo caía na coluna A. Inglês (e idioma desconhecido)
+ * fica com `,`.
+ */
+export function csvSeparatorFor(language: string): "," | ";" {
+  try {
+    const decimal = new Intl.NumberFormat(language)
+      .formatToParts(1.5)
+      .find((p) => p.type === "decimal")?.value;
+    return decimal === "," ? ";" : ",";
+  } catch {
+    return ",";
+  }
+}
+
 /** O CSV das sessões de uma conta. Sem nome de conta e sem nada de sessão. */
 export function historyCsv(
   sessions: SessionRecord[],
   gameName: (placeId: number) => string | null,
   t: Translate,
   now: number,
-  maskText: (text: string) => string = (x) => x
+  maskText: (text: string) => string = (x) => x,
+  separator: "," | ";" = ","
 ): string {
   const header = [
     t("Start time"),
@@ -180,5 +198,5 @@ export function historyCsv(
       s.message ? maskText(s.message) : "",
     ];
   });
-  return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  return [header, ...rows].map((row) => row.map(csvCell).join(separator)).join("\r\n") + "\r\n";
 }

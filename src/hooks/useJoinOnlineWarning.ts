@@ -28,7 +28,12 @@ export function useJoinOnlineWarning() {
   const store = useStore();
   const confirmWithOptOut = useConfirmWithOptOut();
 
-  return async function confirmJoin(userIds: number[]): Promise<boolean> {
+  /**
+   * @param knownInGame contas que o app **sabe** que estão num jogo agora (o
+   *   histórico diz "Playing now"), mesmo que a presença do Roblox diga offline
+   *   (privacidade, atraso) ou falhe: contam como "In Game" no aviso.
+   */
+  return async function confirmJoin(userIds: number[], knownInGame: number[] = []): Promise<boolean> {
     if (userIds.length === 0) return true;
     if (store.settings?.General?.WarnOnOnlineJoin === "false") return true;
 
@@ -48,7 +53,10 @@ export function useJoinOnlineWarning() {
         }
       }
     } catch {
-      return true;
+      if (knownInGame.length === 0) return true;
+    }
+    for (const id of knownInGame) {
+      if (uniqueIds.includes(id) && (presenceById.get(id) ?? 0) < 2) presenceById.set(id, 2);
     }
 
     const accountById = new Map(store.accounts.map((a) => [a.UserID, a]));

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
@@ -10,6 +10,7 @@ import { useJoinOnlineWarning } from "../../hooks/useJoinOnlineWarning";
 import type { Account, SessionRecord } from "../../types";
 import {
   canJoinAgain,
+  csvSeparatorFor,
   formatDuration,
   historyCsv,
   maskNamesInText,
@@ -65,6 +66,9 @@ export function AccountHistory({ account }: { account: Account }) {
   const [showAll, setShowAll] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [exporting, setExporting] = useState(false);
+  // Linha cujo "Join again" está abrindo; a trava síncrona barra o 2º clique.
+  const [joining, setJoining] = useState<string | null>(null);
+  const joiningRef = useRef(false);
 
   const load = useCallback(() => {
     invoke<SessionRecord[]>("get_session_history", { userId })
@@ -96,10 +100,24 @@ export function AccountHistory({ account }: { account: Account }) {
   const maskText = (text: string) => maskNamesInText(text, account, store);
   const rows = sessions ? (showAll ? sessions : sessions.slice(0, FIRST_ROWS)) : [];
 
-  async function joinAgain(session: SessionRecord) {
-    if (!session.placeId || !session.jobId) return;
-    if (!(await confirmJoinOnline([userId]))) return;
-    await store.joinServer(userId, { placeId: String(session.placeId), jobId: session.jobId });
+  async function joinAgain(session: SessionRecord, key: string) {
+    if (!session.placeId || !session.jobId || joiningRef.current) return;
+    joiningRef.current = true;
+    setJoining(key);
+    try {
+      // O histórico sabe se a conta está num jogo agora ("Playing now"), mesmo
+      // com a presença do Roblox dizendo offline: o aviso de conta online usa
+      // isso, porque um segundo launch derrubaria essa sessão.
+      const playingNow = sessions?.some((s) => s.end === "ongoing") ? [userId] : [];
+      if (!(await confirmJoinOnline([userId], playingNow))) return;
+      const attempt = await store.joinServer(userId, { placeId: String(session.placeId), jobId: session.jobId });
+      // "started" já sai em toast pelo próprio `joinServer` ("Launching game...");
+      // "refused" também já avisa por lá. Falha só ia para a barra de status.
+      if (attempt === "failed") store.addToast(t("Could not join this server again"), "error");
+    } finally {
+      joiningRef.current = false;
+      setJoining(null);
+    }
   }
 
   async function exportCsv() {
@@ -111,7 +129,15 @@ export function AccountHistory({ account }: { account: Account }) {
       await Promise.all(
         places.map(async (placeId) => names.set(placeId, (await loadGameIdentity(placeId, userId)).name))
       );
-      const csv = historyCsv(sessions, (placeId) => names.get(placeId) ?? null, t, Date.now(), maskText);
+      // `;` onde o decimal é vírgula (pt, es, de): é o que o Excel desses idiomas separa.
+      const csv = historyCsv(
+        sessions,
+        (placeId) => names.get(placeId) ?? null,
+        t,
+        Date.now(),
+        maskText,
+        csvSeparatorFor(i18n.language)
+      );
       await invoke<string>("save_history_export", { userId, csv });
       store.addToast(t("History saved to the exports folder"), "success");
     } catch (e) {
@@ -122,7 +148,7 @@ export function AccountHistory({ account }: { account: Account }) {
   }
 
   return (
-    <SidebarSection title="History">
+    <SidebarSection title="History" collapseId="history">
       {sessions === null ? (
         <p className="text-[11px] theme-muted">{t("Loading...")}</p>
       ) : sessions.length === 0 ? (
@@ -159,24 +185,28 @@ export function AccountHistory({ account }: { account: Account }) {
             <p className="text-[11px] theme-muted mb-1">{t("Recent sessions")}</p>
             <ul className="flex flex-col divide-y divide-[var(--border-color)] rounded-lg border theme-border">
               {rows.map((s, i) => {
+                const rowKey = `${s.startedAt}-${i}`;
+                const isJoining = joining === rowKey;
                 const end = sessionEndLabel(s, t);
                 const duration = sessionDurationMs(s, now);
                 const tone =
                   end.tone === "drop" ? "text-red-400" : end.tone === "playing" ? "text-emerald-400" : "theme-muted";
                 return (
-                  <li key={`${s.startedAt}-${i}`} className="px-2 py-1.5 text-[11px]" data-testid="history-row">
+                  <li key={rowKey} className="px-2 py-1.5 text-[11px]" data-testid="history-row">
                     <div className="flex items-start justify-between gap-1.5">
                       <span className="min-w-0 truncate text-[var(--panel-fg)] font-medium">
                         {s.end === "moderated" ? t("Moderation notice") : <GameName placeId={s.placeId} userId={userId} />}
                       </span>
                       {canJoinAgain(s, now) && (
                         <button
-                          onClick={() => joinAgain(s)}
-                          className="shrink-0 flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300"
+                          onClick={() => void joinAgain(s, rowKey)}
+                          disabled={joining !== null}
+                          aria-busy={isJoining || undefined}
+                          className="shrink-0 flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 disabled:opacity-50 disabled:cursor-not-allowed"
                           title={t("Opens this account in the same server, if it still exists")}
                         >
                           <LogIn size={11} strokeWidth={1.75} />
-                          {t("Join again")}
+                          {isJoining ? t("Joining...") : t("Join again")}
                         </button>
                       )}
                     </div>
