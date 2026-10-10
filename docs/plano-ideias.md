@@ -36,7 +36,7 @@ de subir a próxima:
 | 1.2.1 | hotfix do Modo AFK: o foco volta para a janela certa depois do ciclo (#23) e o intervalo aceita minutos e segundos; mais a edição completa saindo pela feature `full` (`MultiAlt_<v>_Full-Setup.msi`) | 10/10/2026 | 10/10/2026 | PR #24; já está nos pacotes abaixo (merge da `develop` na escada) |
 | 1.3 (próxima) | **Quedas** (1, 19, 4) | branch `feature/quedas` | — | não antes de 12/10/2026; falta teste do dono com cliente real |
 | 1.4 | **Reconexão** (2, 14, 23) — inclui a 1.3 | branch `feature/reconexao` (sai da `feature/quedas`) | — | API nativa nova (`SetThreadExecutionState`); falta teste do dono com cliente real |
-| 1.5 | **Desempenho** (18, 20, 22) — inclui a 1.3 e a 1.4 | branch `feature/desempenho` (recebeu a `feature/reconexao`) | — | tudo opcional e desligado; volume ao vivo (20) só na edição completa (feature `live-audio`, dentro do `full`); falta teste do dono com cliente real ([performance.md](features/performance.md)) |
+| 1.5 | **Desempenho** (18, 20, 22) — inclui a 1.3 e a 1.4 | branch `feature/desempenho` (recebeu a `feature/reconexao`) | — | tudo opcional e desligado; volume ao vivo (20) nas duas edições (feature `live-audio`, dentro do `standard`); falta teste do dono com cliente real ([performance.md](features/performance.md)) |
 | 1.6 | **Organização** (13, 6) — inclui a 1.3, 1.4 e 1.5 | branch `feature/organizacao` (recebeu a `feature/desempenho`) | — | presets com horário e histórico de sessões; sem API nativa nova; falta teste do dono com cliente real ([presets.md](features/presets.md), [history.md](features/history.md)) |
 
 ## Pacotes

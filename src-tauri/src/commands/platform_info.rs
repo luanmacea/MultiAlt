@@ -33,7 +33,7 @@ struct PlatformCapabilities {
     supports_updater: bool,
     supports_client_settings: bool,
     /// Volume ao vivo por cliente: só no Windows e só com a feature
-    /// `live-audio` no binário (só na edição completa).
+    /// `live-audio` no binário (nas duas edições, via `standard`).
     supports_live_audio: bool,
     reasons: Vec<String>,
     warnings: Vec<String>,
@@ -206,6 +206,10 @@ mod platform_info_tests {
     fn live_audio_follows_the_build_feature_and_is_windows_only() {
         let windows = build_platform_capabilities("windows", "desktop", "sober");
         assert_eq!(windows.supports_live_audio, cfg!(feature = "live-audio"));
+        // Nas duas edições: o build da padrão (`--features standard`) também tem.
+        if cfg!(feature = "standard") {
+            assert!(windows.supports_live_audio);
+        }
         assert!(!build_platform_capabilities("macos", "desktop", "sober").supports_live_audio);
         assert!(!build_platform_capabilities("linux", "x11", "sober").supports_live_audio);
     }

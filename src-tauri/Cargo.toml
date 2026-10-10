@@ -12,26 +12,27 @@ tauri-build = { version = "2", features = [] }
 
 [features]
 # As duas edições publicadas (ver docs/development.md, "As duas edições"):
-# - padrão (`MultiAlt-Setup.msi`): `--no-default-features --features avatar-batch`;
+# - padrão (`MultiAlt-Setup.msi`): `--no-default-features --features standard`;
 # - completa (`MultiAlt_<v>_Full-Setup.msi`): `--features full`.
-# `full` liga TODA feature opcional. Feature nova que fica fora da padrão (Nexus,
-# Web API, live-audio, ou o que mais for segurado por marcação de scanner) TEM
-# que entrar na lista do `full`: o workflow compila a completa só com
-# `--features full`, sem lista própria, e o release-workflow.test.mjs falha se
-# alguma feature ficar de fora.
+# Decisão do dono (10/10/2026): a padrão leva tudo, menos o que faz o scan
+# marcá-la. A lista do que ela leva mora aqui, na feature `standard` — o
+# workflow não tem lista própria. `full` = `standard` + o que fica só na
+# completa (hoje Nexus e Web API). Feature nova entra no `standard` se puder ir
+# para as duas edições, ou direto no `full` se for segurada por marcação de
+# scanner; o release-workflow.test.mjs falha se alguma ficar fora do `full`.
 default = ["full"]
-full = ["nexus", "webserver", "avatar-batch", "live-audio"]
+standard = ["avatar-batch", "live-audio"]
+full = ["standard", "nexus", "webserver"]
 # Só na edição completa.
 nexus = []
 # Só na edição completa.
 webserver = ["dep:axum"]
 # Distribuir avatares salvos entre várias contas (resgate dos itens gratuitos
-# + vestir). Nas duas edições desde 08/10/2026: a padrão o liga à parte.
+# + vestir). Nas duas edições desde 08/10/2026 (via `standard`).
 avatar-batch = []
 # Volume ao vivo por cliente (fundo mudo) pelo mixer do Windows: COM de audio
-# escrito a mao em platform/windows/live_audio.rs, sem crate novo. Só na edição
-# completa (entra pelo `full`); a padrão compila sem ele e esconde a opção
-# (docs/features/performance.md).
+# escrito a mao em platform/windows/live_audio.rs, sem crate novo. Nas duas
+# edições (via `standard`; docs/features/performance.md).
 live-audio = ["windows-sys/Win32_System_Com"]
 
 [dependencies]

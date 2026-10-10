@@ -2513,6 +2513,9 @@ mod launch_shared_helper_tests {
         assert!(title_looks_auth_failure("Fehlercode: 429"));
         assert!(title_looks_auth_failure("Roblox — Error Code: 429"));
         assert!(!title_looks_auth_failure("Roblox"));
+        // O título com o nome da conta (client_health.rs) não é falha.
+        assert!(!title_looks_auth_failure("Main — Roblox"));
+        assert!(!title_looks_auth_failure("Roblox — Main"));
         assert!(!title_looks_auth_failure(""));
         // A plain 429 in a window title is not enough on its own.
         assert!(!title_looks_auth_failure("429"));

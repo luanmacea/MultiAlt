@@ -83,7 +83,7 @@ está jogando faz som. É o mixer de volume do Windows (a sessão de áudio de c
 processo), com o jogo aberto — o arquivo de configurações do Roblox não é
 tocado. O volume configurado no launch (`OverrideClientVolume`) continua igual.
 
-### Atrás da feature `live-audio` (só na edição completa)
+### Atrás da feature `live-audio` (nas duas edições)
 
 A sessão de áudio só se alcança por **COM** (`IMMDeviceEnumerator` →
 `IAudioSessionManager2` → `IAudioSessionControl2` → `ISimpleAudioVolume`),
@@ -97,13 +97,13 @@ código nativo novo no binário. Por isso:
   feature liga apenas `Win32_System_Com` no `windows-sys` (`CoInitializeEx`,
   `CoCreateInstance`, `CoUninitialize`, do `ole32.dll` — que o WebView2 já
   carrega);
-- vai **só na edição completa**: `live-audio` está na lista da feature `full`
-  do [Cargo.toml](../../src-tauri/Cargo.toml), que o
-  [release-v4.yml](../../.github/workflows/release-v4.yml) compila com
-  `--features full`. A padrão (`--no-default-features --features avatar-batch`)
-  compila sem ela e esconde a opção. Travado em
-  `live_audio_ships_only_in_the_full_edition` (e no `release-workflow.test.mjs`,
-  que exige toda feature opcional no `full`). Ver
+- vai **nas duas edições** (decisão do dono, 10/10/2026): `live-audio` está na
+  lista da feature `standard` do [Cargo.toml](../../src-tauri/Cargo.toml), que o
+  [release-v4.yml](../../.github/workflows/release-v4.yml) compila na padrão
+  com `--no-default-features --features standard`; a completa
+  (`--features full`) a pega via `standard`. Tirá-la de uma edição é tirá-la da
+  lista. Travado em `live_audio_ships_in_both_editions` (e no
+  `release-workflow.test.mjs`, que exige toda feature opcional no `full`). Ver
   [As duas edições](../development.md#as-duas-edições).
 
 ### Regras de negócio
@@ -162,7 +162,7 @@ on launch**. Valem na grade automática do launch e no botão **Arrange in grid*
 | Seção | Chave | Default | Efeito |
 |---|---|---|---|
 | Optimization | `FollowFocus` | `false` | Liga a otimização que segue o foco. |
-| Optimization | `MuteBackgroundClients` | `false` | Fundo mudo (só com a feature `live-audio`, ou seja, só na edição completa). |
+| Optimization | `MuteBackgroundClients` | `false` | Fundo mudo (só com a feature `live-audio`, que vai nas duas edições). |
 | General | `GridAllowSmallWindows` | `false` | Célula da grade menor que o mínimo do Roblox. |
 | General | `GridBorderless` | `false` | Janelas da grade sem moldura. |
 | Optimization | `{Normal,BottingPlayer,BottingBot}EnableProcessPolicy` e demais | ver [settings.md](settings.md#optimization) | Política de fundo (se ligada) e o estado devolvido ao desligar. |

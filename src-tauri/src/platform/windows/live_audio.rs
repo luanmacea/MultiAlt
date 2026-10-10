@@ -5,12 +5,13 @@
 // mixer de volume do Windows (sessões de áudio por processo), com o jogo
 // aberto — não mexe no arquivo de configurações do Roblox.
 //
-// **Atrás da feature `live-audio` do Cargo, só na edição completa** (entra
-// pelo `full`). A sessão de áudio só se alcança por COM
-// (`IAudioSessionManager2`), que é código nativo novo no binário — e antivírus
-// olham para isso. Sem a feature (edição padrão) este arquivo compila só a
-// decisão (função pura, testada) e a opção some da tela
-// (`supportsLiveAudio = false`). Ver docs/features/performance.md.
+// **Atrás da feature `live-audio` do Cargo, nas duas edições** (entra pelo
+// `standard`, que o `full` inclui; decisão do dono, 10/10/2026). A sessão de
+// áudio só se alcança por COM (`IAudioSessionManager2`), código nativo novo no
+// binário, por isso fica isolada atrás da feature: tirá-la de uma edição é
+// tirá-la da lista. Sem a feature este arquivo compila só a decisão (função
+// pura, testada) e a opção some da tela (`supportsLiveAudio = false`). Ver
+// docs/features/performance.md.
 //
 // Sem crate novo: o `windows-sys` não traz interfaces COM, então as cinco
 // tabelas de métodos usadas (enumerador de dispositivos, dispositivo, gerenciador
@@ -538,25 +539,35 @@ mod live_audio_tests {
     }
 
     /// O que decide em que edição a feature vai: o Cargo.toml (lista do
-    /// `full`) e as linhas de build do workflow.
+    /// `standard`, que o `full` inclui) e as linhas de build do workflow.
+    /// Decisão do dono (10/10/2026): o volume ao vivo vai nas duas edições.
     #[test]
-    fn live_audio_ships_only_in_the_full_edition() {
+    fn live_audio_ships_in_both_editions() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        let full_line = manifest
-            .lines()
-            .find(|l| l.trim_start().starts_with("full ="))
-            .expect("feature full");
+        let feature_line = |name: &str| {
+            manifest
+                .lines()
+                .find(|l| l.trim_start().starts_with(&format!("{name} =")))
+                .unwrap_or_else(|| panic!("feature {name}"))
+                .to_string()
+        };
+        let standard_line = feature_line("standard");
         assert!(
-            full_line.contains("\"live-audio\""),
+            standard_line.contains("\"live-audio\""),
+            "live-audio saiu da edição padrão: {standard_line}"
+        );
+        let full_line = feature_line("full");
+        assert!(
+            full_line.contains("\"standard\"") || full_line.contains("\"live-audio\""),
             "live-audio saiu da edição completa: {full_line}"
         );
         assert!(
             manifest.contains("live-audio = [\"windows-sys/Win32_System_Com\"]"),
             "a feature live-audio só pode ligar o COM do windows-sys"
         );
-        // A completa compila só `--features full`; a padrão sai com
-        // `--no-default-features` e liga features pelo nome — nunca live-audio.
+        // A padrão compila `--no-default-features --features standard`, a
+        // completa `--features full`: nenhuma das duas lista features à parte.
         let workflow =
             std::fs::read_to_string(root.join("../.github/workflows/release-v4.yml")).unwrap();
         let standard_args: Vec<&str> = workflow
@@ -566,11 +577,11 @@ mod live_audio_tests {
         assert!(!standard_args.is_empty(), "build da edição padrão sumiu do workflow");
         for line in &standard_args {
             assert!(
-                !line.contains("live-audio") && !line.contains("full"),
-                "live-audio entrou na edição padrão: {line}"
+                line.contains("--features standard"),
+                "a edição padrão não compila a feature standard: {line}"
             );
         }
-        assert!(!workflow.contains("live-audio"), "a completa não lista features à parte");
+        assert!(!workflow.contains("live-audio"), "o workflow não lista features à parte");
     }
 
     /// COM fica isolado aqui, atrás da feature: nenhum outro arquivo do
