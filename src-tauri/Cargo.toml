@@ -17,6 +17,10 @@ webserver = ["dep:axum"]
 # Distribuir avatares salvos entre várias contas (resgate dos itens gratuitos
 # + vestir). Só a edição completa; a padrão sai com `--no-default-features`.
 avatar-batch = []
+# Volume ao vivo por cliente (fundo mudo) pelo mixer do Windows: COM de audio
+# escrito a mao em platform/windows/live_audio.rs, sem crate novo. FORA das
+# duas edicoes ate o dono decidir pelo scan de antivirus (docs/features/performance.md).
+live-audio = ["windows-sys/Win32_System_Com"]
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
@@ -57,6 +61,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_JobObjects",
     "Win32_System_Registry",
     "Win32_System_Memory",
+    # SetThreadExecutionState: PC acordado (sem a tela) durante o Modo AFK, o
+    # Auto Rejoin e a reconexão automática (platform/windows/power.rs).
+    "Win32_System_Power",
     "Win32_UI_Shell",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",

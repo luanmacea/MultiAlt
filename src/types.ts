@@ -105,6 +105,8 @@ export interface PlatformCapabilities {
   supportsBotting: boolean;
   supportsUpdater: boolean;
   supportsClientSettings: boolean;
+  /** Volume ao vivo por cliente: só com a feature `live-audio` no binário. */
+  supportsLiveAudio: boolean;
   reasons: string[];
   warnings: string[];
 }
@@ -431,6 +433,42 @@ export interface ClientHealth {
   drop: ClientDrop | null;
   /** A janela está "Não respondendo" há 30 s (só clientes abertos pelo app). */
   notResponding?: boolean;
+  /** O log diz que a conta está num jogo agora (entrou, sem queda nem saída). */
+  inGame?: boolean;
+}
+
+/**
+ * Reconexão automática de uma conta que caiu (`commands/reconnect.rs`).
+ * `waiting`: espera a próxima tentativa; `waitingForInternet`: sem internet,
+ * sem gastar tentativa; `launching`: tentativa em andamento; `checking`:
+ * relançou e confere se fica 2 min no jogo; `gaveUp`/`stopped`: parou.
+ */
+export type AutoReconnectPhase = "waiting" | "waitingForInternet" | "launching" | "checking" | "gaveUp" | "stopped";
+export type AutoReconnectStopReason =
+  | "joinedElsewhere"
+  | "closedByUser"
+  | "banned"
+  | "sessionExpired"
+  | "noDestination"
+  | "openedOutsideApp";
+
+export interface AutoReconnectEntry {
+  userId: number;
+  phase: AutoReconnectPhase;
+  attempt: number;
+  maxAttempts: number;
+  nextAttemptAtMs: number | null;
+  reason: AutoReconnectStopReason | null;
+  /** O erro da última tentativa, quando houve. */
+  error: string | null;
+  /** A queda que começou a reconexão. */
+  drop: ClientDrop;
+}
+
+export interface AutoReconnectPayload {
+  entries: AutoReconnectEntry[];
+  /** Contas que acabaram de ficar 2 min no jogo depois de relançadas. */
+  reconnected?: number[];
 }
 
 export interface LaunchQueuePayload {

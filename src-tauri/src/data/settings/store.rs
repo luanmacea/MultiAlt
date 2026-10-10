@@ -45,6 +45,11 @@ impl SettingsStore {
             ("UpdaterFeatureChannel", crate::RUNNING_FEATURE_CHANNEL, None),
             ("AccountJoinDelay", "8", None),
             ("AsyncJoin", "false", None),
+            (
+                "WaitForGameJoin",
+                "true",
+                Some("Multi-launch: start the next account as soon as the previous one is in the game (never before AccountJoinDelay's 8 s floor, at most 20 s)"),
+            ),
             ("DisableAgingAlert", "false", None),
             ("HideUsernames", "false", None),
             ("WrapLongNames", "false", None),
@@ -98,11 +103,31 @@ impl SettingsStore {
                 "true",
                 Some("New Roblox windows take the first free cell of the window grid (GridMonitors, GridGap)"),
             ),
+            (
+                "GridAllowSmallWindows",
+                "false",
+                Some("Grid cells may be smaller than Roblox's minimum window (only clients MultiAlt launched)"),
+            ),
+            (
+                "GridBorderless",
+                "false",
+                Some("Grid windows lose their title bar and border; turning it off gives them back"),
+            ),
             ("StartOnPCStartup", "false", None),
             ("MinimizeToTray", "false", None),
             ("ThemeWindowsNavbar", "true", None),
             ("RestrictedBackgroundStyle", "warp", None),
             ("BottingEnabled", "false", None),
+            (
+                "KeepPcAwake",
+                "true",
+                Some("Keep the PC from sleeping (the screen may still turn off) while AFK Mode, Auto Rejoin or auto-reconnect runs"),
+            ),
+            (
+                "AutoReconnect",
+                "false",
+                Some("Default for every account: reopen a client this app opened in the same game when it drops (each account's AutoReconnect field wins)"),
+            ),
             ("BottingUseSharedClientProfile", "true", None),
             ("BottingAutoShareLaunchFields", "true", None),
             ("BottingDualPanelDialog", "true", None),
@@ -293,6 +318,11 @@ impl SettingsStore {
             ("BottingBotJobCpuLimitPercent", "20"),
             ("BottingBotEnableJobMemoryLimit", "false"),
             ("BottingBotJobMemoryLimitMb", "1536"),
+            // Otimizacao que segue o foco (docs/features/performance.md):
+            // opcional, desligada por padrao.
+            ("FollowFocus", "false"),
+            // Fundo mudo (feature `live-audio`; sem ela a chave e ignorada).
+            ("MuteBackgroundClients", "false"),
         ];
 
         let optimization = ini.section("Optimization");

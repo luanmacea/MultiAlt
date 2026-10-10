@@ -7,6 +7,7 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
 import { AccountLaunchOverrides } from "./AccountLaunchOverrides";
 import { AccountHistory } from "./AccountHistory";
+import { AccountAutoReconnect } from "./AccountAutoReconnect";
 import { ClientHealthNote } from "../session/ClientHealthNote";
 import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
@@ -247,6 +248,8 @@ export function SingleSelectSidebar() {
             </button>
           </SidebarSection>
         )}
+
+        <AccountAutoReconnect account={account} />
 
         <AccountLaunchOverrides account={account} />
 

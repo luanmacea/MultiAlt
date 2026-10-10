@@ -200,6 +200,14 @@ impl ClientDrop {
     }
 }
 
+/// Onde a conta entrou por último (`! Joining game '<job>' place <place>`).
+/// A reconexão (commands/reconnect.rs) volta para cá; nunca vai para a tela.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinedDestination {
+    pub place_id: i64,
+    pub job_id: Option<String>,
+}
+
 /// O que o log disse até agora sobre a sessão de um cliente.
 #[derive(Debug, Clone, Default)]
 pub struct ClientLogSession {
@@ -213,6 +221,7 @@ pub struct ClientLogSession {
     /// Place e servidor do último `Joining game` (histórico de sessões).
     place_id: Option<i64>,
     job_id: Option<String>,
+    destination: Option<JoinedDestination>,
 }
 
 impl ClientLogSession {
@@ -227,6 +236,12 @@ impl ClientLogSession {
                 self.left = false;
                 self.joined = true;
                 self.last_teleport_ms = None;
+                if let Some(place_id) = place_id {
+                    self.destination = Some(JoinedDestination {
+                        place_id: *place_id,
+                        job_id: job_id.clone(),
+                    });
+                }
             }
             ClientLogEvent::TeleportStarted => self.last_teleport_ms = Some(now_ms),
             ClientLogEvent::LeftVoluntarily => self.left = true,
@@ -295,6 +310,17 @@ impl ClientLogSession {
 
     pub fn current_drop(&self) -> Option<&ClientDrop> {
         self.drop.as_ref()
+    }
+
+    /// Está num jogo agora: entrou, e depois disso não caiu nem saiu. É o
+    /// sinal que a fila de launch espera antes da próxima conta (launch.rs).
+    pub fn in_game(&self) -> bool {
+        self.joined && !self.left && self.drop.is_none() && self.pending.is_none()
+    }
+
+    /// Onde a conta entrou por último, se o log disse.
+    pub fn destination(&self) -> Option<&JoinedDestination> {
+        self.destination.as_ref()
     }
 
     /// O processo terminou dentro de um jogo, sem sair e sem queda: fechou
@@ -462,6 +488,14 @@ pub struct ClientHealthView {
     pub window_title: Option<String>,
     /// A janela está "Não respondendo" há 30 s ou mais (só clientes do app).
     pub not_responding: bool,
+    /// Está num jogo agora (o log disse que entrou, e não caiu nem saiu).
+    pub in_game: bool,
+    /// Onde entrou por último — só para a reconexão, não vai para a tela.
+    #[serde(skip)]
+    pub destination: Option<JoinedDestination>,
+    /// O processo terminou (e o monitor viu).
+    #[serde(skip)]
+    pub exited: bool,
 }
 
 /// Retrato de um cliente para o histórico de sessões: o jogo em que está, se
@@ -717,6 +751,9 @@ impl ClientHealthMonitor {
                         drop: entry.current_drop().cloned(),
                         window_title: entry.applied_title.clone(),
                         not_responding: entry.not_responding,
+                        in_game: !entry.exit_seen && entry.session.in_game(),
+                        destination: entry.session.destination().cloned(),
+                        exited: entry.exit_seen,
                     },
                 )
             })
@@ -859,9 +896,13 @@ pub(crate) fn start_client_health_monitor(app: tauri::AppHandle) {
             let notices = tokio::task::spawn_blocking(move || run_client_health_tick(&handle))
                 .await
                 .unwrap_or_default();
-            for notice in notices {
-                emit_health_notice(&app, &notice);
+            for notice in &notices {
+                emit_health_notice(&app, notice);
             }
+            // Reconexão automática da conta que caiu (commands/reconnect.rs).
+            reconnect_after_health_tick(&app, &notices);
+            // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs).
+            keep_awake_tick(&app);
             tokio::time::sleep(CLIENT_HEALTH_TICK).await;
         }
     });

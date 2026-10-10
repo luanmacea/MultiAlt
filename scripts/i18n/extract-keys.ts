@@ -13,6 +13,9 @@ function walk(dir: string, out: string[] = []): string[] {
     const st = statSync(full);
     if (st.isDirectory()) {
       if (ent === "locales" || ent === "i18n") continue;
+      // `src/dev/harness`: dublês do `bun run dev:ui`, não texto de tela. O
+      // `alt="@luanmacea"` das notas de release falsas virava chave do catálogo.
+      if (full === path.join(srcRoot, "dev")) continue;
       walk(full, out);
       continue;
     }
