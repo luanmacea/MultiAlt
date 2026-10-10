@@ -273,6 +273,7 @@ o agente relata uma tela que não existe mais. Se desconfiar, apague `node_modul
 | `nexus` | sim | módulo [nexus/](../src-tauri/src/nexus) (WebSocket para Nexus.lua) |
 | `webserver` | sim | [api/server/](../src-tauri/src/api/server) (axum, dependência opcional) |
 | `avatar-batch` | sim | distribuição de avatares em lote: [commands/avatar_batch.rs](../src-tauri/src/commands/avatar_batch.rs) e o resgate em [api/roblox/avatar_claim.rs](../src-tauri/src/api/roblox/avatar_claim.rs) (ver [features/avatars.md](features/avatars.md#as-duas-edições)) |
+| `live-audio` | **não** (nem na edição completa) | volume ao vivo por cliente (fundo mudo): COM de áudio escrito à mão em [platform/windows/live_audio.rs](../src-tauri/src/platform/windows/live_audio.rs), liga só o `Win32_System_Com` do `windows-sys`. Fora das duas edições até o dono decidir pelo scan de antivírus; para testar: `bun run tauri build --no-bundle --features live-audio` (ver [features/performance.md](features/performance.md#volume-ao-vivo-por-cliente-optimizationmutebackgroundclients)) |
 
 Comandos relacionados em [services.rs](../src-tauri/src/commands/services.rs) e [avatars.rs](../src-tauri/src/commands/avatars.rs) têm stub `#[cfg(not(feature = ...))]` — ao adicionar um comando novo dessas áreas, crie as duas versões.
 

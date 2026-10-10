@@ -166,6 +166,23 @@ describe("SessionPage — summary", () => {
     await user.click(screen.getByRole("button", { name: "Open AFK Mode" }));
     expect(store.setActivePage).toHaveBeenCalledWith("afk");
   });
+
+  it("says when auto-reconnect is bringing accounts back (a stopped one does not count)", () => {
+    const drop = { kind: "crashed" as const, reason: null, code: null, message: null, sinceMs: 0 };
+    const base = { attempt: 1, maxAttempts: 5, nextAttemptAtMs: null, reason: null, error: null, drop };
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      autoReconnect: [
+        { ...base, userId: 10, phase: "waiting" },
+        { ...base, userId: 20, phase: "stopped", reason: "joinedElsewhere" },
+      ],
+      ...storeActions(),
+    });
+    const summary = screen.getByRole("complementary", { name: "Summary" });
+    expect(within(summary).getByText("Auto-reconnect is bringing back 1 accounts.")).toBeInTheDocument();
+  });
 });
 
 /**

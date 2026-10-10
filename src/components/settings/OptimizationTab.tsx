@@ -267,12 +267,28 @@ function OptimizationProfileSection({
       {isWindows ? (
         // Uma chave só para todos os perfis (launch e Auto Rejoin): a grade é
         // uma só. Ligada por padrão — só o "false" gravado a desliga.
-        <Toggle
-          checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
-          onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
-          label="Arrange in grid on launch"
-          description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
-        />
+        <>
+          <Toggle
+            checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
+            onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
+            label="Arrange in grid on launch"
+            description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
+          />
+          {/* Ideia 22 (docs/features/performance.md): só nos clientes que o
+              app abriu, no launch e no botão Arrange in grid. */}
+          <Toggle
+            checked={s.getBool("General", "GridAllowSmallWindows")}
+            onChange={(v) => s.setBool("General", "GridAllowSmallWindows", v)}
+            label="Allow smaller windows in the grid"
+            description="Grid cells can be smaller than Roblox's minimum window size, so more windows fit on the screen."
+          />
+          <Toggle
+            checked={s.getBool("General", "GridBorderless")}
+            onChange={(v) => s.setBool("General", "GridBorderless", v)}
+            label="Remove window borders in the grid"
+            description="Grid windows lose their title bar and border so they sit edge to edge. Turning this off gives the borders back."
+          />
+        </>
       ) : null}
 
       {isWindows ? (
@@ -533,6 +549,40 @@ function OptimizationProfileSection({
   );
 }
 
+/**
+ * O que acontece com os clientes enquanto o usuário joga, valendo para todos
+ * os perfis (uma chave só): ver docs/features/performance.md. Só clientes
+ * que o app abriu — o aberto pelo site fica como está.
+ */
+function WindowInUseSection({ s }: { s: UseSettingsReturn }) {
+  const t = useTr();
+  // O volume ao vivo usa COM de áudio e só existe no binário com a feature
+  // `live-audio` (fora das duas edições por padrão): sem ela, nada de opção.
+  const liveAudio = useStore().platformCapabilities?.supportsLiveAudio === true;
+  return (
+    <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <SectionLabel>{t("While you play")}</SectionLabel>
+        <AppliesBadge text={t("Applies right away")} />
+      </div>
+      <Toggle
+        checked={s.getBool("Optimization", "FollowFocus")}
+        onChange={(v) => s.setBool("Optimization", "FollowFocus", v)}
+        label="Follow the window in use"
+        description="The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first."
+      />
+      {liveAudio ? (
+        <Toggle
+          checked={s.getBool("Optimization", "MuteBackgroundClients")}
+          onChange={(v) => s.setBool("Optimization", "MuteBackgroundClients", v)}
+          label="Mute the Roblox windows you're not using"
+          description="Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them."
+        />
+      ) : null}
+    </div>
+  );
+}
+
 interface ProfileOption {
   id: OptimizationProfileId;
   label: string;
@@ -627,6 +677,8 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
           </>
         ) : null}
       </div>
+
+      {isWindows ? <WindowInUseSection s={s} /> : null}
 
       {profiles.length > 1 ? (
         // `sticky` para o nome do perfil ativo nunca depender de rolagem: o

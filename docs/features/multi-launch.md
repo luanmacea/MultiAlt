@@ -74,6 +74,11 @@ sequenceDiagram
   - loga `launch-log` `wait` ("Aguardando Ns antes da próxima conta (anti-captcha)");
   - a espera é **fatiada** (250 ms) e termina antes da hora quando não sobra conta `queued` desta sequência ou quando o cancelamento global chega. Dormir o intervalo inteiro deixava o app preso depois de o usuário parar a fila — com o painel mostrando "0 na fila" e todo launch novo recusado.
   - Motivo: o Roblox pede "verify you're not a robot" quando resgates de auth ticket do mesmo IP chegam próximos demais.
+- **Espera pelo jogo (`WaitForGameJoin = true`, padrão, só Windows, só com `AsyncJoin = false`):** em vez da espera fixa, a fila segue **assim que o log do cliente diz que a conta entrou no jogo** (`in_game` do monitor de quedas, [watcher.md](watcher.md#quedas-lidas-do-log-do-cliente)). Três prazos, todos medidos como a espera fixa (do início da iteração, com o resíduo de 5 s e o jitter): piso `8 s` (o anti-captcha, nunca antes dele, nem com a conta já em jogo), espera fixa `max(AccountJoinDelay, 8)` e teto `max(20 s, AccountJoinDelay)` (`JOIN_WAIT_CAP_SECS`). Regra (`join_wait_done`, testes `launch_join_wait_tests`):
+  - log achado e a conta **em jogo** → segue (depois do piso). Com `AccountJoinDelay` 30 e a conta em jogo aos 12 s, segue aos 12 s;
+  - log achado e ainda **carregando** → espera até o teto;
+  - **sem log** (o monitor ainda não achou, ou não acha) → a espera fixa de antes. Queda ou cliente fechado antes de entrar também caem aqui.
+  - Sem PID detectado, ou com a opção desligada, é a espera fixa de antes. Logs: "Esperando a conta entrar no jogo antes da próxima (entre Xs e Ys)" e "Entrou no jogo: próxima conta".
 - **Modo `AsyncJoin = true`:** após cada conta, espera o sinal `next_account()` (comando Tauri), o cancelamento ou a fila ficar sem conta esperando a vez, com teto de 120 s (polling de 500 ms). Sem espaçamento anti-captcha nesse modo.
 - **Cancelamento:** `cmd_kill_all_roblox` (botão "Close All Roblox") e `cancel_launch` setam `launcher_cancelled`. O loop verifica no início de cada iteração, **logo antes do spawn** de cada conta, no loop de espera do AsyncJoin e em cada fatia da espera entre contas. `stop_launch_queue` não seta esse flag — ele só cancela as contas `queued`, e é por isso que a espera também olha a fila. `reset_launch_cancelled` só é chamado no início de um novo `launch_multiple`.
 - **Versão por conta:** cada conta resolve sua própria versão; mas uma conta cuja versão diverge dos clientes já abertos é pulada (`version-conflict`). Na prática todas as contas de um lote devem estar na mesma versão.
@@ -127,6 +132,7 @@ Duas sequências ao mesmo tempo (dois cliques no botão, ou um launch de uma con
 |---|---|---|---|
 | General | `AccountJoinDelay` | `8` | Espaçamento alvo entre contas (piso 8 s; valor negativo = default) |
 | General | `AsyncJoin` | `false` | Espera sinal `next_account` em vez de tempo |
+| General | `WaitForGameJoin` | `true` | Só Windows, com `AsyncJoin` desligado: segue quando o log diz que a conta entrou no jogo (piso 8 s, teto 20 s ou o delay, se maior); sem log, a espera fixa |
 | General | `EnableMultiRbx` | — | Obrigatório para vários clientes simultâneos |
 | General | `AutoCloseLastProcess` | `false` | Fecha cliente anterior da conta antes de relançar |
 | General | `AutoCloseRobloxForMultiRbx` | `false` | Mata clientes se o mutex não puder ser adquirido |

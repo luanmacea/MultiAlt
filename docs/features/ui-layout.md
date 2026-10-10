@@ -182,7 +182,9 @@ A grade é feita de **células fixas** ([windowing.rs](../../src-tauri/src/platf
 - **Botão Arrange in grid** (`arrange_windows_grid`): as mesmas células, a i-ésima janela (ordem de cima para baixo, esquerda para direita) na célula i, dando a volta quando há mais janelas que células.
 - **Fora da grade, nos dois**: contas com janela própria — exceção de launch com tamanho (`ClientOverrideWindowWidth/Height`) ou tela cheia (`account_keeps_own_window`). Elas não são movidas nem encolhidas e **bloqueiam as células que cobrem** (`slot_overlaps`): na automática essas células contam como ocupadas, e o botão manual só usa as livres (`unblocked_slots`; tudo coberto = grade inteira). Sem isso a alt nascia por cima da principal de 1000x1000 parada em (0,0); os PIDs saem do rastreamento de processos (`grid_excluded_pids`). Também ficam de fora: conta que começa minimizada (não é desminimizada), janela em tela cheia ou maximizada (na automática) e janela minimizada.
 
-Testes: `win_grid_slot_tests` (células, primeira livre, volta, célula do tamanho aceito, janelas fora da grade bloqueando), `client_window_plan_tests` (quem entra na grade). Interruptores: `ChooseGameScreen.test.tsx` e `settingsTabs.test.tsx` (aba Optimization, junto do tamanho de janela global).
+- **Menor que o mínimo e sem moldura** (opcionais, desligados): `General.GridAllowSmallWindows` deixa a célula do tamanho pedido (a janela é posta com `SWP_NOSENDCHANGING`, e o Roblox não a aumenta) e `General.GridBorderless` tira a barra de título e a borda das janelas da grade. Só nos clientes que o app abriu; a moldura volta quando a opção desliga ou o app fecha. Ver [performance.md](performance.md#grade-menor-que-o-mínimo-e-sem-moldura-generalgridallowsmallwindows-generalgridborderless).
+
+Testes: `win_grid_slot_tests` (células, primeira livre, volta, célula do tamanho aceito, janelas fora da grade bloqueando), `win_grid_style_tests` (célula pequena, sem moldura), `client_window_plan_tests` (quem entra na grade). Interruptores: `ChooseGameScreen.test.tsx` e `settingsTabs.test.tsx` (aba Optimization, junto do tamanho de janela global).
 
 ### Tela "Choose Game" — chips e abas
 

@@ -770,6 +770,9 @@ mod watcher_tests {
             }),
             window_title: None,
             not_responding: false,
+            in_game: !dropped,
+            destination: None,
+            exited: false,
         }
     }
 

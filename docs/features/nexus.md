@@ -106,7 +106,7 @@ Seção `[AccountControl]`:
 ## Armadilhas / cuidados
 
 - **Sem autenticação:** qualquer processo local (ou da rede, com `AllowExternalConnections`) que saiba um username da lista pode conectar e receber comandos/`Echo`; `execute` roda Lua arbitrário no cliente. O bloqueio de `Origin` só impede páginas web no navegador, não processos locais.
-- `AutoRelaunch`/`RelaunchDelay` são apenas armazenados: não existe lógica no backend que relance contas a partir deles.
+- `AutoRelaunch` liga a [reconexão automática](watcher.md#reconexão-automática) da conta de mesmo nome de usuário (lido a cada passada; não grava nada na conta). `RelaunchDelay` continua só armazenado: a espera é a da reconexão (10 s → 5 min).
 - `AccountControlData.json` fica na pasta de dados do usuário (junto dos outros arquivos do app) e entra nos backups; antes ficava ao lado do executável e sumia ao mover o `.exe`.
 - `export_nexus_lua` grava no **diretório de trabalho atual** do processo, que pode não ser a pasta esperada.
 - O `Nexus.lua` depende de APIs de executor (`WebSocket.connect`, `loadstring`, `getgenv`, `setfpscap`).

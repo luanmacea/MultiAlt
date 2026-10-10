@@ -32,6 +32,9 @@ struct PlatformCapabilities {
     supports_botting: bool,
     supports_updater: bool,
     supports_client_settings: bool,
+    /// Volume ao vivo por cliente: só no Windows e só com a feature
+    /// `live-audio` no binário (fora das duas edições por padrão).
+    supports_live_audio: bool,
     reasons: Vec<String>,
     warnings: Vec<String>,
 }
@@ -69,6 +72,7 @@ fn build_platform_capabilities(
             supports_botting: true,
             supports_updater: true,
             supports_client_settings: true,
+            supports_live_audio: cfg!(feature = "live-audio"),
             reasons: Vec::new(),
             warnings: Vec::new(),
         },
@@ -88,6 +92,7 @@ fn build_platform_capabilities(
             supports_botting: false,
             supports_updater: true,
             supports_client_settings: true,
+            supports_live_audio: false,
             reasons: vec!["Auto Rejoin is only supported on Windows".to_string()],
             warnings: vec![
                 "macOS support is partial: no per-client memory watch, no window grid and no pre-launch isolation".to_string(),
@@ -108,6 +113,7 @@ fn build_platform_capabilities(
             supports_botting: false,
             supports_updater: true,
             supports_client_settings: false,
+            supports_live_audio: false,
             reasons: vec!["Launching Roblox is only supported on Windows and macOS".to_string()],
             warnings: vec![
                 "Account management works, but launching, the watcher and Auto Rejoin are unavailable on this platform".to_string(),
@@ -171,6 +177,7 @@ mod platform_info_tests {
         "supportsBotting",
         "supportsUpdater",
         "supportsClientSettings",
+        "supportsLiveAudio",
         "reasons",
         "warnings",
     ];
@@ -193,6 +200,14 @@ mod platform_info_tests {
         assert_eq!(caps.preferred_runner, RUNNER_NATIVE);
         assert_eq!(caps.detected_runner, RUNNER_NATIVE);
         assert_eq!(caps.runner_path, None);
+    }
+
+    #[test]
+    fn live_audio_follows_the_build_feature_and_is_windows_only() {
+        let windows = build_platform_capabilities("windows", "desktop", "sober");
+        assert_eq!(windows.supports_live_audio, cfg!(feature = "live-audio"));
+        assert!(!build_platform_capabilities("macos", "desktop", "sober").supports_live_audio);
+        assert!(!build_platform_capabilities("linux", "x11", "sober").supports_live_audio);
     }
 
     #[test]

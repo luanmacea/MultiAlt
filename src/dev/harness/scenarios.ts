@@ -89,7 +89,14 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "get_all_settings":
       return settings;
     case "get_platform_capabilities":
-      return { isWindows: true, isMacos: false, supportsIsolation: true, supportsMultiRoblox: true };
+      return {
+        isWindows: true,
+        isMacos: false,
+        supportsIsolation: true,
+        supportsMultiRoblox: true,
+        // Mostra no dev:ui as opções que só existem com a feature `live-audio`.
+        supportsLiveAudio: true,
+      };
     case "remembered_unlock_state":
       return { supported: true, active: false, defaultHours: 24 };
     case "get_launch_queue":
@@ -2009,6 +2016,12 @@ const SCENARIOS: Record<string, () => void> = {
    * A 4ª conta foi aberta pelo site (adotada); a 5ª fica "Não respondendo".
    * Depois de um tempo a 1ª volta a um jogo e o aviso some. O cenário só
    * entrega dados.
+   *
+   * Reconexão automática (`commands/reconnect.rs`, evento `auto-reconnect`),
+   * na ordem em que o backend a mandaria: a 1ª espera 10 s, tenta, confere e
+   * volta ao jogo; a 2ª está na 2ª tentativa (a 1ª não entrou no jogo); a 3ª
+   * espera a internet voltar; a 6ª (fora do "Em jogo": o cliente fechou
+   * sozinho) desistiu depois de 5 tentativas. A 4ª, do site, nunca reconecta.
    */
   "client-drops"() {
     type Drop = {
@@ -2051,6 +2064,86 @@ const SCENARIOS: Record<string, () => void> = {
       hungUserId = rows[4].userId;
       harnessEmit("roblox-client-health", { userId: hungUserId, notResponding: true });
     }, 6_000);
+    type Reconnect = {
+      userId: number;
+      phase: string;
+      attempt: number;
+      maxAttempts: number;
+      nextAttemptAtMs: number | null;
+      reason: string | null;
+      error: string | null;
+      drop: Drop;
+    };
+    let reconnect: Reconnect[] = [];
+    const sendReconnect = (reconnected: number[] = []) =>
+      harnessEmit("auto-reconnect", { entries: reconnect, reconnected });
+    const setReconnect = (userId: number, patch: Partial<Reconnect> | null, reconnected: number[] = []) => {
+      const others = reconnect.filter((r) => r.userId !== userId);
+      const current = reconnect.find((r) => r.userId === userId);
+      reconnect =
+        patch === null
+          ? others
+          : [
+              ...others,
+              {
+                userId,
+                phase: "waiting",
+                attempt: 1,
+                maxAttempts: 5,
+                nextAttemptAtMs: null,
+                reason: null,
+                error: null,
+                drop: { ...drops[0][1], sinceMs: Date.now() },
+                ...current,
+                ...patch,
+              },
+            ].sort((a, b) => a.userId - b.userId);
+      sendReconnect(reconnected);
+    };
+    const first = rows[0];
+    if (first) {
+      setTimeout(() => setReconnect(first.userId, { nextAttemptAtMs: Date.now() + 10_000 }), 1_400);
+      setTimeout(() => setReconnect(first.userId, { phase: "launching", nextAttemptAtMs: null }), 11_400);
+      setTimeout(() => setReconnect(first.userId, { phase: "checking" }), 13_000);
+      setTimeout(() => setReconnect(first.userId, null, [first.userId]), 17_000);
+    }
+    const second = rows[1];
+    if (second) {
+      setTimeout(
+        () =>
+          setReconnect(second.userId, {
+            attempt: 2,
+            nextAttemptAtMs: Date.now() + 30_000,
+            error: "It did not get into the game in 2 minutes",
+            drop: { ...drops[1][1], sinceMs: Date.now() },
+          }),
+        2_600
+      );
+    }
+    const third = rows[2];
+    if (third) {
+      setTimeout(
+        () =>
+          setReconnect(third.userId, {
+            phase: "waitingForInternet",
+            drop: { ...drops[2][1], sinceMs: Date.now() },
+          }),
+        3_800
+      );
+    }
+    const sixth = accounts[5];
+    if (sixth) {
+      setTimeout(
+        () =>
+          setReconnect(sixth.UserID, {
+            phase: "gaveUp",
+            attempt: 5,
+            error: "The Roblox client did not start",
+            drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: Date.now() },
+          }),
+        500
+      );
+    }
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_running_instances") {
         return rows.map((row) => ({
@@ -2064,9 +2157,13 @@ const SCENARIOS: Record<string, () => void> = {
             drop: row.drop,
             windowTitle: `Roblox — ${row.userId}`,
             notResponding: row.userId === hungUserId,
+            inGame: !row.drop,
           },
         }));
       }
+      if (cmd === "get_auto_reconnect_status") return { entries: reconnect };
+      // Os botões só chegam ao backend: quem muda o estado é ele, e aqui não há backend.
+      if (cmd === "stop_auto_reconnect" || cmd === "retry_auto_reconnect") return true;
       return baseHandler(cmd, args);
     });
   },

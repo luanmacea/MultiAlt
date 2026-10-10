@@ -505,6 +505,59 @@ describe("GeneralTab", () => {
     ).toBeInTheDocument();
   });
 
+  /**
+   * launch.rs (`wait_for_game_join`): a fila segue quando o log diz que a
+   * conta entrou. Só no Windows, onde o log é lido; nasce ligado.
+   */
+  describe("Wait for each account to get into the game", () => {
+    let userAgent: { mockRestore: () => void } | null = null;
+    beforeEach(() => {
+      userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+    });
+    afterEach(() => {
+      userAgent?.mockRestore();
+    });
+
+    it("is on by default and turning it off saves false", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Wait for each account to get into the game")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "WaitForGameJoin", "false");
+    });
+
+    it("is not used while accounts launch one at a time", async () => {
+      renderGeneral({ General: { AsyncJoin: "true" } });
+      const toggle = (await screen.findByText("Wait for each account to get into the game")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getAllByText("Not used while accounts launch one at a time.")).toHaveLength(2);
+    });
+
+    /** commands/reconnect.rs: padrão de todas as contas, nasce desligado. */
+    it("has the auto-reconnect default off, and turning it on saves true", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Reconnect accounts that drop")).closest("[role=switch]");
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "AutoReconnect", "true");
+    });
+
+    /** commands/keep_awake.rs: nasce ligado; desligar grava false. */
+    it("keeps the PC awake by default, and turning it off saves false", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Keep the PC awake while AFK Mode or Auto Rejoin runs")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "KeepPcAwake", "false");
+    });
+  });
+
   it("registers the app with the OS autostart when Run on Windows Startup is turned on", async () => {
     const autostart = await import("@tauri-apps/plugin-autostart");
     renderGeneral();
@@ -731,10 +784,77 @@ describe("OptimizationTab", () => {
     expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 
+  /** Ideia 22: janelas da grade menores que o mínimo e sem moldura, opcionais. */
+  it.each([
+    ["Allow smaller windows in the grid", "GridAllowSmallWindows"],
+    ["Remove window borders in the grid", "GridBorderless"],
+  ])("offers %s off by default and saves it", async (label, key) => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: new RegExp(label) });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+    await expectSaved("General", key, "true");
+  });
+
+  it("hides the grid window options outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(
+      screen.queryByRole("switch", { name: /Allow smaller windows in the grid/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Remove window borders in the grid/ })
+    ).not.toBeInTheDocument();
+  });
+
   it("hides the automatic window grid outside Windows", async () => {
     renderOptimization({}, "macos");
     await screen.findByText("Override Window Size");
     expect(screen.queryByRole("switch", { name: /Arrange in grid on launch/ })).not.toBeInTheDocument();
+  });
+
+  /** Ideia 18: a janela em uso a toda velocidade, as outras no fundo. Opcional. */
+  it("offers the focus-following optimization off by default and saves it", async () => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: /Follow the window in use/ });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(
+      screen.getByText(/The one you're playing runs at full speed, the others slow down/)
+    ).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    await expectSaved("Optimization", "FollowFocus", "true");
+  });
+
+  /** Ideia 20: só aparece quando o binário traz a feature `live-audio`. */
+  it("offers muting the windows not in use only when the build has live audio", async () => {
+    stored = {};
+    setStore({
+      platformCapabilities: { os: "windows", supportsLiveAudio: true } as PlatformCapabilities,
+    });
+    renderTab((s) => <OptimizationTab s={s} />);
+    const toggle = await screen.findByRole("switch", {
+      name: /Mute the Roblox windows you're not using/,
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+    await expectSaved("Optimization", "MuteBackgroundClients", "true");
+  });
+
+  it("hides the mute option when the build has no live audio", async () => {
+    renderOptimization({});
+    await screen.findByRole("switch", { name: /Follow the window in use/ });
+    expect(
+      screen.queryByRole("switch", { name: /Mute the Roblox windows you're not using/ })
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the focus-following optimization outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(screen.queryByRole("switch", { name: /Follow the window in use/ })).not.toBeInTheDocument();
   });
 
   it("rejects a fast flag key that is not on the backend allowlist", async () => {

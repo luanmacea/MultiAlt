@@ -54,6 +54,9 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `UpdaterFeatureChannel` | a edição que está rodando (`standard` na padrão, `nexus-ws` na completa) | Canal de features do updater. Gravado no INI, nunca é reposto por uma versão nova; o botão "Get the complete edition" da página Avatars grava `nexus-ws` ([avatars.md](avatars.md#trocar-para-a-edição-completa-pelo-app)). |
 | `AccountJoinDelay` | `8` | Segundos entre contas no multi-launch. |
 | `AsyncJoin` | `false` | Esperar cada conta abrir antes da próxima. |
+| `KeepPcAwake` | `true` | Não deixa o Windows dormir (a tela pode apagar) enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda; solta ao parar tudo e ao fechar o app. Só Windows. Ver [afk-mode.md](afk-mode.md#pc-acordado). |
+| `AutoReconnect` | `false` | Padrão de todas as contas para a [reconexão automática](watcher.md#reconexão-automática): reabre no mesmo jogo o cliente que o app abriu quando ele cai. O campo `AutoReconnect` da conta (painel da conta) vence. Só Windows. |
+| `WaitForGameJoin` | `true` | Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
@@ -105,6 +108,8 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `FirstRunWalkthroughState` | `pending` (novo) / `completed` (INI existente) | Walkthrough; vira `skipped`/`completed`. |
 | `SavedPlaceId` / `SavedJobId` / `SavedLaunchData` | — | Últimos valores de launch. |
 | `GridGap` / `GridMonitors` | — (20 / vazio) | Arranjo de janelas em grade (Choose Game). |
+| `GridAllowSmallWindows` | `false` | Célula da grade menor que o mínimo do Roblox (~800x600), só nos clientes que o app abriu. Ver [performance.md](performance.md). |
+| `GridBorderless` | `false` | Janelas da grade sem barra de título e borda, só nos clientes que o app abriu; desligar devolve as molduras. Ver [performance.md](performance.md). |
 | `AutoArrangeGrid` | `true` | Grade automática no launch: cada janela nova do Roblox (launch, fila, Auto Rejoin) vai para a primeira célula livre da grade de `GridMonitors`/`GridGap`. Contas com tamanho de janela próprio ficam de fora. Só `"false"` desliga (chave ausente = ligada). Interruptor na aba Windows da Choose Game e em Settings > Optimization. Ver [ui-layout.md](ui-layout.md#grade-de-janelas). |
 
 ### `[Developer]`
@@ -154,6 +159,13 @@ Três perfis com as mesmas 13 chaves, prefixadas por `Normal`, `BottingPlayer` e
 | `EnableFastFlags` / `FastFlagsJson` | false / "" | false / "" | false / "" |
 | `EnableJobCpuLimit` / `JobCpuLimitPercent` | false / 25 | false / 25 | false / 20 |
 | `EnableJobMemoryLimit` / `JobMemoryLimitMb` | false / 2048 | false / 2048 | false / 1536 |
+
+Fora dos perfis, uma chave para todos os clientes (cartão **While you play** da aba, ver [performance.md](performance.md)):
+
+| Chave | Default | Significado |
+|---|---|---|
+| `FollowFocus` | `false` | Otimização que segue o foco: o cliente em uso (que o app abriu) a toda velocidade, os outros com a política de fundo; 35 s de carência para cliente novo. |
+| `MuteBackgroundClients` | `false` | Fundo mudo: só o cliente em uso faz som (mixer do Windows). Só vale no binário com a feature `live-audio` (fora das duas edições); sem ela a opção nem aparece. |
 
 Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
 

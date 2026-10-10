@@ -13,6 +13,7 @@ import { makeAccount, makeBottingStatus, renderWithStore, setStore } from "../..
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type {
+  AutoReconnectEntry,
   ClientDrop,
   ClientHealth,
   FriendLinkState,
@@ -742,5 +743,94 @@ describe("SessionPanel — quedas lidas do log", () => {
     const note = within(screen.getByTestId("session-running-1")).getByTestId("client-health-note");
     expect(note).toHaveTextContent("Not responding");
     expect(note).toHaveAttribute("data-tone", "hung");
+  });
+});
+
+describe("SessionPanel — reconexão automática", () => {
+  const NOW = Date.now();
+
+  function reconnect(userId: number, partial: Partial<AutoReconnectEntry>): AutoReconnectEntry {
+    return {
+      userId,
+      phase: "waiting",
+      attempt: 1,
+      maxAttempts: 5,
+      nextAttemptAtMs: NOW + 30_000,
+      reason: null,
+      error: null,
+      drop: { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: NOW },
+      ...partial,
+    };
+  }
+
+  function reconnectActions(): Partial<StoreValue> {
+    return {
+      stopAutoReconnect: vi.fn(async (userId: number) => (await invokeMock("stop_auto_reconnect", { userId })) as boolean),
+      retryAutoReconnect: vi.fn(
+        async (userId: number) => (await invokeMock("retry_auto_reconnect", { userId })) as boolean
+      ),
+    };
+  }
+
+  beforeEach(() => {
+    setInvokeMap({ stop_auto_reconnect: true, retry_auto_reconnect: true });
+  });
+
+  it("has no section while nothing is reconnecting", () => {
+    renderPanel();
+    expect(screen.queryByTestId("auto-reconnect-panel")).not.toBeInTheDocument();
+  });
+
+  it("shows the countdown and the attempt, with Try now and Stop", async () => {
+    renderPanel({
+      ...reconnectActions(),
+      autoReconnect: [reconnect(1, { attempt: 2, nextAttemptAtMs: Date.now() + 30_000 })],
+    });
+    const row = screen.getByTestId("session-reconnect-1");
+    expect(within(row).getByText("alpha")).toBeInTheDocument();
+    expect(within(row).getByText(/^Reconnecting in (29|30) s \(attempt 2\/5\)$/)).toBeInTheDocument();
+
+    await userEvent.click(within(row).getByRole("button", { name: /Try now/ }));
+    expect(callsFor("retry_auto_reconnect")).toEqual([["retry_auto_reconnect", { userId: 1 }]]);
+    await userEvent.click(within(row).getByRole("button", { name: /Stop/ }));
+    expect(callsFor("stop_auto_reconnect")).toEqual([["stop_auto_reconnect", { userId: 1 }]]);
+    // Parar a reconexão nunca fecha cliente.
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
+  });
+
+  it("says when it gave up, and offers to try again or hide the line", async () => {
+    renderPanel({
+      ...reconnectActions(),
+      autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5, error: "PID not detected" })],
+    });
+    const row = screen.getByTestId("session-reconnect-2");
+    const label = within(row).getByText("Gave up after 5 tries");
+    expect(label).toHaveAttribute("title", "Gave up after 5 tries — PID not detected");
+    expect(within(row).getByRole("button", { name: /Try again/ })).toBeInTheDocument();
+    await userEvent.click(within(row).getByRole("button", { name: "Dismiss Bravo Alt" }));
+    expect(callsFor("stop_auto_reconnect")).toEqual([["stop_auto_reconnect", { userId: 2 }]]);
+  });
+
+  it("explains why it will not reconnect, without a retry for a banned account", () => {
+    renderPanel({
+      autoReconnect: [
+        reconnect(1, { phase: "stopped", reason: "joinedElsewhere" }),
+        reconnect(3, { phase: "stopped", reason: "banned" }),
+      ],
+    });
+    expect(
+      within(screen.getByTestId("session-reconnect-1")).getByText("Not reconnecting: the account joined somewhere else")
+    ).toBeInTheDocument();
+    const banned = screen.getByTestId("session-reconnect-3");
+    expect(within(banned).getByText("Not reconnecting: the account is banned")).toBeInTheDocument();
+    expect(within(banned).queryByRole("button", { name: /Try/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the attempt in progress without a Try now", () => {
+    renderPanel({ autoReconnect: [reconnect(1, { phase: "launching", attempt: 3 })] });
+    const row = screen.getByTestId("session-reconnect-1");
+    expect(within(row).getByText("Reconnecting now (attempt 3/5)")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /Try/ })).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: /Stop/ })).toBeInTheDocument();
   });
 });

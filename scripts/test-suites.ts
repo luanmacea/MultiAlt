@@ -29,6 +29,8 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_command_tests",
       "http_timeout_tests",
       "launch_queue_tests",
+      // Fila que espera o cliente entrar no jogo (launch.rs, General.WaitForGameJoin).
+      "launch_join_wait_tests",
       "singleton_event_tests",
       "multi_roblox_decision_tests",
       "exit_cleanup_tests",
@@ -132,7 +134,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   botting: {
-    description: "Modo botting, watcher de processos e quedas lidas do log do cliente",
+    description: "Modo botting, watcher de processos, quedas lidas do log do cliente e reconexão automática",
     rust: [
       "botting_command_tests",
       "botting_console_tests",
@@ -144,6 +146,9 @@ export const SUITES: Record<string, TestSuite> = {
       "client_log_session_tests",
       "client_health_monitor_tests",
       "client_window_title_tests",
+      // Reconexão automática da conta que caiu (commands/reconnect.rs).
+      "auto_reconnect_tests",
+      "auto_reconnect_target_tests",
     ],
     // A aba Auto Rejoin do Modo AFK e a moldura (abas, modal) que a abre.
     front: [
@@ -151,11 +156,21 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/afk-mode/AfkModeView.test.tsx",
       "src/utils/clientHealth.test.ts",
       "src/components/session/SessionPanel.test.tsx",
+      "src/utils/autoReconnect.test.ts",
+      "src/components/accounts/AccountAutoReconnect.test.tsx",
     ],
   },
   afk: {
     description: "AFK mode: teclas permitidas, modo clique, agendamento por conta e parada do ciclo",
-    rust: ["afk_command_tests", "afk_input_safety_tests", "win_input_tests", "win_focus_tests"],
+    rust: [
+      "afk_command_tests",
+      "afk_input_safety_tests",
+      "win_input_tests",
+      "win_focus_tests",
+      // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs, power.rs).
+      "keep_awake_tests",
+      "win_power_tests",
+    ],
     // `store.test.ts` entra pelo bloco "AFK mode" (os toasts do start).
     front: [
       "src/components/afk-mode/ClicksTab.test.tsx",
@@ -440,6 +455,20 @@ export const SUITES: Record<string, TestSuite> = {
       "platform_info_tests",
     ],
     front: ["src/utils/platform.test.ts"],
+  },
+  performance: {
+    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio), grade menor e sem moldura",
+    rust: [
+      "focus_follow_tests",
+      "win_optimization_tests",
+      "live_audio_tests",
+      "live_audio_com_tests",
+      "platform_info_tests",
+      "win_grid_style_tests",
+      "win_grid_slot_tests",
+      "client_window_plan_tests",
+    ],
+    front: ["src/components/settings/settingsTabs.test.tsx"],
   },
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",
