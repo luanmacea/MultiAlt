@@ -181,7 +181,37 @@ describe("SessionPage — summary", () => {
       ...storeActions(),
     });
     const summary = screen.getByRole("complementary", { name: "Summary" });
-    expect(within(summary).getByText("Auto-reconnect is bringing back 1 accounts.")).toBeInTheDocument();
+    expect(within(summary).getByText("Auto-reconnect is bringing back 1 account.")).toBeInTheDocument();
+  });
+
+  /** "1 accounts" / "1 contas": uma conta sozinha é singular nas três frases. */
+  it("says one account in the singular", () => {
+    const keepAlive = (extra: Partial<StoreValue>) => {
+      cleanup();
+      renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+        accounts: ACCOUNTS,
+        launchQueue: null,
+        launchedByProgram: new Set<number>(),
+        ...storeActions(),
+        ...extra,
+      });
+      return within(screen.getByRole("complementary", { name: "Summary" }));
+    };
+    expect(
+      keepAlive({ bottingStatus: makeBottingStatus({ active: true, userIds: [10] }) }).getByText(
+        "Auto Rejoin is running for 1 account."
+      )
+    ).toBeInTheDocument();
+    expect(
+      keepAlive({ afkStatus: { active: true, accounts: [{ userId: 10 }] } as unknown as StoreValue["afkStatus"] }).getByText(
+        "AFK Mode is on for 1 account."
+      )
+    ).toBeInTheDocument();
+    expect(
+      keepAlive({ afkStatus: { active: true, accounts: [{ userId: 10 }, { userId: 20 }] } as unknown as StoreValue["afkStatus"] }).getByText(
+        "AFK Mode is on for 2 accounts."
+      )
+    ).toBeInTheDocument();
   });
 });
 
