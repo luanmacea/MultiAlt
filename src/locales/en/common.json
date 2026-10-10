@@ -2069,7 +2069,6 @@
   "Type at least 2 characters to search.": "Type at least 2 characters to search.",
   "type: {{type}}": "type: {{type}}",
   "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation",
-  "{{name}} in Roblox: {{status}}": "{{name}} in Roblox: {{status}}",
   "Closed without leaving the game": "Closed without leaving the game",
   "Disconnected: idle for too long": "Disconnected: idle for too long",
   "Disconnected: lost connection": "Disconnected: lost connection",
@@ -2116,7 +2115,6 @@
   "{{name}} is back in the game": "{{name}} is back in the game",
   "Accounts that dropped go back to the same game on their own": "Accounts that dropped go back to the same game on their own",
   "Auto-reconnect": "Auto-reconnect",
-  "Auto-reconnect — {{name}}: {{status}}": "Auto-reconnect — {{name}}: {{status}}",
   "Dismiss {{name}}": "Dismiss {{name}}",
   "Gave up after {{count}} tries": "Gave up after {{count}} tries",
   "Hide this line": "Hide this line",
@@ -2160,5 +2158,7 @@
   "Leaves 2 minutes between accounts, so each one has time to load. The slowest option. Off: accounts start spaced by the delay below.": "Leaves 2 minutes between accounts, so each one has time to load. The slowest option. Off: accounts start spaced by the delay below.",
   "Not used while “Launch one account at a time” is on. It applies again when you turn that off.": "Not used while “Launch one account at a time” is on. It applies again when you turn that off.",
   "Start the next account once the previous one is in the game": "Start the next account once the previous one is in the game",
-  "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer).": "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer)."
+  "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer).": "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer).",
+  "{{name}} in Roblox — {{status}}": "{{name}} in Roblox — {{status}}",
+  "Auto-reconnect ({{name}}) — {{status}}": "Auto-reconnect ({{name}}) — {{status}}"
 }

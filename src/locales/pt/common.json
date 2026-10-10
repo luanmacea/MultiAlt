@@ -2069,13 +2069,12 @@
   "Type at least 2 characters to search.": "Digite pelo menos 2 caracteres para buscar.",
   "type: {{type}}": "tipo: {{type}}",
   "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Entrada no grupo concluída: {{joined}} entraram, {{pending}} pendentes, {{confirm}} precisam de confirmação",
-  "{{name}} in Roblox: {{status}}": "{{name}} no Roblox: {{status}}",
   "Closed without leaving the game": "Fechou sem sair do jogo",
   "Disconnected: idle for too long": "Caiu: ficou parada tempo demais",
   "Disconnected: lost connection": "Caiu: perdeu a conexão",
   "Disconnected: the account joined somewhere else": "Caiu: a conta entrou em outro lugar",
-  "Kicked from the game": "Foi expulso do jogo",
-  "Kicked: {{message}}": "Foi expulso: {{message}}",
+  "Kicked from the game": "Foi expulsa do jogo",
+  "Kicked: {{message}}": "Foi expulsa: {{message}}",
   "Roblox error code {{code}}": "Código de erro do Roblox: {{code}}",
   "The server shut down": "O servidor fechou",
   "Disconnected from the game": "Caiu do jogo",
@@ -2116,7 +2115,6 @@
   "{{name}} is back in the game": "{{name}} voltou ao jogo",
   "Accounts that dropped go back to the same game on their own": "Contas que caíram voltam sozinhas para o mesmo jogo",
   "Auto-reconnect": "Reconexão automática",
-  "Auto-reconnect — {{name}}: {{status}}": "Reconexão automática — {{name}}: {{status}}",
   "Dismiss {{name}}": "Dispensar {{name}}",
   "Gave up after {{count}} tries": "Desistiu depois de {{count}} tentativas",
   "Hide this line": "Esconder esta linha",
@@ -2160,5 +2158,7 @@
   "Leaves 2 minutes between accounts, so each one has time to load. The slowest option. Off: accounts start spaced by the delay below.": "Deixa 2 minutos entre uma conta e a próxima, para cada uma ter tempo de carregar. É a opção mais lenta. Desligado: as contas começam espaçadas pelo atraso abaixo.",
   "Not used while “Launch one account at a time” is on. It applies again when you turn that off.": "Não vale enquanto “Iniciar uma conta por vez” está ligado. Volta a valer quando você desligar essa opção.",
   "Start the next account once the previous one is in the game": "Começar a próxima conta assim que a anterior estiver no jogo",
-  "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer).": "Não espera o atraso acima inteiro: nunca antes de 8 segundos, no máximo 20 (ou o atraso, se for maior)."
+  "Doesn't wait out the whole delay above: never sooner than 8 seconds, at most 20 (or the delay, if longer).": "Não espera o atraso acima inteiro: nunca antes de 8 segundos, no máximo 20 (ou o atraso, se for maior).",
+  "{{name}} in Roblox — {{status}}": "{{name}} no Roblox — {{status}}",
+  "Auto-reconnect ({{name}}) — {{status}}": "Reconexão automática ({{name}}) — {{status}}"
 }
