@@ -2155,5 +2155,6 @@
   "The Roblox client did not start": "The Roblox client did not start",
   "Auto Rejoin is running for 1 account.": "Auto Rejoin is running for 1 account.",
   "AFK Mode is on for 1 account.": "AFK Mode is on for 1 account.",
-  "Auto-reconnect is bringing back 1 account.": "Auto-reconnect is bringing back 1 account."
+  "Auto-reconnect is bringing back 1 account.": "Auto-reconnect is bringing back 1 account.",
+  "{{name}} is no longer being reconnected.": "{{name}} is no longer being reconnected."
 }
