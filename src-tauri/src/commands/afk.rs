@@ -55,10 +55,16 @@ fn afk_virtual_key(key: &str) -> Option<u16> {
         .map(|(_, vk)| *vk)
 }
 
-/// Intervalo entre envios da mesma conta, em minutos. O teto de 120 é o mesmo
-/// do diálogo; o piso de 1 evita sessão que rouba o foco sem parar.
-fn clamp_afk_interval_minutes(minutes: i64) -> u64 {
-    minutes.clamp(1, 120) as u64
+/// Intervalo entre envios da mesma conta, em segundos (a tela manda minutos e
+/// segundos somados). O teto de 2 h é o mesmo da tela (120 min); o piso de 5 s
+/// evita sessão que rouba o foco sem parar.
+fn clamp_afk_interval_seconds(seconds: i64) -> u64 {
+    seconds.clamp(5, 7_200) as u64
+}
+
+/// O intervalo em milissegundos, que é a unidade do relógio das contas.
+fn afk_interval_ms(interval_seconds: u64) -> i64 {
+    (interval_seconds as i64).saturating_mul(1_000)
 }
 
 /// O que o AFK mode manda para cada conta.
@@ -418,6 +424,42 @@ fn afk_due_targets(
     due
 }
 
+/// Remarca o relógio de quem o ciclo visitou com `finished_at_ms`, o **fim** do
+/// ciclo: a espera até o próximo envio conta de quando o ciclo acabou ("10
+/// segundos depois que um ciclo acabar"), então o intervalo efetivo de uma conta
+/// é o intervalo mais a duração do ciclo.
+///
+/// Só quem o ciclo visitou é remarcado: uma parada no meio deixa o resto vencido,
+/// como estava. Ciclo que falhou inteiro remarca todos os alvos com o erro.
+fn afk_record_cycle(
+    accounts: &mut HashMap<i64, AfkAccountRuntime>,
+    targets: &[i64],
+    result: &Result<Vec<(i64, Option<AfkSendError>)>, String>,
+    finished_at_ms: i64,
+) {
+    match result {
+        Ok(outcome) => {
+            for (user_id, error) in outcome {
+                if let Some(entry) = accounts.get_mut(user_id) {
+                    entry.last_send_at_ms = finished_at_ms;
+                    if error.is_none() {
+                        entry.sends += 1;
+                    }
+                    entry.last_error = error.clone();
+                }
+            }
+        }
+        Err(error) => {
+            for user_id in targets {
+                if let Some(entry) = accounts.get_mut(user_id) {
+                    entry.last_send_at_ms = finished_at_ms;
+                    entry.last_error = Some(AfkSendError::Internal(error.clone()));
+                }
+            }
+        }
+    }
+}
+
 /// O que o ciclo faz com o próximo alvo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AfkCycleStep {
@@ -501,7 +543,8 @@ struct AfkAccountStatus {
 struct AfkStatusPayload {
     active: bool,
     started_at_ms: Option<i64>,
-    interval_minutes: u64,
+    /// Segundos entre dois envios da mesma conta, contados do fim do ciclo.
+    interval_seconds: u64,
     key: String,
     /// `key` ou `click`.
     mode: String,
@@ -542,7 +585,8 @@ const AFK_TICK_MS: i64 = 1_000;
 #[cfg(target_os = "windows")]
 #[derive(Debug, Clone)]
 struct AfkConfig {
-    interval_minutes: u64,
+    /// Segundos entre dois envios da mesma conta (`clamp_afk_interval_seconds`).
+    interval_seconds: u64,
     key: String,
     mode: AfkMode,
     /// Ponto de quem não tem ponto próprio (modo clique).
@@ -658,13 +702,13 @@ fn new_afk_session(
 /// `afk_status_from` para o teste poder montar um sem sessão viva.
 fn afk_status_from_parts(
     started_at_ms: Option<i64>,
-    interval_minutes: u64,
+    interval_seconds: u64,
     key: &str,
     mode: AfkMode,
     default_point: AfkPoint,
     accounts: &HashMap<i64, AfkAccountRuntime>,
 ) -> AfkStatusPayload {
-    let interval_ms = (interval_minutes as i64).saturating_mul(60_000);
+    let interval_ms = afk_interval_ms(interval_seconds);
     let mut rows: Vec<AfkAccountStatus> = accounts
         .values()
         .map(|entry| AfkAccountStatus {
@@ -681,7 +725,7 @@ fn afk_status_from_parts(
     AfkStatusPayload {
         active: started_at_ms.is_some(),
         started_at_ms,
-        interval_minutes,
+        interval_seconds,
         key: key.to_string(),
         mode: mode.as_str().to_string(),
         click_x: default_point.x_pct,
@@ -697,7 +741,7 @@ fn afk_status_from(session: &AfkSession) -> AfkStatusPayload {
         .lock()
         .map(|c| c.clone())
         .unwrap_or_else(|_| AfkConfig {
-            interval_minutes: 0,
+            interval_seconds: 0,
             key: String::new(),
             mode: AfkMode::Key,
             default_point: AFK_DEFAULT_POINT,
@@ -710,7 +754,7 @@ fn afk_status_from(session: &AfkSession) -> AfkStatusPayload {
 
     afk_status_from_parts(
         Some(session.started_at_ms),
-        config.interval_minutes,
+        config.interval_seconds,
         &config.key,
         config.mode,
         config.default_point,
@@ -895,7 +939,7 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
         let Ok(config) = session.config.lock().map(|c| c.clone()) else {
             break;
         };
-        let interval_ms = (config.interval_minutes as i64).saturating_mul(60_000);
+        let interval_ms = afk_interval_ms(config.interval_seconds);
         let Ok(targets) = session
             .accounts
             .lock()
@@ -908,10 +952,6 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
             let action = afk_cycle_action(&app, &config, &targets);
             let stop = session.stop_flag.clone();
             let cycle_targets = targets.clone();
-            // Marcado **antes** do ciclo: lido depois, o relógio de cada conta
-            // escorregaria a duração do ciclo a cada volta e o intervalo
-            // efetivo cresceria com o número de contas.
-            let cycle_at = now_ms();
             let result = {
                 let _guard = AFK_CYCLE_LOCK.lock().await;
                 tokio::task::spawn_blocking(move || {
@@ -920,36 +960,20 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
                 .await
                 .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))
             };
+            // Lido **depois** do ciclo: a espera até o próximo envio conta do fim
+            // do ciclo, que foi o pedido do dono ("10 segundos depois que um
+            // ciclo acabar"). O intervalo efetivo de cada conta fica sendo o
+            // intervalo mais a duração do ciclo (~0,44 s por conta visitada), e
+            // isso é de propósito: com intervalo curto, marcar no começo
+            // deixaria quase nenhuma folga entre um ciclo longo e o seguinte.
+            let finished_at = now_ms();
             let sent = match &result {
                 Ok(outcome) => outcome.iter().filter(|(_, error)| error.is_none()).count() as u32,
                 Err(_) => 0,
             };
 
             if let Ok(mut map) = session.accounts.lock() {
-                let attempted_at = cycle_at;
-                match result {
-                    Ok(outcome) => {
-                        // Só quem o ciclo visitou tem o relógio remarcado: uma
-                        // parada no meio deixa o resto vencido, como estava.
-                        for (user_id, error) in outcome {
-                            if let Some(entry) = map.get_mut(&user_id) {
-                                entry.last_send_at_ms = attempted_at;
-                                if error.is_none() {
-                                    entry.sends += 1;
-                                }
-                                entry.last_error = error;
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        for user_id in &targets {
-                            if let Some(entry) = map.get_mut(user_id) {
-                                entry.last_send_at_ms = attempted_at;
-                                entry.last_error = Some(AfkSendError::Internal(error.clone()));
-                            }
-                        }
-                    }
-                }
+                afk_record_cycle(&mut map, &targets, &result, finished_at);
             }
             emit_afk_status(&app);
             if sent > 0 {
@@ -1002,7 +1026,7 @@ async fn stop_afk_session() {
 async fn start_afk_mode(
     app: tauri::AppHandle,
     user_ids: Vec<i64>,
-    interval_minutes: i64,
+    interval_seconds: i64,
     key: String,
     mode: String,
     click_x: f64,
@@ -1018,7 +1042,7 @@ async fn start_afk_mode(
         AFK_MANAGER.next_session_id(),
         now_ms(),
         AfkConfig {
-            interval_minutes: clamp_afk_interval_minutes(interval_minutes),
+            interval_seconds: clamp_afk_interval_seconds(interval_seconds),
             key,
             mode,
             default_point: AfkPoint::clamped(click_x, click_y),
@@ -1122,21 +1146,14 @@ async fn afk_trigger_now(app: tauri::AppHandle, user_ids: Vec<i64>) -> Result<u3
         .unwrap_or_else(|e| Err(format!("AFK cycle failed: {}", e)))?
     };
 
+    let sent = outcome.iter().filter(|(_, error)| error.is_none()).count() as u32;
+    // Como no laço: o relógio marca o fim do ciclo.
+    let finished_at = now_ms();
     if let Ok(mut map) = session.accounts.lock() {
-        let attempted_at = now_ms();
-        for (user_id, error) in &outcome {
-            if let Some(entry) = map.get_mut(user_id) {
-                entry.last_send_at_ms = attempted_at;
-                if error.is_none() {
-                    entry.sends += 1;
-                }
-                entry.last_error = error.clone();
-            }
-        }
+        afk_record_cycle(&mut map, &user_ids, &Ok(outcome), finished_at);
     }
     emit_afk_status(&app);
 
-    let sent = outcome.iter().filter(|(_, error)| error.is_none()).count() as u32;
     if sent > 0 {
         emit_afk_cycle(&app, sent);
     }
@@ -1153,7 +1170,7 @@ async fn afk_trigger_now(_user_ids: Vec<i64>) -> Result<u32, String> {
 #[tauri::command]
 async fn start_afk_mode(
     _user_ids: Vec<i64>,
-    _interval_minutes: i64,
+    _interval_seconds: i64,
     _key: String,
     _mode: String,
     _click_x: f64,

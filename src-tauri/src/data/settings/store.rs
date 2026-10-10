@@ -400,8 +400,11 @@ impl SettingsStore {
         // usuario o modo nao liga, e chave vazia nao chega a ser gravada no INI
         // (`IniSection::set` trata valor em branco como remocao). `Mode` nasce
         // `key` (o modo que ja existia) e o ponto do modo clique no meio da janela.
+        // O intervalo e `IntervalMinutes` + `IntervalSeconds`; os segundos nascem
+        // `0`, entao quem ja usava o modo continua com o mesmo intervalo.
         let afk_defaults: &[(&str, &str)] = &[
             ("IntervalMinutes", "10"),
+            ("IntervalSeconds", "0"),
             ("Key", ""),
             ("BeepOnCycle", "false"),
             ("Mode", "key"),
