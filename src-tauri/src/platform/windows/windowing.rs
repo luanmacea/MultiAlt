@@ -136,6 +136,101 @@ pub fn give_focus_back(hwnd: HWND) -> bool {
     bring_to_foreground(hwnd, FocusPurpose::GiveBack)
 }
 
+/// Como terminou a devolução do foco no fim de um ciclo do AFK mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GiveBack {
+    /// A janela do usuário está na frente de novo.
+    Restored,
+    /// O usuário escolheu outra janela durante o ciclo: ela fica na frente.
+    UserMovedOn,
+    /// A janela de antes não existe mais.
+    Gone,
+    /// O Windows recusou todas as tentativas.
+    Denied,
+}
+
+/// O que a devolução do foco usa do Windows — trocável nos testes.
+trait ForegroundApi {
+    fn foreground(&self) -> isize;
+    fn exists(&self, hwnd: isize) -> bool;
+    fn set_foreground(&self, hwnd: isize) -> bool;
+    /// `SetForegroundWindow` depois de um movimento de mouse de zero pixel
+    /// (`nudge_for_focus_back`): o Windows só aceita o pedido de quem gerou a
+    /// última entrada, e o usuário pode ter mexido em outra janela depois da
+    /// tecla do ciclo. Não lê entrada nenhuma.
+    fn set_foreground_after_nudge(&self, hwnd: isize) -> bool;
+    fn settle(&self);
+}
+
+/// Tentativas ao todo: a simples e, se recusada, as depois do movimento de zero pixel.
+const GIVE_BACK_ATTEMPTS: usize = 3;
+const GIVE_BACK_SETTLE_MS: u64 = 60;
+
+/// Devolve o primeiro plano a `target` depois de o ciclo ter trazido as
+/// janelas `cycle_windows` para frente (issue #23).
+///
+/// O `SetForegroundWindow` é recusado sem aviso quando outra janela recebeu a
+/// última entrada do usuário — quem trabalha no outro monitor durante o ciclo.
+/// Por isso o resultado é conferido na tela e a volta tenta de novo; e se o que
+/// está na frente não é nenhuma janela do ciclo, foi o usuário que escolheu
+/// outra janela, e ela fica.
+fn give_focus_back_with(api: &impl ForegroundApi, target: isize, cycle_windows: &[isize]) -> GiveBack {
+    if !api.exists(target) {
+        return GiveBack::Gone;
+    }
+    for attempt in 0..GIVE_BACK_ATTEMPTS {
+        let front = api.foreground();
+        if front == target {
+            return GiveBack::Restored;
+        }
+        if front != 0 && !cycle_windows.contains(&front) {
+            return GiveBack::UserMovedOn;
+        }
+        if attempt == 0 {
+            api.set_foreground(target);
+        } else {
+            api.set_foreground_after_nudge(target);
+        }
+        api.settle();
+    }
+    let front = api.foreground();
+    if front == target {
+        GiveBack::Restored
+    } else if front != 0 && !cycle_windows.contains(&front) {
+        GiveBack::UserMovedOn
+    } else {
+        GiveBack::Denied
+    }
+}
+
+struct RealDesktop;
+
+impl ForegroundApi for RealDesktop {
+    fn foreground(&self) -> isize {
+        unsafe { GetForegroundWindow() as isize }
+    }
+    fn exists(&self, hwnd: isize) -> bool {
+        hwnd != 0 && window_exists(hwnd as HWND)
+    }
+    fn set_foreground(&self, hwnd: isize) -> bool {
+        give_focus_back(hwnd as HWND)
+    }
+    fn set_foreground_after_nudge(&self, hwnd: isize) -> bool {
+        nudge_for_focus_back();
+        give_focus_back(hwnd as HWND)
+    }
+    fn settle(&self) {
+        std::thread::sleep(Duration::from_millis(GIVE_BACK_SETTLE_MS));
+    }
+}
+
+/// Fim do ciclo do AFK mode: devolve o foco à janela em que o usuário estava,
+/// conferindo na tela e tentando de novo se o Windows recusar.
+pub fn give_focus_back_after_cycle(target: HWND, cycle_windows: &[HWND]) -> GiveBack {
+    let cycle: Vec<isize> = cycle_windows.iter().map(|h| *h as isize).collect();
+    give_focus_back_with(&RealDesktop, target as isize, &cycle)
+}
+
 fn wait_for_process_exit(pid: u32, timeout: Duration) -> bool {
     let started = std::time::Instant::now();
     while started.elapsed() < timeout {
