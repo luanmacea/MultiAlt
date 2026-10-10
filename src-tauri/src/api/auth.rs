@@ -61,6 +61,18 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
         .await
         .map_err(|e| http_client::describe_error(&e))?;
 
+    // Conta moderada (banida, advertida, em análise): o site redireciona a
+    // página para `/not-approved` em vez de responder. O cookie é bom; quem
+    // diz de quem ele é passa a ser a API de usuários, que não redireciona.
+    if response.status().is_redirection() {
+        let to_moderation = response
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|loc| loc.contains("not-approved"));
+        return validate_cookie_via_users_api(security_token, to_moderation).await;
+    }
+
     if !response.status().is_success() {
         return Err(format!(
             "Invalid cookie (status {})",
@@ -80,6 +92,53 @@ pub async fn validate_cookie(security_token: &str) -> Result<AccountInfo, String
             body.chars().take(200).collect::<String>()
         )
     })
+}
+
+/// Reserva do [`validate_cookie`] quando o site redireciona: a API de
+/// usuários diz id e nome sem passar pela página que a moderação bloqueia.
+/// `to_moderation` = o redirecionamento ia para `/not-approved`.
+async fn validate_cookie_via_users_api(
+    security_token: &str,
+    to_moderation: bool,
+) -> Result<AccountInfo, String> {
+    #[derive(Deserialize)]
+    struct AuthenticatedUser {
+        id: i64,
+        name: String,
+        #[serde(rename = "displayName", default)]
+        display_name: String,
+    }
+
+    let response = build_client()
+        .get(format!("{}/v1/users/authenticated", endpoints::host("users")))
+        .header(COOKIE, cookie_header(security_token))
+        .send_noting()
+        .await
+        .map_err(|e| http_client::describe_error(&e))?;
+    let status = response.status();
+
+    if status.is_success() {
+        let body = response
+            .text()
+            .await
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+        let user = serde_json::from_str::<AuthenticatedUser>(&body)
+            .map_err(|e| format!("Failed to parse account info: {}", e))?;
+        return Ok(AccountInfo {
+            user_id: user.id,
+            display_name: if user.display_name.is_empty() { user.name.clone() } else { user.display_name },
+            name: user.name,
+            user_email: None,
+            is_email_verified: false,
+            age_bracket: 0,
+            user_above_13: false,
+        });
+    }
+    if status.as_u16() == 401 || !to_moderation {
+        return Err(format!("Invalid cookie (status {})", status.as_u16()));
+    }
+    Err("Roblox is restricting this account (moderated: banned, warned or under review).          Check it at roblox.com/not-approved, then add it again."
+        .to_string())
 }
 
 pub async fn get_csrf_token(security_token: &str) -> Result<String, String> {
@@ -558,6 +617,74 @@ mod auth_http_tests {
             .await;
 
         let err = validate_cookie("expired-cookie").await.unwrap_err();
+        assert_eq!(err, "Invalid cookie (status 401)");
+    }
+
+    /// Conta moderada: a página `/my/account/json` redireciona (302) para
+    /// `/not-approved`. O cookie é bom — antes isso virava "Invalid cookie
+    /// (status 302)" e a conta não entrava (teste do dono, 10/10/2026).
+    #[tokio::test]
+    async fn validate_cookie_accepts_a_moderated_account_through_the_users_api() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/my/account/json")))
+            .and(header("cookie", cookie_of("moderated-cookie")))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", "https://www.roblox.com/not-approved"))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/authenticated")))
+            .and(header("cookie", cookie_of("moderated-cookie")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": 5678, "name": "banned_alt", "displayName": "Banned Alt"
+            })))
+            .mount(server)
+            .await;
+
+        let info = validate_cookie("moderated-cookie").await.expect("account info");
+        assert_eq!(info.user_id, 5678);
+        assert_eq!(info.name, "banned_alt");
+        assert_eq!(info.display_name, "Banned Alt");
+    }
+
+    #[tokio::test]
+    async fn validate_cookie_explains_a_moderated_account_the_users_api_refuses() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/my/account/json")))
+            .and(header("cookie", cookie_of("locked-cookie")))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", "https://www.roblox.com/not-approved"))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/authenticated")))
+            .and(header("cookie", cookie_of("locked-cookie")))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(server)
+            .await;
+
+        let err = validate_cookie("locked-cookie").await.unwrap_err();
+        assert!(err.contains("moderat"), "{err}");
+        assert!(!err.contains("Invalid cookie"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn validate_cookie_still_rejects_a_dead_cookie_after_a_redirect() {
+        let server = mock_server().await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("www", "/my/account/json")))
+            .and(header("cookie", cookie_of("dead-redirect")))
+            .respond_with(ResponseTemplate::new(302).insert_header("location", "https://www.roblox.com/login"))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("users", "/v1/users/authenticated")))
+            .and(header("cookie", cookie_of("dead-redirect")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(server)
+            .await;
+
+        let err = validate_cookie("dead-redirect").await.unwrap_err();
         assert_eq!(err, "Invalid cookie (status 401)");
     }
 
