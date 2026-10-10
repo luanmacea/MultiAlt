@@ -2097,5 +2097,8 @@
   "Session and ban status. Read-only: it doesn't sign anything out.": "Session and ban status. Read-only: it doesn't sign anything out.",
   "{{who}} — failed: {{error}}": "{{who}} — failed: {{error}}",
   "Line {{n}}": "Line {{n}}",
-  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again."
+  "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.": "Roblox is restricting this account (banned, warned or under review). Check it at roblox.com/not-approved, then add it again.",
+  "At least 5 seconds.": "At least 5 seconds.",
+  "Send every: minutes": "Send every: minutes",
+  "Send every: seconds": "Send every: seconds"
 }

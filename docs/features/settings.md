@@ -174,7 +174,8 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 
 | Chave | Default | Significado |
 |---|---|---|
-| `IntervalMinutes` | `10` | Minutos entre dois envios de tecla da **mesma** conta (1–120). |
+| `IntervalMinutes` | `10` | Parte em minutos do intervalo entre dois envios da **mesma** conta (0–120). |
+| `IntervalSeconds` | `0` | Parte em segundos do mesmo intervalo (0–59). O total (mínimo 5 s, máximo 120 min) conta do **fim** de cada ciclo. |
 | `Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada do AFK mode. Vazio = o modo não liga. |
 | `BeepOnCycle` | `false` | Bipe curto (sintetizado, sem arquivo de áudio) quando um ciclo de envio termina. |
 
