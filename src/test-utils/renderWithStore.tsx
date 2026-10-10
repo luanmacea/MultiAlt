@@ -113,6 +113,7 @@ export function makePlatformCapabilities(
     supportsBotting: true,
     supportsUpdater: true,
     supportsClientSettings: true,
+    supportsLiveAudio: false,
     reasons: [],
     warnings: [],
     ...overrides,

@@ -750,6 +750,30 @@ describe("OptimizationTab", () => {
     await expectSaved("Optimization", "FollowFocus", "true");
   });
 
+  /** Ideia 20: só aparece quando o binário traz a feature `live-audio`. */
+  it("offers muting the windows not in use only when the build has live audio", async () => {
+    stored = {};
+    setStore({
+      platformCapabilities: { os: "windows", supportsLiveAudio: true } as PlatformCapabilities,
+    });
+    renderTab((s) => <OptimizationTab s={s} />);
+    const toggle = await screen.findByRole("switch", {
+      name: /Mute the Roblox windows you're not using/,
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+    await expectSaved("Optimization", "MuteBackgroundClients", "true");
+  });
+
+  it("hides the mute option when the build has no live audio", async () => {
+    renderOptimization({});
+    await screen.findByRole("switch", { name: /Follow the window in use/ });
+    expect(
+      screen.queryByRole("switch", { name: /Mute the Roblox windows you're not using/ })
+    ).not.toBeInTheDocument();
+  });
+
   it("hides the focus-following optimization outside Windows", async () => {
     renderOptimization({}, "macos");
     await screen.findByText("Override Window Size");

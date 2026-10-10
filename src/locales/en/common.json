@@ -2101,5 +2101,7 @@
   "Applies right away": "Applies right away",
   "Follow the window in use": "Follow the window in use",
   "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.": "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.",
-  "While you play": "While you play"
+  "While you play": "While you play",
+  "Mute the Roblox windows you're not using": "Mute the Roblox windows you're not using",
+  "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them.": "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them."
 }

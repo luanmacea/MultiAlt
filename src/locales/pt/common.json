@@ -2101,5 +2101,7 @@
   "Applies right away": "Vale na hora",
   "Follow the window in use": "Seguir a janela em uso",
   "The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first.": "A que você está jogando roda a toda velocidade, as outras desaceleram. Só janelas abertas pelo MultiAlt; uma nova tem 35 s para carregar antes.",
-  "While you play": "Enquanto você joga"
+  "While you play": "Enquanto você joga",
+  "Mute the Roblox windows you're not using": "Silenciar as janelas do Roblox que você não está usando",
+  "Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them.": "Só a janela que você está jogando faz som. Só janelas abertas pelo MultiAlt; desligar devolve o som a elas."
 }

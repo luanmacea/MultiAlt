@@ -14,6 +14,7 @@ opcional e desligado por padrão.
 |---|---|
 | Decisão (quem é o cliente em uso, carência, o que mudar) e o laço | [platform/windows/focus_follow.rs](../../src-tauri/src/platform/windows/focus_follow.rs) |
 | Troca de prioridade/EcoQoS/memória ao vivo, teto do Job | [platform/windows/optimization.rs](../../src-tauri/src/platform/windows/optimization.rs) (`apply_process_policy_live`, `set_job_cpu_cap`) |
+| Volume ao vivo (decisão sempre; COM só com `live-audio`) | [platform/windows/live_audio.rs](../../src-tauri/src/platform/windows/live_audio.rs) |
 | Timer de 1 s e devolução ao fechar o app | [commands/focus_follow.rs](../../src-tauri/src/commands/focus_follow.rs), [lib.rs](../../src-tauri/src/lib.rs) |
 | Launch avisa o perfil do cliente | [commands/launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) (`apply_windows_post_launch_profile`) |
 | Tela | Settings > Optimization, cartão **While you play** ([OptimizationTab.tsx](../../src/components/settings/OptimizationTab.tsx)) |
@@ -74,18 +75,66 @@ A ideia original reage à troca de foco por `SetWinEventHook`. Aqui não:
   das duas APIs está no binário hoje.
 - Nada de afinidade de CPU, turbo, plano de energia, tarefa agendada ou admin.
 
+## Volume ao vivo por cliente (`Optimization.MuteBackgroundClients`)
+
+Interruptor **Mute the Roblox windows you're not using**: só a janela que você
+está jogando faz som. É o mixer de volume do Windows (a sessão de áudio de cada
+processo), com o jogo aberto — o arquivo de configurações do Roblox não é
+tocado. O volume configurado no launch (`OverrideClientVolume`) continua igual.
+
+### Atrás da feature `live-audio` (desligada nas duas edições)
+
+A sessão de áudio só se alcança por **COM** (`IMMDeviceEnumerator` →
+`IAudioSessionManager2` → `IAudioSessionControl2` → `ISimpleAudioVolume`),
+código nativo novo no binário. Por isso:
+
+- tudo que fala COM fica em `mod live_audio_com`, compilado só com
+  `--features live-audio`. Sem a feature o arquivo compila apenas a decisão
+  (pura, testada), `supportsLiveAudio` vem `false` e a opção **some da tela**;
+- nenhum crate novo: o `windows-sys` não traz interfaces COM, então as tabelas
+  de métodos usadas estão escritas à mão, só até o último método chamado. A
+  feature liga apenas `Win32_System_Com` no `windows-sys` (`CoInitializeEx`,
+  `CoCreateInstance`, `CoUninitialize`, do `ole32.dll` — que o WebView2 já
+  carrega);
+- a decisão de pôr na release é do dono, depois do scan
+  (`bun run tauri build --no-bundle --features live-audio` e
+  `bun run scan <exe>`). Ligar é acrescentar `live-audio` às features da
+  edição no [release-v4.yml](../../.github/workflows/release-v4.yml) e trocar o
+  `live_audio_is_off_in_both_release_editions`.
+
+### Regras de negócio
+
+- Usa o mesmo "cliente em uso" da otimização que segue o foco (as duas opções
+  são independentes; a olhada de 1 s serve às duas).
+- **Só clientes que o app abriu.** Cliente aberto pelo site nunca é mutado.
+- Sem cliente em uso (nenhum cliente nosso esteve em primeiro plano ainda),
+  ninguém é mutado.
+- O app só desmuta o que ele mesmo mutou: um mudo posto pelo usuário no mixer
+  fica.
+- O Roblox só abre a sessão de áudio quando o jogo começa a tocar: cliente sem
+  sessão é tentado de novo a cada 5 s. O COM só é chamado quando o cliente em
+  uso ou a lista de clientes muda (ou nessa nova tentativa).
+- Antes de mutar, o PID é conferido como Roblox (PID reaproveitado não é
+  mutado).
+- **Desligar a opção ou fechar o app desmuta** tudo o que o app mutou.
+
 ## Configurações relacionadas
 
 | Seção | Chave | Default | Efeito |
 |---|---|---|---|
 | Optimization | `FollowFocus` | `false` | Liga a otimização que segue o foco. |
+| Optimization | `MuteBackgroundClients` | `false` | Fundo mudo (só com a feature `live-audio`). |
 | Optimization | `{Normal,BottingPlayer,BottingBot}EnableProcessPolicy` e demais | ver [settings.md](settings.md#optimization) | Política de fundo (se ligada) e o estado devolvido ao desligar. |
 
 ## Testes
 
 `focus_follow_tests` (cliente em uso, carência, plano de mudanças, políticas,
 devolução, padrão desligado), `win_optimization_tests` (máscaras do power
-throttling e do teto do Job ao vivo), `settingsTabs.test.tsx` (interruptor).
+throttling e do teto do Job ao vivo), `live_audio_tests` (quem é mutado, só o
+que o app mutou é desmutado, feature fora das duas edições, COM só neste
+arquivo), `live_audio_com_tests` (com a feature: percorre o mixer de verdade
+**sem** mutar nada, tamanho das tabelas), `platform_info_tests`
+(`supportsLiveAudio`), `settingsTabs.test.tsx` (interruptores).
 Suíte: `bun run t performance`.
 
 ## Armadilhas / cuidados

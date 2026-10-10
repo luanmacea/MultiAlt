@@ -158,6 +158,7 @@ Fora dos perfis, uma chave para todos os clientes (cartão **While you play** da
 | Chave | Default | Significado |
 |---|---|---|
 | `FollowFocus` | `false` | Otimização que segue o foco: o cliente em uso (que o app abriu) a toda velocidade, os outros com a política de fundo; 35 s de carência para cliente novo. |
+| `MuteBackgroundClients` | `false` | Fundo mudo: só o cliente em uso faz som (mixer do Windows). Só vale no binário com a feature `live-audio` (fora das duas edições); sem ela a opção nem aparece. |
 
 Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
 

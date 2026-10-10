@@ -66,6 +66,7 @@ function caps(overrides: Partial<PlatformCapabilities> = {}): PlatformCapabiliti
     supportsBotting: true,
     supportsUpdater: true,
     supportsClientSettings: true,
+    supportsLiveAudio: false,
     reasons: [],
     warnings: [],
     ...overrides,

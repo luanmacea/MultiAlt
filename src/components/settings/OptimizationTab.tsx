@@ -540,6 +540,9 @@ function OptimizationProfileSection({
  */
 function WindowInUseSection({ s }: { s: UseSettingsReturn }) {
   const t = useTr();
+  // O volume ao vivo usa COM de áudio e só existe no binário com a feature
+  // `live-audio` (fora das duas edições por padrão): sem ela, nada de opção.
+  const liveAudio = useStore().platformCapabilities?.supportsLiveAudio === true;
   return (
     <div className="rounded-xl border border-zinc-800/70 bg-zinc-950/35 px-4 py-4">
       <div className="flex items-center justify-between gap-3">
@@ -552,6 +555,14 @@ function WindowInUseSection({ s }: { s: UseSettingsReturn }) {
         label="Follow the window in use"
         description="The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first."
       />
+      {liveAudio ? (
+        <Toggle
+          checked={s.getBool("Optimization", "MuteBackgroundClients")}
+          onChange={(v) => s.setBool("Optimization", "MuteBackgroundClients", v)}
+          label="Mute the Roblox windows you're not using"
+          description="Only the window you're playing makes sound. Only windows opened by MultiAlt; turning this off unmutes them."
+        />
+      ) : null}
     </div>
   );
 }

@@ -420,8 +420,14 @@ export const SUITES: Record<string, TestSuite> = {
     front: ["src/utils/platform.test.ts"],
   },
   performance: {
-    description: "Desempenho enquanto joga: otimização que segue a janela em uso",
-    rust: ["focus_follow_tests", "win_optimization_tests"],
+    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio)",
+    rust: [
+      "focus_follow_tests",
+      "win_optimization_tests",
+      "live_audio_tests",
+      "live_audio_com_tests",
+      "platform_info_tests",
+    ],
     front: ["src/components/settings/settingsTabs.test.tsx"],
   },
   release: {

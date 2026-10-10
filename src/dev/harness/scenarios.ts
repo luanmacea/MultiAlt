@@ -89,7 +89,14 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "get_all_settings":
       return settings;
     case "get_platform_capabilities":
-      return { isWindows: true, isMacos: false, supportsIsolation: true, supportsMultiRoblox: true };
+      return {
+        isWindows: true,
+        isMacos: false,
+        supportsIsolation: true,
+        supportsMultiRoblox: true,
+        // Mostra no dev:ui as opções que só existem com a feature `live-audio`.
+        supportsLiveAudio: true,
+      };
     case "remembered_unlock_state":
       return { supported: true, active: false, defaultHours: 24 };
     case "get_launch_queue":

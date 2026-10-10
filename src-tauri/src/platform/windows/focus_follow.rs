@@ -268,34 +268,20 @@ fn release_locked(settings: &SettingsStore, state: &mut FocusFollowState) {
         }
     }
     state.running = false;
-    state.active = None;
     state.applied.clear();
     state.grace_until.clear();
 }
 
-/// Uma olhada: chamada a cada segundo pelo laço de `commands/focus_follow.rs`.
-pub fn focus_follow_tick(settings: &SettingsStore) {
-    let enabled = focus_follow_enabled(settings);
-    let mut state = focus_follow_state();
-    let ours = launched_client_pids();
-
-    // Cliente que saiu do rastreamento: esquece (o PID pode voltar a outro
-    // processo).
-    state.applied.retain(|pid, _| ours.contains(pid));
-    state.grace_until.retain(|pid, _| ours.contains(pid));
-    state.launch_profiles.retain(|pid, _| ours.contains(pid));
-
-    if !enabled {
-        if state.running || !state.applied.is_empty() {
-            release_locked(settings, &mut state);
-        }
-        return;
-    }
-
+/// A parte de velocidade da olhada (`Optimization.FollowFocus`).
+fn speed_tick(
+    settings: &SettingsStore,
+    state: &mut FocusFollowState,
+    ours: &std::collections::HashSet<u32>,
+) {
     let now = Instant::now();
     let first_look = !state.running;
     state.running = true;
-    for &pid in &ours {
+    for &pid in ours {
         state.grace_until.entry(pid).or_insert(if first_look {
             // Já estava aberto quando a opção ligou: sem carência.
             now
@@ -303,9 +289,6 @@ pub fn focus_follow_tick(settings: &SettingsStore) {
             now + FOCUS_FOLLOW_GRACE
         });
     }
-
-    let foreground = window_pid(unsafe { GetForegroundWindow() });
-    state.active = next_active_pid(state.active, foreground, &ours);
 
     let clients: Vec<(u32, Instant)> = state
         .grace_until
@@ -318,7 +301,7 @@ pub fn focus_follow_tick(settings: &SettingsStore) {
     }
     let alive: std::collections::HashSet<u32> = get_roblox_pids().into_iter().collect();
     for (pid, speed) in changes {
-        let launch = launch_optimization_for(settings, &state, pid);
+        let launch = launch_optimization_for(settings, state, pid);
         let process = match speed {
             ClientSpeed::Full => full_speed_process_policy(),
             ClientSpeed::Background => background_process_policy(&launch.process),
@@ -328,10 +311,48 @@ pub fn focus_follow_tick(settings: &SettingsStore) {
     }
 }
 
-/// Ao fechar o app: devolve os clientes ao estado do launch.
+/// Uma olhada: chamada a cada segundo pelo laço de `commands/focus_follow.rs`.
+/// Serve à otimização que segue o foco e ao volume ao vivo (`live_audio.rs`),
+/// que dividem o "cliente em uso".
+pub fn focus_follow_tick(settings: &SettingsStore) {
+    let follow = focus_follow_enabled(settings);
+    let mute = mute_background_enabled(settings);
+    let ours = launched_client_pids();
+
+    let active = {
+        let mut state = focus_follow_state();
+        // Cliente que saiu do rastreamento: esquece (o PID pode voltar a outro
+        // processo).
+        state.applied.retain(|pid, _| ours.contains(pid));
+        state.grace_until.retain(|pid, _| ours.contains(pid));
+        state.launch_profiles.retain(|pid, _| ours.contains(pid));
+
+        state.active = if follow || mute {
+            let foreground = window_pid(unsafe { GetForegroundWindow() });
+            next_active_pid(state.active, foreground, &ours)
+        } else {
+            None
+        };
+
+        if follow {
+            speed_tick(settings, &mut state, &ours);
+        } else if state.running || !state.applied.is_empty() {
+            release_locked(settings, &mut state);
+        }
+        state.active
+    };
+
+    live_audio_tick(mute, &ours, active);
+}
+
+/// Ao fechar o app: devolve os clientes ao estado do launch e desmuta o que o
+/// app mutou.
 pub fn release_focus_follow(settings: &SettingsStore) {
-    let mut state = focus_follow_state();
-    release_locked(settings, &mut state);
+    {
+        let mut state = focus_follow_state();
+        release_locked(settings, &mut state);
+    }
+    release_live_audio();
 }
 
 #[cfg(test)]
