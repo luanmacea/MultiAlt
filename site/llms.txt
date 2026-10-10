@@ -21,7 +21,7 @@
 - Accounts: add by browser login, cookie, user:pass or the original RAM account file; groups, aliases, live status (online, in game, expired session); streamer mode; encrypted storage with a password or a device key; backups.
 - Playing: Multi Roblox; Multi Launch (one account at a time, cancellable queue); server finder with "best fit" for groups and region filter; friends tab and follow-a-player; private servers and any Roblox link; window grid across monitors.
 - Staying in game: AFK mode (key press or click on a timer), Auto Rejoin for alts, watcher for disconnected or low-memory clients.
-- Extras: free avatar builder using only free official items (never spends Robux), theme editor, sandboxed JavaScript scripts, optional local HTTP API and Nexus WebSocket server, performance profiles (FPS cap, CPU priority, memory limits).
+- Extras: free avatar builder using only free official items (never spends Robux), theme editor, sandboxed JavaScript scripts, local HTTP API and Nexus WebSocket server (not in the standard installer), performance profiles (FPS cap, CPU priority, memory limits).
 
 ## Other languages
 
