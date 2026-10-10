@@ -30,11 +30,17 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
 
   const bottingOn = store.bottingStatus?.active === true;
   const afkOn = store.afkStatus?.active === true;
+  // Reconexão automática em andamento (commands/reconnect.rs).
+  const reconnecting = (store.autoReconnect ?? []).filter(
+    (entry) => entry.phase !== "gaveUp" && entry.phase !== "stopped"
+  ).length;
   const keepAliveText = bottingOn
     ? t("Auto Rejoin is running for {{count}} accounts.", { count: store.bottingStatus?.userIds.length ?? 0 })
     : afkOn
       ? t("AFK Mode is on for {{count}} accounts.", { count: store.afkStatus?.accounts.length ?? 0 })
-      : t("Nothing is keeping accounts in game right now.");
+      : reconnecting > 0
+        ? t("Auto-reconnect is bringing back {{count}} accounts.", { count: reconnecting })
+        : t("Nothing is keeping accounts in game right now.");
 
   const stats: { label: string; value: number | null }[] = [
     { label: t("Clients open"), value: clientsOpen },
@@ -79,7 +85,7 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
             <h2 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">
               <span
                 aria-hidden="true"
-                className={`w-1.5 h-1.5 rounded-full ${bottingOn || afkOn ? "bg-emerald-400" : "bg-[var(--border-color)]"}`}
+                className={`w-1.5 h-1.5 rounded-full ${bottingOn || afkOn || reconnecting > 0 ? "bg-emerald-400" : "bg-[var(--border-color)]"}`}
               />
               {t("Keep accounts in game")}
             </h2>

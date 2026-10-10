@@ -451,6 +451,16 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         label={<>Auto Rejoin<WarningBadge>advanced</WarningBadge></>}
         description="Enable account cycling tools to keep selected alts rejoining automatically"
       />
+      {/* commands/reconnect.rs: padrão de todas as contas; o campo
+          `AutoReconnect` da conta (painel da conta) vence. */}
+      {isWindows && (
+        <Toggle
+          checked={s.getBool("General", "AutoReconnect")}
+          onChange={(v) => s.setBool("General", "AutoReconnect", v)}
+          label="Reconnect accounts that drop"
+          description="Default for every account (each one can change it in its panel): reopens a client this app opened in the same game after a lost connection, a kick or a crash."
+        />
+      )}
       <Toggle
         checked={s.getBool("General", "ShowPresence")}
         onChange={(v) => s.setBool("General", "ShowPresence", v)}

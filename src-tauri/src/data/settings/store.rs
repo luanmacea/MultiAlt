@@ -108,6 +108,11 @@ impl SettingsStore {
             ("ThemeWindowsNavbar", "true", None),
             ("RestrictedBackgroundStyle", "warp", None),
             ("BottingEnabled", "false", None),
+            (
+                "AutoReconnect",
+                "false",
+                Some("Default for every account: reopen a client this app opened in the same game when it drops (each account's AutoReconnect field wins)"),
+            ),
             ("BottingUseSharedClientProfile", "true", None),
             ("BottingAutoShareLaunchFields", "true", None),
             ("BottingDualPanelDialog", "true", None),
