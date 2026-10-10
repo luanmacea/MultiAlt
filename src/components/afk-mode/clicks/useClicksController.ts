@@ -43,6 +43,27 @@ export function formatAfkElapsed(startedAtMs: number | null, nowMs: number): str
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** Piso do intervalo, o mesmo do `clamp_afk_interval_seconds` do backend. */
+export const AFK_MIN_INTERVAL_SECONDS = 5;
+
+/**
+ * O intervalo gravado no INI: `Afk.IntervalMinutes` + `Afk.IntervalSeconds`.
+ * Sem os segundos (quem configurou antes deles existirem) vale `0`, e o
+ * intervalo continua o de antes. `"0"` minuto é zero, não "ausente": senão
+ * 0 min 10 s virava 10 min 10 s.
+ */
+export function readAfkInterval(afk: Record<string, string> | undefined): {
+  minutes: number;
+  seconds: number;
+} {
+  const minutes = parseInt(afk?.IntervalMinutes ?? "", 10);
+  const seconds = parseInt(afk?.IntervalSeconds ?? "", 10);
+  return {
+    minutes: Number.isFinite(minutes) ? Math.min(120, Math.max(0, minutes)) : 10,
+    seconds: Number.isFinite(seconds) ? Math.min(59, Math.max(0, seconds)) : 0,
+  };
+}
+
 export interface ClicksTabOptions {
   /**
    * Contas que chegam já marcadas (aberto pelo "Em jogo" do Painel de Sessão).
@@ -65,6 +86,7 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   const running = status?.active === true;
 
   const [intervalMinutes, setIntervalMinutes] = useState(10);
+  const [intervalSecondsPart, setIntervalSecondsPart] = useState(0);
   const [key, setKey] = useState("");
   // Quem abriu pelo "Em jogo" já traz as contas marcadas.
   const [draftUserIds, setDraftUserIds] = useState<number[]>(() => targetUserIds ?? []);
@@ -90,7 +112,9 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   // é o que a sessão está usando.
   useEffect(() => {
     const afk = store.settings?.Afk ?? {};
-    setIntervalMinutes(parseInt(afk.IntervalMinutes || "10", 10) || 10);
+    const interval = readAfkInterval(afk);
+    setIntervalMinutes(interval.minutes);
+    setIntervalSecondsPart(interval.seconds);
     setKey(afk.Key || "");
     setBeepOnCycle(afk.BeepOnCycle === "true");
     setMode(afk.Mode === "click" ? "click" : "key");
@@ -101,7 +125,11 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   // Com sessão em andamento, o que vale é o que a sessão está usando — não o
   // rascunho local, que o efeito de abertura relê do INI a qualquer momento.
   const effectiveKey = running ? status?.key ?? "" : key;
-  const effectiveInterval = running ? status?.intervalMinutes ?? 0 : intervalMinutes;
+  /** Intervalo total em segundos: o da sessão, ou minutos + segundos da tela. */
+  const effectiveInterval = running
+    ? status?.intervalSeconds ?? 0
+    : intervalMinutes * 60 + intervalSecondsPart;
+  const intervalTooShort = !running && effectiveInterval < AFK_MIN_INTERVAL_SECONDS;
   const effectiveMode: AfkMode = running ? (status?.mode === "click" ? "click" : "key") : mode;
   const effectivePoint: AfkPoint = running
     ? { x: clampAfkPercent(status?.clickX ?? 50), y: clampAfkPercent(status?.clickY ?? 50) }
@@ -147,7 +175,7 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   const keyAllowed = store.afkKeys.includes(effectiveKey);
   /** O modo clique não usa tecla; o modo tecla não liga sem uma da lista. */
   const sendReady = clickMode || keyAllowed;
-  const canStart = sendReady && inAfk.length > 0 && !busy;
+  const canStart = sendReady && inAfk.length > 0 && !intervalTooShort && !busy;
   const statusByUserId = useMemo(
     () => new Map((status?.accounts ?? []).map((a) => [a.userId, a])),
     [status]
@@ -273,7 +301,7 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     try {
       await store.startAfkMode({
         userIds: inAfk,
-        intervalMinutes: effectiveInterval,
+        intervalSeconds: effectiveInterval,
         key: effectiveKey,
         mode: effectiveMode,
         clickX: effectivePoint.x,
@@ -333,11 +361,13 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     ? null
     : candidates.length === 0
       ? t("No Roblox client opened by this app yet")
-      : !sendReady
-        ? t("Pick a key to send")
-        : inAfk.length === 0
-          ? t("Tick at least one account")
-          : null;
+      : intervalTooShort
+        ? t("At least 5 seconds.")
+        : !sendReady
+          ? t("Pick a key to send")
+          : inAfk.length === 0
+            ? t("Tick at least one account")
+            : null;
 
   return {
     t,
@@ -348,7 +378,12 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     busy,
     sendingNow,
     capture,
-    intervalMinutes: effectiveInterval,
+    /** Intervalo total em segundos (o da sessão, com o modo ligado). */
+    intervalSeconds: effectiveInterval,
+    /** Os dois campos da tela: com sessão, o intervalo dela quebrado. */
+    intervalMinutesPart: Math.floor(effectiveInterval / 60),
+    intervalSecondsPart: effectiveInterval % 60,
+    intervalTooShort,
     effectiveKey,
     effectiveMode,
     effectivePoint,
@@ -365,6 +400,7 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
     totalSends,
     configDisabled: running || busy,
     setIntervalMinutes,
+    setIntervalSecondsPart,
     setKey: (v: string) => {
       setKey(v);
       persist("Key", v);
