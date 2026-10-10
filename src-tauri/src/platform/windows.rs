@@ -55,3 +55,4 @@ include!("windows/isolation.rs");
 include!("windows/versions.rs");
 include!("windows/external_clients.rs");
 include!("windows/clipboard.rs");
+include!("windows/power.rs");

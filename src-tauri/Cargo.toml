@@ -61,6 +61,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_JobObjects",
     "Win32_System_Registry",
     "Win32_System_Memory",
+    # SetThreadExecutionState: PC acordado (sem a tela) durante o Modo AFK, o
+    # Auto Rejoin e a reconexão automática (platform/windows/power.rs).
+    "Win32_System_Power",
     "Win32_UI_Shell",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",

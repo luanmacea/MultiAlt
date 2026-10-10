@@ -172,6 +172,36 @@ pub fn get_window_title(hwnd: HWND) -> String {
     }
 }
 
+/// A janela está "Não respondendo" (o Windows diz isso de quem passou 5 s sem
+/// tratar mensagens). Só pergunta ao sistema: não manda nada para a janela.
+pub fn is_window_hung(hwnd: HWND) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::IsHungAppWindow;
+    unsafe { IsHungAppWindow(hwnd) != 0 }
+}
+
+/// Troca o título da janela de um cliente (nome da conta na barra de tarefas,
+/// `commands/client_health.rs`). `WM_SETTEXT` com teto de 1 s e desistindo se
+/// a janela estiver travada: um cliente "Não respondendo" nunca prende o app.
+pub fn set_window_title(hwnd: HWND, title: &str) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SendMessageTimeoutW, SMTO_ABORTIFHUNG, WM_SETTEXT,
+    };
+    let wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut result: usize = 0;
+    unsafe {
+        SendMessageTimeoutW(
+            hwnd,
+            WM_SETTEXT,
+            0,
+            wide.as_ptr() as isize,
+            SMTO_ABORTIFHUNG,
+            1000,
+            &mut result,
+        ) != 0
+            && result != 0
+    }
+}
+
 // ── tamanho da janela imposto pelo PID, depois do spawn ────────────────────
 //
 // O `StartScreenSize` do XML é compartilhado por todos os clientes (ver

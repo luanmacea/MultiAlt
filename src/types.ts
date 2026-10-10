@@ -408,6 +408,69 @@ export interface UnidentifiedClient {
   startedAtMs: number | null;
 }
 
+/**
+ * Queda de um cliente, lida do log do Roblox pelo backend
+ * (`commands/client_health.rs`). `crashed`: o processo terminou dentro de um
+ * jogo sem a conta sair e sem o app fechá-lo.
+ */
+export type ClientDropKind = "disconnected" | "kicked" | "serverShutdown" | "crashed";
+export type ClientDropReason = "connectionLost" | "joinedElsewhere" | "idle" | "other";
+
+export interface ClientDrop {
+  kind: ClientDropKind;
+  reason: ClientDropReason | null;
+  code: number | null;
+  /** Mensagem do kick, quando o jogo mandou uma. */
+  message: string | null;
+  sinceMs: number;
+}
+
+/** Saúde de um cliente rastreado (vem junto de `get_running_instances`). */
+export interface ClientHealth {
+  pid: number;
+  /** O log foi achado: a queda vem dele, e não do título da janela. */
+  logFound: boolean;
+  drop: ClientDrop | null;
+  /** A janela está "Não respondendo" há 30 s (só clientes abertos pelo app). */
+  notResponding?: boolean;
+  /** O log diz que a conta está num jogo agora (entrou, sem queda nem saída). */
+  inGame?: boolean;
+}
+
+/**
+ * Reconexão automática de uma conta que caiu (`commands/reconnect.rs`).
+ * `waiting`: espera a próxima tentativa; `waitingForInternet`: sem internet,
+ * sem gastar tentativa; `launching`: tentativa em andamento; `checking`:
+ * relançou e confere se fica 2 min no jogo; `gaveUp`/`stopped`: parou.
+ */
+export type AutoReconnectPhase = "waiting" | "waitingForInternet" | "launching" | "checking" | "gaveUp" | "stopped";
+export type AutoReconnectStopReason =
+  | "joinedElsewhere"
+  | "closedByUser"
+  | "banned"
+  | "sessionExpired"
+  | "noDestination"
+  | "openedOutsideApp";
+
+export interface AutoReconnectEntry {
+  userId: number;
+  phase: AutoReconnectPhase;
+  attempt: number;
+  maxAttempts: number;
+  nextAttemptAtMs: number | null;
+  reason: AutoReconnectStopReason | null;
+  /** O erro da última tentativa, quando houve. */
+  error: string | null;
+  /** A queda que começou a reconexão. */
+  drop: ClientDrop;
+}
+
+export interface AutoReconnectPayload {
+  entries: AutoReconnectEntry[];
+  /** Contas que acabaram de ficar 2 min no jogo depois de relançadas. */
+  reconnected?: number[];
+}
+
 export interface LaunchQueuePayload {
   entries: LaunchQueueEntry[];
   /** `true` enquanto a fila está processando contas. */
