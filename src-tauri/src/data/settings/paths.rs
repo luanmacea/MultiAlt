@@ -25,6 +25,8 @@ pub const DATA_FILES: &[&str] = &[
     "RAMGameLists.json",
     // Presets de launch (contas → jogo/servidor) e os horários deles.
     "RAMLaunchPresets.json",
+    // Histórico de sessões por conta (uma linha JSON por evento, 90 dias).
+    "RAMSessionHistory.jsonl",
     "AccountControlData.json",
 ];
 pub const DATA_DIRS: &[&str] = &["RAMThemeFonts"];
@@ -179,6 +181,11 @@ pub fn get_game_lists_path() -> PathBuf {
 /// Presets de launch (`data/launch_presets.rs`).
 pub fn get_launch_presets_path() -> PathBuf {
     get_runtime_data_dir().join("RAMLaunchPresets.json")
+}
+
+/// Histórico de sessões (`data/session_history.rs`).
+pub fn get_session_history_path() -> PathBuf {
+    get_runtime_data_dir().join(crate::data::session_history::SESSION_HISTORY_FILE_NAME)
 }
 
 pub fn get_theme_fonts_dir() -> PathBuf {

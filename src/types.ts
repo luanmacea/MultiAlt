@@ -791,6 +791,33 @@ export interface LaunchPresetView extends LaunchPreset {
   openClients: number;
 }
 
+/**
+ * Uma sessão do histórico (ideia 6): de quando a conta entrou num jogo até
+ * como terminou. Espelha `data::session_history::SessionRecord`.
+ */
+export type SessionEnd =
+  | "ongoing"
+  | "left"
+  | "dropped"
+  | "teleported"
+  | "closed"
+  | "appClosed"
+  | "unknown"
+  | "moderated";
+
+export interface SessionRecord {
+  startedAt: number;
+  endedAt: number | null;
+  placeId: number | null;
+  jobId: string | null;
+  end: SessionEnd;
+  /** Só com `end = dropped`: o que o log do Roblox disse. */
+  dropKind: ClientDropKind | null;
+  reason: ClientDropReason | null;
+  code: number | null;
+  message: string | null;
+}
+
 /** Evento `launch-preset`: resultado de abrir/fechar (pelo horário ou à mão). */
 export interface LaunchPresetEvent {
   presetId: string;
