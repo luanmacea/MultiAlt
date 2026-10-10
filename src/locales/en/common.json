@@ -2123,7 +2123,6 @@
   "Auto-reconnect — {{name}}: {{status}}": "Auto-reconnect — {{name}}: {{status}}",
   "Default for every account (each one can change it in its panel): reopens a client this app opened in the same game after a lost connection, a kick or a crash.": "Default for every account (each one can change it in its panel): reopens a client this app opened in the same game after a lost connection, a kick or a crash.",
   "Dismiss {{name}}": "Dismiss {{name}}",
-  "Following the default in Settings › General.": "Following the default in Settings › General.",
   "Gave up after {{count}} tries": "Gave up after {{count}} tries",
   "Hide this line": "Hide this line",
   "Not reconnecting": "Not reconnecting",
@@ -2141,10 +2140,8 @@
   "Reconnecting now (attempt {{attempt}}/{{max}})": "Reconnecting now (attempt {{attempt}}/{{max}})",
   "Reopen this account now, in the same game": "Reopen this account now, in the same game",
   "Reopened, checking it stays in the game (attempt {{attempt}}/{{max}})": "Reopened, checking it stays in the game (attempt {{attempt}}/{{max}})",
-  "Reopens it in the same game after a lost connection, a kick or a crash. Never when you close it or the account joins somewhere else.": "Reopens it in the same game after a lost connection, a kick or a crash. Never when you close it or the account joins somewhere else.",
   "Stop reconnecting this account (does not close any client)": "Stop reconnecting this account (does not close any client)",
   "Try now": "Try now",
-  "Use the default from Settings › General": "Use the default from Settings › General",
   "Waiting for the internet to come back (attempt {{attempt}}/{{max}})": "Waiting for the internet to come back (attempt {{attempt}}/{{max}})",
   "Auto-reconnect is bringing back {{count}} accounts.": "Auto-reconnect is bringing back {{count}} accounts.",
   "Keep the PC awake while AFK Mode or Auto Rejoin runs": "Keep the PC awake while AFK Mode or Auto Rejoin runs",
@@ -2156,5 +2153,12 @@
   "Auto Rejoin is running for 1 account.": "Auto Rejoin is running for 1 account.",
   "AFK Mode is on for 1 account.": "AFK Mode is on for 1 account.",
   "Auto-reconnect is bringing back 1 account.": "Auto-reconnect is bringing back 1 account.",
-  "{{name}} is no longer being reconnected.": "{{name}} is no longer being reconnected."
+  "{{name}} is no longer being reconnected.": "{{name}} is no longer being reconnected.",
+  "Reopens it in the same game after a lost connection, a kick or a crash. Never when you close it, when it joins somewhere else, or for windows opened from the website.": "Reopens it in the same game after a lost connection, a kick or a crash. Never when you close it, when it joins somewhere else, or for windows opened from the website.",
+  "Nexus AutoRelaunch is on for this account, so it reconnects even with this off.": "Nexus AutoRelaunch is on for this account, so it reconnects even with this off.",
+  "Following the default from Settings › General (on).": "Following the default from Settings › General (on).",
+  "Following the default from Settings › General (off).": "Following the default from Settings › General (off).",
+  "Use the default from Settings › General (on)": "Use the default from Settings › General (on)",
+  "Use the default from Settings › General (off)": "Use the default from Settings › General (off)",
+  "Turned off: it stops after the attempt in progress.": "Turned off: it stops after the attempt in progress."
 }
