@@ -34,13 +34,23 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
   const reconnecting = (store.autoReconnect ?? []).filter(
     (entry) => entry.phase !== "gaveUp" && entry.phase !== "stopped"
   ).length;
+  // Singular à parte, como o resto do app ("1 account" / "{{count}} accounts"):
+  // o catálogo não usa o plural do i18next (chave = frase em inglês).
+  const rejoinCount = store.bottingStatus?.userIds.length ?? 0;
+  const afkCount = store.afkStatus?.accounts.length ?? 0;
   const keepAliveText = bottingOn
-    ? t("Auto Rejoin is running for {{count}} accounts.", { count: store.bottingStatus?.userIds.length ?? 0 })
+    ? rejoinCount === 1
+      ? t("Auto Rejoin is running for 1 account.")
+      : t("Auto Rejoin is running for {{count}} accounts.", { count: rejoinCount })
     : afkOn
-      ? t("AFK Mode is on for {{count}} accounts.", { count: store.afkStatus?.accounts.length ?? 0 })
-      : reconnecting > 0
-        ? t("Auto-reconnect is bringing back {{count}} accounts.", { count: reconnecting })
-        : t("Nothing is keeping accounts in game right now.");
+      ? afkCount === 1
+        ? t("AFK Mode is on for 1 account.")
+        : t("AFK Mode is on for {{count}} accounts.", { count: afkCount })
+      : reconnecting === 1
+        ? t("Auto-reconnect is bringing back 1 account.")
+        : reconnecting > 1
+          ? t("Auto-reconnect is bringing back {{count}} accounts.", { count: reconnecting })
+          : t("Nothing is keeping accounts in game right now.");
 
   const stats: { label: string; value: number | null }[] = [
     { label: t("Clients open"), value: clientsOpen },

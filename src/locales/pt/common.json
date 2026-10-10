@@ -2152,5 +2152,8 @@
   "It did not get into the game in 2 minutes": "Não entrou no jogo em 2 minutos",
   "The client was closed": "A janela do Roblox foi fechada",
   "The old client did not close": "A janela antiga do Roblox não fechou",
-  "The Roblox client did not start": "O Roblox não abriu"
+  "The Roblox client did not start": "O Roblox não abriu",
+  "Auto Rejoin is running for 1 account.": "O Auto Rejoin está rodando em 1 conta.",
+  "AFK Mode is on for 1 account.": "O Modo AFK está ligado em 1 conta.",
+  "Auto-reconnect is bringing back 1 account.": "A reconexão automática está trazendo de volta 1 conta."
 }
