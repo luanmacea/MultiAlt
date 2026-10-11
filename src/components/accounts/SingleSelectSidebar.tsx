@@ -6,7 +6,6 @@ import { accountInitial, accountLabel, hideAccountAvatar } from "../../utils/acc
 import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
 import { AccountLaunchOverrides } from "./AccountLaunchOverrides";
-import { AccountAutoReconnect } from "./AccountAutoReconnect";
 import { ClientHealthNote } from "../session/ClientHealthNote";
 import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
@@ -245,8 +244,8 @@ export function SingleSelectSidebar() {
           </SidebarSection>
         )}
 
-        <AccountAutoReconnect account={account} />
-
+        {/* A reconexão automática não mora aqui: é coisa de muitas contas e fica
+            na página Session (padrão no resumo, uma chave por conta em "Em jogo"). */}
         <AccountLaunchOverrides account={account} />
 
         <SidebarSection title={t("Tools")}>
