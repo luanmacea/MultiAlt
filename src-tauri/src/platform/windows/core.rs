@@ -340,3 +340,42 @@ fn get_client_settings_file_in(base_path: &str) -> Result<PathBuf, String> {
 
     Ok(settings_dir.join("ClientAppSettings.json"))
 }
+
+/// Versão do Windows para o resumo do "Reportar problema" (ideia 28), lida do
+/// registro (`HKLM\...\Windows NT\CurrentVersion`) — a mesma leitura que o
+/// isolamento já faz, sem API nova no binário.
+pub fn os_version_label() -> String {
+    const KEY: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+    let read = |name: &str| read_string_value(HKEY_LOCAL_MACHINE as _, KEY, name);
+    format_windows_version(
+        read("ProductName").as_deref(),
+        read("DisplayVersion").as_deref(),
+        read("CurrentBuild").as_deref(),
+    )
+}
+
+/// Monta "Windows 11 Home (24H2, build 26200)". O `ProductName` do registro diz
+/// "Windows 10" também no 11; a build (22000 ou mais) é o que separa os dois.
+fn format_windows_version(product: Option<&str>, display: Option<&str>, build: Option<&str>) -> String {
+    let build_number = build.and_then(|b| b.trim().parse::<u32>().ok());
+    let mut name = product
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or("Windows")
+        .to_string();
+    if build_number.is_some_and(|b| b >= 22_000) && name.starts_with("Windows 10") {
+        name = name.replacen("Windows 10", "Windows 11", 1);
+    }
+    let details: Vec<String> = [
+        display.map(str::trim).filter(|d| !d.is_empty()).map(str::to_string),
+        build_number.map(|b| format!("build {b}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if details.is_empty() {
+        name
+    } else {
+        format!("{name} ({})", details.join(", "))
+    }
+}
