@@ -29,8 +29,12 @@ import {
 } from "../../utils/autoReconnect";
 import { useNexusAutoRelaunch } from "../../hooks/useNexusAutoRelaunch";
 import { isWindowsPlatform } from "../../utils/platform";
+import { useCurrentSessions } from "../../hooks/useCurrentSessions";
+import { CurrentSessionLine } from "./CurrentSessionLine";
 import type {
   AutoReconnectEntry,
+  ClientHealth,
+  CurrentSession,
   FriendLinkAccountState,
   LaunchQueueEntry,
   LaunchQueueState,
@@ -148,6 +152,48 @@ function dropKey(entry: AutoReconnectEntry): string {
   return `${entry.userId}:${entry.drop?.sinceMs ?? 0}`;
 }
 
+/**
+ * Estado de uma conta do "Em jogo", curto: reconectando (âmbar), caiu ou não
+ * responde (o `ClientHealthNote`, com o motivo), jogando (verde) ou ainda sem
+ * jogo. Sem log achado e sem sessão, não diz nada (não sabe).
+ */
+function RunningState({
+  session,
+  health,
+  reconnecting,
+}: {
+  session: CurrentSession | undefined;
+  health: ClientHealth | undefined;
+  reconnecting: boolean;
+}) {
+  const t = useTr();
+  const note = <ClientHealthNote health={health} className="shrink" />;
+  if (reconnecting) {
+    return (
+      <>
+        <span className="shrink-0 inline-flex items-center gap-1 text-amber-400">
+          <RotateCw size={11} strokeWidth={1.75} aria-hidden="true" />
+          {t("Reconnecting")}
+        </span>
+        {note}
+      </>
+    );
+  }
+  if (health?.drop || health?.notResponding) return note;
+  if (session) {
+    return (
+      <span className="shrink-0 inline-flex items-center gap-1 text-emerald-400">
+        <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+        {t("Playing")}
+      </span>
+    );
+  }
+  if (health?.logFound && !health.inGame) {
+    return <span className="min-w-0 truncate theme-muted">{t("Not in a game yet")}</span>;
+  }
+  return null;
+}
+
 interface SessionPanelProps {
   className?: string;
 }
@@ -209,6 +255,14 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   const isWindows = isWindowsPlatform(store.platformCapabilities);
   const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
   const nexusRelaunch = useNexusAutoRelaunch(isWindows, runningIds.join(","));
+  // Jogo e início da sessão de cada conta (o mesmo do histórico). Só no
+  // Windows: é lá que o log do Roblox é lido.
+  const sessions = useCurrentSessions(isWindows, runningIds.join(","));
+  const reconnectingIds = new Set(
+    (store.autoReconnect ?? [])
+      .filter((entry) => entry.phase !== "gaveUp" && entry.phase !== "stopped")
+      .map((entry) => entry.userId)
+  );
   const [reconnectSaving, setReconnectSaving] = useState(false);
 
   function nameFor(userId: number): string {
@@ -757,19 +811,31 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                     onChange={() => toggleChecked(userId)}
                     className="accent-[var(--accent-color)]"
                   />
-                  {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
-                  <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
-                  {/* Queda com motivo, lida do log do Roblox (client_health.rs). */}
-                  <ClientHealthNote health={store.clientHealth?.get(userId)} className="shrink" />
-                  {store.adoptedClients.has(userId) && (
-                    <span
-                      className="shrink-0 flex items-center gap-1 theme-muted"
-                      title={t("Opened from the Roblox website and recognized by the Roblox log")}
-                    >
-                      <Globe size={11} strokeWidth={1.5} />
-                      {t("Opened outside the app")}
+                  {/* Duas linhas: conta e estado em cima; jogo, servidor e
+                      tempo em jogo embaixo. Cabe em 820 px sem rolar de lado. */}
+                  <span className="min-w-0 flex-1 flex flex-col">
+                    <span className="flex items-center gap-2 min-w-0">
+                      {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
+                      <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[45%]" title={name}>
+                        {name}
+                      </span>
+                      <RunningState
+                        session={sessions.get(userId)}
+                        health={store.clientHealth?.get(userId)}
+                        reconnecting={reconnectingIds.has(userId)}
+                      />
+                      {store.adoptedClients.has(userId) && (
+                        <span
+                          className="min-w-0 flex items-center gap-1 theme-muted"
+                          title={t("Opened from the Roblox website and recognized by the Roblox log")}
+                        >
+                          <Globe size={11} strokeWidth={1.5} className="shrink-0" />
+                          <span className="truncate">{t("Opened outside the app")}</span>
+                        </span>
+                      )}
                     </span>
-                  )}
+                    {sessions.has(userId) && <CurrentSessionLine session={sessions.get(userId)!} />}
+                  </span>
                   <span className="ml-auto flex items-center gap-1.5 shrink-0">
                     {choice && (
                       <ReconnectSwitch

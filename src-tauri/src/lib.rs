@@ -498,6 +498,7 @@ pub fn run() {
             launch_preset,
             close_preset_clients,
             get_session_history,
+            get_current_sessions,
             save_history_export,
             cancel_launch,
             get_launch_queue,

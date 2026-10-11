@@ -22,6 +22,29 @@ struct ObservedClient {
     job_id: Option<String>,
     /// Há uma sessão aberta (gravou `joined`/`teleported` e ainda não o fim).
     in_game: bool,
+    /// Início da sessão aberta (o `at` do `joined`/`teleported`).
+    since_ms: i64,
+}
+
+/// O jogo em que uma conta está agora e desde quando (página Session). É a
+/// sessão aberta do histórico — o mesmo início do "Playing now".
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentSession {
+    pub user_id: i64,
+    pub place_id: i64,
+    pub job_id: Option<String>,
+    pub since_ms: i64,
+    /// Servidor privado/VIP? `None` = não se sabe (conta aberta pelo site, ou
+    /// teleportada para outro place).
+    pub private_server: Option<bool>,
+}
+
+/// Público ou privado. O `! Joining game` do log não diz; diz o launch que o
+/// app fez (`remember_launch_target`), e só enquanto a conta continua no place
+/// para onde foi mandada.
+fn private_server_of(target: Option<&LaunchedTarget>, place_id: i64) -> Option<bool> {
+    target.filter(|t| t.place_id == place_id).map(|t| t.private)
 }
 
 #[derive(Debug, Default)]
@@ -91,6 +114,7 @@ impl SessionHistoryObserver {
                         place_id: snap.place_id,
                         job_id: snap.job_id.clone(),
                         in_game: playing,
+                        since_ms: now_ms,
                     },
                 );
                 continue;
@@ -112,6 +136,7 @@ impl SessionHistoryObserver {
                         HistoryEvent::new(now_ms, uid, HistoryEventKind::Teleported)
                             .at_place(snap.place_id, snap.job_id.clone()),
                     );
+                    client.since_ms = now_ms;
                 }
             } else if playing {
                 // Entrou de novo (depois de cair ou sair, no mesmo cliente).
@@ -120,11 +145,33 @@ impl SessionHistoryObserver {
                         .at_place(snap.place_id, snap.job_id.clone()),
                 );
                 client.in_game = true;
+                client.since_ms = now_ms;
             }
             client.place_id = snap.place_id;
             client.job_id = snap.job_id.clone();
         }
         events
+    }
+
+    /// Quem está num jogo agora, onde e desde quando (sem o tipo de servidor:
+    /// quem sabe isso é o launch, ver `get_current_sessions`).
+    fn current_sessions(&self) -> Vec<CurrentSession> {
+        let mut sessions: Vec<CurrentSession> = self
+            .clients
+            .iter()
+            .filter(|(_, c)| c.in_game)
+            .filter_map(|(uid, c)| {
+                Some(CurrentSession {
+                    user_id: *uid,
+                    place_id: c.place_id?,
+                    job_id: c.job_id.clone(),
+                    since_ms: c.since_ms,
+                    private_server: None,
+                })
+            })
+            .collect();
+        sessions.sort_by_key(|s| s.user_id);
+        sessions
     }
 
     fn playing_users(&self) -> Vec<i64> {
@@ -207,6 +254,23 @@ fn get_session_history(
         .map(|o| o.clients.get(&user_id).is_some_and(|c| c.in_game))
         .unwrap_or(false);
     Ok(build_sessions(&store.read_all(), user_id, playing))
+}
+
+/// Quem está num jogo agora, onde, desde quando e se o servidor é privado
+/// (página Session → "In game"). Só memória: o observador já sabe, nada é lido
+/// do disco nem do log. A tela relê no `session-history-changed`, que sai a
+/// cada entrada, teleporte, queda ou saída — sem polling.
+#[tauri::command]
+fn get_current_sessions() -> Vec<CurrentSession> {
+    let mut sessions = SESSION_HISTORY_OBSERVER
+        .lock()
+        .map(|o| o.current_sessions())
+        .unwrap_or_default();
+    for session in &mut sessions {
+        session.private_server =
+            private_server_of(launched_target_of(session.user_id).as_ref(), session.place_id);
+    }
+    sessions
 }
 
 /// Nome do arquivo exportado: só a conta (id) e a hora — nada vindo da tela.
