@@ -893,6 +893,23 @@ impl AccountStore {
         Ok(())
     }
 
+    /// A senha abre o arquivo do disco? **Só confere**: não troca a sessão, não
+    /// relê as contas para a memória, não grava nada. É o que destranca a tela
+    /// de "trancado por inatividade" (ideia 27) sem mexer no que está rodando
+    /// por baixo (AFK, reconexão, Auto Rejoin continuam com a sessão de agora).
+    ///
+    /// `Err` quando não há senha do usuário para conferir — trancar sem senha
+    /// não faz sentido, e a UI nem liga o recurso nesse caso.
+    pub fn verify_password(&self, password: &str) -> Result<bool, String> {
+        if !self.has_user_password()? {
+            return Err("No app password is set.".to_string());
+        }
+        let data =
+            fs::read(&self.file_path).map_err(|e| format!("Failed to read account file: {}", e))?;
+        let hash = crypto::hash_password(password.trim());
+        Ok(crypto::decrypt(&data, &hash).is_ok())
+    }
+
     pub fn load_with_password(&self, password: &str) -> Result<(), String> {
         // O unlock é o único ponto que paga o argon2: a chave derivada aqui é
         // reutilizada por todas as gravações da sessão.
