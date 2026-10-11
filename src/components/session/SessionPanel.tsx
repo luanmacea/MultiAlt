@@ -37,6 +37,7 @@ import { SessionStats, type SessionCounts, type SessionFilter } from "./SessionS
 import { AttentionGroupHeader, GameGroupHeader, NoGameGroupHeader, SelectBox, ServerHeader } from "./InGameGroups";
 import { groupRunning, needsAttention, runningStatus, type RunningStatus } from "../../utils/sessionGroups";
 import { clientHealthLabel } from "../../utils/clientHealth";
+import { useGameIdentity } from "../../hooks/useGameIdentity";
 import type {
   AutoReconnectEntry,
   ClientHealth,
@@ -148,6 +149,22 @@ function unidentifiedReasonLabel(client: UnidentifiedClient, name: string, t: Tr
   }
 }
 
+/**
+ * O jogo de uma conta da fila. Só aparece quando a fila mistura jogos (um
+ * launch disparado com outro rodando entra no fim da mesma fila, com o jogo
+ * dele); com um jogo só, o nome em cada linha seria a mesma palavra repetida.
+ */
+function QueueEntryGame({ placeId, userId }: { placeId: number; userId: number }) {
+  const t = useTr();
+  const identity = useGameIdentity(placeId, userId);
+  const name = identity?.name ?? t("Place {{placeId}}", { placeId });
+  return (
+    <span className="theme-muted truncate min-w-0" title={name}>
+      {name}
+    </span>
+  );
+}
+
 /** Estados em que a conta ainda pode sair da fila. */
 function isPending(entry: LaunchQueueEntry): boolean {
   return entry.state === "queued" || entry.state === "launching";
@@ -242,6 +259,8 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
 
   const entries = store.launchQueue?.entries ?? [];
   const pending = entries.filter(isPending);
+  // Fila com mais de um jogo: cada linha diz o seu.
+  const queueMixesGames = new Set(entries.map((entry) => entry.placeId).filter((id) => !!id)).size > 1;
   // Só aparece depois que houve um Make Friends: uma seção vazia permanente
   // roubaria altura de um painel que já tem teto de 45% na aba Console.
   const friendLink = store.friendLinkState;
@@ -911,6 +930,9 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
                   <span className="text-[var(--panel-fg)] truncate max-w-[40%]">{name}</span>
                   <span className={`shrink-0 ${style.text}`}>{stateLabel(entry.state, t)}</span>
+                  {queueMixesGames && entry.placeId ? (
+                    <QueueEntryGame placeId={entry.placeId} userId={entry.userId} />
+                  ) : null}
                   {error && (
                     <span className="text-red-400 truncate" title={error}>
                       {error}

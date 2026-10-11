@@ -2555,5 +2555,8 @@
   "Emergency stop: you shook the mouse.": "Parada de emergencia: sacudiste el mouse.",
   "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.": "Sacude el mouse con fuerza a izquierda y derecha para detener cuando la app lo esté moviendo. Solo se lee la posición del mouse.",
   "Shake the mouse to stop.": "Sacude el mouse para detener.",
-  "Stop AFK and recordings when I shake the mouse": "Detener el AFK y las grabaciones cuando sacuda el mouse"
+  "Stop AFK and recordings when I shake the mouse": "Detener el AFK y las grabaciones cuando sacuda el mouse",
+  "Added {{count}} account to the launch queue": "{{count}} cuenta añadida a la cola de inicio",
+  "Added {{count}} accounts to the launch queue": "{{count}} cuentas añadidas a la cola de inicio",
+  "Already waiting in the launch queue": "Ya está esperando en la cola de inicio"
 }
