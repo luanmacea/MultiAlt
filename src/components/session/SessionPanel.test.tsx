@@ -9,10 +9,17 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { SessionPanel } from "./SessionPanel";
-import { makeAccount, makeBottingStatus, renderWithStore, setStore } from "../../test-utils/renderWithStore";
+import {
+  makeAccount,
+  makeBottingStatus,
+  makePlatformCapabilities,
+  renderWithStore,
+  setStore,
+} from "../../test-utils/renderWithStore";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type {
+  Account,
   AutoReconnectEntry,
   ClientDrop,
   ClientHealth,
@@ -919,5 +926,152 @@ describe("SessionPanel — reconexão automática", () => {
     });
     rerender(<SessionPanel />);
     expect(screen.getByTestId("session-reconnect-2")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Reconexão automática por conta, na lista "Em jogo" (antes ficava no painel
+ * de uma conta, que quase ninguém abre com muitas contas). O campo da conta
+ * (`Fields.AutoReconnect`) manda; sem ele vale `General.AutoReconnect`; o
+ * AutoRelaunch do Nexus liga por cima (`reconnect_enabled`, commands/reconnect.rs).
+ */
+describe("SessionPanel — reconexão por conta", () => {
+  function renderRunning(overrides: Partial<StoreValue> = {}, accounts: Account[] = ACCOUNTS) {
+    return renderWithStore(<SessionPanel />, {
+      accounts,
+      launchedByProgram: new Set(accounts.map((a) => a.UserID)),
+      ...storeActions(),
+      ...overrides,
+    });
+  }
+
+  function savedAccounts(store: StoreValue): Account[] {
+    return (store.updateAccount as unknown as { mock: { calls: [Account][] } }).mock.calls.map((c) => c[0]);
+  }
+
+  function clearSaved(store: StoreValue) {
+    (store.updateAccount as unknown as { mockClear: () => void }).mockClear();
+  }
+
+  function rowSwitch(userId: number) {
+    return within(screen.getByTestId(`session-running-${userId}`)).getByRole("switch");
+  }
+
+  beforeEach(() => {
+    setInvokeMap({ get_nexus_accounts: [] });
+  });
+
+  it("each row follows the default until the account changes it, and says so", () => {
+    renderRunning({ settings: { General: { AutoReconnect: "true" } } });
+    const row = screen.getByTestId("session-running-1");
+    const toggle = within(row).getByRole("switch", { name: "Auto-reconnect for alpha" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(within(row).getByText("default")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("title", "Following the default from Settings › General (on).");
+  });
+
+  it("turning a row off writes the account field and keeps the other fields", async () => {
+    const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { RobloxVersion: "LIVE:abc" } })];
+    const { store } = renderRunning({ settings: { General: { AutoReconnect: "true" } } }, accounts);
+    await userEvent.click(rowSwitch(1));
+    const [saved] = savedAccounts(store);
+    expect(saved.Fields.AutoReconnect).toBe("false");
+    expect(saved.Fields.RobloxVersion).toBe("LIVE:abc");
+  });
+
+  it("the account's own choice wins over the default, and can go back to it", async () => {
+    const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } })];
+    const { store } = renderRunning({ settings: { General: { AutoReconnect: "true" } } }, accounts);
+    const row = screen.getByTestId("session-running-1");
+    expect(rowSwitch(1)).toHaveAttribute("aria-checked", "false");
+    expect(within(row).queryByText("default")).not.toBeInTheDocument();
+    await userEvent.click(within(row).getByRole("button", { name: "Use the default from Settings › General (on)" }));
+    expect(savedAccounts(store)[0].Fields).not.toHaveProperty("AutoReconnect");
+  });
+
+  it("shows the row locked on when Nexus AutoRelaunch keeps it on", async () => {
+    setInvokeMap({ get_nexus_accounts: [{ username: "ALPHA", auto_relaunch: true }] });
+    const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } })];
+    renderRunning({}, accounts);
+    await waitFor(() => expect(rowSwitch(1)).toHaveAttribute("aria-checked", "true"));
+    expect(rowSwitch(1)).toHaveAttribute("aria-disabled", "true");
+    expect(rowSwitch(1)).toHaveAttribute(
+      "title",
+      "Nexus AutoRelaunch is on for this account, so it reconnects even with this off."
+    );
+  });
+
+  it("does not blame Nexus when its AutoRelaunch is off for the account", async () => {
+    setInvokeMap({ get_nexus_accounts: [{ username: "alpha", auto_relaunch: false }] });
+    renderRunning({}, [makeAccount({ UserID: 1, Username: "alpha" })]);
+    await waitFor(() => expect(callsFor("get_nexus_accounts")).toHaveLength(1));
+    expect(rowSwitch(1)).toHaveAttribute("aria-checked", "false");
+    expect(rowSwitch(1)).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("bulk: the checked rows turn on, off, or go back to the default", async () => {
+    const accounts = [
+      makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } }),
+      makeAccount({ UserID: 2, Username: "bravo" }),
+      makeAccount({ UserID: 3, Username: "charlie" }),
+    ];
+    const { store } = renderRunning({}, accounts);
+    // Nada marcado: as ações de lote não aparecem.
+    expect(screen.queryByRole("button", { name: "Reconnect on" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select bravo" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Reconnect on" }));
+    expect(savedAccounts(store).map((a) => [a.UserID, a.Fields.AutoReconnect])).toEqual([
+      [1, "true"],
+      [2, "true"],
+    ]);
+
+    clearSaved(store);
+    await userEvent.click(screen.getByRole("button", { name: "Reconnect off" }));
+    expect(savedAccounts(store).map((a) => [a.UserID, a.Fields.AutoReconnect])).toEqual([
+      [1, "false"],
+      [2, "false"],
+    ]);
+
+    clearSaved(store);
+    await userEvent.click(screen.getByRole("button", { name: "Use default" }));
+    const saved = savedAccounts(store);
+    expect(saved.map((a) => a.UserID)).toEqual([1, 2]);
+    expect(saved.every((a) => !("AutoReconnect" in a.Fields))).toBe(true);
+    // Mudar a reconexão nunca fecha cliente.
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
+  });
+
+  it("explains a reconnect still running after the account was turned off", () => {
+    renderRunning(
+      {
+        autoReconnect: [
+          {
+            userId: 1,
+            phase: "launching",
+            attempt: 2,
+            maxAttempts: 5,
+            nextAttemptAtMs: null,
+            reason: null,
+            error: null,
+            drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 0 },
+          },
+        ],
+      },
+      [makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } })]
+    );
+    expect(
+      within(screen.getByTestId("session-reconnect-1")).getByText(
+        "Turned off: it stops after the attempt in progress."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("has no reconnect controls outside Windows, where the Roblox log is not read", async () => {
+    renderRunning({ platformCapabilities: makePlatformCapabilities({ os: "macos" }) });
+    expect(within(screen.getByTestId("session-running-1")).queryByRole("switch")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
+    expect(screen.queryByRole("button", { name: "Reconnect on" })).not.toBeInTheDocument();
   });
 });

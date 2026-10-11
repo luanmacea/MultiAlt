@@ -313,6 +313,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     setActivePage: vi.fn(),
     setSettingsOpen: vi.fn(),
     reloadSettings: vi.fn(async () => {}),
+    updateSetting: vi.fn(async () => {}),
 
     serverListOpen: false,
     setServerListOpen: vi.fn(),

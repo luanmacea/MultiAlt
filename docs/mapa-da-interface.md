@@ -36,7 +36,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 | ícone de painel | Mostra/esconde o painel de detalhes. Fica desabilitado quando não há exatamente uma conta selecionada. |
 | `Presets` | Presets de launch: "estas contas → este jogo/servidor" salvos com nome, abertos com `Launch`; opcionalmente abrem e fecham sozinhos num horário (só com o app aberto, e fechar mexe só no que o preset abriu). Ver [presets.md](features/presets.md). |
 | `Add ▾` | Todas as formas de trazer conta para dentro (abaixo). |
-| ícone de gamepad | `Session`: fila de lançamento e clientes abertos. |
+| ícone de gamepad | `Session`: fila de lançamento, clientes abertos e reconexão automática (padrão no resumo, chave por conta em `In game`). |
 | ícone de paleta | `Theme`: editor de cores e fontes. |
 | ícone de camadas | `Nexus`: controle de clientes por script Lua (exige executor externo). |
 | ícone de teclado | `AFK Mode`: manda uma tecla de tempo em tempo para a janela de cada conta escolhida, para não perder o estado no jogo. **Cada envio traz a janela do Roblox para frente por um instante.** Fica aceso enquanto o modo está mandando. |
@@ -78,7 +78,7 @@ Com **Auto Rejoin** ativo aparece `Add N account(s) to Auto Rejoin`.
 
 ### Painel da conta (uma selecionada)
 
-Nesta ordem: as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`; `Auto-reconnect`; `Launch Exceptions`; `Roblox Version (all accounts)` — é a versão **global**; a versão por conta existe no backend (campo `RobloxVersion`, honrado pelo launch e pelo Auto Rejoin), mas **não tem tela**: só dá para definir em `View/Edit Fields` (Developer Mode), por script ou pelo web server —; Alias; descrição; e por último `History`, recolhível pelo título (onde a conta jogou, por quanto tempo e como cada sessão terminou; `Join again` volta ao servidor de uma sessão recente; `Export CSV` — ver [history.md](features/history.md)).
+Nesta ordem: as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`; `Launch Exceptions`; `Roblox Version (all accounts)` — é a versão **global**; a versão por conta existe no backend (campo `RobloxVersion`, honrado pelo launch e pelo Auto Rejoin), mas **não tem tela**: só dá para definir em `View/Edit Fields` (Developer Mode), por script ou pelo web server —; Alias; descrição; e por último `History`, recolhível pelo título (onde a conta jogou, por quanto tempo e como cada sessão terminou; `Join again` volta ao servidor de uma sessão recente; `Export CSV` — ver [history.md](features/history.md)). A reconexão automática **não** fica aqui: está na página `Session` (ver abaixo).
 
 ### Barra inferior (qualquer seleção)
 
@@ -156,7 +156,7 @@ Seções numa lista vertical à esquerda. As mais úteis no dia a dia:
 | `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
 | `Backups` | Settings › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
 | `Theme Editor` | toolbar | Cores, estilo de botão e fontes; presets exportáveis. |
-| `Session` | toolbar | Fila de lançamento (cancelar) e clientes abertos (focar, fechar). |
+| `Session` | toolbar | Fila de lançamento (cancelar), clientes abertos (focar, fechar) e reconexão automática: padrão `Reconnect accounts that drop` no resumo, chave por conta em cada linha de `In game` e, com linhas marcadas, `Reconnect on` / `Reconnect off` / `Use default`. |
 
 ---
 

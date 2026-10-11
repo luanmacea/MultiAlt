@@ -7,7 +7,6 @@ import { usePrompt } from "../../hooks/usePrompt";
 import { SidebarSection } from "./SidebarSection";
 import { AccountLaunchOverrides } from "./AccountLaunchOverrides";
 import { AccountHistory } from "./AccountHistory";
-import { AccountAutoReconnect } from "./AccountAutoReconnect";
 import { ClientHealthNote } from "../session/ClientHealthNote";
 import { Select } from "../ui/Select";
 import { tr, useTr } from "../../i18n/text";
@@ -185,7 +184,7 @@ export function SingleSelectSidebar() {
       </div>
 
       {/* Scrollable content. Ordem: o uso diário primeiro (ferramentas,
-          reconexão, exceções de launch), as notas depois e o histórico — que é
+          exceções de launch), as notas depois e o histórico — que é
           longo — por último, recolhível. */}
       <div ref={scrollRef} data-testid="account-sidebar-scroll" className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         <SidebarSection title={t("Tools")}>
@@ -218,8 +217,8 @@ export function SingleSelectSidebar() {
           </div>
         </SidebarSection>
 
-        <AccountAutoReconnect account={account} />
-
+        {/* A reconexão automática não mora aqui: é coisa de muitas contas e fica
+            na página Session (padrão no resumo, uma chave por conta em "Em jogo"). */}
         <AccountLaunchOverrides account={account} />
 
         {/* A versão gravada aqui é a global (Settings > Versions, chave
