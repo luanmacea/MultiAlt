@@ -888,13 +888,16 @@ describe("OptimizationTab", () => {
     expect(screen.queryByRole("switch", { name: /Arrange in grid on launch/ })).not.toBeInTheDocument();
   });
 
-  /** Ideia 18: a janela em uso a toda velocidade, as outras no fundo. Opcional. */
+  /**
+   * Ideia 18: as janelas fora de uso devolvem memória, sem desacelerar (até
+   * 11/10/2026 elas desaceleravam e a conta "teleportava" no jogo). Opcional.
+   */
   it("offers the focus-following optimization off by default and saves it", async () => {
     renderOptimization({});
-    const toggle = await screen.findByRole("switch", { name: /Follow the window in use/ });
+    const toggle = await screen.findByRole("switch", { name: /Free memory from the windows you're not using/ });
     expect(toggle).toHaveAttribute("aria-checked", "false");
     expect(
-      screen.getByText(/The one you're playing runs at full speed, the others slow down/)
+      screen.getByText(/Every window keeps running normally/)
     ).toBeInTheDocument();
 
     await userEvent.click(toggle);
@@ -951,13 +954,13 @@ describe("OptimizationTab", () => {
 
   it("hides the memory limit when the build cannot free memory", async () => {
     renderOptimization({});
-    await screen.findByRole("switch", { name: /Follow the window in use/ });
+    await screen.findByRole("switch", { name: /Free memory from the windows you're not using/ });
     expect(screen.queryByLabelText("Memory limit per client")).not.toBeInTheDocument();
   });
 
   it("hides the mute option when the build has no live audio", async () => {
     renderOptimization({});
-    await screen.findByRole("switch", { name: /Follow the window in use/ });
+    await screen.findByRole("switch", { name: /Free memory from the windows you're not using/ });
     expect(
       screen.queryByRole("switch", { name: /Mute the Roblox windows you're not using/ })
     ).not.toBeInTheDocument();
@@ -1037,7 +1040,7 @@ describe("OptimizationTab", () => {
   it("hides the focus-following optimization outside Windows", async () => {
     renderOptimization({}, "macos");
     await screen.findByText("Override Window Size");
-    expect(screen.queryByRole("switch", { name: /Follow the window in use/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /Free memory from the windows you're not using/ })).not.toBeInTheDocument();
   });
 
   it("rejects a fast flag key that is not on the backend allowlist", async () => {

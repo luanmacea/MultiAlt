@@ -22,8 +22,17 @@ opcional e desligado por padrão.
 
 ## Otimização que segue o foco (`Optimization.FollowFocus`)
 
-Interruptor **Follow the window in use**: o cliente que você está jogando roda
-a toda velocidade, os outros desaceleram.
+Interruptor **Free memory from the windows you're not using** (até 11/10/2026
+"Follow the window in use"): quando você sai de uma janela do Roblox, ela
+devolve ao Windows a memória que não está usando; **todas continuam rodando
+normalmente**.
+
+Por que mudou (teste do dono, 11/10/2026): o fundo ficava abaixo do normal, com
+EcoQoS e o timer do Windows ignorado. O jogo nessas janelas atrasava — ao
+clicar nelas, ele corria para alcançar o estado certo — e o cliente mandava ao
+servidor posições atrasadas: a conta "teleportava" no mundo, à vista dos
+outros jogadores. Desacelerar um cliente de jogo online não serve; o que dá
+para economizar sem efeito no jogo é memória.
 
 ### Fluxo
 
@@ -34,10 +43,14 @@ a toda velocidade, os outros desaceleram.
    **não** troca o cliente em uso: o último continua a toda velocidade.
 3. Cliente em uso e cliente na carência → **toda velocidade**: prioridade
    normal, power throttling devolvido ao Windows (`ControlMask = 0`), memória
-   normal e, se o perfil tem teto de CPU, o teto do Job **desligado**.
-4. Os outros → **fundo**: a política do perfil com que a conta abriu se o
-   usuário ligou `EnableProcessPolicy`; senão uma leve (abaixo do normal, EcoQoS,
-   timer ignorado, memória baixa). O teto de CPU do Job volta, se o perfil tem.
+   normal.
+4. Os outros → **fundo**: a **mesma** velocidade (prioridade normal, sem
+   EcoQoS, timer intacto) com **prioridade de memória baixa**, e **uma**
+   liberação de memória na hora em que vão para o fundo (`trim_working_set`,
+   o mesmo do teto de memória: as páginas vão para o arquivo de paginação e
+   voltam quando o jogo precisar — nada para). Vale mesmo com a política do
+   perfil ligada. O laço **não mexe** no teto de CPU do Job: quem tem teto no
+   perfil fica com o que o launch deu.
 5. Só há chamada ao processo quando a velocidade desejada **muda**; a olhada
    de cada segundo não abre processo nenhum.
 
@@ -55,8 +68,9 @@ a toda velocidade, os outros desaceleram.
 - **Desligar a opção ou fechar o app** devolve cada cliente ao que o launch
   deu: a política do perfil se ligada, senão o normal; o teto do Job volta se o
   perfil o tiver. Fechar o app não fecha cliente nenhum.
-- `BackgroundMode` do perfil ("Idle até no cliente em foco") vale só para os
-  clientes de fundo enquanto a opção está ligada.
+- Com a opção ligada, a política de processo do perfil (`BackgroundMode`,
+  EcoQoS, prioridade) **não** é aplicada: o fundo roda normal e só a memória
+  cede.
 
 ### Por que pergunta em vez de evento
 

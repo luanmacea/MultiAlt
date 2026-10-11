@@ -1,8 +1,12 @@
 // Otimização que segue o foco (ideia 18 de docs/ideias-de-outros-gerenciadores.md).
 //
-// Com `Optimization.FollowFocus` ligado, o cliente que o usuário está jogando
-// roda a toda velocidade e os outros (só os que o app abriu) ficam com a
-// política de fundo. Ver docs/features/performance.md.
+// Com `Optimization.FollowFocus` ligado, os clientes que o usuário não está
+// jogando (só os que o app abriu) **devolvem memória** ao Windows: uma
+// liberação quando a pessoa sai da janela e prioridade de memória baixa. Eles
+// continuam rodando a toda velocidade — até 11/10/2026 o fundo ficava abaixo do
+// normal, com EcoQoS e o timer grosso, e o jogo atrasava: ao voltar para a
+// janela o personagem "teleportava" (teste do dono). Ver
+// docs/features/performance.md.
 //
 // Como o app sabe qual janela está em uso: **pergunta**, uma vez por segundo
 // (`GetForegroundWindow` + `GetWindowThreadProcessId`, as duas já importadas
@@ -35,7 +39,8 @@ const FOCUS_FOLLOW_GRACE: Duration = Duration::from_secs(35);
 pub(crate) enum ClientSpeed {
     /// Prioridade normal, sem economia de energia, sem teto de CPU.
     Full,
-    /// A política de fundo (`background_process_policy`) e o teto do perfil.
+    /// A política de fundo (`background_process_policy`): roda normal, só a
+    /// memória cede.
     Background,
 }
 
@@ -89,26 +94,23 @@ fn plan_speed_changes(
     out
 }
 
-/// A política dos clientes de fundo: a do perfil com que a conta abriu, se o
-/// usuário a ligou (`EnableProcessPolicy`); senão uma leve — prioridade abaixo
-/// do normal, EcoQoS e memória baixa. Sem isso, ligar a opção com a política do
-/// perfil desligada (o padrão) não faria nada.
-pub(crate) fn background_process_policy(launch: &WindowsProcessPolicy) -> WindowsProcessPolicy {
-    if launch.enabled {
-        return WindowsProcessPolicy {
-            delay_ms: 0,
-            ..launch.clone()
-        };
-    }
+/// A política dos clientes de fundo: a mesma velocidade da janela em uso
+/// (prioridade normal, sem EcoQoS, timer do Windows intacto) — só a prioridade
+/// de memória baixa, para o Windows tirar deles primeiro quando faltar RAM.
+/// Vale mesmo com a política do perfil ligada: desacelerar o fundo atrasa o
+/// jogo, e o servidor vê a conta "teleportar" quando ela volta.
+pub(crate) fn background_process_policy(_launch: &WindowsProcessPolicy) -> WindowsProcessPolicy {
     WindowsProcessPolicy {
-        enabled: true,
-        delay_ms: 0,
-        priority_class: WindowsPriorityClass::BelowNormal,
-        background_mode: false,
-        eco_qos: true,
-        ignore_timer_resolution: true,
         memory_priority: WindowsMemoryPriority::Low,
+        ..full_speed_process_policy()
     }
+}
+
+/// Ao ir para o fundo, o cliente libera a memória que não está usando
+/// (`trim_working_set`, uma vez por troca — as páginas voltam quando o jogo
+/// precisar, nada para). A janela em uso nunca é mexida.
+fn frees_memory_on(speed: ClientSpeed) -> bool {
+    speed == ClientSpeed::Background
 }
 
 /// A janela em uso: prioridade normal, economia de energia devolvida ao
@@ -125,17 +127,11 @@ pub(crate) fn full_speed_process_policy() -> WindowsProcessPolicy {
     }
 }
 
-/// O teto de CPU do Job para esta velocidade: `None` = não mexer (o perfil não
-/// tem teto, então não existe Job com teto); `Some(None)` = desligar;
-/// `Some(Some(p))` = religar com `p`%.
-fn cpu_cap_for(speed: ClientSpeed, experimental: &WindowsExperimentalPolicy) -> Option<Option<u32>> {
-    if !experimental.enable_job_cpu_limit {
-        return None;
-    }
-    Some(match speed {
-        ClientSpeed::Full => None,
-        ClientSpeed::Background => Some(experimental.job_cpu_limit_percent),
-    })
+/// O teto de CPU do Job: o laço não mexe nele (`None`). Um teto no fundo é o
+/// mesmo atraso que a prioridade baixa; quem tem teto no perfil fica com o que
+/// o launch deu.
+fn cpu_cap_for(_speed: ClientSpeed, _experimental: &WindowsExperimentalPolicy) -> Option<Option<u32>> {
+    None
 }
 
 /// O estado a devolver quando a opção desliga ou o app fecha: o que o launch
@@ -307,6 +303,9 @@ fn speed_tick(
             ClientSpeed::Background => background_process_policy(&launch.process),
         };
         apply_client_speed(pid, &process, cpu_cap_for(speed, &launch.experimental), &alive);
+        if frees_memory_on(speed) && alive.contains(&pid) {
+            trim_working_set(pid);
+        }
         state.applied.insert(pid, speed);
     }
 }
@@ -455,33 +454,38 @@ mod focus_follow_tests {
 
     // ── políticas ──────────────────────────────────────────────────────────
 
+    /// A janela de fundo ficava abaixo do normal, com EcoQoS e o timer grosso:
+    /// o jogo atrasava, e ao voltar para ela o personagem "teleportava" (o
+    /// cliente mandava ao servidor o atraso acumulado — teste do dono,
+    /// 11/10/2026). Agora o fundo roda normal; só a memória cede.
     #[test]
-    fn the_background_uses_the_profile_policy_when_the_user_turned_it_on() {
-        let launch = WindowsProcessPolicy {
+    fn the_background_never_slows_the_game_down() {
+        let heavy = WindowsProcessPolicy {
             enabled: true,
             delay_ms: 1500,
             priority_class: WindowsPriorityClass::Idle,
             background_mode: true,
-            eco_qos: false,
-            ignore_timer_resolution: false,
+            eco_qos: true,
+            ignore_timer_resolution: true,
             memory_priority: WindowsMemoryPriority::VeryLow,
         };
-        let bg = background_process_policy(&launch);
-        assert_eq!(bg.priority_class, WindowsPriorityClass::Idle);
-        assert!(bg.background_mode);
-        assert_eq!(bg.memory_priority, WindowsMemoryPriority::VeryLow);
-        // Sem espera: a troca de janela tem que ser imediata.
-        assert_eq!(bg.delay_ms, 0);
+        for launch in [WindowsProcessPolicy::default(), heavy] {
+            let bg = background_process_policy(&launch);
+            assert!(bg.enabled);
+            assert_eq!(bg.priority_class, WindowsPriorityClass::Normal);
+            assert!(!bg.background_mode);
+            assert!(!bg.eco_qos);
+            assert!(!bg.ignore_timer_resolution);
+            assert_eq!(bg.memory_priority, WindowsMemoryPriority::Low);
+            // Sem espera: a troca de janela tem que ser imediata.
+            assert_eq!(bg.delay_ms, 0);
+        }
     }
 
     #[test]
-    fn the_background_has_a_light_policy_when_the_profile_policy_is_off() {
-        let bg = background_process_policy(&WindowsProcessPolicy::default());
-        assert!(bg.enabled);
-        assert_eq!(bg.priority_class, WindowsPriorityClass::BelowNormal);
-        assert!(!bg.background_mode, "Idle é pesado demais como padrão");
-        assert!(bg.eco_qos);
-        assert_eq!(bg.memory_priority, WindowsMemoryPriority::Low);
+    fn going_to_the_background_frees_memory_once_and_the_window_in_use_never() {
+        assert!(frees_memory_on(ClientSpeed::Background));
+        assert!(!frees_memory_on(ClientSpeed::Full));
     }
 
     #[test]
@@ -494,22 +498,19 @@ mod focus_follow_tests {
         assert_eq!(full.memory_priority, WindowsMemoryPriority::Normal);
     }
 
+    /// O laço não mexe no teto de CPU: um teto no fundo é o mesmo atraso.
+    /// Quem tem teto no perfil fica com o que o launch deu.
     #[test]
-    fn the_cpu_cap_is_lifted_for_the_active_client_and_restored_in_the_background() {
+    fn the_loop_never_touches_the_cpu_cap() {
         let capped = WindowsExperimentalPolicy {
             enable_job_cpu_limit: true,
             job_cpu_limit_percent: 30,
             ..Default::default()
         };
-        assert_eq!(cpu_cap_for(ClientSpeed::Full, &capped), Some(None));
-        assert_eq!(cpu_cap_for(ClientSpeed::Background, &capped), Some(Some(30)));
-    }
-
-    #[test]
-    fn without_a_cpu_cap_in_the_profile_the_job_is_never_touched() {
-        let none = WindowsExperimentalPolicy::default();
-        assert_eq!(cpu_cap_for(ClientSpeed::Full, &none), None);
-        assert_eq!(cpu_cap_for(ClientSpeed::Background, &none), None);
+        for exp in [capped, WindowsExperimentalPolicy::default()] {
+            assert_eq!(cpu_cap_for(ClientSpeed::Full, &exp), None);
+            assert_eq!(cpu_cap_for(ClientSpeed::Background, &exp), None);
+        }
     }
 
     #[test]

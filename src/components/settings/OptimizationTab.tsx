@@ -580,8 +580,8 @@ function WindowInUseSection({ s }: { s: UseSettingsReturn }) {
       <Toggle
         checked={s.getBool("Optimization", "FollowFocus")}
         onChange={(v) => s.setBool("Optimization", "FollowFocus", v)}
-        label="Follow the window in use"
-        description="The one you're playing runs at full speed, the others slow down. Only windows opened by MultiAlt; a new one gets 35 s to load first."
+        label="Free memory from the windows you're not using"
+        description="When you leave a Roblox window, it gives back to Windows the memory it isn't using. Every window keeps running normally. Only windows opened by MultiAlt; a new one gets 35 s to load first."
       />
       {liveAudio ? (
         <Toggle
