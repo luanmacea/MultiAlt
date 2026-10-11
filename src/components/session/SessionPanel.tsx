@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { useConfirm } from "../../hooks/usePrompt";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
@@ -221,6 +222,16 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   const [identifying, setIdentifying] = useState<{ pid: number; userId: string } | null>(null);
   // Grupos recolhidos da lista "Em jogo" (chave do grupo).
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // "Close" da linha armado ("Close?"), esperando o segundo clique.
+  const [armedClose, setArmedClose] = useState<number | null>(null);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (armTimer.current) clearTimeout(armTimer.current);
+    },
+    []
+  );
+  useEscapeStack(armedClose !== null, () => setArmedClose(null));
   // Shift+clique: a última conta clicada e a ordem das linhas na tela.
   const anchorRef = useRef<number | null>(null);
   const visibleOrderRef = useRef<number[]>([]);
@@ -500,26 +511,65 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     });
   }
 
-  /**
-   * Uma confirmação só para o lote inteiro; fechar uma conta é imediato. Fecha
-   * só as contas da lista (`closeRobloxClients`), nunca cliente de fora dela.
-   */
-  async function handleClose(userIds: number[]) {
+  /** Fecha só as contas da lista (`closeRobloxClients`), nunca cliente de fora dela. */
+  async function closeNow(userIds: number[]) {
     if (userIds.length === 0) return;
     setError(null);
-    if (userIds.length > 1) {
-      const ok = await confirm(t("Close {{count}} clients?", { count: userIds.length }), true);
-      if (!ok) return;
-    }
+    setArmedClose(null);
     setBusy(true);
     try {
       await store.closeRobloxClients(userIds);
-      setChecked(new Set());
+      setChecked((prev) => {
+        const next = new Set(prev);
+        for (const id of userIds) next.delete(id);
+        return next;
+      });
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * "Close all clients" e "Close selected": sempre perguntam, uma vez para o
+   * lote. O diálogo lista as contas (as cinco primeiras e "and N more"), marca
+   * as abertas pelo site e o botão diz quantos clientes fecha.
+   */
+  async function confirmAndClose(userIds: number[]) {
+    if (userIds.length === 0) return;
+    setError(null);
+    const lines = userIds.map((id) =>
+      store.adoptedClients.has(id)
+        ? t("{{name}} (opened from the website)", { name: nameFor(id) })
+        : nameFor(id)
+    );
+    const details =
+      lines.length > 5 ? [...lines.slice(0, 5), t("and {{count}} more", { count: lines.length - 5 })] : lines;
+    const website = userIds.filter((id) => store.adoptedClients.has(id)).length;
+    const note =
+      website === 0
+        ? undefined
+        : website === 1
+          ? t("Includes 1 client opened from the Roblox website.")
+          : t("Includes {{count}} clients opened from the Roblox website.", { count: website });
+    const ok = await confirm(t("Close the Roblox client of these accounts?"), true, {
+      confirmLabel:
+        userIds.length === 1 ? t("Close 1 client") : t("Close {{count}} clients", { count: userIds.length }),
+      details,
+      note,
+    });
+    if (ok) await closeNow(userIds);
+  }
+
+  /**
+   * "Close" da linha: o primeiro clique só arma ("Close?"), o segundo fecha.
+   * Desarma sozinho em 4 s, no Escape ou quando o foco sai do botão.
+   */
+  function armClose(userId: number) {
+    setArmedClose(userId);
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = setTimeout(() => setArmedClose(null), 4_000);
   }
 
   // Lista "Em jogo" por jogo e servidor; quem precisa de atenção vai para o
@@ -655,13 +705,25 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
             <Crosshair size={12} strokeWidth={1.5} aria-hidden="true" />
             {t("Focus")}
           </button>
+          {/* Longe do Focus, com um divisor: fechar não pode ser o clique errado. */}
+          <span aria-hidden="true" className="mx-1.5 h-4 w-px bg-[var(--border-color)]" />
           <button
-            onClick={() => void handleClose([userId])}
+            onClick={() => (armedClose === userId ? void closeNow([userId]) : armClose(userId))}
+            onBlur={() => {
+              if (armedClose === userId) setArmedClose(null);
+            }}
             disabled={busy}
-            className="sidebar-btn-sm !px-2 h-6 !py-0 ml-2 flex items-center gap-1 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={
+              armedClose === userId
+                ? t("Click again to close this client")
+                : t("Close this account's Roblox client")
+            }
+            className={`sidebar-btn-sm !px-2 h-6 !py-0 flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${
+              armedClose === userId ? "!bg-red-600 !border-red-600 !text-white" : "text-red-400"
+            }`}
           >
             <PowerOff size={12} strokeWidth={1.5} aria-hidden="true" />
-            {t("Close")}
+            {armedClose === userId ? t("Close?") : t("Close")}
           </button>
         </span>
       </li>
@@ -947,21 +1009,16 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   <Coffee size={13} strokeWidth={1.5} />
                   {t("AFK Mode")}
                 </button>
-                {/* Sem marcação vale para todas as da lista; mais de uma pergunta. */}
+                {/* Sempre todas as da lista, com confirmação; as marcadas
+                    fecham pela barra de lote ("Close selected"). */}
                 <button
-                  onClick={() => void handleClose(selected.length > 0 ? selected : runningIds)}
+                  onClick={() => void confirmAndClose(runningIds)}
                   disabled={busy}
-                  title={
-                    selected.length > 0
-                      ? undefined
-                      : t("Closes the Roblox client of every account in this list")
-                  }
+                  title={t("Closes the Roblox client of every account in this list")}
                   className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <PowerOff size={13} strokeWidth={1.5} />
-                  {selected.length > 0
-                    ? t("Close accounts ({{count}})", { count: selected.length })
-                    : t("Close accounts")}
+                  <PowerOff size={13} strokeWidth={1.5} aria-hidden="true" />
+                  {t("Close all clients ({{count}})", { count: runningIds.length })}
                 </button>
               </>
             )}
@@ -1156,6 +1213,15 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   onChange={(value) => void saveMemoryLimit(memoryBulkIds, value)}
                 />
               )}
+              <button
+                type="button"
+                onClick={() => void confirmAndClose(selected)}
+                disabled={busy}
+                className="sidebar-btn-sm !px-2 h-6 !py-0 ml-1 flex items-center gap-1 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <PowerOff size={12} strokeWidth={1.5} aria-hidden="true" />
+                {t("Close selected ({{count}})", { count: selected.length })}
+              </button>
             </span>
           </div>
         )}
