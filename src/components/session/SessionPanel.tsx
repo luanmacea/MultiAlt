@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AppWindow,
   Check,
@@ -8,6 +8,7 @@ import {
   Globe,
   ListX,
   PowerOff,
+  RotateCw,
   SquareStop,
   UserCheck,
   UserPlus,
@@ -17,7 +18,19 @@ import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
+import { ClientHealthNote } from "./ClientHealthNote";
+import { ReconnectSwitch } from "./ReconnectSwitch";
+import {
+  autoReconnectLabel,
+  fieldsWithReconnect,
+  reconnectChoice,
+  reconnectErrorText,
+  type ReconnectChoice,
+} from "../../utils/autoReconnect";
+import { useNexusAutoRelaunch } from "../../hooks/useNexusAutoRelaunch";
+import { isWindowsPlatform } from "../../utils/platform";
 import type {
+  AutoReconnectEntry,
   FriendLinkAccountState,
   LaunchQueueEntry,
   LaunchQueueState,
@@ -130,6 +143,11 @@ function isPending(entry: LaunchQueueEntry): boolean {
   return entry.state === "queued" || entry.state === "launching";
 }
 
+/** Uma queda de uma conta: a mesma conta caindo de novo é outra chave. */
+function dropKey(entry: AutoReconnectEntry): string {
+  return `${entry.userId}:${entry.drop?.sinceMs ?? 0}`;
+}
+
 interface SessionPanelProps {
   className?: string;
 }
@@ -168,9 +186,62 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   // A seleção é derivada: contas que fecharam sozinhas somem do lote.
   const selected = runningIds.filter((id) => checked.has(id));
 
+  // Reconexão automática (commands/reconnect.rs). A contagem regressiva
+  // ("em 30 s") só anda enquanto alguma conta espera a próxima tentativa.
+  // "Dispensar" esconde a linha na hora, sem esperar o evento do backend. A
+  // chave é a queda (conta + início): se a conta cair de novo, a linha volta.
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  // Contas com um comando de reconexão em andamento (botões desabilitados).
+  const [reconnectBusy, setReconnectBusy] = useState<Set<number>>(() => new Set());
+  const reconnecting = (store.autoReconnect ?? []).filter((entry) => !dismissed.has(dropKey(entry)));
+  const countingDown = reconnecting.some((entry) => entry.phase === "waiting");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!countingDown) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [countingDown]);
+
+  // Reconexão automática por conta (commands/reconnect.rs lê o log do Roblox,
+  // então só no Windows). O campo da conta manda; sem ele, o padrão
+  // `General.AutoReconnect`; o AutoRelaunch do Nexus liga por cima.
+  const isWindows = isWindowsPlatform(store.platformCapabilities);
+  const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
+  const nexusRelaunch = useNexusAutoRelaunch(isWindows, runningIds.join(","));
+  const [reconnectSaving, setReconnectSaving] = useState(false);
+
   function nameFor(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
     return accountLabel(account, store, userId);
+  }
+
+  function choiceFor(userId: number): ReconnectChoice | null {
+    const account = store.accounts.find((a) => a.UserID === userId);
+    if (!account) return null;
+    const nexusForced = nexusRelaunch.has((account.Username ?? "").toLowerCase());
+    return reconnectChoice(account.Fields, reconnectDefault, nexusForced);
+  }
+
+  /**
+   * Grava a escolha (`null` = volta ao padrão) no `Fields.AutoReconnect` de
+   * cada conta, uma por vez. Não fecha nem abre cliente nenhum: o backend lê o
+   * campo na próxima queda.
+   */
+  async function saveReconnect(userIds: number[], value: boolean | null) {
+    const targets = store.accounts.filter((a) => userIds.includes(a.UserID));
+    if (targets.length === 0) return;
+    setError(null);
+    setReconnectSaving(true);
+    try {
+      for (const account of targets) {
+        await store.updateAccount({ ...account, Fields: fieldsWithReconnect(account.Fields, value) });
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setReconnectSaving(false);
+    }
   }
 
   function toggleChecked(userId: number) {
@@ -201,6 +272,41 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
       await store.stopLaunchQueue();
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  /**
+   * "Tentar agora" / "Parar" / dispensar. `false` do backend: a conta já não
+   * está na reconexão (a lista da tela estava velha) — avisa em vez de calar.
+   */
+  async function handleReconnectAction(entry: AutoReconnectEntry, action: "retry" | "stop" | "dismiss") {
+    const { userId } = entry;
+    if (reconnectBusy.has(userId)) return;
+    const key = dropKey(entry);
+    setError(null);
+    setReconnectBusy((prev) => new Set(prev).add(userId));
+    if (action === "dismiss") setDismissed((prev) => new Set(prev).add(key));
+    try {
+      const ok =
+        action === "retry" ? await store.retryAutoReconnect(userId) : await store.stopAutoReconnect(userId);
+      if (!ok) {
+        store.addToast(t("{{name}} is no longer being reconnected.", { name: nameFor(userId) }), "info");
+      }
+    } catch (e) {
+      if (action === "dismiss") {
+        setDismissed((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+      setError(String(e));
+    } finally {
+      setReconnectBusy((prev) => {
+        const next = new Set(prev);
+        next.delete(userId);
+        return next;
+      });
     }
   }
 
@@ -335,6 +441,8 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
             {entries.map((entry) => {
               const style = STATE_STYLES[entry.state] ?? STATE_STYLES.queued;
               const name = nameFor(entry.userId);
+              // A tentativa da reconexão automática também passa pela fila.
+              const error = entry.error ? reconnectErrorText(entry.error, t) : null;
               return (
                 <li
                   key={entry.userId}
@@ -344,9 +452,9 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                   <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
                   <span className="text-[var(--panel-fg)] truncate max-w-[40%]">{name}</span>
                   <span className={`shrink-0 ${style.text}`}>{stateLabel(entry.state, t)}</span>
-                  {entry.error && (
-                    <span className="text-red-400 truncate" title={entry.error}>
-                      {entry.error}
+                  {error && (
+                    <span className="text-red-400 truncate" title={error}>
+                      {error}
                     </span>
                   )}
                   <span className="ml-auto shrink-0">
@@ -423,6 +531,102 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         </section>
       )}
 
+      {/* ── Reconectando ───────────────────────────────────────────────── */}
+      {reconnecting.length > 0 && (
+        <section data-testid="auto-reconnect-panel" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
+          <header className="flex items-center gap-2 px-3 py-2 border-b theme-border min-w-0">
+            <h3 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
+              <RotateCw size={13} strokeWidth={1.5} />
+              {t("Reconnecting")}
+            </h3>
+            <span className="text-[12px] theme-muted truncate">
+              {t("Accounts that dropped go back to the same game on their own")}
+            </span>
+          </header>
+          <ul className="max-h-48 overflow-y-auto py-1">
+            {reconnecting.map((entry) => {
+              const info = autoReconnectLabel(entry, now, t);
+              const name = nameFor(entry.userId);
+              const pending = info.tone === "pending";
+              const busy = reconnectBusy.has(entry.userId);
+              const turnedOff = choiceFor(entry.userId)?.effective === false;
+              return (
+                <li
+                  key={entry.userId}
+                  data-testid={`session-reconnect-${entry.userId}`}
+                  data-phase={entry.phase}
+                  aria-busy={busy || undefined}
+                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
+                >
+                  <span
+                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${pending ? "bg-amber-400 animate-pulse" : "bg-red-500"}`}
+                  />
+                  <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
+                  {/* A causa (erro da última tentativa) fica à vista, embaixo. */}
+                  <span className="min-w-0 flex flex-col">
+                    <span
+                      className={`truncate ${pending ? "text-amber-400" : "text-red-400"}`}
+                      title={info.label}
+                    >
+                      {info.label}
+                    </span>
+                    {info.detail && (
+                      <span
+                        data-testid={`session-reconnect-detail-${entry.userId}`}
+                        className="truncate text-[11px] theme-muted"
+                        title={info.detail}
+                      >
+                        {info.detail}
+                      </span>
+                    )}
+                    {/* Desligada com a tentativa em andamento: o backend só a solta depois dela. */}
+                    {pending && turnedOff && (
+                      <span className="truncate text-[11px] theme-muted">
+                        {t("Turned off: it stops after the attempt in progress.")}
+                      </span>
+                    )}
+                  </span>
+                  <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                    {(info.canTryNow || info.canTryAgain) && (
+                      <button
+                        onClick={() => void handleReconnectAction(entry, "retry")}
+                        disabled={busy}
+                        className="sidebar-btn-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-default"
+                        title={t("Reopen this account now, in the same game")}
+                      >
+                        <RotateCw size={12} strokeWidth={1.5} className={busy ? "animate-spin" : undefined} />
+                        {info.canTryNow ? t("Try now") : t("Try again")}
+                      </button>
+                    )}
+                    {pending ? (
+                      <button
+                        onClick={() => void handleReconnectAction(entry, "stop")}
+                        disabled={busy}
+                        className="sidebar-btn-sm flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-default"
+                        title={t("Stop reconnecting this account (does not close any client)")}
+                      >
+                        <SquareStop size={12} strokeWidth={1.5} />
+                        {t("Stop")}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => void handleReconnectAction(entry, "dismiss")}
+                        disabled={busy}
+                        aria-label={t("Dismiss {{name}}", { name })}
+                        title={t("Hide this line")}
+                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors disabled:opacity-50"
+                      >
+                        <X size={13} strokeWidth={2} />
+                      </button>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {/* ── Em jogo ────────────────────────────────────────────────────── */}
       <section data-tour="session-in-game" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
         <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
@@ -484,6 +688,50 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
           </div>
         </header>
 
+        {/* Lote da reconexão: só com contas marcadas, numa faixa própria para
+            o cabeçalho não estourar a largura da aba Console. */}
+        {isWindows && selected.length > 0 && (
+          <div
+            data-testid="session-reconnect-bulk"
+            className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 border-b theme-border text-[12px]"
+          >
+            <span className="flex items-center gap-1 theme-muted mr-auto min-w-0">
+              <RotateCw size={12} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />
+              <span className="truncate">
+                {selected.length === 1
+                  ? t("Auto-reconnect for 1 selected")
+                  : t("Auto-reconnect for {{count}} selected", { count: selected.length })}
+              </span>
+            </span>
+            <button
+              onClick={() => void saveReconnect(selected, true)}
+              disabled={reconnectSaving}
+              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t("Reconnect on")}
+            </button>
+            <button
+              onClick={() => void saveReconnect(selected, false)}
+              disabled={reconnectSaving}
+              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t("Reconnect off")}
+            </button>
+            <button
+              onClick={() => void saveReconnect(selected, null)}
+              disabled={reconnectSaving}
+              title={
+                reconnectDefault
+                  ? t("Use the default from Settings › General (on)")
+                  : t("Use the default from Settings › General (off)")
+              }
+              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t("Use default")}
+            </button>
+          </div>
+        )}
+
         {runningIds.length === 0 && unidentified.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
             <Gamepad2 size={20} strokeWidth={1.5} />
@@ -495,6 +743,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
           <ul className="max-h-56 overflow-y-auto py-1">
             {runningIds.map((userId) => {
               const name = nameFor(userId);
+              const choice = isWindows ? choiceFor(userId) : null;
               return (
                 <li
                   key={userId}
@@ -508,7 +757,10 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                     onChange={() => toggleChecked(userId)}
                     className="accent-[var(--accent-color)]"
                   />
-                  <span className="text-[var(--panel-fg)] truncate">{name}</span>
+                  {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
+                  <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
+                  {/* Queda com motivo, lida do log do Roblox (client_health.rs). */}
+                  <ClientHealthNote health={store.clientHealth?.get(userId)} className="shrink" />
                   {store.adoptedClients.has(userId) && (
                     <span
                       className="shrink-0 flex items-center gap-1 theme-muted"
@@ -519,6 +771,14 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                     </span>
                   )}
                   <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                    {choice && (
+                      <ReconnectSwitch
+                        name={name}
+                        choice={choice}
+                        disabled={reconnectSaving}
+                        onChange={(value) => void saveReconnect([userId], value)}
+                      />
+                    )}
                     <button
                       onClick={() => void handleFocus(userId)}
                       title={t("Bring this client's window to the front")}

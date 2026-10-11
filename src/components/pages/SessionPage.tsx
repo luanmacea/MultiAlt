@@ -3,6 +3,8 @@ import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { SessionPanel } from "../session/SessionPanel";
 import { PageShell } from "./PageShell";
+import { Toggle } from "../ui/Toggle";
+import { isWindowsPlatform } from "../../utils/platform";
 
 /**
  * Página Session: o Painel de Sessão (o mesmo da aba Console da Choose Game)
@@ -28,13 +30,31 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
       }).length
     : null;
 
+  const isWindows = isWindowsPlatform(store.platformCapabilities);
+  const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
   const bottingOn = store.bottingStatus?.active === true;
   const afkOn = store.afkStatus?.active === true;
+  // Reconexão automática em andamento (commands/reconnect.rs).
+  const reconnecting = (store.autoReconnect ?? []).filter(
+    (entry) => entry.phase !== "gaveUp" && entry.phase !== "stopped"
+  ).length;
+  // Singular à parte, como o resto do app ("1 account" / "{{count}} accounts"):
+  // o catálogo não usa o plural do i18next (chave = frase em inglês).
+  const rejoinCount = store.bottingStatus?.userIds.length ?? 0;
+  const afkCount = store.afkStatus?.accounts.length ?? 0;
   const keepAliveText = bottingOn
-    ? t("Auto Rejoin is running for {{count}} accounts.", { count: store.bottingStatus?.userIds.length ?? 0 })
+    ? rejoinCount === 1
+      ? t("Auto Rejoin is running for 1 account.")
+      : t("Auto Rejoin is running for {{count}} accounts.", { count: rejoinCount })
     : afkOn
-      ? t("AFK Mode is on for {{count}} accounts.", { count: store.afkStatus?.accounts.length ?? 0 })
-      : t("Nothing is keeping accounts in game right now.");
+      ? afkCount === 1
+        ? t("AFK Mode is on for 1 account.")
+        : t("AFK Mode is on for {{count}} accounts.", { count: afkCount })
+      : reconnecting === 1
+        ? t("Auto-reconnect is bringing back 1 account.")
+        : reconnecting > 1
+          ? t("Auto-reconnect is bringing back {{count}} accounts.", { count: reconnecting })
+          : t("Nothing is keeping accounts in game right now.");
 
   const stats: { label: string; value: number | null }[] = [
     { label: t("Clients open"), value: clientsOpen },
@@ -79,11 +99,23 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
             <h2 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">
               <span
                 aria-hidden="true"
-                className={`w-1.5 h-1.5 rounded-full ${bottingOn || afkOn ? "bg-emerald-400" : "bg-[var(--border-color)]"}`}
+                className={`w-1.5 h-1.5 rounded-full ${bottingOn || afkOn || reconnecting > 0 ? "bg-emerald-400" : "bg-[var(--border-color)]"}`}
               />
               {t("Keep accounts in game")}
             </h2>
             <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">{keepAliveText}</p>
+            {/* O mesmo `General.AutoReconnect` de Settings › General, mesmo texto.
+                Cada conta muda o seu na lista "Em jogo" (SessionPanel). */}
+            {isWindows && (
+              <div className="mt-2 -mx-1">
+                <Toggle
+                  checked={reconnectDefault}
+                  onChange={(v) => void store.updateSetting("General", "AutoReconnect", v ? "true" : "false")}
+                  label="Reconnect accounts that drop"
+                  description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in the In game list of the Session page."
+                />
+              </div>
+            )}
             <button
               type="button"
               onClick={() => store.setActivePage("afk")}

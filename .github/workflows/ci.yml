@@ -139,4 +139,4 @@ jobs:
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked --all-features
 
       - name: Check Rust backend (standard build)
-        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features --features avatar-batch
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked --no-default-features --features standard
