@@ -74,7 +74,8 @@ describe("NavSidebar — items", () => {
       .getAllByRole("button")
       .map((b) => b.getAttribute("data-nav"))
       .filter(Boolean);
-    const expected = ["accounts", "session", "afk", "avatars", "scripts", "theme"];
+    // Console logo abaixo de Session: o que o app fez, ao lado do que roda agora.
+    const expected = ["accounts", "session", "console", "afk", "avatars", "scripts", "theme"];
     if (ENABLE_NEXUS) expected.push("nexus");
     expected.push("settings");
     // "What's new" mora no rodapé, ao lado do recolher: é sobre o app, não trabalho do dia.
@@ -84,7 +85,7 @@ describe("NavSidebar — items", () => {
 
   it("shows the labels without hovering", () => {
     renderNav();
-    for (const label of ["Accounts", "Session", "AFK Mode", "Avatars", "Scripts", "Theme", "Settings", "What's new"]) {
+    for (const label of ["Accounts", "Session", "Console", "AFK Mode", "Avatars", "Scripts", "Theme", "Settings", "What's new"]) {
       expect(screen.getByText(label)).not.toHaveClass("sr-only");
     }
   });
@@ -98,6 +99,7 @@ describe("NavSidebar — items", () => {
   it.each([
     ["Accounts", "accounts"],
     ["Session", "session"],
+    ["Console", "console"],
     ["AFK Mode", "afk"],
     ["Avatars", "avatars"],
     ["Scripts", "scripts"],

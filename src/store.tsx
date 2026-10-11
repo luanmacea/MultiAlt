@@ -99,6 +99,7 @@ export interface AdoptBottingOptions {
 export type AppPage =
   | "accounts"
   | "session"
+  | "console"
   | "afk"
   | "avatars"
   | "groups"

@@ -160,6 +160,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/afk-mode/AfkModeView.test.tsx",
       "src/utils/clientHealth.test.ts",
       "src/components/session/SessionPanel.test.tsx",
+      // A página Console mostra o log do Auto Rejoin e do Watcher.
+      "src/components/pages/ConsolePage.test.tsx",
       "src/utils/autoReconnect.test.ts",
       "src/utils/memoryLimit.test.ts",
     ],

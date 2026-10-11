@@ -2496,5 +2496,6 @@
   "Repeat every: seconds": "Repeat every: seconds",
   "Repeat in AFK mode": "Repeat in AFK mode",
   "Use for all accounts": "Use for all accounts",
-  "While AFK mode is on, each account plays its recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.": "While AFK mode is on, each account plays its recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks."
+  "While AFK mode is on, each account plays its recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.": "While AFK mode is on, each account plays its recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.",
+  "What the app did: launch, Auto Rejoin, Watcher and errors, with where each line came from.": "What the app did: launch, Auto Rejoin, Watcher and errors, with where each line came from."
 }
