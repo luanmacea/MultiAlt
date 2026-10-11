@@ -178,7 +178,7 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
       {ctl.recordingMode ? (
         <div className="text-[11px] theme-muted leading-4">
           {t(
-            "Each account plays its own recording, or the one for all accounts, from start to end on every turn. Pick which one in the Recordings tab; the list below shows it next to each account."
+            "Each account plays its On anti-AFK recording (its own, or the global one) from start to end on every turn. The After auto-reconnect recording is a separate choice. Pick both in the Recordings tab; the list below shows the anti-AFK one next to each account."
           )}
         </div>
       ) : clickMode ? (
