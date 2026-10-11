@@ -217,6 +217,10 @@ mouse para tudo**.
   manual em andamento termina as contas dele. Reprodução que estava na fila
   esperando a vez zera a bandeira quando começa.
 
+## O que aconteceu enquanto você estava fora
+
+As falhas de envio por conta (`lastErrorCode` no `afk-status`) e a parada de emergência também ficam no resumo **While you were away** da página Session — o toast e a linha da aba somem ou mudam no ciclo seguinte. A falha entra uma vez, quando começa ou muda de motivo, com a hora do envio. No topo do Modo AFK, uma linha diz quantos eventos chegaram desde a última olhada na Session, com **View**. Ver [ui-layout.md](ui-layout.md#while-you-were-away-o-que-aconteceu-longe-do-pc).
+
 ## Configurações relacionadas
 
 | Chave | Default | Significado |
