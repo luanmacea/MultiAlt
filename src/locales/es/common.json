@@ -1923,7 +1923,7 @@
   "Click Add to bring in a new account. Browser Login is the easiest way.": "Haz clic en Agregar para traer una cuenta nueva. Inicio de sesión por navegador es lo más fácil.",
   "Click an account to select it. Hold Ctrl and click to pick more than one.": "Haz clic en una cuenta para seleccionarla. Mantén Ctrl y haz clic para elegir más de una.",
   "Click Save to keep it. Leave without saving and the old look comes back.": "Haz clic en Guardar para conservarlo. Si sales sin guardar, vuelve el aspecto anterior.",
-  "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game.": "Haz clic en Activar el modo AFK. La barra se pone verde mientras funciona. Detenerlo nunca cierra un juego.",
+  "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game. To stop by shaking the mouse, turn it on in Settings.": "Haz clic en Iniciar Modo AFK. La barra se pone verde mientras funciona. Detener nunca cierra un juego. Para detener sacudiendo el mouse, actívalo en Configuración.",
   "Close tutorial": "Cerrar tutorial",
   "Colors and fonts": "Colores y fuentes",
   "Each row is one Roblox account. The colored dot shows if it is online or in a game.": "Cada fila es una cuenta de Roblox. El punto de color muestra si está en línea o en un juego.",
@@ -2551,5 +2551,9 @@
   "On top, pick the recording each account plays after a reconnect and on each AFK turn, and when they play.": "Arriba, elige la grabación que cada cuenta reproduce después de una reconexión y en cada turno AFK, y cuándo se reproducen.",
   "Recordings: who plays what": "Grabaciones: quién reproduce qué",
   "Recordings: your library": "Grabaciones: tu biblioteca",
-  "Three ways to stay in game": "Tres formas de quedarte en el juego"
+  "Three ways to stay in game": "Tres formas de quedarte en el juego",
+  "Emergency stop: you shook the mouse.": "Parada de emergencia: sacudiste el mouse.",
+  "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.": "Sacude el mouse con fuerza a izquierda y derecha para detener cuando la app lo esté moviendo. Solo se lee la posición del mouse.",
+  "Shake the mouse to stop.": "Sacude el mouse para detener.",
+  "Stop AFK and recordings when I shake the mouse": "Detener el AFK y las grabaciones cuando sacuda el mouse"
 }

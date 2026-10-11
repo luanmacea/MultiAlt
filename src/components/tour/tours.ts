@@ -226,7 +226,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "clicks-start",
         title: "Start and stop",
-        description: "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game.",
+        description: "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game. To stop by shaking the mouse, turn it on in Settings.",
         targets: [inside("afk-page", "afk-clicks-start")],
       },
       {

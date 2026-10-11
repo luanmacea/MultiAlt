@@ -18,7 +18,9 @@
 //   gravações (`RECORDING_KEYS`) e `click_recording_point` é o clique do AFK,
 //   com o clique de foco opcional.
 // Ler teclado ou botão do usuário é proibido aqui; a posição do cursor é lida só
-// para devolvê-lo e para o Marcar. A trava é o `afk_input_safety_tests` (em
+// para devolvê-lo, para o Marcar e para a parada de emergência por chacoalhar
+// (`commands/shake_stop.rs`), que também sabe, por `app_cursor_move`, quando
+// quem move o cursor é o próprio app. A trava é o `afk_input_safety_tests` (em
 // `commands/afk.rs`), que varre este arquivo e só aqui aceita injeção de mouse.
 
 use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
@@ -224,6 +226,9 @@ fn send_mouse(dx: i32, dy: i32, flags: u32) -> bool {
 /// aperta nada e não lê nada: só faz deste processo, de novo, o da última
 /// entrada. Medido em 10/10/2026: recusado sem ele, aceito com ele (4 de 4).
 pub fn nudge_for_focus_back() -> bool {
+    // Movimento do app: a parada de emergência (commands/shake_stop.rs) não o
+    // conta como chacoalhar do usuário.
+    let _app_move = crate::app_cursor_move();
     send_mouse(0, 0, MOUSEEVENTF_MOVE)
 }
 
@@ -273,6 +278,10 @@ fn click_point_with_plan(
     hold_ms: u64,
     focus_click: bool,
 ) -> Result<(), String> {
+    // Daqui até o fim da função (inclusive a volta do cursor) o movimento é do
+    // app: a parada de emergência por chacoalhar (commands/shake_stop.rs)
+    // descarta o que ler neste meio-tempo.
+    let _app_move = crate::app_cursor_move();
     let rect = client_rect_on_screen(hwnd).ok_or("The window has no game area")?;
     let steps = crate::afk_click_plan_with(rect, point, hold_ms, focus_click)
         .ok_or("The window has no game area")?;

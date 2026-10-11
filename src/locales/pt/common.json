@@ -1923,7 +1923,7 @@
   "Click Add to bring in a new account. Browser Login is the easiest way.": "Clique em Adicionar para trazer uma conta nova. Login no navegador é o jeito mais fácil.",
   "Click an account to select it. Hold Ctrl and click to pick more than one.": "Clique numa conta para selecioná-la. Segure Ctrl e clique para escolher mais de uma.",
   "Click Save to keep it. Leave without saving and the old look comes back.": "Clique em Salvar para guardar. Se sair sem salvar, o visual antigo volta.",
-  "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game.": "Clique em Ligar o modo AFK. A barra fica verde enquanto ele roda. Parar nunca fecha um jogo.",
+  "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game. To stop by shaking the mouse, turn it on in Settings.": "Clique em Iniciar Modo AFK. A barra fica verde enquanto ele roda. Parar nunca fecha um jogo. Para parar sacudindo o mouse, ligue isso nas Configurações.",
   "Close tutorial": "Fechar tutorial",
   "Colors and fonts": "Cores e fontes",
   "Each row is one Roblox account. The colored dot shows if it is online or in a game.": "Cada linha é uma conta do Roblox. A bolinha colorida mostra se ela está online ou num jogo.",
@@ -2551,5 +2551,9 @@
   "On top, pick the recording each account plays after a reconnect and on each AFK turn, and when they play.": "Em cima, escolha a gravação que cada conta toca depois de uma reconexão e a cada volta do AFK, e quando elas tocam.",
   "Recordings: who plays what": "Gravações: quem toca o quê",
   "Recordings: your library": "Gravações: sua biblioteca",
-  "Three ways to stay in game": "Três jeitos de ficar no jogo"
+  "Three ways to stay in game": "Três jeitos de ficar no jogo",
+  "Emergency stop: you shook the mouse.": "Parada de emergência: você chacoalhou o mouse.",
+  "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.": "Chacoalhe o mouse com força para os lados para parar quando o app estiver movendo ele. Só a posição do mouse é lida.",
+  "Shake the mouse to stop.": "Chacoalhe o mouse para parar.",
+  "Stop AFK and recordings when I shake the mouse": "Parar o AFK e as gravações quando eu chacoalhar o mouse"
 }

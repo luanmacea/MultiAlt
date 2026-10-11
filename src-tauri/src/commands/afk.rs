@@ -1113,6 +1113,9 @@ async fn run_afk_session(app: tauri::AppHandle, session: AfkSession) {
         if session.stop_flag.load(Ordering::Relaxed) {
             break;
         }
+        // Parada de emergência por chacoalhar (`Afk.ShakeToStop`): o vigia
+        // liga com a sessão e a cada tique — ligar a opção no meio vale.
+        ensure_shake_watch(&app);
 
         let Ok(config) = session.config.lock().map(|c| c.clone()) else {
             break;
