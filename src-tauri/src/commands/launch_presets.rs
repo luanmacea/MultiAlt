@@ -251,7 +251,7 @@ async fn run_launch_preset(app: &tauri::AppHandle, preset: &LaunchPreset) -> Res
 
     let before = preset_tracked_clients();
     #[cfg(target_os = "windows")]
-    launch_multiple(
+    let outcome = launch_multiple(
         app.clone(),
         app.state(),
         app.state(),
@@ -264,7 +264,7 @@ async fn run_launch_preset(app: &tauri::AppHandle, preset: &LaunchPreset) -> Res
     )
     .await?;
     #[cfg(not(target_os = "windows"))]
-    launch_multiple(
+    let outcome = launch_multiple(
         app.clone(),
         app.state(),
         app.state(),
@@ -275,6 +275,12 @@ async fn run_launch_preset(app: &tauri::AppHandle, preset: &LaunchPreset) -> Res
         Some(false),
     )
     .await?;
+    if outcome.appended {
+        // Havia um launch rodando e o lote do preset entrou no fim da fila
+        // dele: o comando voltou na hora, antes de as contas abrirem. Contar os
+        // clientes agora daria zero (e "fechar" não acharia nada).
+        wait_until_launched(&user_ids).await;
+    }
     let after = preset_tracked_clients();
 
     let opened = clients_opened_by_run(&before, &after, &user_ids);
