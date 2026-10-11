@@ -2584,5 +2584,8 @@
   "Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.": "Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.",
   "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.": "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.",
   "While they play": "While they play",
-  "account-dropped": "Dropped"
+  "account-dropped": "Dropped",
+  "next {{time}}": "next {{time}}",
+  "Reconnect: off": "Reconnect: off",
+  "Reconnect: on": "Reconnect: on"
 }

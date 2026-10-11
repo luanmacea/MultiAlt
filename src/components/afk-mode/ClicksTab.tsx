@@ -327,7 +327,9 @@ function AccountsCard({ ctl }: { ctl: ClicksController }) {
                   </span>
                   {running && picked ? (
                     <span className="text-[11px] font-mono theme-muted shrink-0">
-                      {formatAfkCountdown(row?.nextSendAtMs ?? null, ctl.nowMs, ctl.intervalSeconds * 1000)}
+                      {t("next {{time}}", {
+                        time: formatAfkCountdown(row?.nextSendAtMs ?? null, ctl.nowMs, ctl.intervalSeconds * 1000),
+                      })}
                     </span>
                   ) : null}
                   {ctl.recordingMode && picked ? (

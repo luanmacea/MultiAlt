@@ -1171,7 +1171,8 @@ describe("SessionPanel — reconexão por conta", () => {
     renderRunning({ settings: { General: { AutoReconnect: "true" } } });
     const chip = rowChip(1);
     expect(chip).toHaveAccessibleName("Auto-reconnect for alpha: on (default)");
-    expect(chip).toHaveTextContent("On");
+    // "On" sozinho na linha não dizia de quê: o chip diz "Reconnect: on".
+    expect(chip).toHaveTextContent("Reconnect: on");
     expect(chip).toHaveAttribute("title", "Following the default from Settings › General (on).");
     await userEvent.click(chip);
     expect(screen.getByRole("menuitemradio", { name: "Use the default (on)" })).toHaveAttribute("aria-checked", "true");

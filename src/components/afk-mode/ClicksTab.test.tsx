@@ -331,7 +331,8 @@ describe("ClicksTab — intervalo em minutos e segundos", () => {
           accounts: [makeAfkAccount({ userId: 11, lastSendAtMs: startedAt, nextSendAtMs: startedAt + 10_000 })],
         }),
       });
-      expect(screen.getByRole("button", { name: ACCOUNTS[0].Username }).textContent).toContain("0:10");
+      // "next 0:10": só "0:10" solto não dizia que era o próximo envio.
+      expect(screen.getByRole("button", { name: ACCOUNTS[0].Username }).textContent).toContain("next 0:10");
     } finally {
       vi.useRealTimers();
     }
