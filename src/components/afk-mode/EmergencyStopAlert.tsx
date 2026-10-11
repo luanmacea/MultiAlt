@@ -3,6 +3,7 @@ import { Hand } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
+import { useBackdropClose } from "../../hooks/useBackdropClose";
 
 /**
  * O alerta da parada de emergência (chacoalhar o mouse, `Afk.ShakeToStop` —
@@ -17,6 +18,7 @@ export function EmergencyStopAlert() {
   const stop = store.afkEmergencyStop;
   const okRef = useRef<HTMLButtonElement>(null);
   const open = !!stop;
+  const backdropClose = useBackdropClose(store.dismissAfkEmergencyStop);
 
   useEscapeStack(open, store.dismissAfkEmergencyStop);
   useEffect(() => {
@@ -33,13 +35,17 @@ export function EmergencyStopAlert() {
         : t("You shook the mouse, so MultiAlt stopped AFK mode.");
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
+      {...backdropClose}
+    >
       <div
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="emergency-stop-title"
         aria-describedby="emergency-stop-text"
-        className="theme-modal-scope theme-panel border border-amber-500/40 rounded-2xl shadow-2xl w-[420px] max-w-[calc(100vw-24px)] animate-scale-in"
+        className="theme-modal-scope theme-panel border border-amber-500/40 rounded-2xl shadow-2xl w-[420px] max-w-[calc(100vw-24px)] max-h-[calc(100vh-24px)] overflow-y-auto animate-scale-in"
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3 px-5 pt-5">
           <span
