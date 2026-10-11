@@ -83,6 +83,10 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/session/SessionPanel.test.tsx",
       // "Em jogo" agrupado por jogo e servidor.
       "src/utils/sessionGroups.test.ts",
+      // Estado ao vivo na lista de contas e o chip "precisam de atenção".
+      "src/utils/accountLiveState.test.ts",
+      "src/components/accounts/AccountLiveState.test.tsx",
+      "src/components/layout/Toolbar.test.tsx",
     ],
   },
   "join-links": {
