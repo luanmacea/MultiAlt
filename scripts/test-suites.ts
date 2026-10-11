@@ -466,7 +466,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   navigation: {
-    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Groups, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais",
+    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Groups, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais; Voltar/Avançar do mouse e Alt+setas",
     rust: [],
     front: [
       "src/components/layout/NavSidebar.test.tsx",
@@ -476,6 +476,9 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/settings/settingsTabs.test.tsx",
       "src/App.test.tsx",
       "src/store.test.ts",
+      "src/utils/pageHistory.test.ts",
+      "src/hooks/useMouseNavigation.test.ts",
+      "src/hooks/useEscapeStack.test.ts",
     ],
   },
   tutorials: {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { escapeStackDepth, useEscapeStack } from "./useEscapeStack";
+import { escapeStackDepth, fireEscapeForBack, useEscapeStack } from "./useEscapeStack";
 
 /** Manda um Escape "de fora", como o app recebe de verdade (listener de `window`). */
 function pressEscape(target?: EventTarget, init: KeyboardEventInit = {}) {
@@ -110,6 +110,36 @@ describe("useEscapeStack", () => {
 
     input.remove();
     a.unmount();
+  });
+
+  it("o botão Voltar do mouse fecha só o topo, e só se ele não for a base da tela", () => {
+    const back = () => {
+      let fechou = false;
+      act(() => {
+        fechou = fireEscapeForBack();
+      });
+      return fechou;
+    };
+    const sairDaPagina = vi.fn();
+    const fecharMenu = vi.fn();
+    const casca = renderHook(() => useEscapeStack(true, sairDaPagina, { closesOnBack: false }));
+    expect(back()).toBe(false);
+    expect(sairDaPagina).not.toHaveBeenCalled();
+
+    const menu = renderHook(() => useEscapeStack(true, fecharMenu, { ignoreFromFields: true }));
+    expect(back()).toBe(true);
+    expect(fecharMenu).toHaveBeenCalledTimes(1);
+    expect(sairDaPagina).not.toHaveBeenCalled();
+
+    // O Escape de teclado continua chegando na base quando ela é o topo.
+    menu.unmount();
+    pressEscape();
+    expect(sairDaPagina).toHaveBeenCalledTimes(1);
+    casca.unmount();
+  });
+
+  it("o botão Voltar com a pilha vazia não fecha nada", () => {
+    expect(fireEscapeForBack()).toBe(false);
   });
 
   it("não deixa entrada pendurada quando o componente desmonta", () => {
