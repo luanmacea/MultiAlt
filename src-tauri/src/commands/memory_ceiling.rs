@@ -6,9 +6,11 @@
 // `MemoryLimit`, que a lista "Em jogo" da página Session grava). Passou do
 // limite: primeiro o app pede ao Windows para tirar da RAM o que o cliente não
 // está usando (`trim_working_set`, em platform/windows). Só se continuar acima
-// um minuto depois **e** a opção de fechar do Watcher estiver ligada
-// (`Watcher.Enabled` + `Watcher.CloseRbxMemory`), o cliente é fechado.
-// Sem a opção de fechar, o app pede de novo a cada minuto.
+// um minuto depois **e** a opção própria de fechar estiver ligada
+// (`Optimization.CloseOverMemoryLimit`, desligada por padrão), o cliente é
+// fechado. Sem ela, o app pede de novo a cada minuto. Até 11/10/2026 a opção
+// era o "Close If Memory Low" do Watcher, que liga também a regra de memória
+// baixa — coisa sem relação; agora as duas são separadas.
 //
 // Nunca toca cliente aberto pelo site (adotado), nem a janela que a pessoa está
 // usando agora. A leitura de memória é a do working set, a mesma do Watcher.
@@ -283,6 +285,15 @@ impl MemoryOs for WindowsMemoryOs {
 static MEMORY_CEILING_MONITOR: LazyLock<Mutex<MemoryCeilingMonitor>> =
     LazyLock::new(|| Mutex::new(MemoryCeilingMonitor::default()));
 
+/// Pode fechar o cliente que continua acima do limite depois de liberar?
+/// `Optimization.CloseOverMemoryLimit`, desligado por padrão, ao lado do
+/// limite. Não depende do Watcher: o teto roda com ele desligado, e o "Close
+/// If Memory Low" dele é outra regra (memória **baixa**, cliente travado).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn memory_close_allowed(settings: &SettingsStore) -> bool {
+    settings.get_bool("Optimization", "CloseOverMemoryLimit")
+}
+
 /// Uma passada (no laço do monitor de quedas, a cada 2 s). Só clientes que o
 /// app abriu; sem cliente, só lê o tracker.
 #[cfg(target_os = "windows")]
@@ -298,8 +309,7 @@ fn memory_ceiling_pass(app: &tauri::AppHandle) -> Vec<MemoryNotice> {
         .collect();
     let settings = app.state::<SettingsStore>();
     let default_raw = settings.get_string("Optimization", "MemoryLimit");
-    let close_allowed =
-        settings.get_bool("Watcher", "Enabled") && settings.get_bool("Watcher", "CloseRbxMemory");
+    let close_allowed = memory_close_allowed(&settings);
     let fields: HashMap<i64, String> = if launched.is_empty() {
         HashMap::new()
     } else {
