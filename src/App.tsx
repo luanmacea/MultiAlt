@@ -36,6 +36,7 @@ import { QuickLoginDialog } from "./components/dialogs/QuickLoginDialog";
 import { PresetsDialog } from "./components/presets/PresetsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { SessionPage } from "./components/pages/SessionPage";
+import { ConsolePage } from "./components/pages/ConsolePage";
 import { AfkPage } from "./components/pages/AfkPage";
 import { AvatarsPage } from "./components/pages/AvatarsPage";
 import { GroupsPage } from "./components/pages/GroupsPage";
@@ -250,6 +251,7 @@ function AppContent() {
           )}
 
           <SessionPage active={page === "session"} onLeave={leavePage} />
+          <ConsolePage active={page === "console"} onLeave={leavePage} />
           <AfkPage active={page === "afk"} onLeave={leavePage} />
           <AvatarsPage active={page === "avatars"} onLeave={leavePage} />
           <GroupsPage active={page === "groups"} onLeave={leavePage} />

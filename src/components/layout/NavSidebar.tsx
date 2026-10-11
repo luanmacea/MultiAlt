@@ -8,6 +8,7 @@ import {
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
   Settings,
   Shirt,
   Sparkles,
@@ -79,6 +80,8 @@ const navGroups = (): NavItemDef[][] => [
   [{ page: "accounts", label: "Accounts", icon: Users, tour: "nav-accounts" }],
   [
     { page: "session", label: "Session", icon: Gamepad2, tour: "nav-session" },
+    // O que o app fez (launch, Auto Rejoin, Watcher), ao lado do que roda agora.
+    { page: "console", label: "Console", icon: ScrollText },
     { page: "afk", label: "AFK Mode", icon: Keyboard, tour: "nav-afk" },
   ],
   [

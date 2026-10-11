@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type UIEvent } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { accountLabel, hideAccountAvatar } from "../utils/accountName";
@@ -13,12 +13,12 @@ import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle, X, Bookmark } from "lucide-react";
+import { ArrowLeft, User, LayoutGrid, Check, Link2, AlertTriangle, X, Bookmark } from "lucide-react";
 import { newPresetDraft } from "../utils/presets";
-import type { LaunchLogLevel, LaunchTarget } from "../store";
-import { TONE_STYLES, type ToneStyle } from "../utils/toastTone";
+import type { LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
+import { LaunchConsole } from "./console/LaunchConsole";
 import { Toggle } from "./ui/Toggle";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
 import { SessionCache } from "../utils/sessionCache";
@@ -642,119 +642,14 @@ function GridControls() {
 }
 
 // ── Console Tab ───────────────────────────────────────────────────────────────
-/**
- * Os níveis do log de launch são os mesmos tons do feedback de ação, então a
- * paleta é a compartilhada (`TONE_STYLES`) — o toast e o rodapé combinam com
- * este Console em vez de cada tela ter a sua cor.
- */
-const LEVEL_STYLES: Record<LaunchLogLevel, ToneStyle> = TONE_STYLES;
-
 function ConsoleTab() {
-  const t = useTr();
-  const store = useStore();
-  const logs = store.launchLogs;
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-
-  // Build a userId → display name map from the loaded accounts.
-  const nameFor = (userId: number | null): string => {
-    if (userId === null) return "—";
-    const a = store.accounts.find((acc) => acc.UserID === userId);
-    return accountLabel(a, store, userId);
-  };
-
-  const fmtTime = (ts: number) =>
-    new Date(ts).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
-  // Auto-scroll to the newest line unless the user scrolled up.
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs, autoScroll]);
-
-  function onScroll(e: UIEvent<HTMLDivElement>) {
-    const el = e.currentTarget;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    setAutoScroll(atBottom);
-  }
-
   return (
     <div className="flex flex-col h-full">
-      {/* Painel de Sessão acima do log: cancelar quem está entrando e
-          achar/fechar quem já está em jogo sem sair da tela.
-          Teto em 45% da aba: com as duas listas cheias (~500px) o painel
-          empurrava o log a pouco mais que o padding — o log é o log de
-          lançamento, não o Painel de Sessão. */}
+      {/* Painel de Sessão acima do log, com teto de 45% da aba. */}
       <div className="shrink-0 pb-3 max-h-[45%] overflow-y-auto">
         <SessionPanel />
       </div>
-
-      <div className="shrink-0 flex items-center justify-between px-1 pb-2">
-        <span className="text-[12px] theme-muted">
-          {logs.length === 0
-            ? t("No activity yet")
-            : t("{{count}} log lines", { count: logs.length })}
-        </span>
-        <button
-          onClick={() => store.clearLaunchLogs()}
-          disabled={logs.length === 0}
-          className="flex items-center gap-1.5 text-[12px] theme-muted hover:text-[var(--panel-fg)] px-2 py-1 rounded-md theme-btn-ghost border theme-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Trash2 size={12} strokeWidth={1.5} />
-          {t("Clear")}
-        </button>
-      </div>
-
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        // Piso de 160px: sem ele o Painel de Sessão cheio espremia o log a
-        // ~2px de texto visível (26px com 24px de padding).
-        className="flex-1 min-h-[160px] overflow-y-auto rounded-lg border theme-border bg-[var(--panel-soft)] font-mono text-[12px] leading-relaxed p-3"
-      >
-        {logs.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
-            <Terminal size={22} strokeWidth={1.5} />
-            <p className="text-[12px]">
-              {t("Launch a game or start Auto Rejoin to see the activity here")}
-            </p>
-          </div>
-        ) : (
-          logs.map((log) => {
-            const style = LEVEL_STYLES[log.level] ?? LEVEL_STYLES.info;
-            return (
-              <div key={log.id} className="flex items-start gap-2 py-0.5">
-                <span className="theme-muted shrink-0 tabular-nums">{fmtTime(log.ts)}</span>
-                <span className={`shrink-0 w-1.5 h-1.5 rounded-full mt-[6px] ${style.dot}`} />
-                {/* De onde veio a linha. O `step` sempre existiu no evento e
-                    nunca era desenhado; agora que o console tem launch,
-                    Auto Rejoin e Watcher juntos, ele é o que separa um do outro. */}
-                {log.step ? (
-                  <span
-                    data-testid="log-step"
-                    // Largura fixa: sem ela, `[watcher]` e `[rejoin-retry]`
-                    // empurram o nome da conta para colunas diferentes e a
-                    // leitura vertical do log se perde. 112px foi medido no
-                    // nome mais longo na fonte mono de 12px — a 104px de antes
-                    // ele passou a ser cortado quando a fonte do app subiu de
-                    // 11 para 12. A origem do Auto Rejoin é `rejoin` /
-                    // `rejoin-retry` justamente para caber aqui.
-                    className="shrink-0 theme-muted w-[112px] truncate"
-                    title={log.step}
-                  >
-                    [{log.step}]
-                  </span>
-                ) : null}
-                <span className="shrink-0 text-[var(--accent-color)] max-w-[120px] truncate">
-                  {nameFor(log.userId)}
-                </span>
-                <span className={`${style.text} break-words`}>{log.message}</span>
-              </div>
-            );
-          })
-        )}
-      </div>
+      <LaunchConsole className="flex-1" />
     </div>
   );
 }
