@@ -3,6 +3,7 @@ import {
   MEMORY_LIMIT_PRESETS_MB,
   fieldsWithMemoryLimit,
   formatMemoryMb,
+  formatMemoryReading,
   memoryLimitChoice,
   parseMemoryLimit,
   parseCustomMemoryLimit,
@@ -73,5 +74,26 @@ describe("formatMemoryMb — decimal separator", () => {
     expect(formatMemoryMb(1536, "en")).toBe("1.5 GB");
     expect(formatMemoryMb(2048, "pt")).toBe("2 GB");
     expect(formatMemoryMb(900, "pt")).toBe("900 MB");
+  });
+});
+
+/**
+ * A leitura do cliente vai em MB, como a coluna "Memória" do Gerenciador de
+ * Tarefas: dá para comparar um com o outro, e uma mudança de dezenas de MB
+ * aparece (em GB com uma casa, 4,0 a 4,05 GB eram todos "4 GB" — parecia
+ * congelado, 11/10/2026).
+ */
+describe("formatMemoryReading", () => {
+  it("shows whole megabytes with a thousands separator, like Task Manager", () => {
+    expect(formatMemoryReading(1187.4)).toBe("1,187 MB");
+    expect(formatMemoryReading(1187, "en")).toBe("1,187 MB");
+    expect(formatMemoryReading(1187, "pt-BR")).toBe("1.187 MB");
+    expect(formatMemoryReading(1187, "es")).toBe("1.187 MB");
+    expect(formatMemoryReading(880, "pt")).toBe("880 MB");
+    expect(formatMemoryReading(12345, "en")).toBe("12,345 MB");
+  });
+
+  it("a small change shows up", () => {
+    expect(formatMemoryReading(4096)).not.toBe(formatMemoryReading(4130));
   });
 });

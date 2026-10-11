@@ -2352,15 +2352,20 @@ const SCENARIOS: Record<string, () => void> = {
     }
     // Teto de memória (memory_ceiling.rs): padrão de 2 GB; a 3ª conta tem o
     // seu. O retrato é o que o backend mandaria — a 2ª está acima e já foi
-    // liberada uma vez. Cliente do site (adotado) não tem memória no retrato.
+    // liberada uma vez; a 6ª foi liberada e ficou abaixo (memória baixa até o
+    // jogo precisar). Cliente do site (adotado) não tem memória no retrato.
+    // A memória é a privada (a do Gerenciador de Tarefas) e mexe a cada
+    // leitura, como num cliente de verdade — a tela tem que acompanhar.
     settings.Optimization = { ...settings.Optimization, MemoryLimit: "2048" };
     if (accounts[2]) accounts[2].Fields = { ...accounts[2].Fields, MemoryLimit: "1536" };
     const memoryOf = (index: number) => {
       const row = rows[index];
       if (!row || row.adopted) return null;
-      const memoryMb = [1250, 2500, 880, 0, 1730, 640, 1410, 2010, 990][index] ?? 1100;
+      const base = [1250, 2500, 880, 0, 1730, 380, 1410, 2010, 990][index] ?? 1100;
+      const memoryMb = base > 0 ? base + Math.round(Math.sin(Date.now() / 4000 + index) * 35) : base;
       const limitMb = index === 2 ? 1536 : 2048;
-      return { memoryMb, limitMb, over: memoryMb > limitMb, trimmedAtMs: memoryMb > limitMb ? started : null };
+      const trimmed = base > limitMb || index === 5;
+      return { memoryMb, limitMb, over: memoryMb > limitMb, trimmedAtMs: trimmed ? started : null };
     };
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_running_instances") {

@@ -1295,7 +1295,7 @@ describe("SessionPanel — limite de memória por cliente", () => {
       clientMemory: new Map([[1, { memoryMb: 1250, limitMb: 2048, over: false, trimmedAtMs: null }]]),
     });
     const chip = memoryChip(1);
-    expect(chip).toHaveTextContent("1.2 GB/ 2 GB");
+    expect(chip).toHaveTextContent("1,250 MB/ 2 GB");
     expect(chip).toHaveAccessibleName("Memory limit for alpha: default, 2 GB");
     expect(chip).toHaveAttribute("title", expect.stringMatching(/Following the default \(2 GB\)/));
     await userEvent.click(chip);
@@ -1320,7 +1320,56 @@ describe("SessionPanel — limite de memória por cliente", () => {
     });
     const row = screen.getByTestId("session-running-1");
     expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
-    expect(within(memoryChip(1)).getByTestId("memory-reading")).toHaveTextContent("2.4 GB");
+    expect(within(memoryChip(1)).getByTestId("memory-reading")).toHaveTextContent("2,500 MB");
+  });
+
+  /**
+   * Relato do dono (11/10/2026): o número da linha parecia lido nos primeiros
+   * segundos e nunca mais mudava. A leitura segue cada polling da store.
+   */
+  it("the reading follows every refresh of the running clients", async () => {
+    const { rerender } = renderRunning({
+      clientMemory: new Map([[1, { memoryMb: 1187, limitMb: null, over: false, trimmedAtMs: null }]]),
+    });
+    expect(within(memoryChip(1)).getByTestId("memory-reading")).toHaveTextContent("1,187 MB");
+    for (const memoryMb of [1203, 1164, 1342]) {
+      setStore({
+        accounts: ACCOUNTS,
+        launchedByProgram: new Set(ACCOUNTS.map((a) => a.UserID)),
+        platformCapabilities: TRIM,
+        ...storeActions(),
+        clientMemory: new Map([[1, { memoryMb, limitMb: null, over: false, trimmedAtMs: null }]]),
+      });
+      rerender(<SessionPanel />);
+      await waitFor(() =>
+        expect(within(memoryChip(1)).getByTestId("memory-reading")).toHaveTextContent(
+          `${memoryMb.toLocaleString("en-US")} MB`
+        )
+      );
+    }
+  });
+
+  it("says the number is the same as Task Manager's", () => {
+    renderRunning({
+      clientMemory: new Map([[1, { memoryMb: 1187, limitMb: 2048, over: false, trimmedAtMs: null }]]),
+    });
+    expect(memoryChip(1)).toHaveAttribute(
+      "title",
+      expect.stringContaining("Private memory now: 1,187 MB (the Memory column in Task Manager).")
+    );
+  });
+
+  /** Depois de liberar, a memória fica mais baixa até o jogo precisar: normal. */
+  it("after a trim, under the limit, it says the lower memory is expected", () => {
+    renderRunning({
+      clientMemory: new Map([[1, { memoryMb: 380, limitMb: 2048, over: false, trimmedAtMs: 1 }]]),
+    });
+    expect(memoryChip(1)).toHaveAttribute(
+      "title",
+      expect.stringContaining(
+        "MultiAlt freed this client's memory: it stays lower until the game needs it again, which is expected."
+      )
+    );
   });
 
   it("picking a size writes the account field and keeps the other fields, closing nothing", async () => {
@@ -1791,7 +1840,8 @@ describe("SessionPanel — acessibilidade e texto", () => {
         clientMemory: new Map([[1, { memoryMb: 1250, limitMb: 1536, over: false, trimmedAtMs: null }]]),
         ...storeActions(),
       });
-      expect(within(screen.getByTestId("memory-chip")).getByTestId("memory-reading")).toHaveTextContent("1,2 GB");
+      // A leitura em MB, com ponto de milhar (como o Gerenciador de Tarefas em pt).
+      expect(within(screen.getByTestId("memory-chip")).getByTestId("memory-reading")).toHaveTextContent("1.250 MB");
       expect(screen.getByTestId("memory-chip")).toHaveTextContent("1,5 GB");
     } finally {
       await i18n.changeLanguage("en");

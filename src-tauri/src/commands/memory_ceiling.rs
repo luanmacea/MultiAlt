@@ -8,12 +8,15 @@
 // está usando (`trim_working_set`, em platform/windows). Só se continuar acima
 // um minuto depois **e** a opção própria de fechar estiver ligada
 // (`Optimization.CloseOverMemoryLimit`, desligada por padrão), o cliente é
-// fechado. Sem ela, o app pede de novo a cada minuto. Até 11/10/2026 a opção
-// era o "Close If Memory Low" do Watcher, que liga também a regra de memória
-// baixa — coisa sem relação; agora as duas são separadas.
+// fechado. Sem ela, o app pede de novo — no máximo a cada 5 minutos, e só com
+// o cliente acima por um minuto seguido (histerese: nunca libera em laço). Até
+// 11/10/2026 a opção era o "Close If Memory Low" do Watcher, que liga também a
+// regra de memória baixa — coisa sem relação; agora as duas são separadas.
 //
 // Nunca toca cliente aberto pelo site (adotado), nem a janela que a pessoa está
-// usando agora. A leitura de memória é a do working set, a mesma do Watcher.
+// usando agora. A leitura de memória é a **memória privada** (o número da coluna
+// "Memória" do Gerenciador de Tarefas, `get_process_memory_mb`), a mesma que a
+// tela mostra e a mesma do Watcher.
 //
 // O pedido ao Windows só existe com a feature `memory-trim` (nas duas edições,
 // como o plano das ideias decidiu); sem ela, o teto inteiro fica desligado e a
@@ -21,8 +24,16 @@
 
 /// Carência de um cliente recém-aberto: carregando, a memória sobe e desce.
 const MEMORY_STARTUP_GRACE_MS: i64 = 30_000;
-/// Depois de liberar, quanto esperar antes de conferir de novo.
+/// Depois de liberar, quanto esperar antes de conferir de novo (e fechar, se a
+/// opção estiver ligada e o cliente continuar acima o tempo todo).
 const MEMORY_TRIM_GRACE_MS: i64 = 60_000;
+/// Intervalo mínimo entre duas liberações do mesmo cliente. Até 11/10/2026 era
+/// um minuto, e com a leitura errada (working set inteiro, ver
+/// `get_process_memory_mb`) o cliente nunca ficava abaixo: liberava em laço.
+const MEMORY_RETRIM_INTERVAL_MS: i64 = 300_000;
+/// Depois de uma liberação, quanto tempo seguido acima do limite antes de
+/// liberar de novo (um pico curto não conta).
+const MEMORY_RETRIM_SUSTAIN_MS: i64 = 60_000;
 /// Limite mínimo aceito: abaixo disso o cliente nem joga, e o app ficaria
 /// pedindo para liberar memória o tempo todo.
 const MEMORY_LIMIT_MIN_MB: u64 = 256;
@@ -73,8 +84,25 @@ enum MemoryAction {
 struct MemoryWatch {
     pid: u32,
     first_seen_ms: i64,
-    /// Quando o app pediu para liberar pela última vez (enquanto acima).
+    /// Quando o app pediu para liberar pela última vez. Fica guardado mesmo
+    /// depois de a memória voltar para baixo: é dele que conta o intervalo
+    /// mínimo até a próxima liberação.
     trimmed_at_ms: Option<i64>,
+    /// Desde quando a memória está acima do limite sem parar (`None` = abaixo).
+    over_since_ms: Option<i64>,
+}
+
+/// O cliente deste retrato já foi liberado pelo teto (neste PID)? O "Close If
+/// Memory Low" do Watcher não o julga: depois de liberar, a memória fica baixa
+/// até o jogo precisar de novo, e a regra fecharia um cliente saudável.
+fn view_was_trimmed(view: Option<&ClientMemoryView>) -> bool {
+    view.is_some_and(|v| v.trimmed_at_ms.is_some())
+}
+
+/// `view_was_trimmed` do cliente da conta agora (para o Watcher).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn client_memory_was_trimmed(user_id: i64) -> bool {
+    view_was_trimmed(client_memory_of(user_id).as_ref())
 }
 
 impl MemoryWatch {
@@ -83,6 +111,7 @@ impl MemoryWatch {
             pid,
             first_seen_ms: now_ms,
             trimmed_at_ms: None,
+            over_since_ms: None,
         }
     }
 }
@@ -98,44 +127,60 @@ fn memory_ceiling_step(
     close_allowed: bool,
 ) -> MemoryAction {
     let (Some(memory), Some(limit)) = (memory_mb, limit_mb) else {
-        watch.trimmed_at_ms = None;
+        // Sem leitura ou sem limite: a subida acaba, a última liberação fica
+        // (tirar e pôr o limite de volta não libera de novo na hora).
+        watch.over_since_ms = None;
         return MemoryAction::Nothing;
     };
     if now_ms.saturating_sub(watch.first_seen_ms) < MEMORY_STARTUP_GRACE_MS {
         return MemoryAction::Nothing;
     }
     if memory <= limit {
-        watch.trimmed_at_ms = None;
+        watch.over_since_ms = None;
         return MemoryAction::Nothing;
     }
+    let over_since = *watch.over_since_ms.get_or_insert(now_ms);
     if in_use {
         return MemoryAction::Nothing;
     }
-    match watch.trimmed_at_ms {
-        None => {
-            watch.trimmed_at_ms = Some(now_ms);
-            MemoryAction::Trim
+    let Some(trimmed_at) = watch.trimmed_at_ms else {
+        // Primeira vez acima: libera.
+        watch.trimmed_at_ms = Some(now_ms);
+        return MemoryAction::Trim;
+    };
+    let since_trim = now_ms.saturating_sub(trimmed_at);
+    if trimmed_at >= over_since {
+        // Liberou nesta subida e continua acima desde então.
+        if since_trim < MEMORY_TRIM_GRACE_MS {
+            return MemoryAction::Nothing;
         }
-        Some(at) if now_ms.saturating_sub(at) < MEMORY_TRIM_GRACE_MS => MemoryAction::Nothing,
-        Some(_) if close_allowed => MemoryAction::Close,
-        Some(_) => {
-            // Sem a opção de fechar: pede de novo.
-            watch.trimmed_at_ms = Some(now_ms);
-            MemoryAction::Trim
+        if close_allowed {
+            return MemoryAction::Close;
         }
     }
+    // Liberar de novo (sem a opção de fechar, ou numa subida nova depois de uma
+    // liberação antiga): só com a subida durando e o intervalo mínimo passado.
+    if now_ms.saturating_sub(over_since) >= MEMORY_RETRIM_SUSTAIN_MS && since_trim >= MEMORY_RETRIM_INTERVAL_MS {
+        watch.trimmed_at_ms = Some(now_ms);
+        return MemoryAction::Trim;
+    }
+    MemoryAction::Nothing
 }
 
 /// O que a tela recebe de cada cliente (em `get_running_instances`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientMemoryView {
+    /// Memória privada agora (a do Gerenciador de Tarefas), relida a cada
+    /// passada de 2 s.
     pub memory_mb: Option<u64>,
     /// O limite que vale agora (`None` = sem limite).
     pub limit_mb: Option<u64>,
     /// Acima do limite nesta passada.
     pub over: bool,
-    /// Quando o app pediu para liberar pela última vez, enquanto acima.
+    /// Quando o app pediu para liberar pela última vez (neste PID). Fica depois
+    /// de a memória cair: a tela explica que ela fica mais baixa até o jogo
+    /// precisar de novo.
     pub trimmed_at_ms: Option<i64>,
 }
 
@@ -428,33 +473,217 @@ mod memory_ceiling_tests {
         );
     }
 
+    /// Sem a opção de fechar e continuando acima: pede de novo, mas só depois
+    /// do intervalo mínimo (5 min) — nunca a cada minuto.
     #[test]
-    fn without_the_close_option_it_only_frees_memory_again() {
+    fn without_the_close_option_it_frees_again_only_after_the_minimum_interval() {
         let mut watch = MemoryWatch::new(7, START);
         let t0 = AFTER_GRACE;
-        memory_ceiling_step(&mut watch, t0, Some(2500), Some(2048), false, false);
+        assert_eq!(memory_ceiling_step(&mut watch, t0, Some(2500), Some(2048), false, false), MemoryAction::Trim);
+        let mut t = t0 + 2_000;
+        while t < t0 + MEMORY_RETRIM_INTERVAL_MS {
+            assert_eq!(
+                memory_ceiling_step(&mut watch, t, Some(2500), Some(2048), false, false),
+                MemoryAction::Nothing,
+                "trimmed again {} ms after the last one",
+                t - t0
+            );
+            t += 2_000;
+        }
         assert_eq!(
-            memory_ceiling_step(&mut watch, t0 + MEMORY_TRIM_GRACE_MS, Some(2500), Some(2048), false, false),
+            memory_ceiling_step(&mut watch, t0 + MEMORY_RETRIM_INTERVAL_MS, Some(2500), Some(2048), false, false),
             MemoryAction::Trim
         );
     }
 
+    /// Liberou e a memória caiu: subir de novo não libera na hora. Só depois de
+    /// ficar acima por um tempo seguido **e** de passado o intervalo mínimo.
     #[test]
-    fn going_back_under_the_limit_starts_over() {
+    fn going_back_over_after_a_trim_waits_for_a_sustained_rise_and_the_interval() {
         let mut watch = MemoryWatch::new(7, START);
         let t0 = AFTER_GRACE;
         memory_ceiling_step(&mut watch, t0, Some(2500), Some(2048), false, true);
-        // Liberou e ficou abaixo: zera.
+        // Liberou e ficou abaixo.
         assert_eq!(
-            memory_ceiling_step(&mut watch, t0 + 2_000, Some(900), Some(2048), false, true),
+            memory_ceiling_step(&mut watch, t0 + 2_000, Some(400), Some(2048), false, true),
             MemoryAction::Nothing
         );
-        assert_eq!(watch.trimmed_at_ms, None);
-        // Subiu de novo mais tarde: libera de novo, não fecha.
+        assert_eq!(watch.over_since_ms, None);
+        assert_eq!(watch.trimmed_at_ms, Some(t0), "the last trim is remembered");
+        // Subiu de novo cedo (1 min depois): o intervalo mínimo ainda não passou.
+        let mut t = t0 + 60_000;
+        while t < t0 + MEMORY_RETRIM_INTERVAL_MS {
+            assert_eq!(
+                memory_ceiling_step(&mut watch, t, Some(2300), Some(2048), false, true),
+                MemoryAction::Nothing,
+                "acted {} ms after the last trim",
+                t - t0
+            );
+            t += 2_000;
+        }
+        // Passou o intervalo e está acima há mais que o tempo seguido: libera
+        // (não fecha: esta subida ainda não foi liberada).
         assert_eq!(
-            memory_ceiling_step(&mut watch, t0 + 600_000, Some(2500), Some(2048), false, true),
+            memory_ceiling_step(&mut watch, t0 + MEMORY_RETRIM_INTERVAL_MS, Some(2300), Some(2048), false, true),
             MemoryAction::Trim
         );
+    }
+
+    /// Um pico curto depois do intervalo mínimo não basta: a subida tem que
+    /// durar o tempo seguido.
+    #[test]
+    fn a_short_spike_after_the_interval_does_not_trim() {
+        let mut watch = MemoryWatch::new(7, START);
+        let t0 = AFTER_GRACE;
+        memory_ceiling_step(&mut watch, t0, Some(2500), Some(2048), false, true);
+        memory_ceiling_step(&mut watch, t0 + 2_000, Some(400), Some(2048), false, true);
+        let late = t0 + 10 * 60_000;
+        assert_eq!(memory_ceiling_step(&mut watch, late, Some(2300), Some(2048), false, true), MemoryAction::Nothing);
+        assert_eq!(
+            memory_ceiling_step(&mut watch, late + 20_000, Some(2300), Some(2048), false, true),
+            MemoryAction::Nothing
+        );
+        // Caiu antes de completar: recomeça a contagem.
+        memory_ceiling_step(&mut watch, late + 22_000, Some(1900), Some(2048), false, true);
+        assert_eq!(
+            memory_ceiling_step(&mut watch, late + 24_000, Some(2300), Some(2048), false, true),
+            MemoryAction::Nothing
+        );
+        assert_eq!(
+            memory_ceiling_step(
+                &mut watch,
+                late + 24_000 + MEMORY_RETRIM_SUSTAIN_MS - 2_000,
+                Some(2300),
+                Some(2048),
+                false,
+                true
+            ),
+            MemoryAction::Nothing
+        );
+        assert_eq!(
+            memory_ceiling_step(
+                &mut watch,
+                late + 24_000 + MEMORY_RETRIM_SUSTAIN_MS,
+                Some(2300),
+                Some(2048),
+                false,
+                true
+            ),
+            MemoryAction::Trim
+        );
+    }
+
+    /// Voltou a subir depois de liberar, com a opção de fechar ligada: libera
+    /// de novo primeiro e só fecha se continuar acima um minuto depois disso.
+    #[test]
+    fn closing_needs_a_trim_in_the_same_rise() {
+        let mut watch = MemoryWatch::new(7, START);
+        let t0 = AFTER_GRACE;
+        memory_ceiling_step(&mut watch, t0, Some(2500), Some(2048), false, true);
+        memory_ceiling_step(&mut watch, t0 + 2_000, Some(400), Some(2048), false, true);
+        let back = t0 + 20 * 60_000;
+        // Acima de novo: nada até a subida durar; depois libera, não fecha.
+        assert_eq!(memory_ceiling_step(&mut watch, back, Some(2500), Some(2048), false, true), MemoryAction::Nothing);
+        let retrim = back + MEMORY_RETRIM_SUSTAIN_MS;
+        assert_eq!(memory_ceiling_step(&mut watch, retrim, Some(2500), Some(2048), false, true), MemoryAction::Trim);
+        assert_eq!(
+            memory_ceiling_step(&mut watch, retrim + 30_000, Some(2500), Some(2048), false, true),
+            MemoryAction::Nothing
+        );
+        assert_eq!(
+            memory_ceiling_step(&mut watch, retrim + MEMORY_TRIM_GRACE_MS, Some(2500), Some(2048), false, true),
+            MemoryAction::Close
+        );
+    }
+
+    /// Liberou e caiu para baixo antes do minuto: não fecha, mesmo com a
+    /// opção ligada e mesmo que volte a subir logo depois.
+    #[test]
+    fn going_under_after_a_trim_never_closes_without_a_new_trim() {
+        let mut watch = MemoryWatch::new(7, START);
+        let t0 = AFTER_GRACE;
+        memory_ceiling_step(&mut watch, t0, Some(2500), Some(2048), false, true);
+        memory_ceiling_step(&mut watch, t0 + 10_000, Some(600), Some(2048), false, true);
+        let mut t = t0 + 12_000;
+        while t < t0 + MEMORY_RETRIM_INTERVAL_MS {
+            assert_eq!(
+                memory_ceiling_step(&mut watch, t, Some(2500), Some(2048), false, true),
+                MemoryAction::Nothing
+            );
+            t += 2_000;
+        }
+    }
+
+    /// A sequência que o dono viu (11/10/2026): o número ficava acima do
+    /// limite logo depois de cada liberação. Em 20 min de leituras acima, com
+    /// a opção de fechar desligada, o app libera no máximo uma vez a cada 5 min.
+    #[test]
+    fn a_client_that_stays_over_is_trimmed_at_most_every_five_minutes() {
+        let mut watch = MemoryWatch::new(7, START);
+        let mut trims = Vec::new();
+        let mut t = AFTER_GRACE;
+        while t < AFTER_GRACE + 20 * 60_000 {
+            if memory_ceiling_step(&mut watch, t, Some(4000), Some(2048), false, false) == MemoryAction::Trim {
+                trims.push(t);
+            }
+            t += 2_000;
+        }
+        assert_eq!(trims.len(), 4, "{trims:?}");
+        for pair in trims.windows(2) {
+            assert!(pair[1] - pair[0] >= MEMORY_RETRIM_INTERVAL_MS);
+        }
+    }
+
+    /// Tirar o limite esquece a subida, mas não a última liberação: pôr de
+    /// novo logo depois não libera em seguida.
+    #[test]
+    fn removing_and_restoring_the_limit_does_not_trim_right_away() {
+        let mut watch = MemoryWatch::new(7, START);
+        let t0 = AFTER_GRACE;
+        memory_ceiling_step(&mut watch, t0, Some(2500), Some(2048), false, false);
+        assert_eq!(memory_ceiling_step(&mut watch, t0 + 2_000, Some(2500), None, false, false), MemoryAction::Nothing);
+        assert_eq!(watch.over_since_ms, None);
+        assert_eq!(
+            memory_ceiling_step(&mut watch, t0 + 4_000, Some(2500), Some(2048), false, false),
+            MemoryAction::Nothing
+        );
+    }
+
+    /// O Watcher ("Close If Memory Low") não julga um cliente que o teto
+    /// liberou: depois de liberar, a memória fica baixa até o jogo precisar.
+    #[test]
+    fn a_trimmed_client_is_known_to_the_low_memory_rule() {
+        let os = FakeOs {
+            memory: HashMap::from([(10, 2500)]),
+            ..Default::default()
+        };
+        let mut monitor = MemoryCeilingMonitor::default();
+        let clients = [client(1, 10, Some(2048))];
+        monitor.tick(&os, &clients, false, START);
+        assert!(monitor.views[&1].trimmed_at_ms.is_none());
+        monitor.tick(&os, &clients, false, AFTER_GRACE);
+        assert!(view_was_trimmed(monitor.views.get(&1)));
+        assert!(!view_was_trimmed(None));
+    }
+
+    /// A leitura vai para a tela a cada passada (a cada 2 s), não só na
+    /// primeira: o número da linha "Em jogo" acompanha o cliente.
+    #[test]
+    fn the_view_follows_every_reading() {
+        let mut os = FakeOs {
+            memory: HashMap::from([(10, 1200)]),
+            ..Default::default()
+        };
+        let mut monitor = MemoryCeilingMonitor::default();
+        let clients = [client(1, 10, Some(2048))];
+        monitor.tick(&os, &clients, false, START);
+        assert_eq!(monitor.views[&1].memory_mb, Some(1200));
+        os.memory.insert(10, 1350);
+        monitor.tick(&os, &clients, false, START + 2_000);
+        assert_eq!(monitor.views[&1].memory_mb, Some(1350));
+        os.memory.insert(10, 980);
+        monitor.tick(&os, &clients, false, AFTER_GRACE + 60_000);
+        assert_eq!(monitor.views[&1].memory_mb, Some(980));
     }
 
     #[test]
