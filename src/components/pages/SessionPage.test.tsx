@@ -179,6 +179,30 @@ describe("SessionPage — order and stats", () => {
     expect(screen.queryByText("Right now")).not.toBeInTheDocument();
   });
 
+  /**
+   * Monitor 4K (dono, 11/10/2026): as listas paravam em 1040 px e o resto da
+   * janela ficava vazio. Sem teto de largura; a coluna de ajustes alarga e vira
+   * duas colunas na janela grande; as linhas do "Em jogo" viram colunas pela
+   * largura da própria lista (container query — o jsdom não mede, então o
+   * teste confere as classes que o Tailwind compila).
+   */
+  it("fills a big window: no width cap on the lists, wider settings, In game rows in columns", async () => {
+    renderStats();
+    expect(screen.getByTestId("session-lists").className).not.toMatch(/max-w-/);
+    const settings = screen.getByRole("complementary", { name: "Session settings" });
+    // Em rem (125rem = 2000 px): breakpoint em px sai fora de ordem no CSS do
+    // Tailwind 4 e perde para o `xl:`.
+    expect(settings.className).toMatch(/min-\[125rem\]:grid-cols-2/);
+    expect(settings.className).toMatch(/min-\[125rem\]:w-\[640px\]/);
+    expect(settings.className).not.toMatch(/min-\[\d+px\]:/);
+    // Na janela padrão a coluna continua com 300 px.
+    expect(settings.className).toMatch(/xl:w-\[300px\]/);
+    expect(screen.getByTestId("session-in-game").className).toMatch(/@container\/ingame/);
+    const row = await screen.findByTestId("session-running-10");
+    expect(row.parentElement?.className).toMatch(/grid-cols-1/);
+    expect(row.parentElement?.className).toMatch(/@6xl\/ingame:grid-cols-2/);
+  });
+
   it("counts from the same data as the rows, not from the presence setting", async () => {
     renderStats();
     const stats = within(screen.getByRole("group", { name: "Right now" }));

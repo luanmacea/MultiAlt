@@ -708,7 +708,7 @@ export function RecordingsTab() {
               biblioteca, com cada gravação numa linha fechada. */}
           <div
             data-tour="afk-recordings-slots"
-            className="grid grid-cols-1 gap-3 @3xl/recs:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] items-start"
+            className="grid grid-cols-1 gap-3 @3xl/recs:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] @7xl/recs:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] items-start"
           >
               <RecordingSlots
                 payload={payload}

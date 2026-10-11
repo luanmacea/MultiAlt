@@ -549,7 +549,7 @@ export function ThemePage({ active, onLeave }: { active: boolean; onLeave: () =>
         </>
       }
     >
-      <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_272px] lg:items-start">
+      <div className="grid gap-6 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_272px] 2xl:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
         <div className="min-w-0 space-y-5">
           <section aria-labelledby="theme-presets-heading" data-tour="theme-presets">
             <h2 id="theme-presets-heading" className="mb-2 text-[12.5px] font-semibold text-[var(--panel-fg)]">

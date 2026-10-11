@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { autoUiScale, normalizeUiScaleSetting, resolveUiScale, UI_SCALE_SETTINGS } from "./uiScale";
+import { autoUiScale, growUiScale, normalizeUiScaleSetting, resolveUiScale, UI_SCALE_SETTINGS } from "./uiScale";
 
 /**
  * Tamanho da interface (Settings › General). Em monitor de notebook (janela
@@ -16,7 +16,7 @@ describe("autoUiScale", () => {
     expect(autoUiScale(1280, 690)).toBe(0.85);
   });
 
-  it("nunca passa de 100%, mesmo em janela maior que a referência", () => {
+  it("o monitor só encolhe: nunca passa de 100% (crescer é com a janela, growUiScale)", () => {
     expect(autoUiScale(3840, 2100)).toBe(1);
     expect(autoUiScale(1440, 800)).toBe(1);
   });
@@ -46,6 +46,53 @@ describe("autoUiScale", () => {
   it("tamanho inválido não muda nada", () => {
     expect(autoUiScale(0, 0)).toBe(1);
     expect(autoUiScale(Number.NaN, 700)).toBe(1);
+  });
+});
+
+/**
+ * Monitor 4K a 100% (dono, 11/10/2026): tudo ficava pequeno no canto. O
+ * automático cresce a interface quando a **janela** passa de 2200x1240 lógicos.
+ */
+describe("growUiScale", () => {
+  it("janela padrão e janelas comuns ficam em 100%", () => {
+    // Desenho do app (tauri.conf.json: 1100x700) e mínimo (750x450).
+    expect(growUiScale(1100, 700)).toBe(1);
+    expect(growUiScale(750, 450)).toBe(1);
+    // 1920x1080 maximizada.
+    expect(growUiScale(1920, 1040)).toBe(1);
+    expect(growUiScale(2200, 1240)).toBe(1);
+  });
+
+  it("4K a 100% maximizada vai para 170%", () => {
+    // min(3840/2200, 2090/1240) = min(1.745, 1.685) -> 1.7
+    expect(growUiScale(3840, 2090)).toBe(1.7);
+  });
+
+  it("2560x1440 maximizada vai para 110%", () => {
+    expect(growUiScale(2560, 1390)).toBe(1.1);
+  });
+
+  it("usa o lado mais apertado da janela", () => {
+    // Largura daria 1.745, altura manda (1240 -> 1.0).
+    expect(growUiScale(3840, 1240)).toBe(1);
+    // Altura daria 1.6, largura manda (2640/2200 = 1.2).
+    expect(growUiScale(2640, 2000)).toBe(1.2);
+  });
+
+  it("arredonda para o degrau de 5% mais próximo", () => {
+    expect(growUiScale(2200 * 1.24, 1240 * 2)).toBe(1.25);
+    expect(growUiScale(2200 * 1.22, 1240 * 2)).toBe(1.2);
+    // Exatamente no degrau, sem erro de ponto flutuante.
+    expect(growUiScale(2200 * 1.15, 1240 * 2)).toBe(1.15);
+  });
+
+  it("nunca passa de 200%", () => {
+    expect(growUiScale(7680, 4320)).toBe(2);
+  });
+
+  it("tamanho inválido não muda nada", () => {
+    expect(growUiScale(0, 0)).toBe(1);
+    expect(growUiScale(Number.NaN, 2000)).toBe(1);
   });
 });
 
@@ -85,5 +132,28 @@ describe("resolveUiScale", () => {
 
   it("automático sem tamanho conhecido fica em 100%", () => {
     expect(resolveUiScale("auto", null)).toBe(1);
+    expect(resolveUiScale("auto", null, null)).toBe(1);
+  });
+
+  it("automático cresce com a janela grande", () => {
+    const monitor4k = { width: 3840, height: 2160 };
+    expect(resolveUiScale("auto", monitor4k, { width: 3840, height: 2090 })).toBe(1.7);
+    // A janela padrão no mesmo monitor não encolhe nem cresce.
+    expect(resolveUiScale("auto", monitor4k, { width: 1100, height: 700 })).toBe(1);
+    // Janela grande sem monitor conhecido ainda cresce.
+    expect(resolveUiScale("auto", null, { width: 3840, height: 2090 })).toBe(1.7);
+  });
+
+  it("automático em monitor pequeno continua encolhendo (a janela não cresce ali)", () => {
+    expect(resolveUiScale("auto", { width: 1280, height: 720 }, { width: 1280, height: 680 })).toBe(0.85);
+  });
+
+  it("tamanho salvo vence o automático, mesmo na janela 4K", () => {
+    const monitor4k = { width: 3840, height: 2160 };
+    const big = { width: 3840, height: 2090 };
+    expect(resolveUiScale(normalizeUiScaleSetting("100"), monitor4k, big)).toBe(1);
+    expect(resolveUiScale(normalizeUiScaleSetting("90"), monitor4k, big)).toBe(0.9);
+    // Nunca escolhido (chave ausente no INI): automático.
+    expect(resolveUiScale(normalizeUiScaleSetting(undefined), monitor4k, big)).toBe(1.7);
   });
 });

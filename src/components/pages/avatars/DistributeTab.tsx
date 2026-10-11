@@ -60,7 +60,7 @@ export function DistributeTab({
   const pickedCount = accounts.filter((a) => picked.has(a.UserID)).length;
 
   return (
-    <div className="h-full grid grid-cols-[minmax(0,1fr)_320px] gap-3">
+    <div className="h-full grid grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_380px] gap-3">
       {/* Avatares salvos para sortear */}
       <section data-tour="avatars-handout" className="theme-surface rounded-xl border theme-border min-h-0 flex flex-col overflow-hidden">
         <div className="px-3 py-2.5 border-b theme-border flex items-start justify-between gap-3 shrink-0">
