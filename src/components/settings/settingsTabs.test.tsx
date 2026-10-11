@@ -578,7 +578,7 @@ describe("GeneralTab", () => {
       renderGeneral();
       expect(
         await screen.findByText(
-          "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its panel."
+          "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in the In game list of the Session page."
         )
       ).toBeInTheDocument();
     });

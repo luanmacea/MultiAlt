@@ -177,6 +177,18 @@ describe("DetailSidebar", () => {
     expect(store.setDefaultVersion).toHaveBeenCalledWith(null);
   });
 
+  /**
+   * A reconexão automática saiu do painel de uma conta (10/10/2026): quem tem
+   * muitas contas não abre o painel de cada uma. Ela mora na página Session
+   * (padrão no resumo, uma chave por conta na lista "Em jogo").
+   */
+  it("has no auto-reconnect settings: they live on the Session page", () => {
+    renderSidebar({ settings: { General: { AutoReconnect: "true" } } });
+    expect(screen.getByText("Description")).toBeInTheDocument();
+    expect(screen.queryByText("Auto-reconnect")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /Reconnect automatically/ })).not.toBeInTheDocument();
+  });
+
   it("opens the tools it delegates to the store", async () => {
     const store = renderSidebar();
     await userEvent.click(screen.getByRole("button", { name: "Server List" }));

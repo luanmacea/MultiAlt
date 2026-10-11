@@ -51,7 +51,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | `Window_Position_X`, `Window_Position_Y`, `Window_Width`, ... | [watcher.rs](../../src-tauri/src/commands/watcher.rs) | Posição de janela salva pelo Watcher (`SaveWindowPositions`). |
 | `ClientOverridesEnabled`, `ClientOverrideMaxFPS`, `ClientOverrideVolume`, `ClientOverrideGraphics`, `ClientOverrideFullscreen`, `ClientOverrideStartMinimized`, `ClientOverrideWindowWidth`, `ClientOverrideWindowHeight` | [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) | Exceções de launch por conta — ver [launch.md](launch.md#exceções-de-launch-por-conta). |
 
-| `AutoReconnect` | [reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | `true`/`false`: reconexão automática desta conta (painel da conta). Sem o campo vale `General.AutoReconnect`. Ver [watcher.md](watcher.md#reconexão-automática). |
+| `AutoReconnect` | [reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | `true`/`false`: reconexão automática desta conta (chave na linha da conta em "In game", página Session; lote com as linhas marcadas). Sem o campo vale `General.AutoReconnect`. Ver [watcher.md](watcher.md#reconexão-automática). |
 
 Qualquer outra chave é livre (editável em "View/Edit Fields").
 
