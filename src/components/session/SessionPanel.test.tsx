@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -17,12 +17,14 @@ import {
   setStore,
 } from "../../test-utils/renderWithStore";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
-import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
+import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
+import { clearGameIdentityCache } from "../../hooks/useGameIdentity";
 import type {
   Account,
   AutoReconnectEntry,
   ClientDrop,
   ClientHealth,
+  CurrentSession,
   FriendLinkState,
   LaunchQueueEntry,
   LaunchQueuePayload,
@@ -1073,5 +1075,162 @@ describe("SessionPanel — reconexão por conta", () => {
     expect(within(screen.getByTestId("session-running-1")).queryByRole("switch")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
     expect(screen.queryByRole("button", { name: "Reconnect on" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Sessão de agora em cada linha do "Em jogo": jogo, tipo de servidor, tempo em
+ * jogo (andando) e estado. O início é o mesmo que o histórico grava
+ * (`get_current_sessions`, commands/session_history.rs); a tela relê no
+ * `session-history-changed`, sem polling.
+ */
+describe("SessionPanel — sessão atual", () => {
+  const MIN = 60_000;
+
+  function current(userId: number, partial: Partial<CurrentSession> = {}): CurrentSession {
+    return {
+      userId,
+      placeId: 606849621,
+      jobId: "job-1",
+      sinceMs: Date.now() - 12 * MIN,
+      privateServer: false,
+      ...partial,
+    };
+  }
+
+  function renderRunning(sessions: CurrentSession[], overrides: Partial<StoreValue> = {}) {
+    setInvokeMap({
+      get_nexus_accounts: [],
+      get_current_sessions: () => sessions,
+      batched_get_game_info: (args: Record<string, unknown> | undefined) => ({
+        placeId: Number(args?.placeId),
+        universeId: 1,
+        name: Number(args?.placeId) === 606849621 ? "Jailbreak" : null,
+        iconUrl: null,
+      }),
+    });
+    return renderWithStore(<SessionPanel />, {
+      accounts: ACCOUNTS,
+      launchedByProgram: new Set([1, 2, 3]),
+      ...storeActions(),
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    clearGameIdentityCache();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows the game, the server type and the time in game of each account", async () => {
+    renderRunning([current(1), current(2, { privateServer: true, sinceMs: Date.now() - 65 * MIN })]);
+    const first = within(screen.getByTestId("session-running-1"));
+    expect(await first.findByText("Jailbreak")).toBeInTheDocument();
+    expect(first.getByText("Public server")).toBeInTheDocument();
+    expect(first.getByTestId("session-time-1")).toHaveTextContent("12m");
+    expect(first.getByText("Playing")).toBeInTheDocument();
+
+    const second = within(screen.getByTestId("session-running-2"));
+    expect(await second.findByText("Jailbreak")).toBeInTheDocument();
+    expect(second.getByText("Private server")).toBeInTheDocument();
+    expect(second.getByTestId("session-time-2")).toHaveTextContent("1h 05m");
+  });
+
+  it("falls back to the Place ID while the game name is unknown, with the full name in a tooltip", async () => {
+    renderRunning([current(1, { placeId: 123456 })]);
+    const row = within(screen.getByTestId("session-running-1"));
+    const game = await row.findByText("Place 123456");
+    expect(game).toHaveAttribute("title", "Place 123456");
+    await waitFor(() => expect(callsFor("batched_get_game_info").length).toBeGreaterThan(0));
+    expect(row.getByText("Place 123456")).toBeInTheDocument();
+  });
+
+  it("says nothing about the server when it is not known (opened from the website)", async () => {
+    renderRunning([current(1, { privateServer: null })]);
+    const row = within(screen.getByTestId("session-running-1"));
+    await row.findByText("Jailbreak");
+    expect(row.queryByText("Public server")).not.toBeInTheDocument();
+    expect(row.queryByText("Private server")).not.toBeInTheDocument();
+  });
+
+  it("the time in game ticks on its own", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderRunning([current(1, { sinceMs: Date.now() - 58_000 })]);
+    const time = await screen.findByTestId("session-time-1");
+    expect(time).toHaveTextContent("58s");
+    await act(async () => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(screen.getByTestId("session-time-1")).toHaveTextContent("1m");
+  });
+
+  it("reads the sessions again when the history changes, and does not poll", async () => {
+    let sessions: CurrentSession[] = [];
+    setInvokeMap({ get_nexus_accounts: [], get_current_sessions: () => sessions });
+    renderWithStore(<SessionPanel />, {
+      accounts: ACCOUNTS,
+      launchedByProgram: new Set([1]),
+      ...storeActions(),
+    });
+    await waitFor(() => expect(callsFor("get_current_sessions")).toHaveLength(1));
+    expect(screen.queryByTestId("session-time-1")).not.toBeInTheDocument();
+
+    sessions = [current(1, { sinceMs: Date.now() - 5 * MIN })];
+    await act(async () => {
+      emitTauriEvent("session-history-changed", { userIds: [1] });
+    });
+    expect(await screen.findByTestId("session-time-1")).toHaveTextContent("5m");
+    expect(callsFor("get_current_sessions")).toHaveLength(2);
+  });
+
+  it("an account that is not in a game yet has no time and says so", async () => {
+    renderRunning([], {
+      clientHealth: new Map([[1, { pid: 1, logFound: true, drop: null, inGame: false }]]),
+    });
+    const row = within(screen.getByTestId("session-running-1"));
+    expect(await row.findByText("Not in a game yet")).toBeInTheDocument();
+    expect(row.queryByTestId("session-time-1")).not.toBeInTheDocument();
+  });
+
+  it("a dropped account shows why, not Playing nor the time", async () => {
+    renderRunning([], {
+      clientHealth: new Map([
+        [
+          1,
+          {
+            pid: 1,
+            logFound: true,
+            drop: { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 0 },
+            inGame: false,
+          },
+        ],
+      ]),
+    });
+    const row = within(screen.getByTestId("session-running-1"));
+    expect(await row.findByText("Disconnected: lost connection")).toBeInTheDocument();
+    expect(row.queryByText("Playing")).not.toBeInTheDocument();
+    expect(row.queryByText("Not in a game yet")).not.toBeInTheDocument();
+  });
+
+  it("an account being reconnected says so in its row", async () => {
+    renderRunning([], {
+      autoReconnect: [
+        {
+          userId: 1,
+          phase: "launching",
+          attempt: 1,
+          maxAttempts: 5,
+          nextAttemptAtMs: null,
+          reason: null,
+          error: null,
+          drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 0 },
+        },
+      ],
+    });
+    const row = within(screen.getByTestId("session-running-1"));
+    expect(await row.findByText("Reconnecting")).toBeInTheDocument();
   });
 });

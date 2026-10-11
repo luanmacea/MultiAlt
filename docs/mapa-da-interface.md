@@ -156,7 +156,7 @@ Seções numa lista vertical à esquerda. As mais úteis no dia a dia:
 | `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
 | `Backups` | Settings › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
 | `Theme Editor` | toolbar | Cores, estilo de botão e fontes; presets exportáveis. |
-| `Session` | toolbar | Fila de lançamento (cancelar), clientes abertos (focar, fechar) e reconexão automática: padrão `Reconnect accounts that drop` no resumo, chave por conta em cada linha de `In game` e, com linhas marcadas, `Reconnect on` / `Reconnect off` / `Use default`. |
+| `Session` | toolbar | Fila de lançamento (cancelar), clientes abertos (focar, fechar; cada conta com o jogo, servidor público/privado, tempo em jogo e estado — jogando, caiu, reconectando, não responde) e reconexão automática: padrão `Reconnect accounts that drop` no resumo, chave por conta em cada linha de `In game` e, com linhas marcadas, `Reconnect on` / `Reconnect off` / `Use default`. |
 
 ---
 

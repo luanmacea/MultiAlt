@@ -426,6 +426,20 @@ export interface ClientDrop {
 }
 
 /** Saúde de um cliente rastreado (vem junto de `get_running_instances`). */
+/**
+ * O jogo em que a conta está agora e desde quando (`get_current_sessions`,
+ * commands/session_history.rs): a sessão aberta do histórico.
+ */
+export interface CurrentSession {
+  userId: number;
+  placeId: number;
+  jobId: string | null;
+  /** Início da sessão (entrou no jogo, ou teleportou). */
+  sinceMs: number;
+  /** Servidor privado/VIP; `null` = não se sabe (aberta pelo site, teleporte). */
+  privateServer: boolean | null;
+}
+
 export interface ClientHealth {
   pid: number;
   /** O log foi achado: a queda vem dele, e não do título da janela. */

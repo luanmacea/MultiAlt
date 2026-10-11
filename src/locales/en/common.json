@@ -2274,5 +2274,8 @@
   "Reconnect off": "Reconnect off",
   "Reconnect on": "Reconnect on",
   "Reconnects if it drops (set for this account)": "Reconnects if it drops (set for this account)",
-  "Auto-reconnect for 1 selected": "Auto-reconnect for 1 selected"
+  "Auto-reconnect for 1 selected": "Auto-reconnect for 1 selected",
+  "Not in a game yet": "Not in a game yet",
+  "Playing": "Playing",
+  "Public server": "Public server"
 }

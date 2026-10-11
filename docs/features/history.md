@@ -19,6 +19,7 @@ voltar ao servidor de uma sessão recente e o export em CSV. É a ideia 6 de
 | Retrato por cliente (`ClientSessionSnapshot`: place, Job ID, queda, saiu, terminou) e a chamada a cada passada | [commands/client_health.rs](../../src-tauri/src/commands/client_health.rs) (`session_snapshots`, `run_client_health_tick`) |
 | Moderação no launch | [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) `mark_account_moderated` → `record_moderated_history` |
 | Tela (painel da conta) | [AccountHistory.tsx](../../src/components/accounts/AccountHistory.tsx), dentro do [SingleSelectSidebar](../../src/components/accounts/SingleSelectSidebar.tsx) |
+| Sessão de agora na página Session (jogo, servidor, tempo em jogo) | `get_current_sessions` em [commands/session_history.rs](../../src-tauri/src/commands/session_history.rs); [CurrentSessionLine.tsx](../../src/components/session/CurrentSessionLine.tsx) e [useCurrentSessions.ts](../../src/hooks/useCurrentSessions.ts) no [SessionPanel](../../src/components/session/SessionPanel.tsx) |
 | Regras puras da tela: duração, tempo de 14 dias, "Join again", texto do fim, CSV | [utils/sessionHistory.ts](../../src/utils/sessionHistory.ts) |
 
 ## Fluxo
@@ -87,6 +88,37 @@ voltar ao servidor de uma sessão recente e o export em CSV. É a ideia 6 de
 - **Aviso de queda no topo do painel:** a mensagem de kick quebra em até 3 linhas
   (`ClientHealthNote wrap`) em vez de ser cortada numa; o texto inteiro fica no tooltip.
 - Conta sem nada: "Nothing yet. Games this account plays while MultiAlt is open show up here."
+
+## Sessão de agora na página Session
+
+A sessão **aberta** (a que no painel aparece como "Playing now") também aparece em cada linha
+da lista **In game** do Painel de Sessão (página Session e aba Console da Choose Game), numa
+segunda linha embaixo do nome:
+
+- **jogo:** nome resolvido por `useGameIdentity` (o mesmo cache das outras telas); sem nome,
+  "Place <id>". Nome comprido é cortado, com o texto inteiro no tooltip;
+- **servidor:** "Public server" / "Private server" (com cadeado). O `! Joining game` do log não
+  diz se o servidor é privado; quem diz é o launch que o app fez (`remember_launch_target`,
+  campo `private`), e só enquanto a conta continua no place para onde foi mandada
+  (`private_server_of`). Conta aberta pelo site ou teleportada para outro place: o tipo não
+  aparece (não se sabe);
+- **tempo em jogo**, andando sozinho ("45s", "12m", "1h 05m" — `formatDuration`), contado do
+  início da sessão aberta: a entrada no jogo, ou o último teleporte (é quando o histórico abre
+  a sessão nova). Cada linha tem o seu relógio de 1 s; o resto da lista não redesenha.
+
+Na primeira linha, o estado curto: **Playing** (verde), **Reconnecting** (âmbar, com a queda ao
+lado), a queda com motivo ou **Not responding** (`ClientHealthNote`), ou **Not in a game yet**
+(log achado, sem jogo ainda). Caiu: a sessão fecha, e jogo e tempo somem até voltar.
+
+De onde vem: comando `get_current_sessions` (commands/session_history.rs), que lê só a memória do
+observador (`SessionHistoryObserver::current_sessions`: place, Job ID e `since_ms`, gravado no
+`joined`/`teleported`). A tela ([useCurrentSessions.ts](../../src/hooks/useCurrentSessions.ts),
+[CurrentSessionLine.tsx](../../src/components/session/CurrentSessionLine.tsx)) lê ao montar,
+quando muda quem está rodando e a cada `session-history-changed` — **sem polling novo**. Só
+Windows. Testes: `the_current_session_says_where_and_since_when`,
+`the_server_kind_comes_from_where_the_app_sent_the_account` e "SessionPanel — sessão atual" em
+[SessionPanel.test.tsx](../../src/components/session/SessionPanel.test.tsx). Harness:
+`?scenario=client-drops&accounts=9`, página Session.
 
 ## Regras de negócio
 

@@ -2274,5 +2274,8 @@
   "Reconnect off": "Desactivar reconexión",
   "Reconnect on": "Activar reconexión",
   "Reconnects if it drops (set for this account)": "Se reconecta si se cae (elegido para esta cuenta)",
-  "Auto-reconnect for 1 selected": "Reconexión automática de la 1 marcada"
+  "Auto-reconnect for 1 selected": "Reconexión automática de la 1 marcada",
+  "Not in a game yet": "Aún fuera de un juego",
+  "Playing": "Jugando",
+  "Public server": "Servidor público"
 }

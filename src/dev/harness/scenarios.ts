@@ -2059,6 +2059,13 @@ const SCENARIOS: Record<string, () => void> = {
    * ligado, a 2ª conta desligou a sua (campo `AutoReconnect`), e a 3ª tem o
    * AutoRelaunch do Nexus (`get_nexus_accounts`). `update_account` guarda em
    * memória o que a chave e o lote gravam.
+   *
+   * Sessão de agora de cada linha do "Em jogo" (`get_current_sessions`): jogo,
+   * servidor público/privado (a 4ª, do site, sem tipo) e tempo em jogo. Quem
+   * cai perde a sessão, e a 1ª ganha uma nova ao voltar (com
+   * `session-history-changed`, como o backend). Com `&accounts=9`, três contas
+   * a mais jogam sem cair — uma num jogo de nome comprido, outra num place sem
+   * nome conhecido.
    */
   "client-drops"() {
     // Reconexão: padrão ligado; a 2ª conta desligou a sua (escolha própria).
@@ -2077,6 +2084,38 @@ const SCENARIOS: Record<string, () => void> = {
       adopted: i === 3,
       drop: null as Drop | null,
     }));
+    // Com `&accounts=9` (ou mais), da 7ª à 9ª conta jogam sem cair: é onde se
+    // vê a sessão de agora inteira (jogo, servidor, tempo em jogo). A 6ª fica
+    // de fora (o cliente fechou e a reconexão desistiu, abaixo).
+    accounts.slice(6, 9).forEach((a, i) => {
+      rows.push({ userId: a.UserID, pid: 8300 + i, adopted: false, drop: null });
+    });
+    // Sessão de agora (`get_current_sessions`): onde e desde quando, como o
+    // observador do histórico guarda. Nome comprido para ver o corte; um place
+    // sem nome conhecido para ver o Place ID no lugar.
+    const LONG_NAME_PLACE = 4924922222;
+    const LONG_NAME = "[UPDATE 12] Brookhaven Super Mega Tycoon Simulator: Build Your Empire Edition";
+    const started = Date.now();
+    const sessionOf = new Map<number, { placeId: number; jobId: string; sinceMs: number; privateServer: boolean | null }>();
+    const playing = (index: number, placeId: number, minutesAgo: number, privateServer: boolean | null) => {
+      const row = rows[index];
+      if (row) {
+        sessionOf.set(row.userId, {
+          placeId,
+          jobId: `job-${row.userId}`,
+          sinceMs: started - minutesAgo * 60_000,
+          privateServer,
+        });
+      }
+    };
+    playing(0, 606849621, 47, false);
+    playing(1, 6516141723, 130, true);
+    playing(2, 606849621, 8, false);
+    playing(3, 15101393044, 20, null);
+    playing(4, 6516141723, 3, false);
+    playing(5, LONG_NAME_PLACE, 65, true);
+    playing(6, 606849621, 12, false);
+    playing(7, 1234567890, 0.5, false);
     const drops: [number, Omit<Drop, "sinceMs">][] = [
       [0, { kind: "disconnected", reason: "connectionLost", code: 277, message: null }],
       [1, { kind: "kicked", reason: null, code: 267, message: "You have been kicked for being AFK too long" }],
@@ -2089,12 +2128,23 @@ const SCENARIOS: Record<string, () => void> = {
       setTimeout(() => {
         row.drop = { ...drop, sinceMs: Date.now() };
         harnessEmit("roblox-client-health", { userId: row.userId, drop: row.drop, adopted: row.adopted });
+        // A queda fecha a sessão no histórico (evento `dropped`).
+        sessionOf.delete(row.userId);
+        harnessEmit("session-history-changed", { userIds: [row.userId] });
       }, 1200 * (order + 1));
     });
     setTimeout(() => {
       if (!rows[0]) return;
       rows[0].drop = null;
       harnessEmit("roblox-client-health", { userId: rows[0].userId, drop: null });
+      // Voltou: sessão nova, contando de agora.
+      sessionOf.set(rows[0].userId, {
+        placeId: 606849621,
+        jobId: "job-back",
+        sinceMs: Date.now(),
+        privateServer: false,
+      });
+      harnessEmit("session-history-changed", { userIds: [rows[0].userId] });
     }, 15_000);
     // A 5ª trava: a janela fica "Não respondendo" (o backend só avisa depois
     // de 30 s; aqui chega em 6 s para não esperar).
@@ -2202,6 +2252,14 @@ const SCENARIOS: Record<string, () => void> = {
         }));
       }
       if (cmd === "get_auto_reconnect_status") return { entries: reconnect };
+      if (cmd === "get_current_sessions") {
+        return [...sessionOf.entries()]
+          .map(([userId, s]) => ({ userId, ...s }))
+          .sort((a, b) => a.userId - b.userId);
+      }
+      if (cmd === "batched_get_game_info" && Number(args?.placeId) === LONG_NAME_PLACE) {
+        return { placeId: LONG_NAME_PLACE, universeId: 1, name: LONG_NAME, iconUrl: null };
+      }
       // A chave de reconexão por conta (Sessão → Em jogo) grava a conta inteira.
       if (cmd === "update_account") {
         const next = args?.account as (typeof accounts)[number] | undefined;
