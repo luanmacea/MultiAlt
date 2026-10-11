@@ -196,3 +196,41 @@ describe("AfkModeDialog", () => {
     expect(screen.getByPlaceholderText("Place ID")).toHaveValue("606849621");
   });
 });
+
+/**
+ * Parada de emergência por chacoalhar (`Afk.ShakeToStop`, commands/shake_stop.rs)
+ * na aba Recordings: o aviso mora no view (a aba é de outra frente de trabalho).
+ */
+describe("AfkModeView — parada de emergência nas gravações", () => {
+  it("na aba Recordings, diz que a gravação parou porque o mouse foi chacoalhado", async () => {
+    const store = base({
+      afkEmergencyStop: { reason: "shake", afk: false, recordings: true, atMs: 1 },
+    });
+    render(<AfkModeView variant="page" initialTab="recordings" />);
+    const notice = screen.getByTestId("afk-shake-notice");
+    expect(notice).toHaveTextContent("Emergency stop: you shook the mouse.");
+    await userEvent.click(within(notice).getByRole("button", { name: "Dismiss" }));
+    expect(store.dismissAfkEmergencyStop).toHaveBeenCalled();
+  });
+
+  it("com a opção ligada e uma gravação tocando, lembra que chacoalhar para", async () => {
+    const settings = defaultSettings();
+    settings.Afk = { ...(settings.Afk ?? {}), ShakeToStop: "true" };
+    base({ settings });
+    setInvokeHandler((cmd) =>
+      cmd === "get_recording_playback" ? { active: true } : cmd === "get_all_settings" ? {} : undefined
+    );
+    render(<AfkModeView variant="page" initialTab="recordings" />);
+    expect(await screen.findByText("Shake the mouse to stop.")).toBeInTheDocument();
+  });
+
+  it("com a opção desligada, não promete nada", async () => {
+    base();
+    setInvokeHandler((cmd) =>
+      cmd === "get_recording_playback" ? { active: true } : cmd === "get_all_settings" ? {} : undefined
+    );
+    render(<AfkModeView variant="page" initialTab="recordings" />);
+    await screen.findByRole("tab", { name: /Recordings/ });
+    expect(screen.queryByText("Shake the mouse to stop.")).not.toBeInTheDocument();
+  });
+});

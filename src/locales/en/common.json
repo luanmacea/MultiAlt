@@ -1923,7 +1923,7 @@
   "Click Add to bring in a new account. Browser Login is the easiest way.": "Click Add to bring in a new account. Browser Login is the easiest way.",
   "Click an account to select it. Hold Ctrl and click to pick more than one.": "Click an account to select it. Hold Ctrl and click to pick more than one.",
   "Click Save to keep it. Leave without saving and the old look comes back.": "Click Save to keep it. Leave without saving and the old look comes back.",
-  "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game.": "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game.",
+  "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game. To stop by shaking the mouse, turn it on in Settings.": "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game. To stop by shaking the mouse, turn it on in Settings.",
   "Close tutorial": "Close tutorial",
   "Colors and fonts": "Colors and fonts",
   "Each row is one Roblox account. The colored dot shows if it is online or in a game.": "Each row is one Roblox account. The colored dot shows if it is online or in a game.",
@@ -2551,5 +2551,9 @@
   "On top, pick the recording each account plays after a reconnect and on each AFK turn, and when they play.": "On top, pick the recording each account plays after a reconnect and on each AFK turn, and when they play.",
   "Recordings: who plays what": "Recordings: who plays what",
   "Recordings: your library": "Recordings: your library",
-  "Three ways to stay in game": "Three ways to stay in game"
+  "Three ways to stay in game": "Three ways to stay in game",
+  "Emergency stop: you shook the mouse.": "Emergency stop: you shook the mouse.",
+  "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.": "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.",
+  "Shake the mouse to stop.": "Shake the mouse to stop.",
+  "Stop AFK and recordings when I shake the mouse": "Stop AFK and recordings when I shake the mouse"
 }

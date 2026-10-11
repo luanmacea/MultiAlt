@@ -264,6 +264,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     captureAfkPoint: vi.fn(async () => ({ userId: 0, xPct: 50, yPct: 50 })),
     afkStatus: null,
     afkKeys: [],
+    afkEmergencyStop: null,
+    dismissAfkEmergencyStop: vi.fn(),
     startGenerator: vi.fn(async () => makeGeneratorStatus()),
     stopGenerator: vi.fn(async () => {}),
     refreshGeneratorStatus: vi.fn(async () => {}),

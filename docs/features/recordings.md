@@ -365,6 +365,14 @@ Console (`step: "recording"`): "Tocando a gravação …", "Gravação … tocad
   árvore do Modo AFK, e o `afk_input_safety_tests` continua varrendo tudo: as
   portas novas moram no `input.rs`, o único que chama `SendInput`.
 - **Nada aqui fecha, mata ou minimiza cliente.** Parar só para de mandar.
+- **Chacoalhar o mouse para a gravação** quando `Afk.ShakeToStop` está ligado
+  (desligado por padrão): 4 viradas horizontais de pelo menos 80 px em 1 s. O
+  vigia lê só a posição do cursor, ignora o movimento do próprio clique da
+  gravação e liga a mesma bandeira do Parar (`RECORDING_PLAYBACK_STOP`, ou a
+  da sessão no Modo AFK); as teclas apertadas são soltas como em qualquer
+  parada. A aba mostra "Shake the mouse to stop." enquanto toca e, depois,
+  "Emergency stop: you shook the mouse." — ver
+  [afk-mode.md](afk-mode.md#parada-de-emergência-chacoalhar-o-mouse).
 - Só cliente aberto pelo app (tracker) recebe. PID reaproveitado não recebe (a
   mesma conferência do ciclo do AFK).
 - A gravação toca inteira numa janela antes da próxima: o foco fica fora da
@@ -424,6 +432,9 @@ janela), xmacro (GPL; texto com `Delay`), rdev e enigo (MIT, Rust), monio
 
 Suíte `recordings` (`bun run t recordings`):
 
+- `shake_stop_tests` — a parada de emergência por chacoalhar (regra, cliques
+  da própria gravação nunca disparando, bandeira da reprodução ligada); ver
+  [afk-mode.md](afk-mode.md#testes).
 - `recordings_store_tests` — id novo, JSON camelCase com `type`, JSON documentado
   acima (com `null` = nenhuma), substituir mantendo a criação, duplicar, apagar
   limpando as escolhas nas duas vagas (o "None" fica), as duas vagas mudando

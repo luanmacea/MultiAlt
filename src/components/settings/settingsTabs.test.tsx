@@ -599,6 +599,22 @@ describe("GeneralTab", () => {
       await expectSaved("General", "KeepPcAwake", "false");
     });
 
+    /** commands/shake_stop.rs: parada de emergência por chacoalhar o mouse, desligada por padrão (escolha do dono). */
+    it("has the shake-to-stop emergency stop off by default, and turning it on saves true", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Stop AFK and recordings when I shake the mouse")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(
+        screen.getByText(
+          "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read."
+        )
+      ).toBeInTheDocument();
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("Afk", "ShakeToStop", "true");
+    });
+
     /** Ideia 3: experimental, nasce desligado e só vale com o Multi Roblox. */
     it("has the experimental teleport protection off and locked until Multi Roblox is on", async () => {
       renderGeneral();

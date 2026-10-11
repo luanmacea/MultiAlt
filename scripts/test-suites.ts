@@ -181,6 +181,8 @@ export const SUITES: Record<string, TestSuite> = {
       "afk_input_safety_tests",
       "win_input_tests",
       "win_focus_tests",
+      // Parada de emergência por chacoalhar o mouse (shake_stop.rs, Afk.ShakeToStop).
+      "shake_stop_tests",
       // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs, power.rs).
       "keep_awake_tests",
       "win_power_tests",
@@ -208,6 +210,8 @@ export const SUITES: Record<string, TestSuite> = {
       "win_input_tests",
       // A reprodução mora na árvore do Modo AFK: a trava continua valendo.
       "afk_input_safety_tests",
+      // Chacoalhar o mouse também para a gravação tocando (shake_stop.rs).
+      "shake_stop_tests",
     ],
     front: [
       "src/components/afk-mode/RecordingsTab.test.tsx",

@@ -474,6 +474,9 @@ async fn run_recording_playback(
 ) -> Vec<(i64, Option<AfkSendError>)> {
     RECORDING_PLAYBACKS.fetch_add(1, Ordering::SeqCst);
     let _ = app.emit("recording-playback", current_recording_playback());
+    // Chacoalhar o mouse para a reprodução (`Afk.ShakeToStop`, desligada por
+    // padrão): commands/shake_stop.rs.
+    ensure_shake_watch(app);
     let result = {
         let _guard = AFK_CYCLE_LOCK.lock().await;
         // A vez chegou: um "parar" de antes não vale para esta.

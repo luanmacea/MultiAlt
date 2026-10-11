@@ -1095,3 +1095,38 @@ describe("ClicksTab — segue o INI mudado pela aba Recordings", () => {
     expect(screen.getByLabelText("Send every: seconds")).toHaveValue("30");
   });
 });
+
+/**
+ * Parada de emergência por chacoalhar o mouse (`Afk.ShakeToStop`, desligada por
+ * padrão — commands/shake_stop.rs). Com o ciclo levando o cursor, o usuário não
+ * alcança o Parar: a barra diz que chacoalhar para, e depois diz que parou.
+ */
+describe("ClicksTab — parada de emergência por chacoalhar", () => {
+  function running() {
+    return makeAfkStatus({
+      active: true,
+      startedAtMs: Date.now(),
+      key: "Space",
+      accounts: [makeAfkAccount()],
+    });
+  }
+
+  it("com a opção ligada, lembra perto do Parar que chacoalhar o mouse para", () => {
+    const settings = defaultSettings();
+    settings.Afk = { ...(settings.Afk ?? {}), ShakeToStop: "true" };
+    renderDialog({ settings, afkStatus: running() });
+    expect(screen.getByTestId("clicks-status")).toHaveTextContent("Shake the mouse to stop.");
+  });
+
+  it("com a opção desligada (o padrão), não promete nada", () => {
+    renderDialog({ afkStatus: running() });
+    expect(screen.queryByText("Shake the mouse to stop.")).not.toBeInTheDocument();
+  });
+
+  it("depois do chacoalhar, a barra diz por que o modo parou", () => {
+    renderDialog({
+      afkEmergencyStop: { reason: "shake", afk: true, recordings: false, atMs: Date.now() },
+    });
+    expect(screen.getByTestId("clicks-status")).toHaveTextContent("Emergency stop: you shook the mouse.");
+  });
+});
