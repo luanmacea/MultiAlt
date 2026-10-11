@@ -454,13 +454,13 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         description="Enable account cycling tools to keep selected alts rejoining automatically"
       />
       {/* commands/reconnect.rs: padrão de todas as contas; o campo
-          `AutoReconnect` da conta (painel da conta) vence. */}
+          `AutoReconnect` da conta (lista "Em jogo" da página Session) vence. */}
       {isWindows && (
         <Toggle
           checked={s.getBool("General", "AutoReconnect")}
           onChange={(v) => s.setBool("General", "AutoReconnect", v)}
           label="Reconnect accounts that drop"
-          description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its panel."
+          description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in the In game list of the Session page."
         />
       )}
       {/* commands/keep_awake.rs: SetThreadExecutionState só com o sistema
