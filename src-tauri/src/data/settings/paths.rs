@@ -25,6 +25,8 @@ pub const DATA_FILES: &[&str] = &[
     "RAMGameLists.json",
     // Presets de launch (contas → jogo/servidor) e os horários deles.
     "RAMLaunchPresets.json",
+    // Gravações (sequências de teclas, cliques e esperas) e qual vale para quem.
+    "RAMRecordings.json",
     // Histórico de sessões por conta (uma linha JSON por evento, 90 dias).
     "RAMSessionHistory.jsonl",
     "AccountControlData.json",
@@ -181,6 +183,11 @@ pub fn get_game_lists_path() -> PathBuf {
 /// Presets de launch (`data/launch_presets.rs`).
 pub fn get_launch_presets_path() -> PathBuf {
     get_runtime_data_dir().join("RAMLaunchPresets.json")
+}
+
+/// Gravações (`data/recordings.rs`).
+pub fn get_recordings_path() -> PathBuf {
+    get_runtime_data_dir().join(crate::data::recordings::RECORDINGS_FILE_NAME)
 }
 
 /// Histórico de sessões (`data/session_history.rs`).
