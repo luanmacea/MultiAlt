@@ -9,9 +9,17 @@ async fn handle_connection(
         stream,
         |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
          res: tokio_tungstenite::tungstenite::handshake::server::Response| {
-            // Web pages can open ws://127.0.0.1 too; browsers always send an
-            // Origin header, Roblox executors connecting from Lua don't.
-            if req.headers().contains_key("origin") {
+            // Web pages can open ws://127.0.0.1 too, so a web page's Origin is
+            // refused. Executors may or may not send an Origin (Potassium does,
+            // issue #25): anything that isn't a web page gets in.
+            let origin = req.headers().get("origin").and_then(|v| v.to_str().ok());
+            if !nexus_origin_allowed(origin) {
+                let refused = origin.unwrap_or_default().to_string();
+                eprintln!("Nexus refused a connection from a web page (Origin: {})", refused);
+                let _ = app.emit(
+                    "nexus-log",
+                    serde_json::json!({ "message": format!("Refused a connection from a web page (Origin: {})", refused) }),
+                );
                 let reject = tokio_tungstenite::tungstenite::http::Response::builder()
                     .status(403)
                     .body(Some("Connections from web pages are not allowed".to_string()))
@@ -211,9 +219,62 @@ fn parse_query_params(uri: &str) -> HashMap<String, String> {
     params
 }
 
+/// Quem pode abrir o WebSocket do Nexus, pelo cabeçalho `Origin`.
+///
+/// Página web (`http://`/`https://` de outro host) fica de fora: um site aberto
+/// no navegador consegue abrir `ws://127.0.0.1`. Sem `Origin`, `null`, um
+/// esquema que não é web ou o próprio PC (`localhost`, `127.0.0.1`, `[::1]`)
+/// passam — é o que os executores mandam. O Roblox Account Manager original
+/// não olha o `Origin`; recusar todo `Origin` deixava o Potassium de fora
+/// (issue #25).
+fn nexus_origin_allowed(origin: Option<&str>) -> bool {
+    let Some(origin) = origin.map(str::trim).filter(|o| !o.is_empty()) else {
+        return true;
+    };
+    let lower = origin.to_ascii_lowercase();
+    let rest = if let Some(r) = lower.strip_prefix("https://") {
+        r
+    } else if let Some(r) = lower.strip_prefix("http://") {
+        r
+    } else {
+        return true;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = if let Some(stripped) = authority.strip_prefix('[') {
+        stripped.split(']').next().unwrap_or("")
+    } else {
+        authority.split(':').next().unwrap_or("")
+    };
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
+}
+
 #[cfg(test)]
 mod nexus_query_tests {
     use super::*;
+
+    /// Issue #25 (11/10/2026): o Nexus.lua não conectava no Potassium e
+    /// conectava no Roblox Account Manager original. A trava recusava qualquer
+    /// `Origin`; o original não olha o `Origin`. Página web continua de fora;
+    /// o que não é página web passa.
+    #[test]
+    fn executors_get_in_with_or_without_an_origin() {
+        assert!(nexus_origin_allowed(None));
+        assert!(nexus_origin_allowed(Some("")));
+        assert!(nexus_origin_allowed(Some("null")));
+        assert!(nexus_origin_allowed(Some("roblox-player")));
+        assert!(nexus_origin_allowed(Some("http://localhost")));
+        assert!(nexus_origin_allowed(Some("http://127.0.0.1:5242")));
+        assert!(nexus_origin_allowed(Some("https://[::1]:8080")));
+    }
+
+    #[test]
+    fn a_web_page_is_still_refused() {
+        assert!(!nexus_origin_allowed(Some("https://evil.example")));
+        assert!(!nexus_origin_allowed(Some("http://example.com:5242")));
+        assert!(!nexus_origin_allowed(Some("HTTPS://Attacker.test")));
+        // Não se engana com "localhost" dentro de outro domínio.
+        assert!(!nexus_origin_allowed(Some("https://localhost.evil.example")));
+    }
 
     #[test]
     fn parse_query_params_reads_simple_pairs() {
