@@ -220,15 +220,26 @@ describe("App — error banner, toasts and the generic modal", () => {
       ],
     });
 
-    expect(screen.getByText(/Choose Game/)).toBeInTheDocument();
+    // O log mora na página Console da barra lateral (era a aba da Choose Game).
+    expect(screen.getByText(/Console page/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Open launch log" }));
-    expect(store.setChooseGameOpen).toHaveBeenCalledWith(true);
+    expect(store.setActivePage).toHaveBeenCalledWith("console");
+    expect(store.setChooseGameOpen).not.toHaveBeenCalled();
+  });
+
+  it("does not offer the launch log while the Console page is already open", () => {
+    renderApp({
+      error: "Launch failed",
+      activePage: "console",
+      launchLogs: [{ id: 1, userId: 1, level: "error", step: "launch", message: "boom", ts: Date.now() }],
+    });
+    expect(screen.queryByRole("button", { name: "Open launch log" })).not.toBeInTheDocument();
   });
 
   it("offers no launch log when nothing was logged", () => {
     renderApp({ error: "Launch failed", launchLogs: [] });
     expect(screen.queryByRole("button", { name: "Open launch log" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Choose Game/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Console page/)).not.toBeInTheDocument();
   });
 
   it("stacks the toasts", () => {

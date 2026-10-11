@@ -60,8 +60,8 @@ function AppContent() {
   const hasCheckedForUpdatesRef = useRef(false);
   const showCloseRobloxAction = isMultiRobloxCloseProcessError(store.error);
   // O log de lançamento é a única explicação passo a passo do que falhou, e ele
-  // mora na aba Console da Choose Game. Só vale apontar para lá quando existe
-  // log: fora do launch, a faixa mandaria o usuário para uma tela vazia.
+  // mora na página Console. Só vale apontar para lá quando existe log: fora do
+  // launch, a faixa mandaria o usuário para uma tela vazia.
   const hasLaunchLog = store.launchLogs.length > 0;
   // Páginas (Settings, Theme, Scripts...) não entram aqui: não cobrem a janela,
   // então os botões da barra de título continuam onde estão.
@@ -192,15 +192,12 @@ function AppContent() {
                     {t("Close Roblox")}
                   </button>
                 )}
-                {/* O detalhe do que falhou no launch só existe no log, em outra
-                    tela. Enquanto houver log, a faixa diz onde ele está e abre a
-                    Choose Game — a aba Console é escolhida lá dentro. */}
-                {hasLaunchLog && !(onAccounts && store.chooseGameOpen) && (
+                {/* O detalhe do que falhou no launch só existe no log, na página
+                    Console. Enquanto houver log, a faixa diz onde ele está e leva
+                    até lá (some com a página já aberta). */}
+                {hasLaunchLog && page !== "console" && (
                   <button
-                    onClick={() => {
-                      store.setActivePage("accounts");
-                      store.setChooseGameOpen(true);
-                    }}
+                    onClick={() => store.setActivePage("console")}
                     className="px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-colors"
                   >
                     {t("Open launch log")}
@@ -227,7 +224,7 @@ function AppContent() {
               </div>
               {hasLaunchLog && (
                 <p className="basis-full text-xs text-red-400/70">
-                  {t("Step-by-step details of the last launch are in Choose Game › Console.")}
+                  {t("Step-by-step details of the last launch are on the Console page.")}
                 </p>
               )}
             </div>

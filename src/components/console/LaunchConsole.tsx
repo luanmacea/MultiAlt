@@ -47,7 +47,7 @@ export function LaunchConsole({ className = "" }: { className?: string }) {
   }
 
   return (
-    <div className={`flex flex-col min-h-0 ${className}`} data-testid="launch-console">
+    <div className={`flex flex-col min-h-0 ${className}`} data-testid="launch-console" data-tour="console-log">
       <div className="shrink-0 flex items-center justify-between px-1 pb-2">
         <span className="text-[12px] theme-muted">
           {logs.length === 0 ? t("No activity yet") : t("{{count}} log lines", { count: logs.length })}

@@ -483,6 +483,8 @@ describe("ChooseGameScreen — Recent tab", () => {
         expect.objectContaining({ placeId: "606849621" })
       )
     );
+    // A fila de quem está entrando mora na página Session (era a aba Console).
+    expect(store.setActivePage).toHaveBeenCalledWith("session");
   });
 });
 
@@ -990,82 +992,27 @@ describe("ChooseGameScreen — descoberta", () => {
     expect(screen.getByPlaceholderText(/ExperienceInvite/)).toBeInTheDocument();
   });
 
-  /** A grade de janelas espremia o log do Console em 35 px. */
-  it("tira a grade de janelas da aba Console", async () => {
-    renderScreen();
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-    expect(screen.queryByText("Window grid")).not.toBeInTheDocument();
-    expect(screen.getByText("No activity yet")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    expect(await screen.findByText("Window grid")).toBeInTheDocument();
-  });
-
   /**
-   * Medido no cenário `launch-queue`: o Painel de Sessão (340px com as duas
-   * listas) sem teto encolhia o log de lançamento a 26px, dos quais 24 eram
-   * padding. O teto no painel (45%) e o piso no log (160px) garantem os dois
-   * um mínimo de espaço, mesmo com o painel cheio.
+   * Console e Windows viraram a página Console da barra lateral (pedido do
+   * dono, 11/10/2026): a Choose Game fica só com as formas de escolher o jogo.
    */
-  it("dá teto ao Painel de Sessão e piso ao log, na aba Console", async () => {
+  it("keeps only the ways to pick a game in its tabs", () => {
     renderScreen();
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-
-    const sessionPanel = screen.getByTestId("session-panel");
-    const panelWrapper = sessionPanel.parentElement as HTMLElement;
-    expect(panelWrapper.className).toMatch(/max-h-\[45%\]/);
-    expect(panelWrapper.className).toMatch(/overflow-y-auto/);
-
-    const log = screen
-      .getByText("Launch a game or start Auto Rejoin to see the activity here")
-      .closest(".font-mono") as HTMLElement;
-    expect(log.className).toMatch(/min-h-\[160px\]/);
-    expect(log.className).not.toMatch(/min-h-0/);
-  });
-});
-
-/**
- * O console era só do launch: ação do Auto Rejoin não aparecia em lugar
- * nenhum, e o Watcher fechava cliente deixando só um toast de 2,5 s. Agora ele
- * é o histórico geral, e cada linha diz de onde veio.
- */
-describe("ChooseGameScreen — console como histórico geral", () => {
-  function renderConsole() {
-    const store = setStore({
-      accounts: [ACCOUNT_A],
-      selectedIds: new Set([1001]),
-      selectedAccounts: [ACCOUNT_A],
-      launchLogs: [
-        { id: 1, userId: 1001, level: "success", step: "rejoin", message: "Entrou no jogo pelo ciclo do Auto Rejoin", ts: Date.now() },
-        { id: 2, userId: 1001, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s", ts: Date.now() },
-        { id: 3, userId: null, level: "info", step: "rejoin", message: "Auto Rejoin parado", ts: Date.now() },
-      ],
-    });
-    render(<ChooseGameScreen />);
-    return store;
-  }
-
-  it("mostra linha de Botting e de Watcher, com a origem de cada uma", async () => {
-    renderConsole();
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-
-    expect(screen.getByText("Entrou no jogo pelo ciclo do Auto Rejoin")).toBeInTheDocument();
-    expect(screen.getByText(/sem conexao por 30s/)).toBeInTheDocument();
-    const origens = screen.getAllByTestId("log-step").map((el) => el.textContent);
-    expect(origens).toEqual(["[rejoin]", "[watcher]", "[rejoin]"]);
+    const tabs = within(document.querySelector("[data-tour='cg-tabs']") as HTMLElement)
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(tabs).toEqual(["Favorites", "Games", "Recent", "Servers", "Friends", "Follow"]);
+    expect(screen.queryByTestId("session-panel")).not.toBeInTheDocument();
   });
 
-  it("linha de sessão não finge pertencer a uma conta", async () => {
-    renderConsole();
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-
-    // `userId: null` desenha "—": passar 0 imprimiria "0" no lugar do nome.
-    const linha = screen.getByText("Auto Rejoin parado").closest("div") as HTMLElement;
-    expect(linha.textContent).toContain("—");
+  it("the resolved join link leads to the Session page", async () => {
+    setInvokeHandler((cmd) => (cmd === "resolve_join_link" ? joinTarget({ kind: "place" }) : undefined));
+    const store = renderScreen();
+    await userEvent.click(screen.getByRole("button", { name: "Follow" }));
+    await userEvent.type(screen.getByPlaceholderText(/ExperienceInvite/), "https://www.roblox.com/games/606849621");
+    await userEvent.click(screen.getByRole("button", { name: "Join" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Session" }));
+    expect(store.setActivePage).toHaveBeenCalledWith("session");
   });
 });
 

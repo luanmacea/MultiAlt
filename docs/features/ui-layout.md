@@ -81,7 +81,7 @@ Pedido do dono (03/10/2026): "o app tem muita coisa agora; tutoriais opcionais e
 
 - **Onde fica o botão:** no cabeçalho de cada página (`PageShell` com `tour="..."`, antes das ações), na Toolbar da lista de contas (some com a Choose Game aberta — aí vale o da Choose Game) e no cabeçalho da Choose Game. Nexus não tem.
 - **Nunca abre sozinho.** O único sinal é um pontinho na cor de destaque no botão enquanto a pessoa nunca abriu o tutorial daquela tela. "Já visto" fica em `localStorage` (`ram_tours_seen`, com `try/catch`): storage bloqueado só faz o pontinho voltar na próxima abertura.
-- **Tutoriais** ([tours.ts](../../src/components/tour/tours.ts), dados puros): Accounts (lista, selecionar, Add, painel da conta, Choose Game, nomes ocultos), Choose Game (contas, abas, Games, Servers, Friends, Windows), Session (Entrando, Em jogo, AFK Mode/Fechar contas, cliente não identificado, resumo), AFK Mode (cliques: configurações, contas, ligar/parar; Auto Rejoin: onde, quem/iniciar), Avatars (montar, peças, prévia, salvar, distribuir, aplicar), Groups (achar, escolher o grupo, contas, entrar), Scripts, Theme, Settings (seções, salvamento automático, Backups), What's new. 3 a 6 passos cada.
+- **Tutoriais** ([tours.ts](../../src/components/tour/tours.ts), dados puros): Accounts (lista, selecionar, Add, painel da conta, Choose Game, nomes ocultos), Choose Game (contas, abas, Games, Servers, Friends), Console (grade de janelas, log), Session (Entrando, Em jogo, AFK Mode/Fechar contas, cliente não identificado, resumo), AFK Mode (cliques: configurações, contas, ligar/parar; Auto Rejoin: onde, quem/iniciar), Avatars (montar, peças, prévia, salvar, distribuir, aplicar), Groups (achar, escolher o grupo, contas, entrar), Scripts, Theme, Settings (seções, salvamento automático, Backups), What's new. 3 a 6 passos cada.
 - **Motor** ([ScreenTour.tsx](../../src/components/tour/ScreenTour.tsx)): Voltar/Avançar, "Passo N de M", X e Escape fecham (o tutorial está no topo da pilha de Escape: o primeiro Escape fecha o tutorial, não a página), setas do teclado andam. O painel fica colado no que aponta (embaixo, em cima, ao lado; alvo grande demais recebe o painel por dentro, no canto) e nunca sai da janela ([placement.ts](../../src/components/tour/placement.ts)). O alvo que está rolado para fora da vista é trazido para a tela.
 - **Alvo que falta não quebra:** cada passo lista seletores `data-tour` em ordem de preferência; nenhum na tela → o passo aparece no centro, sem destaque, com "Esta parte não está na tela agora". A pessoa saiu da tela (barra lateral, Voltar) → o tutorial fecha. O tour de boas-vindas (Ajuda) abrindo → o tutorial de tela fecha.
 - **Só olha, não mexe:** o único clique que um passo dá é o `reveal` — abrir a aba ou seção que ele explica (abas da Choose Game, do AFK Mode e do Avatars; a seção Backups). Nenhum passo lança, salva, apaga, seleciona conta ou liga modo. Os testes de cada tela (`walkTour`, [tourHelpers.tsx](../../src/test-utils/tourHelpers.tsx)) andam pelo tutorial inteiro conferindo que cada alvo está na tela e que nenhum comando que muda dado passou pelo `invoke`.
@@ -114,7 +114,7 @@ O botão da toolbar existe para gravar ou compartilhar a tela sem expor as conta
 - **Foto:** some junto com o nome (`hideAccountAvatar`: `hideUsernames && !showAvatarsWhenHidden`). A letra do círculo sem foto (`accountInitial`) só aparece se a prévia já a mostraria.
 - Campo que nasce com o nome da conta (alias na sidebar, "Set Alias" do menu, username do Outfits) fica em bolinhas (`masked-input`).
 - **Só o que aparece é mascarado.** O que vai para o backend (`add_account`, `set_avatar`...) e o que é copiado para a área de transferência continua com o nome real.
-- **Não mascara:** nomes de terceiros (amigos, jogador procurado no Server List — ver [friends.md](friends.md)); o stream de log do backend no Console da Choose Game (o nome da conta na coluna é mascarado, mas o texto da linha vem pronto do backend); o painel de criação de contas, que mostra usuário **e senha** da conta que está sendo cadastrada; os dados entregues aos scripts do usuário.
+- **Não mascara:** nomes de terceiros (amigos, jogador procurado no Server List — ver [friends.md](friends.md)); o stream de log do backend na página Console (o nome da conta na coluna é mascarado, mas o texto da linha vem pronto do backend); o painel de criação de contas, que mostra usuário **e senha** da conta que está sendo cadastrada; os dados entregues aos scripts do usuário.
 - Teste: suíte `hidden-names` (`bun run t hidden-names`) — cada tela tem um caso "com nomes ocultos o nome real não está no documento".
 
 ### Lista de contas
@@ -159,10 +159,10 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 | Games | busca de jogos; clicar lança todas as selecionadas. |
 | Recent | jogos recentes. |
 | Follow | Campo de join link ([join-links.md](join-links.md)) e o card "Follow a Player": `lookup_user` + `get_presence` resolvem o servidor do alvo **uma vez** e `launchAll` manda todas as contas selecionadas para lá (`launch_multiple` com várias contas, com o piso anti-captcha). Alvo fora de jogo (`presence < 2`) vira toast e nada é lançado; em jogo mas com o servidor escondido pela privacidade, pede confirmação para cair num servidor público do mesmo jogo. (Isto já foi um laço de `launch_roblox` com `followUser: true` e 3 s entre contas, que furava o piso de 8 s.) Atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
-| Console | **histórico geral das ações** (evento `launch-log`, auto-scroll, limpar): launch, Auto Rejoin e Watcher, cada linha com a origem (`step`) numa coluna de largura fixa — sem ela, `[watcher]` e `[rejoin-retry]` empurram o nome da conta para colunas diferentes. Linha de sessão (início/fim do Auto Rejoin) vem com `userId` nulo e aparece como `—`. O Painel de Sessão fica acima do log. |
-| Windows | controles de grade: `list_display_monitors` e `arrange_windows_grid(monitorIndices, gap)` — organiza nos monitores as janelas do Roblox que já estão abertas — e o interruptor **Arrange in grid on launch** (`General.AutoArrangeGrid`). Ver [Grade de janelas](#grade-de-janelas). |
 
-`launchAll` (hook `useLauncher`): confirma contas online, muda para a aba Console, grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
+**Console e Windows saíram da Choose Game em 11/10/2026** (pedido do dono): viraram a página **Console** da barra lateral — o log e, no topo, o cartão da grade de janelas (ver [Barra lateral e páginas](#barra-lateral-e-páginas)). As listas da sessão moram só na página **Session**. A Choose Game ficou só com as formas de escolher o jogo.
+
+`launchAll` (hook `useLauncher`): confirma contas online, leva para a página **Session** (onde está a fila de quem está entrando; era a aba Console), grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
 
 **Trocar de aba não perde o que foi carregado.** Cada aba é desmontada ao sair, então o que ela buscou vive num cache de memória da sessão ([utils/sessionCache.ts](../../src/utils/sessionCache.ts)) — nunca em disco nem no `localStorage`, e some ao fechar o app. Ao voltar (para a aba ou para a Choose Game), a aba mostra o que tinha no primeiro desenho e atualiza por trás, com um indicador discreto, trocando os dados quando a resposta chega:
 
@@ -171,9 +171,8 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 | Games | última busca (uma só) | *Updating...* ao lado da busca |
 | Servers | place + ordem + lote + páginas; só varredura terminada | *Updating...* ao lado do Refresh; a lista só troca no fim da varredura nova ([server-choice.md](server-choice.md#voltar-à-aba-cache-da-varredura)) |
 | Friends | ids das contas selecionadas | spinner por conta; cada conta troca quando a dela volta ([friends.md](friends.md#carga-progressiva-e-cache-da-aba)) |
-| Windows | último `list_display_monitors` | — (chamada local) |
 
-Favorites e Recent já nasciam prontos (vêm do `localStorage`); Follow, Console e Windows não buscam nada da rede. A volta **não** faz requisição a mais que antes — ela já recarregava; a aba Friends até economiza, juntando-se a uma rodada que ainda esteja em curso. Os testes zeram esses caches pelo `resetTauriMocks()`.
+Favorites e Recent já nasciam prontos (vêm do `localStorage`); Follow não busca nada da rede. O cartão da grade, na página Console, guarda o último `list_display_monitors` do mesmo jeito. A volta **não** faz requisição a mais que antes — ela já recarregava; a aba Friends até economiza, juntando-se a uma rodada que ainda esteja em curso. Os testes zeram esses caches pelo `resetTauriMocks()`.
 
 Controles de grade (cartão **Window grid** no topo da página **Console**, [WindowGridCard.tsx](../../src/components/console/WindowGridCard.tsx); era a aba Windows da Choose Game até 11/10/2026): monitores, **Gap**, **Arrange in grid** e **Arrange in grid on launch**. O campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior. Os monitores marcados, o gap e a grade automática são **lidos de `store.settings` e gravados por `store.updateSetting`**, que atualiza a store junto com o INI. Antes o cartão guardava a seleção num estado próprio, nascido da store, e gravava direto no backend: a store ficava velha e, ao reabrir a tela, o monitor desmarcado aparecia marcado de novo (travado em `WindowGridCard.test.tsx`). Só no Windows.
 
@@ -195,16 +194,13 @@ No cabeçalho, **Save as preset** abre o editor de presets com as contas da tela
 
 Os chips de conta no topo têm um **x** que tira aquela conta do lote sem sair da tela (o lote nunca fica vazio: o x da última conta é desabilitado).
 
-Abas: Favorites, Games, Recent, **Servers** ([server-choice.md](server-choice.md)), Friends ([friends.md](friends.md)), Follow, Console e **Windows**. Na aba Games, cada jogo tem dois botões: entrar (▶) e **ver servidores**, que leva para a aba Servers já com aquele place.
+Abas: Favorites, Games, Recent, **Servers** ([server-choice.md](server-choice.md)), Friends ([friends.md](friends.md)) e Follow. Na aba Games, cada jogo tem dois botões: entrar (▶) e **ver servidores**, que leva para a aba Servers já com aquele place.
 
 ### Painel de Sessão (`SessionPanel`)
 
 Resolve as dores de quem joga com muitas contas: cancelar entradas no meio do caminho, acompanhar uma operação em lote conta por conta, e achar/fechar uma conta específica sem caçar janela por janela no Windows.
 
-Aparece em dois lugares, com o mesmo estado vindo do store:
-
-1. na aba **Console** do Choose Game, acima do log ([ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx));
-2. na página **Session** da barra lateral ([SessionPage.tsx](../../src/components/pages/SessionPage.tsx)), disponível a qualquer momento; o item da barra mostra o contador de clientes rodando.
+Aparece na página **Session** da barra lateral ([SessionPage.tsx](../../src/components/pages/SessionPage.tsx)), disponível a qualquer momento; o item da barra mostra o contador de clientes rodando. Até 11/10/2026 aparecia também na aba Console da Choose Game, acima do log; a aba virou a página Console, só com o log.
 
 | Seção | Fonte | Ações |
 |---|---|---|

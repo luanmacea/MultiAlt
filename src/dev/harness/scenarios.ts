@@ -22,7 +22,7 @@ import {
   type InvokeHandler,
 } from "./bus";
 import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
-import { seedTourStorage, tourHandler } from "./tour";
+import { seedTourStorage, tourHandler, tourLogLines } from "./tour";
 import { HARNESS_RELEASES, kindBody } from "./releases";
 import { clipReport } from "./clipReport";
 
@@ -1639,6 +1639,11 @@ const SCENARIOS: Record<string, () => void> = {
    */
   tour() {
     seedTourStorage();
+    // A página Console também não pode estar vazia: algumas linhas do que o
+    // app fez, chegando como o evento `launch-log` chegaria.
+    tourLogLines(accounts.map((a) => a.UserID)).forEach((line, index) => {
+      setTimeout(() => harnessEmit("launch-log", line), 300 * (index + 1));
+    });
     const pages = realPlacePages as { id: string; playing: number; maxPlayers: number; ping: number | null }[][];
     const withTour = tourHandler(groupsHandler(baseHandler), accounts.map((a) => a.UserID));
     setInvokeHandler((cmd, args) => {

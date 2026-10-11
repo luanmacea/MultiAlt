@@ -87,7 +87,7 @@ Nesta ordem: as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`;
 
 `Actions` reúne: `Refresh Cookies`, `Copy All Cookies`, `Make Friends` (modo *mesh* = todos com todos, *star* = todos com uma, com o **intervalo entre pedidos** em segundos no próprio submenu), `Move to Group`, `Restart Launched`, `Open Auto Rejoin`, `Add to Auto Rejoin`, `Close All Roblox`, `Remove`.
 
-O andamento do Make Friends aparece no **Painel de Sessão** (botão `Session` na barra de cima, ou aba `Console` da Choose Game): uma linha por conta com aguardando / processando / amizade feita / erro, e o contador "X / Y contas processadas".
+O andamento do Make Friends aparece na página **Session** da barra lateral: uma linha por conta com aguardando / processando / amizade feita / erro, e o contador "X / Y contas processadas".
 
 ---
 
@@ -105,8 +105,8 @@ Abre com contas selecionadas e mostra `N accounts will be launched together` com
 | `Servers` | Varredura de servidores do place, ordenada por **quanto o lote cabe**. Filtros: `Sort by`, `Region`, `Pages to scan`. |
 | `Friends` | Amigos online de cada conta; `Join` manda o lote inteiro para o servidor do amigo. |
 | `Follow` | **`Join link`** (cola qualquer link de convite/servidor privado) e **`Follow a Player`** (por nome de usuário). Também atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
-| `Console` | Painel de sessão e **histórico ao vivo das ações** — launch, Auto Rejoin e Watcher, cada linha com a origem entre colchetes (`[rejoin]`, `[watcher]`). É aqui que aparece o motivo de uma falha, inclusive por que o Watcher fechou um cliente. |
-| `Windows` | Organiza as janelas do Roblox em grade nos monitores escolhidos (`Arrange in grid`). |
+
+As abas `Console` e `Windows` saíram daqui em 11/10/2026: viraram a página **Console** da barra lateral (log + grade de janelas). Lançar daqui leva para a página **Session**, onde está a fila de quem está entrando.
 
 ### Clique direito num jogo (Games, Favoritos, Recentes)
 

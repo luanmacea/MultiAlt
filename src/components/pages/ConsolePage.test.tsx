@@ -9,7 +9,8 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 
 import { ConsolePage } from "./ConsolePage";
 import { makeAccount, renderWithStore, setStore } from "../../test-utils/renderWithStore";
-import { resetTauriMocks } from "../../test-utils/tauriMocks";
+import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
+import { walkTour } from "../../test-utils/tourHelpers";
 import type { LaunchLogEntry } from "../../store";
 
 const ACCOUNT = makeAccount({ UserID: 1001, Username: "alpha" });
@@ -85,5 +86,13 @@ describe("ConsolePage", () => {
     renderWithStore(<ConsolePage active onLeave={onLeave} />, { accounts: [ACCOUNT], launchLogs: [] });
     await userEvent.keyboard("{Escape}");
     expect(onLeave).toHaveBeenCalled();
+  });
+});
+
+/** Tutorial da página: a grade de janelas e o log, sem mexer em nada. */
+describe("ConsolePage — tutorial", () => {
+  it("walks every step of the Console tutorial with its part on screen", async () => {
+    renderWithStore(<ConsolePage active onLeave={vi.fn()} />, { accounts: [ACCOUNT], launchLogs: LOGS });
+    await walkTour("console", { invoke: invokeMock });
   });
 });
