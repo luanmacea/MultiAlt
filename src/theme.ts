@@ -359,6 +359,57 @@ function rgba(value: string, alpha: number, fallback = "#27272a") {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+type Rgb = [number, number, number];
+
+function relativeLuminance([r, g, b]: Rgb): number {
+  const channel = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function contrastRatio(a: Rgb, b: Rgb): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function mixRgb(a: Rgb, b: Rgb, t: number): Rgb {
+  return [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * t) as Rgb;
+}
+
+function toHex(rgb: Rgb): string {
+  return `#${rgb.map((c) => clampByte(c).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** WCAG AA para texto normal. */
+const MIN_TEXT_CONTRAST = 4.5;
+
+/**
+ * Cor do texto apagado (`--panel-muted`) que se lê: a cor dos rótulos do tema,
+ * puxada aos poucos para a cor do texto do painel até chegar a 4,5:1 sobre
+ * todos os fundos em que ela aparece (o painel e os cartões). Era a cor dos
+ * rótulos com 85% de opacidade — 2,5 a 3,2:1 no tema padrão. Tema que já lê
+ * bem fica com a sua cor; se nem a cor do texto chegar lá, vai para branco ou
+ * preto, o que der mais contraste.
+ */
+function readableMuted(label: Rgb, foreground: Rgb, backgrounds: Rgb[]): string {
+  const reads = (c: Rgb) => backgrounds.every((bg) => contrastRatio(c, bg) >= MIN_TEXT_CONTRAST);
+  for (let step = 0; step <= 20; step += 1) {
+    const candidate = mixRgb(label, foreground, step / 20);
+    if (reads(candidate)) return toHex(candidate);
+  }
+  const white: Rgb = [255, 255, 255];
+  const black: Rgb = [0, 0, 0];
+  const worst = (c: Rgb) => Math.min(...backgrounds.map((bg) => contrastRatio(c, bg)));
+  for (let step = 0; step <= 20; step += 1) {
+    const target = worst(white) >= worst(black) ? white : black;
+    const candidate = mixRgb(label, target, step / 20);
+    if (reads(candidate)) return toHex(candidate);
+  }
+  return toHex(worst(white) >= worst(black) ? white : black);
+}
+
 function pickAccentColor(value: string) {
   const [r, g, b] = colorToRgb(value, DEFAULT_ACCENT);
   const spread = Math.max(r, g, b) - Math.min(r, g, b);
@@ -480,7 +531,16 @@ export function applyThemeCssVariables(themeInput: ThemeData) {
   style.setProperty("--app-fg", t.forms_foreground);
   style.setProperty("--panel-bg", t.accounts_background);
   style.setProperty("--panel-fg", t.accounts_foreground);
-  style.setProperty("--panel-muted", rgba(t.label_foreground, 0.85, DEFAULT_THEME.label_foreground));
+  const panelBg = colorToRgb(t.accounts_background, DEFAULT_THEME.accounts_background);
+  const cardBg = mixRgb(panelBg, colorToRgb(t.buttons_background, DEFAULT_THEME.buttons_background), 0.55);
+  style.setProperty(
+    "--panel-muted",
+    readableMuted(
+      colorToRgb(t.label_foreground, DEFAULT_THEME.label_foreground),
+      colorToRgb(t.accounts_foreground, DEFAULT_THEME.accounts_foreground),
+      [panelBg, cardBg]
+    )
+  );
   style.setProperty("--panel-soft", rgba(t.buttons_background, 0.55, DEFAULT_THEME.buttons_background));
   style.setProperty("--border-color", t.buttons_border);
   style.setProperty("--row-hover", rgba(t.buttons_background, 0.32, DEFAULT_THEME.buttons_background));
@@ -508,6 +568,9 @@ export function applyThemeCssVariables(themeInput: ThemeData) {
   );
 
   root.dataset.buttonStyle = buttonStyle;
+  // Tema claro: as cores de estado (âmbar, vermelho, verde) escurecem no CSS
+  // para continuar legíveis sobre fundo claro.
+  root.dataset.themeTone = relativeLuminance(panelBg) > 0.45 ? "light" : "dark";
   root.dataset.showHeaders = t.show_headers ? "true" : "false";
 
   void applyThemeFontLoading(t.font_sans ?? DEFAULT_FONT_SANS, t.font_mono ?? DEFAULT_FONT_MONO).catch(() => {});

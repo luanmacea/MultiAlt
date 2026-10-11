@@ -102,9 +102,24 @@ body {
   border-color: var(--border-color) !important;
 }
 
+/* Sem opacidade extra: `--panel-muted` já vem ajustado para 4,5:1 sobre o
+   painel e os cartões (theme.ts, readableMuted). Os 85% que ficavam aqui
+   derrubavam o texto apagado para 2,5-3,2:1. */
 .theme-muted {
   color: var(--panel-muted) !important;
-  opacity: 0.85;
+}
+
+/* Tema claro (theme.ts marca `data-theme-tone`): as cores de estado em tom 400
+   foram escolhidas para fundo escuro e somem sobre branco (~2:1). Aqui elas
+   escurecem para passar de 4,5:1 sobre o painel e os cartões. */
+:root[data-theme-tone="light"] .text-amber-400 {
+  color: #92400e;
+}
+:root[data-theme-tone="light"] .text-red-400 {
+  color: #b91c1c;
+}
+:root[data-theme-tone="light"] .text-emerald-400 {
+  color: #047857;
 }
 
 .theme-label {

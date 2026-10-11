@@ -1593,7 +1593,6 @@
   "Sending friend requests": "Sending friend requests",
   "Verifying the friendships": "Verifying the friendships",
   "Waiting": "Waiting",
-  "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.": "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.",
   "Friends {{done}}/{{total}}": "Friends {{done}}/{{total}}",
   "Could not save: {{error}}": "Could not save: {{error}}",
   "Delay between requests (s)": "Delay between requests (s)",
@@ -2513,5 +2512,12 @@
   "Close this account's Roblox client": "Close this account's Roblox client",
   "Close?": "Close?",
   "Includes {{count}} clients opened from the Roblox website.": "Includes {{count}} clients opened from the Roblox website.",
-  "Includes 1 client opened from the Roblox website.": "Includes 1 client opened from the Roblox website."
+  "Includes 1 client opened from the Roblox website.": "Includes 1 client opened from the Roblox website.",
+  "{{name}} is playing again": "{{name}} is playing again",
+  "{{name}} is reconnecting": "{{name}} is reconnecting",
+  "Choose a game": "Choose a game",
+  "Opened outside MultiAlt, for example from the website. Click Identify and pick the account playing in it to manage it here.": "Opened outside MultiAlt, for example from the website. Click Identify and pick the account playing in it to manage it here.",
+  "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its row of the In game list.": "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its row of the In game list.",
+  "Roblox open, account unknown": "Roblox open, account unknown",
+  "What is running now: accounts joining and Roblox clients in game, grouped by game and server, with the ones that need you on top.": "What is running now: accounts joining and Roblox clients in game, grouped by game and server, with the ones that need you on top."
 }

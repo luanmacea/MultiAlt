@@ -1593,7 +1593,6 @@
   "Sending friend requests": "Enviando pedidos de amizade",
   "Verifying the friendships": "Conferindo as amizades",
   "Waiting": "Aguardando",
-  "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.": "Acompanhe o que está rodando agora: contas entrando, Make Friends em andamento e clientes já em jogo.",
   "Friends {{done}}/{{total}}": "Amigos {{done}}/{{total}}",
   "Could not save: {{error}}": "Não foi possível salvar: {{error}}",
   "Delay between requests (s)": "Intervalo entre pedidos (s)",
@@ -2513,5 +2512,12 @@
   "Close this account's Roblox client": "Fecha o cliente do Roblox desta conta",
   "Close?": "Fechar?",
   "Includes {{count}} clients opened from the Roblox website.": "Inclui {{count}} clientes abertos pelo site do Roblox.",
-  "Includes 1 client opened from the Roblox website.": "Inclui 1 cliente aberto pelo site do Roblox."
+  "Includes 1 client opened from the Roblox website.": "Inclui 1 cliente aberto pelo site do Roblox.",
+  "{{name}} is playing again": "{{name}} voltou a jogar",
+  "{{name}} is reconnecting": "{{name}} está reconectando",
+  "Choose a game": "Escolher um jogo",
+  "Opened outside MultiAlt, for example from the website. Click Identify and pick the account playing in it to manage it here.": "Aberto fora do MultiAlt, por exemplo pelo site. Clique em Identificar e escolha a conta que está jogando nele para gerenciá-lo aqui.",
+  "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its row of the In game list.": "Reabre a conta no mesmo jogo depois de perder a conexão, ser expulsa ou fechar sozinha. Só janelas que o MultiAlt abriu, nunca as abertas pelo site. Cada conta pode mudar isso na própria linha da lista Em jogo.",
+  "Roblox open, account unknown": "Roblox aberto, conta desconhecida",
+  "What is running now: accounts joining and Roblox clients in game, grouped by game and server, with the ones that need you on top.": "O que está rodando agora: contas entrando e clientes do Roblox em jogo, agrupados por jogo e servidor, com os que precisam de você no topo."
 }
