@@ -1549,6 +1549,25 @@ describe("SessionPanel — sessão atual", () => {
     expect(group.getByText("Place 123456")).toBeInTheDocument();
   });
 
+  /**
+   * Com um servidor só no jogo, a caixa do servidor marcava exatamente o mesmo
+   * que a do jogo: duas caixas iguais, uma embaixo da outra. Ela (e a
+   * contagem, que repetia a do jogo) só aparece quando há mais de um servidor.
+   */
+  it("a game with a single server has no second checkbox for that server", async () => {
+    renderRunning([current(1), current(2)]);
+    const server = within(await screen.findByTestId("session-server-job-1"));
+    expect(server.queryByRole("checkbox", { name: /^Select Public server/ })).not.toBeInTheDocument();
+    expect(server.queryByText("2 accounts")).not.toBeInTheDocument();
+  });
+
+  it("a game with two servers lets each server be selected on its own", async () => {
+    renderRunning([current(1), current(2, { privateServer: true, jobId: "vip-2" })]);
+    const vip = within(await screen.findByTestId("session-server-vip-2"));
+    expect(vip.getByRole("checkbox", { name: /^Select Private server/ })).toBeInTheDocument();
+    expect(vip.getByText("1 account")).toBeInTheDocument();
+  });
+
   it("says nothing about public or private when the server type is not known (opened from the website)", async () => {
     renderRunning([current(1, { privateServer: null })]);
     const server = within(await screen.findByTestId("session-server-job-1"));

@@ -72,14 +72,14 @@ function GroupHeader({
 }) {
   const t = useTr();
   return (
-    <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+    <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
       <SelectBox
         label={t("Select {{name}}", { name: title })}
         checked={selection === "all"}
         indeterminate={selection === "some"}
         onChange={onSelect}
       />
-      <h3 className="min-w-0 flex-1 text-[12px]">
+      <h3 className="min-w-0 flex-1 text-[12.5px]">
         <button
           type="button"
           aria-expanded={expanded}
@@ -128,10 +128,10 @@ export function GameGroupHeader({
   const identity = useGameIdentity(placeId, userId);
   const name = identity?.name ?? t("Place {{placeId}}", { placeId });
   const icon = identity?.iconUrl ? (
-    <img src={identity.iconUrl} alt="" className="shrink-0 w-5 h-5 rounded-[5px] object-cover" />
+    <img src={identity.iconUrl} alt="" className="shrink-0 w-6 h-6 rounded-md object-cover" />
   ) : (
-    <span aria-hidden="true" className="shrink-0 w-5 h-5 rounded-[5px] bg-[var(--panel-soft)] flex items-center justify-center theme-muted">
-      <Gamepad2 size={12} strokeWidth={1.6} />
+    <span aria-hidden="true" className="shrink-0 w-6 h-6 rounded-md bg-[var(--panel-soft)] flex items-center justify-center theme-muted">
+      <Gamepad2 size={13} strokeWidth={1.6} />
     </span>
   );
   return (
@@ -183,15 +183,21 @@ export function NoGameGroupHeader(props: {
   );
 }
 
-/** Linha do servidor dentro do jogo: público/privado, o Job ID curto e quantas contas. */
+/**
+ * Linha do servidor dentro do jogo: público/privado, o Job ID curto e quantas
+ * contas. A caixa fica na mesma coluna das contas; com um servidor só no jogo
+ * ela repetiria a do jogo, então some (o espaço fica, para não desalinhar).
+ */
 export function ServerHeader({
   server,
   selection,
   onSelect,
+  selectable = true,
 }: {
   server: ServerGroup;
   selection: "all" | "some" | "none";
   onSelect: (event: React.MouseEvent<HTMLInputElement>) => void;
+  selectable?: boolean;
 }) {
   const t = useTr();
   const kind =
@@ -203,13 +209,17 @@ export function ServerHeader({
           ? t("Public server")
           : t("Server");
   return (
-    <div className="flex items-center gap-2 pl-8 pr-3 py-0.5 text-[11.5px] theme-muted">
-      <SelectBox
-        label={t("Select {{name}}", { name: server.jobId ? `${kind} ${shortJobId(server.jobId)}` : kind })}
-        checked={selection === "all"}
-        indeterminate={selection === "some"}
-        onChange={onSelect}
-      />
+    <div className="flex items-center gap-2 px-3 pt-1.5 pb-0.5 text-[11.5px] theme-muted">
+      {selectable ? (
+        <SelectBox
+          label={t("Select {{name}}", { name: server.jobId ? `${kind} ${shortJobId(server.jobId)}` : kind })}
+          checked={selection === "all"}
+          indeterminate={selection === "some"}
+          onChange={onSelect}
+        />
+      ) : (
+        <span aria-hidden="true" className="shrink-0 -m-1 w-6 h-6" />
+      )}
       <span className="inline-flex items-center gap-1 min-w-0">
         {server.privateServer === true && <Lock size={10} strokeWidth={1.75} aria-hidden="true" className="shrink-0" />}
         <span className="truncate">{kind}</span>
@@ -219,8 +229,9 @@ export function ServerHeader({
           {shortJobId(server.jobId)}
         </span>
       )}
-      <span aria-hidden="true">·</span>
-      <span className="shrink-0 tabular-nums">{server.userIds.length}</span>
+      <span aria-hidden="true" className="h-px flex-1 bg-[var(--border-color)] opacity-60" />
+      {/* Com um servidor só, a contagem já está no cabeçalho do jogo. */}
+      {selectable && <span className="shrink-0 tabular-nums">{countLabel(server.userIds.length, t)}</span>}
     </div>
   );
 }

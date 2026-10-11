@@ -1133,6 +1133,65 @@ body {
   transform: scale(0.97);
 }
 
+/* Lista "Em jogo" da Sessão: cada jogo separado por um fio, e os botões da
+   linha (Focus/Close) quietos até o mouse chegar, para a informação da conta
+   aparecer antes dos controles. */
+.session-group + .session-group {
+  border-top: 1px solid var(--border-color);
+  margin-top: 4px;
+}
+
+.session-row-selected {
+  background: color-mix(in srgb, var(--accent-color) 9%, transparent);
+}
+
+.session-row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--button-radius);
+  background: transparent;
+  color: var(--panel-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.session-row-btn:hover,
+.session-row-btn:focus-visible {
+  background: var(--buttons-bg);
+  border-color: var(--buttons-bc);
+  color: var(--buttons-fg);
+}
+
+.session-row-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Fechar fica neutro em repouso (uma coluna de vermelho em toda linha
+   gritava mais que as contas) e só fica vermelho sob o mouse/foco. */
+.session-row-btn-danger:hover,
+.session-row-btn-danger:focus-visible {
+  color: #f87171;
+}
+
+:root[data-theme-tone="light"] .session-row-btn-danger:hover,
+:root[data-theme-tone="light"] .session-row-btn-danger:focus-visible {
+  color: #b91c1c;
+}
+
+.session-row-btn-armed,
+.session-row-btn-armed:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
 .sidebar-btn-tool {
   padding: 6px 8px;
   background: var(--textboxes-bg);
