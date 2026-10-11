@@ -52,25 +52,28 @@ Only download from this repository. The `zz-…sig` files on the [releases page]
 | Feature | What it does |
 | :--- | :--- |
 | Multi Roblox | Run as many Roblox clients as you want at the same time |
-| Multi Launch | Launch a whole selection of accounts into the same game or server, one at a time with a safe delay |
+| Multi Launch | Launch a whole selection of accounts into the same game or server, one at a time — the next one can start as soon as the previous one is in the game, instead of waiting a fixed time |
 | Server finder | Scans the game's servers and picks the best one for your group: *Best fit* (fullest server where everyone still fits), fullest, emptiest or random. Region filter and "no permission" check |
 | Join links | Paste any link — game, private/VIP server, share link, invite, deep link — and everyone joins |
 | Friends | See each account's online friends and send the whole group to a friend's server. Follow a player by username |
 | Favorites & recent | Save games with several VIP links each; recent games and servers |
 | Roblox version manager | Install Roblox builds side by side and choose the one to launch. Finds Bloxstrap, Fishstrap and Voidstrap installs |
 | Window grid | Arrange every Roblox window in a grid across the monitors you choose |
-| Session panel | Launch queue (cancel anytime), open clients (focus, close) and a live console explaining every launch, rejoin and watcher action |
+| Session panel | Launch queue (cancel anytime), open clients (focus, close), **why an account dropped** (lost connection, kicked — with Roblox's message —, game closed by itself or server shut down) and a live console explaining every launch, rejoin and watcher action |
+| Named windows | Each Roblox window is named after its account ("account - Roblox"), so you can tell them apart in the taskbar |
 
 ### Automation
 | Feature | What it does |
 | :--- | :--- |
+| Auto-reconnect | An account that drops goes back to the same game — and the same private server — on its own. Turn it on for every account or per account |
 | Auto Rejoin | Keeps your alts inside a server: every N minutes each alt is closed and relaunched, while your main accounts stay open and are never restarted |
 | AFK mode (anti-AFK) | Sends a key **or a mouse click** to each account's window every few minutes so nobody gets kicked for being idle — no rejoin, no lost progress. Click point set once for all accounts or per account |
-| Watcher | Closes a client that lost connection, ran low on memory or changed title (beta detection) |
+| Watcher | Flags a Roblox window that stops responding, and closes a client that lost connection, ran low on memory or changed title (beta detection) |
+| Keep the PC awake | The PC doesn't go to sleep while AFK mode, Auto Rejoin or auto-reconnect are running |
 | Optimization | FPS cap, graphics, window size, process priority, EcoQoS, CPU/memory limits and FastFlags — one profile for normal play and separate ones for Auto Rejoin mains and alts |
 | Pre-launch isolation | Clears cache, registry traces, MachineGuid and MAC before each launch so one account doesn't inherit another's session (Windows, only when no client is open) |
 | Scripts | JavaScript automation inside the manager (sandboxed, with per-script permissions) using the `ram.*` API |
-| Local Web API / Nexus | Local HTTP API and a WebSocket server for external tools and `Nexus.lua` (not in the standard installer) |
+| Local Web API / Nexus | Local HTTP API and a WebSocket server for external tools and `Nexus.lua`. **Full edition only:** `MultiAlt_<version>_Full-Setup.msi` on the [releases page](https://github.com/luanmacea/MultiAlt/releases/latest) |
 
 ### App
 | Feature | What it does |
