@@ -2498,5 +2498,8 @@
   "Put all open Roblox windows side by side on the monitors you tick. New windows can take a free spot on their own.": "Coloca lado a lado todas las ventanas de Roblox abiertas, en los monitores que marques. Las ventanas nuevas pueden ocupar un lugar libre solas.",
   "Same as the Arrange in grid button on the Console page.": "Lo mismo que el botón Organizar en cuadrícula de la página Consola.",
   "Step-by-step details of the last launch are on the Console page.": "Los detalles paso a paso del último launch están en la página Consola.",
-  "What the app did": "Lo que hizo la app"
+  "What the app did": "Lo que hizo la app",
+  "Needs attention": "Necesita atención",
+  "Not in a game": "Fuera de juego",
+  "Server unknown": "Servidor desconocido"
 }

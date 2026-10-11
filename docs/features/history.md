@@ -91,9 +91,25 @@ voltar ao servidor de uma sessão recente e o export em CSV. É a ideia 6 de
 
 ## Sessão de agora na página Session
 
-A sessão **aberta** (a que no painel aparece como "Playing now") também aparece em cada linha
-da lista **In game** do Painel de Sessão (página Session e aba Console da Choose Game), numa
-segunda linha embaixo do nome:
+A sessão **aberta** (a que no painel aparece como "Playing now") também organiza a lista
+**In game** do Painel de Sessão (página Session). Desde 11/10/2026 a lista é **agrupada por jogo
+e servidor** ([sessionGroups.ts](../../src/utils/sessionGroups.ts),
+[InGameGroups.tsx](../../src/components/session/InGameGroups.tsx)):
+
+- **Needs attention** no topo: quem está reconectando, não responde ou caiu sai do grupo do jogo
+  (a sessão de quem caiu já fechou) e fica aqui, com o jogo na linha quando ainda se sabe;
+- um grupo por **jogo** (place da sessão aberta), com a imagem do jogo quando o
+  `useGameIdentity` já a tem, o nome e quantas contas; os com mais contas primeiro;
+- dentro dele, um subgrupo por **servidor** (Job ID): "Public server" / "Private server" (com
+  cadeado) / "Server" (tipo desconhecido) e o Job ID curto (8 caracteres, inteiro no tooltip),
+  ou "Server unknown" sem Job ID. Contas no mesmo servidor ficam juntas;
+- **Not in a game**: cliente aberto sem sessão (ainda sem jogo, ou log não achado).
+
+Cada grupo recolhe pelo título (padrão acordeão, `aria-expanded`) e tem uma caixa que marca as
+contas dele (a do servidor marca as do servidor). Sem nenhuma sessão conhecida (fora do Windows,
+onde o log não é lido) a lista fica simples, como antes. Dentro do grupo, a linha leva só o
+**tempo em jogo** ao lado do estado; fora dele (atenção, sem jogo, lista simples), a segunda
+linha leva:
 
 - **jogo:** nome resolvido por `useGameIdentity` (o mesmo cache das outras telas); sem nome,
   "Place <id>". Nome comprido é cortado, com o texto inteiro no tooltip;

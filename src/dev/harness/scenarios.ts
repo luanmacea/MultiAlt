@@ -2203,24 +2203,33 @@ const SCENARIOS: Record<string, () => void> = {
     const LONG_NAME = "[UPDATE 12] Brookhaven Super Mega Tycoon Simulator: Build Your Empire Edition";
     const started = Date.now();
     const sessionOf = new Map<number, { placeId: number; jobId: string; sinceMs: number; privateServer: boolean | null }>();
-    const playing = (index: number, placeId: number, minutesAgo: number, privateServer: boolean | null) => {
+    // Contas no mesmo servidor dividem o Job ID (a lista "Em jogo" agrupa por
+    // jogo e servidor); as outras têm o seu.
+    const SHARED_JAILBREAK_JOB = "8e2f6a10-4c1b-4d0e-9a7b-3c5d2e1f0a9b";
+    const playing = (
+      index: number,
+      placeId: number,
+      minutesAgo: number,
+      privateServer: boolean | null,
+      jobId?: string
+    ) => {
       const row = rows[index];
       if (row) {
         sessionOf.set(row.userId, {
           placeId,
-          jobId: `job-${row.userId}`,
+          jobId: jobId ?? `job-${row.userId}`,
           sinceMs: started - minutesAgo * 60_000,
           privateServer,
         });
       }
     };
-    playing(0, 606849621, 47, false);
+    playing(0, 606849621, 47, false, SHARED_JAILBREAK_JOB);
     playing(1, 6516141723, 130, true);
-    playing(2, 606849621, 8, false);
+    playing(2, 606849621, 8, false, SHARED_JAILBREAK_JOB);
     playing(3, 15101393044, 20, null);
     playing(4, 6516141723, 3, false);
     playing(5, LONG_NAME_PLACE, 65, true);
-    playing(6, 606849621, 12, false);
+    playing(6, 606849621, 12, false, SHARED_JAILBREAK_JOB);
     playing(7, 1234567890, 0.5, false);
     const drops: [number, Omit<Drop, "sinceMs">][] = [
       [0, { kind: "disconnected", reason: "connectionLost", code: 277, message: null }],

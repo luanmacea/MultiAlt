@@ -1319,34 +1319,34 @@ describe("SessionPanel — sessão atual", () => {
   });
 
   it("shows the game, the server type and the time in game of each account", async () => {
-    renderRunning([current(1), current(2, { privateServer: true, sinceMs: Date.now() - 65 * MIN })]);
+    renderRunning([current(1), current(2, { privateServer: true, jobId: "vip-2", sinceMs: Date.now() - 65 * MIN })]);
+    // O jogo vai no cabeçalho do grupo, o servidor no do servidor, o tempo na linha.
+    const game = within(await screen.findByTestId("session-game-606849621"));
+    expect(await game.findByText("Jailbreak")).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-server-job-1")).getByText("Public server")).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-server-vip-2")).getByText("Private server")).toBeInTheDocument();
+
     const first = within(screen.getByTestId("session-running-1"));
-    expect(await first.findByText("Jailbreak")).toBeInTheDocument();
-    expect(first.getByText("Public server")).toBeInTheDocument();
     expect(first.getByTestId("session-time-1")).toHaveTextContent("12m");
     expect(first.getByText("Playing")).toBeInTheDocument();
-
-    const second = within(screen.getByTestId("session-running-2"));
-    expect(await second.findByText("Jailbreak")).toBeInTheDocument();
-    expect(second.getByText("Private server")).toBeInTheDocument();
-    expect(second.getByTestId("session-time-2")).toHaveTextContent("1h 05m");
+    expect(within(screen.getByTestId("session-running-2")).getByTestId("session-time-2")).toHaveTextContent("1h 05m");
   });
 
   it("falls back to the Place ID while the game name is unknown, with the full name in a tooltip", async () => {
     renderRunning([current(1, { placeId: 123456 })]);
-    const row = within(screen.getByTestId("session-running-1"));
-    const game = await row.findByText("Place 123456");
-    expect(game).toHaveAttribute("title", "Place 123456");
+    const group = within(await screen.findByTestId("session-game-123456"));
+    const game = await group.findByText("Place 123456");
+    expect(game.closest("button")).toHaveAttribute("title", "Place 123456");
     await waitFor(() => expect(callsFor("batched_get_game_info").length).toBeGreaterThan(0));
-    expect(row.getByText("Place 123456")).toBeInTheDocument();
+    expect(group.getByText("Place 123456")).toBeInTheDocument();
   });
 
-  it("says nothing about the server when it is not known (opened from the website)", async () => {
+  it("says nothing about public or private when the server type is not known (opened from the website)", async () => {
     renderRunning([current(1, { privateServer: null })]);
-    const row = within(screen.getByTestId("session-running-1"));
-    await row.findByText("Jailbreak");
-    expect(row.queryByText("Public server")).not.toBeInTheDocument();
-    expect(row.queryByText("Private server")).not.toBeInTheDocument();
+    const server = within(await screen.findByTestId("session-server-job-1"));
+    expect(server.getByText("Server")).toBeInTheDocument();
+    expect(server.queryByText("Public server")).not.toBeInTheDocument();
+    expect(server.queryByText("Private server")).not.toBeInTheDocument();
   });
 
   it("the time in game ticks on its own", async () => {
@@ -1425,5 +1425,143 @@ describe("SessionPanel — sessão atual", () => {
     });
     const row = within(screen.getByTestId("session-running-1"));
     expect(await row.findByText("Reconnecting")).toBeInTheDocument();
+  });
+});
+
+/**
+ * "Em jogo" agrupado por jogo e servidor (pedido do dono, 11/10/2026): quem tem
+ * muitas contas quer ver quem está junto de quem. Quem precisa de atenção
+ * (caiu, não responde, reconectando) vai para o topo, à parte.
+ */
+describe("SessionPanel — Em jogo por jogo e servidor", () => {
+  const MIN = 60_000;
+  const FOUR = [...ACCOUNTS, makeAccount({ UserID: 4, Username: "delta" })];
+
+  function current(userId: number, placeId: number, jobId: string | null, privateServer: boolean | null = false): CurrentSession {
+    return { userId, placeId, jobId, sinceMs: Date.now() - 12 * MIN, privateServer };
+  }
+
+  const GAMES: Record<number, { name: string; iconUrl: string | null }> = {
+    606849621: { name: "Jailbreak", iconUrl: "https://tr.rbxcdn.com/jailbreak.png" },
+    6516141723: { name: "Blox Fruits", iconUrl: null },
+  };
+
+  function renderGrouped(sessions: CurrentSession[], overrides: Partial<StoreValue> = {}) {
+    setInvokeMap({
+      get_nexus_accounts: [],
+      get_current_sessions: () => sessions,
+      batched_get_game_info: (args: Record<string, unknown> | undefined) => {
+        const placeId = Number(args?.placeId);
+        return { placeId, universeId: 1, name: GAMES[placeId]?.name ?? null, iconUrl: GAMES[placeId]?.iconUrl ?? null };
+      },
+    });
+    return renderWithStore(<SessionPanel />, {
+      accounts: FOUR,
+      launchedByProgram: new Set([1, 2, 3, 4]),
+      ...storeActions(),
+      ...overrides,
+    });
+  }
+
+  const rowIds = (container: HTMLElement) =>
+    [...container.querySelectorAll("[data-testid^='session-running-']")].map((el) =>
+      Number(el.getAttribute("data-testid")!.replace("session-running-", ""))
+    );
+
+  beforeEach(() => {
+    clearGameIdentityCache();
+  });
+
+  it("groups the accounts by game, biggest first, with the count and the game's picture", async () => {
+    renderGrouped([
+      current(1, 606849621, "job-a"),
+      current(2, 6516141723, "job-b"),
+      current(3, 606849621, "job-a"),
+      current(4, 606849621, "job-c"),
+    ]);
+    const jailbreak = await screen.findByTestId("session-game-606849621");
+    expect(await within(jailbreak).findByText("Jailbreak")).toBeInTheDocument();
+    expect(within(jailbreak).getByText("3 accounts")).toBeInTheDocument();
+    expect(rowIds(jailbreak)).toEqual([1, 3, 4]);
+    await waitFor(() =>
+      expect(jailbreak.querySelector("img")).toHaveAttribute("src", "https://tr.rbxcdn.com/jailbreak.png")
+    );
+
+    const fruits = screen.getByTestId("session-game-6516141723");
+    expect(rowIds(fruits)).toEqual([2]);
+    expect(jailbreak.compareDocumentPosition(fruits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("puts accounts on the same server together, under the server", async () => {
+    renderGrouped([
+      current(1, 606849621, "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"),
+      current(2, 606849621, "vip-9", true),
+      current(3, 606849621, "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"),
+      current(4, 606849621, null, null),
+    ]);
+    const shared = await screen.findByTestId("session-server-1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d");
+    expect(rowIds(shared)).toEqual([1, 3]);
+    expect(within(shared).getByText("Public server")).toBeInTheDocument();
+    expect(within(shared).getByText("1a2b3c4d")).toHaveAttribute("title", "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d");
+    expect(within(screen.getByTestId("session-server-vip-9")).getByText("Private server")).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-server-unknown")).getByText("Server unknown")).toBeInTheDocument();
+  });
+
+  it("a game's checkbox selects its accounts", async () => {
+    renderGrouped([current(1, 606849621, "job-a"), current(2, 6516141723, "job-b"), current(3, 606849621, "job-a")]);
+    const jailbreak = await screen.findByTestId("session-game-606849621");
+    await within(jailbreak).findByText("Jailbreak");
+    await userEvent.click(within(jailbreak).getByRole("checkbox", { name: "Select Jailbreak" }));
+    expect(screen.getByRole("checkbox", { name: "Select alpha" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select charlie" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Bravo Alt" })).not.toBeChecked();
+    // Clicar de novo desmarca o grupo inteiro.
+    await userEvent.click(within(jailbreak).getByRole("checkbox", { name: "Select Jailbreak" }));
+    expect(screen.getByRole("checkbox", { name: "Select alpha" })).not.toBeChecked();
+  });
+
+  it("collapses and expands a game", async () => {
+    renderGrouped([current(1, 606849621, "job-a"), current(3, 606849621, "job-a")]);
+    const jailbreak = await screen.findByTestId("session-game-606849621");
+    const toggle = await within(jailbreak).findByRole("button", { name: /Jailbreak/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("session-running-1")).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    expect(screen.getByTestId("session-running-1")).toBeInTheDocument();
+  });
+
+  it("puts accounts that need attention on top, apart from their game", async () => {
+    renderGrouped([current(1, 606849621, "job-a"), current(3, 606849621, "job-a"), current(4, 606849621, "job-a")], {
+      clientHealth: new Map<number, ClientHealth>([
+        [2, { pid: 2, logFound: true, drop: { kind: "kicked", reason: null, code: 267, message: "Server restarting", sinceMs: 0 } }],
+        [3, { pid: 3, logFound: true, drop: null, notResponding: true }],
+      ]),
+    });
+    const attention = await screen.findByTestId("session-attention");
+    expect(within(attention).getByText("Needs attention")).toBeInTheDocument();
+    expect(rowIds(attention)).toEqual([2, 3]);
+    const jailbreak = await screen.findByTestId("session-game-606849621");
+    expect(rowIds(jailbreak)).toEqual([1, 4]);
+    expect(attention.compareDocumentPosition(jailbreak) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Fora do grupo do jogo, a linha diz em que jogo a conta estava.
+    expect(await within(screen.getByTestId("session-running-3")).findByText("Jailbreak")).toBeInTheDocument();
+  });
+
+  it("lists the accounts without a game in their own group", async () => {
+    renderGrouped([current(1, 606849621, "job-a")], {
+      clientHealth: new Map<number, ClientHealth>([[2, { pid: 2, logFound: true, drop: null, inGame: false }]]),
+    });
+    const noGame = await screen.findByTestId("session-no-game");
+    expect(within(noGame).getByText("Not in a game")).toBeInTheDocument();
+    expect(rowIds(noGame)).toEqual([2, 3, 4]);
+  });
+
+  it("stays a plain list when no game is known (outside Windows the log is not read)", async () => {
+    renderGrouped([], { platformCapabilities: makePlatformCapabilities({ os: "macos" }) });
+    expect(screen.getByTestId("session-running-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-no-game")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-attention")).not.toBeInTheDocument();
   });
 });

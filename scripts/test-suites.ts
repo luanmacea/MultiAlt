@@ -77,7 +77,13 @@ export const SUITES: Record<string, TestSuite> = {
   history: {
     description: "Histórico de sessões por conta: observador do monitor de quedas, arquivo JSONL com retenção, sessões, tempo de jogo de 14 dias e CSV",
     rust: ["session_history_store_tests", "session_history_build_tests", "session_history_observer_tests"],
-    front: ["src/components/accounts/AccountHistory.test.tsx", "src/utils/sessionHistory.test.ts", "src/components/session/SessionPanel.test.tsx"],
+    front: [
+      "src/components/accounts/AccountHistory.test.tsx",
+      "src/utils/sessionHistory.test.ts",
+      "src/components/session/SessionPanel.test.tsx",
+      // "Em jogo" agrupado por jogo e servidor.
+      "src/utils/sessionGroups.test.ts",
+    ],
   },
   "join-links": {
     description: "Links de convite, VIP/privado, deep links e share links",
