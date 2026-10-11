@@ -52,25 +52,28 @@ Baixe só deste repositório. Os arquivos `zz-…sig` da [página da release](ht
 | Funcionalidade | O que faz |
 | :--- | :--- |
 | Multi Roblox | Quantos clientes do Roblox você quiser ao mesmo tempo |
-| Multi Launch | Lança uma seleção inteira de contas no mesmo jogo ou servidor, uma por vez com atraso seguro |
+| Multi Launch | Lança uma seleção inteira de contas no mesmo jogo ou servidor, uma por vez — a próxima pode começar assim que a anterior entra no jogo, em vez de esperar um tempo fixo |
 | Busca de servidor | Varre os servidores do jogo e escolhe o melhor para o seu grupo: *Best fit* (o mais cheio em que todos ainda cabem), mais cheio, mais vazio ou aleatório. Filtro de região e checagem de "sem permissão" |
 | Links de entrada | Cole qualquer link — jogo, servidor privado/VIP, link de compartilhamento, convite, deep link — e todos entram |
 | Amigos | Amigos online de cada conta e o grupo inteiro no servidor de um amigo. Seguir um jogador pelo nome |
 | Favoritos e recentes | Jogos salvos com vários links VIP cada; jogos e servidores recentes |
 | Versões do Roblox | Instala builds do Roblox lado a lado e escolhe qual abrir. Acha instalações do Bloxstrap, Fishstrap e Voidstrap |
 | Grade de janelas | Organiza todas as janelas do Roblox em grade nos monitores escolhidos |
-| Painel de sessão | Fila de launch (cancelável), clientes abertos (focar, fechar) e um console ao vivo explicando cada launch, rejoin e ação do Watcher |
+| Painel de sessão | Fila de launch (cancelável), clientes abertos (focar, fechar), **por que uma conta caiu** (perdeu a conexão, foi expulsa — com a mensagem do Roblox —, o jogo fechou sozinho ou o servidor foi desligado) e um console ao vivo explicando cada launch, rejoin e ação do Watcher |
+| Janelas com nome | Cada janela do Roblox leva o nome da conta ("conta - Roblox"), para distinguir na barra de tarefas |
 
 ### Automação
 | Funcionalidade | O que faz |
 | :--- | :--- |
+| Reconexão automática | A conta que cai volta sozinha para o mesmo jogo — e o mesmo servidor privado. Liga para todas as contas ou por conta |
 | Auto Rejoin | Mantém suas alts num servidor: a cada N minutos cada alt é fechada e relançada, e as contas main ficam abertas e nunca são reiniciadas |
 | AFK mode (anti-AFK) | Manda uma tecla **ou um clique** para a janela de cada conta a cada poucos minutos para ninguém ser kickado por inatividade — sem rejoin, sem perder progresso. Ponto do clique marcado uma vez para todas ou por conta |
-| Watcher | Fecha o cliente que perdeu a conexão, ficou sem memória ou mudou de título (detecção de beta) |
+| Watcher | Avisa quando uma janela do Roblox para de responder, e fecha o cliente que perdeu a conexão, ficou sem memória ou mudou de título (detecção de beta) |
+| PC acordado | O PC não entra em suspensão enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática estão rodando |
 | Otimização | Limite de FPS, gráficos, tamanho de janela, prioridade do processo, EcoQoS, limites de CPU/memória e FastFlags — um perfil para jogar normal e perfis separados para mains e alts do Auto Rejoin |
 | Isolamento pré-launch | Limpa cache, rastros no registro, MachineGuid e MAC antes de cada launch para uma conta não herdar a sessão da outra (Windows, só com nenhum cliente aberto) |
 | Scripts | Automação em JavaScript dentro do gerenciador (isolada, com permissões por script) pela API `ram.*` |
-| API Web local / Nexus | API HTTP local e servidor WebSocket para ferramentas externas e o `Nexus.lua` (não vem no instalador padrão) |
+| API Web local / Nexus | API HTTP local e servidor WebSocket para ferramentas externas e o `Nexus.lua`. **Só na edição completa:** `MultiAlt_<versão>_Full-Setup.msi` na [página de releases](https://github.com/luanmacea/MultiAlt/releases/latest) |
 
 ### App
 | Funcionalidade | O que faz |
