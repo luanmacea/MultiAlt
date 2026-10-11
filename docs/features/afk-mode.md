@@ -204,9 +204,13 @@ mouse para tudo**.
   **nenhum cliente é fechado**. Emite `afk-emergency-stop` (`{ reason: "shake",
   afk, recordings }`) e a linha "Parada de emergência: o mouse foi
   chacoalhado" no Console.
-- **Na tela:** toast "Emergency stop: you shook the mouse." e a mesma frase na
-  barra de estado dos cliques AFK e no aviso da aba Recordings (fica até fechar
-  o aviso ou ligar de novo). Com a opção ligada e algo rodando, as duas
+- **Na tela:** um **alerta no meio da janela** (`EmergencyStopAlert`, em
+  qualquer página) — "Emergency stop", o que parou (Modo AFK, gravação ou os
+  dois) e "No Roblox client was closed." — que fica até **OK** ou Esc; a frase
+  "Emergency stop: you shook the mouse." também aparece na barra de estado dos
+  cliques AFK e no aviso da aba Recordings, e some junto com o alerta (ou ao
+  ligar de novo). Até 11/10/2026 era um toast, que sumia em um segundo — o dono
+  pediu um aviso que desse para ler. Com a opção ligada e algo rodando, as duas
   lembram "Shake the mouse to stop." perto do Parar.
 - **Limites:** o "Enviar agora"/"Clicar agora" manual roda sem bandeira de
   parar (como já era com o botão Parar) — chacoalhar para a sessão, mas o ciclo
@@ -259,7 +263,7 @@ Suíte `afk` (`bun run t afk`):
 - Tela cheia na frente (`afk_command_tests`): `a_fullscreen_window_of_another_program_holds_the_cycle`, `the_apps_own_clients_the_desktop_and_multialt_never_hold`, `the_cycle_waits_for_the_fullscreen_window_up_to_the_cap`, `the_wait_counts_from_the_account_that_has_been_due_the_longest`, `waiting_for_a_fullscreen_window_is_on_unless_turned_off`, `the_status_tells_the_screen_it_is_waiting_for_a_fullscreen_window`; `ClicksTab.test.tsx`, "espera a tela cheia sair" — nasce ligado, grava no INI e mostra o "Waiting".
 - `ClicksTab.test.tsx` — o aviso do foco na tela (com o tempo de verdade: o foco só volta depois da última conta do ciclo, e o que o usuário digita nesse meio-tempo vai para o Roblox), só as teclas do backend, start bloqueado sem tecla/sem conta, parar sem fechar cliente, parar sem esquecer quem estava no modo, tempo decorrido (`<1m`, `12m`, `1h 5m`), "enviar agora" e o bipe nascendo desligado.
 - `ClicksTab.test.tsx`, "a tela diz a coisa certa" — contagem nunca acima do intervalo, pílula de estado, aviso ao desmarcar a última conta, singular com uma conta, e em pt o rótulo "Tecla a enviar" e os nomes acessíveis dos dois campos do intervalo; "intervalo em minutos e segundos" — leitura do INI (inclusive `0` minuto), total em segundos no start, limites dos campos, piso de 5 s bloqueando o Start e a contagem com intervalo de segundos; `store.test.ts`, "AFK mode" — o toast de início no singular e no plural.
-- `shake_stop_tests` (em `commands/shake_stop.rs`) — a regra do chacoalhar (horizontal forte para; diagonal conta pela parte horizontal; tremida pequena, só vertical, devagar, 3 viradas e uma ida até um botão não param), os cliques do próprio app em várias janelas nunca disparando (com o controle sem filtro), o usuário chacoalhando entre dois cliques do app ainda parando, amostra lida com o app começando a mover descartada, as marcas do `input.rs` antes do primeiro movimento, as duas bandeiras de parar ligadas, o payload em camelCase e a opção desligada por padrão. `ClicksTab.test.tsx`, "parada de emergência por chacoalhar" — o lembrete só com a opção ligada e a frase depois da parada; `AfkModeView.test.tsx` — o mesmo na aba Recordings; `store.test.ts` — o evento vira estado e toast, e some ao fechar ou religar; `settingsTabs.test.tsx` — o toggle nasce desligado e grava `Afk.ShakeToStop`.
+- `shake_stop_tests` (em `commands/shake_stop.rs`) — a regra do chacoalhar (horizontal forte para; diagonal conta pela parte horizontal; tremida pequena, só vertical, devagar, 3 viradas e uma ida até um botão não param), os cliques do próprio app em várias janelas nunca disparando (com o controle sem filtro), o usuário chacoalhando entre dois cliques do app ainda parando, amostra lida com o app começando a mover descartada, as marcas do `input.rs` antes do primeiro movimento, as duas bandeiras de parar ligadas, o payload em camelCase e a opção desligada por padrão. `ClicksTab.test.tsx`, "parada de emergência por chacoalhar" — o lembrete só com a opção ligada e a frase depois da parada; `AfkModeView.test.tsx` — o mesmo na aba Recordings; `store.test.ts` — o evento vira estado (sem toast), e some ao fechar ou religar; `EmergencyStopAlert.test.tsx` — o alerta, o texto do que parou, OK e Esc; `settingsTabs.test.tsx` — o toggle nasce desligado e grava `Afk.ShakeToStop`.
 - `afkBeep.test.ts` — o bipe toca um oscilador curto de volume baixo, fecha o contexto no fim e nunca lança sem Web Audio.
 
 `SendInput`, foco, clique e janela de verdade ficam fora de teste: precisam de um cliente Roblox aberto. No navegador, `?scenario=afk-mode` tem o modo clique inteiro com o Marcar achando a janela da 1ª conta em 37,5% × 62,5%.

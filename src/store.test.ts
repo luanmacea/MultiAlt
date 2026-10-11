@@ -2352,7 +2352,7 @@ describe("AFK mode", () => {
 
 describe("AFK mode — parada de emergência por chacoalhar", () => {
   /** commands/shake_stop.rs: o backend já parou; a tela guarda o motivo e avisa. */
-  it("guarda a parada e mostra o toast quando o mouse é chacoalhado", async () => {
+  it("guarda a parada quando o mouse é chacoalhado, sem toast (o alerta da tela avisa)", async () => {
     const { result } = await renderStore();
     expect(result.current.afkEmergencyStop).toBeNull();
 
@@ -2361,7 +2361,8 @@ describe("AFK mode — parada de emergência por chacoalhar", () => {
     });
 
     expect(result.current.afkEmergencyStop).toMatchObject({ reason: "shake", afk: true, recordings: false });
-    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+    // O toast sumia em um segundo; quem avisa é o EmergencyStopAlert.
+    expect(result.current.toasts.map((toast) => toast.message)).not.toContain(
       "Emergency stop: you shook the mouse."
     );
   });

@@ -3058,7 +3058,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setAfkStatus((prev) => (prev ? { ...prev, active: false, accounts: [] } : prev));
       }),
       // Chacoalhar o mouse parou o Modo AFK e/ou a gravação (commands/shake_stop.rs).
-      // O backend já parou tudo; aqui só o porquê, na barra e num toast.
+      // O backend já parou tudo; aqui só o porquê: o alerta no meio da janela
+      // (EmergencyStopAlert) e a linha nas abas do Modo AFK. Sem toast: sumia
+      // em um segundo, antes de dar para ler.
       listen<{ reason?: string; afk?: boolean; recordings?: boolean }>("afk-emergency-stop", (e) => {
         setAfkEmergencyStop({
           reason: e.payload?.reason ?? "shake",
@@ -3066,7 +3068,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           recordings: e.payload?.recordings === true,
           atMs: Date.now(),
         });
-        addToast(tr("Emergency stop: you shook the mouse."), "warn");
       }),
       // Uma gravação começou a tocar: o aviso da parada anterior já não vale.
       listen<{ active?: boolean }>("recording-playback", (e) => {

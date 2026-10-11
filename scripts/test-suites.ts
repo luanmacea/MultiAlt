@@ -191,6 +191,8 @@ export const SUITES: Record<string, TestSuite> = {
     front: [
       "src/components/afk-mode/ClicksTab.test.tsx",
       "src/components/afk-mode/AfkModeView.test.tsx",
+      // O alerta da parada de emergência (chacoalhar o mouse).
+      "src/components/afk-mode/EmergencyStopAlert.test.tsx",
       "src/utils/afkBeep.test.ts",
       "src/store.test.ts",
       "src/afkClickPoint.test.ts",

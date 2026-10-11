@@ -2554,5 +2554,10 @@
   "Added {{count}} accounts to the launch queue": "{{count}} cuentas añadidas a la cola de inicio",
   "Already waiting in the launch queue": "Ya está esperando en la cola de inicio",
   "Off. To play the anti-AFK recording on every AFK turn, pick Play the recording under What to send in AFK clicks.": "Desactivado. Para reproducir la grabación anti-AFK en cada turno AFK, elige Reproducir la grabación en Qué enviar, en Clics AFK.",
-  "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).": "Activado: con el Modo AFK en marcha, cada cuenta reproduce su grabación anti-AFK cada {{interval}} (se define en Clics AFK)."
+  "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).": "Activado: con el Modo AFK en marcha, cada cuenta reproduce su grabación anti-AFK cada {{interval}} (se define en Clics AFK).",
+  "Emergency stop": "Parada de emergencia",
+  "No Roblox client was closed.": "No se cerró ningún cliente de Roblox.",
+  "You shook the mouse, so MultiAlt stopped AFK mode and the recording.": "Sacudiste el mouse, así que MultiAlt detuvo el Modo AFK y la grabación.",
+  "You shook the mouse, so MultiAlt stopped AFK mode.": "Sacudiste el mouse, así que MultiAlt detuvo el Modo AFK.",
+  "You shook the mouse, so MultiAlt stopped the recording.": "Sacudiste el mouse, así que MultiAlt detuvo la grabación."
 }
