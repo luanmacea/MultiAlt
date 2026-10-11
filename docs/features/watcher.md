@@ -181,14 +181,18 @@ continua sem relançar nada).
     accounts that drop" — no cartão "Keep accounts in game" do resumo da
     página e em Settings › General, mesmo texto, mesma setting (a página grava
     por `store.updateSetting`; a Settings relê o INI ao abrir);
-  - **por conta**, uma chave pequena em cada linha da lista **In game** do
-    Painel de Sessão (campo `AutoReconnect` = `true`/`false`; sem o campo, a
-    conta segue o padrão e a linha diz "default"; com escolha própria aparece
-    o botão de voltar ao padrão). Marcando linhas, a faixa de lote oferece
-    **Reconnect on** / **Reconnect off** / **Use default**, que gravam o campo
-    de cada conta marcada (`updateAccount`, uma por vez; nada abre nem fecha
-    cliente). O tooltip da chave diz de onde vem o valor ("Following the
-    default…" com ligado/desligado, ou escolhido para a conta).
+  - **por conta**, um chip **↻ On/Off** em cada linha da lista **In game** do
+    Painel de Sessão ([ReconnectChip.tsx](../../src/components/session/ReconnectChip.tsx);
+    campo `AutoReconnect` = `true`/`false`). O texto apagado quer dizer que a
+    conta segue o padrão; o clique abre um menu pequeno com **On**, **Off** e
+    **Use the default (on/off)**, com a escolha atual marcada (teclado: seta
+    abre e anda, Enter escolhe, Escape fecha). Era uma chave com "default" e um
+    botão de voltar ao padrão até 11/10/2026. Marcando linhas, o menu
+    **Reconnect** da faixa de lote tem as mesmas opções e grava o campo de cada
+    conta marcada (`updateAccount`, uma por vez; nada abre nem fecha cliente).
+    O tooltip do chip diz de onde vem o valor ("Following the default…" com
+    ligado/desligado, ou escolhido para a conta); o nome acessível diz o estado
+    ("on (default)").
   - O `AutoRelaunch` do Nexus também liga a conta (mesmo nome de usuário),
     mesmo com o campo em `false`. Com ele ligado (`get_nexus_accounts`, uma
     leitura para a lista toda, refeita quando muda quem está em jogo), a chave
@@ -292,18 +296,20 @@ paginação e voltam quando o cliente precisar; nada é perdido).
   (decisão deste pacote): vale na passada seguinte (2 s), sem relançar, e também
   nos próximos launches da conta.
 - **Onde se muda:**
-  - **por cliente, na página Session** — cada linha da lista **In game** mostra a
-    memória do cliente agora (do mesmo polling de 2,5 s do `get_running_instances`,
-    sem leitura nova) e um seletor compacto (104 px): "Default", "No limit", 1 / 1,5 /
-    2 / 3 / 4 GB, o valor próprio da conta e "Custom…" (pergunta em MB ou GB). O
-    valor do padrão fica no tooltip do seletor ("Following the default (2 GB)…"),
-    não no rótulo: "Padrão (sem limite)" saía cortado em "Padrão (sem li…" (11/10/2026).
-    Todo rótulo visível com o seletor fechado — inclusive o "Choose…" do lote —
-    cabe em 12 caracteres em en/pt/es (`SessionPanel.test.tsx`). A
-    memória fica âmbar acima do limite, com o tooltip dizendo que o app pediu para
-    liberar. Com linhas marcadas, a faixa **Memory limit** aplica o mesmo valor a
-    todas as marcadas (ou volta ao padrão), uma conta por vez. Cliente aberto pelo
-    site não tem seletor nem entra no lote;
+  - **por cliente, na página Session** — cada linha da lista **In game** tem um
+    chip com a memória do cliente agora e o limite que vale ("1.2 GB / 2 GB"; do
+    mesmo polling de 2,5 s do `get_running_instances`, sem leitura nova), âmbar
+    acima do limite ([MemoryLimitControl.tsx](../../src/components/session/MemoryLimitControl.tsx)).
+    O clique abre um menu com "Default (2 GB)", "No limit", 1 / 1,5 / 2 / 3 / 4 GB,
+    o valor próprio da conta e "Custom…" (pergunta em MB ou GB), com a escolha
+    atual marcada. Até 11/10/2026 era um seletor nativo de 104 px **ao lado** da
+    leitura, que a cobria inteira junto com o aviso de acima do limite (achado do
+    detector do Impeccable) e espremia o resto da linha; no chip a leitura é o
+    próprio texto (`SessionPanel.test.tsx`, "keeps the memory reading in view"). O
+    tooltip junta a memória, de onde vem o limite e o que acontece acima dele.
+    Com linhas marcadas, o menu **Memory limit** da faixa de lote aplica o mesmo
+    valor a todas as marcadas (ou volta ao padrão), uma conta por vez. Cliente
+    aberto pelo site não tem chip nem entra no lote;
   - **o padrão** — no cartão "Memory limit" do resumo da página Session e em
     Settings › Optimization › "While you play" ("Memory limit per client"),
     mesma setting;

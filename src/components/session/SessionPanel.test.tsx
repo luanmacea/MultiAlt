@@ -16,8 +16,7 @@ import {
   renderWithStore,
   setStore,
 } from "../../test-utils/renderWithStore";
-import i18n from "../../i18n";
-import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
+import { confirmMock, promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import { clearGameIdentityCache } from "../../hooks/useGameIdentity";
 import type {
@@ -932,11 +931,18 @@ describe("SessionPanel — reconexão automática", () => {
   });
 });
 
+/** Abre o menu de um chip e escolhe uma opção. */
+async function pickFromChip(chip: HTMLElement, option: string | RegExp) {
+  await userEvent.click(chip);
+  await userEvent.click(screen.getByRole("menuitemradio", { name: option }));
+}
+
 /**
  * Reconexão automática por conta, na lista "Em jogo" (antes ficava no painel
  * de uma conta, que quase ninguém abre com muitas contas). O campo da conta
  * (`Fields.AutoReconnect`) manda; sem ele vale `General.AutoReconnect`; o
  * AutoRelaunch do Nexus liga por cima (`reconnect_enabled`, commands/reconnect.rs).
+ * Desde 11/10/2026 é um chip (↻ On/Off) com um menu, no lugar da chave.
  */
 describe("SessionPanel — reconexão por conta", () => {
   function renderRunning(overrides: Partial<StoreValue> = {}, accounts: Account[] = ACCOUNTS) {
@@ -956,27 +962,29 @@ describe("SessionPanel — reconexão por conta", () => {
     (store.updateAccount as unknown as { mockClear: () => void }).mockClear();
   }
 
-  function rowSwitch(userId: number) {
-    return within(screen.getByTestId(`session-running-${userId}`)).getByRole("switch");
+  function rowChip(userId: number) {
+    return within(screen.getByTestId(`session-running-${userId}`)).getByTestId("reconnect-chip");
   }
 
   beforeEach(() => {
     setInvokeMap({ get_nexus_accounts: [] });
   });
 
-  it("each row follows the default until the account changes it, and says so", () => {
+  it("each row follows the default until the account changes it, and says so", async () => {
     renderRunning({ settings: { General: { AutoReconnect: "true" } } });
-    const row = screen.getByTestId("session-running-1");
-    const toggle = within(row).getByRole("switch", { name: "Auto-reconnect for alpha" });
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-    expect(within(row).getByText("default")).toBeInTheDocument();
-    expect(toggle).toHaveAttribute("title", "Following the default from Settings › General (on).");
+    const chip = rowChip(1);
+    expect(chip).toHaveAccessibleName("Auto-reconnect for alpha: on (default)");
+    expect(chip).toHaveTextContent("On");
+    expect(chip).toHaveAttribute("title", "Following the default from Settings › General (on).");
+    await userEvent.click(chip);
+    expect(screen.getByRole("menuitemradio", { name: "Use the default (on)" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("menuitemradio", { name: "On" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("turning a row off writes the account field and keeps the other fields", async () => {
     const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { RobloxVersion: "LIVE:abc" } })];
     const { store } = renderRunning({ settings: { General: { AutoReconnect: "true" } } }, accounts);
-    await userEvent.click(rowSwitch(1));
+    await pickFromChip(rowChip(1), "Off");
     const [saved] = savedAccounts(store);
     expect(saved.Fields.AutoReconnect).toBe("false");
     expect(saved.Fields.RobloxVersion).toBe("LIVE:abc");
@@ -985,10 +993,8 @@ describe("SessionPanel — reconexão por conta", () => {
   it("the account's own choice wins over the default, and can go back to it", async () => {
     const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } })];
     const { store } = renderRunning({ settings: { General: { AutoReconnect: "true" } } }, accounts);
-    const row = screen.getByTestId("session-running-1");
-    expect(rowSwitch(1)).toHaveAttribute("aria-checked", "false");
-    expect(within(row).queryByText("default")).not.toBeInTheDocument();
-    await userEvent.click(within(row).getByRole("button", { name: "Use the default from Settings › General (on)" }));
+    expect(rowChip(1)).toHaveAccessibleName("Auto-reconnect for alpha: off");
+    await pickFromChip(rowChip(1), "Use the default (on)");
     expect(savedAccounts(store)[0].Fields).not.toHaveProperty("AutoReconnect");
   });
 
@@ -996,20 +1002,38 @@ describe("SessionPanel — reconexão por conta", () => {
     setInvokeMap({ get_nexus_accounts: [{ username: "ALPHA", auto_relaunch: true }] });
     const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } })];
     renderRunning({}, accounts);
-    await waitFor(() => expect(rowSwitch(1)).toHaveAttribute("aria-checked", "true"));
-    expect(rowSwitch(1)).toHaveAttribute("aria-disabled", "true");
-    expect(rowSwitch(1)).toHaveAttribute(
+    await waitFor(() => expect(rowChip(1)).toHaveAccessibleName("Auto-reconnect for alpha: on"));
+    expect(rowChip(1)).toHaveAttribute("aria-disabled", "true");
+    expect(rowChip(1)).toHaveAttribute(
       "title",
       "Nexus AutoRelaunch is on for this account, so it reconnects even with this off."
     );
+    await userEvent.click(rowChip(1));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("does not blame Nexus when its AutoRelaunch is off for the account", async () => {
     setInvokeMap({ get_nexus_accounts: [{ username: "alpha", auto_relaunch: false }] });
     renderRunning({}, [makeAccount({ UserID: 1, Username: "alpha" })]);
     await waitFor(() => expect(callsFor("get_nexus_accounts")).toHaveLength(1));
-    expect(rowSwitch(1)).toHaveAttribute("aria-checked", "false");
-    expect(rowSwitch(1)).not.toHaveAttribute("aria-disabled");
+    expect(rowChip(1)).toHaveAccessibleName("Auto-reconnect for alpha: off (default)");
+    expect(rowChip(1)).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("the menu works from the keyboard and Escape closes it", async () => {
+    const { store } = renderRunning({ settings: { General: { AutoReconnect: "true" } } }, [
+      makeAccount({ UserID: 1, Username: "alpha" }),
+    ]);
+    rowChip(1).focus();
+    await userEvent.keyboard("{ArrowDown}");
+    // Abre com o foco na opção escolhida ("Use the default").
+    expect(screen.getByRole("menuitemradio", { name: "Use the default (on)" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(rowChip(1)).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard("{Home}{ArrowDown}{Enter}");
+    expect(savedAccounts(store)[0].Fields.AutoReconnect).toBe("false");
   });
 
   it("bulk: the checked rows turn on, off, or go back to the default", async () => {
@@ -1019,26 +1043,27 @@ describe("SessionPanel — reconexão por conta", () => {
       makeAccount({ UserID: 3, Username: "charlie" }),
     ];
     const { store } = renderRunning({}, accounts);
-    // Nada marcado: as ações de lote não aparecem.
-    expect(screen.queryByRole("button", { name: "Reconnect on" })).not.toBeInTheDocument();
+    // Nada marcado: o lote não aparece.
+    expect(screen.queryByRole("button", { name: /Auto-reconnect for \d+ selected/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Select bravo" }));
+    const bulk = screen.getByRole("button", { name: "Auto-reconnect for 2 selected" });
 
-    await userEvent.click(screen.getByRole("button", { name: "Reconnect on" }));
+    await pickFromChip(bulk, "On");
     expect(savedAccounts(store).map((a) => [a.UserID, a.Fields.AutoReconnect])).toEqual([
       [1, "true"],
       [2, "true"],
     ]);
 
     clearSaved(store);
-    await userEvent.click(screen.getByRole("button", { name: "Reconnect off" }));
+    await pickFromChip(bulk, "Off");
     expect(savedAccounts(store).map((a) => [a.UserID, a.Fields.AutoReconnect])).toEqual([
       [1, "false"],
       [2, "false"],
     ]);
 
     clearSaved(store);
-    await userEvent.click(screen.getByRole("button", { name: "Use default" }));
+    await pickFromChip(bulk, /Use the default/);
     const saved = savedAccounts(store);
     expect(saved.map((a) => a.UserID)).toEqual([1, 2]);
     expect(saved.every((a) => !("AutoReconnect" in a.Fields))).toBe(true);
@@ -1073,18 +1098,18 @@ describe("SessionPanel — reconexão por conta", () => {
 
   it("has no reconnect controls outside Windows, where the Roblox log is not read", async () => {
     renderRunning({ platformCapabilities: makePlatformCapabilities({ os: "macos" }) });
-    expect(within(screen.getByTestId("session-running-1")).queryByRole("switch")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("session-running-1")).queryByTestId("reconnect-chip")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
-    expect(screen.queryByRole("button", { name: "Reconnect on" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Auto-reconnect for 1 selected/ })).not.toBeInTheDocument();
   });
 });
 
 /**
  * Teto de memória por cliente, na lista "Em jogo" (commands/memory_ceiling.rs).
- * A linha mostra a memória do cliente (do polling de 2,5 s) e um seletor de
- * limite que grava o campo `MemoryLimit` da conta (vale na hora e nos próximos
- * launches); sem campo, vale `Optimization.MemoryLimit`. Só cliente que o app
- * abriu, e só com a feature `memory-trim` no binário.
+ * A linha mostra a memória do cliente (do polling de 2,5 s) e o limite num
+ * chip; o menu grava o campo `MemoryLimit` da conta (vale na hora e nos
+ * próximos launches); sem campo, vale `Optimization.MemoryLimit`. Só cliente
+ * que o app abriu, e só com a feature `memory-trim` no binário.
  */
 describe("SessionPanel — limite de memória por cliente", () => {
   const TRIM = makePlatformCapabilities({ supportsMemoryTrim: true });
@@ -1107,67 +1132,52 @@ describe("SessionPanel — limite de memória por cliente", () => {
     (store.updateAccount as unknown as { mockClear: () => void }).mockClear();
   }
 
-  function limitSelect(name: string) {
-    return screen.getByRole("combobox", { name: `Memory limit for ${name}` }) as HTMLSelectElement;
+  function memoryChip(userId: number) {
+    return within(screen.getByTestId(`session-running-${userId}`)).getByTestId("memory-chip");
   }
 
   beforeEach(() => {
     setInvokeMap({ get_nexus_accounts: [] });
   });
 
-  it("shows the client's memory and follows the default until the account picks its own", () => {
+  it("shows the client's memory next to its limit and follows the default until the account picks its own", async () => {
     renderRunning({
       settings: { Optimization: { MemoryLimit: "2048" } },
       clientMemory: new Map([[1, { memoryMb: 1250, limitMb: 2048, over: false, trimmedAtMs: null }]]),
     });
-    const row = screen.getByTestId("session-running-1");
-    expect(within(row).getByText("1.2 GB")).toBeInTheDocument();
-    const select = limitSelect("alpha");
-    expect(select.value).toBe("default");
-    // O rótulo é curto (cabe no seletor); o valor do padrão vai no tooltip.
-    expect(within(select).getByRole("option", { name: "Default" })).toBeInTheDocument();
-    expect(select).toHaveAttribute("title", expect.stringMatching(/Following the default \(2 GB\)/));
+    const chip = memoryChip(1);
+    expect(chip).toHaveTextContent("1.2 GB/ 2 GB");
+    expect(chip).toHaveAccessibleName("Memory limit for alpha: default, 2 GB");
+    expect(chip).toHaveAttribute("title", expect.stringMatching(/Following the default \(2 GB\)/));
+    await userEvent.click(chip);
+    expect(screen.getByRole("menuitemradio", { name: "Default (2 GB)" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("says when there is no default limit", () => {
+  it("says when there is no default limit", async () => {
     renderRunning();
-    expect(within(limitSelect("alpha")).getByRole("option", { name: "Default" })).toBeInTheDocument();
-    expect(limitSelect("alpha")).toHaveAttribute("title", expect.stringMatching(/Following the default \(no limit\)/));
+    expect(memoryChip(1)).toHaveAttribute("title", expect.stringMatching(/Following the default \(no limit\)/));
+    await userEvent.click(memoryChip(1));
+    expect(screen.getByRole("menuitemradio", { name: "Default (no limit)" })).toBeInTheDocument();
   });
 
   /**
-   * O seletor da linha tem 104 px: "Padrão (sem li…" cortado (pedido do dono,
-   * 11/10/2026). Todo rótulo que aparece com o seletor fechado — padrão, sem
-   * limite, os tamanhos, o próprio da conta e o "Choose…" do lote — cabe em 12
-   * caracteres nos três idiomas (~70 px a 11 px). "Custom…" só aparece com a
-   * lista aberta, que se alarga sozinha.
+   * O seletor de 104 px cobria a leitura de memória e o aviso de acima do
+   * limite (achado do detector, 11/10/2026). No chip a leitura é o próprio
+   * texto, e a linha não tem mais seletor nativo nenhum.
    */
-  it.each(["en", "pt", "es"])("every label shown in the closed picker fits (%s)", async (lang) => {
-    await i18n.changeLanguage(lang);
-    try {
-      const accounts = [
-        makeAccount({ UserID: 1, Username: "alpha", Fields: { MemoryLimit: "1800" } }),
-        makeAccount({ UserID: 2, Username: "bravo" }),
-      ];
-      renderRunning({ settings: { Optimization: { MemoryLimit: "2048" } } }, accounts);
-      // Pelas linhas, não pelos nomes acessíveis: eles também mudam de idioma.
-      const row = (id: number) => screen.getByTestId(`session-running-${id}`);
-      const rowSelect = within(row(1)).getByRole("combobox") as HTMLSelectElement;
-      const labels = [...rowSelect.options].filter((o) => o.value !== "custom").map((o) => o.textContent ?? "");
-      for (const id of [1, 2]) await userEvent.click(within(row(id)).getByRole("checkbox"));
-      const bulk = screen.getByTestId("session-memory-bulk").querySelector("select") as HTMLSelectElement;
-      labels.push(bulk.options[0].textContent ?? "");
-      expect(labels.length).toBeGreaterThan(5);
-      for (const label of labels) expect(label.length, label).toBeLessThanOrEqual(12);
-    } finally {
-      await i18n.changeLanguage("en");
-    }
+  it("keeps the memory reading in view, with no native picker covering it", () => {
+    renderRunning({
+      clientMemory: new Map([[1, { memoryMb: 2500, limitMb: 2048, over: true, trimmedAtMs: 1 }]]),
+    });
+    const row = screen.getByTestId("session-running-1");
+    expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(memoryChip(1)).getByTestId("memory-reading")).toHaveTextContent("2.4 GB");
   });
 
   it("picking a size writes the account field and keeps the other fields, closing nothing", async () => {
     const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { RobloxVersion: "LIVE:abc" } })];
     const { store } = renderRunning({}, accounts);
-    await userEvent.selectOptions(limitSelect("alpha"), "2048");
+    await pickFromChip(memoryChip(1), "2 GB");
     const [saved] = savedAccounts(store);
     expect(saved.Fields.MemoryLimit).toBe("2048");
     expect(saved.Fields.RobloxVersion).toBe("LIVE:abc");
@@ -1177,56 +1187,53 @@ describe("SessionPanel — limite de memória por cliente", () => {
   it("no limit is its own choice, and default removes the field", async () => {
     const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { MemoryLimit: "1536" } })];
     const { store } = renderRunning({ settings: { Optimization: { MemoryLimit: "2048" } } }, accounts);
-    expect(limitSelect("alpha").value).toBe("1536");
-    await userEvent.selectOptions(limitSelect("alpha"), "0");
+    expect(memoryChip(1)).toHaveAccessibleName("Memory limit for alpha: 1.5 GB");
+    await pickFromChip(memoryChip(1), "No limit");
     expect(savedAccounts(store)[0].Fields.MemoryLimit).toBe("0");
     clearSaved(store);
-    await userEvent.selectOptions(limitSelect("alpha"), "default");
+    await pickFromChip(memoryChip(1), "Default (2 GB)");
     expect(savedAccounts(store)[0].Fields).not.toHaveProperty("MemoryLimit");
   });
 
   it("a custom size is asked for, in MB or GB", async () => {
-    const accounts = [makeAccount({ UserID: 1, Username: "alpha" })];
-    const { store } = renderRunning({}, accounts);
+    const { store } = renderRunning({}, [makeAccount({ UserID: 1, Username: "alpha" })]);
     promptAnswers.prompt = "2.5 GB";
-    await userEvent.selectOptions(limitSelect("alpha"), "custom");
-    expect(savedAccounts(store)[0].Fields.MemoryLimit).toBe("2560");
+    await pickFromChip(memoryChip(1), "Custom…");
+    await waitFor(() => expect(savedAccounts(store)[0]?.Fields.MemoryLimit).toBe("2560"));
   });
 
   it("a cancelled or unreadable custom size saves nothing", async () => {
-    const accounts = [makeAccount({ UserID: 1, Username: "alpha" })];
-    const { store } = renderRunning({}, accounts);
+    const { store } = renderRunning({}, [makeAccount({ UserID: 1, Username: "alpha" })]);
     promptAnswers.prompt = null;
-    await userEvent.selectOptions(limitSelect("alpha"), "custom");
+    await pickFromChip(memoryChip(1), "Custom…");
     promptAnswers.prompt = "lots";
-    await userEvent.selectOptions(limitSelect("alpha"), "custom");
+    await pickFromChip(memoryChip(1), "Custom…");
+    await waitFor(() => expect(promptMock).toHaveBeenCalledTimes(2));
     expect(savedAccounts(store)).toHaveLength(0);
-    expect(limitSelect("alpha").value).toBe("default");
   });
 
-  it("a custom size already saved shows up as its own option", () => {
+  it("a custom size already saved shows up as its own option", async () => {
     renderRunning({}, [makeAccount({ UserID: 1, Username: "alpha", Fields: { MemoryLimit: "1800" } })]);
-    const select = limitSelect("alpha");
-    expect(select.value).toBe("1800");
-    expect(within(select).getByRole("option", { name: "1.8 GB" })).toBeInTheDocument();
+    await userEvent.click(memoryChip(1));
+    expect(screen.getByRole("menuitemradio", { name: "1.8 GB" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("over the limit, the memory is highlighted and says the memory was freed", () => {
+  it("over the limit, the chip turns amber and says the memory was freed", () => {
     renderRunning({
       clientMemory: new Map([[1, { memoryMb: 2500, limitMb: 2048, over: true, trimmedAtMs: 1 }]]),
     });
-    const reading = within(screen.getByTestId("session-running-1")).getByText("2.4 GB");
-    expect(reading.className).toMatch(/amber/);
-    expect(reading).toHaveAttribute(
+    const chip = memoryChip(1);
+    expect(chip.className).toMatch(/amber/);
+    expect(chip).toHaveAttribute(
       "title",
-      "Over its limit of 2 GB: MultiAlt asked Windows to free this client's memory."
+      expect.stringContaining("Over its limit of 2 GB: MultiAlt asked Windows to free this client's memory.")
     );
   });
 
   it("a client opened from the website has no limit control", () => {
     renderRunning({ adoptedClients: new Set([3]) });
-    expect(screen.queryByRole("combobox", { name: "Memory limit for charlie" })).not.toBeInTheDocument();
-    expect(limitSelect("alpha")).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-running-3")).queryByTestId("memory-chip")).not.toBeInTheDocument();
+    expect(memoryChip(1)).toBeInTheDocument();
   });
 
   it("without the memory-trim build there is no memory control at all", async () => {
@@ -1234,9 +1241,9 @@ describe("SessionPanel — limite de memória por cliente", () => {
       platformCapabilities: makePlatformCapabilities({ supportsMemoryTrim: false }),
       clientMemory: new Map([[1, { memoryMb: 1250, limitMb: null, over: false, trimmedAtMs: null }]]),
     });
-    expect(screen.queryByRole("combobox", { name: /Memory limit for/ })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("memory-chip")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
-    expect(screen.queryByTestId("session-memory-bulk")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Memory limit for 1 selected/ })).not.toBeInTheDocument();
   });
 
   it("bulk: the checked rows get the same limit, or go back to the default", async () => {
@@ -1246,19 +1253,22 @@ describe("SessionPanel — limite de memória por cliente", () => {
       makeAccount({ UserID: 3, Username: "charlie" }),
     ];
     const { store } = renderRunning({}, accounts);
-    expect(screen.queryByTestId("session-memory-bulk")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Memory limit for \d+ selected/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Select bravo" }));
 
-    const bulk = screen.getByRole("combobox", { name: "Memory limit for 2 selected" });
-    await userEvent.selectOptions(bulk, "3072");
-    expect(savedAccounts(store).map((a) => [a.UserID, a.Fields.MemoryLimit])).toEqual([
-      [1, "3072"],
-      [2, "3072"],
-    ]);
+    const bulk = screen.getByRole("button", { name: "Memory limit for 2 selected" });
+    await pickFromChip(bulk, "3 GB");
+    await waitFor(() =>
+      expect(savedAccounts(store).map((a) => [a.UserID, a.Fields.MemoryLimit])).toEqual([
+        [1, "3072"],
+        [2, "3072"],
+      ])
+    );
 
     clearSaved(store);
-    await userEvent.selectOptions(bulk, "default");
+    await pickFromChip(bulk, /^Default/);
+    await waitFor(() => expect(savedAccounts(store)).toHaveLength(2));
     expect(savedAccounts(store).every((a) => !("MemoryLimit" in a.Fields))).toBe(true);
     expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
   });
@@ -1266,8 +1276,8 @@ describe("SessionPanel — limite de memória por cliente", () => {
   it("bulk skips the clients opened from the website", async () => {
     const { store } = renderRunning({ adoptedClients: new Set([3]) });
     await userEvent.click(screen.getByRole("checkbox", { name: "Select all running clients" }));
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Memory limit for 2 selected" }), "2048");
-    expect(savedAccounts(store).map((a) => a.UserID)).toEqual([1, 2]);
+    await pickFromChip(screen.getByRole("button", { name: "Memory limit for 2 selected" }), "2 GB");
+    await waitFor(() => expect(savedAccounts(store).map((a) => a.UserID)).toEqual([1, 2]));
   });
 });
 

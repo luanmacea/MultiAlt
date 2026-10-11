@@ -7,7 +7,6 @@ import {
   Gamepad2,
   Globe,
   ListX,
-  MemoryStick,
   PowerOff,
   RotateCw,
   SquareStop,
@@ -20,8 +19,8 @@ import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
 import { ClientHealthNote } from "./ClientHealthNote";
-import { ReconnectSwitch } from "./ReconnectSwitch";
-import { MemoryLimitSelect, MemoryReading, type MemoryLimitValue } from "./MemoryLimitControl";
+import { ReconnectBulkChip, ReconnectChip } from "./ReconnectChip";
+import { MemoryBulkChip, MemoryChip, type MemoryLimitValue } from "./MemoryLimitControl";
 import { MEMORY_LIMIT_SETTING, fieldsWithMemoryLimit, memoryLimitChoice } from "../../utils/memoryLimit";
 import {
   autoReconnectLabel,
@@ -158,9 +157,10 @@ function dropKey(entry: AutoReconnectEntry): string {
 }
 
 /**
- * Estado de uma conta do "Em jogo", curto: reconectando (âmbar), caiu ou não
- * responde (o `ClientHealthNote`, com o motivo), jogando (verde) ou ainda sem
- * jogo. Sem log achado e sem sessão, não diz nada (não sabe).
+ * Estado de uma conta do "Em jogo", curto, ao lado do nome: reconectando
+ * (âmbar), jogando (verde) ou ainda sem jogo. A queda e o "não responde" vão
+ * numa linha própria embaixo (`ClientHealthNote`), que pode quebrar: o motivo
+ * cortado em 0 px não dizia nada. Sem log achado e sem sessão, não diz nada.
  */
 function RunningState({
   session,
@@ -172,19 +172,15 @@ function RunningState({
   reconnecting: boolean;
 }) {
   const t = useTr();
-  const note = <ClientHealthNote health={health} className="shrink" />;
   if (reconnecting) {
     return (
-      <>
-        <span className="shrink-0 inline-flex items-center gap-1 text-amber-400">
-          <RotateCw size={11} strokeWidth={1.75} aria-hidden="true" />
-          {t("Reconnecting")}
-        </span>
-        {note}
-      </>
+      <span className="shrink-0 inline-flex items-center gap-1 text-amber-400">
+        <RotateCw size={11} strokeWidth={1.75} aria-hidden="true" />
+        {t("Reconnecting")}
+      </span>
     );
   }
-  if (health?.drop || health?.notResponding) return note;
+  if (health?.drop || health?.notResponding) return null;
   if (session) {
     return (
       <span className="shrink-0 inline-flex items-center gap-1 text-emerald-400">
@@ -194,7 +190,7 @@ function RunningState({
     );
   }
   if (health?.logFound && !health.inGame) {
-    return <span className="min-w-0 truncate theme-muted">{t("Not in a game yet")}</span>;
+    return <span className="shrink-0 theme-muted">{t("Not in a game yet")}</span>;
   }
   return null;
 }
@@ -280,10 +276,6 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   const memoryDefaultMb = memoryLimitChoice(undefined, memoryDefaultRaw).defaultMb;
   const [memorySaving, setMemorySaving] = useState(false);
   const memoryBulkIds = selected.filter((id) => !store.adoptedClients.has(id));
-  const memoryBulkLabel =
-    memoryBulkIds.length === 1
-      ? t("Memory limit for 1 selected")
-      : t("Memory limit for {{count}} selected", { count: memoryBulkIds.length });
 
   /**
    * Grava o limite (`null` = volta ao padrão) no `Fields.MemoryLimit` de cada
@@ -533,6 +525,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
    */
   function renderRow(userId: number, context: "game" | "full") {
     const session = sessions.get(userId);
+    const health = store.clientHealth?.get(userId);
     const name = nameFor(userId);
     const choice = isWindows ? choiceFor(userId) : null;
     const account = store.accounts.find((a) => a.UserID === userId);
@@ -541,55 +534,54 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         ? memoryLimitChoice(account.Fields, memoryDefaultRaw)
         : null;
     return (
-      <li key={userId} data-testid={`session-running-${userId}`} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
-        <SelectBox
-          label={t("Select {{name}}", { name })}
-          checked={checked.has(userId)}
-          onChange={() => toggleChecked(userId)}
-        />
-        {/* Conta e estado em cima; fora do grupo do jogo, jogo · servidor ·
-            tempo embaixo. Cabe em 820 px sem rolar de lado. */}
-        <span className="min-w-0 flex-1 flex flex-col">
+      <li key={userId} data-testid={`session-running-${userId}`} className="flex items-start gap-2 px-3 py-1.5 text-[12px]">
+        <span className="pt-0.5">
+          <SelectBox
+            label={t("Select {{name}}", { name })}
+            checked={checked.has(userId)}
+            onChange={() => toggleChecked(userId)}
+          />
+        </span>
+        {/* A informação ao vivo tem a largura que sobra; os controles são
+            chips compactos à direita. Em cima: conta, estado e tempo; embaixo,
+            quando há, o motivo da queda (quebra linha) e, fora do grupo do
+            jogo, jogo · servidor · tempo. */}
+        <span className="min-w-0 flex-1 flex flex-col gap-0.5 pt-[3px]">
           <span className="flex items-center gap-2 min-w-0">
-            {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
-            <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[45%]" title={name}>
+            <span className="text-[var(--panel-fg)] truncate min-w-[3ch]" title={name}>
               {name}
             </span>
-            <RunningState
-              session={session}
-              health={store.clientHealth?.get(userId)}
-              reconnecting={reconnectingIds.has(userId)}
-            />
+            <RunningState session={session} health={health} reconnecting={reconnectingIds.has(userId)} />
             {session && context === "game" && (
-              <span className="shrink-0 text-[11px] theme-muted">
+              <span className="shrink-0 text-[11.5px] theme-muted">
                 <SessionClock userId={userId} sinceMs={session.sinceMs} />
               </span>
             )}
-            {memoryChoice && <MemoryReading memory={store.clientMemory?.get(userId)} />}
             {store.adoptedClients.has(userId) && (
               <span
                 className="min-w-0 flex items-center gap-1 theme-muted"
                 title={t("Opened from the Roblox website and recognized by the Roblox log")}
               >
-                <Globe size={11} strokeWidth={1.5} className="shrink-0" />
+                <Globe size={11} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />
                 <span className="truncate">{t("Opened outside the app")}</span>
               </span>
             )}
           </span>
+          {(health?.drop || health?.notResponding) && <ClientHealthNote health={health} wrap />}
           {session && context === "full" && <CurrentSessionLine session={session} />}
         </span>
-        <span className="ml-auto flex items-center gap-1.5 shrink-0">
+        <span className="flex items-center gap-1 shrink-0">
           {memoryChoice && (
-            <MemoryLimitSelect
-              ariaLabel={t("Memory limit for {{name}}", { name })}
+            <MemoryChip
+              name={name}
               choice={memoryChoice}
-              defaultMb={memoryDefaultMb}
+              memory={store.clientMemory?.get(userId)}
               disabled={memorySaving}
               onChange={(value) => void saveMemoryLimit([userId], value)}
             />
           )}
           {choice && (
-            <ReconnectSwitch
+            <ReconnectChip
               name={name}
               choice={choice}
               disabled={reconnectSaving}
@@ -599,17 +591,17 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
           <button
             onClick={() => void handleFocus(userId)}
             title={t("Bring this client's window to the front")}
-            className="sidebar-btn-sm flex items-center gap-1.5"
+            className="sidebar-btn-sm !px-2 h-6 !py-0 flex items-center gap-1"
           >
-            <Crosshair size={12} strokeWidth={1.5} />
+            <Crosshair size={12} strokeWidth={1.5} aria-hidden="true" />
             {t("Focus")}
           </button>
           <button
             onClick={() => void handleClose([userId])}
             disabled={busy}
-            className="sidebar-btn-sm flex items-center gap-1.5 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="sidebar-btn-sm !px-2 h-6 !py-0 ml-2 flex items-center gap-1 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <PowerOff size={12} strokeWidth={1.5} />
+            <PowerOff size={12} strokeWidth={1.5} aria-hidden="true" />
             {t("Close")}
           </button>
         </span>
@@ -909,67 +901,32 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
           </div>
         </header>
 
-        {/* Lote da reconexão: só com contas marcadas, numa faixa própria para
-            o cabeçalho não estourar a largura da aba Console. */}
-        {isWindows && selected.length > 0 && (
+        {/* Lote: reconexão e teto de memória das contas marcadas, nos mesmos
+            menus das linhas. O teto pula os clientes abertos pelo site. */}
+        {selected.length > 0 && (isWindows || (memoryTrim && memoryBulkIds.length > 0)) && (
           <div
-            data-testid="session-reconnect-bulk"
+            data-testid="session-bulk-settings"
             className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 border-b theme-border text-[12px]"
           >
-            <span className="flex items-center gap-1 theme-muted mr-auto min-w-0">
-              <RotateCw size={12} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />
-              <span className="truncate">
-                {selected.length === 1
-                  ? t("Auto-reconnect for 1 selected")
-                  : t("Auto-reconnect for {{count}} selected", { count: selected.length })}
-              </span>
+            <span className="theme-muted mr-auto">
+              {selected.length === 1 ? t("1 selected") : t("{{count}} selected", { count: selected.length })}
             </span>
-            <button
-              onClick={() => void saveReconnect(selected, true)}
-              disabled={reconnectSaving}
-              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {t("Reconnect on")}
-            </button>
-            <button
-              onClick={() => void saveReconnect(selected, false)}
-              disabled={reconnectSaving}
-              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {t("Reconnect off")}
-            </button>
-            <button
-              onClick={() => void saveReconnect(selected, null)}
-              disabled={reconnectSaving}
-              title={
-                reconnectDefault
-                  ? t("Use the default from Settings › General (on)")
-                  : t("Use the default from Settings › General (off)")
-              }
-              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {t("Use default")}
-            </button>
-          </div>
-        )}
-
-        {/* Lote do teto de memória: a mesma faixa, sem os clientes do site. */}
-        {memoryTrim && memoryBulkIds.length > 0 && (
-          <div
-            data-testid="session-memory-bulk"
-            className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 border-b theme-border text-[12px]"
-          >
-            <span className="flex items-center gap-1 theme-muted mr-auto min-w-0">
-              <MemoryStick size={12} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />
-              <span className="truncate">{memoryBulkLabel}</span>
-            </span>
-            <MemoryLimitSelect
-              ariaLabel={memoryBulkLabel}
-              choice={null}
-              defaultMb={memoryDefaultMb}
-              disabled={memorySaving}
-              onChange={(value) => void saveMemoryLimit(memoryBulkIds, value)}
-            />
+            {isWindows && (
+              <ReconnectBulkChip
+                count={selected.length}
+                globalDefault={reconnectDefault}
+                disabled={reconnectSaving}
+                onChange={(value) => void saveReconnect(selected, value)}
+              />
+            )}
+            {memoryTrim && memoryBulkIds.length > 0 && (
+              <MemoryBulkChip
+                count={memoryBulkIds.length}
+                defaultMb={memoryDefaultMb}
+                disabled={memorySaving}
+                onChange={(value) => void saveMemoryLimit(memoryBulkIds, value)}
+              />
+            )}
           </div>
         )}
 
