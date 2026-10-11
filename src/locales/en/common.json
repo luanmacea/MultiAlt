@@ -2554,5 +2554,10 @@
   "Added {{count}} accounts to the launch queue": "Added {{count}} accounts to the launch queue",
   "Already waiting in the launch queue": "Already waiting in the launch queue",
   "Off. To play the anti-AFK recording on every AFK turn, pick Play the recording under What to send in AFK clicks.": "Off. To play the anti-AFK recording on every AFK turn, pick Play the recording under What to send in AFK clicks.",
-  "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).": "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks)."
+  "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).": "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).",
+  "Emergency stop": "Emergency stop",
+  "No Roblox client was closed.": "No Roblox client was closed.",
+  "You shook the mouse, so MultiAlt stopped AFK mode and the recording.": "You shook the mouse, so MultiAlt stopped AFK mode and the recording.",
+  "You shook the mouse, so MultiAlt stopped AFK mode.": "You shook the mouse, so MultiAlt stopped AFK mode.",
+  "You shook the mouse, so MultiAlt stopped the recording.": "You shook the mouse, so MultiAlt stopped the recording."
 }

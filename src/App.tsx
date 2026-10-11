@@ -12,6 +12,7 @@ import { UpdateBanner } from "./components/layout/UpdateBanner";
 import { SafeModeBanner } from "./components/layout/SafeModeBanner";
 import { VaultKeyBanner } from "./components/layout/VaultKeyBanner";
 import { LockOverlay } from "./components/layout/LockOverlay";
+import { EmergencyStopAlert } from "./components/afk-mode/EmergencyStopAlert";
 import { useInactivityLock } from "./hooks/useInactivityLock";
 import { inactivityLockActive, normalizeLockMinutes } from "./utils/inactivityLock";
 import { Toolbar } from "./components/layout/Toolbar";
@@ -157,6 +158,8 @@ function AppContent() {
     {/* Trancado: a janela inteira fica `inert` (nem foco nem clique) e a tela de
         senha vem por cima — nada é desmontado, então nada que roda para. */}
     {store.appLocked && <LockOverlay />}
+    {/* A parada de emergência do Modo AFK/gravações: alerta que fica até fechar. */}
+    <EmergencyStopAlert />
     <div className="theme-app flex h-screen flex-col" inert={store.appLocked || undefined}>
       <ModalWindowControls visible={anyModalOpen} />
       <TitleBar controlsHidden={anyModalOpen} />
