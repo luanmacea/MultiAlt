@@ -95,9 +95,9 @@ export function RecordingSlots({
       data-testid="recording-slots"
     >
       <div>
-        <h3 id="recording-slots-title" className="text-[13px] font-semibold text-[var(--panel-fg)]">
+        <h2 id="recording-slots-title" className="text-[13px] font-semibold text-[var(--panel-fg)]">
           {t("Which recording plays")}
-        </h3>
+        </h2>
         <p className="mt-0.5 text-[11px] leading-4 theme-muted">
           {t("Two separate choices: one plays after an automatic reconnect (to put the character in place), the other on every AFK mode turn.")}
         </p>

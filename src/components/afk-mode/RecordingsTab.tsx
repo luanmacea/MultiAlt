@@ -709,9 +709,9 @@ export function RecordingsTab() {
               />
             <div>
             <section className={`${CARD} space-y-3`} aria-labelledby="recordings-when-title">
-              <h3 id="recordings-when-title" className="text-[13px] font-semibold text-[var(--panel-fg)]">
+              <h2 id="recordings-when-title" className="text-[13px] font-semibold text-[var(--panel-fg)]">
                 {t("When it plays")}
-              </h3>
+              </h2>
               <div className="space-y-2" role="group" aria-labelledby="recordings-when-reconnect">
                 <div id="recordings-when-reconnect" className="text-[11px] font-semibold uppercase tracking-wide theme-muted">
                   {slotLabel(t, "afterReconnect")}
@@ -763,7 +763,7 @@ export function RecordingsTab() {
 
           <section data-tour="afk-recordings-library" className={CARD} aria-label={t("Library")}>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Library")}</h3>
+              <h2 className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Library")}</h2>
               <button
                 onClick={() => setImportOpen((v) => !v)}
                 aria-expanded={importOpen}
