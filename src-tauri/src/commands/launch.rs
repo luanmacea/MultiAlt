@@ -2315,6 +2315,9 @@ struct RunningInstance {
     /// Queda lida do log do cliente — ver client_health.rs. `None` enquanto o
     /// monitor não viu este PID.
     health: Option<ClientHealthView>,
+    /// Memória e limite do cliente — ver memory_ceiling.rs. `None` para o
+    /// cliente do site e sem a feature `memory-trim`.
+    memory: Option<ClientMemoryView>,
 }
 
 #[tauri::command]
@@ -2328,6 +2331,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 pid: p.pid,
                 user_id: p.user_id,
                 health: client_health_of(p.user_id, p.pid),
+                memory: client_memory_of(p.user_id),
                 browser_tracker_id: p.browser_tracker_id,
                 adopted: p.adopted,
             })
@@ -2344,6 +2348,7 @@ fn get_running_instances() -> Result<Vec<RunningInstance>, String> {
                 browser_tracker_id: p.browser_tracker_id,
                 adopted: false,
                 health: None,
+                memory: None,
             })
             .collect());
     }
