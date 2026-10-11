@@ -752,7 +752,13 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
         ? memoryLimitChoice(account.Fields, memoryDefaultRaw)
         : null;
     return (
-      <li key={userId} data-testid={`session-running-${userId}`} className="flex items-start gap-2 px-3 py-1.5 text-[12px]">
+      <li
+        key={userId}
+        data-testid={`session-running-${userId}`}
+        className={`flex items-start gap-2 px-3 py-1.5 text-[12px] ${
+          checked.has(userId) ? "session-row-selected" : "hover:bg-[var(--row-hover)]"
+        }`}
+      >
         <span className="pt-0.5">
           <SelectBox
             label={t("Select {{name}}", { name })}
@@ -810,13 +816,13 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           <button
             onClick={() => void handleFocus(userId)}
             title={t("Bring this client's window to the front")}
-            className="sidebar-btn-sm !px-2 h-6 !py-0 flex items-center gap-1"
+            className="session-row-btn"
           >
             <Crosshair size={12} strokeWidth={1.5} aria-hidden="true" />
             {t("Focus")}
           </button>
-          {/* Longe do Focus, com um divisor: fechar não pode ser o clique errado. */}
-          <span aria-hidden="true" className="mx-1.5 h-4 w-px bg-[var(--border-color)]" />
+          {/* Longe do Focus: fechar não pode ser o clique errado. */}
+          <span aria-hidden="true" className="w-3" />
           <button
             onClick={() => (armedClose === userId ? void closeNow([userId]) : armClose(userId))}
             onBlur={() => {
@@ -828,9 +834,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                 ? t("Click again to close this client")
                 : t("Close this account's Roblox client")
             }
-            className={`sidebar-btn-sm !px-2 h-6 !py-0 flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${
-              armedClose === userId ? "!bg-red-600 !border-red-600 !text-white" : "!text-red-400"
-            }`}
+            className={`session-row-btn ${armedClose === userId ? "session-row-btn-armed" : "session-row-btn-danger"}`}
           >
             <PowerOff size={12} strokeWidth={1.5} aria-hidden="true" />
             {armedClose === userId ? t("Close?") : t("Close")}
@@ -1170,7 +1174,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
             {grouped ? (
               <>
                 {groups.attention.length > 0 && (
-                  <div data-testid="session-attention">
+                  <div data-testid="session-attention" className="session-group">
                     <AttentionGroupHeader
                       count={groups.attention.length}
                       selection={selectionOf(groups.attention)}
@@ -1182,7 +1186,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   </div>
                 )}
                 {groups.games.map((game) => (
-                  <div key={game.key} data-testid={`session-game-${game.placeId}`}>
+                  <div key={game.key} data-testid={`session-game-${game.placeId}`} className="session-group">
                     <GameGroupHeader
                       placeId={game.placeId}
                       userId={game.userIds[0]}
@@ -1199,6 +1203,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                             server={server}
                             selection={selectionOf(server.userIds)}
                             onSelect={() => toggleGroup(server.userIds)}
+                            selectable={game.servers.length > 1}
                           />
                           <ul>{server.userIds.map((id) => renderRow(id, "game"))}</ul>
                         </div>
@@ -1206,7 +1211,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   </div>
                 ))}
                 {groups.noGame.length > 0 && (
-                  <div data-testid="session-no-game">
+                  <div data-testid="session-no-game" className="session-group">
                     <NoGameGroupHeader
                       count={groups.noGame.length}
                       selection={selectionOf(groups.noGame)}
