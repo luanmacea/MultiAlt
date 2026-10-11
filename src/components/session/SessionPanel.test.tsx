@@ -169,6 +169,54 @@ describe("SessionPanel — rendering", () => {
     expect(within(row).getByText(erro)).toBeInTheDocument();
   });
 
+  /**
+   * Um launch disparado com a fila rodando entra no fim dela, com o jogo dele:
+   * 3 contas no jogo A e mais 2 no jogo B ficam na mesma fila. Sem o jogo na
+   * linha, não dava para saber qual conta ia para onde.
+   */
+  it("a queue that mixes games names the game of each account", async () => {
+    clearGameIdentityCache();
+    setInvokeMap({
+      batched_get_game_info: (args: Record<string, unknown> | undefined) => {
+        const placeId = Number(args?.placeId);
+        const names: Record<number, string> = { 606849621: "Jailbreak", 920587237: "Adopt Me" };
+        return { placeId, universeId: 1, name: names[placeId] ?? null, iconUrl: null };
+      },
+    });
+    renderPanel({
+      launchQueue: queue([
+        { ...entry(1, "launching"), placeId: 606849621, jobId: "" },
+        { ...entry(2, "queued"), placeId: 606849621, jobId: "" },
+        { ...entry(3, "queued"), placeId: 920587237, jobId: "" },
+      ]),
+      launchedByProgram: new Set<number>(),
+    });
+
+    expect(await within(screen.getByTestId("session-queue-1")).findByText("Jailbreak")).toBeInTheDocument();
+    expect(await within(screen.getByTestId("session-queue-3")).findByText("Adopt Me")).toBeInTheDocument();
+    // E o "Queued" continua lá: o jogo não toma o lugar do estado.
+    expect(within(screen.getByTestId("session-queue-3")).getByText("Queued")).toBeInTheDocument();
+  });
+
+  it("a queue with a single game does not repeat it on every row", async () => {
+    clearGameIdentityCache();
+    setInvokeMap({
+      batched_get_game_info: () => ({ placeId: 606849621, universeId: 1, name: "Jailbreak", iconUrl: null }),
+    });
+    renderPanel({
+      launchQueue: queue([
+        { ...entry(1, "launching"), placeId: 606849621, jobId: "" },
+        { ...entry(2, "queued"), placeId: 606849621, jobId: "" },
+      ]),
+      launchedByProgram: new Set<number>(),
+    });
+    // Um jogo só: o nome em cada linha seria a mesma palavra repetida.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(within(screen.getByTestId("session-queue-1")).queryByText("Jailbreak")).not.toBeInTheDocument();
+  });
+
   /** Fila vazia é só o cabeçalho: uma caixa vazia empurrava o "Em jogo" para baixo. */
   it("an idle queue collapses to its header", () => {
     renderPanel({ launchQueue: null, launchedByProgram: new Set<number>() });

@@ -2555,5 +2555,8 @@
   "Emergency stop: you shook the mouse.": "Parada de emergência: você chacoalhou o mouse.",
   "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.": "Chacoalhe o mouse com força para os lados para parar quando o app estiver movendo ele. Só a posição do mouse é lida.",
   "Shake the mouse to stop.": "Chacoalhe o mouse para parar.",
-  "Stop AFK and recordings when I shake the mouse": "Parar o AFK e as gravações quando eu chacoalhar o mouse"
+  "Stop AFK and recordings when I shake the mouse": "Parar o AFK e as gravações quando eu chacoalhar o mouse",
+  "Added {{count}} account to the launch queue": "{{count}} conta entrou na fila de launch",
+  "Added {{count}} accounts to the launch queue": "{{count}} contas entraram na fila de launch",
+  "Already waiting in the launch queue": "Já está esperando na fila de launch"
 }

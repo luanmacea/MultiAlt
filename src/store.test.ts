@@ -907,6 +907,44 @@ describe("joinServer", () => {
     });
   });
 
+  /**
+   * O dono lançou 3 contas no jogo A e, com a fila andando, mandou mais uma
+   * para o jogo B: o backend agora põe a conta no fim da fila (antes recusava
+   * com "A launch is already in progress", num toast fácil de perder). A tela
+   * diz que ela entrou na fila — e não que está lançando agora.
+   */
+  it("um launch durante a fila entra no fim dela e avisa com um toast curto", async () => {
+    const { result } = await setup();
+    results.set("launch_roblox", { appended: true, added: 1 });
+
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBe("started");
+    });
+
+    const toasts = result.current.toasts.map((toast) => toast.message);
+    expect(toasts).toContain("Added 1 account to the launch queue");
+    expect(toasts).not.toContain("A launch is already in progress");
+    expect(toasts).not.toContain("Launching game...");
+    expect(result.current.error).toBeNull();
+    // O "Launching Main..." do rodapé sai: esta conta não está abrindo agora.
+    expect(result.current.actionStatus?.message ?? "").not.toContain("Main");
+    // Nem o estado de "entrando" desta conta, que é da conta que a fila lança.
+    expect(result.current.joiningAccounts.has(1)).toBe(false);
+  });
+
+  it("uma conta que já esperava na fila não entra de novo, e a tela diz isso", async () => {
+    const { result } = await setup();
+    results.set("launch_roblox", { appended: true, added: 0 });
+
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBe("started");
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "Already waiting in the launch queue"
+    );
+  });
+
   it("announces the account alias in the action status while launching", async () => {
     const { result } = await setup();
     let releaseLaunch = () => {};
@@ -1149,6 +1187,63 @@ describe("launchMultiple", () => {
     expect(result.current.error).toBe("multi failed");
     expect(result.current.joiningAccounts.size).toBe(0);
     expect(result.current.launchProgress).toBeNull();
+  });
+
+  it("um lote durante a fila entra no fim dela e avisa quantas contas entraram", async () => {
+    // O caso do dono: jogo A rodando, 2 contas para o jogo B. Nada de recusa,
+    // nada de exceção (a Choose Game mostraria erro), e o toast diz o que
+    // aconteceu com as contas deste lote.
+    const { result } = await setup();
+    results.set("launch_multiple", { appended: true, added: 2 });
+
+    await act(async () => {
+      await expect(result.current.launchMultiple([1, 2])).resolves.toBeUndefined();
+    });
+
+    const toasts = result.current.toasts.map((toast) => toast.message);
+    expect(toasts).toContain("Added 2 accounts to the launch queue");
+    expect(toasts).not.toContain("A launch is already in progress");
+    expect(toasts).not.toContain("Launching 2 accounts...");
+    expect(result.current.error).toBeNull();
+    expect(result.current.actionStatus?.message).not.toBe("Launching 2 accounts...");
+  });
+
+  it("com a fila rodando, o lote novo não apaga o progresso do lote que está abrindo", async () => {
+    const { result } = await setup();
+    // A fila do lote A está ativa e o backend já disse quem está entrando.
+    act(() => {
+      emit("launch-queue", {
+        entries: [
+          { userId: 3, state: "launching", error: null, updatedAtMs: 1, placeId: 111, jobId: "" },
+        ],
+        active: true,
+        placeId: 111,
+        jobId: "",
+      });
+      emit("launch-progress", { userId: 3, index: 0, total: 1 });
+    });
+    let release = () => {};
+    results.set(
+      "launch_multiple",
+      new Promise((resolve) => {
+        release = () => resolve({ appended: true, added: 2 });
+      })
+    );
+
+    let pending: Promise<unknown> | null = null;
+    await act(async () => {
+      pending = result.current.launchMultiple([1, 2]);
+      await Promise.resolve();
+    });
+    // Enquanto o backend responde, a conta 3 continua sendo a que entra.
+    expect([...result.current.joiningAccounts]).toEqual([3]);
+    expect(result.current.launchProgress).toMatchObject({ userId: 3, total: 1 });
+
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect([...result.current.joiningAccounts]).toEqual([3]);
   });
 
   it("traduz a recusa do backend quando já há um launch em andamento", async () => {

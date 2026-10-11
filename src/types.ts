@@ -390,6 +390,22 @@ export interface LaunchQueueEntry {
   /** Mensagem de erro quando `state === "failed"`; `null` nos demais estados. */
   error: string | null;
   updatedAtMs: number;
+  /**
+   * O jogo **desta** conta. A fila pode misturar jogos: um launch disparado com
+   * outro rodando entra no fim da mesma fila, com o alvo dele.
+   */
+  placeId?: number;
+  jobId?: string;
+}
+
+/**
+ * Retorno de `launch_roblox` e `launch_multiple`. `appended` = havia uma fila
+ * rodando e as contas entraram no fim dela (o comando volta na hora); `added`
+ * não conta as que já esperavam a vez.
+ */
+export interface LaunchOutcome {
+  appended: boolean;
+  added: number;
 }
 
 /**

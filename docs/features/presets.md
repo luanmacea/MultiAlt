@@ -82,8 +82,11 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
   22:00 e fecha às 02:00 nunca fecharia (já é terça).
 - **Uma ação por vez:** as ações vencidas entram numa fila própria; dois presets às 08:00
   abrem um depois do outro, e a passada do relógio nunca espera um launch.
-- **Launch em andamento na hora:** a abertura agendada tenta de novo a cada 15 s por até
-  10 min (recusa `launch-already-active`); depois disso desiste e avisa.
+- **Launch em andamento na hora:** o lote do preset entra no fim da fila que já roda
+  (ver [multi-launch.md](multi-launch.md#uma-sequência-de-launch-por-vez)) e o preset espera
+  as contas dele saírem da fila (`wait_until_launched`) antes de anotar quais clientes abriu.
+  Só a sequência da reconexão automática ainda recusa (`launch-already-active`): nesse caso a
+  abertura agendada tenta de novo a cada 15 s por até 10 min; depois disso desiste e avisa.
 - A próxima abertura e o próximo fechamento aparecem na linha do preset ("Opens Mon 08:00 ·
   Closes Today 18:00"), calculados no backend (`next_open_after`/`next_close_after`, hora local).
 

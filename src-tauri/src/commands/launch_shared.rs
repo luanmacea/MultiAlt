@@ -3115,7 +3115,8 @@ mod client_window_order_tests {
         let botting = producao(include_str!("botting.rs"));
         [
             ("launch_roblox_windows", corpo(launch, "async fn launch_roblox_windows(")),
-            ("launch_multiple", corpo(launch, "async fn launch_multiple(")),
+            // O laço da fila, que lança as contas do lote e as que entram no fim dele.
+            ("run_launch_queue_windows", corpo(launch, "async fn run_launch_queue_windows(")),
             ("launch_account_for_cycle", corpo(botting, "async fn launch_account_for_cycle(")),
         ]
     }
