@@ -1909,7 +1909,7 @@
   "A Roblox window the app could not match to an account. Tell the app which account it is.": "Una ventana de Roblox que la app no pudo asociar a una cuenta. Dile a la app de qué cuenta es.",
   "A short guide to this screen": "Una guía rápida de esta pantalla",
   "Account panel": "Panel de la cuenta",
-  "Accounts waiting to open show here. Click the × to take one out of the line.": "Las cuentas que esperan para abrirse aparecen aquí. Haz clic en la × para sacar una de la fila.",
+  "Accounts waiting to open show here. Accounts you launch while it runs join the end of the line, even for another game. Click the × to take one out.": "Las cuentas que esperan para abrirse aparecen aquí. Las que lanzas mientras funciona van al final de la fila, incluso para otro juego. Haz clic en la × para quitar una.",
   "Add an account": "Agregar una cuenta",
   "Apply": "Aplicar",
   "Auto Rejoin: where": "Auto Rejoin: dónde",

@@ -1909,7 +1909,7 @@
   "A Roblox window the app could not match to an account. Tell the app which account it is.": "A Roblox window the app could not match to an account. Tell the app which account it is.",
   "A short guide to this screen": "A short guide to this screen",
   "Account panel": "Account panel",
-  "Accounts waiting to open show here. Click the × to take one out of the line.": "Accounts waiting to open show here. Click the × to take one out of the line.",
+  "Accounts waiting to open show here. Accounts you launch while it runs join the end of the line, even for another game. Click the × to take one out.": "Accounts waiting to open show here. Accounts you launch while it runs join the end of the line, even for another game. Click the × to take one out.",
   "Add an account": "Add an account",
   "Apply": "Apply",
   "Auto Rejoin: where": "Auto Rejoin: where",

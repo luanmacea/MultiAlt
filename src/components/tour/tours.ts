@@ -149,7 +149,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "joining",
         title: "Joining",
-        description: "Accounts waiting to open show here. Click the × to take one out of the line.",
+        description: "Accounts waiting to open show here. Accounts you launch while it runs join the end of the line, even for another game. Click the × to take one out.",
         targets: [inside("session-page", "session-joining")],
       },
       {
