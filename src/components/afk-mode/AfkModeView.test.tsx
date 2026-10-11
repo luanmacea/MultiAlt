@@ -234,3 +234,30 @@ describe("AfkModeView — parada de emergência nas gravações", () => {
     expect(screen.queryByText("Shake the mouse to stop.")).not.toBeInTheDocument();
   });
 });
+
+describe("AfkModeView — While you were away", () => {
+  it("one line says how many things happened and opens Session", async () => {
+    const store = base({
+      awayEvents: [
+        { id: 3, kind: "afkSendFailed", userId: 2, atMs: 3_000, code: "noWindow", error: null },
+        { id: 2, kind: "reconnected", userId: 1, atMs: 2_000 },
+        { id: 1, kind: "dropped", userId: 1, atMs: 1_000, drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 0 } },
+      ],
+      awayUnread: 3,
+    });
+    const onClose = vi.fn();
+    render(<AfkModeView variant="modal" initialTab="clicks" onClose={onClose} />);
+    const line = screen.getByTestId("away-digest-line");
+    expect(line).toHaveTextContent("3 events while you were away");
+    await userEvent.click(within(line).getByRole("button", { name: "View" }));
+    expect(store.setActivePage).toHaveBeenCalledWith("session");
+    // No modal, ir para a Sessão fecha o modal: a página fica atrás dele.
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("no line when nothing new happened", () => {
+    base({ awayUnread: 0 });
+    render(<AfkModeView variant="page" initialTab="clicks" />);
+    expect(screen.queryByTestId("away-digest-line")).not.toBeInTheDocument();
+  });
+});

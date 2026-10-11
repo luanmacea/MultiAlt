@@ -3431,3 +3431,75 @@ describe("client drop toast", () => {
     expect(result.current.toasts.map((t) => t.message)).toContain("user1 is back in the game");
   });
 });
+
+/**
+ * "While you were away": o que aconteceu enquanto ninguém olhava a tela. Sai
+ * dos mesmos eventos que viram toast (que somem em segundos), guardado na
+ * memória da sessão do app.
+ */
+describe("away digest", () => {
+  const LOST = { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 0 };
+
+  it("notes a drop and an emergency stop, newest first, as unread", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("afk-emergency-stop")).toBe(true));
+    expect(result.current.awayEvents).toEqual([]);
+
+    act(() => emit("roblox-client-health", { userId: 1, drop: LOST }));
+    act(() => emit("afk-emergency-stop", { reason: "shake", afk: true, recordings: false }));
+
+    expect(result.current.awayEvents.map((e) => e.kind)).toEqual(["emergencyStop", "dropped"]);
+    expect(result.current.awayEvents[1]).toMatchObject({ userId: 1, drop: LOST });
+    expect(result.current.awayUnread).toBe(2);
+  });
+
+  it("opening the Session page marks everything as seen", async () => {
+    const { result } = await renderStore();
+    act(() => emit("roblox-client-health", { userId: 1, notResponding: true }));
+    expect(result.current.awayUnread).toBe(1);
+    act(() => result.current.setActivePage("session"));
+    expect(result.current.awayUnread).toBe(0);
+    expect(result.current.awayEvents).toHaveLength(1);
+  });
+
+  it("notes reconnect outcomes, AFK send failures and Auto Rejoin failures", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("auto-reconnect")).toBe(true));
+    const gaveUp = {
+      userId: 2,
+      phase: "gaveUp",
+      attempt: 5,
+      maxAttempts: 5,
+      nextAttemptAtMs: null,
+      reason: null,
+      error: null,
+      drop: LOST,
+    };
+    act(() => emit("auto-reconnect", { entries: [gaveUp], reconnected: [3] }));
+    // O mesmo retrato de novo não vira outro evento.
+    act(() => emit("auto-reconnect", { entries: [gaveUp] }));
+    act(() =>
+      emit("afk-status", {
+        active: true,
+        startedAtMs: 1,
+        intervalSeconds: 600,
+        key: "Space",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+        accounts: [
+          { userId: 4, lastSendAtMs: Date.now(), nextSendAtMs: 0, sends: 0, lastError: "x", lastErrorCode: "noWindow" },
+        ],
+      })
+    );
+    act(() => emit("botting-account-cycle", { userId: 5, ok: false, error: "no build" }));
+    act(() => emit("botting-account-cycle", { userId: 5, ok: true }));
+
+    const kinds = result.current.awayEvents.map((e) => `${e.kind}:${e.userId}`).sort();
+    expect(kinds).toEqual(["afkSendFailed:4", "reconnectEnded:2", "reconnected:3", "rejoinFailed:5"]);
+
+    act(() => result.current.clearAwayEvents());
+    expect(result.current.awayEvents).toEqual([]);
+  });
+});

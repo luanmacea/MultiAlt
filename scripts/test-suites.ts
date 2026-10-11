@@ -172,6 +172,9 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/pages/ConsolePage.test.tsx",
       "src/utils/autoReconnect.test.ts",
       "src/utils/memoryLimit.test.ts",
+      // "While you were away" (Session e Modo AFK): quedas e reconexões anotadas.
+      "src/utils/awayDigest.test.ts",
+      "src/components/session/AwayDigest.test.tsx",
     ],
   },
   afk: {
@@ -196,6 +199,9 @@ export const SUITES: Record<string, TestSuite> = {
       "src/utils/afkBeep.test.ts",
       "src/store.test.ts",
       "src/afkClickPoint.test.ts",
+      // "While you were away": falhas de envio e parada de emergência anotadas.
+      "src/utils/awayDigest.test.ts",
+      "src/components/session/AwayDigest.test.tsx",
     ],
   },
   recordings: {

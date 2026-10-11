@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   type ReactNode,
 } from "react";
@@ -135,6 +136,14 @@ import { tr } from "./i18n/text";
 import { accountLabel, maskAccountName } from "./utils/accountName";
 import { clientHealthLabel } from "./utils/clientHealth";
 import { autoReconnectLabel } from "./utils/autoReconnect";
+import {
+  EMPTY_AWAY_DIGEST,
+  afkFailureEvents,
+  awayDigestReducer,
+  awayUnreadCount,
+  clientHealthEvent,
+  type AwayEvent,
+} from "./utils/awayDigest";
 import { accountCheckSummaryText, type AccountCheckSummary } from "./utils/accountCheck";
 import {
   type UpdaterReleaseChannel,
@@ -601,6 +610,16 @@ export interface StoreValue {
   /** A última parada de emergência por chacoalhar o mouse, até o aviso ser fechado. */
   afkEmergencyStop: AfkEmergencyStop | null;
   dismissAfkEmergencyStop: () => void;
+  /**
+   * "While you were away" (utils/awayDigest.ts): quedas, reconexões, falhas do
+   * Modo AFK e paradas de emergência desta sessão do app, do mais novo para o
+   * mais antigo. Os toasts somem; isto fica.
+   */
+  awayEvents: AwayEvent[];
+  /** Quantos chegaram depois da última olhada (abrir a página Session zera). */
+  awayUnread: number;
+  markAwaySeen: () => void;
+  clearAwayEvents: () => void;
   /** A lista fechada de teclas que o backend aceita. */
   afkKeys: string[];
   startGenerator: (config: GeneratorStartConfig) => Promise<GeneratorStatus>;
@@ -953,6 +972,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
   const [afkEmergencyStop, setAfkEmergencyStop] = useState<AfkEmergencyStop | null>(null);
   const dismissAfkEmergencyStop = useCallback(() => setAfkEmergencyStop(null), []);
+  const [awayDigest, dispatchAway] = useReducer(awayDigestReducer, EMPTY_AWAY_DIGEST);
+  const markAwaySeen = useCallback(() => dispatchAway({ type: "seen" }), []);
+  const clearAwayEvents = useCallback(() => dispatchAway({ type: "clear" }), []);
+  // Abrir a página Session é olhar o resumo: o "não lido" zera.
+  useEffect(() => {
+    if (activePage === "session") dispatchAway({ type: "seen" });
+  }, [activePage]);
+  // Falhas de envio do Modo AFK: anotadas quando começam ou mudam de motivo,
+  // não a cada ciclo (a janela fechada falharia de 10 em 10 minutos).
+  const afkFailuresRef = useRef<Map<number, string | null>>(new Map());
+  useEffect(() => {
+    const { events, next } = afkFailureEvents(afkFailuresRef.current, afkStatus);
+    afkFailuresRef.current = next;
+    for (const event of events) dispatchAway({ type: "add", event });
+  }, [afkStatus]);
   const [afkKeys, setAfkKeys] = useState<string[]>([]);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
@@ -2902,6 +2936,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen<{ userId: number; drop?: ClientDrop | null; notResponding?: boolean }>("roblox-client-health", (e) => {
         const { userId, drop, notResponding } = e.payload;
         void refreshRunningRef.current();
+        const awayEvent = clientHealthEvent(e.payload, Date.now());
+        if (awayEvent) dispatchAway({ type: "add", event: awayEvent });
         if (!drop && !notResponding) return;
         const status = clientHealthLabel({ pid: 0, logFound: true, drop: drop ?? null, notResponding }, tr);
         if (!status) return;
@@ -3068,6 +3104,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           recordings: e.payload?.recordings === true,
           atMs: Date.now(),
         });
+        dispatchAway({
+          type: "add",
+          event: {
+            kind: "emergencyStop",
+            userId: null,
+            atMs: Date.now(),
+            afk: e.payload?.afk === true,
+            recordings: e.payload?.recordings === true,
+          },
+        });
       }),
       // Uma gravação começou a tocar: o aviso da parada anterior já não vale.
       listen<{ active?: boolean }>("recording-playback", (e) => {
@@ -3105,6 +3151,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const uid = e.payload?.userId;
         const ok = e.payload?.ok;
         if (typeof uid === "number" && ok === false) {
+          const rawError = typeof e.payload?.error === "string" ? e.payload.error.trim() : "";
+          dispatchAway({
+            type: "add",
+            event: { kind: "rejoinFailed", userId: uid, atMs: Date.now(), error: rawError || null },
+          });
           const errorText =
             typeof e.payload?.error === "string" && e.payload.error.trim().length > 0
               ? `: ${e.payload.error}`
@@ -3187,10 +3238,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const final = entry.phase === "gaveUp" || entry.phase === "stopped";
         if (!final || previous?.phase === entry.phase) continue;
         const status = autoReconnectLabel(entry, Date.now(), tr).label;
+        dispatchAway({
+          type: "add",
+          event: { kind: "reconnectEnded", userId: entry.userId, atMs: Date.now(), reconnect: entry },
+        });
         addToast(tr("Auto-reconnect ({{name}}) — {{status}}", { name: nameOf(entry.userId), status }), "warn");
       }
       // Relançada e conferida: ficou no jogo.
       for (const userId of Array.isArray(e.payload?.reconnected) ? e.payload.reconnected : []) {
+        dispatchAway({ type: "add", event: { kind: "reconnected", userId, atMs: Date.now() } });
         addToast(tr("{{name}} is back in the game", { name: nameOf(userId) }), "success");
       }
     })
@@ -3645,6 +3701,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     afkStatus,
     afkEmergencyStop,
     dismissAfkEmergencyStop,
+    awayEvents: awayDigest.events,
+    awayUnread: awayUnreadCount(awayDigest),
+    markAwaySeen,
+    clearAwayEvents,
     afkKeys,
     setAfkDialogOpen,
     setAvatarsDialogOpen,

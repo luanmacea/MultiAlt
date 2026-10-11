@@ -543,3 +543,24 @@ describe("SessionPage — texto", () => {
     for (let i = 1; i < levels.length; i += 1) expect(levels[i] - levels[i - 1]).toBeLessThanOrEqual(1);
   });
 });
+
+describe("SessionPage — While you were away", () => {
+  it("shows what happened, newest first, next to the session lists", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      awayEvents: [
+        { id: 2, kind: "notResponding", userId: 20, atMs: 2_000 },
+        { id: 1, kind: "dropped", userId: 10, atMs: 1_000, drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 0 } },
+      ],
+      awayUnread: 2,
+      ...storeActions(),
+    });
+    const card = screen.getByRole("region", { name: "While you were away" });
+    const rows = within(card).getAllByTestId("away-event");
+    expect(rows[0]).toHaveTextContent("bravo");
+    expect(rows[1]).toHaveTextContent("alpha");
+    expect(within(card).getByTestId("away-unread")).toHaveTextContent("2 new");
+  });
+});

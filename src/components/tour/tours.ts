@@ -171,6 +171,12 @@ export const TOURS: Record<TourId, TourDefinition> = {
         targets: [inside("session-page", "session-unidentified"), inside("session-page", "session-in-game")],
       },
       {
+        id: "away",
+        title: "While you were away",
+        description: "Drops, reconnects, AFK Mode send failures and emergency stops, newest first, so you can see what happened after leaving the PC. Opening this page marks them as seen.",
+        targets: [inside("session-page", "session-away")],
+      },
+      {
         id: "settings",
         title: "Keep accounts in game",
         description: "Settings for every account: reconnect the ones that drop, recordings and the memory limit.",
