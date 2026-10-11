@@ -244,7 +244,7 @@ export function BackupsTab({ active }: { active: boolean }) {
             <AlertTriangle size={13} strokeWidth={1.75} className="mt-px shrink-0" />
             <span>
               {t(
-                "Without a password, the backup zip carries the key that opens your accounts — it has to, or it could never be restored — so a leaked zip is not protected. If you keep backups in cloud storage like OneDrive or Google Drive, set a password in Settings > Misc > Change Encryption Method."
+                "Without a password, the backup zip carries the key that opens your accounts — it has to, or it could never be restored — so a leaked zip is not protected. If you keep backups in cloud storage like OneDrive or Google Drive, set a password in Settings > Privacy & security > Change Encryption Method."
               )}
             </span>
           </div>

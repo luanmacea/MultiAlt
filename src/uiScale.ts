@@ -1,5 +1,5 @@
 /**
- * Tamanho da interface (Settings › General › Interface size, chave
+ * Tamanho da interface (Settings › App › Interface size, chave
  * `General.InterfaceScale` do `RAMSettings.ini`).
  *
  * O zoom é o nativo do WebView (`setZoom`), que escala tudo por igual —

@@ -226,7 +226,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "clicks-start",
         title: "Start and stop",
-        description: "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game. To stop by shaking the mouse, turn it on in Settings.",
+        description: "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game. To stop by shaking the mouse, turn it on in Settings › Keep in game.",
         targets: [inside("afk-page", "afk-clicks-start")],
       },
       {
@@ -410,8 +410,15 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "sections",
         title: "Sections",
-        description: "Settings are split into sections. Click one on the left.",
+        description: "Everyday settings are on top, the advanced ones below. Click a section on the left.",
         targets: [tour("settings-sections")],
+      },
+      {
+        id: "launch",
+        title: "Launch",
+        description: "Launch comes first: how accounts open, Multi Roblox, and a check for when launching does nothing.",
+        reveal: tour("settings-section-launch"),
+        targets: [tour("settings-content")],
       },
       {
         id: "autosave",

@@ -90,7 +90,7 @@ function AppContent() {
   // que a instalação não terminou). Ver updateHandoff.ts.
   useUpdateHandoffToast(store.initialized && !store.needsPassword, store.addToast, t);
 
-  // Tamanho da interface (Settings › General): zoom nativo do WebView, que no
+  // Tamanho da interface (Settings › App): zoom nativo do WebView, que no
   // automático encolhe a interface em janela pequena. Antes dos `return`
   // antecipados para valer também na tela de senha. Ver uiScale.ts.
   useUiScale(store.settings?.General?.InterfaceScale, store.settings !== null);
