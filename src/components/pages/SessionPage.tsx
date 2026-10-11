@@ -8,6 +8,7 @@ import { isWindowsPlatform } from "../../utils/platform";
 import { MemoryDefaultSelect } from "../session/MemoryLimitControl";
 import { MEMORY_LIMIT_SETTING, memoryLimitChoice } from "../../utils/memoryLimit";
 import { RecordingsSummaryCard } from "../afk-mode/recordings/RecordingsSummaryCard";
+import { AwayDigestCard } from "../session/AwayDigest";
 
 /**
  * Página Session, o centro de quem joga com muitas contas: primeiro, em
@@ -80,6 +81,11 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
           data-tour="session-summary"
           className="w-full xl:w-[300px] 2xl:w-[340px] min-[125rem]:w-[640px] min-[175rem]:w-[760px] shrink-0 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 min-[125rem]:grid-cols-2 items-start xl:sticky xl:top-0"
         >
+          {/* "While you were away": o que aconteceu enquanto ninguém olhava
+              (quedas, reconexões, falhas do Modo AFK). Primeiro da coluna:
+              é o que quem volta ao PC procura. */}
+          <AwayDigestCard />
+
           <section className="rounded-xl border theme-border px-4 py-3">
             <h2 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">
               <span

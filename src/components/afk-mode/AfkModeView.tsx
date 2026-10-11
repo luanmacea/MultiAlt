@@ -6,6 +6,7 @@ import { RejoinTab } from "./RejoinTab";
 import { ClicksTab } from "./ClicksTab";
 import { RecordingsTab } from "./RecordingsTab";
 import { ShakeStopNotice } from "./ShakeStopNotice";
+import { AwayDigestLine } from "../session/AwayDigest";
 import { formatAfkIntervalSeconds, recordingTriggers } from "./recordings/triggers";
 
 export interface AfkModeViewProps {
@@ -206,6 +207,10 @@ export function AfkModeView({
           ) : null}
         </header>
       )}
+
+      {/* "N events while you were away · View": quedas, reconexões e falhas
+          de envio desde a última olhada na página Session. Some sem novidade. */}
+      <AwayDigestLine onNavigate={onClose} />
 
       {/* As duas abas ficam montadas: trocar de aba não perde o que foi
           marcado na outra (contas, tecla, rascunho do ciclo). */}
