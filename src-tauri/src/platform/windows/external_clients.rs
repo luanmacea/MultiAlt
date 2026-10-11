@@ -328,12 +328,120 @@ struct ExternalPidState {
 
 #[derive(Debug, Clone, Default)]
 struct ExternalLogState {
-    header: Option<RobloxLogHeader>,
-    /// Tamanho do arquivo quando o cabeçalho foi tentado (só tenta de novo se crescer).
-    header_tried_len: u64,
     /// Até onde a identidade já foi lida (sempre num fim de linha).
     offset: u64,
     identity: RobloxLogIdentity,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct LogHeaderState {
+    header: Option<RobloxLogHeader>,
+    /// Tamanho do arquivo quando o cabeçalho foi tentado (só tenta de novo se crescer).
+    tried_len: u64,
+}
+
+/// Acha o log de cada processo: cabeçalho de cada log da pasta + dono da
+/// thread que o escreveu (`match_logs_to_processes`). Usado pela varredura de
+/// clientes de fora **e** pelo monitor de quedas (`commands/client_health.rs`),
+/// que precisa do log dos clientes que o próprio app abriu.
+///
+/// Guarda os cabeçalhos já lidos e a última tentativa: se nada mudou (mesmos
+/// PIDs, mesmos logs e tamanhos), não tira outro retrato das threads.
+#[derive(Debug, Default)]
+pub struct LogLocator {
+    headers: HashMap<PathBuf, LogHeaderState>,
+    last_attempt: Option<(Vec<u32>, Vec<(PathBuf, u64)>)>,
+}
+
+impl LogLocator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Esquece tudo (nenhum processo para casar).
+    pub fn clear(&mut self) {
+        self.headers.clear();
+        self.last_attempt = None;
+    }
+
+    /// Mantém só os cabeçalhos dos logs em `keep`.
+    pub fn retain(&mut self, keep: &HashSet<PathBuf>) {
+        self.headers.retain(|path, _| keep.contains(path));
+    }
+
+    pub fn forget(&mut self, path: &PathBuf) {
+        self.headers.remove(path);
+    }
+
+    /// PID → log, para os `procs` sem log. `taken`: logs que já têm dono.
+    pub fn locate(
+        &mut self,
+        os: &dyn ExternalClientOs,
+        procs: &[ProcessCandidate],
+        taken: &HashSet<PathBuf>,
+        now: i64,
+    ) -> HashMap<u32, PathBuf> {
+        let mut found = HashMap::new();
+        if procs.is_empty() {
+            return found;
+        }
+        // Um log não pode ser de processo criado depois dele: corta os velhos
+        // antes de abrir qualquer arquivo.
+        let oldest_created = procs.iter().filter_map(|p| p.created_ms).min();
+        let mut files: Vec<PlayerLogFile> = os
+            .list_player_logs()
+            .into_iter()
+            .filter(|f| is_player_log_name(&f.name))
+            .filter(|f| now - f.modified_ms <= EXTERNAL_LOG_MAX_AGE_MS)
+            .filter(|f| !taken.contains(&f.path))
+            .filter(|f| match (oldest_created, player_log_name_started_ms(&f.name)) {
+                (Some(created), Some(started)) => started >= created - 60_000,
+                _ => true,
+            })
+            .collect();
+        files.sort_by(|a, b| {
+            let ka = player_log_name_started_ms(&a.name).unwrap_or(a.modified_ms);
+            let kb = player_log_name_started_ms(&b.name).unwrap_or(b.modified_ms);
+            kb.cmp(&ka)
+        });
+
+        let mut pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
+        pids.sort_unstable();
+        let signature = (
+            pids,
+            files.iter().map(|f| (f.path.clone(), f.len)).collect::<Vec<_>>(),
+        );
+        if self.last_attempt.as_ref() == Some(&signature) {
+            return found;
+        }
+        self.last_attempt = Some(signature);
+
+        let mut headers: Vec<RobloxLogHeader> = Vec::new();
+        let mut header_paths: Vec<PathBuf> = Vec::new();
+        for file in &files {
+            let entry = self.headers.entry(file.path.clone()).or_default();
+            if entry.header.is_none() && (entry.tried_len == 0 || file.len > entry.tried_len) {
+                entry.tried_len = file.len.max(1);
+                if let Some(bytes) = os.read_log(&file.path, 0, EXTERNAL_LOG_HEAD_BYTES) {
+                    entry.header = parse_roblox_log_header(&String::from_utf8_lossy(&bytes));
+                }
+            }
+            if let Some(header) = entry.header {
+                headers.push(header);
+                header_paths.push(file.path.clone());
+            }
+        }
+        if headers.is_empty() {
+            return found;
+        }
+
+        let pid_set: HashSet<u32> = procs.iter().map(|p| p.pid).collect();
+        let owners = os.thread_owners(&pid_set);
+        for (pid, index) in match_logs_to_processes(procs, &headers, &owners) {
+            found.insert(pid, header_paths[index].clone());
+        }
+        found
+    }
 }
 
 /// Resultado de uma varredura: quem adotar e quem mostrar como não identificado.
@@ -350,9 +458,7 @@ pub struct ExternalScanOutcome {
 pub struct ExternalClientScanner {
     pids: HashMap<u32, ExternalPidState>,
     logs: HashMap<PathBuf, ExternalLogState>,
-    /// PIDs sem log e logs vistos na última tentativa de casar: se nada mudou,
-    /// não adianta tirar outro retrato das threads.
-    last_match_attempt: Option<(Vec<u32>, Vec<(PathBuf, u64)>)>,
+    locator: LogLocator,
 }
 
 impl ExternalClientScanner {
@@ -388,7 +494,7 @@ impl ExternalClientScanner {
 
         if candidates.is_empty() {
             self.logs.clear();
-            self.last_match_attempt = None;
+            self.locator.clear();
             return ExternalScanOutcome::default();
         }
 
@@ -413,6 +519,7 @@ impl ExternalClientScanner {
         let in_use: HashSet<PathBuf> = self.pids.values().filter_map(|s| s.log.clone()).collect();
         if unmatched.is_empty() {
             self.logs.retain(|path, _| in_use.contains(path));
+            self.locator.retain(&in_use);
         }
 
         let mut outcome = ExternalScanOutcome::default();
@@ -465,6 +572,7 @@ impl ExternalClientScanner {
         for (pid, _) in &outcome.adopt {
             if let Some(path) = self.pids.remove(pid).and_then(|s| s.log) {
                 self.logs.remove(&path);
+                self.locator.forget(&path);
             }
         }
         outcome
@@ -472,59 +580,6 @@ impl ExternalClientScanner {
 
     fn try_match_logs(&mut self, os: &dyn ExternalClientOs, unmatched: &[u32], now: i64) {
         let assigned: HashSet<PathBuf> = self.pids.values().filter_map(|s| s.log.clone()).collect();
-        // Um log não pode ser de processo criado depois dele: corta os velhos
-        // antes de abrir qualquer arquivo.
-        let oldest_created = unmatched
-            .iter()
-            .filter_map(|pid| self.pids.get(pid).and_then(|s| s.created_ms))
-            .min();
-        let mut files: Vec<PlayerLogFile> = os
-            .list_player_logs()
-            .into_iter()
-            .filter(|f| is_player_log_name(&f.name))
-            .filter(|f| now - f.modified_ms <= EXTERNAL_LOG_MAX_AGE_MS)
-            .filter(|f| !assigned.contains(&f.path))
-            .filter(|f| match (oldest_created, player_log_name_started_ms(&f.name)) {
-                (Some(created), Some(started)) => started >= created - 60_000,
-                _ => true,
-            })
-            .collect();
-        files.sort_by(|a, b| {
-            let ka = player_log_name_started_ms(&a.name).unwrap_or(a.modified_ms);
-            let kb = player_log_name_started_ms(&b.name).unwrap_or(b.modified_ms);
-            kb.cmp(&ka)
-        });
-
-        let signature = (
-            unmatched.to_vec(),
-            files.iter().map(|f| (f.path.clone(), f.len)).collect::<Vec<_>>(),
-        );
-        if self.last_match_attempt.as_ref() == Some(&signature) {
-            return;
-        }
-        self.last_match_attempt = Some(signature);
-
-        let mut headers: Vec<RobloxLogHeader> = Vec::new();
-        let mut header_paths: Vec<PathBuf> = Vec::new();
-        for file in &files {
-            let entry = self.logs.entry(file.path.clone()).or_default();
-            if entry.header.is_none() && (entry.header_tried_len == 0 || file.len > entry.header_tried_len) {
-                entry.header_tried_len = file.len.max(1);
-                if let Some(bytes) = os.read_log(&file.path, 0, EXTERNAL_LOG_HEAD_BYTES) {
-                    entry.header = parse_roblox_log_header(&String::from_utf8_lossy(&bytes));
-                }
-            }
-            if let Some(header) = entry.header {
-                headers.push(header);
-                header_paths.push(file.path.clone());
-            }
-        }
-        if headers.is_empty() {
-            return;
-        }
-
-        let pid_set: HashSet<u32> = unmatched.iter().copied().collect();
-        let owners = os.thread_owners(&pid_set);
         let procs: Vec<ProcessCandidate> = unmatched
             .iter()
             .map(|pid| ProcessCandidate {
@@ -532,9 +587,9 @@ impl ExternalClientScanner {
                 created_ms: self.pids.get(pid).and_then(|s| s.created_ms),
             })
             .collect();
-        for (pid, index) in match_logs_to_processes(&procs, &headers, &owners) {
+        for (pid, path) in self.locator.locate(os, &procs, &assigned, now) {
             if let Some(state) = self.pids.get_mut(&pid) {
-                state.log = Some(header_paths[index].clone());
+                state.log = Some(path);
             }
         }
     }
@@ -699,6 +754,38 @@ pub fn scan_external_clients(saved_accounts: &HashMap<i64, String>) -> Vec<(u32,
         *list = outcome.unidentified;
     }
     outcome.adopt
+}
+
+static TRACKED_LOG_LOCATOR: LazyLock<Mutex<LogLocator>> =
+    LazyLock::new(|| Mutex::new(LogLocator::new()));
+
+/// O log de cada cliente que o app acompanha (lançado por ele ou adotado),
+/// para o monitor de quedas. Mesmo casamento da varredura de fora (thread do
+/// cabeçalho → PID), com cache próprio. `taken`: logs que já têm dono.
+pub fn locate_logs_for_pids(pids: &[u32], taken: &HashSet<PathBuf>) -> HashMap<u32, PathBuf> {
+    let os = WindowsExternalClientOs;
+    let procs: Vec<ProcessCandidate> = pids
+        .iter()
+        .map(|pid| ProcessCandidate {
+            pid: *pid,
+            created_ms: os.process_created_ms(*pid),
+        })
+        .collect();
+    match TRACKED_LOG_LOCATOR.lock() {
+        Ok(mut locator) => {
+            if procs.is_empty() {
+                locator.clear();
+                return HashMap::new();
+            }
+            locator.locate(&os, &procs, taken, os.now_ms())
+        }
+        Err(_) => HashMap::new(),
+    }
+}
+
+/// Lê `max` bytes do log a partir de `offset` (só leitura, com compartilhamento).
+pub fn read_roblox_log(path: &std::path::Path, offset: u64, max: u64) -> Option<Vec<u8>> {
+    WindowsExternalClientOs.read_log(path, offset, max)
 }
 
 /// A última lista de clientes não identificados.
@@ -1248,6 +1335,25 @@ mod external_client_scan_tests {
         println!("pids: {:?}", os.roblox_pids());
         println!("first scan ({first_ms} ms): {:?}", first);
         println!("second scan ({second_ms} ms): {:?}", second);
+    }
+
+    #[test]
+    fn the_locator_finds_the_log_of_a_client_the_app_launched() {
+        // O monitor de quedas usa o mesmo casamento para os clientes que o
+        // próprio app abriu (que a varredura de fora nunca olha).
+        let os = os_with_one_client();
+        let name = log_name_for(CREATED);
+        os.add_log(&name, &header_line("3ed8"));
+        let mut locator = LogLocator::new();
+        let procs = [ProcessCandidate { pid: 11456, created_ms: Some(CREATED) }];
+
+        let found = locator.locate(&os, &procs, &HashSet::new(), NOW);
+        assert_eq!(found.get(&11456), Some(&PathBuf::from(format!("C:/logs/{name}"))));
+
+        // Log que já tem dono não é oferecido de novo.
+        let taken = HashSet::from([PathBuf::from(format!("C:/logs/{name}"))]);
+        let mut fresh = LogLocator::new();
+        assert!(fresh.locate(&os, &procs, &taken, NOW).is_empty());
     }
 
     #[test]

@@ -37,6 +37,7 @@ struct WindowsWatcherConfig {
     exit_if_no_connection: bool,
     no_connection_timeout_secs: u64,
     exit_on_beta: bool,
+    close_if_not_responding: bool,
     startup_grace_secs: u64,
 }
 
@@ -58,6 +59,7 @@ fn load_windows_watcher_config(settings: &SettingsStore) -> WindowsWatcherConfig
             3600,
         ),
         exit_on_beta: settings.get_bool("Watcher", "ExitOnBeta"),
+        close_if_not_responding: settings.get_bool("Watcher", "CloseIfNotResponding"),
         startup_grace_secs: 30,
     }
 }
@@ -78,6 +80,18 @@ fn windows_title_indicates_disconnect(title_lower: &str) -> bool {
         || title_lower.contains("connection error")
         || title_lower.contains("lost connection")
         || title_lower.contains("no connection")
+}
+
+/// A conta está sem conexão? O log do cliente manda quando foi achado (diz o
+/// motivo e não confunde teleporte com queda); o título da janela fica só de
+/// reserva para o cliente cujo log não apareceu. `None`: não dá para saber
+/// (sem log e sem título) — o contador não mexe.
+fn client_connection_lost(health: Option<&ClientHealthView>, title_lower: &str) -> Option<bool> {
+    match health {
+        Some(view) if view.log_found => Some(view.drop.is_some()),
+        _ if !title_lower.is_empty() => Some(windows_title_indicates_disconnect(title_lower)),
+        _ => None,
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -154,6 +168,28 @@ async fn start_watcher(
                         *startup = (inst.pid, std::time::Instant::now());
                     }
                     let startup_grace_elapsed = startup.1.elapsed().as_secs() >= cfg.startup_grace_secs;
+                    // Queda, "Não respondendo" e o título que o app pôs (client_health.rs).
+                    let health = client_health_of(inst.user_id, inst.pid);
+
+                    // "Não respondendo" há 30 s (o monitor só conta clientes do app).
+                    if cfg.close_if_not_responding
+                        && health.as_ref().is_some_and(|h| h.not_responding)
+                        && tracker.kill_for_user(inst.user_id)
+                    {
+                        let _ = app_handle.emit(
+                            "roblox-not-responding",
+                            serde_json::json!({
+                                "userId": inst.user_id,
+                                "seconds": HUNG_THRESHOLD_MS / 1000,
+                            }),
+                        );
+                        // O console e o historico geral: evento do Watcher tambem vira linha la.
+                        emit_launch_log(&app_handle, inst.user_id, "warn", "watcher", format!("Cliente fechado pelo Watcher: não respondia havia {}s", HUNG_THRESHOLD_MS / 1000));
+                        disconnected_since.remove(&inst.user_id);
+                        startup_seen.remove(&inst.user_id);
+                        last_saved_positions.remove(&inst.user_id);
+                        continue;
+                    }
 
                     if cfg.memory_enabled && startup_grace_elapsed {
                         if let Some(mem) = windows::get_process_memory_mb(inst.pid) {
@@ -182,7 +218,11 @@ async fn start_watcher(
                         || cfg.exit_if_no_connection;
 
                     let title = if should_read_title {
-                        windows::get_window_title(hwnd)
+                        // O nome da conta que o app pôs no título (client_health.rs)
+                        // não conta para as regras: elas veem "Roblox".
+                        let raw = windows::get_window_title(hwnd);
+                        let applied = health.as_ref().and_then(|h| h.window_title.as_deref());
+                        effective_client_title(&raw, applied, None).to_string()
                     } else {
                         String::new()
                     };
@@ -231,8 +271,8 @@ async fn start_watcher(
 
                     if cfg.exit_if_no_connection {
                         let lower_title = title.to_lowercase();
-                        if !lower_title.is_empty() {
-                            if windows_title_indicates_disconnect(&lower_title) {
+                        if let Some(lost) = client_connection_lost(health.as_ref(), &lower_title) {
+                            if lost {
                                 let since = disconnected_since
                                     .entry(inst.user_id)
                                     .or_insert_with(std::time::Instant::now);
@@ -373,19 +413,6 @@ async fn start_watcher(
                 && line_lower.contains("returning from game")
         }
 
-        fn macos_line_indicates_disconnect(line_lower: &str) -> bool {
-            line_lower.contains("sending disconnect with reason")
-                || line_lower.contains("disconnected")
-                || line_lower.contains("connection error")
-                || line_lower.contains("lost connection")
-                || line_lower.contains("no connection")
-                || line_lower.contains("error code: 277")
-        }
-
-        fn macos_line_indicates_reconnect(line_lower: &str) -> bool {
-            line_lower.contains("joining game")
-        }
-
         use platform::macos;
 
         let tracker = macos::tracker();
@@ -472,13 +499,20 @@ async fn start_watcher(
                                     beta_detected = true;
                                 }
                                 if cfg.exit_if_no_connection {
-                                    if macos_line_indicates_reconnect(&lower) {
-                                        disconnected_since.remove(&inst.user_id);
-                                    }
-                                    if macos_line_indicates_disconnect(&lower) {
-                                        disconnected_since
-                                            .entry(inst.user_id)
-                                            .or_insert_with(std::time::Instant::now);
+                                    // Mesmo classificador do Windows (client_health.rs):
+                                    // o 285 de toda saída e de todo teleporte não é queda.
+                                    match classify_log_line(line) {
+                                        Some(ClientLogEvent::JoinedGame { .. }) => {
+                                            disconnected_since.remove(&inst.user_id);
+                                        }
+                                        Some(ClientLogEvent::Disconnected { .. })
+                                        | Some(ClientLogEvent::Kicked { .. })
+                                        | Some(ClientLogEvent::ServerShutdown { .. }) => {
+                                            disconnected_since
+                                                .entry(inst.user_id)
+                                                .or_insert_with(std::time::Instant::now);
+                                        }
+                                        _ => {}
                                     }
                                 }
                             }
@@ -656,6 +690,15 @@ mod watcher_tests {
         assert_eq!(watcher_clamped_u64(&s.store, "ScanInterval", 6, 1, 3600), 6);
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn closing_a_client_that_stops_responding_is_off_by_default() {
+        let s = TempSettings::new("hung");
+        assert!(!load_windows_watcher_config(&s.store).close_if_not_responding);
+        s.store.set("Watcher", "CloseIfNotResponding", "true").unwrap();
+        assert!(load_windows_watcher_config(&s.store).close_if_not_responding);
+    }
+
     // ---- watcher_due / watcher_remaining_ms ---------------------------------
 
     #[test]
@@ -712,6 +755,43 @@ mod watcher_tests {
         assert!(!windows_title_indicates_disconnect("roblox"));
         assert!(!windows_title_indicates_disconnect(""));
         assert!(!windows_title_indicates_disconnect("jailbreak"));
+    }
+
+    fn health(log_found: bool, dropped: bool) -> ClientHealthView {
+        ClientHealthView {
+            pid: 1,
+            log_found,
+            drop: dropped.then(|| ClientDrop {
+                kind: DropKind::Disconnected,
+                reason: Some(DropReason::ConnectionLost),
+                code: Some(277),
+                message: None,
+                since_ms: 0,
+            }),
+            window_title: None,
+            not_responding: false,
+            in_game: !dropped,
+            destination: None,
+            exited: false,
+        }
+    }
+
+    #[test]
+    fn the_log_decides_the_connection_when_it_was_found() {
+        // Título normal, log com queda: caiu.
+        assert_eq!(client_connection_lost(Some(&health(true, true)), "roblox"), Some(true));
+        // Título com "disconnected" no nome da conta, log sem queda: não caiu.
+        assert_eq!(
+            client_connection_lost(Some(&health(true, false)), "roblox - no connection bob"),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn without_a_log_the_title_is_the_fallback() {
+        assert_eq!(client_connection_lost(None, "roblox - disconnected"), Some(true));
+        assert_eq!(client_connection_lost(Some(&health(false, false)), "roblox"), Some(false));
+        assert_eq!(client_connection_lost(None, ""), None);
     }
 
     #[cfg(target_os = "windows")]

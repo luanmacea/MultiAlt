@@ -19,8 +19,9 @@ Scripts definidos em [package.json](../package.json) e hooks de build em [tauri.
 | `bun run tauri dev` | Abre o app nativo; roda `bun run dev` antes (`beforeDevCommand`). |
 | `bun run tauri build` | Build de produção; roda `bun run build` antes (`beforeBuildCommand`), gera artefatos do updater (`createUpdaterArtifacts: true`). |
 | `bun run i18n:extract` | Alias de `bun scripts/i18n/extract-keys.ts`. |
-| `cd src-tauri && cargo build` | Backend com features default (`nexus` + `webserver` + `avatar-batch`). |
-| `cd src-tauri && cargo build --no-default-features` | Backend "standard", sem Nexus, WebServer nem a distribuição de avatares em lote. |
+| `cd src-tauri && cargo build` | Backend com features default (`full`: `nexus` + `webserver` + tudo do `standard`). |
+| `cd src-tauri && cargo build --no-default-features --features standard` | Backend da edição padrão (o que a release publica): sem Nexus nem WebServer. |
+| `cd src-tauri && cargo build --no-default-features` | Backend sem nenhuma feature opcional (nem a distribuição de avatares em lote). |
 | `cd src-tauri && cargo build --no-default-features --features webserver` | Só uma das features. |
 | `bun run test` | Testes do frontend (vitest + happy-dom). |
 | `bun run test:coverage` | Idem, com cobertura (v8). |
@@ -42,9 +43,9 @@ Scripts definidos em [package.json](../package.json) e hooks de build em [tauri.
 5. `bun run build` com `VITE_ENABLE_NEXUS=true` e `VITE_ENABLE_WEBSERVER=true`
 6. `bun run build` com ambos `false`
 7. `cargo check --locked` (features default)
-8. `cargo check --locked --no-default-features`
+8. `cargo check --locked --no-default-features --features standard` (a edição padrão)
 
-A CI roda o mesmo portão do `bun run check`, em passos separados (typecheck, auditoria das suítes, vitest, `cargo test`). Antes de commitar, `bun run check`; mudança em feature do Cargo pede também o `cargo check --no-default-features`.
+A CI roda o mesmo portão do `bun run check`, em passos separados (typecheck, auditoria das suítes, vitest, `cargo test`). Antes de commitar, `bun run check`; mudança em feature do Cargo pede também o `cargo check --no-default-features --features standard`.
 
 ## Testes
 
@@ -137,6 +138,7 @@ Escolha pela URL: `http://localhost:1420/?scenario=servers-big-game&accounts=6`.
 | `console-history` | Linhas de launch, Auto Rejoin e Watcher chegando aos poucos no Console |
 | `groups` | Contas em grupos nomeados (um com prefixo numérico, um com vírgula no nome) para ver cabeçalhos e arrastar a ordem |
 | `launch-queue` | Fila de launch e contas em jogo |
+| `client-drops` | Contas em jogo caindo aos poucos, com motivo (perdeu a conexão, expulsa com mensagem, servidor fechou, conta de site que entrou em outro lugar) e uma janela "Not responding"; a 1ª volta a um jogo depois de 15 s. Para ver a Sessão e o painel da conta |
 | `vault-key-warning-locked` | Tela de senha com a faixa vermelha do `.key` (`writeFailed`) — para ver se o rodapé cabe e se a pílula de minimizar/fechar não cobre o texto |
 | `vault-key-warning-setup` | A mesma faixa (`migrationFailed`) na tela de criptografia da primeira execução, onde o rodapé são os botões Continue/Cancel |
 | `afk-mode` | AFK mode desligado, como num INI novo (sem tecla escolhida, intervalo 10, bipe desligado), quatro contas com cliente aberto; no ciclo automático a 2ª volta com `focusDenied` |
@@ -241,6 +243,17 @@ Tambem aplicado: `webviewInstallMode: embedBootstrapper` no [tauri.conf.json](..
 
 **`bun run scan` termina com um resumo por arquivo** (Defender e VirusTotal: `limpo`, `MARCOU`, `inconclusivo` ou, so com `--edition full`, `aceito (edição completa: só o Trapmine de ML)`) e sai com 0 so quando os dois motores rodaram limpos (ou aceitos) em todo arquivo; 2 = algum marcou, 1 = algum motor nao rodou. O portao de cada edicao esta em [As duas edições](#as-duas-edições). Motor que nao rodou **nunca** conta como limpo: ate 29/09/2026 o resumo dizia "tudo limpo" com o script do Defender quebrado (travessao UTF-8 num `.ps1` sem BOM, que o PowerShell 5.1 le na pagina de codigo do sistema) e com o setup NSIS marcado 1/75 — o `virustotal.ts` saia 0 em qualquer veredito. Travado em [scanVerdict.test.ts](../scripts/scanVerdict.test.ts) (suite `scan`), que tambem exige o `defender-scan.ps1` so em ASCII.
 
+**Perfil de release (10/10/2026).** O `[profile.release]` do [Cargo.toml](../src-tauri/Cargo.toml) compila para **tamanho**: `lto = true`, `codegen-units = 1`, `opt-level = "s"`, `strip = true`, com a criptografia do vault (`argon2`, `blake2`, `salsa20`, `poly1305`) em `opt-level = 3`. Medido com o exe padrao da `feature/organizacao` (pacotes 1.3-1.6 juntos), mesmo codigo, so o perfil mudando:
+
+| Perfil | Tamanho do exe | VirusTotal |
+|---|---|---|
+| padrao do Rust (sem `[profile.release]`) | 26,2 MB | 1/75 (Trapmine, `suspicious.low.ml.score`) |
+| LTO + `codegen-units = 1` + strip, `opt-level = 3` | 22,0 MB | 1/75 (Trapmine) |
+| LTO + `codegen-units = 1` + strip, `opt-level = "s"` | 16,2 MB | 0/71 |
+| o mesmo, com a criptografia em `opt-level = 3` (o adotado) | 16,2 MB | 0/7x; MSI 8,4 MB |
+
+Antes disso, a bisseccao pelos pacotes mostrou que **nao ha culpado unico**: Quedas e Reconexao sairam limpos, Desempenho e Organizacao marcados; tirar a otimizacao que segue o foco limpou o Desempenho mas **nao** a Organizacao (que so acrescenta codigo sem API nativa). Ou seja, o placar de ML do Trapmine acompanha o tamanho/forma do binario, e e o perfil de tamanho que o tira do limite. Custo: o build de release fica uns 3-4 min mais lento por edicao (LTO). Se a marcacao voltar, o primeiro passo e medir o tamanho do exe de novo antes de procurar culpado.
+
 **O que ja foi medido (28/09/2026):** comparando o build limpo de 25/09 com o marcado de 28/09 pelo `pefile`, o perfil de comportamento e **o mesmo**: as duas tem as mesmas 16 APIs que pesam em heuristica (`SendInput`, `SetForegroundWindow`, `GetAsyncKeyState`, `TerminateProcess`, `NtQuerySystemInformation`, `DuplicateHandle`, `RegSetValueExW`…), mesma entropia por secao, mesmo linker. As unicas importacoes novas sao `FlushFileBuffers`, `OpenEventW`, `RemoveDirectoryW` e `MessageBoxW`. Ou seja: **nao ha o que "consertar" no binario** — o `Trojan:Win32/Wacatac.B!ml` e um veredito de modelo de aprendizado de maquina (o sufixo `!ml`), que muda sozinho ao longo do tempo. O conserto duravel e assinatura de codigo (Authenticode); ha opcao gratuita para projetos open source (SignPath Foundation).
 
 ⚠️ Detalhe do manifesto do updater: o app procura primeiro a chave do **proprio formato** (`windows-x86_64-msi`, conferido no tauri-plugin-updater 2.10) e so depois a generica `windows-x86_64`. Desde 03/10/2026 o manifesto tem **so** a do MSI ([update-manifest-platforms.mjs](../.github/scripts/update-manifest-platforms.mjs), aplicado pelo `generate-update-manifest.mjs`, suite `release`): a generica seria a de um app de formato desconhecido — o portatil, ou um NSIS antigo — e mandar o MSI para ele instalaria uma segunda copia ao lado da atual. Ate 03/10/2026 a generica apontava para o setup `.exe`.
@@ -269,10 +282,11 @@ o agente relata uma tela que não existe mais. Se desconfiar, apague `node_modul
 
 | Feature | Default | Compila |
 |---|---|---|
-| `full` | sim (é o `default`) | liga **toda** feature opcional abaixo — é a edição completa |
+| `full` | sim (é o `default`) | liga **toda** feature opcional abaixo (`standard` + `nexus` + `webserver`) — é a edição completa |
+| `standard` | via `full` | o que a edição padrão leva — tudo menos o que fica só na completa |
 | `nexus` | via `full` | módulo [nexus/](../src-tauri/src/nexus) (WebSocket para Nexus.lua) — só na completa |
 | `webserver` | via `full` | [api/server/](../src-tauri/src/api/server) (axum, dependência opcional) — só na completa |
-| `avatar-batch` | via `full` | distribuição de avatares em lote: [commands/avatar_batch.rs](../src-tauri/src/commands/avatar_batch.rs) e o resgate em [api/roblox/avatar_claim.rs](../src-tauri/src/api/roblox/avatar_claim.rs) (ver [features/avatars.md](features/avatars.md#as-duas-edições)) — nas duas edições |
+| `avatar-batch` | via `full` | distribuição de avatares em lote: [commands/avatar_batch.rs](../src-tauri/src/commands/avatar_batch.rs) e o resgate em [api/roblox/avatar_claim.rs](../src-tauri/src/api/roblox/avatar_claim.rs) (ver [features/avatars.md](features/avatars.md#as-duas-edições)) — nas duas edições (via `standard`) |
 
 Comandos relacionados em [services.rs](../src-tauri/src/commands/services.rs) e [avatars.rs](../src-tauri/src/commands/avatars.rs) têm stub `#[cfg(not(feature = ...))]` — ao adicionar um comando novo dessas áreas, crie as duas versões.
 
@@ -283,7 +297,7 @@ Decisão do dono (10/10/2026). O binário sabe a própria edição pela feature 
 | | **Padrão** | **Completa** |
 |---|---|---|
 | Arquivo na release | `MultiAlt-Setup.msi` | `MultiAlt_<v>_Full-Setup.msi` (+ `.sig`) |
-| Cargo | `--no-default-features --features avatar-batch` | `--features full` (sem lista: o que está no `full` entra) |
+| Cargo | `--no-default-features --features standard` (sem lista: o que está no `standard` entra) | `--features full` (sem lista: o que está no `full` entra) |
 | Frontend | `VITE_ENABLE_NEXUS`/`VITE_ENABLE_WEBSERVER` = `false` | toda `VITE_ENABLE_*` = `true` |
 | Canal do updater | `<release>` (`stable`, `beta`) | `<release>-nexus-ws` — **não renomear**: é o endereço que quem já tem a completa instalada consulta |
 | Onde aparece | README, site, app, botão de download — é a **recomendada** em todo lugar | **só** nos anexos da release do GitHub e na seção fixa "Full installer" do texto dela (passo "Finalize release notes", travado em [release-workflow.test.mjs](../.github/scripts/release-workflow.test.mjs)) |
@@ -291,7 +305,9 @@ Decisão do dono (10/10/2026). O binário sabe a própria edição pela feature 
 
 Regras:
 
-- **A completa tem toda feature opcional.** A lista mora num lugar só, a feature `full` do [Cargo.toml](../src-tauri/Cargo.toml); o workflow compila a completa com `--features full`, sem lista própria. O `release-workflow.test.mjs` reprova se alguma feature declarada ficar fora do `full` (ou se o `default` deixar de ser `full`).
+- **A padrão leva tudo, menos o que faz o scan marcá-la** (decisão do dono, 10/10/2026). Hoje só Nexus e Web API ficam só na completa. O que ela leva mora na feature `standard` do [Cargo.toml](../src-tauri/Cargo.toml); o workflow compila a padrão com `--no-default-features --features standard`, sem lista própria. O `release-workflow.test.mjs` reprova se `nexus` ou `webserver` entrarem no `standard`.
+- **A completa tem toda feature opcional.** `full` = `standard` + o que fica só na completa; o workflow compila a completa com `--features full`, sem lista própria. O `release-workflow.test.mjs` reprova se alguma feature declarada ficar fora do `full`, direto ou via `standard` (ou se o `default` deixar de ser `full`).
+- **Feature nova:** entra no `standard` se pode ir para as duas edições, ou direto no `full` se for segurada por marcação de scanner.
 - **O que faz o `.exe` da padrão ser marcado vai para trás de uma feature do Cargo que só o `full` liga.** Nexus e Web API já são assim; o `live-audio` (controle de áudio por janela, nas branches de feature) entra no `full` quando chegar à `develop` — **só** na edição completa.
 - **A completa nunca é linkada fora dos anexos da release**: nada de README, site (o `pickAssets` do [site/main.js](../site/main.js) descarta arquivo com `_full-`/`_Full-` no nome) ou texto do app apontando para ela. Travado em [scripts/site/editions.test.ts](../scripts/site/editions.test.ts). O texto da release fala dela em termos neutros ("Windows integrations"), sem citar antivírus.
 - **Portão do scan.** Padrão: qualquer motor que marque reprova (`bun run scan`, default). Completa: `bun run scan --edition full <arquivo>` aceita **só** o caso em que o único motor do VirusTotal marcando é o Trapmine com rótulo terminado em `.ml.score` — o resumo mostra `aceito (edição completa: só o Trapmine de ML)` e sai 0. Qualquer outro motor, o Trapmine com outro rótulo ou o Defender reprovam (saída 2). Regra em [scanVerdict.ts](../scripts/scanVerdict.ts) (`classifyVirusTotal`), suíte `scan`.

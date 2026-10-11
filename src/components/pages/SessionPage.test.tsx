@@ -9,7 +9,13 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { SessionPage } from "./SessionPage";
-import { makeAccount, makeBottingStatus, renderWithStore, setStore } from "../../test-utils/renderWithStore";
+import {
+  makeAccount,
+  makeBottingStatus,
+  makePlatformCapabilities,
+  renderWithStore,
+  setStore,
+} from "../../test-utils/renderWithStore";
 import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type { LaunchQueuePayload } from "../../types";
@@ -165,6 +171,102 @@ describe("SessionPage — summary", () => {
     expect(screen.getByText("Auto Rejoin is running for 2 accounts.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open AFK Mode" }));
     expect(store.setActivePage).toHaveBeenCalledWith("afk");
+  });
+
+  it("says when auto-reconnect is bringing accounts back (a stopped one does not count)", () => {
+    const drop = { kind: "crashed" as const, reason: null, code: null, message: null, sinceMs: 0 };
+    const base = { attempt: 1, maxAttempts: 5, nextAttemptAtMs: null, reason: null, error: null, drop };
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      autoReconnect: [
+        { ...base, userId: 10, phase: "waiting" },
+        { ...base, userId: 20, phase: "stopped", reason: "joinedElsewhere" },
+      ],
+      ...storeActions(),
+    });
+    const summary = screen.getByRole("complementary", { name: "Summary" });
+    expect(within(summary).getByText("Auto-reconnect is bringing back 1 account.")).toBeInTheDocument();
+  });
+
+  /**
+   * O padrão de reconexão de todas as contas mora também aqui, no cartão de
+   * quem mantém as contas no jogo: é a mesma setting de Settings › General
+   * (`General.AutoReconnect`), gravada pela store para as duas telas verem o
+   * mesmo valor.
+   */
+  it("turns the reconnect default on and off from the summary, same setting as Settings › General", async () => {
+    const user = userEvent.setup();
+    const { store } = renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      settings: { General: { AutoReconnect: "false" } },
+      ...storeActions(),
+    });
+    const summary = within(screen.getByRole("complementary", { name: "Summary" }));
+    const toggle = summary.getByRole("switch", { name: /Reconnect accounts that drop/ });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(toggle).toHaveTextContent("never ones opened from the website");
+    await user.click(toggle);
+    expect(store.updateSetting).toHaveBeenCalledWith("General", "AutoReconnect", "true");
+  });
+
+  it("shows the reconnect default as on when the setting is on", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      settings: { General: { AutoReconnect: "true" } },
+      ...storeActions(),
+    });
+    const summary = within(screen.getByRole("complementary", { name: "Summary" }));
+    expect(summary.getByRole("switch", { name: /Reconnect accounts that drop/ })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+  });
+
+  it("has no reconnect default outside Windows", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      platformCapabilities: makePlatformCapabilities({ os: "macos" }),
+      ...storeActions(),
+    });
+    expect(screen.queryByRole("switch", { name: /Reconnect accounts that drop/ })).not.toBeInTheDocument();
+  });
+
+  /** "1 accounts" / "1 contas": uma conta sozinha é singular nas três frases. */
+  it("says one account in the singular", () => {
+    const keepAlive = (extra: Partial<StoreValue>) => {
+      cleanup();
+      renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+        accounts: ACCOUNTS,
+        launchQueue: null,
+        launchedByProgram: new Set<number>(),
+        ...storeActions(),
+        ...extra,
+      });
+      return within(screen.getByRole("complementary", { name: "Summary" }));
+    };
+    expect(
+      keepAlive({ bottingStatus: makeBottingStatus({ active: true, userIds: [10] }) }).getByText(
+        "Auto Rejoin is running for 1 account."
+      )
+    ).toBeInTheDocument();
+    expect(
+      keepAlive({ afkStatus: { active: true, accounts: [{ userId: 10 }] } as unknown as StoreValue["afkStatus"] }).getByText(
+        "AFK Mode is on for 1 account."
+      )
+    ).toBeInTheDocument();
+    expect(
+      keepAlive({ afkStatus: { active: true, accounts: [{ userId: 10 }, { userId: 20 }] } as unknown as StoreValue["afkStatus"] }).getByText(
+        "AFK Mode is on for 2 accounts."
+      )
+    ).toBeInTheDocument();
   });
 });
 

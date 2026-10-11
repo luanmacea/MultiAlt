@@ -53,7 +53,10 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `UpdaterReleaseChannel` | `beta` | Canal de release do updater. |
 | `UpdaterFeatureChannel` | a edição que está rodando (`standard` na padrão, `nexus-ws` na completa) | Canal de features do updater. Gravado no INI, nunca é reposto por uma versão nova; o botão "Get the complete edition" da página Avatars grava `nexus-ws` ([avatars.md](avatars.md#trocar-para-a-edição-completa-pelo-app)). |
 | `AccountJoinDelay` | `8` | Segundos entre contas no multi-launch. |
-| `AsyncJoin` | `false` | Esperar cada conta abrir antes da próxima. |
+| `AsyncJoin` | `false` | "Launch one account at a time": espera o sinal `next_account` (teto de 120 s) depois de cada conta. Nada na tela manda o sinal, então na prática são 2 minutos entre contas — é o que a descrição diz. Ligado, `AccountJoinDelay` e `WaitForGameJoin` ficam desabilitados com a dica de que voltam a valer ao desligá-lo. |
+| `KeepPcAwake` | `true` | Não deixa o Windows dormir (a tela pode apagar) enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda; solta ao parar tudo e ao fechar o app. Só Windows. Ver [afk-mode.md](afk-mode.md#pc-acordado). |
+| `AutoReconnect` | `false` | Padrão de todas as contas para a [reconexão automática](watcher.md#reconexão-automática): reabre no mesmo jogo o cliente que o app abriu quando ele cai. O campo `AutoReconnect` da conta (chave na lista "In game" da página Session) vence. Também muda no cartão "Keep accounts in game" da página Session. Só Windows. |
+| `WaitForGameJoin` | `true` | "Start the next account once the previous one is in the game". Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
@@ -73,6 +76,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `AutoCloseRobloxForMultiRbx` | `false` | Fecha Roblox abertos se não conseguir ativar multi-Roblox. |
 | `EnableMultiRbx` | — (false) | Multi-Roblox; também controla a limpeza ao sair do app. |
 | `ShowPresence` | `true` | Mostra presença na lista. |
+| `ShowAccountNameOnWindow` | `true` | Só Windows: título "conta — Roblox" (nome primeiro) em cada janela que o app acompanha (mascarado com `HideUsernames`). Ver [watcher.md](watcher.md#nome-da-conta-na-janela). |
 | `PresenceUpdateRate` | `5` | Minutos entre atualizações de presença (mínimo efetivo 30 s). |
 | `WarnOnOnlineJoin` | `true` | Confirma antes de entrar com conta online. |
 | `WarnOnCopyCredential` | `true` | Confirma antes de copiar cookie/senha para a área de transferência (opt-out no próprio aviso). |
@@ -132,6 +136,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ReadInterval` | `250` | ms |
 | `ExitIfNoConnection` / `NoConnectionTimeout` | `false` / `60` | fecha sem conexão após N s |
 | `ExitOnBeta` | `false` | fecha se detectar Roblox beta |
+| `CloseIfNotResponding` | `false` | fecha o cliente do app que fica "Não respondendo" por 30 s |
 | `CloseRbxMemory` / `MemoryLowValue` | `false` / `200` | fecha abaixo de N MB |
 | `CloseRbxWindowTitle` / `ExpectedWindowTitle` | `false` / `Roblox` | fecha se o título divergir |
 | `SaveWindowPositions` | `false` | salva posição da janela nos `Fields` da conta |

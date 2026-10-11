@@ -9,10 +9,20 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { SessionPanel } from "./SessionPanel";
-import { makeAccount, makeBottingStatus, renderWithStore, setStore } from "../../test-utils/renderWithStore";
+import {
+  makeAccount,
+  makeBottingStatus,
+  makePlatformCapabilities,
+  renderWithStore,
+  setStore,
+} from "../../test-utils/renderWithStore";
 import { confirmMock, promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import type {
+  Account,
+  AutoReconnectEntry,
+  ClientDrop,
+  ClientHealth,
   FriendLinkState,
   LaunchQueueEntry,
   LaunchQueuePayload,
@@ -682,5 +692,386 @@ describe("SessionPanel — clientes abertos fora do app", () => {
     const picker = screen.getByRole("combobox", { name: "Account for this client" });
     expect(within(picker).queryByRole("option", { name: "Bravo Alt" })).not.toBeInTheDocument();
     expect(within(picker).getByRole("option", { name: "Br********" })).toBeInTheDocument();
+  });
+});
+
+describe("SessionPanel — quedas lidas do log", () => {
+  function health(drop: Partial<ClientDrop> | null): ClientHealth {
+    return {
+      pid: 4242,
+      logFound: true,
+      drop: drop
+        ? { kind: "disconnected", reason: null, code: null, message: null, sinceMs: 1_700_000_000_000, ...drop }
+        : null,
+    };
+  }
+
+  it("shows why each account dropped, next to its name", () => {
+    renderPanel({
+      launchedByProgram: new Set([1, 2, 3]),
+      clientHealth: new Map([
+        [1, health({ kind: "disconnected", reason: "connectionLost", code: 277 })],
+        [2, health({ kind: "kicked", code: 267, message: "Server restarting" })],
+        [3, health({ kind: "serverShutdown", code: 274 })],
+      ]),
+    });
+    const lost = within(screen.getByTestId("session-running-1")).getByTestId("client-health-note");
+    expect(lost).toHaveTextContent("Disconnected: lost connection");
+    // O código fica no tooltip, para quem quiser procurar.
+    expect(lost).toHaveAttribute("title", expect.stringContaining("277"));
+    expect(within(screen.getByTestId("session-running-2")).getByText("Kicked: Server restarting")).toBeInTheDocument();
+    expect(within(screen.getByTestId("session-running-3")).getByText("The server shut down")).toBeInTheDocument();
+  });
+
+  it("says nothing for an account that is fine", () => {
+    renderPanel({
+      launchedByProgram: new Set([1, 2]),
+      clientHealth: new Map([[1, health(null)]]),
+    });
+    expect(screen.queryByTestId("client-health-note")).not.toBeInTheDocument();
+  });
+
+  it("a website client also shows its drop (display only, it keeps the same buttons)", () => {
+    renderPanel({
+      launchedByProgram: new Set([3]),
+      adoptedClients: new Set([3]),
+      clientHealth: new Map([[3, health({ kind: "disconnected", reason: "joinedElsewhere", code: 273 })]]),
+    });
+    const row = screen.getByTestId("session-running-3");
+    expect(within(row).getByText("Disconnected: the account joined somewhere else")).toBeInTheDocument();
+    expect(within(row).getByText("Opened outside the app")).toBeInTheDocument();
+  });
+
+  it("shows a hung window as not responding, in its own color", () => {
+    renderPanel({
+      launchedByProgram: new Set([1]),
+      clientHealth: new Map([[1, { ...health(null), notResponding: true }]]),
+    });
+    const note = within(screen.getByTestId("session-running-1")).getByTestId("client-health-note");
+    expect(note).toHaveTextContent("Not responding");
+    expect(note).toHaveAttribute("data-tone", "hung");
+  });
+});
+
+describe("SessionPanel — reconexão automática", () => {
+  const NOW = Date.now();
+
+  function reconnect(userId: number, partial: Partial<AutoReconnectEntry>): AutoReconnectEntry {
+    return {
+      userId,
+      phase: "waiting",
+      attempt: 1,
+      maxAttempts: 5,
+      nextAttemptAtMs: NOW + 30_000,
+      reason: null,
+      error: null,
+      drop: { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: NOW },
+      ...partial,
+    };
+  }
+
+  function reconnectActions(): Partial<StoreValue> {
+    return {
+      stopAutoReconnect: vi.fn(async (userId: number) => (await invokeMock("stop_auto_reconnect", { userId })) as boolean),
+      retryAutoReconnect: vi.fn(
+        async (userId: number) => (await invokeMock("retry_auto_reconnect", { userId })) as boolean
+      ),
+    };
+  }
+
+  beforeEach(() => {
+    setInvokeMap({ stop_auto_reconnect: true, retry_auto_reconnect: true });
+  });
+
+  it("has no section while nothing is reconnecting", () => {
+    renderPanel();
+    expect(screen.queryByTestId("auto-reconnect-panel")).not.toBeInTheDocument();
+  });
+
+  it("shows the countdown and the attempt, with Try now and Stop", async () => {
+    renderPanel({
+      ...reconnectActions(),
+      autoReconnect: [reconnect(1, { attempt: 2, nextAttemptAtMs: Date.now() + 30_000 })],
+    });
+    const row = screen.getByTestId("session-reconnect-1");
+    expect(within(row).getByText("alpha")).toBeInTheDocument();
+    expect(within(row).getByText(/^Reconnecting in (29|30) s \(attempt 2\/5\)$/)).toBeInTheDocument();
+
+    await userEvent.click(within(row).getByRole("button", { name: /Try now/ }));
+    expect(callsFor("retry_auto_reconnect")).toEqual([["retry_auto_reconnect", { userId: 1 }]]);
+    await userEvent.click(within(row).getByRole("button", { name: /Stop/ }));
+    expect(callsFor("stop_auto_reconnect")).toEqual([["stop_auto_reconnect", { userId: 1 }]]);
+    // Parar a reconexão nunca fecha cliente.
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
+  });
+
+  it("says when it gave up, and offers to try again or hide the line", async () => {
+    renderPanel({
+      ...reconnectActions(),
+      autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5, error: "PID not detected" })],
+    });
+    const row = screen.getByTestId("session-reconnect-2");
+    expect(within(row).getByText("Gave up after 5 tries")).toBeInTheDocument();
+    expect(within(row).getByText("PID not detected")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: /Try again/ })).toBeInTheDocument();
+    await userEvent.click(within(row).getByRole("button", { name: "Dismiss Bravo Alt" }));
+    expect(callsFor("stop_auto_reconnect")).toEqual([["stop_auto_reconnect", { userId: 2 }]]);
+  });
+
+  it("explains why it will not reconnect, without a retry for a banned account", () => {
+    renderPanel({
+      autoReconnect: [
+        reconnect(1, { phase: "stopped", reason: "joinedElsewhere" }),
+        reconnect(3, { phase: "stopped", reason: "banned" }),
+      ],
+    });
+    expect(
+      within(screen.getByTestId("session-reconnect-1")).getByText("Not reconnecting: the account joined somewhere else")
+    ).toBeInTheDocument();
+    const banned = screen.getByTestId("session-reconnect-3");
+    expect(within(banned).getByText("Not reconnecting: the account is banned")).toBeInTheDocument();
+    expect(within(banned).queryByRole("button", { name: /Try/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the attempt in progress without a Try now", () => {
+    renderPanel({ autoReconnect: [reconnect(1, { phase: "launching", attempt: 3 })] });
+    const row = screen.getByTestId("session-reconnect-1");
+    expect(within(row).getByText("Reconnecting now (attempt 3/5)")).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /Try/ })).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: /Stop/ })).toBeInTheDocument();
+  });
+
+  /** A causa ficava só no tooltip: agora é uma segunda linha, à vista. */
+  it("shows the cause under the line, for a pending reconnect too", () => {
+    renderPanel({
+      autoReconnect: [
+        reconnect(2, { phase: "gaveUp", attempt: 5, error: "PID not detected" }),
+        reconnect(1, { phase: "waiting", attempt: 2, error: "It did not get into the game in 2 minutes" }),
+      ],
+    });
+    expect(screen.getByTestId("session-reconnect-detail-2")).toHaveTextContent("PID not detected");
+    expect(screen.getByTestId("session-reconnect-detail-1")).toHaveTextContent(
+      "It did not get into the game in 2 minutes"
+    );
+  });
+
+  it("has no cause line when there is no error", () => {
+    renderPanel({ autoReconnect: [reconnect(1, { phase: "waiting" })] });
+    expect(screen.queryByTestId("session-reconnect-detail-1")).not.toBeInTheDocument();
+  });
+
+  /** Sem retorno, o clique parecia não ter feito nada (e dava para clicar de novo). */
+  it("disables the line's buttons while the command runs", async () => {
+    let finish: (value: boolean) => void = () => {};
+    setInvokeMap({ retry_auto_reconnect: () => new Promise<boolean>((resolve) => (finish = resolve)) });
+    renderPanel({ ...reconnectActions(), autoReconnect: [reconnect(1, { phase: "waiting" })] });
+    const row = screen.getByTestId("session-reconnect-1");
+    await userEvent.click(within(row).getByRole("button", { name: /Try now/ }));
+    expect(within(row).getByRole("button", { name: /Try now/ })).toBeDisabled();
+    expect(within(row).getByRole("button", { name: /Stop/ })).toBeDisabled();
+    finish(true);
+    await waitFor(() => expect(within(row).getByRole("button", { name: /Try now/ })).not.toBeDisabled());
+  });
+
+  it("hides a dismissed line right away, before the backend answers", async () => {
+    setInvokeMap({ stop_auto_reconnect: () => new Promise<boolean>(() => {}) });
+    renderPanel({ ...reconnectActions(), autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5 })] });
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    expect(screen.queryByTestId("session-reconnect-2")).not.toBeInTheDocument();
+  });
+
+  it("says so when the account is no longer reconnecting", async () => {
+    setInvokeMap({ stop_auto_reconnect: false, retry_auto_reconnect: false });
+    const { store } = renderPanel({
+      ...reconnectActions(),
+      autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5 }), reconnect(1, { phase: "waiting" })],
+    });
+    await userEvent.click(within(screen.getByTestId("session-reconnect-1")).getByRole("button", { name: /Try now/ }));
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith("alpha is no longer being reconnected.", "info")
+    );
+    // Dispensar uma que o backend já não tem: some do mesmo jeito, com o aviso.
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith("Bravo Alt is no longer being reconnected.", "info")
+    );
+    expect(screen.queryByTestId("session-reconnect-2")).not.toBeInTheDocument();
+  });
+
+  it("brings a dismissed line back when the command fails", async () => {
+    setInvokeMap({
+      stop_auto_reconnect: () => {
+        throw new Error("boom");
+      },
+    });
+    renderPanel({ ...reconnectActions(), autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5 })] });
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    await waitFor(() => expect(screen.getByTestId("session-reconnect-2")).toBeInTheDocument());
+    expect(screen.getByText(/boom/)).toBeInTheDocument();
+  });
+
+  it("shows a new drop of a dismissed account again", async () => {
+    setInvokeMap({ stop_auto_reconnect: () => new Promise<boolean>(() => {}) });
+    const actions = reconnectActions();
+    const { rerender } = renderPanel({ ...actions, autoReconnect: [reconnect(2, { phase: "gaveUp", attempt: 5 })] });
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    expect(screen.queryByTestId("session-reconnect-2")).not.toBeInTheDocument();
+    // Caiu de novo: outra queda (outro `sinceMs`) é outra linha.
+    const again = reconnect(2, { phase: "waiting" });
+    setStore({
+      accounts: ACCOUNTS,
+      ...storeActions(),
+      ...actions,
+      autoReconnect: [{ ...again, drop: { ...again.drop, sinceMs: NOW + 60_000 } }],
+    });
+    rerender(<SessionPanel />);
+    expect(screen.getByTestId("session-reconnect-2")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Reconexão automática por conta, na lista "Em jogo" (antes ficava no painel
+ * de uma conta, que quase ninguém abre com muitas contas). O campo da conta
+ * (`Fields.AutoReconnect`) manda; sem ele vale `General.AutoReconnect`; o
+ * AutoRelaunch do Nexus liga por cima (`reconnect_enabled`, commands/reconnect.rs).
+ */
+describe("SessionPanel — reconexão por conta", () => {
+  function renderRunning(overrides: Partial<StoreValue> = {}, accounts: Account[] = ACCOUNTS) {
+    return renderWithStore(<SessionPanel />, {
+      accounts,
+      launchedByProgram: new Set(accounts.map((a) => a.UserID)),
+      ...storeActions(),
+      ...overrides,
+    });
+  }
+
+  function savedAccounts(store: StoreValue): Account[] {
+    return (store.updateAccount as unknown as { mock: { calls: [Account][] } }).mock.calls.map((c) => c[0]);
+  }
+
+  function clearSaved(store: StoreValue) {
+    (store.updateAccount as unknown as { mockClear: () => void }).mockClear();
+  }
+
+  function rowSwitch(userId: number) {
+    return within(screen.getByTestId(`session-running-${userId}`)).getByRole("switch");
+  }
+
+  beforeEach(() => {
+    setInvokeMap({ get_nexus_accounts: [] });
+  });
+
+  it("each row follows the default until the account changes it, and says so", () => {
+    renderRunning({ settings: { General: { AutoReconnect: "true" } } });
+    const row = screen.getByTestId("session-running-1");
+    const toggle = within(row).getByRole("switch", { name: "Auto-reconnect for alpha" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(within(row).getByText("default")).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("title", "Following the default from Settings › General (on).");
+  });
+
+  it("turning a row off writes the account field and keeps the other fields", async () => {
+    const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { RobloxVersion: "LIVE:abc" } })];
+    const { store } = renderRunning({ settings: { General: { AutoReconnect: "true" } } }, accounts);
+    await userEvent.click(rowSwitch(1));
+    const [saved] = savedAccounts(store);
+    expect(saved.Fields.AutoReconnect).toBe("false");
+    expect(saved.Fields.RobloxVersion).toBe("LIVE:abc");
+  });
+
+  it("the account's own choice wins over the default, and can go back to it", async () => {
+    const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } })];
+    const { store } = renderRunning({ settings: { General: { AutoReconnect: "true" } } }, accounts);
+    const row = screen.getByTestId("session-running-1");
+    expect(rowSwitch(1)).toHaveAttribute("aria-checked", "false");
+    expect(within(row).queryByText("default")).not.toBeInTheDocument();
+    await userEvent.click(within(row).getByRole("button", { name: "Use the default from Settings › General (on)" }));
+    expect(savedAccounts(store)[0].Fields).not.toHaveProperty("AutoReconnect");
+  });
+
+  it("shows the row locked on when Nexus AutoRelaunch keeps it on", async () => {
+    setInvokeMap({ get_nexus_accounts: [{ username: "ALPHA", auto_relaunch: true }] });
+    const accounts = [makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } })];
+    renderRunning({}, accounts);
+    await waitFor(() => expect(rowSwitch(1)).toHaveAttribute("aria-checked", "true"));
+    expect(rowSwitch(1)).toHaveAttribute("aria-disabled", "true");
+    expect(rowSwitch(1)).toHaveAttribute(
+      "title",
+      "Nexus AutoRelaunch is on for this account, so it reconnects even with this off."
+    );
+  });
+
+  it("does not blame Nexus when its AutoRelaunch is off for the account", async () => {
+    setInvokeMap({ get_nexus_accounts: [{ username: "alpha", auto_relaunch: false }] });
+    renderRunning({}, [makeAccount({ UserID: 1, Username: "alpha" })]);
+    await waitFor(() => expect(callsFor("get_nexus_accounts")).toHaveLength(1));
+    expect(rowSwitch(1)).toHaveAttribute("aria-checked", "false");
+    expect(rowSwitch(1)).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("bulk: the checked rows turn on, off, or go back to the default", async () => {
+    const accounts = [
+      makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } }),
+      makeAccount({ UserID: 2, Username: "bravo" }),
+      makeAccount({ UserID: 3, Username: "charlie" }),
+    ];
+    const { store } = renderRunning({}, accounts);
+    // Nada marcado: as ações de lote não aparecem.
+    expect(screen.queryByRole("button", { name: "Reconnect on" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select bravo" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Reconnect on" }));
+    expect(savedAccounts(store).map((a) => [a.UserID, a.Fields.AutoReconnect])).toEqual([
+      [1, "true"],
+      [2, "true"],
+    ]);
+
+    clearSaved(store);
+    await userEvent.click(screen.getByRole("button", { name: "Reconnect off" }));
+    expect(savedAccounts(store).map((a) => [a.UserID, a.Fields.AutoReconnect])).toEqual([
+      [1, "false"],
+      [2, "false"],
+    ]);
+
+    clearSaved(store);
+    await userEvent.click(screen.getByRole("button", { name: "Use default" }));
+    const saved = savedAccounts(store);
+    expect(saved.map((a) => a.UserID)).toEqual([1, 2]);
+    expect(saved.every((a) => !("AutoReconnect" in a.Fields))).toBe(true);
+    // Mudar a reconexão nunca fecha cliente.
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
+  });
+
+  it("explains a reconnect still running after the account was turned off", () => {
+    renderRunning(
+      {
+        autoReconnect: [
+          {
+            userId: 1,
+            phase: "launching",
+            attempt: 2,
+            maxAttempts: 5,
+            nextAttemptAtMs: null,
+            reason: null,
+            error: null,
+            drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 0 },
+          },
+        ],
+      },
+      [makeAccount({ UserID: 1, Username: "alpha", Fields: { AutoReconnect: "false" } })]
+    );
+    expect(
+      within(screen.getByTestId("session-reconnect-1")).getByText(
+        "Turned off: it stops after the attempt in progress."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("has no reconnect controls outside Windows, where the Roblox log is not read", async () => {
+    renderRunning({ platformCapabilities: makePlatformCapabilities({ os: "macos" }) });
+    expect(within(screen.getByTestId("session-running-1")).queryByRole("switch")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
+    expect(screen.queryByRole("button", { name: "Reconnect on" })).not.toBeInTheDocument();
   });
 });

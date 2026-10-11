@@ -63,7 +63,32 @@ pub fn find_legacy_ram_pids() -> Vec<u32> {
     }
 }
 
+/// PIDs que o próprio app mandou fechar (Fechar, Auto Rejoin, Watcher...). O
+/// monitor de quedas (`commands/client_health.rs`) usa isto para não chamar de
+/// "fechou sozinho" o cliente que o app fechou. Guarda só os últimos.
+static TERMINATED_BY_APP: LazyLock<Mutex<std::collections::VecDeque<u32>>> =
+    LazyLock::new(|| Mutex::new(std::collections::VecDeque::new()));
+const TERMINATED_BY_APP_MEMORY: usize = 64;
+
+fn note_terminated_by_app(pid: u32) {
+    if let Ok(mut pids) = TERMINATED_BY_APP.lock() {
+        pids.retain(|p| *p != pid);
+        pids.push_back(pid);
+        while pids.len() > TERMINATED_BY_APP_MEMORY {
+            pids.pop_front();
+        }
+    }
+}
+
+pub fn was_terminated_by_app(pid: u32) -> bool {
+    TERMINATED_BY_APP
+        .lock()
+        .map(|pids| pids.contains(&pid))
+        .unwrap_or(false)
+}
+
 pub fn kill_process(pid: u32) -> Result<(), String> {
+    note_terminated_by_app(pid);
     unsafe {
         let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
         if handle.is_null() {
@@ -100,6 +125,18 @@ mod win_process_tests {
     fn find_pids_for_exes_returns_nothing_for_a_name_that_cannot_exist() {
         let pids = find_pids_for_exes(&["ram4-no-such-process-9f3c1d.exe"]);
         assert!(pids.is_empty(), "unexpected matches: {:?}", pids);
+    }
+
+    #[test]
+    fn a_pid_the_app_closed_is_remembered_and_the_memory_is_bounded() {
+        // Só a anotação: `kill_process` mesmo nunca é chamado em teste.
+        note_terminated_by_app(4_294_967_001);
+        assert!(was_terminated_by_app(4_294_967_001));
+        for pid in 0..(TERMINATED_BY_APP_MEMORY as u32 + 1) {
+            note_terminated_by_app(4_294_966_000 + pid);
+        }
+        assert!(!was_terminated_by_app(4_294_967_001));
+        assert!(TERMINATED_BY_APP.lock().unwrap().len() <= TERMINATED_BY_APP_MEMORY);
     }
 
     #[test]

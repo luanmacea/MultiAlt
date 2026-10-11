@@ -104,6 +104,13 @@ export function WatcherTab({ s }: { s: UseSettingsReturn }) {
         // Windows: titulo contem "roblox beta". macOS: linha de volta para a home.
         description="Closes a client that lands on the Roblox Beta app instead of staying in the game."
       />
+      <Toggle
+        checked={s.getBool("Watcher", "CloseIfNotResponding")}
+        onChange={(v) => s.setBool("Watcher", "CloseIfNotResponding", v)}
+        label="Close If Not Responding"
+        // client_health.rs marca "Não respondendo" depois de 30 s de IsHungAppWindow.
+        description="Closes a client whose window stays “Not responding” for 30 seconds."
+      />
 
       <Divider />
       <SectionLabel>Memory & Window</SectionLabel>

@@ -35,7 +35,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 | `Names shown` / `Names hidden` | Mascara os nomes das contas em todas as telas, inclusive toasts e confirmações (para gravar tela). Quantas letras ficam visíveis: Settings › General › `Preview Letters`. |
 | ícone de painel | Mostra/esconde o painel de detalhes. Fica desabilitado quando não há exatamente uma conta selecionada. |
 | `Add ▾` | Todas as formas de trazer conta para dentro (abaixo). |
-| ícone de gamepad | `Session`: fila de lançamento e clientes abertos. |
+| ícone de gamepad | `Session`: fila de lançamento, clientes abertos e reconexão automática (padrão no resumo, chave por conta em `In game`). |
 | ícone de paleta | `Theme`: editor de cores e fontes. |
 | ícone de camadas | `Nexus`: controle de clientes por script Lua (exige executor externo). |
 | ícone de teclado | `AFK Mode`: manda uma tecla de tempo em tempo para a janela de cada conta escolhida, para não perder o estado no jogo. **Cada envio traz a janela do Roblox para frente por um instante.** Fica aceso enquanto o modo está mandando. |
@@ -77,7 +77,7 @@ Com **Auto Rejoin** ativo aparece `Add N account(s) to Auto Rejoin`.
 
 ### Painel da conta (uma selecionada)
 
-Alias, descrição, `Roblox Version (all accounts)` — é a versão **global**; a versão por conta existe no backend (campo `RobloxVersion`, honrado pelo launch e pelo Auto Rejoin), mas **não tem tela**: só dá para definir em `View/Edit Fields` (Developer Mode), por script ou pelo web server — e as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`.
+Alias, descrição, `Roblox Version (all accounts)` — é a versão **global**; a versão por conta existe no backend (campo `RobloxVersion`, honrado pelo launch e pelo Auto Rejoin), mas **não tem tela**: só dá para definir em `View/Edit Fields` (Developer Mode), por script ou pelo web server — e as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`. A reconexão automática **não** fica aqui: está na página `Session` (ver abaixo).
 
 ### Barra inferior (qualquer seleção)
 
@@ -153,7 +153,7 @@ Seções numa lista vertical à esquerda. As mais úteis no dia a dia:
 | `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
 | `Backups` | Settings › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
 | `Theme Editor` | toolbar | Cores, estilo de botão e fontes; presets exportáveis. |
-| `Session` | toolbar | Fila de lançamento (cancelar) e clientes abertos (focar, fechar). |
+| `Session` | toolbar | Fila de lançamento (cancelar), clientes abertos (focar, fechar) e reconexão automática: padrão `Reconnect accounts that drop` no resumo, chave por conta em cada linha de `In game` e, com linhas marcadas, `Reconnect on` / `Reconnect off` / `Use default`. |
 
 ---
 

@@ -1,0 +1,11 @@
+[
+  { "name": "annabelle", "hidden": false, "letters": 3, "expected": "annabelle" },
+  { "name": "annabelle", "hidden": true, "letters": 3, "expected": "ann********" },
+  { "name": "annabelle", "hidden": true, "letters": 0, "expected": "************" },
+  { "name": "annabelle", "hidden": true, "letters": -2, "expected": "************" },
+  { "name": "ann", "hidden": true, "letters": 3, "expected": "************" },
+  { "name": "ann", "hidden": true, "letters": 9, "expected": "************" },
+  { "name": "Main Farm", "hidden": true, "letters": 1, "expected": "M********" },
+  { "name": "Ação", "hidden": true, "letters": 2, "expected": "Aç********" },
+  { "name": "", "hidden": true, "letters": 2, "expected": "************" }
+]

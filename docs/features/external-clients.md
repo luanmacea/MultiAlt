@@ -60,6 +60,11 @@ O Roblox escreve um log por cliente em
    Um PID registrado que já morreu não conta como ocupado: o cliente novo é
    adotado (é o caso do app reiniciado).
 
+O casamento log ↔ processo mora no `LogLocator`, usado também pelo monitor de
+quedas para achar o log dos clientes que o **app** abriu
+([watcher.md](watcher.md#quedas-lidas-do-log-do-cliente)). Cliente adotado
+ganha o aviso de queda na Sessão como os outros — só o aviso, nunca uma ação.
+
 ## Custo
 
 - Sem `RobloxPlayerBeta` fora do tracker, a varredura é só a lista de

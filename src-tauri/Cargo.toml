@@ -12,21 +12,23 @@ tauri-build = { version = "2", features = [] }
 
 [features]
 # As duas edições publicadas (ver docs/development.md, "As duas edições"):
-# - padrão (`MultiAlt-Setup.msi`): `--no-default-features --features avatar-batch`;
+# - padrão (`MultiAlt-Setup.msi`): `--no-default-features --features standard`;
 # - completa (`MultiAlt_<v>_Full-Setup.msi`): `--features full`.
-# `full` liga TODA feature opcional. Feature nova que fica fora da padrão (Nexus,
-# Web API, live-audio quando chegar à develop, ou o que mais for segurado por
-# marcação de scanner) TEM que entrar na lista do `full`: o workflow compila a
-# completa só com `--features full`, sem lista própria, e o
-# release-workflow.test.mjs falha se alguma feature ficar de fora.
+# Decisão do dono (10/10/2026): a padrão leva tudo, menos o que faz o scan
+# marcá-la. A lista do que ela leva mora aqui, na feature `standard` — o
+# workflow não tem lista própria. `full` = `standard` + o que fica só na
+# completa (hoje Nexus e Web API). Feature nova entra no `standard` se puder ir
+# para as duas edições, ou direto no `full` se for segurada por marcação de
+# scanner; o release-workflow.test.mjs falha se alguma ficar fora do `full`.
 default = ["full"]
-full = ["nexus", "webserver", "avatar-batch"]
+standard = ["avatar-batch"]
+full = ["standard", "nexus", "webserver"]
 # Só na edição completa.
 nexus = []
 # Só na edição completa.
 webserver = ["dep:axum"]
 # Distribuir avatares salvos entre várias contas (resgate dos itens gratuitos
-# + vestir). Nas duas edições desde 08/10/2026: a padrão o liga à parte.
+# + vestir). Nas duas edições desde 08/10/2026 (via `standard`).
 avatar-batch = []
 
 [dependencies]
@@ -68,6 +70,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_JobObjects",
     "Win32_System_Registry",
     "Win32_System_Memory",
+    # SetThreadExecutionState: PC acordado (sem a tela) durante o Modo AFK, o
+    # Auto Rejoin e a reconexão automática (platform/windows/power.rs).
+    "Win32_System_Power",
     "Win32_UI_Shell",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
@@ -89,4 +94,25 @@ http-body-util = "0.1"
 # 28/09/2026), e `cargo test` roda em debug — era o que fazia a suite Rust do CI
 # levar 18 dos 24 minutos. O libsodium nao sofria disso por ser C pre-compilado.
 [profile.dev.package."*"]
+opt-level = 3
+
+# Build de release otimizado para TAMANHO (medido em 10/10/2026, ver
+# docs/development.md, "Perfil de release"): o exe padrao com tudo dos pacotes
+# 1.3-1.6 saia 26,2 MB e 1/75 no VirusTotal (Trapmine, placar de ML no limite);
+# com LTO + opt-level "s" + strip sai 16,2 MB e 0/71. So LTO + strip com
+# opt-level 3 (22 MB) continuou marcado. A criptografia do vault fica na
+# velocidade maxima (overrides abaixo): o Argon2 e o que a senha do app espera.
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = true
+
+[profile.release.package.argon2]
+opt-level = 3
+[profile.release.package.blake2]
+opt-level = 3
+[profile.release.package.salsa20]
+opt-level = 3
+[profile.release.package.poly1305]
 opt-level = 3
