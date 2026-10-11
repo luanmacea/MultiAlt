@@ -13,7 +13,7 @@ import i18n, { LANGUAGE_OPTIONS, normalizeLanguage } from "../../i18n";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { normalizeUiScaleSetting } from "../../uiScale";
-import { announceUiScale } from "../../hooks/useUiScale";
+import { announceUiScale, useAppliedUiScale } from "../../hooks/useUiScale";
 import {
   normalizeUpdaterReleaseChannel,
   normalizeUpdaterFeatureChannel,
@@ -26,6 +26,14 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
   const serialLaunch = s.getBool("General", "AsyncJoin");
   const t = useTr();
   const store = useStore();
+  // Tamanho da interface: no automático, mostra o zoom que ele escolheu agora
+  // ("Automatic (170%)" numa janela grande do 4K). Ver uiScale.ts.
+  const uiScaleSetting = normalizeUiScaleSetting(s.get("General", "InterfaceScale", "auto"));
+  const appliedUiScale = useAppliedUiScale();
+  const autoScaleLabel =
+    uiScaleSetting === "auto" && appliedUiScale !== null
+      ? t("Automatic ({{percent}}%)", { percent: Math.round(appliedUiScale * 100) })
+      : "Automatic";
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [browserReady, setBrowserReady] = useState<boolean | null>(null);
   const browserDownload = store.browserDownload;
@@ -103,15 +111,15 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
         <div className="min-w-0">
           <div className="text-[13px] text-zinc-300">{t("Interface size")}</div>
           <div className="mt-0.5 text-[12px] text-zinc-500">
-            {t("Auto shrinks the interface on smaller screens")}
+            {t("Automatic follows the screen: smaller on small screens, larger in big windows")}
           </div>
         </div>
         <div className="ml-auto min-w-[180px]">
           <Select
             ariaLabel="Interface size"
-            value={normalizeUiScaleSetting(s.get("General", "InterfaceScale", "auto"))}
+            value={uiScaleSetting}
             options={[
-              { value: "auto", label: "Automatic" },
+              { value: "auto", label: autoScaleLabel },
               { value: "110", label: "110%" },
               { value: "100", label: "100%" },
               { value: "90", label: "90%" },

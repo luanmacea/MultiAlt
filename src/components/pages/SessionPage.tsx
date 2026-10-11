@@ -17,6 +17,13 @@ import { RecordingsSummaryCard } from "../afk-mode/recordings/RecordingsSummaryC
  * cartões vão para baixo das listas (em duas colunas), para a lista ter a
  * largura; acima, ficam numa coluna ao lado. A página rola inteira: as listas
  * não têm rolagem própria aqui (`contained={false}`).
+ *
+ * Janela grande (monitor 4K, pedido de 11/10/2026): as listas não têm teto de
+ * largura — ocupam o que sobra, e as linhas do "Em jogo" viram colunas pela
+ * largura da lista (SessionPanel, `@container/ingame`). A coluna de ajustes
+ * alarga com a janela e, a partir de 2000 px (125rem), vira duas colunas de cartões.
+ * Breakpoint em **rem**, não px: o Tailwind 4 não ordena `min-[2000px]` junto
+ * dos `xl:`/`2xl:` (em rem) — a regra saía antes no CSS e o `xl:` vencia.
  */
 export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () => void }) {
   const t = useTr();
@@ -64,14 +71,14 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
       tour="session"
     >
       <div data-testid="session-layout" className="flex flex-col gap-6 xl:flex-row xl:items-start">
-        <div className="min-w-0 flex-1 max-w-[1040px]">
+        <div data-testid="session-lists" className="min-w-0 flex-1">
           <SessionPanel showStats contained={false} />
         </div>
 
         <aside
           aria-label={t("Session settings")}
           data-tour="session-summary"
-          className="w-full xl:w-[300px] shrink-0 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 items-start xl:sticky xl:top-0"
+          className="w-full xl:w-[300px] 2xl:w-[340px] min-[125rem]:w-[640px] min-[175rem]:w-[760px] shrink-0 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 min-[125rem]:grid-cols-2 items-start xl:sticky xl:top-0"
         >
           <section className="rounded-xl border theme-border px-4 py-3">
             <h2 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">

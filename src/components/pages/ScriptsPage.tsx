@@ -3045,7 +3045,7 @@ await ram.settings.set("endpoint", "http://127.0.0.1:3847/ram/bridge");
       bodyClassName="flex"
     >
         <div className="flex-1 min-h-0 min-w-0 flex">
-          <aside data-tour="scripts-list" className="w-[320px] border-r theme-border flex flex-col min-h-0">
+          <aside data-tour="scripts-list" className="w-[320px] 2xl:w-[380px] border-r theme-border flex flex-col min-h-0">
             <div className="p-3 border-b theme-border flex items-center gap-2">
               <div className="relative flex-1">
                 <Search
