@@ -592,6 +592,15 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   const groups = groupRunning(shownIds, sessions, statusOf);
   const grouped = sessions.size > 0 || groups.attention.length > 0;
   const listBox = contained ? "max-h-56 overflow-y-auto" : "";
+  // Reconexão: quem ainda tem cliente aberto mostra a tentativa na própria
+  // linha do "Em jogo" (uma conta, um lugar); a seção "Reconnecting" fica só
+  // com quem não tem cliente aberto (fechou, desistiu). Antes as duas listas
+  // repetiam as mesmas contas e empurravam o "Em jogo" para baixo.
+  const runningSet = new Set(runningIds);
+  const reconnectInRow = new Map(
+    reconnecting.filter((entry) => runningSet.has(entry.userId)).map((entry) => [entry.userId, entry] as const)
+  );
+  const reconnectApart = reconnecting.filter((entry) => !runningSet.has(entry.userId));
 
   // Mudança de estado anunciada ao leitor de tela, com calma (aria-live
   // polite): caiu, não responde, reconectando, voltou a jogar. A primeira
@@ -658,6 +667,76 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   }
 
   /**
+   * A tentativa de reconexão dentro da linha da conta: o que está acontecendo
+   * (contagem regressiva como `timer`), a causa e os botões pequenos de tentar
+   * agora / parar / dispensar. Mesmas ações da seção "Reconnecting".
+   */
+  function renderReconnectLine(entry: AutoReconnectEntry) {
+    const info = autoReconnectLabel(entry, now, t);
+    const name = nameFor(entry.userId);
+    const pending = info.tone === "pending";
+    const lineBusy = reconnectBusy.has(entry.userId);
+    const turnedOff = choiceFor(entry.userId)?.effective === false;
+    const small =
+      "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11.5px] text-[var(--panel-fg)] hover:bg-[var(--row-hover)] disabled:opacity-50 disabled:cursor-default";
+    return (
+      <span
+        data-testid={`session-reconnect-${entry.userId}`}
+        data-phase={entry.phase}
+        aria-busy={lineBusy || undefined}
+        className="flex flex-wrap items-center gap-x-2 text-[11.5px]"
+      >
+        <span role={entry.phase === "waiting" ? "timer" : undefined} className={pending ? "text-amber-400" : "text-red-400"}>
+          {info.label}
+        </span>
+        {info.detail && (
+          <span data-testid={`session-reconnect-detail-${entry.userId}`} className="theme-muted">
+            {info.detail}
+          </span>
+        )}
+        {pending && turnedOff && <span className="theme-muted">{t("Turned off: it stops after the attempt in progress.")}</span>}
+        <span className="inline-flex items-center gap-0.5">
+          {(info.canTryNow || info.canTryAgain) && (
+            <button
+              type="button"
+              onClick={() => void handleReconnectAction(entry, "retry")}
+              disabled={lineBusy}
+              title={t("Reopen this account now, in the same game")}
+              className={small}
+            >
+              <RotateCw size={11} strokeWidth={1.75} aria-hidden="true" className={lineBusy ? "animate-spin" : undefined} />
+              {info.canTryNow ? t("Try now") : t("Try again")}
+            </button>
+          )}
+          {pending ? (
+            <button
+              type="button"
+              onClick={() => void handleReconnectAction(entry, "stop")}
+              disabled={lineBusy}
+              title={t("Stop reconnecting this account (does not close any client)")}
+              className={small}
+            >
+              <SquareStop size={11} strokeWidth={1.75} aria-hidden="true" />
+              {t("Stop")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleReconnectAction(entry, "dismiss")}
+              disabled={lineBusy}
+              aria-label={t("Dismiss {{name}}", { name })}
+              title={t("Hide this line")}
+              className="inline-flex w-6 h-6 items-center justify-center rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] disabled:opacity-50"
+            >
+              <X size={12} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
+        </span>
+      </span>
+    );
+  }
+
+  /**
    * Uma conta da lista "Em jogo". `context` "game": a linha está dentro do
    * grupo do jogo e do servidor, então só leva o tempo em jogo; "full": fora
    * deles (atenção, sem jogo, lista simples), leva jogo · servidor · tempo.
@@ -707,6 +786,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
             )}
           </span>
           {(health?.drop || health?.notResponding) && <ClientHealthNote health={health} wrap />}
+          {reconnectInRow.has(userId) && renderReconnectLine(reconnectInRow.get(userId)!)}
           {session && context === "full" && <CurrentSessionLine session={session} />}
         </span>
         <span className="flex items-center gap-1 shrink-0">
@@ -749,7 +829,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                 : t("Close this account's Roblox client")
             }
             className={`sidebar-btn-sm !px-2 h-6 !py-0 flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed ${
-              armedClose === userId ? "!bg-red-600 !border-red-600 !text-white" : "text-red-400"
+              armedClose === userId ? "!bg-red-600 !border-red-600 !text-white" : "!text-red-400"
             }`}
           >
             <PowerOff size={12} strokeWidth={1.5} aria-hidden="true" />
@@ -907,7 +987,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
       )}
 
       {/* ── Reconectando ───────────────────────────────────────────────── */}
-      {reconnecting.length > 0 && (
+      {reconnectApart.length > 0 && (
         <section data-testid="auto-reconnect-panel" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
           <header className="flex items-center gap-2 px-3 py-2 border-b theme-border min-w-0">
             <h2 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
@@ -919,7 +999,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
             </span>
           </header>
           <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
-            {reconnecting.map((entry) => {
+            {reconnectApart.map((entry) => {
               const info = autoReconnectLabel(entry, now, t);
               const name = nameFor(entry.userId);
               const pending = info.tone === "pending";
@@ -1049,7 +1129,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   onClick={() => void confirmAndClose(runningIds)}
                   disabled={busy}
                   title={t("Closes the Roblox client of every account in this list")}
-                  className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 !text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <PowerOff size={13} strokeWidth={1.5} aria-hidden="true" />
                   {t("Close all clients ({{count}})", { count: runningIds.length })}
@@ -1278,7 +1358,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                 type="button"
                 onClick={() => void confirmAndClose(selected)}
                 disabled={busy}
-                className="sidebar-btn-sm !px-2 h-6 !py-0 ml-1 flex items-center gap-1 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="sidebar-btn-sm !px-2 h-6 !py-0 ml-1 flex items-center gap-1 !text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <PowerOff size={12} strokeWidth={1.5} aria-hidden="true" />
                 {t("Close selected ({{count}})", { count: selected.length })}
