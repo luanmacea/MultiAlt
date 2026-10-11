@@ -2504,5 +2504,6 @@
   "How many accounts are playing, reconnecting or stuck. Click a number to show only those accounts.": "How many accounts are playing, reconnecting or stuck. Click a number to show only those accounts.",
   "Nothing waiting": "Nothing waiting",
   "Session settings": "Session settings",
-  "Settings for every account: reconnect the ones that drop, recordings and the memory limit.": "Settings for every account: reconnect the ones that drop, recordings and the memory limit."
+  "Settings for every account: reconnect the ones that drop, recordings and the memory limit.": "Settings for every account: reconnect the ones that drop, recordings and the memory limit.",
+  "Clear selection": "Clear selection"
 }

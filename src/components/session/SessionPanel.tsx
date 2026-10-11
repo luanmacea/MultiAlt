@@ -221,6 +221,9 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   const [identifying, setIdentifying] = useState<{ pid: number; userId: string } | null>(null);
   // Grupos recolhidos da lista "Em jogo" (chave do grupo).
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Shift+clique: a última conta clicada e a ordem das linhas na tela.
+  const anchorRef = useRef<number | null>(null);
+  const visibleOrderRef = useRef<number[]>([]);
   // Filtro da faixa de números (só o estado escolhido na lista).
   const [filter, setFilter] = useState<SessionFilter | null>(null);
   const joiningRef = useRef<HTMLElement>(null);
@@ -345,7 +348,29 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     }
   }
 
-  function toggleChecked(userId: number) {
+  /**
+   * Marca/desmarca uma conta. Com Shift, o intervalo desde a última clicada
+   * (na ordem em que as linhas estão na tela) recebe o novo estado da clicada,
+   * como na lista de contas.
+   */
+  function toggleChecked(userId: number, event?: { shiftKey: boolean }) {
+    const anchor = anchorRef.current;
+    anchorRef.current = userId;
+    const order = visibleOrderRef.current;
+    if (event?.shiftKey && anchor !== null && anchor !== userId && order.includes(anchor) && order.includes(userId)) {
+      const [from, to] = [order.indexOf(anchor), order.indexOf(userId)].sort((a, b) => a - b);
+      const range = order.slice(from, to + 1);
+      const on = !checked.has(userId);
+      setChecked((prev) => {
+        const next = new Set(prev);
+        for (const id of range) {
+          if (on) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      });
+      return;
+    }
     setChecked((prev) => {
       const next = new Set(prev);
       if (next.has(userId)) next.delete(userId);
@@ -516,6 +541,14 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   const groups = groupRunning(shownIds, sessions, statusOf);
   const grouped = sessions.size > 0 || groups.attention.length > 0;
   const listBox = contained ? "max-h-56 overflow-y-auto" : "";
+  // Ordem das linhas como aparecem (grupos recolhidos ficam de fora).
+  visibleOrderRef.current = grouped
+    ? [
+        ...(collapsed.has("attention") ? [] : groups.attention),
+        ...groups.games.flatMap((game) => (collapsed.has(game.key) ? [] : game.servers.flatMap((sv) => sv.userIds))),
+        ...(collapsed.has("no-game") ? [] : groups.noGame),
+      ]
+    : shownIds;
 
   function selectionOf(ids: number[]): "all" | "some" | "none" {
     const count = ids.filter((id) => checked.has(id)).length;
@@ -565,7 +598,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           <SelectBox
             label={t("Select {{name}}", { name })}
             checked={checked.has(userId)}
-            onChange={() => toggleChecked(userId)}
+            onChange={(event) => toggleChecked(userId, event)}
           />
         </span>
         {/* A informação ao vivo tem a largura que sobra; os controles são
@@ -935,35 +968,6 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           </div>
         </header>
 
-        {/* Lote: reconexão e teto de memória das contas marcadas, nos mesmos
-            menus das linhas. O teto pula os clientes abertos pelo site. */}
-        {selected.length > 0 && (isWindows || (memoryTrim && memoryBulkIds.length > 0)) && (
-          <div
-            data-testid="session-bulk-settings"
-            className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 border-b theme-border text-[12px]"
-          >
-            <span className="theme-muted mr-auto">
-              {selected.length === 1 ? t("1 selected") : t("{{count}} selected", { count: selected.length })}
-            </span>
-            {isWindows && (
-              <ReconnectBulkChip
-                count={selected.length}
-                globalDefault={reconnectDefault}
-                disabled={reconnectSaving}
-                onChange={(value) => void saveReconnect(selected, value)}
-              />
-            )}
-            {memoryTrim && memoryBulkIds.length > 0 && (
-              <MemoryBulkChip
-                count={memoryBulkIds.length}
-                defaultMb={memoryDefaultMb}
-                disabled={memorySaving}
-                onChange={(value) => void saveMemoryLimit(memoryBulkIds, value)}
-              />
-            )}
-          </div>
-        )}
-
         {runningIds.length === 0 && unidentified.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
             <Gamepad2 size={20} strokeWidth={1.5} />
@@ -1112,6 +1116,47 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
               );
             })}
             </ul>
+          </div>
+        )}
+
+        {/* Lote das contas marcadas, preso ao pé do cartão: aparecer não
+            empurra as linhas (a faixa de antes entrava entre o cabeçalho e a
+            lista). Reconexão e teto de memória nos mesmos menus das linhas; o
+            teto pula os clientes abertos pelo site. */}
+        {selected.length > 0 && (
+          <div
+            data-testid="session-bulk-bar"
+            className="sticky bottom-0 z-10 flex flex-wrap items-center gap-1.5 rounded-b-lg border-t theme-border bg-[var(--panel-bg)] px-3 py-2 text-[12px] shadow-[0_-6px_16px_rgba(0,0,0,0.18)]"
+          >
+            <span className="font-medium text-[var(--panel-fg)] tabular-nums">
+              {selected.length === 1 ? t("1 selected") : t("{{count}} selected", { count: selected.length })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setChecked(new Set())}
+              className="inline-flex items-center gap-1 h-6 rounded-md px-1.5 theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)]"
+            >
+              <X size={12} strokeWidth={2} aria-hidden="true" />
+              {t("Clear selection")}
+            </button>
+            <span className="ml-auto flex flex-wrap items-center gap-1.5">
+              {isWindows && (
+                <ReconnectBulkChip
+                  count={selected.length}
+                  globalDefault={reconnectDefault}
+                  disabled={reconnectSaving}
+                  onChange={(value) => void saveReconnect(selected, value)}
+                />
+              )}
+              {memoryTrim && memoryBulkIds.length > 0 && (
+                <MemoryBulkChip
+                  count={memoryBulkIds.length}
+                  defaultMb={memoryDefaultMb}
+                  disabled={memorySaving}
+                  onChange={(value) => void saveMemoryLimit(memoryBulkIds, value)}
+                />
+              )}
+            </span>
           </div>
         )}
       </section>

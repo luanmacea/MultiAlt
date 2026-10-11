@@ -2504,5 +2504,6 @@
   "How many accounts are playing, reconnecting or stuck. Click a number to show only those accounts.": "Quantas contas estão jogando, reconectando ou travadas. Clique num número para ver só essas contas.",
   "Nothing waiting": "Ninguém esperando",
   "Session settings": "Ajustes da sessão",
-  "Settings for every account: reconnect the ones that drop, recordings and the memory limit.": "Ajustes de todas as contas: reconectar as que caem, gravações e o limite de memória."
+  "Settings for every account: reconnect the ones that drop, recordings and the memory limit.": "Ajustes de todas as contas: reconectar as que caem, gravações e o limite de memória.",
+  "Clear selection": "Limpar seleção"
 }
