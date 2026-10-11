@@ -61,10 +61,18 @@ Aba **Recordings** do Modo AFK, entre **AFK clicks** e **Auto Rejoin** (regra do
 dono: configuração de muitas contas não vai para o painel de uma conta — ver
 [ui-layout.md](ui-layout.md)).
 
-- **Library:** lista das gravações (nome, passos, duração estimada) com
+- **Ordem da aba (pedido do dono, 11/10/2026):** em cima, **Which recording
+  plays** (as contas, com as duas vagas) ao lado de **When it plays**; embaixo,
+  a **Library**.
+- **Library:** cada gravação é uma **linha fechada** — nome, passos · duração
+  estimada, etiquetas de uso ("After auto-reconnect · global", "On anti-AFK ·
+  2 account(s)") e os botões tocar (abre a gravação e leva ao **Try it now**),
   renomear (prompt), duplicar ("Nome (copy)", traduzido) e apagar (com
-  confirmação). **New recording** na barra de cima.
-- **Editor:** nome, passos em ordem (tipo, tecla, tempo, ponto; subir, descer,
+  confirmação). **Nada vem aberto:** clicar na linha abre o editor dentro dela;
+  clicar de novo fecha (antes a primeira abria sozinha, passo por passo, e
+  lotava a tela). **New recording** na barra de cima abre uma linha nova, ainda
+  não salva, no topo da lista.
+- **Editor** (dentro da linha aberta; os passos rolam numa área própria): nome, passos em ordem (tipo, tecla, tempo, ponto; subir, descer,
   remover), botões para acrescentar cada tipo de passo, duração estimada "por
   janela", **Save recording** / **Discard changes**. Trocar de gravação com
   mudança pede confirmação. O motivo de não poder salvar aparece embaixo (sem
@@ -258,10 +266,19 @@ exemplo depois de **Arrange in grid**).
   seguinte). Espera maior que **60 s** é encurtada para 60 s e contada.
 - Mais de 500 passos: o resto fica fora (`truncated`).
 
-**Depois.** Nada é salvo: o rascunho abre no editor como gravação nova (nome do
-arquivo sem `.rec`), com o resumo do que ficou e do que ficou de fora; dá para
-**Test on one account** antes de salvar. Salvar grava os passos e o
-`sourceAspect` da janela de referência.
+**O painel.** **Choose a .rec file** é um botão (o seletor nativo fica
+escondido atrás dele); escolhido o arquivo, aparece o **nome**, sugerido pelo
+nome do arquivo sem `.rec` e editável. A janela de referência só é perguntada
+com mais de uma conta aberta pelo app — com uma só, é ela. **Import** fica
+ligado assim que há arquivo.
+
+**Depois.** O **Import já salva** (pedido do dono, 11/10/2026: antes o rascunho
+abria inteiro no editor e precisava de outro clique para salvar): a gravação
+entra na Library **fechada**, com uma linha de resumo embaixo ("Imported N
+steps from M TinyTask events.") e o detalhe do que ficou de fora recolhido em
+"What was left out (n)". Salvar grava os passos e o `sourceAspect` da janela de
+referência. Erro de arquivo ou ao salvar aparece no próprio painel, e nada é
+salvo. Para conferir ou testar, abre-se a linha como qualquer outra.
 
 Resultado do `.rec` real do dono com uma área de referência de 2560×1440 em
 (0, 0) (a janela de verdade não foi medida): 6 cliques (53,11%×17,65%,

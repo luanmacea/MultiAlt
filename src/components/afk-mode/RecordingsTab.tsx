@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDown, ArrowUp, Check, Copy, Crosshair, FileUp, FlaskConical, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronRight, Copy, Crosshair, FileUp, FlaskConical, Pencil, Play, Plus, Square, Trash2 } from "lucide-react";
 import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { useAccountLabel } from "../../hooks/useAccountLabel";
@@ -84,7 +84,7 @@ export function RecordingsTab() {
   const accountLabel = useAccountLabel();
   const confirm = useConfirm();
   const prompt = usePrompt();
-  const { payload, loadError, playing } = useRecordings();
+  const { payload, loadError, playing, reload } = useRecordings();
 
   const recordings = useMemo(() => payload?.recordings ?? [], [payload]);
   const keys = useMemo(() => payload?.keys ?? [], [payload]);
@@ -96,7 +96,8 @@ export function RecordingsTab() {
   const [lastResults, setLastResults] = useState<RecordingPlayResult[]>([]);
   const [capture, setCapture] = useState<{ index: number; secondsLeft: number } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [imported, setImported] = useState<{ steps: number; summary: TinyTaskSummary } | null>(null);
+  /** A última importação: fica embaixo da linha da gravação nova até outra ação. */
+  const [imported, setImported] = useState<{ id: string; steps: number; summary: TinyTaskSummary } | null>(null);
   const [testing, setTesting] = useState(false);
   /** Área interna da janela de cada conta aberta, para o aviso de formato. */
   const [windowAreas, setWindowAreas] = useState<Map<number, TinyTaskArea>>(new Map());
@@ -109,13 +110,9 @@ export function RecordingsTab() {
   }, []);
 
   const saved = recordings.find((r) => r.id === selectedId) ?? null;
-  // Sem nada aberto, abre a primeira gravação da biblioteca.
-  useEffect(() => {
-    if (draft || recordings.length === 0) return;
-    const first = recordings[0];
-    setSelectedId(first.id);
-    setDraft({ id: first.id, name: first.name, steps: first.steps, sourceAspect: first.sourceAspect });
-  }, [recordings, draft]);
+  // Nada abre sozinho: a biblioteca é uma lista de linhas fechadas, e o editor
+  // aparece só na gravação clicada (lotava a tela com todos os passos).
+  const tryRef = useRef<HTMLDivElement>(null);
 
   const dirty = !!draft && !sameDraft(draft, saved);
   const problem: RecordingProblem | null = draft ? recordingProblem(draft.name, draft.steps, keys) : null;
@@ -190,33 +187,58 @@ export function RecordingsTab() {
     return confirm(t("Discard the changes to this recording?"), true);
   }
 
-  async function open(recording: Recording) {
-    if (recording.id === draft?.id) return;
+  /** Abre a gravação clicada; clicar na que está aberta fecha. */
+  async function toggle(recording: Recording) {
     if (!(await guardDirty())) return;
-    setSelectedId(recording.id);
     setImported(null);
+    if (recording.id === draft?.id) {
+      setSelectedId(null);
+      setDraft(null);
+      return;
+    }
+    setSelectedId(recording.id);
     setDraft({ id: recording.id, name: recording.name, steps: recording.steps, sourceAspect: recording.sourceAspect });
+  }
+
+  /** O botão Tocar da linha: abre a gravação e leva até o "Try it now". */
+  async function openToPlay(recording: Recording) {
+    if (recording.id !== draft?.id) {
+      if (!(await guardDirty())) return;
+      setImported(null);
+      setSelectedId(recording.id);
+      setDraft({ id: recording.id, name: recording.name, steps: recording.steps, sourceAspect: recording.sourceAspect });
+    }
+    window.setTimeout(() => tryRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 0);
   }
 
   async function createNew() {
     if (!(await guardDirty())) return;
     setSelectedId(null);
     setImported(null);
+    setImportOpen(false);
     setDraft({ id: "", name: t("New recording"), steps: [] });
   }
 
-  /** O rascunho do TinyTask vira uma gravação nova, ainda não salva. */
+  /**
+   * O Import do TinyTask já salva: a gravação nova entra na biblioteca fechada,
+   * com o resumo curto embaixo. Um erro ao salvar volta ao painel (que o mostra).
+   */
   async function takeImport(out: ImportedDraft) {
-    if (!(await guardDirty())) return;
-    setSelectedId(null);
-    setImportOpen(false);
-    setImported({ steps: out.steps.length, summary: out.summary });
-    setDraft({
-      id: "",
-      name: out.name.slice(0, MAX_RECORDING_NAME_CHARS),
-      steps: out.steps.slice(0, MAX_RECORDING_STEPS),
-      sourceAspect: out.sourceAspect > 0 ? out.sourceAspect : undefined,
+    const steps = out.steps.slice(0, MAX_RECORDING_STEPS);
+    const created = await invoke<Recording>("save_recording", {
+      recording: {
+        id: "",
+        name: out.name.trim().slice(0, MAX_RECORDING_NAME_CHARS),
+        steps,
+        createdAt: 0,
+        updatedAt: 0,
+        sourceAspect: out.sourceAspect > 0 ? out.sourceAspect : undefined,
+      },
     });
+    setImportOpen(false);
+    setImported({ id: created?.id ?? "", steps: steps.length, summary: out.summary });
+    store.addToast(t("Recording imported: {{name}}", { name: created?.name ?? out.name }));
+    void reload();
   }
 
   /** "Test on one account": toca o rascunho sem salvar, numa conta só. */
@@ -447,6 +469,209 @@ export function RecordingsTab() {
     return !!area && aspectDiffers(sourceAspect, area.width, area.height);
   });
 
+  /** O editor da gravação aberta (dentro da linha dela na biblioteca). */
+  const editor = draft ? (
+    <>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] theme-muted w-16 shrink-0">{t("Name")}</span>
+                  <input
+                    value={draft.name}
+                    maxLength={MAX_RECORDING_NAME_CHARS}
+                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                    aria-label={t("Recording name")}
+                    className="sidebar-input text-xs flex-1 min-w-0"
+                  />
+                </div>
+                {saved && !dirty ? (
+                  <div className="rounded-lg border theme-border px-3 py-2 space-y-1" data-testid="recording-use">
+                    {RECORDING_SLOTS.map((slot) => {
+                      const use = slotUsage(payload, slot, saved.id);
+                      return (
+                        <div key={slot} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                          <span className="min-w-0 text-[11.5px] text-[var(--panel-fg)]">
+                            <span className="font-medium">{slotLabel(t, slot)}:</span>{" "}
+                            <span className="theme-muted">
+                              {use.global
+                                ? t("global, for every account without its own choice.")
+                                : use.ownCount > 0
+                                  ? t("own choice of {{count}} account(s).", { count: use.ownCount })
+                                  : t("not used.")}
+                            </span>
+                          </span>
+                          {!use.global ? (
+                            <button
+                              onClick={() => void setDefault(slot, saved.id)}
+                              aria-label={t("Make {{name}} the global recording for {{slot}}", {
+                                name: saved.name,
+                                slot: slotLabel(t, slot),
+                              })}
+                              className="sidebar-btn-sm"
+                            >
+                              {t("Make global")}
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <div className="text-[11px] theme-muted">
+                  {t("{{count}} steps · about {{duration}} per window", {
+                    count: draft.steps.length,
+                    duration: formatDurationMs(duration),
+                  })}
+                </div>
+
+                {draft.steps.length === 0 ? (
+                  <div className="rounded-lg border border-dashed theme-border px-3 py-3 text-[11px] theme-muted">
+                    {t("No steps yet. Add them below, in the order they should play.")}
+                  </div>
+                ) : (
+                  <ol className="space-y-1 max-h-[360px] overflow-y-auto pr-1 max-w-3xl" aria-label={t("Steps")}>
+                    {draft.steps.map((step, index) => (
+                      <StepRow
+                        key={index}
+                        index={index}
+                        step={step}
+                        last={index === draft.steps.length - 1}
+                        keys={keys}
+                        marking={capture?.index === index ? capture.secondsLeft : null}
+                        markDisabled={capture !== null}
+                        onChange={(next) => updateStep(index, next)}
+                        onMove={(delta) => setDraft({ ...draft, steps: moveStep(draft.steps, index, delta) })}
+                        onRemove={() => setDraft({ ...draft, steps: draft.steps.filter((_, i) => i !== index) })}
+                        onMark={() => void markPoint(index)}
+                      />
+                    ))}
+                  </ol>
+                )}
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] theme-muted mr-1">{t("Add")}</span>
+                  {(
+                    [
+                      ["key", t("Key press")],
+                      ["keyDown", t("Hold a key down")],
+                      ["keyUp", t("Release a key")],
+                      ["click", t("Mouse click")],
+                      ["wait", t("Wait")],
+                    ] as [RecordingStepType, string][]
+                  ).map(([type, label]) => (
+                    <button
+                      key={type}
+                      onClick={() => addStep(type)}
+                      disabled={draft.steps.length >= MAX_RECORDING_STEPS}
+                      className="sidebar-btn-sm flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <Plus size={11} strokeWidth={2} aria-hidden />
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {problem ? (
+                  <div className="text-[11px] text-amber-300/90 leading-4" role="status">
+                    {problemText(problem)}
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    onClick={() => void save()}
+                    disabled={!dirty || !!problem || saving}
+                    className={PRIMARY_ACTION}
+                  >
+                    {t("Save recording")}
+                  </button>
+                  <button onClick={discard} disabled={!dirty} className={NEUTRAL_ACTION}>
+                    {t("Discard changes")}
+                  </button>
+                </div>
+
+                <div ref={tryRef} className="mt-2 rounded-lg border theme-border bg-[var(--panel-soft)] p-2.5 space-y-2">
+                  <div className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Try it now")}</div>
+                  {openAccounts.length === 0 ? (
+                    <div className="text-[11px] theme-muted leading-4">
+                      {t("Open an account first: a recording only reaches a Roblox client this app opened.")}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {openAccounts.map((a) => {
+                        const picked = playOn.includes(a.UserID);
+                        const name = accountName(a.UserID);
+                        return (
+                          <button
+                            key={a.UserID}
+                            onClick={() =>
+                              setPlayOn((ids) => (picked ? ids.filter((id) => id !== a.UserID) : [...ids, a.UserID]))
+                            }
+                            aria-pressed={picked}
+                            aria-label={name}
+                            className={`flex items-center gap-1 rounded-md border px-2 py-0.5 text-[12px] ${
+                              picked ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "theme-border"
+                            }`}
+                          >
+                            {picked ? <Check size={11} strokeWidth={3} aria-hidden /> : null}
+                            <span className="max-w-[10rem] truncate">{name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => void playNow()}
+                      disabled={!saved || dirty || playOn.length === 0 || busy || draft.steps.length === 0}
+                      className={`${NEUTRAL_ACTION} flex items-center gap-1.5`}
+                    >
+                      <Play size={12} strokeWidth={2} aria-hidden />
+                      {t("Play now")}
+                    </button>
+                    {dirty ? (
+                      <button
+                        onClick={() => void testDraft()}
+                        disabled={!!problem || playOn.length !== 1 || busy || draft.steps.length === 0}
+                        className={`${NEUTRAL_ACTION} flex items-center gap-1.5`}
+                      >
+                        <FlaskConical size={12} strokeWidth={2} aria-hidden />
+                        {t("Test on one account")}
+                      </button>
+                    ) : null}
+                  </div>
+                  {dirty ? (
+                    <div className="text-[11px] theme-muted">
+                      {t("Not saved yet: pick exactly one account to test these steps, or save to play them on several.")}
+                    </div>
+                  ) : null}
+                  {shapeWarnings.map((a) => (
+                    <div
+                      key={a.UserID}
+                      className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-200 break-words"
+                      data-testid={`recording-shape-warning-${a.UserID}`}
+                    >
+                      {t(
+                        "{{name}}: this window has a different shape from the one the recording was made in, so the clicks may land in other spots. It still plays.",
+                        { name: accountName(a.UserID) }
+                      )}
+                    </div>
+                  ))}
+                  {lastResults.map((r) => (
+                    <div
+                      key={r.userId}
+                      className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-200 break-words"
+                    >
+                      {resultText(r)}
+                    </div>
+                  ))}
+                  <div className="text-[11px] theme-muted leading-4">
+                    {t(
+                      "Each window comes to the front in turn and plays the whole recording; stopping releases held keys and never closes a client."
+                    )}
+                  </div>
+                </div>
+    </>
+  ) : null;
+
   return (
     <div className="@container/recs flex h-full min-h-0 flex-col gap-3">
       <ModeStatusBar
@@ -478,88 +703,24 @@ export function RecordingsTab() {
       />
 
       <div className="flex-1 min-h-0 overflow-y-auto pr-0.5">
-        <div className="grid grid-cols-1 gap-3 @3xl/recs:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] items-start">
-          <div className="space-y-3">
-            <section className={CARD} aria-label={t("Library")}>
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Library")}</span>
-                <button
-                  onClick={() => setImportOpen((v) => !v)}
-                  aria-expanded={importOpen}
-                  className="sidebar-btn-sm flex items-center gap-1"
-                >
-                  <FileUp size={12} strokeWidth={1.75} aria-hidden />
-                  {t("Import from TinyTask (.rec)")}
-                </button>
-              </div>
-              {importOpen ? (
-                <TinyTaskImportPanel
-                  windows={openAccounts.map((a) => ({ userId: a.UserID, name: accountName(a.UserID) }))}
-                  onImported={(out) => void takeImport(out)}
-                  onCancel={() => setImportOpen(false)}
-                />
-              ) : null}
-              {recordings.length === 0 ? (
-                <div className="text-[11px] theme-muted leading-4">
-                  {t("No recordings yet. Create one and add its steps: keys, clicks on a point of the window and waits.")}
-                </div>
-              ) : (
-                <ul className="space-y-1">
-                  {recordings.map((r) => {
-                    const current = r.id === draft?.id;
-                    return (
-                      <li
-                        key={r.id}
-                        className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 ${
-                          current ? "theme-accent-border bg-[var(--accent-soft)]" : "theme-border"
-                        }`}
-                      >
-                        <button
-                          onClick={() => void open(r)}
-                          aria-pressed={current}
-                          className="flex-1 min-w-0 text-left"
-                        >
-                          <span className="block truncate text-[12px] text-[var(--panel-fg)]" title={r.name}>
-                            {r.name}
-                          </span>
-                          <span className="block text-[11px] theme-muted">
-                            {t("{{count}} steps · {{duration}}", {
-                              count: r.steps.length,
-                              duration: formatDurationMs(recordingDurationMs(r.steps)),
-                            })}
-                          </span>
-                        </button>
-                        <button
-                          onClick={() => void rename(r)}
-                          aria-label={t("Rename {{name}}", { name: r.name })}
-                          title={t("Rename")}
-                          className={SMALL_BTN}
-                        >
-                          <Pencil size={12} strokeWidth={1.75} aria-hidden />
-                        </button>
-                        <button
-                          onClick={() => void duplicate(r)}
-                          aria-label={t("Duplicate {{name}}", { name: r.name })}
-                          title={t("Duplicate")}
-                          className={SMALL_BTN}
-                        >
-                          <Copy size={12} strokeWidth={1.75} aria-hidden />
-                        </button>
-                        <button
-                          onClick={() => void remove(r)}
-                          aria-label={t("Delete {{name}}", { name: r.name })}
-                          title={t("Delete")}
-                          className={SMALL_BTN}
-                        >
-                          <Trash2 size={12} strokeWidth={1.75} aria-hidden />
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-
+        <div className="space-y-3">
+          {/* Em cima, as contas e quando toca (pedido do dono); embaixo, a
+              biblioteca, com cada gravação numa linha fechada. */}
+          <div
+            data-tour="afk-recordings-slots"
+            className="grid grid-cols-1 gap-3 @3xl/recs:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] items-start"
+          >
+              <RecordingSlots
+                payload={payload}
+                accounts={assignAccounts.map((a) => ({
+                  userId: a.UserID,
+                  name: accountName(a.UserID),
+                  open: store.launchedByProgram.has(a.UserID),
+                }))}
+                onSetGlobal={setDefault}
+                onSetAccount={setForAccount}
+              />
+            <div>
             <section className={`${CARD} space-y-3`} aria-labelledby="recordings-when-title">
               <h3 id="recordings-when-title" className="text-[13px] font-semibold text-[var(--panel-fg)]">
                 {t("When it plays")}
@@ -640,240 +801,154 @@ export function RecordingsTab() {
                 ) : null}
               </div>
             </section>
+            </div>
           </div>
 
-          <div className="space-y-3 min-w-0">          <section className={`${CARD} space-y-2.5`} aria-label={t("Editor")}>
-            {!draft ? (
-              <div className="text-[12px] theme-muted">{t("Pick a recording in the library or create a new one.")}</div>
+          <section data-tour="afk-recordings-library" className={CARD} aria-label={t("Library")}>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Library")}</h3>
+              <button
+                onClick={() => setImportOpen((v) => !v)}
+                aria-expanded={importOpen}
+                className="sidebar-btn-sm flex items-center gap-1"
+              >
+                <FileUp size={12} strokeWidth={1.75} aria-hidden />
+                {t("Import from TinyTask (.rec)")}
+              </button>
+            </div>
+            {importOpen ? (
+              <div className="mb-2">
+                <TinyTaskImportPanel
+                  windows={openAccounts.map((a) => ({ userId: a.UserID, name: accountName(a.UserID) }))}
+                  onImported={takeImport}
+                  onCancel={() => setImportOpen(false)}
+                />
+              </div>
+            ) : null}
+            {draft && !draft.id ? (
+              <div className="mb-2 rounded-lg theme-accent-border border" data-testid="recording-new">
+                <div className="px-3 py-2 text-[12px] font-medium text-[var(--panel-fg)]">{t("New recording (not saved yet)")}</div>
+                <div className="border-t theme-border px-3 py-3 space-y-2.5">{editor}</div>
+              </div>
+            ) : null}
+            {recordings.length === 0 ? (
+              <div className="text-[11.5px] theme-muted leading-4">
+                {t("No recordings yet. Import one from TinyTask or create one with New recording.")}
+              </div>
             ) : (
-              <>
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] theme-muted w-16 shrink-0">{t("Name")}</span>
-                  <input
-                    value={draft.name}
-                    maxLength={MAX_RECORDING_NAME_CHARS}
-                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                    aria-label={t("Recording name")}
-                    className="sidebar-input text-xs flex-1 min-w-0"
-                  />
-                </div>
-                {imported ? (
-                  <div
-                    className="rounded-lg border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-[11px] leading-4 text-sky-100 space-y-0.5"
-                    role="status"
-                    data-testid="tinytask-summary"
-                  >
-                    {tinyTaskSummaryLines(t, imported.steps, imported.summary).map((line) => (
-                      <div key={line}>{line}</div>
-                    ))}
-                    <div className="theme-muted">
-                      {t("Review the steps, test them on one account below, then save.")}
-                    </div>
-                  </div>
-                ) : null}
-                {saved && !dirty ? (
-                  <div className="rounded-lg border theme-border px-3 py-2 space-y-1" data-testid="recording-use">
-                    {RECORDING_SLOTS.map((slot) => {
-                      const use = slotUsage(payload, slot, saved.id);
-                      return (
-                        <div key={slot} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-                          <span className="min-w-0 text-[11.5px] text-[var(--panel-fg)]">
-                            <span className="font-medium">{slotLabel(t, slot)}:</span>{" "}
-                            <span className="theme-muted">
-                              {use.global
-                                ? t("global, for every account without its own choice.")
-                                : use.ownCount > 0
-                                  ? t("own choice of {{count}} account(s).", { count: use.ownCount })
-                                  : t("not used.")}
-                            </span>
+              <ul className="space-y-1.5">
+                {recordings.map((r) => {
+                  const current = r.id === draft?.id;
+                  const uses = RECORDING_SLOTS.map((slot) => ({ slot, use: slotUsage(payload, slot, r.id) })).filter(
+                    ({ use }) => use.global || use.ownCount > 0
+                  );
+                  return (
+                    <li
+                      key={r.id}
+                      data-testid={`recording-row-${r.id}`}
+                      className={`rounded-lg border ${current ? "theme-accent-border" : "theme-border"}`}
+                    >
+                      <div className={`flex items-center gap-1.5 px-2 py-1.5 ${current ? "bg-[var(--accent-soft)] rounded-t-lg" : ""}`}>
+                        <button
+                          onClick={() => void toggle(r)}
+                          aria-expanded={current}
+                          className="flex flex-1 min-w-0 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-[var(--row-hover)]"
+                        >
+                          <ChevronRight
+                            size={13}
+                            strokeWidth={1.75}
+                            aria-hidden
+                            className={`shrink-0 theme-muted transition-transform motion-reduce:transition-none ${current ? "rotate-90" : ""}`}
+                          />
+                          <span className="min-w-0 truncate text-[12.5px] font-medium text-[var(--panel-fg)]" title={r.name}>
+                            {r.name}
                           </span>
-                          {!use.global ? (
-                            <button
-                              onClick={() => void setDefault(slot, saved.id)}
-                              aria-label={t("Make {{name}} the global recording for {{slot}}", {
-                                name: saved.name,
-                                slot: slotLabel(t, slot),
-                              })}
-                              className="sidebar-btn-sm"
-                            >
-                              {t("Make global")}
-                            </button>
-                          ) : null}
+                          <span className="shrink-0 text-[11.5px] theme-muted tabular-nums">
+                            {t("{{count}} steps · {{duration}}", {
+                              count: r.steps.length,
+                              duration: formatDurationMs(recordingDurationMs(r.steps)),
+                            })}
+                          </span>
+                          <span className="hidden @2xl/recs:flex min-w-0 items-center gap-1">
+                            {uses.map(({ slot, use }) => (
+                              <span
+                                key={slot}
+                                className="shrink-0 rounded-full border theme-border px-1.5 py-px text-[11px] theme-muted"
+                              >
+                                {slotLabel(t, slot)} ·{" "}
+                                {use.global ? t("global") : t("{{count}} account(s)", { count: use.ownCount })}
+                              </span>
+                            ))}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => void openToPlay(r)}
+                          aria-label={t("Play {{name}}", { name: r.name })}
+                          title={t("Play this recording")}
+                          className={SMALL_BTN}
+                        >
+                          <Play size={12} strokeWidth={1.75} aria-hidden />
+                        </button>
+                        <button
+                          onClick={() => void rename(r)}
+                          aria-label={t("Rename {{name}}", { name: r.name })}
+                          title={t("Rename")}
+                          className={SMALL_BTN}
+                        >
+                          <Pencil size={12} strokeWidth={1.75} aria-hidden />
+                        </button>
+                        <button
+                          onClick={() => void duplicate(r)}
+                          aria-label={t("Duplicate {{name}}", { name: r.name })}
+                          title={t("Duplicate")}
+                          className={SMALL_BTN}
+                        >
+                          <Copy size={12} strokeWidth={1.75} aria-hidden />
+                        </button>
+                        <button
+                          onClick={() => void remove(r)}
+                          aria-label={t("Delete {{name}}", { name: r.name })}
+                          title={t("Delete")}
+                          className={SMALL_BTN}
+                        >
+                          <Trash2 size={12} strokeWidth={1.75} aria-hidden />
+                        </button>
+                      </div>
+                      {imported && imported.id === r.id ? (
+                        <div
+                          className="mx-2 mb-2 rounded-md border border-sky-500/25 bg-sky-500/10 px-2.5 py-1.5 text-[11.5px] leading-4 text-sky-100"
+                          role="status"
+                          data-testid="tinytask-summary"
+                        >
+                          {(() => {
+                            const [first, ...rest] = tinyTaskSummaryLines(t, imported.steps, imported.summary);
+                            return (
+                              <>
+                                <div>{first}</div>
+                                {rest.length > 0 ? (
+                                  <details className="mt-0.5">
+                                    <summary className="cursor-pointer theme-muted">
+                                      {t("What was left out ({{count}})", { count: rest.length })}
+                                    </summary>
+                                    {rest.map((line) => (
+                                      <div key={line} className="mt-0.5">
+                                        {line}
+                                      </div>
+                                    ))}
+                                  </details>
+                                ) : null}
+                              </>
+                            );
+                          })()}
                         </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
-                <div className="text-[11px] theme-muted">
-                  {t("{{count}} steps · about {{duration}} per window", {
-                    count: draft.steps.length,
-                    duration: formatDurationMs(duration),
-                  })}
-                </div>
-
-                {draft.steps.length === 0 ? (
-                  <div className="rounded-lg border border-dashed theme-border px-3 py-3 text-[11px] theme-muted">
-                    {t("No steps yet. Add them below, in the order they should play.")}
-                  </div>
-                ) : (
-                  <ol className="space-y-1" aria-label={t("Steps")}>
-                    {draft.steps.map((step, index) => (
-                      <StepRow
-                        key={index}
-                        index={index}
-                        step={step}
-                        last={index === draft.steps.length - 1}
-                        keys={keys}
-                        marking={capture?.index === index ? capture.secondsLeft : null}
-                        markDisabled={capture !== null}
-                        onChange={(next) => updateStep(index, next)}
-                        onMove={(delta) => setDraft({ ...draft, steps: moveStep(draft.steps, index, delta) })}
-                        onRemove={() => setDraft({ ...draft, steps: draft.steps.filter((_, i) => i !== index) })}
-                        onMark={() => void markPoint(index)}
-                      />
-                    ))}
-                  </ol>
-                )}
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] theme-muted mr-1">{t("Add")}</span>
-                  {(
-                    [
-                      ["key", t("Key press")],
-                      ["keyDown", t("Hold a key down")],
-                      ["keyUp", t("Release a key")],
-                      ["click", t("Mouse click")],
-                      ["wait", t("Wait")],
-                    ] as [RecordingStepType, string][]
-                  ).map(([type, label]) => (
-                    <button
-                      key={type}
-                      onClick={() => addStep(type)}
-                      disabled={draft.steps.length >= MAX_RECORDING_STEPS}
-                      className="sidebar-btn-sm flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <Plus size={11} strokeWidth={2} aria-hidden />
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {problem ? (
-                  <div className="text-[11px] text-amber-300/90 leading-4" role="status">
-                    {problemText(problem)}
-                  </div>
-                ) : null}
-
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button
-                    onClick={() => void save()}
-                    disabled={!dirty || !!problem || saving}
-                    className={PRIMARY_ACTION}
-                  >
-                    {t("Save recording")}
-                  </button>
-                  <button onClick={discard} disabled={!dirty} className={NEUTRAL_ACTION}>
-                    {t("Discard changes")}
-                  </button>
-                </div>
-
-                <div className="mt-2 rounded-lg border theme-border bg-[var(--panel-soft)] p-2.5 space-y-2">
-                  <div className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Try it now")}</div>
-                  {openAccounts.length === 0 ? (
-                    <div className="text-[11px] theme-muted leading-4">
-                      {t("Open an account first: a recording only reaches a Roblox client this app opened.")}
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {openAccounts.map((a) => {
-                        const picked = playOn.includes(a.UserID);
-                        const name = accountName(a.UserID);
-                        return (
-                          <button
-                            key={a.UserID}
-                            onClick={() =>
-                              setPlayOn((ids) => (picked ? ids.filter((id) => id !== a.UserID) : [...ids, a.UserID]))
-                            }
-                            aria-pressed={picked}
-                            aria-label={name}
-                            className={`flex items-center gap-1 rounded-md border px-2 py-0.5 text-[12px] ${
-                              picked ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "theme-border"
-                            }`}
-                          >
-                            {picked ? <Check size={11} strokeWidth={3} aria-hidden /> : null}
-                            <span className="max-w-[10rem] truncate">{name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => void playNow()}
-                      disabled={!saved || dirty || playOn.length === 0 || busy || draft.steps.length === 0}
-                      className={`${NEUTRAL_ACTION} flex items-center gap-1.5`}
-                    >
-                      <Play size={12} strokeWidth={2} aria-hidden />
-                      {t("Play now")}
-                    </button>
-                    {dirty ? (
-                      <button
-                        onClick={() => void testDraft()}
-                        disabled={!!problem || playOn.length !== 1 || busy || draft.steps.length === 0}
-                        className={`${NEUTRAL_ACTION} flex items-center gap-1.5`}
-                      >
-                        <FlaskConical size={12} strokeWidth={2} aria-hidden />
-                        {t("Test on one account")}
-                      </button>
-                    ) : null}
-                  </div>
-                  {dirty ? (
-                    <div className="text-[11px] theme-muted">
-                      {t("Not saved yet: pick exactly one account to test these steps, or save to play them on several.")}
-                    </div>
-                  ) : null}
-                  {shapeWarnings.map((a) => (
-                    <div
-                      key={a.UserID}
-                      className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-200 break-words"
-                      data-testid={`recording-shape-warning-${a.UserID}`}
-                    >
-                      {t(
-                        "{{name}}: this window has a different shape from the one the recording was made in, so the clicks may land in other spots. It still plays.",
-                        { name: accountName(a.UserID) }
-                      )}
-                    </div>
-                  ))}
-                  {lastResults.map((r) => (
-                    <div
-                      key={r.userId}
-                      className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-200 break-words"
-                    >
-                      {resultText(r)}
-                    </div>
-                  ))}
-                  <div className="text-[11px] theme-muted leading-4">
-                    {t(
-                      "Playing brings each account's Roblox window to the front, one after another, plays the whole recording there and gives the focus back only after the last one. Meanwhile, what you type goes to the Roblox window. If another window comes to the front, the rest of the recording is not played on that account."
-                    )}{" "}
-                    {t("Stopping interrupts at once, releases any key the recording was holding and never closes a client.")}
-                  </div>
-                </div>
-              </>
+                      ) : null}
+                      {current ? <div className="border-t theme-border px-3 py-3 space-y-2.5 max-w-5xl">{editor}</div> : null}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </section>
-
-            <RecordingSlots
-              payload={payload}
-              accounts={assignAccounts.map((a) => ({
-                userId: a.UserID,
-                name: accountName(a.UserID),
-                open: store.launchedByProgram.has(a.UserID),
-              }))}
-              onSetGlobal={setDefault}
-              onSetAccount={setForAccount}
-            />
-          </div>
         </div>
       </div>
     </div>

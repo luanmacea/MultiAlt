@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { FileUp } from "lucide-react";
 import { useTr } from "../../../i18n/text";
 import { Select } from "../../ui/Select";
 import {
+  MAX_RECORDING_NAME_CHARS,
   recordingNameFromFile,
   type TinyTaskArea,
   type TinyTaskImport,
@@ -71,10 +72,12 @@ export function tinyTaskSummaryLines(t: Translate, steps: number, s: TinyTaskSum
 }
 
 /**
- * "Import from TinyTask (.rec)": o arquivo e a janela em que ele foi gravado.
- * A janela é a de uma conta com cliente aberto pelo app — o backend lê a área
- * interna dela (`recording_window_area`) e converte os cliques em porcentagem
- * dessa área. Não salva nada: o rascunho vai para o editor.
+ * "Import from TinyTask (.rec)": o arquivo (por um botão de verdade), o nome
+ * (sugerido pelo arquivo) e a janela em que ele foi gravado — essa só aparece
+ * com mais de uma conta aberta. A janela é a de uma conta com cliente aberto
+ * pelo app: o backend lê a área interna dela (`recording_window_area`) e
+ * converte os cliques em porcentagem dessa área. O Import entrega o resultado
+ * já com o nome; quem salva é a aba (`onImported`), e um erro dela volta aqui.
  */
 export function TinyTaskImportPanel({
   windows,
@@ -82,15 +85,23 @@ export function TinyTaskImportPanel({
   onCancel,
 }: {
   windows: OpenWindowChoice[];
-  onImported: (draft: ImportedDraft) => void;
+  onImported: (draft: ImportedDraft) => Promise<void>;
   onCancel: () => void;
 }) {
   const t = useTr();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [name, setName] = useState("");
   const [userId, setUserId] = useState<string>(() => (windows[0] ? String(windows[0].userId) : ""));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chosen = windows.some((w) => String(w.userId) === userId) ? userId : windows[0] ? String(windows[0].userId) : "";
+
+  function pickFile(next: File | null) {
+    setFile(next);
+    setError(null);
+    if (next) setName(recordingNameFromFile(next.name) || t("From TinyTask"));
+  }
 
   async function importFile() {
     if (!file || !chosen || busy) return;
@@ -100,7 +111,7 @@ export function TinyTaskImportPanel({
       const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
       const area = await invoke<TinyTaskArea>("recording_window_area", { userId: Number(chosen) });
       const out = await invoke<TinyTaskImport>("import_tinytask_recording", { bytes, area });
-      onImported({ ...out, name: recordingNameFromFile(file.name) || t("From TinyTask") });
+      await onImported({ ...out, name: name.trim() || recordingNameFromFile(file.name) || t("From TinyTask") });
     } catch (e) {
       setError(tinyTaskErrorText(t, String(e)));
     } finally {
@@ -109,43 +120,62 @@ export function TinyTaskImportPanel({
   }
 
   return (
-    <div className="mt-2 rounded-lg border theme-border bg-[var(--panel-soft)] p-2.5 space-y-2" data-testid="tinytask-import">
-      <div className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Import from TinyTask (.rec)")}</div>
+    <div className="rounded-lg border theme-border bg-[var(--panel-soft)] p-3 space-y-2.5" data-testid="tinytask-import">
       {windows.length === 0 ? (
-        <div className="text-[11px] text-amber-300/90 leading-4" role="status">
+        <div className="text-[11.5px] text-amber-300/90 leading-4" role="status">
           {t("Open the account whose Roblox window you recorded in first: the clicks are placed relative to that window.")}
         </div>
       ) : (
         <>
-          <label className="block text-[11px] theme-muted">
-            {t("TinyTask file")}
+          <div className="flex flex-wrap items-center gap-2">
             <input
+              ref={fileRef}
               type="file"
               accept=".rec"
               aria-label={t("TinyTask file")}
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="mt-1 block w-full text-[11px]"
+              onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+              className="sr-only"
+              tabIndex={-1}
             />
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] theme-muted w-28 shrink-0">{t("Recorded in the window of")}</span>
-            <Select
-              value={chosen}
-              options={windows.map((w) => ({ value: String(w.userId), label: w.name }))}
-              ariaLabel={t("Window it was recorded in")}
-              onChange={setUserId}
-              className="flex-1 min-w-0"
-            />
+            <button type="button" onClick={() => fileRef.current?.click()} className="sidebar-btn-sm flex items-center gap-1.5">
+              <FileUp size={12} strokeWidth={1.75} aria-hidden />
+              {t("Choose a .rec file")}
+            </button>
+            <span className="min-w-0 truncate text-[11.5px] theme-muted" title={file?.name}>
+              {file ? file.name : t("No file chosen")}
+            </span>
           </div>
-          <div className="text-[11px] theme-muted leading-4">
-            {t(
-              "Pick the window you recorded in and don't move or resize it before importing. Record in a window the same size as your accounts' windows (for example after Arrange in grid): clicks are saved as a position relative to the window."
-            )}
-          </div>
+          {file ? (
+            <label className="flex items-center gap-2">
+              <span className="text-[11.5px] theme-muted w-40 shrink-0">{t("Name")}</span>
+              <input
+                value={name}
+                maxLength={MAX_RECORDING_NAME_CHARS}
+                onChange={(e) => setName(e.target.value)}
+                aria-label={t("Name of the imported recording")}
+                className="sidebar-input text-xs flex-1 min-w-0"
+              />
+            </label>
+          ) : null}
+          {windows.length > 1 ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[11.5px] theme-muted w-40 shrink-0">{t("Recorded in the window of")}</span>
+              <Select
+                value={chosen}
+                options={windows.map((w) => ({ value: String(w.userId), label: w.name }))}
+                ariaLabel={t("Window it was recorded in")}
+                onChange={setUserId}
+                className="flex-1 min-w-0"
+              />
+            </div>
+          ) : null}
+          <p className="text-[11px] theme-muted leading-4">
+            {t("Clicks are saved relative to the window: record in a window the size of your accounts' windows and don't move it before importing.")}
+          </p>
         </>
       )}
       {error ? (
-        <div className="text-[11px] text-amber-300/90 leading-4" role="alert">
+        <div className="text-[11.5px] text-amber-300/90 leading-4" role="alert">
           {error}
         </div>
       ) : null}
@@ -153,9 +183,8 @@ export function TinyTaskImportPanel({
         <button
           onClick={() => void importFile()}
           disabled={!file || !chosen || busy}
-          className="sidebar-btn-sm flex items-center gap-1 disabled:opacity-50"
+          className="theme-btn inline-flex items-center gap-1.5 min-h-[28px] px-3 py-1 text-[12px] font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <FileUp size={12} strokeWidth={1.75} aria-hidden />
           {busy ? t("Importing...") : t("Import")}
         </button>
         <button onClick={onCancel} className="sidebar-btn-sm">

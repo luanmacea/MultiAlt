@@ -84,6 +84,12 @@ function renderTab(overrides: Partial<StoreValue> = {}) {
   return { store };
 }
 
+/** Nada vem aberto: abre a gravação pela linha da biblioteca e espera o editor. */
+async function openRecording(name = "Walk forward") {
+  await userEvent.click(await screen.findByRole("button", { name: new RegExp(`^${name}`) }));
+  return screen.findByLabelText("Recording name");
+}
+
 function calls(cmd: string) {
   return invokeMock.mock.calls.filter((c) => c[0] === cmd);
 }
@@ -99,19 +105,40 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("RecordingsTab — biblioteca e editor", () => {
-  it("lista as gravações e abre a primeira no editor, com os passos", async () => {
+  /**
+   * A biblioteca vinha com a primeira gravação aberta, passo por passo, e
+   * lotava a tela. Agora cada gravação é uma linha fechada; o editor abre só
+   * quando se clica nela, e fecha clicando de novo.
+   */
+  it("lista as gravações fechadas; clicar abre o editor daquela, e clicar de novo fecha", async () => {
     renderTab();
+    const row = await screen.findByRole("button", { name: /^Walk forward/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByLabelText("Recording name")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("recording-step-1")).not.toBeInTheDocument();
+
+    await userEvent.click(row);
     expect(await screen.findByLabelText("Recording name")).toHaveValue("Walk forward");
-    expect(screen.getByRole("button", { name: /^Walk forward/ })).toHaveAttribute("aria-pressed", "true");
+    expect(row).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("recording-step-1")).toHaveTextContent("W");
     expect(screen.getByTestId("recording-step-3")).toHaveTextContent("37.5% × 62.5%");
     // 800 ms segurada + 200 ms de espera + o clique estimado.
     expect(screen.getByText(/3 steps · about 1.8 s per window/)).toBeInTheDocument();
+
+    await userEvent.click(row);
+    expect(screen.queryByLabelText("Recording name")).not.toBeInTheDocument();
+  });
+
+  it("as contas e a escolha de quem toca vêm antes da biblioteca", async () => {
+    renderTab();
+    const slots = await screen.findByTestId("recording-slots");
+    const library = screen.getByRole("region", { name: "Library" });
+    expect(slots.compareDocumentPosition(library) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("acrescentar um passo deixa a gravação com mudança, e salvar manda os passos", async () => {
     const { store } = renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const save = screen.getByRole("button", { name: "Save recording" });
     expect(save).toBeDisabled();
 
@@ -129,7 +156,7 @@ describe("RecordingsTab — biblioteca e editor", () => {
 
   it("sem nome não salva, e diz por quê", async () => {
     renderTab();
-    const name = await screen.findByLabelText("Recording name");
+    const name = await openRecording();
     await userEvent.clear(name);
     expect(screen.getByText("Give the recording a name.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save recording" })).toBeDisabled();
@@ -137,7 +164,7 @@ describe("RecordingsTab — biblioteca e editor", () => {
 
   it("move e remove passos", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     await userEvent.click(screen.getByRole("button", { name: "Move step 3 up" }));
     expect(screen.getByTestId("recording-step-2")).toHaveTextContent("37.5% × 62.5%");
     await userEvent.click(screen.getByRole("button", { name: "Remove step 1" }));
@@ -146,7 +173,7 @@ describe("RecordingsTab — biblioteca e editor", () => {
 
   it("nova gravação começa vazia e é criada ao salvar", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     await userEvent.click(screen.getByRole("button", { name: "New recording" }));
     expect(screen.getByLabelText("Recording name")).toHaveValue("New recording");
     expect(screen.getByText(/No steps yet/)).toBeInTheDocument();
@@ -159,7 +186,7 @@ describe("RecordingsTab — biblioteca e editor", () => {
 
   it("trocar de gravação com mudança pede confirmação", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     await userEvent.click(screen.getByRole("button", { name: "Wait" }));
     promptAnswers.confirm = false;
     await userEvent.click(screen.getByRole("button", { name: /^Jump/ }));
@@ -169,7 +196,7 @@ describe("RecordingsTab — biblioteca e editor", () => {
 
   it("renomear, duplicar e apagar passam pelo backend; apagar pede confirmação", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
 
     promptAnswers.prompt = "Walk back";
     await userEvent.click(screen.getByRole("button", { name: "Rename Walk forward" }));
@@ -188,7 +215,7 @@ describe("RecordingsTab — biblioteca e editor", () => {
 
   it("relê a biblioteca quando o backend avisa que mudou", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     payload = library({ recordings: [...library().recordings, { id: "rec-3", name: "Spin", steps: [], createdAt: 3, updatedAt: 3 }] });
     await act(async () => emitTauriEvent("recordings-changed", null));
     expect(await screen.findByRole("button", { name: /^Spin/ })).toBeInTheDocument();
@@ -203,7 +230,7 @@ describe("RecordingsTab — biblioteca e editor", () => {
 describe("RecordingsTab — qual gravação toca, por vaga", () => {
   it("escolhe a global de cada vaga na linha All accounts", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     await userEvent.selectOptions(screen.getByLabelText("Global recording: After auto-reconnect"), "rec-2");
     expect(calls("set_default_recording")[0][1]).toEqual({ slot: "afterReconnect", id: "rec-2" });
     await userEvent.selectOptions(screen.getByLabelText("Global recording: On anti-AFK"), "");
@@ -212,7 +239,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
 
   it("cada conta escolhe a própria ou nenhuma, em cada vaga", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     await userEvent.selectOptions(screen.getByLabelText("After auto-reconnect for alpha"), "rec:rec-1");
     expect(calls("set_account_recording")[0][1]).toEqual({
       slot: "afterReconnect",
@@ -229,7 +256,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
       antiAfk: { defaultId: null, accounts: { "11": null } },
     });
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const inherited = screen.getByLabelText("After auto-reconnect for alpha") as HTMLSelectElement;
     expect(inherited).toHaveAttribute("data-own", "false");
     expect(inherited.selectedOptions[0]).toHaveTextContent("Global: Walk forward");
@@ -262,7 +289,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
    */
   it("a escolha feita fica na lista enquanto o arquivo não volta, e a seguinte parte dela", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const cell = screen.getByLabelText("On anti-AFK for alpha") as HTMLSelectElement;
     await userEvent.selectOptions(cell, "none");
     expect(cell.value).toBe("none");
@@ -278,7 +305,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
   it("gravação recusada pelo backend devolve a lista à escolha salva", async () => {
     route({ set_account_recording: () => Promise.reject("That recording no longer exists.") });
     const { store } = renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const cell = screen.getByLabelText("After auto-reconnect for bravo") as HTMLSelectElement;
     await userEvent.selectOptions(cell, "rec:rec-2");
     await waitFor(() => expect(cell.value).toBe("inherit"));
@@ -290,7 +317,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
       accounts: [...ACCOUNTS, makeAccount({ UserID: 33, Username: "charlie" }), makeAccount({ UserID: 44, Username: "delta" })],
       launchedByProgram: new Set([11]),
     });
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const area = screen.getByTestId("recording-slots");
     expect(within(area).getByTestId("recording-slots-11")).toBeInTheDocument();
     expect(within(area).getByTestId("recording-slots-33")).toHaveTextContent("no client open");
@@ -307,7 +334,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
   });
   it("tocar depois da reconexão grava no INI, com o tempo no jogo", async () => {
     const { store } = renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     expect(screen.getByLabelText("Seconds in the game before playing")).toHaveValue("45");
     await userEvent.click(screen.getByRole("button", { name: "Play after an automatic reconnect" }));
     expect(store.updateSetting).toHaveBeenCalledWith("Recordings", "AfterReconnect", "true");
@@ -319,7 +346,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
    */
   it("liga a repetição no Modo AFK e o intervalo em minutos e segundos, daqui mesmo", async () => {
     const { store } = renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const repeat = screen.getByRole("switch", { name: "Repeat in AFK mode" });
     expect(repeat).toHaveAttribute("aria-checked", "false");
     expect(screen.queryByLabelText("Repeat every: minutes")).not.toBeInTheDocument();
@@ -332,7 +359,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
     settings.Afk = { Mode: "recording", IntervalMinutes: "2", IntervalSeconds: "30" };
     settings.Recordings = { AfterReconnect: "false", AfterReconnectDelaySeconds: "45" };
     const { store } = renderTab({ settings: settings as never });
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     expect(screen.getByRole("switch", { name: "Repeat in AFK mode" })).toHaveAttribute("aria-checked", "true");
     const minutes = screen.getByLabelText("Repeat every: minutes");
     expect(minutes).toHaveValue("2");
@@ -348,7 +375,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
 
   it("com o Modo AFK ligado, a repetição não muda por baixo dele", async () => {
     renderTab({ afkStatus: { active: true, mode: "recording" } as never });
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     expect(screen.getByRole("switch", { name: "Repeat in AFK mode" })).toHaveAttribute("aria-disabled", "true");
   });
 
@@ -359,7 +386,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
       antiAfk: { defaultId: null, accounts: { "22": "rec-1" } },
     });
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const box = screen.getByTestId("recording-use");
     expect(box).toHaveTextContent("After auto-reconnect: global, for every account without its own choice.");
     expect(box).toHaveTextContent("On anti-AFK: own choice of 1 account(s).");
@@ -374,7 +401,7 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
 
   it("gravação que nenhuma vaga usa diz isso", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const box = screen.getByTestId("recording-use");
     expect(box).toHaveTextContent("After auto-reconnect: not used.");
     expect(box).toHaveTextContent("On anti-AFK: not used.");
@@ -385,7 +412,7 @@ describe("RecordingsTab — tocar agora e parar", () => {
   it("toca a gravação salva nas contas marcadas", async () => {
     route({ play_recording_now: () => [{ userId: 11, errorCode: null, error: null }] });
     const { store } = renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const play = screen.getByRole("button", { name: "Play now" });
     expect(play).toBeDisabled();
 
@@ -398,7 +425,7 @@ describe("RecordingsTab — tocar agora e parar", () => {
 
   it("com mudança sem salvar, não toca", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const tryIt = screen.getByText("Try it now").parentElement as HTMLElement;
     await userEvent.click(within(tryIt).getByRole("button", { name: "alpha" }));
     await userEvent.click(screen.getByRole("button", { name: "Wait" }));
@@ -409,7 +436,7 @@ describe("RecordingsTab — tocar agora e parar", () => {
   it("diz por que uma conta não recebeu a gravação", async () => {
     route({ play_recording_now: () => [{ userId: 11, errorCode: "focusLost", error: "x" }] });
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     const tryIt = screen.getByText("Try it now").parentElement as HTMLElement;
     await userEvent.click(within(tryIt).getByRole("button", { name: "alpha" }));
     await userEvent.click(screen.getByRole("button", { name: "Play now" }));
@@ -433,8 +460,8 @@ describe("RecordingsTab — tocar agora e parar", () => {
 
   it("explica o preço: a janela fica na frente pela gravação inteira", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
-    expect(screen.getByText(/plays the whole recording there and gives the focus back only after the last one/)).toBeInTheDocument();
+    await openRecording();
+    expect(screen.getByText(/Each window comes to the front in turn and plays the whole recording/)).toBeInTheDocument();
   });
 });
 
@@ -465,53 +492,87 @@ describe("RecordingsTab — importar do TinyTask", () => {
   };
   const LEFT_WINDOW = { left: -1920, top: 0, width: 1920, height: 1080 };
 
-  async function importSample(file = new File([new Uint8Array([1, 2, 3, 4])], "farm loop.rec")) {
-    await screen.findByLabelText("Recording name");
-    await userEvent.click(screen.getByRole("button", { name: "Import from TinyTask (.rec)" }));
+  async function importSample(file = new File([new Uint8Array([1, 2, 3, 4])], "farm loop.rec"), name?: string) {
+    await userEvent.click(await screen.findByRole("button", { name: "Import from TinyTask (.rec)" }));
     const panel = screen.getByTestId("tinytask-import");
     await userEvent.upload(within(panel).getByLabelText("TinyTask file"), file);
+    if (name !== undefined) {
+      const field = within(panel).getByLabelText("Name of the imported recording");
+      await userEvent.clear(field);
+      await userEvent.type(field, name);
+    }
     await userEvent.click(within(panel).getByRole("button", { name: "Window it was recorded in" }));
     await userEvent.click(within(panel).getByRole("button", { name: "bravo" }));
     await userEvent.click(within(panel).getByRole("button", { name: "Import" }));
   }
 
-  it("converte com a janela escolhida e abre o rascunho no editor, com o resumo", async () => {
+  /**
+   * O botão Import ficava apagado até achar o "Escolher arquivo" sem destaque,
+   * e a gravação importada abria inteira no editor, sem salvar. Agora o
+   * arquivo se escolhe por um botão, o nome vem do arquivo e pode mudar, e o
+   * Import já salva: a gravação aparece fechada, com um resumo curto.
+   */
+  it("o Import converte com a janela escolhida e já salva com o nome dado, fechada e com resumo", async () => {
+    route({
+      recording_window_area: () => LEFT_WINDOW,
+      import_tinytask_recording: () => IMPORTED,
+      // Como o backend: a gravação salva entra na biblioteca relida.
+      save_recording: (args) => {
+        const rec = (args as { recording: { name: string; steps: never[] } }).recording;
+        const out = { ...rec, id: "rec-new", createdAt: 5, updatedAt: 5 };
+        payload = { ...payload, recordings: [...payload.recordings, out] };
+        return out;
+      },
+    });
+    renderTab();
+    await userEvent.click(await screen.findByRole("button", { name: "Import from TinyTask (.rec)" }));
+    const panel = screen.getByTestId("tinytask-import");
+    expect(within(panel).getByRole("button", { name: "Choose a .rec file" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Import" })).toBeDisabled();
+    await userEvent.click(within(panel).getByRole("button", { name: "Cancel" }));
+
+    await importSample(undefined, "Farm route");
+
+    expect(calls("recording_window_area")[0][1]).toEqual({ userId: 22 });
+    expect(calls("import_tinytask_recording")[0][1]).toEqual({ bytes: [1, 2, 3, 4], area: LEFT_WINDOW });
+    await waitFor(() => expect(calls("save_recording")).toHaveLength(1));
+    const sent = calls("save_recording")[0][1] as { recording: Record<string, unknown> };
+    expect(sent.recording).toMatchObject({ id: "", name: "Farm route", sourceAspect: 1.7778 });
+    expect(sent.recording.steps).toEqual(IMPORTED.steps);
+
+    // Fechada: nada do editor na tela, só o resumo curto da importação.
+    expect(screen.queryByLabelText("Recording name")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tinytask-import")).not.toBeInTheDocument();
+    const summary = await screen.findByTestId("tinytask-summary");
+    expect(summary).toHaveTextContent("Imported 3 steps from 175 TinyTask events.");
+    // O detalhe do que ficou de fora está lá, recolhido.
+    expect(summary).toHaveTextContent("Keys left out (not in the recordings' key list): Enter ×2.");
+    expect(summary).toHaveTextContent("The key that stopped the TinyTask recording (F8) was left out.");
+  });
+
+  it("o nome do arquivo vira o nome sugerido", async () => {
     route({
       recording_window_area: () => LEFT_WINDOW,
       import_tinytask_recording: () => IMPORTED,
     });
     renderTab();
     await importSample();
-
-    expect(calls("recording_window_area")[0][1]).toEqual({ userId: 22 });
-    expect(calls("import_tinytask_recording")[0][1]).toEqual({ bytes: [1, 2, 3, 4], area: LEFT_WINDOW });
-    expect(await screen.findByLabelText("Recording name")).toHaveValue("farm loop");
-    expect(screen.getByTestId("recording-step-1")).toHaveTextContent("53.11% × 17.65%");
-    const summary = screen.getByTestId("tinytask-summary");
-    expect(summary).toHaveTextContent("Imported 3 steps from 175 TinyTask events.");
-    expect(summary).toHaveTextContent("Keys left out (not in the recordings' key list): Enter ×2.");
-    expect(summary).toHaveTextContent("Clicks outside the chosen window, left out: 1.");
-    expect(summary).toHaveTextContent("Drags turned into a click where the button went down: 4.");
-    expect(summary).toHaveTextContent("Waits longer than 60 s shortened to 60 s: 1.");
-    expect(summary).toHaveTextContent("The key that stopped the TinyTask recording (F8) was left out.");
-    // Nada foi salvo ainda.
-    expect(calls("save_recording")).toHaveLength(0);
-
-    await userEvent.click(screen.getByRole("button", { name: "Save recording" }));
-    const sent = calls("save_recording")[0][1] as { recording: Record<string, unknown> };
-    expect(sent.recording).toMatchObject({ id: "", name: "farm loop", sourceAspect: 1.7778 });
-    expect(sent.recording.steps).toEqual(IMPORTED.steps);
+    await waitFor(() => expect(calls("save_recording")).toHaveLength(1));
+    expect((calls("save_recording")[0][1] as { recording: { name: string } }).recording.name).toBe("farm loop");
   });
 
-  it("testa o rascunho numa conta só, antes de salvar", async () => {
-    route({
-      recording_window_area: () => LEFT_WINDOW,
-      import_tinytask_recording: () => IMPORTED,
-      play_recording_draft: () => [{ userId: 11, errorCode: null, error: null }],
-    });
+  it("com uma janela aberta só, não pergunta a janela", async () => {
+    renderTab({ launchedByProgram: new Set([11]) });
+    await userEvent.click(await screen.findByRole("button", { name: "Import from TinyTask (.rec)" }));
+    const panel = screen.getByTestId("tinytask-import");
+    expect(within(panel).queryByRole("button", { name: "Window it was recorded in" })).not.toBeInTheDocument();
+  });
+
+  it("testa mudanças ainda não salvas numa conta só", async () => {
+    route({ play_recording_draft: () => [{ userId: 11, errorCode: null, error: null }] });
     const { store } = renderTab();
-    await importSample();
-    await screen.findByTestId("tinytask-summary");
+    await openRecording();
+    await userEvent.click(screen.getByRole("button", { name: "Wait" }));
 
     const test = screen.getByRole("button", { name: "Test on one account" });
     expect(test).toBeDisabled();
@@ -522,7 +583,7 @@ describe("RecordingsTab — importar do TinyTask", () => {
 
     const sent = calls("play_recording_draft")[0][1] as { userId: number; recording: { steps: unknown[] } };
     expect(sent.userId).toBe(11);
-    expect(sent.recording.steps).toEqual(IMPORTED.steps);
+    expect(sent.recording.steps).toHaveLength(4);
     expect(calls("save_recording")).toHaveLength(0);
     expect(store.addToast).toHaveBeenCalledWith("Played on 1 account");
 
@@ -531,7 +592,7 @@ describe("RecordingsTab — importar do TinyTask", () => {
     expect(test).toBeDisabled();
   });
 
-  it("o erro do arquivo vira frase, e nada abre no editor", async () => {
+  it("o erro do arquivo vira frase, e nada é salvo", async () => {
     route({
       recording_window_area: () => LEFT_WINDOW,
       import_tinytask_recording: () => Promise.reject("notTinyTask"),
@@ -540,14 +601,13 @@ describe("RecordingsTab — importar do TinyTask", () => {
     // Extensão certa, conteúdo que não é do TinyTask: quem recusa é o backend.
     await importSample(new File([new Uint8Array([9])], "renamed photo.rec"));
     expect(await screen.findByText("This file is not a TinyTask recording (.rec).")).toBeInTheDocument();
-    expect(screen.getByLabelText("Recording name")).toHaveValue("Walk forward");
+    expect(calls("save_recording")).toHaveLength(0);
     expect(screen.queryByTestId("tinytask-summary")).not.toBeInTheDocument();
   });
 
   it("sem cliente aberto, pede para abrir a conta da janela gravada", async () => {
     renderTab({ launchedByProgram: new Set<number>() });
-    await screen.findByLabelText("Recording name");
-    await userEvent.click(screen.getByRole("button", { name: "Import from TinyTask (.rec)" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Import from TinyTask (.rec)" }));
     expect(screen.getByText(/Open the account whose Roblox window you recorded in first/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import" })).toBeDisabled();
   });
@@ -570,6 +630,7 @@ describe("RecordingsTab — importar do TinyTask", () => {
           : { left: 0, top: 0, width: 1280, height: 720 },
     });
     renderTab();
+    await openRecording();
     expect(await screen.findByTestId("recording-shape-warning-11")).toHaveTextContent(
       "alpha: this window has a different shape from the one the recording was made in"
     );
@@ -581,7 +642,7 @@ describe("RecordingsTab — importar do TinyTask", () => {
 
   it("gravação escrita à mão (sem proporção) não lê janela nem avisa", async () => {
     renderTab();
-    await screen.findByLabelText("Recording name");
+    await openRecording();
     expect(calls("recording_window_area")).toHaveLength(0);
     expect(screen.queryByTestId(/recording-shape-warning/)).not.toBeInTheDocument();
   });

@@ -206,8 +206,8 @@ export const TOURS: Record<TourId, TourDefinition> = {
     steps: [
       {
         id: "tabs",
-        title: "Two ways to stay in game",
-        description: "AFK clicks press a key so Roblox does not kick you. Auto Rejoin reopens the game on a timer.",
+        title: "Three ways to stay in game",
+        description: "AFK clicks press a key so Roblox does not kick you. Recordings play back what you recorded. Auto Rejoin reopens the game on a timer.",
         reveal: inside("afk-page", "afk-tab-clicks"),
         targets: [inside("afk-page", "afk-tabs")],
       },
@@ -228,6 +228,19 @@ export const TOURS: Record<TourId, TourDefinition> = {
         title: "Start and stop",
         description: "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game.",
         targets: [inside("afk-page", "afk-clicks-start")],
+      },
+      {
+        id: "recordings-slots",
+        title: "Recordings: who plays what",
+        description: "On top, pick the recording each account plays after a reconnect and on each AFK turn, and when they play.",
+        reveal: inside("afk-page", "afk-tab-recordings"),
+        targets: [inside("afk-page", "afk-recordings-slots")],
+      },
+      {
+        id: "recordings-library",
+        title: "Recordings: your library",
+        description: "Import a TinyTask .rec here: it is saved right away. Click a recording to open its steps.",
+        targets: [inside("afk-page", "afk-recordings-library")],
       },
       {
         id: "rejoin-server",
