@@ -206,7 +206,8 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
   const keyAllowed = store.afkKeys.includes(effectiveKey);
   /** A gravação que cada conta toca no modo gravação (a própria ou a de todas). */
   function recordingNameFor(userId: number): string | null {
-    const rec = recordingForAccount(recordings, userId);
+    // O Modo AFK toca a vaga "On anti-AFK" (a da reconexão é outra).
+    const rec = recordingForAccount(recordings, userId, "antiAfk");
     return rec && rec.steps.length > 0 ? rec.name : null;
   }
   const anyRecording = inAfk.some((id) => recordingNameFor(id) !== null);
@@ -421,7 +422,7 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
         ? t("At least 5 seconds.")
         : !sendReady
           ? recordingMode
-            ? t("None of the ticked accounts has a recording to play")
+            ? t("None of the ticked accounts has an anti-AFK recording to play")
             : t("Pick a key to send")
           : inAfk.length === 0
             ? t("Tick at least one account")
