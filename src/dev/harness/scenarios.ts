@@ -78,11 +78,14 @@ const settings: Record<string, Record<string, string>> = {
 /** O `RAMGameLists.json` do harness, em memória. */
 let harnessGameLists: Record<string, unknown[]> | null = null;
 
-/** O `RAMRecordings.json` do harness, em memória (começa vazio). */
-const harnessRecordings: Record<string, unknown> = {
+/** Escolhas de uma vaga, como `get_recordings` devolve. */
+type HarnessSlot = { defaultId: string | null; accounts: Record<string, string | null> };
+
+/** O `RAMRecordings.json` do harness, em memória (começa vazio; o cenário `recordings` enche). */
+const harnessRecordings: Record<string, unknown> & { afterReconnect: HarnessSlot; antiAfk: HarnessSlot } = {
   recordings: [],
-  defaultId: null,
-  accountIds: {},
+  afterReconnect: { defaultId: null, accounts: {} },
+  antiAfk: { defaultId: null, accounts: {} },
   keys: ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5", "Shift", "Up", "Down", "Left", "Right"],
 };
 
@@ -164,18 +167,32 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "delete_recording": {
       const list = harnessRecordings.recordings as { id: string }[];
       harnessRecordings.recordings = list.filter((r) => r.id !== args?.id);
+      for (const slot of ["afterReconnect", "antiAfk"] as const) {
+        const choices = harnessRecordings[slot];
+        harnessRecordings[slot] = {
+          defaultId: choices.defaultId === args?.id ? null : choices.defaultId,
+          accounts: Object.fromEntries(Object.entries(choices.accounts).filter(([, id]) => id !== args?.id)),
+        };
+      }
       harnessEmit("recordings-changed", null);
       return true;
     }
-    case "set_default_recording":
-      harnessRecordings.defaultId = (args?.id as string | null) ?? null;
+    case "set_default_recording": {
+      const slot = args?.slot as "afterReconnect" | "antiAfk";
+      harnessRecordings[slot] = { ...harnessRecordings[slot], defaultId: (args?.id as string | null) ?? null };
       harnessEmit("recordings-changed", null);
       return null;
+    }
     case "set_account_recording": {
-      const ids = { ...(harnessRecordings.accountIds as Record<string, string>) };
-      if (args?.id) ids[String(args.userId)] = String(args.id);
-      else delete ids[String(args?.userId)];
-      harnessRecordings.accountIds = ids;
+      // O mesmo contrato do backend: herdar tira a conta do mapa, "none" grava
+      // `null`, a própria grava o id.
+      const slot = args?.slot as "afterReconnect" | "antiAfk";
+      const choice = args?.choice as { kind: "inherit" | "none" | "recording"; id?: string };
+      const accounts = { ...harnessRecordings[slot].accounts };
+      const key = String(args?.userId);
+      if (choice.kind === "inherit") delete accounts[key];
+      else accounts[key] = choice.kind === "none" ? null : String(choice.id);
+      harnessRecordings[slot] = { ...harnessRecordings[slot], accounts };
       harnessEmit("recordings-changed", null);
       return null;
     }
@@ -2461,6 +2478,81 @@ const SCENARIOS: Record<string, () => void> = {
         afkRunningSession(world, Number.isFinite(since) ? Math.max(0, Math.min(since, 24 * 60)) : 65)
       )
     );
+  },
+
+  /**
+   * Gravações em duas vagas (After auto-reconnect / On anti-AFK), no mundo do
+   * `afk-mode` (as quatro primeiras contas com cliente aberto pelo app). Três
+   * gravações; a global da reconexão é "Walk to the spot" e a do anti-AFK é
+   * "Jump loop". Escolhas por conta: a 2ª toca "Farm loop" no anti-AFK, a 3ª
+   * não toca nada depois da reconexão ("None"), e a 6ª — sem cliente aberto —
+   * tem "Farm loop" no anti-AFK (aparece na lista por isso). Modo AFK no modo
+   * gravação a cada 2 min 30 s; reconexão ligada, 45 s. `&recs=0` sobe com a
+   * biblioteca vazia; `&overrides=0`, sem escolha por conta.
+   */
+  recordings() {
+    settings.Afk = {
+      IntervalMinutes: "2",
+      IntervalSeconds: "30",
+      BeepOnCycle: "false",
+      Mode: "recording",
+      ClickX: "50",
+      ClickY: "50",
+    };
+    settings.Recordings = { AfterReconnect: "true", AfterReconnectDelaySeconds: "45" };
+    settings.General = { ...settings.General, EnableMultiRbx: "true", BottingEnabled: "true" };
+    if (params.get("recs") !== "0") {
+      const now = Date.now();
+      harnessRecordings.recordings = [
+        {
+          id: "rec-walk",
+          name: "Walk to the spot",
+          steps: [
+            { type: "keyDown", key: "W" },
+            { type: "wait", ms: 1800 },
+            { type: "keyUp", key: "W" },
+            { type: "click", xPct: 52.5, yPct: 61.25 },
+          ],
+          createdAt: now,
+          updatedAt: now,
+          sourceAspect: 1.7778,
+        },
+        {
+          id: "rec-jump",
+          name: "Jump loop",
+          steps: [
+            { type: "key", key: "Space", holdMs: 40 },
+            { type: "wait", ms: 600 },
+            { type: "key", key: "Space", holdMs: 40 },
+          ],
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "rec-farm",
+          name: "Farm loop",
+          steps: [
+            { type: "click", xPct: 37.5, yPct: 62.5 },
+            { type: "wait", ms: 1200 },
+            { type: "key", key: "E", holdMs: 120 },
+          ],
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+      const id = (n: number) => String(accounts[n - 1]?.UserID ?? 1000 + n);
+      const overrides = params.get("overrides") !== "0";
+      harnessRecordings.afterReconnect = {
+        defaultId: "rec-walk",
+        accounts: overrides ? { [id(3)]: null } : {},
+      };
+      harnessRecordings.antiAfk = {
+        defaultId: "rec-jump",
+        accounts: overrides ? { [id(2)]: "rec-farm", [id(6)]: "rec-farm" } : {},
+      };
+    }
+    const world = afkWorld();
+    setInvokeHandler(afkHandler(bottingHandler(baseHandler, world, false), world, null));
   },
 
   /**

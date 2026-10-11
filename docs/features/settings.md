@@ -198,17 +198,17 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 | `IntervalSeconds` | `0` | Parte em segundos do mesmo intervalo (0–59). O total (mínimo 5 s, máximo 120 min) conta do **fim** de cada ciclo. |
 | `Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada do AFK mode. Vazio = o modo não liga. |
 | `BeepOnCycle` | `false` | Bipe curto (sintetizado, sem arquivo de áudio) quando um ciclo de envio termina. |
-| `Mode` | `key` | `key`, `click` ou `recording` (toca a gravação de cada conta — [recordings.md](recordings.md)). |
+| `Mode` | `key` | `key`, `click` ou `recording` (toca a gravação de cada conta na vaga On anti-AFK — [recordings.md](recordings.md#as-duas-vagas)). |
 | `ClickX`, `ClickY` | `50`, `50` | Ponto padrão do modo clique, em % da área interna da janela. |
 
 ### `[Recordings]` — detalhes em [recordings.md](recordings.md)
 
 | Chave | Default | Significado |
 |---|---|---|
-| `AfterReconnect` | `false` | Toca a gravação da conta que a reconexão automática devolveu ao jogo (uma vez, só nela). |
+| `AfterReconnect` | `false` | Toca a gravação da conta na vaga After auto-reconnect quando a reconexão automática a devolve ao jogo (uma vez, só nela). |
 | `AfterReconnectDelaySeconds` | `30` | Quanto tempo a conta fica no jogo antes de a gravação tocar (5–3600 s). |
 
-A biblioteca de gravações e qual vale para cada conta ficam em `RAMRecordings.json`, não no INI.
+A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas.
 | `WaitForFullscreen` | `true` | "Wait while a fullscreen window is in front": com um vídeo ou outro jogo em tela cheia na frente, o ciclo espera em vez de tirar o foco, até 5 min além da hora da conta. Só `"false"` desliga. |
 
 ### `[Generator]` / `[BloxGen]`

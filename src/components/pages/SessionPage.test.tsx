@@ -316,14 +316,18 @@ describe("SessionPage — order and stats", () => {
 
   /**
    * Pedido do dono: o Modo AFK repetindo a gravação e a gravação depois da
-   * reconexão ficam à vista na página Session, com o atalho para a aba.
+   * reconexão ficam à vista na página Session, com o atalho para a aba — e,
+   * desde 11/10/2026, cada um com a gravação da vaga dele.
    */
-  it("shows when the recordings play and opens the Recordings tab", async () => {
+  it("shows each slot with its global recording and when it plays, and opens the Recordings tab", async () => {
     setInvokeMap({
       get_recordings: {
-        recordings: [{ id: "a", name: "Farm loop", steps: [], createdAt: 0, updatedAt: 0 }],
-        defaultId: "a",
-        accountIds: { "20": "a" },
+        recordings: [
+          { id: "a", name: "Farm loop", steps: [], createdAt: 0, updatedAt: 0 },
+          { id: "b", name: "Walk to the spot", steps: [], createdAt: 0, updatedAt: 0 },
+        ],
+        antiAfk: { defaultId: "a", accounts: { "20": "a" } },
+        afterReconnect: { defaultId: "b", accounts: {} },
         keys: [],
       },
       get_recording_playback: { active: false },
@@ -340,9 +344,13 @@ describe("SessionPage — order and stats", () => {
       ...storeActions(),
     });
     const card = await screen.findByTestId("session-recordings");
-    expect(await within(card).findByText(/All accounts: Farm loop\./)).toBeInTheDocument();
-    expect(card).toHaveTextContent("AFK mode: plays it every 2 min 30 s.");
-    expect(card).toHaveTextContent("After an automatic reconnect: plays once, 45 s after the account is back in the game.");
+    expect(
+      await within(card).findByText(
+        "After auto-reconnect: Walk to the spot, once, 45 s after the account is back in the game."
+      )
+    ).toBeInTheDocument();
+    expect(card).toHaveTextContent("On anti-AFK: Farm loop, every 2 min 30 s in AFK mode.");
+    expect(card).toHaveTextContent("1 account(s) with their own choice.");
     await userEvent.click(within(card).getByRole("button", { name: "Open Recordings" }));
     expect(store.openAfkMode).toHaveBeenCalledWith({ tab: "recordings" });
   });
@@ -479,7 +487,12 @@ describe("SessionPage — texto", () => {
 
   it("hides the Recordings card while there are no recordings", async () => {
     setInvokeMap({
-      get_recordings: { recordings: [], defaultId: null, accountIds: {}, keys: [] },
+      get_recordings: {
+        recordings: [],
+        antiAfk: { defaultId: null, accounts: {} },
+        afterReconnect: { defaultId: null, accounts: {} },
+        keys: [],
+      },
       get_recording_playback: { active: false },
     });
     renderWithStore(<SessionPage active onLeave={vi.fn()} />, {

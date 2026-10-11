@@ -10,8 +10,27 @@ vez**: traz a janela da conta para frente, toca a sequência inteira, passa para
 próxima e só no fim devolve o foco.
 
 **O que entrou (fase 1, nas duas edições):** biblioteca, editor de passos,
-reprodução, qual gravação vale para cada conta e os dois gatilhos (Modo AFK e
-depois da reconexão). Os passos são escritos à mão no editor.
+reprodução, qual gravação vale para cada conta — **uma escolha por gatilho**
+(ver [As duas vagas](#as-duas-vagas)) — e os dois gatilhos (Modo AFK e depois
+da reconexão). Os passos são escritos à mão no editor.
+
+## As duas vagas
+
+Pedido do dono (11/10/2026): até então uma gravação era escolhida uma vez por
+conta e tocava nos dois gatilhos. Mas a de depois da reconexão serve para
+**posicionar o personagem**, e a do anti-AFK faz **uma ação em outro lugar** —
+são gravações diferentes. Agora há duas **vagas** (`RecordingSlot`):
+
+| Vaga | Na tela (en / pt / es) | Quem toca |
+|---|---|---|
+| `afterReconnect` | "After auto-reconnect" / "Depois da reconexão automática" / "Tras la reconexión automática" | a [reconexão automática](#depois-da-reconexão), uma vez |
+| `antiAfk` | "On anti-AFK" / "No anti-AFK" / "En el anti-AFK" | o [Modo AFK](#modo-afk) no modo gravação, a cada intervalo |
+
+Cada vaga tem uma gravação **global**, que toda conta herda, e cada conta pode
+ter a **própria** escolha em cada vaga, independente da outra: uma gravação, ou
+**"None for this account"** (nenhuma, mesmo com uma global). A escolha da conta
+vence a global (`recording_for_account(file, vaga, conta)`); escolha que aponta
+para gravação apagada (arquivo editado à mão) cai na global.
 
 **Como se cria uma gravação (decisão do dono, 11/10/2026):** importando um
 `.rec` do **TinyTask**, a ferramenta com que ele já grava as macros — ver
@@ -24,15 +43,16 @@ app não precisa ler teclado nem mouse. O editor continua para revisar e ajustar
 
 | Arquivo | Papel |
 |---|---|
-| [data/recordings.rs](../../src-tauri/src/data/recordings.rs) | Modelo (`Recording`, `RecordingStep`, `RecordingsFile`), lista fechada de teclas (`RECORDING_KEYS`), validação (`normalize_recording`), estimativa de duração, qual gravação vale para a conta (`recording_for_account`) e o store `RAMRecordings.json` |
+| [data/recordings.rs](../../src-tauri/src/data/recordings.rs) | Modelo (`Recording`, `RecordingStep`, `RecordingsFile`, as vagas `RecordingSlot`/`SlotChoices`/`AccountRecordingChoice`), lista fechada de teclas (`RECORDING_KEYS`), validação (`normalize_recording`), estimativa de duração, qual gravação vale para a conta numa vaga (`recording_for_account`), a migração da versão 1 (`migrate_recordings_file`) e o store `RAMRecordings.json` |
 | [commands/recordings.rs](../../src-tauri/src/commands/recordings.rs) | Comandos da tela, a reprodução (`play_recording_with`, `play_recording_in_window`), o "Tocar agora" e o gatilho depois da reconexão (`AfterReconnectBook`) |
 | [commands/afk.rs](../../src-tauri/src/commands/afk.rs) | O ciclo que toca (`run_afk_cycle_blocking`, ação `AfkCycleAction::Recording`), o modo `recording` do Modo AFK e os códigos `noRecording`/`focusLost`/`stopped` |
 | [platform/windows/input.rs](../../src-tauri/src/platform/windows/input.rs) | As portas novas: `press_recording_key` (tecla da lista das gravações) e `click_recording_point` (a receita do clique do AFK, com o clique de foco opcional) |
 | [commands/reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | Arma o gatilho no `Relaunched` e chama a passada dele a cada 2 s |
 | [RecordingsTab.tsx](../../src/components/afk-mode/RecordingsTab.tsx), [recordings/useRecordings.ts](../../src/components/afk-mode/recordings/useRecordings.ts) | A aba **Recordings** do Modo AFK |
+| [recordings/RecordingSlots.tsx](../../src/components/afk-mode/recordings/RecordingSlots.tsx) | A área "Which recording plays": a global de cada vaga e a escolha de cada conta |
 | [data/tinytask.rs](../../src-tauri/src/data/tinytask.rs) | Importar do TinyTask: leitura do `.rec` (`parse_tinytask`) e conversão em passos (`convert_tinytask_events`), puras; os comandos `import_tinytask_recording`, `recording_window_area` e `play_recording_draft` moram em commands/recordings.rs |
 | [recordings/TinyTaskImport.tsx](../../src/components/afk-mode/recordings/TinyTaskImport.tsx) | O painel "Import from TinyTask (.rec)", as frases do resumo e dos erros |
-| [recordings.ts](../../src/recordings.ts) | Tipos e regras puras da tela (espelho dos limites do backend; nome a partir do arquivo, `aspectDiffers`) |
+| [recordings.ts](../../src/recordings.ts) | Tipos e regras puras da tela (espelho dos limites do backend; nome a partir do arquivo, `aspectDiffers`; as vagas: `recordingForAccount`, `accountSlotChoice`, `accountsWithOwnChoice`, `slotUsage`) |
 | [ClicksTab.tsx](../../src/components/afk-mode/ClicksTab.tsx), [useClicksController.ts](../../src/components/afk-mode/clicks/useClicksController.ts) | O modo "Play the recording" dos cliques AFK |
 
 ## A tela
@@ -64,33 +84,51 @@ dono: configuração de muitas contas não vai para o painel de uma conta — ve
   (`recording_window_area`, só o retângulo) e avisa em âmbar quem tem formato
   diferente em mais de 5% (`aspectDiffers`) — os cliques são porcentagens da
   janela, então em outro formato caem em outro ponto do jogo. Ainda toca.
-- **Which recording plays:** a de **todas as contas** e, por conta, a **própria**
-  (que vence) ou "Same as all accounts". A lista mostra as contas com cliente
-  aberto pelo app e as que já têm gravação própria.
+- **Which recording plays** (embaixo do editor, na coluna da direita — antes
+  ficava um cartão na coluna da esquerda, e a da direita sobrava vazia embaixo
+  do "Pick a recording..."): uma tabela com uma coluna por vaga ("After
+  auto-reconnect", "On anti-AFK"). A primeira linha, **All accounts / Global**,
+  escolhe a global de cada vaga (ou None). Depois, uma linha por conta — as com
+  cliente aberto pelo app (ponto verde) e as que já têm escolha própria em
+  alguma vaga (ponto cinza quando sem cliente). Cada célula é uma lista nativa
+  (`<select>`: setas, Home/End e digitar o nome funcionam no teclado):
+  **herdada** aparece apagada, com borda tracejada, "Global: <nome>" (ou
+  "Global: none"); **própria** aparece destacada (borda de acento) com o nome da
+  gravação ou "None for this account", e ganha o botão ↺ **Use global**, que
+  tira a escolha. O texto inteiro vai no `title` (num espaço estreito a lista
+  corta o nome). A escolha feita fica na lista enquanto o arquivo não volta
+  (`usePendingValue`; achado no harness: descendo as opções com a seta, a lista
+  voltava à escolha antiga entre uma tecla e outra); se o backend recusa, volta
+  à salva e o erro vira toast. Sem espaço para três colunas (container estreito),
+  cada conta vira um bloco com o nome da vaga ao lado de cada lista. Biblioteca
+  vazia: a área diz para criar ou importar uma gravação primeiro.
 - **When it plays** (pedido do dono, 11/10/2026: os dois gatilhos à vista, sem
-  caçar): **Repeat in AFK mode** liga o modo gravação do Modo AFK
-  (`Afk.Mode = recording`; desligar volta a `key`) e, ligado, mostra o
+  caçar), na coluna da esquerda, em dois grupos com o nome das vagas. **After
+  auto-reconnect:** "Play after an automatic reconnect" e o tempo no jogo antes
+  de tocar. **On anti-AFK:** **Repeat in AFK mode** liga o modo gravação do
+  Modo AFK (`Afk.Mode = recording`; desligar volta a `key`) e, ligado, mostra o
   intervalo em **minutos + segundos** (`Afk.IntervalMinutes`/`IntervalSeconds`,
   os mesmos da aba AFK clicks); com o Modo AFK rodando, fica travado (a sessão
-  usa o que começou com ela). Depois, "Play after an automatic reconnect" e o
-  tempo no jogo antes de tocar. As contas e o Iniciar continuam na aba **AFK
+  usa o que começou com ela). As contas e o Iniciar continuam na aba **AFK
   clicks**. As duas abas gravam pelo `store.updateSetting` e ficam montadas
   juntas: a AFK clicks segue o INI quando ele muda pela aba Recordings
   (`useClicksController`).
-- **A gravação aberta** (salva, sem mudança): diz para quem toca ("Plays for
-  every account that has no recording of its own", "Plays for N account(s) as
-  their own recording" ou "No account plays this recording yet"), com **Use for
-  all accounts** (vira a de todas as contas), e as duas linhas de quando toca
-  (`RecordingTriggerLines`: "AFK mode: plays it every 2 min 30 s." / "After an
-  automatic reconnect: plays once, 30 s after the account is back in the
-  game.").
+- **A gravação aberta** (salva, sem mudança): uma linha por vaga dizendo para
+  quem ela toca ("global, for every account without its own choice.", "own
+  choice of N account(s)." ou "not used.") e, quando não é a global da vaga,
+  **Make global**.
 - **Fora da aba:** o cartão da aba no Modo AFK troca a descrição pelo gatilho
   ("Every 2 min 30 s in AFK mode, and after a reconnect"), e a página
-  **Session** tem o cartão **Recordings** no resumo (a gravação de todas as
-  contas, quantas têm a própria, as duas linhas e **Open Recordings**, que abre
-  o Modo AFK na aba Recordings). Regras puras em
-  [recordings/triggers.ts](../../src/components/afk-mode/recordings/triggers.ts).
-- Barra de estado: "Playing a recording" e **Stop playing** enquanto uma
+  **Session** tem o cartão **Recordings** no resumo: uma linha por vaga com a
+  global e quando toca (`RecordingTriggerLines`: "After auto-reconnect: Walk to
+  the spot, once, 45 s after the account is back in the game." / "On anti-AFK:
+  Jump loop, every 2 min 30 s in AFK mode."; sem global, "; no global
+  recording"; desligado, "off"), quantas contas têm escolha própria e **Open
+  Recordings**, que abre o Modo AFK na aba Recordings. A aba **AFK clicks**, no
+  modo "Play the recording", diz que toca a gravação **On anti-AFK** de cada
+  conta e que a de depois da reconexão é outra escolha; a linha de cada conta
+  mostra a do anti-AFK. Regras puras em
+  [recordings/triggers.ts](../../src/components/afk-mode/recordings/triggers.ts).- Barra de estado: "Playing a recording" e **Stop playing** enquanto uma
   reprodução avulsa roda (evento `recording-playback`).
 
 ## Passos
@@ -121,7 +159,7 @@ restauração e na migração de pasta):
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "recordings": [
     { "id": "rec-1760000000000", "name": "Walk to the farm", "createdAt": 0, "updatedAt": 0,
       "steps": [
@@ -132,21 +170,37 @@ restauração e na migração de pasta):
         { "type": "click", "xPct": 37.5, "yPct": 62.5 }
       ] }
   ],
-  "defaultId": "rec-1760000000000",
-  "accountIds": { "123456": "rec-1760000000000" }
+  "afterReconnect": { "defaultId": "rec-1760000000000", "accounts": { "123456": null } },
+  "antiAfk": { "defaultId": null, "accounts": { "123456": "rec-1760000000000" } }
 }
 ```
+
+Em cada vaga, `accounts` leva o user id à escolha da conta: o id da própria ou
+`null` = nenhuma para ela. Conta fora do mapa herda o `defaultId`.
+
+**Migração da versão 1** (`migrate_recordings_file`, na leitura). A versão 1
+tinha uma escolha só, no topo (`"defaultId"` e `"accountIds": { "conta": "id" }`),
+usada pelos dois gatilhos. Arquivo com `version` < 2 — ou sem `version` — vira:
+o `defaultId` antigo é a global das **duas** vagas, e cada `accountIds` vira a
+própria da conta nas **duas**. Nada muda para quem já usava. Ler não regrava: o
+disco continua na versão 1 até a próxima gravação, que escreve a versão 2 (sem
+os campos antigos) e deixa o arquivo da versão 1 inteiro no `.bak`. Backup
+antigo restaurado é migrado do mesmo jeito, na hora. Arquivo já na versão 2 com
+sobras dos campos antigos não migra de novo. Limite conhecido: um app de antes
+da versão 2 que abra um arquivo já migrado não acha as escolhas (lê só os campos
+antigos) — as gravações continuam lá.
 
 - Gravação atômica (temporário + troca), versão anterior em `.bak`; arquivo
   ilegível **trava** a gravação em vez de ser sobrescrito; o store não guarda
   nada em memória (restaurar um backup vale na hora).
 - O tempo é guardado como **espera explícita entre passos** (e não como instante
   de cada evento): sobrevive a cortar, reordenar e editar à mão.
-- Apagar uma gravação a tira da escolha de todas as contas e das contas que a
-  usavam. Escolha que aponta para gravação inexistente (arquivo editado à mão)
-  cai na de todas.
-- `sourceAspect` (opcional, campo novo com padrão seguro — a versão do arquivo
-  continua 1): largura ÷ altura da área interna da janela em que a gravação foi
+- Apagar uma gravação a tira das duas vagas: deixa de ser a global, e a conta
+  que a tinha como própria volta a herdar a global ("None" escolhido fica).
+  Escolha que aponta para gravação inexistente (arquivo editado à mão) cai na
+  global.
+- `sourceAspect` (opcional, campo novo com padrão seguro — entrou sem subir a
+  versão do arquivo): largura ÷ altura da área interna da janela em que a gravação foi
   feita, gravado pela importação do TinyTask e copiado ao duplicar. Fora de
   0,2–5 (arquivo editado à mão) some em vez de recusar a gravação. Gravação
   escrita à mão não tem, e não há aviso de formato.
@@ -226,7 +280,7 @@ reproduções nem uma reprodução e um ciclo do AFK ao mesmo tempo), mesmo
 
 Por conta, dentro do ciclo (`play_recording_with`):
 
-1. Conta sem gravação (nem a própria, nem a de todas, ou a dela está vazia): erro
+1. Conta sem gravação na vaga (nem a própria, nem a global, "None" escolhido, ou a dela está vazia): erro
    `noRecording`, e a janela **nem vem para frente**.
 2. Antes de **cada** tecla apertada e de cada clique, confere que a janela da
    conta continua na frente. Se outra janela veio (o usuário clicou nela), para
@@ -248,8 +302,9 @@ contas visitadas.
 
 ### Tocar agora
 
-`play_recording_now { userIds, recordingId }`: a gravação escolhida em todas as
-contas marcadas (ou, sem `recordingId`, a de cada conta). Só alcança cliente que
+`play_recording_now { userIds, recordingId, slot? }`: a gravação escolhida em todas as
+contas marcadas (ou, sem `recordingId`, a de cada conta na vaga `slot`; sem
+vaga, a do anti-AFK). Só alcança cliente que
 o app abriu (é o tracker que liga conta a janela). **Stop playing**
 (`stop_recording_playback`) para na hora; um "parar" de antes não vale para a
 reprodução seguinte (o flag é zerado quando ela ganha a vez no lock).
@@ -257,11 +312,12 @@ reprodução seguinte (o flag é zerado quando ela ganha a vez no lock).
 ### Modo AFK
 
 Em **AFK clicks**, "What to send" → **Play the recording** (`Afk.Mode =
-recording`). Cada conta no modo toca a gravação dela a cada intervalo (minutos +
+recording`). Cada conta no modo toca a gravação dela **na vaga On anti-AFK** a cada intervalo (minutos +
 segundos, contado do fim do ciclo, como os outros modos). A gravação é lida a cada
 ciclo: editar ou trocar a gravação vale no ciclo seguinte. O Start recusa se
-nenhuma conta marcada tem gravação; a linha de cada conta mostra o nome da
-gravação dela ou "no recording". "Play now" (o "enviar agora") toca na hora nas
+nenhuma conta marcada tem gravação no anti-AFK ("None of the ticked accounts has
+an anti-AFK recording to play"; a vaga da reconexão não conta); a linha de cada
+conta mostra o nome da gravação dela ou "no recording". "Play now" (o "enviar agora") toca na hora nas
 contas do modo. Parar o Modo AFK interrompe a gravação no meio.
 
 ### Depois da reconexão
@@ -274,12 +330,14 @@ A cada 2 s (`recording_after_reconnect_tick`, chamado no começo da passada da
 reconexão, antes das saídas cedo):
 
 - conta no jogo (log do cliente, `client_health_of`) desde X; quando passa o
-  tempo configurado, a gravação **dela** toca, **uma vez**, só nela;
+  tempo configurado, a gravação **dela na vaga After auto-reconnect** toca,
+  **uma vez**, só nela (a do anti-AFK é outra);
 - saiu do jogo antes: a contagem recomeça; cliente novo (outra tentativa da
   reconexão): conta de novo;
 - cliente do site (adotado) nunca recebe; quem não volta ao jogo em 15 min é
   esquecido; desligar a opção esquece todo mundo;
-- sem gravação para a conta: só a linha no Console.
+- sem gravação para a conta nessa vaga: só a linha no Console ("…não tem
+  gravação para depois da reconexão").
 
 Console (`step: "recording"`): "Tocando a gravação …", "Gravação … tocada" ou
 "… não tocada: motivo".
@@ -350,7 +408,12 @@ janela), xmacro (GPL; texto com `Delay`), rdev e enigo (MIT, Rust), monio
 Suíte `recordings` (`bun run t recordings`):
 
 - `recordings_store_tests` — id novo, JSON camelCase com `type`, JSON documentado
-  acima, substituir mantendo a criação, duplicar, apagar limpando as escolhas,
+  acima (com `null` = nenhuma), substituir mantendo a criação, duplicar, apagar
+  limpando as escolhas nas duas vagas (o "None" fica), as duas vagas mudando
+  independentes ("Use global" tira só a de uma), a migração da versão 1 (a
+  escolha antiga nas duas vagas; ler não regrava; a primeira gravação escreve a
+  versão 2 e deixa a versão 1 no `.bak`; arquivo sem `version`; backup da
+  versão 1 restaurado; versão 2 com sobras não migra de novo),
   escolher gravação inexistente, `.bak`, arquivo ilegível nunca sobrescrito,
   leitura do disco a cada vez, teto da biblioteca, `sourceAspect` guardado,
   copiado, opcional no JSON e descartado quando impossível.
@@ -372,13 +435,15 @@ Suíte `recordings` (`bun run t recordings`):
 - `recordings_validation_tests` — lista de teclas (começa com as do AFK, deixa
   fora as perigosas, todas as letras e números), setas estendidas, nome, tecla
   fora da lista, limites de tempo e de ponto, teto de passos e de 10 min,
-  duração, a da conta vence a de todas.
+  duração, a da conta vence a global ("None" também), cada vaga com a sua.
 - `recordings_playback_tests` (Windows de mentira) — tecla apertada/segurada/
   solta, só o primeiro clique com clique de foco, parar no meio de uma espera de
   10 min soltando a tecla, foco perdido antes da tecla e antes do clique, tecla
   deixada apertada solta no fim, soltar o que não foi apertado não manda nada,
   recusa de tecla/clique, códigos do status, qual gravação cada conta toca
-  (vazia não toca), o rascunho do "Test on one account" validado como o salvar.
+  (vazia e "None" não tocam), a vaga da reconexão e a do anti-AFK tocando
+  gravações diferentes, o payload das duas vagas e a escolha vinda da tela
+  (`{ kind }`), o rascunho do "Test on one account" validado como o salvar.
 - `recordings_after_reconnect_tests` — só depois do tempo no jogo, só a conta que
   reconectou, uma vez; sair do jogo recomeça; cliente novo recomeça; opção
   desligada esquece; cliente do site nunca; desiste em 15 min; limites do tempo.
@@ -388,18 +453,25 @@ Suíte `recordings` (`bun run t recordings`):
   é enviada, janela nula nunca recebe clique.
 - `RecordingsTab.test.tsx` — biblioteca, editor, salvar/descartar, motivo de não
   salvar, mover/remover, renomear/duplicar/apagar, releitura no evento, quem toca
-  o quê, gatilho da reconexão no INI, tocar agora, erros por conta, parar; a
+  o quê por vaga (global de cada vaga, própria/None/Use global por conta,
+  herdada apagada e própria destacada, quem aparece na lista, biblioteca vazia,
+  a escolha que fica na lista enquanto o arquivo não volta e volta à salva se o
+  backend recusa), gatilho da reconexão no INI, tocar agora, erros por conta, parar; a
   importação do TinyTask (janela escolhida, rascunho com resumo, salvar com
   `sourceAspect`, testar numa conta só, erro do arquivo, sem cliente aberto,
   aviso de formato de janela); repetir no Modo AFK e o intervalo ligados daqui,
-  travados com o Modo AFK rodando; para quem a gravação aberta toca e "Use for
-  all accounts"; e o modo gravação dos cliques AFK.
+  travados com o Modo AFK rodando; para quem a gravação aberta toca em cada vaga
+  e "Make global"; e o modo gravação dos cliques AFK (só a vaga do anti-AFK).
   `recordings.test.ts` — regras puras (inclusive nome do arquivo e
-  `aspectDiffers`). `recordings/triggers.test.ts` — o resumo dos gatilhos (INI,
-  padrões, escolha apagada, limites, intervalo em min e s).
+  `aspectDiffers`; as vagas). `recordings/triggers.test.ts` — o resumo dos
+  gatilhos (INI, a global de cada vaga, contas com escolha própria, padrões,
+  escolha apagada, limites, intervalo em min e s).
   `ClicksTab.test.tsx` — a aba AFK clicks segue o INI mudado pela aba
   Recordings. `AfkModeView.test.tsx` — o cartão da aba diz o gatilho.
-  `SessionPage.test.tsx` — o cartão Recordings do resumo e o atalho.
+  `SessionPage.test.tsx` — o cartão Recordings do resumo (uma linha por vaga) e
+  o atalho. No navegador: `?scenario=recordings` (três gravações, globais
+  diferentes por vaga e escolhas por conta; `&recs=0` biblioteca vazia,
+  `&overrides=0` sem escolha por conta).
 
 Tecla, clique e janela de verdade ficam fora de teste: precisam de um cliente
 Roblox aberto. **Falta teste do dono com cliente real.**

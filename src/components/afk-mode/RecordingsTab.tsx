@@ -10,7 +10,7 @@ import { NumericInput } from "../ui/NumericInput";
 import { ToggleRow } from "../ui/ToggleRow";
 import { Toggle } from "../ui/Toggle";
 import { recordingTriggers } from "./recordings/triggers";
-import { RecordingTriggerLines } from "./recordings/RecordingTriggerLines";
+import { RecordingSlots, slotLabel } from "./recordings/RecordingSlots";
 import { DANGER_ACTION, ModeStatusBar, NEUTRAL_ACTION, PRIMARY_ACTION } from "./ModeStatusBar";
 import { useRecordings } from "./recordings/useRecordings";
 import { TinyTaskImportPanel, tinyTaskSummaryLines, type ImportedDraft } from "./recordings/TinyTaskImport";
@@ -23,8 +23,13 @@ import {
   MAX_RECORDING_STEPS,
   MAX_WAIT_MS,
   MIN_HOLD_MS,
+  accountsWithOwnChoice,
   aspectDiffers,
   moveStep,
+  RECORDING_SLOTS,
+  slotUsage,
+  type AccountSlotChoice,
+  type RecordingSlot,
   newStep,
   recordingDurationMs,
   recordingProblem,
@@ -113,8 +118,6 @@ export function RecordingsTab() {
   }, [recordings, draft]);
 
   const dirty = !!draft && !sameDraft(draft, saved);
-  /** Contas que têm a gravação aberta como própria. */
-  const ownUses = saved ? Object.values(payload?.accountIds ?? {}).filter((id) => id === saved.id).length : 0;
   const problem: RecordingProblem | null = draft ? recordingProblem(draft.name, draft.steps, keys) : null;
   const firstKey = keys[0] ?? "Space";
 
@@ -123,9 +126,12 @@ export function RecordingsTab() {
     () => store.accounts.filter((a) => store.launchedByProgram.has(a.UserID)),
     [store.accounts, store.launchedByProgram]
   );
-  /** Na lista de "quem toca o quê": quem tem cliente aberto e quem já tem gravação própria. */
+  /**
+   * Na lista de "quem toca o quê": quem tem cliente aberto e quem já tem
+   * escolha própria (uma gravação ou "nenhuma") em alguma vaga.
+   */
   const assignAccounts = useMemo(() => {
-    const own = new Set(Object.keys(payload?.accountIds ?? {}).map(Number));
+    const own = accountsWithOwnChoice(payload);
     return store.accounts.filter((a) => store.launchedByProgram.has(a.UserID) || own.has(a.UserID));
   }, [store.accounts, store.launchedByProgram, payload]);
 
@@ -310,19 +316,23 @@ export function RecordingsTab() {
     }
   }
 
-  async function setDefault(id: string) {
+  async function setDefault(slot: RecordingSlot, id: string | null): Promise<boolean> {
     try {
-      await invoke("set_default_recording", { id: id || null });
+      await invoke("set_default_recording", { slot, id });
+      return true;
     } catch (e) {
       store.addToast(String(e), "error");
+      return false;
     }
   }
 
-  async function setForAccount(userId: number, id: string) {
+  async function setForAccount(slot: RecordingSlot, userId: number, choice: AccountSlotChoice): Promise<boolean> {
     try {
-      await invoke("set_account_recording", { userId, id: id || null });
+      await invoke("set_account_recording", { slot, userId, choice });
+      return true;
     } catch (e) {
       store.addToast(String(e), "error");
+      return false;
     }
   }
 
@@ -468,7 +478,7 @@ export function RecordingsTab() {
       />
 
       <div className="flex-1 min-h-0 overflow-y-auto pr-0.5">
-        <div className="grid grid-cols-1 gap-3 @3xl/recs:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] items-start">
+        <div className="grid grid-cols-1 gap-3 @3xl/recs:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] items-start">
           <div className="space-y-3">
             <section className={CARD} aria-label={t("Library")}>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -550,124 +560,89 @@ export function RecordingsTab() {
               )}
             </section>
 
-            <section className={`${CARD} space-y-2`} aria-label={t("Which recording plays")}>
-              <div className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Which recording plays")}</div>
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] theme-muted w-28 shrink-0">{t("All accounts")}</span>
-                <Select
-                  value={payload?.defaultId ?? ""}
-                  options={[
-                    { value: "", label: t("None") },
-                    ...recordings.map((r) => ({ value: r.id, label: r.name })),
-                  ]}
-                  ariaLabel={t("Recording for all accounts")}
-                  onChange={(v) => void setDefault(v)}
-                  className="flex-1 min-w-0"
+            <section className={`${CARD} space-y-3`} aria-labelledby="recordings-when-title">
+              <h3 id="recordings-when-title" className="text-[13px] font-semibold text-[var(--panel-fg)]">
+                {t("When it plays")}
+              </h3>
+              <div className="space-y-2" role="group" aria-labelledby="recordings-when-reconnect">
+                <div id="recordings-when-reconnect" className="text-[11px] font-semibold uppercase tracking-wide theme-muted">
+                  {slotLabel(t, "afterReconnect")}
+                </div>
+                <ToggleRow
+                  label="Play after an automatic reconnect"
+                  checked={afterReconnect}
+                  onChange={(v) => persist("AfterReconnect", v ? "true" : "false")}
                 />
-              </div>
-              {assignAccounts.length > 0 ? (
-                <ul className="space-y-1">
-                  {assignAccounts.map((a) => {
-                    const own = payload?.accountIds[String(a.UserID)] ?? "";
-                    const name = accountName(a.UserID);
-                    return (
-                      <li key={a.UserID} className="flex items-center gap-2">
-                        <span className="w-28 shrink-0 truncate text-[12px] text-[var(--panel-fg)]" title={name}>
-                          {name}
-                        </span>
-                        <Select
-                          value={own}
-                          options={[
-                            { value: "", label: t("Same as all accounts") },
-                            ...recordings.map((r) => ({ value: r.id, label: r.name })),
-                          ]}
-                          ariaLabel={t("Recording for {{name}}", { name })}
-                          onChange={(v) => void setForAccount(a.UserID, v)}
-                          className="flex-1 min-w-0"
-                        />
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-              <div className="text-[11px] theme-muted leading-4">
-                {t(
-                  "An account's own recording wins over the one for all accounts. The list shows the accounts with a client open by this app and the ones that already have their own."
-                )}
-              </div>
-            </section>
-
-            <section className={`${CARD} space-y-2`} aria-label={t("When it plays")}>
-              <div className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("When it plays")}</div>
-              <Toggle
-                checked={triggers.afkRepeats}
-                disabled={afkRunning}
-                onChange={(v) => persistAfk("Mode", v ? "recording" : "key")}
-                label="Repeat in AFK mode"
-                description={
-                  afkRunning
-                    ? "AFK mode is on: stop it in AFK clicks to change what it sends."
-                    : "While AFK mode is on, each account plays its recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks."
-                }
-              />
-              {triggers.afkRepeats ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-[12px] theme-muted flex-1">{t("Every")}</span>
+                  <span className="text-[12px] theme-muted flex-1">{t("Once the account has been in the game for")}</span>
                   <NumericInput
-                    value={afkMinutes}
-                    min={0}
-                    max={120}
+                    value={delayS}
+                    min={MIN_AFTER_RECONNECT_S}
+                    max={MAX_AFTER_RECONNECT_S}
                     integer
-                    disabled={afkRunning}
-                    ariaLabel={t("Repeat every: minutes")}
-                    onChange={setAfkMinutes}
-                    onCommit={(v) => persistAfk("IntervalMinutes", String(v))}
-                    containerClassName="relative w-16"
-                    className="sidebar-input text-xs w-full"
-                  />
-                  <span className="text-[12px] theme-muted">{t("min")}</span>
-                  <NumericInput
-                    value={afkSeconds}
-                    min={0}
-                    max={59}
-                    integer
-                    disabled={afkRunning}
-                    ariaLabel={t("Repeat every: seconds")}
-                    onChange={setAfkSeconds}
-                    onCommit={(v) => persistAfk("IntervalSeconds", String(v))}
-                    containerClassName="relative w-16"
+                    ariaLabel={t("Seconds in the game before playing")}
+                    onChange={setDelayS}
+                    onCommit={(v) => persist("AfterReconnectDelaySeconds", String(v))}
+                    containerClassName="relative w-20"
                     className="sidebar-input text-xs w-full"
                   />
                   <span className="text-[12px] theme-muted">s</span>
                 </div>
-              ) : null}
-              <ToggleRow
-                label="Play after an automatic reconnect"
-                checked={afterReconnect}
-                onChange={(v) => persist("AfterReconnect", v ? "true" : "false")}
-              />
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] theme-muted flex-1">{t("Once the account has been in the game for")}</span>
-                <NumericInput
-                  value={delayS}
-                  min={MIN_AFTER_RECONNECT_S}
-                  max={MAX_AFTER_RECONNECT_S}
-                  integer
-                  ariaLabel={t("Seconds in the game before playing")}
-                  onChange={setDelayS}
-                  onCommit={(v) => persist("AfterReconnectDelaySeconds", String(v))}
-                  containerClassName="relative w-20"
-                  className="sidebar-input text-xs w-full"
-                />
-                <span className="text-[12px] theme-muted">s</span>
+                <div className="text-[11px] theme-muted leading-4">
+                  {t("After a reconnect, only the account that came back plays, and only once.")}
+                </div>
               </div>
-              <div className="text-[11px] theme-muted leading-4">
-                {t("After a reconnect, only the account that came back plays, and only once.")}
+              <div className="space-y-2 border-t theme-border pt-3" role="group" aria-labelledby="recordings-when-afk">
+                <div id="recordings-when-afk" className="text-[11px] font-semibold uppercase tracking-wide theme-muted">
+                  {slotLabel(t, "antiAfk")}
+                </div>
+                <Toggle
+                  checked={triggers.afkRepeats}
+                  disabled={afkRunning}
+                  onChange={(v) => persistAfk("Mode", v ? "recording" : "key")}
+                  label="Repeat in AFK mode"
+                  description={
+                    afkRunning
+                      ? "AFK mode is on: stop it in AFK clicks to change what it sends."
+                      : "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks."
+                  }
+                />
+                {triggers.afkRepeats ? (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] theme-muted flex-1">{t("Every")}</span>
+                    <NumericInput
+                      value={afkMinutes}
+                      min={0}
+                      max={120}
+                      integer
+                      disabled={afkRunning}
+                      ariaLabel={t("Repeat every: minutes")}
+                      onChange={setAfkMinutes}
+                      onCommit={(v) => persistAfk("IntervalMinutes", String(v))}
+                      containerClassName="relative w-16"
+                      className="sidebar-input text-xs w-full"
+                    />
+                    <span className="text-[12px] theme-muted">{t("min")}</span>
+                    <NumericInput
+                      value={afkSeconds}
+                      min={0}
+                      max={59}
+                      integer
+                      disabled={afkRunning}
+                      ariaLabel={t("Repeat every: seconds")}
+                      onChange={setAfkSeconds}
+                      onCommit={(v) => persistAfk("IntervalSeconds", String(v))}
+                      containerClassName="relative w-16"
+                      className="sidebar-input text-xs w-full"
+                    />
+                    <span className="text-[12px] theme-muted">s</span>
+                  </div>
+                ) : null}
               </div>
             </section>
           </div>
 
-          <section className={`${CARD} space-y-2.5`} aria-label={t("Editor")}>
+          <div className="space-y-3 min-w-0">          <section className={`${CARD} space-y-2.5`} aria-label={t("Editor")}>
             {!draft ? (
               <div className="text-[12px] theme-muted">{t("Pick a recording in the library or create a new one.")}</div>
             ) : (
@@ -698,21 +673,35 @@ export function RecordingsTab() {
                 ) : null}
                 {saved && !dirty ? (
                   <div className="rounded-lg border theme-border px-3 py-2 space-y-1" data-testid="recording-use">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11.5px] text-[var(--panel-fg)]">
-                        {payload?.defaultId === saved.id
-                          ? t("Plays for every account that has no recording of its own.")
-                          : ownUses > 0
-                            ? t("Plays for {{count}} account(s) as their own recording.", { count: ownUses })
-                            : t("No account plays this recording yet.")}
-                      </span>
-                      {payload?.defaultId !== saved.id ? (
-                        <button onClick={() => void setDefault(saved.id)} className="sidebar-btn-sm">
-                          {t("Use for all accounts")}
-                        </button>
-                      ) : null}
-                    </div>
-                    <RecordingTriggerLines triggers={triggers} />
+                    {RECORDING_SLOTS.map((slot) => {
+                      const use = slotUsage(payload, slot, saved.id);
+                      return (
+                        <div key={slot} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                          <span className="min-w-0 text-[11.5px] text-[var(--panel-fg)]">
+                            <span className="font-medium">{slotLabel(t, slot)}:</span>{" "}
+                            <span className="theme-muted">
+                              {use.global
+                                ? t("global, for every account without its own choice.")
+                                : use.ownCount > 0
+                                  ? t("own choice of {{count}} account(s).", { count: use.ownCount })
+                                  : t("not used.")}
+                            </span>
+                          </span>
+                          {!use.global ? (
+                            <button
+                              onClick={() => void setDefault(slot, saved.id)}
+                              aria-label={t("Make {{name}} the global recording for {{slot}}", {
+                                name: saved.name,
+                                slot: slotLabel(t, slot),
+                              })}
+                              className="sidebar-btn-sm"
+                            >
+                              {t("Make global")}
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : null}
                 <div className="text-[11px] theme-muted">
@@ -873,6 +862,18 @@ export function RecordingsTab() {
               </>
             )}
           </section>
+
+            <RecordingSlots
+              payload={payload}
+              accounts={assignAccounts.map((a) => ({
+                userId: a.UserID,
+                name: accountName(a.UserID),
+                open: store.launchedByProgram.has(a.UserID),
+              }))}
+              onSetGlobal={setDefault}
+              onSetAccount={setForAccount}
+            />
+          </div>
         </div>
       </div>
     </div>

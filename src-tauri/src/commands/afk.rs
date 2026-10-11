@@ -1079,10 +1079,12 @@ fn run_afk_cycle_blocking(
 fn afk_cycle_action(app: &tauri::AppHandle, config: &AfkConfig, targets: &[i64]) -> AfkCycleAction {
     match config.mode {
         AfkMode::Key => AfkCycleAction::Key(config.key.clone()),
-        // A gravação de cada conta é lida **agora**: editar a gravação, ou
-        // trocar qual vale para a conta, vale no ciclo seguinte.
+        // A gravação de cada conta na vaga "On anti-AFK" é lida **agora**:
+        // editar a gravação, ou trocar qual vale para a conta, vale no ciclo
+        // seguinte. A vaga da reconexão é outra (commands/recordings.rs).
         AfkMode::Recording => AfkCycleAction::Recording(recording_plans_for(
             &app.state::<data::recordings::RecordingStore>().load().unwrap_or_default(),
+            data::recordings::RecordingSlot::AntiAfk,
             targets,
         )),
         AfkMode::Click => {
@@ -1246,9 +1248,9 @@ async fn start_afk_mode(
     validate_afk_start(mode, &key, &user_ids)?;
     if mode == AfkMode::Recording {
         let file = app.state::<data::recordings::RecordingStore>().load()?;
-        if recording_plans_for(&file, &user_ids).is_empty() {
+        if recording_plans_for(&file, data::recordings::RecordingSlot::AntiAfk, &user_ids).is_empty() {
             return Err(
-                "None of these accounts has a recording to play: pick one in the Recordings tab".into(),
+                "None of these accounts has an anti-AFK recording to play: pick one in the Recordings tab".into(),
             );
         }
     }

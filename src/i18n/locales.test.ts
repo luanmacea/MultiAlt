@@ -88,6 +88,8 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "Social",
   "Catppuccin",
   "Global",
+  // Vaga de gravação herdada: "Global: <nome da gravação>" (mesma palavra).
+  "Global: {{name}}",
   "Graphite",
   "Legacy v4 (Original)",
   "Ocean",
@@ -215,6 +217,8 @@ const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   "Social",
   "Catppuccin",
   "Global",
+  // Vaga de gravação herdada: "Global: <nome da gravação>" (mesma palavra).
+  "Global: {{name}}",
   "Graphite",
   "Legacy v4 (Original)",
   "Ocean",

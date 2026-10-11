@@ -6,9 +6,10 @@ import { recordingTriggers } from "./triggers";
 import { RecordingTriggerLines } from "./RecordingTriggerLines";
 
 /**
- * Cartão "Recordings" do resumo da página Session: qual gravação vale para
- * todas as contas, quando ela toca (Modo AFK de tanto em tanto tempo, depois
- * da reconexão) e o atalho para a aba Recordings do Modo AFK. Só leitura —
+ * Cartão "Recordings" do resumo da página Session: uma linha por vaga ("After
+ * auto-reconnect" e "On anti-AFK") com a gravação global dela e quando toca,
+ * quantas contas têm escolha própria e o atalho para a aba Recordings do Modo
+ * AFK. Só leitura —
  * tudo se muda na aba. Sem nenhuma gravação o cartão não aparece: não haveria
  * o que dizer além de "nenhuma".
  */
@@ -21,15 +22,12 @@ export function RecordingsSummaryCard() {
   return (
     <section className="rounded-xl border theme-border px-4 py-3" aria-label={t("Recordings")} data-testid="session-recordings">
       <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Recordings")}</h2>
-      <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">
-        {triggers.allAccountsName
-          ? t("All accounts: {{name}}.", { name: triggers.allAccountsName })
-          : t("No recording for all accounts.")}
-        {triggers.ownCount > 0
-          ? ` ${t("{{count}} account(s) with their own.", { count: triggers.ownCount })}`
-          : ""}
-      </p>
-      <RecordingTriggerLines triggers={triggers} className="mt-1" />
+      <RecordingTriggerLines triggers={triggers} className="mt-1.5" />
+      {triggers.ownCount > 0 ? (
+        <p className="mt-1 text-[11.5px] leading-snug text-[var(--panel-muted)]">
+          {t("{{count}} account(s) with their own choice.", { count: triggers.ownCount })}
+        </p>
+      ) : null}
       <button
         type="button"
         onClick={() => store.openAfkMode({ tab: "recordings" })}
