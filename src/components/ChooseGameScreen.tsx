@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { accountLabel, hideAccountAvatar } from "../utils/accountName";
@@ -13,15 +13,14 @@ import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User, LayoutGrid, Check, Link2, AlertTriangle, X, Bookmark } from "lucide-react";
+import { ArrowLeft, User, Link2, AlertTriangle, X, Bookmark } from "lucide-react";
 import { newPresetDraft } from "../utils/presets";
 import type { LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
 import { SessionPanel } from "./session/SessionPanel";
 import { LaunchConsole } from "./console/LaunchConsole";
-import { Toggle } from "./ui/Toggle";
+import { WindowGridCard } from "./console/WindowGridCard";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
-import { SessionCache } from "../utils/sessionCache";
 import { TourButton } from "./tour/TourButton";
 
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
@@ -427,220 +426,6 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
   );
 }
 
-// ── Grid window arranger ──────────────────────────────────────────────────────
-type MonitorInfo = { index: number; width: number; height: number; primary: boolean };
-
-/**
- * Últimos monitores detectados. A aba Windows voltava com "No monitors
- * detected" piscando até a consulta responder; agora ela nasce com isto e a
- * consulta só confirma.
- */
-const monitorsCache = new SessionCache<MonitorInfo[]>(1);
-
-/** Monitores marcados: os salvos que ainda existem, ou todos. */
-function initialMonitorSelection(list: MonitorInfo[], saved: string | undefined): Set<number> {
-  const savedIdx = (saved || "")
-    .split(",")
-    .map((s) => parseInt(s.trim()))
-    .filter((n) => Number.isFinite(n));
-  return new Set(
-    savedIdx.length > 0 ? savedIdx.filter((i) => list.some((m) => m.index === i)) : list.map((m) => m.index)
-  );
-}
-
-/**
- * Organiza as janelas do Roblox já abertas nos monitores escolhidos.
- *
- * Morava dentro da aba Console, que é o log de lançamento: não tem relação
- * nenhuma com o log e ainda o espremia em ~35 px de altura. Agora é a aba
- * "Windows", e o Console ficou só com a sessão e o log.
- */
-function GridControls() {
-  const t = useTr();
-  const store = useStore();
-  const [monitors, setMonitors] = useState<MonitorInfo[]>(() => monitorsCache.get("last") ?? []);
-  const [selected, setSelected] = useState<Set<number>>(() =>
-    initialMonitorSelection(monitorsCache.get("last") ?? [], store.settings?.General?.GridMonitors)
-  );
-  const [gap, setGap] = useState<number>(() => parseInt(store.settings?.General?.GridGap || "20") || 20);
-  // Raw text while typing so the field can be cleared; clamped/saved on blur.
-  const [gapText, setGapText] = useState<string>(() => String(gap));
-  const [busy, setBusy] = useState(false);
-  // Grade automática no launch (`General.AutoArrangeGrid`): ligada por padrão,
-  // então só o "false" gravado a desliga.
-  const [autoArrange, setAutoArrange] = useState<boolean>(
-    () => store.settings?.General?.AutoArrangeGrid !== "false"
-  );
-
-  function toggleAutoArrange(next: boolean) {
-    setAutoArrange(next);
-    invoke("update_setting", {
-      section: "General",
-      key: "AutoArrangeGrid",
-      value: String(next),
-    }).catch(() => {});
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    invoke<MonitorInfo[]>("list_display_monitors")
-      .then((mons) => {
-        if (cancelled) return;
-        const list = (mons || []).map((m) => ({
-          index: m.index,
-          width: m.width,
-          height: m.height,
-          primary: !!m.primary,
-        }));
-        monitorsCache.set("last", list);
-        setMonitors(list);
-        setSelected(initialMonitorSelection(list, store.settings?.General?.GridMonitors));
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function persist(nextSel: Set<number>, nextGap: number) {
-    invoke("update_setting", {
-      section: "General",
-      key: "GridMonitors",
-      value: [...nextSel].sort((a, b) => a - b).join(","),
-    }).catch(() => {});
-    invoke("update_setting", { section: "General", key: "GridGap", value: String(nextGap) }).catch(() => {});
-  }
-
-  function toggleMonitor(i: number) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      persist(next, gap);
-      return next;
-    });
-  }
-
-  function commitGap() {
-    const v = parseInt(gapText);
-    const g = Number.isFinite(v) ? Math.max(0, Math.min(200, v)) : gap;
-    setGapText(String(g));
-    if (g !== gap) {
-      setGap(g);
-      persist(selected, g);
-    }
-  }
-
-  async function arrange() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const res = await invoke<{ arranged: number; total: number }>("arrange_windows_grid", {
-        monitorIndices: [...selected].sort((a, b) => a - b),
-        gap,
-      });
-      const leftover = res.total - res.arranged;
-      store.addToast(
-        leftover > 0
-          ? t("{{arranged}}/{{total}} windows arranged ({{leftover}} didn't fit)", {
-              arranged: res.arranged,
-              total: res.total,
-              leftover,
-            })
-          : t("{{arranged}} window(s) arranged in grid", { arranged: res.arranged })
-      );
-    } catch (e) {
-      store.addToast(t("Grid failed: {{error}}", { error: String(e) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="theme-panel theme-border border rounded-xl p-4">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div className="min-w-0">
-          <h3 className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Window layout")}</h3>
-          <p className="text-[12px] theme-muted">
-            {t("Tile all open Roblox windows across the selected monitors.")}
-          </p>
-        </div>
-        <button
-          onClick={arrange}
-          disabled={busy || selected.size === 0}
-          style={{ width: "auto" }}
-          className="sidebar-btn theme-btn shrink-0 flex items-center gap-1.5 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <LayoutGrid size={13} strokeWidth={1.5} />
-          {busy ? t("Arranging...") : t("Arrange in grid")}
-        </button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        {monitors.length === 0 ? (
-          <span className="text-[11px] theme-muted">{t("No monitors detected")}</span>
-        ) : (
-          monitors.map((m) => {
-            const on = selected.has(m.index);
-            return (
-              <button
-                key={m.index}
-                onClick={() => toggleMonitor(m.index)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[12px] transition-colors ${
-                  on
-                    ? "border-[var(--accent-color)] text-[var(--panel-fg)] bg-[var(--accent-soft)]"
-                    : "theme-border theme-muted hover:text-[var(--panel-fg)]"
-                }`}
-                title={`${m.width}×${m.height}`}
-              >
-                <span
-                  className={`w-3 h-3 rounded-[3px] border flex items-center justify-center ${
-                    on ? "border-[var(--accent-color)] bg-[var(--accent-color)]" : "theme-border"
-                  }`}
-                >
-                  {on && <Check size={9} stroke="var(--forms-bg)" strokeWidth={3} />}
-                </span>
-                {t("Monitor {{n}}", { n: m.index })}
-                {m.primary ? ` ${t("(main)")}` : ""}
-                <span className="theme-muted tabular-nums">
-                  {m.width}×{m.height}
-                </span>
-              </button>
-            );
-          })
-        )}
-
-        <div className="flex items-center gap-1.5 ml-auto">
-          <label className="text-[11px] theme-label">{t("Gap")}</label>
-          <input
-            type="number"
-            min={0}
-            max={200}
-            value={gapText}
-            onChange={(e) => setGapText(e.target.value)}
-            onBlur={commitGap}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitGap();
-            }}
-            className="sidebar-input w-16 text-xs tabular-nums"
-          />
-          <span className="text-[11px] theme-muted">px</span>
-        </div>
-      </div>
-
-      <div className="mt-2">
-        <Toggle
-          checked={autoArrange}
-          onChange={toggleAutoArrange}
-          label="Arrange in grid on launch"
-          description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
-        />
-      </div>
-    </div>
-  );
-}
-
 // ── Console Tab ───────────────────────────────────────────────────────────────
 function ConsoleTab() {
   return (
@@ -997,7 +782,7 @@ export function ChooseGameScreen() {
         )}
         {activeTab === "windows" && (
           <div className="h-full overflow-y-auto px-4 pt-3 pb-4">
-            <GridControls />
+            <WindowGridCard />
           </div>
         )}
       </div>

@@ -2497,5 +2497,7 @@
   "Repeat in AFK mode": "Repetir en el Modo AFK",
   "Use for all accounts": "Usar para todas las cuentas",
   "While AFK mode is on, each account plays its recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.": "Con el Modo AFK activo, cada cuenta reproduce su grabación otra vez en este intervalo, contado desde el final de la anterior. Elige las cuentas e inícialo en Clics AFK.",
-  "What the app did: launch, Auto Rejoin, Watcher and errors, with where each line came from.": "Lo que hizo la app: launch, Auto Rejoin, Watcher y errores, con el origen de cada línea."
+  "What the app did: launch, Auto Rejoin, Watcher and errors, with where each line came from.": "Lo que hizo la app: launch, Auto Rejoin, Watcher y errores, con el origen de cada línea.",
+  "Each new Roblox window takes the first free cell of the grid. Accounts with their own window size keep it.": "Cada ventana nueva de Roblox ocupa la primera celda libre de la cuadrícula. Las cuentas con tamaño de ventana propio conservan el suyo.",
+  "Window grid": "Cuadrícula de ventanas"
 }
