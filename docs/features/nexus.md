@@ -24,7 +24,7 @@ Servidor WebSocket local ao qual o script `Nexus.lua` (rodando dentro do cliente
 1. Servidor sobe no setup do app se `AccountControl.StartOnLaunch`, ou via `start_nexus_server`. Bind em `127.0.0.1:<NexusPort>` (ou `0.0.0.0` com `AllowExternalConnections`).
 2. O usuário adiciona o username da conta à lista de controle (`add_nexus_account`) — persistida em `AccountControlData.json` na pasta de dados do usuário (`get_runtime_data_dir`, ver [architecture.md](../architecture.md#arquivos-de-persistência)).
 3. No jogo, `Nexus.lua` conecta em `ws://<host>/Nexus?name=<LocalPlayer.Name>&id=<UserId>&jobId=<game.JobId>` (host default `localhost:5242`; em falha tenta de novo a cada 12 s).
-4. Handshake: se a requisição tiver header `Origin` (conexão vinda de página web no navegador), é recusada com **403** ("Connections from web pages are not allowed"); executores Lua não mandam `Origin`. Depois o servidor valida: `name` e `id` presentes, `id` numérico, `name` **precisa estar na lista de controle** — senão fecha sem mensagem. Marca `Online`, grava `in_game_job_id`, emite `nexus-account-connected`.
+4. Handshake: `Origin` de **página web** (`http://`/`https://` de outro host) é recusado com **403** ("Connections from web pages are not allowed") e a recusa vai para o log do Nexus; sem `Origin`, `null`, esquema que não é web ou o próprio PC (`localhost`, `127.0.0.1`, `[::1]`) passam (`nexus_origin_allowed`). Até 11/10/2026 qualquer `Origin` era recusado, e o Potassium — que manda `Origin` — não conectava (issue #25); o Roblox Account Manager original não olha o `Origin`. Depois o servidor valida: `name` e `id` presentes, `id` numérico, `name` **precisa estar na lista de controle** — senão fecha sem mensagem. Marca `Online`, grava `in_game_job_id`, emite `nexus-account-connected`.
 5. Cliente manda `ping` a cada 1 s; o primeiro ping seta `client_can_receive = true`. Se a conta tiver `AutoExecute`, uma task aguarda esse flag (polling 80 ms) e envia `execute <script>`; ela desiste após **60 s** ou assim que o socket fechar (`sender.is_closed()`).
 6. Comandos da UI: `nexus_send_command(msg)` envia para contas **marcadas (`IsChecked`) e Online**; `nexus_send_to_all(msg)` envia para todas as conexões.
 7. Desconexão/stop: só se a entrada no mapa de conexões ainda for **deste** socket (`sender.same_channel`), remove a conexão, marca `Offline` e emite `nexus-account-disconnected`. Se outra conexão com o mesmo nome já substituiu a entrada (rejoin), o socket antigo sai sem mexer em nada.
@@ -35,7 +35,7 @@ sequenceDiagram
     participant WS as NexusServer
     participant UI as NexusPage
     Lua->>WS: WS /Nexus?name=&id=&jobId=
-    WS->>WS: header Origin? → 403
+    WS->>WS: Origin de página web? → 403
     WS->>WS: name na lista de controle?
     WS-->>UI: nexus-account-connected
     loop 1 s
@@ -85,7 +85,7 @@ Interpretado por `Nexus.lua` (comando em minúsculas até o primeiro espaço):
 
 - Só contas presentes em `AccountControlData.json` podem conectar; a chave é o **username** exato.
 - Um username = uma conexão (nova conexão com o mesmo nome substitui a entrada no mapa). No rejoin a nova conexão registra antes de a antiga fechar; a limpeza da antiga compara o canal (`same_channel`) e não apaga nem marca `Offline` a nova.
-- **Anti-página web:** handshake com header `Origin` → 403.
+- **Anti-página web:** handshake com `Origin` de página web (`http(s)://` de outro host) → 403; executores (sem `Origin` ou com `Origin` que não é de site) passam.
 - `send_command` exige `IsChecked` **e** status `Online`.
 - Elementos customizados e log ficam só em memória (perdidos ao reiniciar o app); elementos não são removidos quando o cliente desconecta.
 - Campos persistidos por conta: `Username`, `AutoExecute`, `PlaceId`, `JobId`, `RelaunchDelay` (default 30), `AutoRelaunch`, `IsChecked`.
@@ -105,7 +105,7 @@ Seção `[AccountControl]`:
 
 ## Armadilhas / cuidados
 
-- **Sem autenticação:** qualquer processo local (ou da rede, com `AllowExternalConnections`) que saiba um username da lista pode conectar e receber comandos/`Echo`; `execute` roda Lua arbitrário no cliente. O bloqueio de `Origin` só impede páginas web no navegador, não processos locais.
+- **Sem autenticação:** qualquer processo local (ou da rede, com `AllowExternalConnections`) que saiba um username da lista pode conectar e receber comandos/`Echo`; `execute` roda Lua arbitrário no cliente. O bloqueio de `Origin` só impede páginas web de outros hosts no navegador, não processos locais.
 - `AutoRelaunch`/`RelaunchDelay` são apenas armazenados: não existe lógica no backend que relance contas a partir deles.
 - `AccountControlData.json` fica na pasta de dados do usuário (junto dos outros arquivos do app) e entra nos backups; antes ficava ao lado do executável e sumia ao mover o `.exe`.
 - `export_nexus_lua` grava no **diretório de trabalho atual** do processo, que pode não ser a pasta esperada.
