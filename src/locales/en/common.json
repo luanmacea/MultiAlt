@@ -2534,5 +2534,9 @@
   "Use global": "Use global",
   "Use global for {{slot}} on {{name}}": "Use global for {{slot}} on {{name}}",
   "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.": "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.",
-  "goes back to the global one.": "goes back to the global one."
+  "goes back to the global one.": "goes back to the global one.",
+  "Emergency stop: you shook the mouse.": "Emergency stop: you shook the mouse.",
+  "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.": "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.",
+  "Shake the mouse to stop.": "Shake the mouse to stop.",
+  "Stop AFK and recordings when I shake the mouse": "Stop AFK and recordings when I shake the mouse"
 }

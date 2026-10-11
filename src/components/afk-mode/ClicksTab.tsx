@@ -108,7 +108,7 @@ export function ClicksTab(props: ClicksTabOptions) {
             </>
           )
         }
-        message={ctl.startBlocker ? { text: ctl.startBlocker, tone: "muted" } : null}
+        message={ctl.statusMessage}
       />
 
       <div className="flex-1 min-h-0 overflow-y-auto pr-0.5">

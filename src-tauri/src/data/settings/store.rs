@@ -446,6 +446,9 @@ impl SettingsStore {
             ("Mode", "key"),
             ("ClickX", "50"),
             ("ClickY", "50"),
+            // Parada de emergência por chacoalhar o mouse: desligada por
+            // padrão, escolha do dono (commands/shake_stop.rs).
+            ("ShakeToStop", "false"),
         ];
 
         let afk = ini.section("Afk");

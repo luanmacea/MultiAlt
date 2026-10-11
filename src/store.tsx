@@ -290,6 +290,22 @@ export interface AfkStatus {
   waitingFullscreen?: boolean;
 }
 
+/**
+ * Parada de emergência por chacoalhar o mouse (`Afk.ShakeToStop`,
+ * commands/shake_stop.rs): o backend já ligou as bandeiras dos botões Parar
+ * quando isto chega. Fica guardada até o usuário fechar o aviso ou ligar o modo
+ * de novo.
+ */
+export interface AfkEmergencyStop {
+  /** Hoje só `shake`. */
+  reason: string;
+  /** Havia sessão do Modo AFK, e ela recebeu o parar. */
+  afk: boolean;
+  /** Havia gravação tocando avulsa, e ela recebeu o parar. */
+  recordings: boolean;
+  atMs: number;
+}
+
 export interface AfkStartConfig {
   userIds: number[];
   /** Minutos e segundos da tela somados; o backend trava em 5..=7200. */
@@ -580,6 +596,9 @@ export interface StoreValue {
    */
   captureAfkPoint: () => Promise<AfkCapturedPoint>;
   afkStatus: AfkStatus | null;
+  /** A última parada de emergência por chacoalhar o mouse, até o aviso ser fechado. */
+  afkEmergencyStop: AfkEmergencyStop | null;
+  dismissAfkEmergencyStop: () => void;
   /** A lista fechada de teclas que o backend aceita. */
   afkKeys: string[];
   startGenerator: (config: GeneratorStartConfig) => Promise<GeneratorStatus>;
@@ -930,6 +949,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
   const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
+  const [afkEmergencyStop, setAfkEmergencyStop] = useState<AfkEmergencyStop | null>(null);
+  const dismissAfkEmergencyStop = useCallback(() => setAfkEmergencyStop(null), []);
   const [afkKeys, setAfkKeys] = useState<string[]>([]);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
@@ -2187,6 +2208,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         clickY: config.clickY,
       });
       setAfkStatus(status);
+      // Ligou de novo: o aviso da parada de emergência anterior já não vale.
+      setAfkEmergencyStop(null);
       addToast(
         config.userIds.length === 1
           ? tr("AFK mode started for 1 account")
@@ -2977,6 +3000,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen("afk-stopped", () => {
         setAfkStatus((prev) => (prev ? { ...prev, active: false, accounts: [] } : prev));
       }),
+      // Chacoalhar o mouse parou o Modo AFK e/ou a gravação (commands/shake_stop.rs).
+      // O backend já parou tudo; aqui só o porquê, na barra e num toast.
+      listen<{ reason?: string; afk?: boolean; recordings?: boolean }>("afk-emergency-stop", (e) => {
+        setAfkEmergencyStop({
+          reason: e.payload?.reason ?? "shake",
+          afk: e.payload?.afk === true,
+          recordings: e.payload?.recordings === true,
+          atMs: Date.now(),
+        });
+        addToast(tr("Emergency stop: you shook the mouse."), "warn");
+      }),
+      // Uma gravação começou a tocar: o aviso da parada anterior já não vale.
+      listen<{ active?: boolean }>("recording-playback", (e) => {
+        if (e.payload?.active === true) setAfkEmergencyStop(null);
+      }),
       listen<GeneratorStatus>("generator-status", (e) => {
         setGeneratorStatus(e.payload);
       }),
@@ -3032,7 +3070,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       disposed = true;
       unsubs.forEach((fn) => fn());
     };
-  }, [needsPassword, initialized, setActionStatusMessage]);
+  }, [needsPassword, initialized, setActionStatusMessage, addToast]);
 
   useEffect(() => {
     if (needsPassword || !initialized) return;
@@ -3547,6 +3585,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     afkTriggerNow,
     captureAfkPoint,
     afkStatus,
+    afkEmergencyStop,
+    dismissAfkEmergencyStop,
     afkKeys,
     setAfkDialogOpen,
     setAvatarsDialogOpen,
