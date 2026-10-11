@@ -295,7 +295,7 @@ export function AccountRow({ account }: { account: Account }) {
           disabled={!contaAcima}
           aria-label={t("Move up")}
           title={t("Move up")}
-          className="p-0.5 rounded theme-muted opacity-40 group-hover/row:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded theme-muted opacity-60 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronUp size={13} strokeWidth={2} />
         </button>
@@ -305,7 +305,7 @@ export function AccountRow({ account }: { account: Account }) {
           disabled={!contaAbaixo}
           aria-label={t("Move down")}
           title={t("Move down")}
-          className="p-0.5 rounded theme-muted opacity-40 group-hover/row:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded theme-muted opacity-60 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronDown size={13} strokeWidth={2} />
         </button>

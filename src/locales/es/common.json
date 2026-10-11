@@ -2584,5 +2584,8 @@
   "Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.": "Cuentas que se cayeron, se están reconectando o no responden. Haz clic para verlas en Sesión.",
   "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.": "Una cuenta con Roblox abierto muestra cómo está y en qué juego está. Si una se cae o deja de responder, un botón amarillo arriba muestra cuántas son. Haz clic en él para ver esas cuentas.",
   "While they play": "Mientras juegan",
-  "account-dropped": "Se cayó"
+  "account-dropped": "Se cayó",
+  "next {{time}}": "próximo en {{time}}",
+  "Reconnect: off": "Reconectar: desactivado",
+  "Reconnect: on": "Reconectar: activado"
 }

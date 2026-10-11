@@ -78,7 +78,10 @@ export function ReconnectChip({
         aria-hidden="true"
         className={nexusForced ? "text-amber-400" : effective ? "text-emerald-400" : "theme-muted"}
       />
-      <span className={own === null && !nexusForced ? "theme-muted" : undefined}>{effective ? t("On") : t("Off")}</span>
+      {/* "On" sozinho não dizia de quê (revisão de design, 11/10/2026). */}
+      <span className={own === null && !nexusForced ? "theme-muted" : undefined}>
+        {effective ? t("Reconnect: on") : t("Reconnect: off")}
+      </span>
     </ChipMenu>
   );
 }

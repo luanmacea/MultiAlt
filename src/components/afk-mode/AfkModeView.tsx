@@ -143,7 +143,11 @@ export function AfkModeView({
                 <span
                   data-testid={`afk-mode-tab-state-${id}`}
                   className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[11px] ${
-                    running ? "bg-emerald-500/15 text-emerald-300" : "theme-muted"
+                    running
+                      ? "bg-emerald-500/15 text-emerald-300"
+                      : selected
+                        ? "text-[color-mix(in_srgb,var(--panel-fg)_78%,transparent)]"
+                        : "theme-muted"
                   }`}
                 >
                   <span
@@ -155,7 +159,14 @@ export function AfkModeView({
                   {running ? t("Running") : t("Stopped")}
                 </span>
               </span>
-              <span className="mt-0.5 block truncate text-[11px] theme-muted">{hint}</span>
+              {/* No card escolhido, o fundo tingido derrubava o cinza para 3,8:1. */}
+              <span
+                className={`mt-0.5 block truncate text-[11px] ${
+                  selected ? "text-[color-mix(in_srgb,var(--panel-fg)_78%,transparent)]" : "theme-muted"
+                }`}
+              >
+                {hint}
+              </span>
             </span>
           </button>
         );
