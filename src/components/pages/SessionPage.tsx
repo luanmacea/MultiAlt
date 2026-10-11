@@ -10,28 +10,18 @@ import { MEMORY_LIMIT_SETTING, memoryLimitChoice } from "../../utils/memoryLimit
 import { RecordingsSummaryCard } from "../afk-mode/recordings/RecordingsSummaryCard";
 
 /**
- * Página Session: o Painel de Sessão (o mesmo da aba Console da Choose Game)
- * na coluna principal, e ao lado um resumo do que está rodando e de quem
- * mantém as contas no jogo (AFK Mode / Auto Rejoin) — a página tem largura
- * para isso, o modal de 560 px não tinha.
+ * Página Session, o centro de quem joga com muitas contas: primeiro, em
+ * qualquer largura, a faixa de números e as listas da sessão (Entrando, Em
+ * jogo, agrupado por jogo e servidor); depois os cartões de ajuste — quem
+ * mantém as contas no jogo, gravações e teto de memória. Abaixo de 1280 px os
+ * cartões vão para baixo das listas (em duas colunas), para a lista ter a
+ * largura; acima, ficam numa coluna ao lado. A página rola inteira: as listas
+ * não têm rolagem própria aqui (`contained={false}`).
  */
 export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () => void }) {
   const t = useTr();
   const store = useStore();
   if (!active) return null;
-
-  const clientsOpen = store.launchedByProgram.size;
-  const joining = (store.launchQueue?.entries ?? []).filter(
-    (entry) => entry.state === "queued" || entry.state === "launching"
-  ).length;
-  const showPresence = store.settings?.General?.ShowPresence === "true";
-  // Mesma regra do StatusBar: 1 = online, 3 = Studio, o resto (>= 2) é jogo.
-  const inGame = showPresence
-    ? store.accounts.filter((a) => {
-        const presence = store.presenceByUserId.get(a.UserID) ?? 0;
-        return presence >= 2 && presence !== 3;
-      }).length
-    : null;
 
   const isWindows = isWindowsPlatform(store.platformCapabilities);
   const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
@@ -65,12 +55,6 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
           ? t("Auto-reconnect is bringing back {{count}} accounts.", { count: reconnecting })
           : t("Nothing is keeping accounts in game right now.");
 
-  const stats: { label: string; value: number | null }[] = [
-    { label: t("Clients open"), value: clientsOpen },
-    { label: t("Joining"), value: joining },
-    { label: t("In game"), value: inGame },
-  ];
-
   return (
     <PageShell
       title={t("Session")}
@@ -79,31 +63,16 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
       dataTour="session-page"
       tour="session"
     >
-      <div className="flex flex-col-reverse gap-6 lg:flex-row lg:items-start">
+      <div data-testid="session-layout" className="flex flex-col gap-6 xl:flex-row xl:items-start">
         <div className="min-w-0 flex-1 max-w-[1040px]">
-          <SessionPanel />
+          <SessionPanel showStats contained={false} />
         </div>
 
-        <aside aria-label={t("Summary")} data-tour="session-summary" className="w-full lg:w-[260px] xl:w-[300px] shrink-0 space-y-3 lg:sticky lg:top-0">
-          <section className="rounded-xl border theme-border bg-[var(--panel-soft)] px-4 py-3">
-            <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Right now")}</h2>
-            <dl className="mt-2 divide-y divide-[var(--border-color)]">
-              {stats.map((stat) => (
-                <div key={stat.label} className="flex items-baseline justify-between py-1.5">
-                  <dt className="text-[12px] text-[var(--panel-muted)]">{stat.label}</dt>
-                  <dd className="text-[15px] font-semibold tabular-nums text-[var(--panel-fg)]">
-                    {stat.value === null ? "–" : stat.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            {inGame === null ? (
-              <p className="mt-1.5 text-[11.5px] leading-snug text-[var(--panel-muted)]">
-                {t("Turn on presence in Settings › General to count accounts in game.")}
-              </p>
-            ) : null}
-          </section>
-
+        <aside
+          aria-label={t("Session settings")}
+          data-tour="session-summary"
+          className="w-full xl:w-[300px] shrink-0 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 items-start xl:sticky xl:top-0"
+        >
           <section className="rounded-xl border theme-border px-4 py-3">
             <h2 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">
               <span

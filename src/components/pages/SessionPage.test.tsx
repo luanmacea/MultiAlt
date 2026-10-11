@@ -18,7 +18,7 @@ import {
 } from "../../test-utils/renderWithStore";
 import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
-import type { LaunchQueuePayload } from "../../types";
+import type { ClientDrop, LaunchQueuePayload } from "../../types";
 import type { StoreValue } from "../../store";
 import { walkTour } from "../../test-utils/tourHelpers";
 
@@ -143,20 +143,81 @@ describe("SessionPage", () => {
 });
 
 /**
- * A página tem largura para um resumo ao lado do painel: quantos clientes
- * abertos, quantos entrando, e quem mantém as contas no jogo.
+ * A página mostra primeiro as listas da sessão, em qualquer largura; em cima
+ * delas, uma faixa de números tirada dos mesmos dados das linhas (jogando,
+ * reconectando, não responde, entrando), cada um um filtro. Os cartões de
+ * ajuste (manter no jogo, gravações, teto de memória) vêm depois.
  */
-describe("SessionPage — summary", () => {
-  it("counts open clients and accounts still joining", () => {
-    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
-      accounts: ACCOUNTS,
-      launchQueue: QUEUE,
-      launchedByProgram: new Set([10]),
-      ...storeActions(),
+describe("SessionPage — order and stats", () => {
+  const DROP: ClientDrop = { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 0 };
+
+  function renderStats(overrides: Partial<StoreValue> = {}) {
+    setInvokeMap({
+      get_nexus_accounts: [],
+      get_current_sessions: [{ userId: 10, placeId: 606849621, jobId: "job-a", sinceMs: Date.now() - 60_000, privateServer: false }],
     });
-    const summary = screen.getByRole("complementary", { name: "Summary" });
-    expect(within(summary).getByText("Clients open").nextElementSibling).toHaveTextContent("1");
-    expect(within(summary).getByText("Joining").nextElementSibling).toHaveTextContent("2");
+    return renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: [...ACCOUNTS, makeAccount({ UserID: 30, Username: "charlie" })],
+      launchQueue: QUEUE,
+      launchedByProgram: new Set([10, 20, 30]),
+      clientHealth: new Map([
+        [20, { pid: 2, logFound: true, drop: null, notResponding: true }],
+        [30, { pid: 3, logFound: true, drop: DROP }],
+      ]),
+      ...storeActions(),
+      ...overrides,
+    });
+  }
+
+  it("puts the session lists first and the settings after them", () => {
+    renderStats();
+    const panel = screen.getByTestId("session-panel");
+    const settings = screen.getByRole("complementary", { name: "Session settings" });
+    expect(panel.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("session-layout").className).not.toMatch(/col-reverse/);
+    // O cartão "Right now" virou a faixa de números em cima das listas.
+    expect(screen.queryByText("Right now")).not.toBeInTheDocument();
+  });
+
+  it("counts from the same data as the rows, not from the presence setting", async () => {
+    renderStats();
+    const stats = within(screen.getByRole("group", { name: "Right now" }));
+    expect(await stats.findByRole("button", { name: "1 Playing" })).toBeInTheDocument();
+    expect(stats.getByRole("button", { name: "0 Reconnecting" })).toBeDisabled();
+    expect(stats.getByRole("button", { name: "1 Not responding" })).toBeInTheDocument();
+    expect(stats.getByRole("button", { name: "1 Dropped" })).toBeInTheDocument();
+    expect(stats.getByRole("button", { name: "2 Joining" })).toBeInTheDocument();
+  });
+
+  it("each number filters the In game list, and a second click shows everyone again", async () => {
+    const user = userEvent.setup();
+    renderStats();
+    const notResponding = screen.getByRole("button", { name: "1 Not responding" });
+    await user.click(notResponding);
+    expect(notResponding).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("session-running-20")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-running-10")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-running-30")).not.toBeInTheDocument();
+    await user.click(notResponding);
+    expect(notResponding).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("session-running-10")).toBeInTheDocument();
+  });
+
+  it("the Joining number brings the queue into view", async () => {
+    const user = userEvent.setup();
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    renderStats();
+    await user.click(screen.getByRole("button", { name: "2 Joining" }));
+    expect(scroll).toHaveBeenCalled();
+    expect(scroll.mock.contexts[0]).toBe(document.querySelector("[data-tour='session-joining']"));
+  });
+
+  /** A página rola inteira: uma lista com rolagem própria dentro dela escondia contas. */
+  it("has no scroll box of its own inside the lists", () => {
+    renderStats();
+    const inGame = document.querySelector("[data-tour='session-in-game']") as HTMLElement;
+    expect(inGame.querySelector("[class*='max-h-']")).toBeNull();
   });
 
   it("says when Auto Rejoin keeps accounts in game and links to AFK Mode", async () => {
@@ -186,7 +247,7 @@ describe("SessionPage — summary", () => {
       ],
       ...storeActions(),
     });
-    const summary = screen.getByRole("complementary", { name: "Summary" });
+    const summary = screen.getByRole("complementary", { name: "Session settings" });
     expect(within(summary).getByText("Auto-reconnect is bringing back 1 account.")).toBeInTheDocument();
   });
 
@@ -205,7 +266,7 @@ describe("SessionPage — summary", () => {
       settings: { General: { AutoReconnect: "false" } },
       ...storeActions(),
     });
-    const summary = within(screen.getByRole("complementary", { name: "Summary" }));
+    const summary = within(screen.getByRole("complementary", { name: "Session settings" }));
     const toggle = summary.getByRole("switch", { name: /Reconnect accounts that drop/ });
     expect(toggle).toHaveAttribute("aria-checked", "false");
     expect(toggle).toHaveTextContent("never ones opened from the website");
@@ -221,7 +282,7 @@ describe("SessionPage — summary", () => {
       settings: { General: { AutoReconnect: "true" } },
       ...storeActions(),
     });
-    const summary = within(screen.getByRole("complementary", { name: "Summary" }));
+    const summary = within(screen.getByRole("complementary", { name: "Session settings" }));
     expect(summary.getByRole("switch", { name: /Reconnect accounts that drop/ })).toHaveAttribute(
       "aria-checked",
       "true"
@@ -238,7 +299,7 @@ describe("SessionPage — summary", () => {
       platformCapabilities: makePlatformCapabilities({ supportsMemoryTrim: true }),
       ...storeActions(),
     });
-    const summary = within(screen.getByRole("complementary", { name: "Summary" }));
+    const summary = within(screen.getByRole("complementary", { name: "Session settings" }));
     const select = summary.getByRole("combobox", { name: "Memory limit for every client" }) as HTMLSelectElement;
     expect(select.value).toBe("0");
     expect(summary.getByText(/asks Windows to free its memory first/)).toBeInTheDocument();
@@ -344,7 +405,7 @@ describe("SessionPage — summary", () => {
         ...storeActions(),
         ...extra,
       });
-      return within(screen.getByRole("complementary", { name: "Summary" }));
+      return within(screen.getByRole("complementary", { name: "Session settings" }));
     };
     expect(
       keepAlive({ bottingStatus: makeBottingStatus({ active: true, userIds: [10] }) }).getByText(

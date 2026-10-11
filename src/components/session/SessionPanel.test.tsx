@@ -168,16 +168,28 @@ describe("SessionPanel — rendering", () => {
     expect(within(row).getByText(erro)).toBeInTheDocument();
   });
 
-  it("explains both empty states and disables Stop queue", () => {
+  /** Fila vazia é só o cabeçalho: uma caixa vazia empurrava o "Em jogo" para baixo. */
+  it("an idle queue collapses to its header", () => {
     renderPanel({ launchQueue: null, launchedByProgram: new Set<number>() });
-
-    expect(
-      screen.getByText("Nothing in the launch queue. Pick a game to start joining accounts.")
-    ).toBeInTheDocument();
+    const joining = document.querySelector("[data-tour='session-joining']") as HTMLElement;
+    expect(within(joining).getByText("Nothing waiting")).toBeInTheDocument();
+    expect(within(joining).queryByRole("button", { name: /Stop queue/ })).not.toBeInTheDocument();
+    expect(within(joining).queryByRole("list")).not.toBeInTheDocument();
     expect(
       screen.getByText("No Roblox client is running. Accounts you launch show up here.")
     ).toBeInTheDocument();
+  });
+
+  it("disables Stop queue when every entry already finished", () => {
+    renderPanel({ launchQueue: queue([entry(1, "done")]), launchedByProgram: new Set<number>() });
     expect(screen.getByRole("button", { name: /Stop queue/ })).toBeDisabled();
+  });
+
+  /** Embutido em outro lugar, o painel guarda a rolagem própria de cada lista. */
+  it("keeps each list in its own scroll box unless told otherwise", () => {
+    renderPanel({ launchQueue: queue([entry(1, "queued")]), launchedByProgram: new Set([1, 2]) });
+    const inGame = document.querySelector("[data-tour='session-in-game']") as HTMLElement;
+    expect(inGame.querySelector("[class*='max-h-']")).not.toBeNull();
   });
 });
 

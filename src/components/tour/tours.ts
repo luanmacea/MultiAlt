@@ -141,6 +141,12 @@ export const TOURS: Record<TourId, TourDefinition> = {
     root: tour("session-page"),
     steps: [
       {
+        id: "stats",
+        title: "Right now",
+        description: "How many accounts are playing, reconnecting or stuck. Click a number to show only those accounts.",
+        targets: [inside("session-page", "session-stats")],
+      },
+      {
         id: "joining",
         title: "Joining",
         description: "Accounts waiting to open show here. Click the × to take one out of the line.",
@@ -149,7 +155,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "in-game",
         title: "In game",
-        description: "Accounts with Roblox open show here. Focus brings a window to the front.",
+        description: "Accounts with Roblox open, grouped by game and server. Problems show on top. Focus brings a window to the front.",
         targets: [inside("session-page", "session-in-game")],
       },
       {
@@ -165,9 +171,9 @@ export const TOURS: Record<TourId, TourDefinition> = {
         targets: [inside("session-page", "session-unidentified"), inside("session-page", "session-in-game")],
       },
       {
-        id: "summary",
-        title: "Right now",
-        description: "A quick count of what is open and running.",
+        id: "settings",
+        title: "Keep accounts in game",
+        description: "Settings for every account: reconnect the ones that drop, recordings and the memory limit.",
         targets: [tour("session-summary")],
       },
     ],
