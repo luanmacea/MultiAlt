@@ -148,7 +148,8 @@ export function FirstRunWalkthrough() {
         targets: ["[data-tour='settings-page']", "[data-tour='nav-settings']"],
         actionLabel: t("Open Settings"),
         onAction: () => {
-          store.setActivePage("settings");
+          // Multi Roblox e o aviso de conta online moram em Settings › Launch.
+          store.openSettingsSection("launch");
         },
       },
       {

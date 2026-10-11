@@ -98,7 +98,7 @@ A Byfron já declarou que múltiplos clientes podem ser vistos como comportament
 Não viola os Termos de Serviço do Roblox, mas alguns jogos proíbem alts — confira as regras do jogo antes.
 
 **Como faço backup das minhas contas?**
-Pelo app: Settings → `Misc` → `Data` → `Backups` → `Manage` ([detalhes](docs/features/backups.md)). O zip leva o `AccountData.key` junto — sem ele o backup não restaura —, então, **sem senha no app, quem tiver o zip consegue abrir as contas**. Se você guarda backup em nuvem, ponha senha antes (Settings → `Misc` → `Security` → `Change Encryption Method` → `Open` → `Pass Lock`).
+Pelo app: Settings → `Backups` ([detalhes](docs/features/backups.md)). O zip leva o `AccountData.key` junto — sem ele o backup não restaura —, então, **sem senha no app, quem tiver o zip consegue abrir as contas**. Se você guarda backup em nuvem, ponha senha antes (Settings → `Privacy & security` → `Change Encryption Method` → `Open` → `Pass Lock`).
 
 **O app abriu com a janela em branco (ou preta). E agora?**
 A interface é desenhada pelo Microsoft Edge WebView2 Runtime, então reinstalar o app não resolve. O app tenta se recuperar sozinho: se a interface não aparecer em 25 s, ele reabre com a aceleração de vídeo desligada. Para forçar esse modo, **segure Shift** enquanto o app abre (ou acrescente `--safe-mode` ao campo *Destino* do atalho). Se continuar em branco, repare o **Microsoft Edge WebView2 Runtime** em Configurações do Windows → Aplicativos → Aplicativos instalados → Modificar → Reparar, reinicie o Windows e atualize o driver de vídeo. [Detalhes](docs/features/webview-recovery.md).

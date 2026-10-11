@@ -160,7 +160,7 @@ describe("SignupPanel — sessão", () => {
 
 /**
  * `Login.PersistentProfile` e `Login.StealthMode` sao exatamente o que reduz o
- * CAPTCHA aqui, mas moram em Settings › General. Quem apanha do CAPTCHA esta
+ * CAPTCHA aqui, mas moram em Settings › Accounts. Quem apanha do CAPTCHA esta
  * nesta tela: ela tem que apontar para os ajustes (sem duplicar os toggles).
  */
 describe("SignupPanel — ajustes que reduzem CAPTCHA", () => {

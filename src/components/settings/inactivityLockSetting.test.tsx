@@ -7,7 +7,7 @@ import { useEffect } from "react";
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 
-import { MiscellaneousTab } from "./MiscellaneousTab";
+import { PrivacyTab } from "./PrivacyTab";
 import { useSettings } from "../../hooks/useSettings";
 import { setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
@@ -21,7 +21,7 @@ function Harness() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!s.loaded) return <div>Loading settings...</div>;
-  return <MiscellaneousTab s={s} />;
+  return <PrivacyTab s={s} />;
 }
 
 beforeEach(() => {
@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-describe("Settings › Misc › Lock after inactivity (idea 27)", () => {
+describe("Settings › Privacy & security › Lock after inactivity (idea 27)", () => {
   it("is off by default and can't be turned on without an app password", async () => {
     setStore({ accountsEncrypted: false });
     render(<Harness />);

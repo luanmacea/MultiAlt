@@ -20,7 +20,12 @@ vi.mock("../../featureFlags", async (importOriginal) => ({
   ENABLE_ACCOUNT_GENERATOR: true,
 }));
 
-import { GeneralTab } from "./GeneralTab";
+import { LaunchTab } from "./LaunchTab";
+import { KeepInGameTab } from "./KeepInGameTab";
+import { AccountsTab } from "./AccountsTab";
+import { PrivacyTab } from "./PrivacyTab";
+import { UpdatesTab } from "./UpdatesTab";
+import { AppTab } from "./AppTab";
 import { DeveloperTab } from "./DeveloperTab";
 import { SettingsPage } from "../pages/SettingsPage";
 import { IsolationTab } from "./IsolationTab";
@@ -74,7 +79,7 @@ async function expectSaved(section: string, key: string, value: string) {
 
 beforeEach(async () => {
   resetTauriMocks();
-  // The GeneralTab language picker switches i18n globally; reset it per test.
+  // The App section language picker switches i18n globally; reset it per test.
   await i18n.changeLanguage("en");
   stored = {};
   setStore({});
@@ -330,20 +335,21 @@ describe("SettingsPage sections", () => {
     expect(document.querySelector(".fixed.inset-0")).toBeNull();
   });
 
-  it("does not keep the old Manage button for backups in Misc", async () => {
+  it("does not keep the old Manage button for backups in any section", async () => {
     stored = {};
     render(<SettingsPage active onLeave={() => {}} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Misc" }));
-    expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "Launch" });
+    await screen.findAllByText("Change Encryption Method");
+    expect(screen.queryByRole("button", { name: "Manage", hidden: true })).not.toBeInTheDocument();
   });
 
   it("lists the sections in a vertical side navigation", async () => {
     stored = {};
     render(<SettingsPage active onLeave={() => {}} />);
     const sections = screen.getByRole("navigation", { name: "Settings sections" });
-    const general = await screen.findByRole("button", { name: "General" });
-    expect(sections).toContainElement(general);
-    expect(general).toHaveAttribute("aria-current", "true");
+    const launch = await screen.findByRole("button", { name: "Launch" });
+    expect(sections).toContainElement(launch);
+    expect(launch).toHaveAttribute("aria-current", "true");
 
     await userEvent.click(screen.getByRole("button", { name: "Watcher" }));
     expect(screen.getByRole("button", { name: "Watcher" })).toHaveAttribute("aria-current", "true");
@@ -360,7 +366,7 @@ describe("SettingsPage sections", () => {
     stored = {};
     const changed = vi.fn();
     const view = render(<SettingsPage active onLeave={() => {}} onSettingsChanged={changed} />);
-    await screen.findByRole("button", { name: "General" });
+    await screen.findByRole("button", { name: "Launch" });
     expect(changed).not.toHaveBeenCalled();
     view.rerender(<SettingsPage active={false} onLeave={() => {}} onSettingsChanged={changed} />);
     expect(changed).toHaveBeenCalledTimes(1);
@@ -370,20 +376,39 @@ describe("SettingsPage sections", () => {
     stored = {};
     const leave = vi.fn();
     render(<SettingsPage active onLeave={leave} />);
-    await screen.findByRole("button", { name: "General" });
+    await screen.findByRole("button", { name: "Launch" });
     await userEvent.keyboard("{Escape}");
     expect(leave).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("GeneralTab", () => {
+/**
+ * O que era a aba General virou seis seções (Launch, Keep in game, Accounts,
+ * Privacy & security, Updates, App). Estes testes de comportamento continuam
+ * valendo controle a controle; montam as seis juntas para não depender de
+ * onde cada um mora — o lugar de cada controle é coberto em settingsSplit.test.tsx.
+ */
+function FormerGeneral({ s }: { s: UseSettingsReturn }) {
+  return (
+    <>
+      <LaunchTab s={s} />
+      <KeepInGameTab s={s} />
+      <AccountsTab s={s} />
+      <PrivacyTab s={s} />
+      <UpdatesTab s={s} />
+      <AppTab s={s} />
+    </>
+  );
+}
+
+describe("Former General controls", () => {
   const WAIT_FOR_GAME = "Start the next account once the previous one is in the game";
   const DISABLED_BY_SERIAL =
     "Not used while “Launch one account at a time” is on. It applies again when you turn that off.";
 
   function renderGeneral(initial: Record<string, Record<string, string>> = {}) {
     stored = initial;
-    renderTab((s) => <GeneralTab s={s} />);
+    renderTab((s) => <FormerGeneral s={s} />);
   }
 
   it.each([
@@ -602,21 +627,15 @@ describe("GeneralTab", () => {
       expect(screen.getAllByText(DISABLED_BY_SERIAL)).toHaveLength(2);
     });
 
-    /** commands/reconnect.rs: padrão de todas as contas, nasce desligado. */
-    it("has the auto-reconnect default off, and turning it on saves true", async () => {
-      renderGeneral();
-      const toggle = (await screen.findByText("Reconnect accounts that drop")).closest("[role=switch]");
-      expect(toggle).toHaveAttribute("aria-checked", "false");
-      await userEvent.click(toggle as HTMLElement);
-      await expectSaved("General", "AutoReconnect", "true");
-    });
-
-    /** Descrição curta, sem "cliente", e dizendo que janela aberta pelo site fica de fora. */
-    it("describes auto-reconnect in plain words", async () => {
+    /**
+     * commands/reconnect.rs: o padrão de todas as contas muda na página Session
+     * (ao lado das contas em jogo). Aqui só o estado e o caminho até lá.
+     */
+    it("shows the auto-reconnect default as off when it was never set", async () => {
       renderGeneral();
       expect(
         await screen.findByText(
-          "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in the In game list of the Session page."
+          "Off for every account that doesn't set its own. It's changed next to the accounts in game."
         )
       ).toBeInTheDocument();
     });

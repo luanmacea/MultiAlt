@@ -2,7 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import type { UseSettingsReturn } from "../../hooks/useSettings";
 import type { TabId } from "./tabs";
 import { TAB_ORDER } from "./tabs";
-import { GeneralTab } from "./GeneralTab";
+import { LaunchTab } from "./LaunchTab";
+import { KeepInGameTab } from "./KeepInGameTab";
+import { AccountsTab } from "./AccountsTab";
+import { PrivacyTab } from "./PrivacyTab";
+import { UpdatesTab } from "./UpdatesTab";
+import { AppTab } from "./AppTab";
 import { DeveloperTab } from "./DeveloperTab";
 import { OptimizationTab } from "./OptimizationTab";
 import { WebServerTab } from "./WebServerTab";
@@ -10,7 +15,6 @@ import { WatcherTab } from "./WatcherTab";
 import { GeneratorTab } from "./GeneratorTab";
 import { IsolationTab } from "./IsolationTab";
 import { VersionsTab } from "./VersionsTab";
-import { MiscellaneousTab } from "./MiscellaneousTab";
 import { BackupsTab } from "./BackupsTab";
 import { useTr } from "../../i18n/text";
 
@@ -58,6 +62,7 @@ export function TabContent({
         return (
           <div
             key={active ? `${tab}-${animKey}` : tab}
+            data-settings-pane={tab}
             className={active ? enterClass : ""}
             style={{
               gridArea: "1 / 1",
@@ -65,7 +70,14 @@ export function TabContent({
               pointerEvents: active ? "auto" : "none",
             }}
           >
-            {tab === "general" && <GeneralTab s={s} />}
+            {tab === "launch" && <LaunchTab s={s} />}
+            {tab === "keep-in-game" && <KeepInGameTab s={s} />}
+            {tab === "accounts" && <AccountsTab s={s} />}
+            {tab === "privacy" && (
+              <PrivacyTab s={s} onRequestEncryptionSetup={onRequestEncryptionSetup} />
+            )}
+            {tab === "updates" && <UpdatesTab s={s} />}
+            {tab === "app" && <AppTab s={s} />}
             {tab === "backups" && <BackupsTab active={active} />}
             {tab === "developer" && <DeveloperTab s={s} />}
             {tab === "webserver" && <WebServerTab s={s} />}
@@ -74,12 +86,6 @@ export function TabContent({
             {tab === "isolation" && <IsolationTab s={s} />}
             {tab === "versions" && <VersionsTab s={s} />}
             {tab === "optimization" && <OptimizationTab s={s} />}
-            {tab === "miscellaneous" && (
-              <MiscellaneousTab
-                s={s}
-                onRequestEncryptionSetup={onRequestEncryptionSetup}
-              />
-            )}
           </div>
         );
       })}

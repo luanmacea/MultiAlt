@@ -76,7 +76,7 @@ describe("Account Generator (BloxGen) hidden behind its feature flag", () => {
 
     setStore({});
     render(<SettingsPage active onLeave={() => {}} />);
-    await screen.findByRole("button", { name: "General" });
+    await screen.findByRole("button", { name: "Launch" });
     expect(screen.queryByRole("button", { name: "Account Generator" })).not.toBeInTheDocument();
     expect(screen.queryByText(/BloxGen/)).not.toBeInTheDocument();
   });

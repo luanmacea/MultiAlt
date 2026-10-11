@@ -11,9 +11,11 @@ vi.mock("@tauri-apps/plugin-autostart", () => ({
   disable: vi.fn(async () => {}),
 }));
 
-import { GeneralTab } from "./GeneralTab";
+import { AccountsTab } from "./AccountsTab";
+import { AppTab } from "./AppTab";
+import { LaunchTab } from "./LaunchTab";
+import { PrivacyTab } from "./PrivacyTab";
 import { IsolationTab } from "./IsolationTab";
-import { MiscellaneousTab } from "./MiscellaneousTab";
 import { OptimizationTab } from "./OptimizationTab";
 import { GeneratorTab } from "./GeneratorTab";
 import { useSettings, type UseSettingsReturn } from "../../hooks/useSettings";
@@ -65,10 +67,15 @@ beforeEach(async () => {
 
 afterEach(cleanup);
 
-describe("GeneralTab explains what the fields do", () => {
+describe("App and Privacy & security explain what the fields do", () => {
   function renderGeneral(initial: Record<string, Record<string, string>> = {}) {
     stored = initial;
-    renderTab((s) => <GeneralTab s={s} />);
+    renderTab((s) => (
+      <>
+        <AppTab s={s} />
+        <PrivacyTab s={s} />
+      </>
+    ));
   }
 
   /**
@@ -127,7 +134,7 @@ describe("GeneralTab explains what the fields do", () => {
   });
 });
 
-describe("MiscellaneousTab explains what the fields do", () => {
+describe("Launch and Accounts explain what the fields do (ex-Misc)", () => {
   /**
    * O intervalo de presenca e `max(30s, minutos)` e so roda com
    * `ShowPresence` ligado (store.tsx:2064-2077).
@@ -140,7 +147,7 @@ describe("MiscellaneousTab explains what the fields do", () => {
    */
   it("says when Shuffle Job ID is ignored", async () => {
     stored = {};
-    renderTab((s) => <MiscellaneousTab s={s} />);
+    renderTab((s) => <LaunchTab s={s} />);
     expect(
       await screen.findByText(
         "Picks a random server when you have not chosen one. A typed Job ID or following a player wins over it."
@@ -150,7 +157,7 @@ describe("MiscellaneousTab explains what the fields do", () => {
 
   it("explains the presence refresh interval", async () => {
     stored = {};
-    renderTab((s) => <MiscellaneousTab s={s} />);
+    renderTab((s) => <AccountsTab s={s} />);
     expect(
       await screen.findByText(
         "How often the online status of every account is re-checked. Needs Show Presence on, and never runs faster than every 30 seconds."

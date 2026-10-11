@@ -138,7 +138,7 @@ ela só protege quem está usando o PC, e a tela diz quando está esperando) —
 [platform/windows/power.rs](../../src-tauri/src/platform/windows/power.rs).
 Enquanto o **Modo AFK**, o **Auto Rejoin** ou a **reconexão automática** roda,
 o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado,
-"Keep the PC awake while accounts are kept in game" em Settings › General).
+"Keep the PC awake while accounts are kept in game" em Settings › Keep in game).
 
 - **Só o sistema, nunca a tela:** `SetThreadExecutionState(ES_CONTINUOUS |
   ES_SYSTEM_REQUIRED)`. A tela continua apagando no tempo do Windows (o pedido
@@ -170,7 +170,7 @@ o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado,
 ciclo do Modo AFK, e durante uma gravação tocando ([recordings.md](recordings.md)),
 o app tira o foco e leva o cursor até a janela de cada conta: o usuário não
 consegue chegar ao botão Parar. Com `Afk.ShakeToStop` ligado ("Stop AFK and
-recordings when I shake the mouse", em Settings › General), **chacoalhar o
+recordings when I shake the mouse", em Settings › Keep in game), **chacoalhar o
 mouse para tudo**.
 
 - **Desligado por padrão** — escolha explícita do dono. Ligar ou desligar vale

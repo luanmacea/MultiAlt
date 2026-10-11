@@ -276,12 +276,11 @@ describe("SessionPage — order and stats", () => {
   });
 
   /**
-   * O padrão de reconexão de todas as contas mora também aqui, no cartão de
-   * quem mantém as contas no jogo: é a mesma setting de Settings › General
-   * (`General.AutoReconnect`), gravada pela store para as duas telas verem o
-   * mesmo valor.
+   * O padrão de reconexão de todas as contas mora aqui, no cartão de quem
+   * mantém as contas no jogo (`General.AutoReconnect`, gravado pela store).
+   * Settings › Keep in game mostra o estado e só leva até aqui.
    */
-  it("turns the reconnect default on and off from the summary, same setting as Settings › General", async () => {
+  it("turns the reconnect default on and off from the summary, the one Settings › Keep in game links to", async () => {
     const user = userEvent.setup();
     const { store } = renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
       accounts: ACCOUNTS,

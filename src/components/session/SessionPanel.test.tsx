@@ -1172,7 +1172,7 @@ describe("SessionPanel — reconexão por conta", () => {
     const chip = rowChip(1);
     expect(chip).toHaveAccessibleName("Auto-reconnect for alpha: on (default)");
     expect(chip).toHaveTextContent("On");
-    expect(chip).toHaveAttribute("title", "Following the default from Settings › General (on).");
+    expect(chip).toHaveAttribute("title", "Following the default for all accounts (on).");
     await userEvent.click(chip);
     expect(screen.getByRole("menuitemradio", { name: "Use the default (on)" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("menuitemradio", { name: "On" })).toHaveAttribute("aria-checked", "false");

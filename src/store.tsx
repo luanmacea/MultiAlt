@@ -33,6 +33,7 @@ import type {
   LaunchPresetView,
 } from "./types";
 import { playAfkBeep } from "./utils/afkBeep";
+import type { TabId as SettingsTabId } from "./components/settings/tabs";
 import type { AfkMode } from "./afkClickPoint";
 import {
   orderGroupKeys,
@@ -195,7 +196,7 @@ interface ActionStatusState {
   at: number;
 }
 
-/** Estado do botão "Download"/"Reinstall" de Settings > General. */
+/** Estado do botão "Download"/"Reinstall" de Settings > Accounts. */
 export interface BrowserDownloadState {
   active: boolean;
   stage: "resolving" | "downloading" | "extracting" | "ready" | "error";
@@ -680,6 +681,13 @@ export interface StoreValue {
    * página for a aberta (fechar o que não está aberto não tira ninguém do lugar).
    */
   setSettingsOpen: (open: boolean) => void;
+  /**
+   * Abre a página Settings numa seção (link de outra tela: "Auto Rejoin is
+   * off" leva a Keep in game, o CAPTCHA do login a Accounts). `seq` muda a
+   * cada pedido, para pedir de novo a mesma seção depois de o usuário trocar.
+   */
+  settingsSectionRequest: { section: SettingsTabId; seq: number } | null;
+  openSettingsSection: (section: SettingsTabId) => void;
   reloadSettings: () => Promise<void>;
   /**
    * Grava uma setting fora da página Settings (ex.: o padrão de reconexão na
@@ -923,6 +931,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setActivePageState((current) => (open ? page : current === page ? "accounts" : current));
   }, []);
   const setSettingsOpen = useCallback((open: boolean) => togglePage("settings", open), [togglePage]);
+  const [settingsSectionRequest, setSettingsSectionRequest] = useState<{ section: SettingsTabId; seq: number } | null>(
+    null
+  );
+  const openSettingsSection = useCallback((section: SettingsTabId) => {
+    setSettingsSectionRequest((prev) => ({ section, seq: (prev?.seq ?? 0) + 1 }));
+    setActivePageState("settings");
+  }, []);
   const setThemeEditorOpen = useCallback((open: boolean) => togglePage("theme", open), [togglePage]);
   const setAvatarsDialogOpen = useCallback((open: boolean) => togglePage("avatars", open), [togglePage]);
   const setSessionDialogOpen = useCallback((open: boolean) => togglePage("session", open), [togglePage]);
@@ -2861,7 +2876,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const unlisten = listen<{ browser: string; error: string }>("chromium-fallback", (e) => {
       addToast(
         tr(
-          "Browser download failed, using {{browser}} instead. You can point Settings > General > Login Browser at your own copy, or retry the download.",
+          "Browser download failed, using {{browser}} instead. You can point Settings > Accounts > Login browser at your own copy, or retry the download.",
           { browser: e.payload.browser }
         ),
         "warn"
@@ -3698,6 +3713,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     activePage,
     setActivePage,
     setSettingsOpen,
+    settingsSectionRequest,
+    openSettingsSection,
     reloadSettings,
     updateSetting,
     serverListOpen,

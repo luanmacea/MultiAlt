@@ -18,7 +18,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | Login por navegador / user:pass | [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) |
 | Estado e ações no frontend | [store.tsx](../../src/store.tsx) (`loadAccounts`, `addAccountByCookie`, `removeAccounts`, `updateAccount`, `moveToGroup`, `reorderAccounts`, `unlock`, `applyEncryptionMethod`) |
 | Tipo TS | [types.ts](../../src/types.ts) (`Account`, `parseGroupName`, `getFreshnessColor`) |
-| Telas de senha/criptografia | [PasswordScreen.tsx](../../src/components/layout/PasswordScreen.tsx), [EncryptionSetupScreen.tsx](../../src/components/layout/EncryptionSetupScreen.tsx), [MiscellaneousTab.tsx](../../src/components/settings/MiscellaneousTab.tsx) |
+| Telas de senha/criptografia | [PasswordScreen.tsx](../../src/components/layout/PasswordScreen.tsx), [EncryptionSetupScreen.tsx](../../src/components/layout/EncryptionSetupScreen.tsx), [PrivacyTab.tsx](../../src/components/settings/PrivacyTab.tsx) |
 | Adicionar/importar | [Toolbar.tsx](../../src/components/layout/Toolbar.tsx), [ImportDialog.tsx](../../src/components/dialogs/ImportDialog.tsx), [AccountList.tsx](../../src/components/accounts/AccountList.tsx) (drag & drop) |
 | Campos | [AccountFieldsDialog.tsx](../../src/components/dialogs/AccountFieldsDialog.tsx) |
 | Utilitários por conta | [AccountUtilsDialog.tsx](../../src/components/dialogs/AccountUtilsDialog.tsx), [ContextMenu.tsx](../../src/components/menus/ContextMenu.tsx) |
@@ -70,7 +70,7 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 
 ### Trancar por inatividade (ideia 27)
 
-Opção em Settings › Misc › Security, **desligada por padrão** e só disponível com **senha do app** (com a chave do aparelho a caixa fica desabilitada, dizendo por quê).
+Opção em Settings › Privacy & security › Password screen, **desligada por padrão** e só disponível com **senha do app** (com a chave do aparelho a caixa fica desabilitada, dizendo por quê).
 
 1. Ligada, [useInactivityLock](../../src/hooks/useInactivityLock.ts) marca a hora de cada clique, tecla, roda ou movimento **na janela do MultiAlt** e confere a cada 10 s. Janela minimizada ou atrás de outra conta como inatividade.
 2. Passados `General.LockAfterMinutes` minutos (1 a 240, padrão 10), `store.lockApp()` liga `appLocked`.
@@ -94,7 +94,7 @@ Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro e inteiro**; a
 ### Onboarding / troca de método de criptografia
 
 1. Primeira execução (settings recém-criadas → `EncryptionOnboardingState = pending`) e zero contas → `EncryptionSetupScreen` em modo `firstRun`.
-2. Também acessível por Settings → Misc → "Change Encryption Method".
+2. Também acessível por Settings → Privacy & security → "Change Encryption Method".
 3. Opções:
    - **Pass Lock**: senha com pelo menos 8 caracteres (validado na UI e no backend) → `set_encryption_password(password)`.
    - **No Password (Device Key)**: `set_encryption_password(null)` — o arquivo **continua cifrado**, pela chave do aparelho. O rótulo já foi "Default Encryption" (escondia que era texto puro) e depois "No Password (Not Encrypted)" (verdade na época, mentira agora).
@@ -172,7 +172,7 @@ Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro e inteiro**; a
   - **Falhas:** 401 = cookie morto (não é ban); **429 / rede / 5xx = "tente depois"**, nunca "banida", e nada vai para o cache.
   - **Cache:** por conta, 10 min, só em memória (`MODERATION_TTL`). "Check ban status" no painel ignora o cache.
   - **Onde aparece:** selo na linha (`banned` com ícone de proibido para banida/encerrada, `warned` com triângulo para advertida ou ban que já acabou), com a nota do moderador no tooltip; linha no painel da conta ("Banned until dd/mm", "Warned", "Terminated", "No moderation" ou "Ban status not checked yet") com o botão **Check ban status**; a legenda da barra de status ganha esses dois selos só quando alguma conta os tem. O frontend guarda em `moderationByUserId` (evento `account-moderation`).
-  - **Antes do launch** (`moderation_launch_block`, nos quatro fluxos de launch — conta única e lote, Windows e macOS): se a conta está **banida com ban valendo** ou **encerrada**, o launch dela é **pulado** com a frase "Skipped: this account is banned until dd/mm/aaaa hh:mm." (ou "…terminated…") e a nota do moderador; no lote a fila segue para a próxima. Advertência e ban que já acabou **não** bloqueiam. Qualquer falha da consulta (429, rede, cookie) **não** bloqueia: o launch segue o caminho de sempre. Teto de 8 s para a consulta não segurar a fila. Desligável em `General.CheckModerationBeforeLaunch` (Settings › General › "Check Bans Before Launch", ligado por padrão).
+  - **Antes do launch** (`moderation_launch_block`, nos quatro fluxos de launch — conta única e lote, Windows e macOS): se a conta está **banida com ban valendo** ou **encerrada**, o launch dela é **pulado** com a frase "Skipped: this account is banned until dd/mm/aaaa hh:mm." (ou "…terminated…") e a nota do moderador; no lote a fila segue para a próxima. Advertência e ban que já acabou **não** bloqueiam. Qualquer falha da consulta (429, rede, cookie) **não** bloqueia: o launch segue o caminho de sempre. Teto de 8 s para a consulta não segurar a fila. Desligável em `General.CheckModerationBeforeLaunch` (Settings › Launch › "Check Bans Before Launch", ligado por padrão).
   - **Grupo `moderadas`:** banida (valendo) ou encerrada também passa por `mark_account_moderated`, a mesma regra do erro de auth ticket.
 - **Conferir contas ("Check Accounts")** — [commands/account_check.rs](../../src-tauri/src/commands/account_check.rs), no menu **Actions › Batch Actions** da barra inferior, logo abaixo de "Refresh Cookies" (é o oposto dele: só lê). Age sobre a **seleção**: para conferir todas, "Select all" na barra de cima (ou Ctrl+A) e depois Actions.
   - Para cada conta: primeiro a moderação (acima; conta banida pode ter a sessão recusada sem o cookie estar morto), depois a sessão em `GET https://users.roblox.com/v1/users/authenticated` (campo lido: `id`) — as duas pelo caminho **sem refresh**.

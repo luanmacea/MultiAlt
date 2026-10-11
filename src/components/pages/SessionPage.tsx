@@ -89,7 +89,7 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
               {t("Keep accounts in game")}
             </h2>
             <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">{keepAliveText}</p>
-            {/* O mesmo `General.AutoReconnect` de Settings › General, mesmo texto.
+            {/* `General.AutoReconnect`: o único interruptor dele (Settings › Keep in game só leva até aqui).
                 Cada conta muda o seu na lista "Em jogo" (SessionPanel). */}
             {isWindows && (
               <div className="mt-2 -mx-1">
