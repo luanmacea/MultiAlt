@@ -16,7 +16,9 @@
 // `click_recording_point`), e ler teclado ou mouse aqui é proibido como em todo
 // o resto do Modo AFK — a trava é o `afk_input_safety_tests`.
 
-use data::recordings::{recording_for_account, Recording, RecordingStep, RecordingsFile};
+use data::recordings::{
+    recording_for_account, AccountRecordingChoice, Recording, RecordingSlot, RecordingStep, RecordingsFile, SlotChoices,
+};
 
 /// Quanto o botão fica pressionado num clique de gravação (o mesmo do AFK).
 #[cfg(target_os = "windows")]
@@ -217,13 +219,17 @@ fn play_recording_in_window(
     play_recording_with(&mut desk, &recording_actions(steps))
 }
 
-/// Os passos da gravação de cada conta que tem uma (a própria ou a de todas).
-/// Gravação vazia não conta: tocá-la só roubaria o foco.
-fn recording_plans_for(file: &RecordingsFile, user_ids: &[i64]) -> HashMap<i64, Vec<RecordingStep>> {
+/// Os passos da gravação de cada conta que tem uma na vaga (a própria ou a
+/// global). Gravação vazia não conta: tocá-la só roubaria o foco.
+fn recording_plans_for(
+    file: &RecordingsFile,
+    slot: RecordingSlot,
+    user_ids: &[i64],
+) -> HashMap<i64, Vec<RecordingStep>> {
     user_ids
         .iter()
         .filter_map(|uid| {
-            recording_for_account(file, *uid)
+            recording_for_account(file, slot, *uid)
                 .filter(|r| !r.steps.is_empty())
                 .map(|r| (*uid, r.steps.clone()))
         })
@@ -402,18 +408,20 @@ pub(crate) fn recording_after_reconnect_tick(app: &tauri::AppHandle) {
         .load()
         .unwrap_or_default();
     for user_id in due {
-        let plans = recording_plans_for(&file, &[user_id]);
+        // A vaga "After auto-reconnect" (posicionar o personagem), não a do
+        // Modo AFK.
+        let plans = recording_plans_for(&file, RecordingSlot::AfterReconnect, &[user_id]);
         if plans.is_empty() {
             emit_launch_log(
                 app,
                 user_id,
                 "info",
                 "recording",
-                "Voltou ao jogo, mas a conta não tem gravação para tocar",
+                "Voltou ao jogo, mas a conta não tem gravação para depois da reconexão",
             );
             continue;
         }
-        let name = recording_for_account(&file, user_id)
+        let name = recording_for_account(&file, RecordingSlot::AfterReconnect, user_id)
             .map(|r| r.name.clone())
             .unwrap_or_default();
         let app = app.clone();
@@ -511,14 +519,16 @@ fn recording_play_results(outcome: &[(i64, Option<AfkSendError>)]) -> Vec<Record
 }
 
 /// Toca agora, uma janela por vez, nas contas pedidas: a gravação `recording_id`
-/// em todas, ou (sem id) a de cada conta. Só alcança cliente que este app abriu
-/// (é o tracker que liga conta a janela). Nada aqui fecha cliente.
+/// em todas, ou (sem id) a de cada conta na vaga `slot` (sem vaga, a do Modo
+/// AFK). Só alcança cliente que este app abriu (é o tracker que liga conta a
+/// janela). Nada aqui fecha cliente.
 #[cfg(target_os = "windows")]
 #[tauri::command]
 async fn play_recording_now(
     app: tauri::AppHandle,
     user_ids: Vec<i64>,
     recording_id: Option<String>,
+    slot: Option<RecordingSlot>,
 ) -> Result<Vec<RecordingPlayResult>, String> {
     let user_ids = dedupe_preserving_order(user_ids);
     if user_ids.is_empty() {
@@ -534,7 +544,7 @@ async fn play_recording_now(
                 .ok_or("That recording no longer exists")?;
             recording_plans_with(recording, &user_ids)
         }
-        None => recording_plans_for(&file, &user_ids),
+        None => recording_plans_for(&file, slot.unwrap_or(RecordingSlot::AntiAfk), &user_ids),
     };
     let outcome = run_recording_playback(&app, plans, user_ids).await;
     Ok(recording_play_results(&outcome))
@@ -576,6 +586,7 @@ fn draft_for_test(mut recording: Recording) -> Result<Recording, String> {
 async fn play_recording_now(
     _user_ids: Vec<i64>,
     _recording_id: Option<String>,
+    _slot: Option<RecordingSlot>,
 ) -> Result<Vec<RecordingPlayResult>, String> {
     Err("Recordings are only available on Windows".into())
 }
@@ -594,26 +605,44 @@ fn get_recording_playback() -> RecordingPlaybackState {
 
 // ── biblioteca ─────────────────────────────────────────────────────────────
 
-/// O que a tela recebe: a biblioteca, as escolhas e a lista de teclas.
+/// As escolhas de uma vaga, como a tela recebe.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordingSlotPayload {
+    /// A gravação global da vaga.
+    default_id: Option<String>,
+    /// user id (em texto, chave de JSON) → a própria (`id`) ou `null` =
+    /// nenhuma para a conta. Conta fora do mapa herda a global.
+    accounts: HashMap<String, Option<String>>,
+}
+
+fn recording_slot_payload(choices: SlotChoices) -> RecordingSlotPayload {
+    RecordingSlotPayload {
+        default_id: choices.default_id,
+        accounts: choices
+            .accounts
+            .into_iter()
+            .map(|(uid, id)| (uid.to_string(), id))
+            .collect(),
+    }
+}
+
+/// O que a tela recebe: a biblioteca, as escolhas das duas vagas e a lista de
+/// teclas.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RecordingsPayload {
     recordings: Vec<Recording>,
-    default_id: Option<String>,
-    /// user id (em texto, chave de JSON) → gravação própria.
-    account_ids: HashMap<String, String>,
+    after_reconnect: RecordingSlotPayload,
+    anti_afk: RecordingSlotPayload,
     keys: Vec<String>,
 }
 
 fn recordings_payload(file: RecordingsFile) -> RecordingsPayload {
     RecordingsPayload {
         recordings: file.recordings,
-        default_id: file.default_id,
-        account_ids: file
-            .account_ids
-            .into_iter()
-            .map(|(uid, id)| (uid.to_string(), id))
-            .collect(),
+        after_reconnect: recording_slot_payload(file.after_reconnect),
+        anti_afk: recording_slot_payload(file.anti_afk),
         keys: data::recordings::recording_key_names(),
     }
 }
@@ -663,27 +692,30 @@ fn delete_recording(
     Ok(deleted)
 }
 
-/// A gravação de todas as contas (`None` tira).
+/// A gravação global de uma vaga (`None` tira).
 #[tauri::command]
 fn set_default_recording(
     app: tauri::AppHandle,
     store: tauri::State<'_, data::recordings::RecordingStore>,
+    slot: RecordingSlot,
     id: Option<String>,
 ) -> Result<(), String> {
-    store.set_default(id.filter(|id| !id.is_empty()))?;
+    store.set_default(slot, id.filter(|id| !id.is_empty()))?;
     emit_recordings_changed(&app);
     Ok(())
 }
 
-/// A gravação própria de uma conta (`None` volta para a de todas).
+/// A escolha de uma conta numa vaga: `{ kind: "inherit" }` (usa a global),
+/// `{ kind: "none" }` ou `{ kind: "recording", id }`.
 #[tauri::command]
 fn set_account_recording(
     app: tauri::AppHandle,
     store: tauri::State<'_, data::recordings::RecordingStore>,
+    slot: RecordingSlot,
     user_id: i64,
-    id: Option<String>,
+    choice: AccountRecordingChoice,
 ) -> Result<(), String> {
-    store.set_for_account(user_id, id.filter(|id| !id.is_empty()))?;
+    store.set_for_account(slot, user_id, choice)?;
     emit_recordings_changed(&app);
     Ok(())
 }
@@ -983,28 +1015,52 @@ mod recordings_playback_tests {
                     ..Default::default()
                 },
             ],
-            default_id: Some("all".into()),
-            account_ids: [(11, "mine".to_string()), (33, "empty".to_string())]
-                .into_iter()
-                .collect(),
+            anti_afk: SlotChoices {
+                default_id: Some("all".into()),
+                accounts: [(11, Some("mine".to_string())), (33, Some("empty".to_string())), (44, None)]
+                    .into_iter()
+                    .collect(),
+            },
+            after_reconnect: SlotChoices {
+                default_id: Some("mine".into()),
+                accounts: [(22, Some("all".to_string()))].into_iter().collect(),
+            },
             ..Default::default()
         }
     }
 
     #[test]
-    fn each_account_plays_its_own_recording_or_the_one_for_everyone() {
-        let plans = recording_plans_for(&file(), &[11, 22, 33]);
+    fn each_account_plays_its_own_recording_or_the_global_one() {
+        let plans = recording_plans_for(&file(), RecordingSlot::AntiAfk, &[11, 22, 33, 44]);
         assert_eq!(plans.get(&11), Some(&vec![key("W", 40)]));
         assert_eq!(plans.get(&22), Some(&vec![key("E", 40)]));
         // Gravação vazia não toca (só roubaria o foco).
         assert!(!plans.contains_key(&33));
+        // "None" para a conta: não toca, mesmo com uma global.
+        assert!(!plans.contains_key(&44));
+    }
+
+    /// Pedido do dono (11/10/2026): a gravação de depois da reconexão
+    /// (posicionar o personagem) é outra que a do Modo AFK (uma ação em outro
+    /// lugar). Cada gatilho lê a vaga dele.
+    #[test]
+    fn the_reconnect_slot_and_the_anti_afk_slot_play_different_recordings() {
+        let f = file();
+        let afk = recording_plans_for(&f, RecordingSlot::AntiAfk, &[11, 22, 44]);
+        let reconnect = recording_plans_for(&f, RecordingSlot::AfterReconnect, &[11, 22, 44]);
+        assert_eq!(afk.get(&11), Some(&vec![key("W", 40)]));
+        assert_eq!(reconnect.get(&11), Some(&vec![key("W", 40)]), "a global da reconexão");
+        assert_eq!(afk.get(&22), Some(&vec![key("E", 40)]));
+        assert_eq!(reconnect.get(&22), Some(&vec![key("E", 40)]), "a própria na reconexão");
+        assert!(!afk.contains_key(&44));
+        assert_eq!(reconnect.get(&44), Some(&vec![key("W", 40)]), "o None do anti-AFK não vale aqui");
     }
 
     #[test]
-    fn without_a_recording_for_everyone_only_accounts_with_their_own_play() {
+    fn without_a_global_recording_only_accounts_with_their_own_play() {
         let mut f = file();
-        f.default_id = None;
-        let plans = recording_plans_for(&f, &[11, 22]);
+        f.anti_afk.default_id = None;
+        let plans = recording_plans_for(&f, RecordingSlot::AntiAfk, &[11, 22]);
         assert!(plans.contains_key(&11));
         assert!(!plans.contains_key(&22));
     }
@@ -1022,10 +1078,29 @@ mod recordings_playback_tests {
     }
 
     #[test]
-    fn the_screen_gets_the_choices_and_the_key_list() {
+    fn the_screen_gets_the_choices_of_both_slots_and_the_key_list() {
         let payload = recordings_payload(file());
-        assert_eq!(payload.account_ids.get("11").map(String::as_str), Some("mine"));
+        assert_eq!(payload.anti_afk.accounts.get("11"), Some(&Some("mine".to_string())));
+        assert_eq!(payload.anti_afk.accounts.get("44"), Some(&None));
+        assert_eq!(payload.after_reconnect.default_id.as_deref(), Some("mine"));
+        let json = serde_json::to_value(&payload).unwrap();
+        assert_eq!(json["antiAfk"]["accounts"]["44"], serde_json::Value::Null);
+        assert_eq!(json["afterReconnect"]["accounts"]["22"], "all");
         assert_eq!(&payload.keys[..2], &["Space".to_string(), "W".to_string()]);
+    }
+
+    /// O que a tela manda em `set_account_recording`.
+    #[test]
+    fn the_account_choice_comes_from_the_screen_as_a_tagged_object() {
+        let parse = |s: &str| serde_json::from_str::<AccountRecordingChoice>(s).unwrap();
+        assert_eq!(parse(r#"{"kind":"inherit"}"#), AccountRecordingChoice::Inherit);
+        assert_eq!(parse(r#"{"kind":"none"}"#), AccountRecordingChoice::None);
+        assert_eq!(
+            parse(r#"{"kind":"recording","id":"rec-1"}"#),
+            AccountRecordingChoice::Recording { id: "rec-1".into() }
+        );
+        assert_eq!(serde_json::from_str::<RecordingSlot>(r#""afterReconnect""#).unwrap(), RecordingSlot::AfterReconnect);
+        assert_eq!(serde_json::from_str::<RecordingSlot>(r#""antiAfk""#).unwrap(), RecordingSlot::AntiAfk);
     }
 }
 

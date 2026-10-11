@@ -24,7 +24,7 @@ use std::sync::Mutex;
 
 pub const RECORDINGS_FILE_NAME: &str = "RAMRecordings.json";
 const MAX_RECORDINGS_FILE_BYTES: u64 = 4 * 1024 * 1024;
-const RECORDINGS_FILE_VERSION: u32 = 1;
+const RECORDINGS_FILE_VERSION: u32 = 2;
 pub const MAX_RECORDINGS: usize = 100;
 pub const MAX_RECORDING_STEPS: usize = 500;
 pub const MAX_RECORDING_NAME_CHARS: usize = 60;
@@ -177,24 +177,79 @@ pub struct Recording {
 pub const MIN_SOURCE_ASPECT: f64 = 0.2;
 pub const MAX_SOURCE_ASPECT: f64 = 5.0;
 
-fn current_file_version() -> u32 {
-    RECORDINGS_FILE_VERSION
+/// Arquivo sem `version` é da primeira versão (a de antes das duas vagas).
+fn legacy_file_version() -> u32 {
+    1
 }
 
-/// O arquivo inteiro: a biblioteca e qual gravação vale para quem.
+/// As duas **vagas** de gravação (pedido do dono, 11/10/2026): a que toca
+/// depois da reconexão automática (posicionar o personagem) e a que o Modo AFK
+/// repete (uma ação em outro lugar). Cada vaga tem a gravação global e as
+/// escolhas por conta, independentes da outra vaga.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordingSlot {
+    /// "After auto-reconnect" — `Recordings.AfterReconnect`.
+    AfterReconnect,
+    /// "On anti-AFK" — o Modo AFK no modo `recording`.
+    AntiAfk,
+}
+
+impl RecordingSlot {
+    pub const ALL: [RecordingSlot; 2] = [RecordingSlot::AfterReconnect, RecordingSlot::AntiAfk];
+}
+
+/// Quem toca o quê numa vaga.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotChoices {
+    /// A gravação global, que toda conta herda (`None` = nenhuma).
+    #[serde(default)]
+    pub default_id: Option<String>,
+    /// A escolha da conta, que vence a global: `Some(id)` = a própria,
+    /// `None` (`null` no JSON) = **nenhuma** para esta conta. Conta fora do
+    /// mapa herda a global.
+    #[serde(default)]
+    pub accounts: HashMap<i64, Option<String>>,
+}
+
+/// O que a conta escolheu numa vaga.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AccountRecordingChoice {
+    /// Herda a global (tira a escolha da conta).
+    Inherit,
+    /// Nenhuma gravação nesta vaga, mesmo com uma global.
+    None,
+    /// A gravação própria da conta.
+    Recording { id: String },
+}
+
+/// O arquivo inteiro: a biblioteca e qual gravação vale para quem, por vaga.
+///
+/// **Versão 2** (11/10/2026): as escolhas viraram duas vagas. A versão 1 tinha
+/// uma escolha só (`defaultId` e `accountIds` no topo), usada pelos dois
+/// gatilhos; ela é lida e migrada para as **duas** vagas
+/// (`migrate_recordings_file`), então nada muda para quem já usava.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingsFile {
-    #[serde(default = "current_file_version")]
+    #[serde(default = "legacy_file_version")]
     pub version: u32,
     #[serde(default)]
     pub recordings: Vec<Recording>,
-    /// A gravação de todas as contas (`None` = nenhuma).
+    /// Depois da reconexão automática.
     #[serde(default)]
-    pub default_id: Option<String>,
-    /// Gravação própria de uma conta, que vence a de todas.
+    pub after_reconnect: SlotChoices,
+    /// No Modo AFK (anti-AFK).
     #[serde(default)]
-    pub account_ids: HashMap<i64, String>,
+    pub anti_afk: SlotChoices,
+    /// Versão 1: a gravação de todas as contas. Só lida, para a migração.
+    #[serde(default, rename = "defaultId", skip_serializing)]
+    pub(crate) legacy_default_id: Option<String>,
+    /// Versão 1: a gravação própria de cada conta. Só lida, para a migração.
+    #[serde(default, rename = "accountIds", skip_serializing)]
+    pub(crate) legacy_account_ids: HashMap<i64, String>,
 }
 
 impl Default for RecordingsFile {
@@ -202,10 +257,51 @@ impl Default for RecordingsFile {
         Self {
             version: RECORDINGS_FILE_VERSION,
             recordings: Vec::new(),
-            default_id: None,
-            account_ids: HashMap::new(),
+            after_reconnect: SlotChoices::default(),
+            anti_afk: SlotChoices::default(),
+            legacy_default_id: None,
+            legacy_account_ids: HashMap::new(),
         }
     }
+}
+
+impl RecordingsFile {
+    pub fn slot(&self, slot: RecordingSlot) -> &SlotChoices {
+        match slot {
+            RecordingSlot::AfterReconnect => &self.after_reconnect,
+            RecordingSlot::AntiAfk => &self.anti_afk,
+        }
+    }
+
+    pub fn slot_mut(&mut self, slot: RecordingSlot) -> &mut SlotChoices {
+        match slot {
+            RecordingSlot::AfterReconnect => &mut self.after_reconnect,
+            RecordingSlot::AntiAfk => &mut self.anti_afk,
+        }
+    }
+}
+
+/// Leva um arquivo lido do disco para a versão atual. Versão 1 (ou sem
+/// `version`): a escolha única vira a das **duas** vagas — a global e a própria
+/// de cada conta —, então quem já usava continua tocando a mesma gravação nos
+/// dois gatilhos. Arquivo já na versão 2 fica como está (campos antigos que
+/// sobrarem nele são ignorados).
+pub fn migrate_recordings_file(mut file: RecordingsFile) -> RecordingsFile {
+    if file.version < 2 {
+        let choices = SlotChoices {
+            default_id: file.legacy_default_id.take(),
+            accounts: std::mem::take(&mut file.legacy_account_ids)
+                .into_iter()
+                .map(|(user_id, id)| (user_id, Some(id)))
+                .collect(),
+        };
+        file.after_reconnect = choices.clone();
+        file.anti_afk = choices;
+    }
+    file.legacy_default_id = None;
+    file.legacy_account_ids.clear();
+    file.version = RECORDINGS_FILE_VERSION;
+    file
 }
 
 fn clamp_percent(value: f64) -> f64 {
@@ -285,14 +381,19 @@ pub fn normalize_recording(mut recording: Recording) -> Result<Recording, String
     Ok(recording)
 }
 
-/// A gravação que vale para a conta: a própria, se ela tem e a gravação existe;
-/// senão a de todas as contas.
-pub fn recording_for_account(file: &RecordingsFile, user_id: i64) -> Option<&Recording> {
+/// A gravação que vale para a conta numa vaga: a escolha da conta vence — a
+/// própria (se ainda existe) ou **nenhuma**, quando ela escolheu "None" —;
+/// sem escolha, a global da vaga. Escolha que aponta para gravação apagada
+/// (arquivo editado à mão) cai na global.
+pub fn recording_for_account(file: &RecordingsFile, slot: RecordingSlot, user_id: i64) -> Option<&Recording> {
     let find = |id: &str| file.recordings.iter().find(|r| r.id == id);
-    file.account_ids
-        .get(&user_id)
-        .and_then(|id| find(id))
-        .or_else(|| file.default_id.as_deref().and_then(find))
+    let choices = file.slot(slot);
+    let global = || choices.default_id.as_deref().and_then(find);
+    match choices.accounts.get(&user_id) {
+        Some(None) => None,
+        Some(Some(id)) => find(id).or_else(global),
+        None => global(),
+    }
 }
 
 // ── o store ────────────────────────────────────────────────────────────────
@@ -349,8 +450,11 @@ impl RecordingStore {
         if data.iter().all(|b| b.is_ascii_whitespace()) {
             return Ok(None);
         }
+        // Arquivo de versão antiga (inclusive um backup restaurado) é migrado
+        // aqui, na leitura; o disco só muda na próxima gravação, que deixa o
+        // original no `.bak`.
         serde_json::from_slice::<RecordingsFile>(&data)
-            .map(Some)
+            .map(|file| Some(migrate_recordings_file(file)))
             .map_err(|e| format!("Failed to parse the recordings file: {e}"))
     }
 
@@ -467,41 +571,56 @@ impl RecordingStore {
         if file.recordings.len() == before {
             return Ok(false);
         }
-        if file.default_id.as_deref() == Some(id) {
-            file.default_id = None;
+        // Nas duas vagas: a global some e a conta que a tinha como própria
+        // volta a herdar a global ("None" escolhido fica).
+        for slot in RecordingSlot::ALL {
+            let choices = file.slot_mut(slot);
+            if choices.default_id.as_deref() == Some(id) {
+                choices.default_id = None;
+            }
+            choices.accounts.retain(|_, rec| rec.as_deref() != Some(id));
         }
-        file.account_ids.retain(|_, rec| rec != id);
+        file.version = RECORDINGS_FILE_VERSION;
         self.write(&file, true)?;
         Ok(true)
     }
 
-    /// A gravação de todas as contas (`None` tira).
-    pub fn set_default(&self, id: Option<String>) -> Result<(), String> {
+    /// A gravação global de uma vaga (`None` tira).
+    pub fn set_default(&self, slot: RecordingSlot, id: Option<String>) -> Result<(), String> {
         self.modify(|file| {
             if let Some(id) = &id {
                 if !file.recordings.iter().any(|r| &r.id == id) {
                     return Err("That recording no longer exists.".into());
                 }
             }
-            file.default_id = id;
+            file.slot_mut(slot).default_id = id;
             Ok(())
         })
     }
 
-    /// A gravação própria de uma conta (`None` volta para a de todas).
-    pub fn set_for_account(&self, user_id: i64, id: Option<String>) -> Result<(), String> {
+    /// A escolha de uma conta numa vaga: herdar a global, nenhuma ou a própria.
+    pub fn set_for_account(
+        &self,
+        slot: RecordingSlot,
+        user_id: i64,
+        choice: AccountRecordingChoice,
+    ) -> Result<(), String> {
         self.modify(|file| {
-            match id {
-                Some(id) => {
-                    if !file.recordings.iter().any(|r| r.id == id) {
+            let exists = |id: &str| file.recordings.iter().any(|r| r.id == id);
+            let next = match choice {
+                AccountRecordingChoice::Inherit => {
+                    file.slot_mut(slot).accounts.remove(&user_id);
+                    return Ok(());
+                }
+                AccountRecordingChoice::None => None,
+                AccountRecordingChoice::Recording { id } => {
+                    if !exists(&id) {
                         return Err("That recording no longer exists.".into());
                     }
-                    file.account_ids.insert(user_id, id);
+                    Some(id)
                 }
-                None => {
-                    file.account_ids.remove(&user_id);
-                }
-            }
+            };
+            file.slot_mut(slot).accounts.insert(user_id, next);
             Ok(())
         })
     }
@@ -578,7 +697,7 @@ mod recordings_store_tests {
 
         let raw: serde_json::Value =
             serde_json::from_slice(&fs::read(dir.file()).unwrap()).unwrap();
-        assert_eq!(raw["version"], 1);
+        assert_eq!(raw["version"], 2);
         let steps = &raw["recordings"][0]["steps"];
         assert_eq!(steps[0]["type"], "key");
         assert_eq!(steps[0]["holdMs"], 500);
@@ -596,7 +715,7 @@ mod recordings_store_tests {
             {"type":"wait","ms":800},
             {"type":"keyUp","key":"W"},
             {"type":"click","xPct":10,"yPct":90}
-        ]}],"defaultId":"a","accountIds":{"42":"a"}}"#;
+        ]}],"antiAfk":{"defaultId":"a","accounts":{"42":"a","43":null}}}"#;
         let file: RecordingsFile = serde_json::from_str(json).unwrap();
         let steps = &file.recordings[0].steps;
         assert_eq!(
@@ -610,7 +729,8 @@ mod recordings_store_tests {
         assert_eq!(steps[1], RecordingStep::KeyDown { key: "W".into() });
         assert_eq!(steps[2], RecordingStep::Wait { ms: 800 });
         assert_eq!(steps[3], RecordingStep::KeyUp { key: "W".into() });
-        assert_eq!(file.account_ids.get(&42).map(String::as_str), Some("a"));
+        assert_eq!(file.anti_afk.accounts.get(&42), Some(&Some("a".to_string())));
+        assert_eq!(file.anti_afk.accounts.get(&43), Some(&None), "null = nenhuma para a conta");
     }
 
     #[test]
@@ -677,15 +797,23 @@ mod recordings_store_tests {
         let store = RecordingStore::new(dir.file());
         let a = store.upsert(recording("A"), 1).unwrap();
         let b = store.upsert(recording("B"), 2).unwrap();
-        store.set_default(Some(a.id.clone())).unwrap();
-        store.set_for_account(11, Some(a.id.clone())).unwrap();
-        store.set_for_account(22, Some(b.id.clone())).unwrap();
+        let own = |id: &str| AccountRecordingChoice::Recording { id: id.to_string() };
+        for slot in RecordingSlot::ALL {
+            store.set_default(slot, Some(a.id.clone())).unwrap();
+            store.set_for_account(slot, 11, own(&a.id)).unwrap();
+            store.set_for_account(slot, 22, own(&b.id)).unwrap();
+            store.set_for_account(slot, 33, AccountRecordingChoice::None).unwrap();
+        }
 
         assert!(store.delete(&a.id).unwrap());
         let file = store.load().unwrap();
-        assert_eq!(file.default_id, None);
-        assert_eq!(file.account_ids.get(&11), None);
-        assert_eq!(file.account_ids.get(&22), Some(&b.id));
+        for slot in RecordingSlot::ALL {
+            let choices = file.slot(slot);
+            assert_eq!(choices.default_id, None, "{slot:?}");
+            assert_eq!(choices.accounts.get(&11), None, "{slot:?}: volta a herdar");
+            assert_eq!(choices.accounts.get(&22), Some(&Some(b.id.clone())), "{slot:?}");
+            assert_eq!(choices.accounts.get(&33), Some(&None), "{slot:?}: o None escolhido fica");
+        }
         assert!(!store.delete(&a.id).unwrap(), "apagar de novo não acha nada");
     }
 
@@ -693,9 +821,13 @@ mod recordings_store_tests {
     fn assigning_a_recording_that_does_not_exist_is_refused() {
         let dir = TempDir::new();
         let store = RecordingStore::new(dir.file());
-        assert!(store.set_default(Some("ghost".into())).is_err());
-        assert!(store.set_for_account(1, Some("ghost".into())).is_err());
-        store.set_for_account(1, None).unwrap();
+        let ghost = AccountRecordingChoice::Recording { id: "ghost".into() };
+        for slot in RecordingSlot::ALL {
+            assert!(store.set_default(slot, Some("ghost".into())).is_err());
+            assert!(store.set_for_account(slot, 1, ghost.clone()).is_err());
+            store.set_for_account(slot, 1, AccountRecordingChoice::Inherit).unwrap();
+            store.set_for_account(slot, 1, AccountRecordingChoice::None).unwrap();
+        }
     }
 
     #[test]
@@ -721,7 +853,7 @@ mod recordings_store_tests {
         assert!(store.load().is_err());
         let err = store.upsert(recording("A"), 1).unwrap_err();
         assert!(err.contains("refusing to overwrite"), "{err}");
-        assert!(store.set_default(None).is_err());
+        assert!(store.set_default(RecordingSlot::AntiAfk, None).is_err());
         assert_eq!(fs::read(dir.file()).unwrap(), b"{ broken");
     }
 
@@ -758,6 +890,132 @@ mod recordings_store_tests {
         };
         fs::write(dir.file(), serde_json::to_vec(&file).unwrap()).unwrap();
         assert!(store.upsert(recording("One more"), 1).is_err());
+    }
+
+    /// O arquivo da versão 1, como o app gravava até 11/10/2026: uma escolha só,
+    /// usada pelos dois gatilhos.
+    const V1_FILE: &str = r#"{
+      "version": 1,
+      "recordings": [
+        { "id": "walk", "name": "Walk to the spot", "steps": [{ "type": "key", "key": "W" }] },
+        { "id": "jump", "name": "Jump", "steps": [{ "type": "key", "key": "Space" }] }
+      ],
+      "defaultId": "walk",
+      "accountIds": { "11": "jump", "22": "walk" }
+    }"#;
+
+    /// Migração (pedido do dono: nada muda para quem já usava): a global antiga
+    /// vira a global das **duas** vagas, e a própria de cada conta vira a
+    /// própria nas duas.
+    #[test]
+    fn a_version_1_file_becomes_the_same_choice_in_both_slots() {
+        let dir = TempDir::new();
+        fs::write(dir.file(), V1_FILE).unwrap();
+        let store = RecordingStore::new(dir.file());
+        let file = store.load().unwrap();
+        assert_eq!(file.version, 2);
+        for slot in RecordingSlot::ALL {
+            let choices = file.slot(slot);
+            assert_eq!(choices.default_id.as_deref(), Some("walk"), "{slot:?}");
+            assert_eq!(choices.accounts.get(&11), Some(&Some("jump".to_string())), "{slot:?}");
+            assert_eq!(choices.accounts.get(&22), Some(&Some("walk".to_string())), "{slot:?}");
+            assert_eq!(choices.accounts.len(), 2, "{slot:?}");
+            // E cada conta toca o mesmo que antes, nos dois gatilhos.
+            assert_eq!(recording_for_account(&file, slot, 11).map(|r| r.id.as_str()), Some("jump"));
+            assert_eq!(recording_for_account(&file, slot, 33).map(|r| r.id.as_str()), Some("walk"));
+        }
+    }
+
+    /// Ler não muda o disco; a primeira gravação escreve a versão 2 (sem os
+    /// campos antigos) e deixa o arquivo da versão 1 inteiro no `.bak`.
+    #[test]
+    fn the_first_write_after_the_migration_keeps_the_version_1_file_in_the_bak() {
+        let dir = TempDir::new();
+        fs::write(dir.file(), V1_FILE).unwrap();
+        let store = RecordingStore::new(dir.file());
+        store.load().unwrap();
+        assert_eq!(fs::read_to_string(dir.file()).unwrap(), V1_FILE, "ler não regrava");
+
+        store
+            .set_for_account(RecordingSlot::AntiAfk, 22, AccountRecordingChoice::None)
+            .unwrap();
+        assert_eq!(fs::read_to_string(store.backup_file_path()).unwrap(), V1_FILE);
+        let raw: serde_json::Value = serde_json::from_slice(&fs::read(dir.file()).unwrap()).unwrap();
+        assert_eq!(raw["version"], 2);
+        assert!(raw.get("defaultId").is_none() && raw.get("accountIds").is_none());
+        assert_eq!(raw["afterReconnect"]["defaultId"], "walk");
+        assert_eq!(raw["afterReconnect"]["accounts"]["22"], "walk");
+        assert_eq!(raw["antiAfk"]["accounts"]["22"], serde_json::Value::Null);
+        // E o arquivo novo, lido de volta, continua igual (não migra de novo).
+        let file = store.load().unwrap();
+        assert_eq!(file.after_reconnect.accounts.get(&22), Some(&Some("walk".to_string())));
+        assert_eq!(file.anti_afk.accounts.get(&22), Some(&None));
+    }
+
+    /// Arquivo sem `version` (escrito à mão, ou de antes do campo) com as
+    /// escolhas antigas também é migrado; um backup da versão 1 restaurado em
+    /// cima vale na hora, migrado.
+    #[test]
+    fn a_file_without_version_or_a_restored_version_1_backup_is_migrated() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        fs::write(
+            dir.file(),
+            r#"{"recordings":[{"id":"a","name":"A"}],"defaultId":"a","accountIds":{"5":"a"}}"#,
+        )
+        .unwrap();
+        let file = store.load().unwrap();
+        assert_eq!(file.anti_afk.default_id.as_deref(), Some("a"));
+        assert_eq!(file.after_reconnect.accounts.get(&5), Some(&Some("a".to_string())));
+
+        // Um arquivo da versão 2 com sobras dos campos antigos não migra de novo.
+        fs::write(
+            dir.file(),
+            r#"{"version":2,"recordings":[{"id":"a","name":"A"}],"defaultId":"a","antiAfk":{"defaultId":null}}"#,
+        )
+        .unwrap();
+        let file = store.load().unwrap();
+        assert_eq!(file.anti_afk.default_id, None);
+        assert_eq!(file.after_reconnect.default_id, None);
+
+        fs::write(dir.file(), V1_FILE).unwrap();
+        assert_eq!(store.load().unwrap().after_reconnect.default_id.as_deref(), Some("walk"));
+    }
+
+    /// As duas vagas são independentes: mudar uma não mexe na outra.
+    #[test]
+    fn the_two_slots_are_set_independently() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let walk = store.upsert(recording("Walk"), 1).unwrap();
+        let farm = store.upsert(recording("Farm"), 2).unwrap();
+        store.set_default(RecordingSlot::AfterReconnect, Some(walk.id.clone())).unwrap();
+        store.set_default(RecordingSlot::AntiAfk, Some(farm.id.clone())).unwrap();
+        store
+            .set_for_account(
+                RecordingSlot::AntiAfk,
+                11,
+                AccountRecordingChoice::Recording { id: walk.id.clone() },
+            )
+            .unwrap();
+        store
+            .set_for_account(RecordingSlot::AfterReconnect, 22, AccountRecordingChoice::None)
+            .unwrap();
+        let file = store.load().unwrap();
+        let id_of = |slot, uid| recording_for_account(&file, slot, uid).map(|r| r.id.clone());
+        assert_eq!(id_of(RecordingSlot::AfterReconnect, 11), Some(walk.id.clone()));
+        assert_eq!(id_of(RecordingSlot::AntiAfk, 11), Some(walk.id.clone()));
+        assert_eq!(id_of(RecordingSlot::AfterReconnect, 22), None, "None escolhido vence a global");
+        assert_eq!(id_of(RecordingSlot::AntiAfk, 22), Some(farm.id.clone()));
+        assert_eq!(id_of(RecordingSlot::AntiAfk, 33), Some(farm.id.clone()));
+
+        // "Use global" tira só a escolha daquela vaga.
+        store
+            .set_for_account(RecordingSlot::AntiAfk, 11, AccountRecordingChoice::Inherit)
+            .unwrap();
+        let file = store.load().unwrap();
+        assert_eq!(file.anti_afk.accounts.get(&11), None);
+        assert_eq!(file.after_reconnect.accounts.get(&22), Some(&None));
     }
 }
 
@@ -892,7 +1150,7 @@ mod recordings_validation_tests {
         assert_eq!(recording_duration_ms(&steps), 300 + 200 + CLICK_ESTIMATE_MS);
     }
 
-    fn file_with(ids: &[&str], default: Option<&str>, own: &[(i64, &str)]) -> RecordingsFile {
+    fn file_with(ids: &[&str], default: Option<&str>, own: &[(i64, Option<&str>)]) -> RecordingsFile {
         RecordingsFile {
             recordings: ids
                 .iter()
@@ -902,26 +1160,34 @@ mod recordings_validation_tests {
                     ..Default::default()
                 })
                 .collect(),
-            default_id: default.map(str::to_string),
-            account_ids: own.iter().map(|(u, id)| (*u, (*id).to_string())).collect(),
+            anti_afk: SlotChoices {
+                default_id: default.map(str::to_string),
+                accounts: own.iter().map(|(u, id)| (*u, id.map(str::to_string))).collect(),
+            },
             ..Default::default()
         }
     }
 
+    const ANTI_AFK: RecordingSlot = RecordingSlot::AntiAfk;
+
     #[test]
-    fn the_account_recording_wins_over_the_one_for_everyone() {
-        let file = file_with(&["all", "mine"], Some("all"), &[(11, "mine")]);
-        assert_eq!(recording_for_account(&file, 11).map(|r| r.id.as_str()), Some("mine"));
-        assert_eq!(recording_for_account(&file, 22).map(|r| r.id.as_str()), Some("all"));
+    fn the_account_recording_wins_over_the_global_one() {
+        let file = file_with(&["all", "mine"], Some("all"), &[(11, Some("mine")), (33, None)]);
+        assert_eq!(recording_for_account(&file, ANTI_AFK, 11).map(|r| r.id.as_str()), Some("mine"));
+        assert_eq!(recording_for_account(&file, ANTI_AFK, 22).map(|r| r.id.as_str()), Some("all"));
+        // "None" para a conta vence a global.
+        assert!(recording_for_account(&file, ANTI_AFK, 33).is_none());
+        // A outra vaga não tem nada escolhido.
+        assert!(recording_for_account(&file, RecordingSlot::AfterReconnect, 11).is_none());
     }
 
     #[test]
     fn without_any_choice_an_account_has_no_recording() {
         let file = file_with(&["a"], None, &[]);
-        assert!(recording_for_account(&file, 11).is_none());
+        assert!(recording_for_account(&file, ANTI_AFK, 11).is_none());
         // Escolha que aponta para gravação apagada (arquivo editado à mão) cai
-        // na de todas.
-        let stale = file_with(&["all"], Some("all"), &[(11, "gone")]);
-        assert_eq!(recording_for_account(&stale, 11).map(|r| r.id.as_str()), Some("all"));
+        // na global.
+        let stale = file_with(&["all"], Some("all"), &[(11, Some("gone"))]);
+        assert_eq!(recording_for_account(&stale, ANTI_AFK, 11).map(|r| r.id.as_str()), Some("all"));
     }
 }

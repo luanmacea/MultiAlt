@@ -73,15 +73,33 @@ export function aspectDiffers(sourceAspect: number | undefined, width: number, h
   return Math.abs(width / height - sourceAspect) / sourceAspect > ASPECT_TOLERANCE;
 }
 
+/**
+ * As duas vagas de gravação (pedido do dono, 11/10/2026): a que toca depois da
+ * reconexão automática (posicionar o personagem) e a que o Modo AFK repete
+ * (uma ação em outro lugar). A ordem é a das colunas da tela.
+ */
+export const RECORDING_SLOTS = ["afterReconnect", "antiAfk"] as const;
+export type RecordingSlot = (typeof RECORDING_SLOTS)[number];
+
+/** Quem toca o quê numa vaga. */
+export interface RecordingSlotChoices {
+  /** A gravação global, que toda conta herda (`null` = nenhuma). */
+  defaultId: string | null;
+  /** user id (texto) → a própria da conta, ou `null` = nenhuma para ela. Fora do mapa = herda a global. */
+  accounts: Record<string, string | null>;
+}
+
 /** O que `get_recordings` devolve. */
 export interface RecordingsPayload {
   recordings: Recording[];
-  defaultId: string | null;
-  /** user id (texto) → gravação própria da conta. */
-  accountIds: Record<string, string>;
+  afterReconnect: RecordingSlotChoices;
+  antiAfk: RecordingSlotChoices;
   /** A lista fechada de teclas, na ordem do backend. */
   keys: string[];
 }
+
+/** A escolha de uma conta numa vaga — o mesmo formato de `set_account_recording`. */
+export type AccountSlotChoice = { kind: "inherit" } | { kind: "none" } | { kind: "recording"; id: string };
 
 /** Resultado do "Tocar agora", por conta. */
 export interface RecordingPlayResult {
@@ -166,11 +184,64 @@ export function clampInt(value: number, min: number, max: number, fallback: numb
   return Math.min(max, Math.max(min, Math.round(value)));
 }
 
-/** A gravação que vale para a conta: a própria, senão a de todas. */
-export function recordingForAccount(payload: RecordingsPayload | null, userId: number): Recording | null {
-  if (!payload) return null;
-  const find = (id: string | null | undefined) => (id ? payload.recordings.find((r) => r.id === id) ?? null : null);
-  return find(payload.accountIds[String(userId)]) ?? find(payload.defaultId);
+/** As escolhas de uma vaga; payload sem a vaga (dublê antigo) = nada escolhido. */
+export function slotChoices(payload: RecordingsPayload | null, slot: RecordingSlot): RecordingSlotChoices {
+  const choices = payload?.[slot];
+  return { defaultId: choices?.defaultId ?? null, accounts: choices?.accounts ?? {} };
+}
+
+function findRecording(payload: RecordingsPayload | null, id: string | null | undefined): Recording | null {
+  return id && payload ? payload.recordings.find((r) => r.id === id) ?? null : null;
+}
+
+/** A gravação global da vaga, se existe. */
+export function globalRecording(payload: RecordingsPayload | null, slot: RecordingSlot): Recording | null {
+  return findRecording(payload, slotChoices(payload, slot).defaultId);
+}
+
+/**
+ * O que a conta escolheu na vaga. Escolha que aponta para gravação apagada
+ * conta como herdar — é o que o backend toca (`recording_for_account`).
+ */
+export function accountSlotChoice(payload: RecordingsPayload | null, slot: RecordingSlot, userId: number): AccountSlotChoice {
+  const accounts = slotChoices(payload, slot).accounts;
+  const key = String(userId);
+  if (!(key in accounts)) return { kind: "inherit" };
+  const id = accounts[key];
+  if (id === null) return { kind: "none" };
+  return findRecording(payload, id) ? { kind: "recording", id } : { kind: "inherit" };
+}
+
+/** A gravação que vale para a conta na vaga: a escolha dela (a própria ou nenhuma), senão a global. */
+export function recordingForAccount(payload: RecordingsPayload | null, userId: number, slot: RecordingSlot): Recording | null {
+  const choice = accountSlotChoice(payload, slot, userId);
+  if (choice.kind === "none") return null;
+  if (choice.kind === "recording") return findRecording(payload, choice.id);
+  return globalRecording(payload, slot);
+}
+
+/** Contas com alguma escolha própria (inclusive "nenhuma") em qualquer vaga. */
+export function accountsWithOwnChoice(payload: RecordingsPayload | null): Set<number> {
+  const out = new Set<number>();
+  for (const slot of RECORDING_SLOTS) {
+    for (const key of Object.keys(slotChoices(payload, slot).accounts)) {
+      if (accountSlotChoice(payload, slot, Number(key)).kind !== "inherit") out.add(Number(key));
+    }
+  }
+  return out;
+}
+
+/** Para quem a gravação toca numa vaga: é a global, e quantas contas a têm como própria. */
+export function slotUsage(
+  payload: RecordingsPayload | null,
+  slot: RecordingSlot,
+  recordingId: string
+): { global: boolean; ownCount: number } {
+  const choices = slotChoices(payload, slot);
+  return {
+    global: choices.defaultId === recordingId,
+    ownCount: Object.values(choices.accounts).filter((id) => id === recordingId).length,
+  };
 }
 
 /** Move o passo `index` uma posição para cima (`-1`) ou para baixo (`+1`). */

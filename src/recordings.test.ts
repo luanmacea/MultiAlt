@@ -6,7 +6,11 @@ import {
   moveStep,
   newStep,
   recordingDurationMs,
+  accountSlotChoice,
+  accountsWithOwnChoice,
+  globalRecording,
   recordingForAccount,
+  slotUsage,
   recordingProblem,
   type RecordingsPayload,
   type RecordingStep,
@@ -99,25 +103,44 @@ describe("gravações — o que impede salvar", () => {
   });
 });
 
-describe("gravações — qual vale para a conta", () => {
+describe("gravações — qual vale para a conta, por vaga", () => {
   const payload: RecordingsPayload = {
     recordings: [
       { id: "all", name: "All", steps: [], createdAt: 0, updatedAt: 0 },
       { id: "mine", name: "Mine", steps: [], createdAt: 0, updatedAt: 0 },
+      { id: "spot", name: "Spot", steps: [], createdAt: 0, updatedAt: 0 },
     ],
-    defaultId: "all",
-    accountIds: { "11": "mine", "33": "gone" },
+    antiAfk: { defaultId: "all", accounts: { "11": "mine", "33": "gone", "44": null } },
+    afterReconnect: { defaultId: "spot", accounts: { "22": null } },
     keys: KEYS,
   };
 
-  it("a da conta vence a de todas", () => {
-    expect(recordingForAccount(payload, 11)?.id).toBe("mine");
-    expect(recordingForAccount(payload, 22)?.id).toBe("all");
-    expect(recordingForAccount(payload, 33)?.id).toBe("all");
+  it("a da conta vence a global; null = nenhuma; escolha apagada herda", () => {
+    expect(recordingForAccount(payload, 11, "antiAfk")?.id).toBe("mine");
+    expect(recordingForAccount(payload, 22, "antiAfk")?.id).toBe("all");
+    expect(recordingForAccount(payload, 33, "antiAfk")?.id).toBe("all");
+    expect(recordingForAccount(payload, 44, "antiAfk")).toBeNull();
+    expect(accountSlotChoice(payload, "antiAfk", 44)).toEqual({ kind: "none" });
+    expect(accountSlotChoice(payload, "antiAfk", 33)).toEqual({ kind: "inherit" });
+    expect(accountSlotChoice(payload, "antiAfk", 11)).toEqual({ kind: "recording", id: "mine" });
+  });
+
+  it("as duas vagas são independentes", () => {
+    expect(recordingForAccount(payload, 11, "afterReconnect")?.id).toBe("spot");
+    expect(recordingForAccount(payload, 22, "afterReconnect")).toBeNull();
+    expect(recordingForAccount(payload, 44, "afterReconnect")?.id).toBe("spot");
+    expect(globalRecording(payload, "afterReconnect")?.name).toBe("Spot");
   });
 
   it("sem escolha, nenhuma", () => {
-    expect(recordingForAccount({ ...payload, defaultId: null }, 22)).toBeNull();
-    expect(recordingForAccount(null, 22)).toBeNull();
+    expect(recordingForAccount({ ...payload, antiAfk: { defaultId: null, accounts: {} } }, 22, "antiAfk")).toBeNull();
+    expect(recordingForAccount(null, 22, "antiAfk")).toBeNull();
+  });
+
+  it("contas com escolha própria em qualquer vaga (inclusive nenhuma), e o uso de uma gravação", () => {
+    expect([...accountsWithOwnChoice(payload)].sort()).toEqual([11, 22, 44]);
+    expect(slotUsage(payload, "antiAfk", "all")).toEqual({ global: true, ownCount: 0 });
+    expect(slotUsage(payload, "antiAfk", "mine")).toEqual({ global: false, ownCount: 1 });
+    expect(slotUsage(payload, "afterReconnect", "mine")).toEqual({ global: false, ownCount: 0 });
   });
 });

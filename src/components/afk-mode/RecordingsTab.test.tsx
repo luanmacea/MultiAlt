@@ -39,8 +39,8 @@ function library(overrides: Partial<RecordingsPayload> = {}): RecordingsPayload 
       },
       { id: "rec-2", name: "Jump", steps: [{ type: "key", key: "Space", holdMs: 40 }], createdAt: 2, updatedAt: 2 },
     ],
-    defaultId: null,
-    accountIds: {},
+    afterReconnect: { defaultId: null, accounts: {} },
+    antiAfk: { defaultId: null, accounts: {} },
     keys: KEYS,
     ...overrides,
   };
@@ -195,28 +195,116 @@ describe("RecordingsTab — biblioteca e editor", () => {
   });
 });
 
-describe("RecordingsTab — qual gravação toca", () => {
-  it("escolhe a de todas as contas e a própria de uma conta", async () => {
+/**
+ * Pedido do dono (11/10/2026): a gravação de depois da reconexão (posicionar o
+ * personagem) e a do anti-AFK (uma ação em outro lugar) são escolhas separadas.
+ * Cada vaga tem a global e a escolha de cada conta, que vence.
+ */
+describe("RecordingsTab — qual gravação toca, por vaga", () => {
+  it("escolhe a global de cada vaga na linha All accounts", async () => {
     renderTab();
     await screen.findByLabelText("Recording name");
-    await userEvent.click(screen.getByLabelText("Recording for all accounts"));
-    await userEvent.click(screen.getByRole("button", { name: "Jump" }));
-    expect(calls("set_default_recording")[0][1]).toEqual({ id: "rec-2" });
-
-    await userEvent.click(screen.getByLabelText("Recording for alpha"));
-    await userEvent.click(screen.getByRole("button", { name: "Walk forward" }));
-    expect(calls("set_account_recording")[0][1]).toEqual({ userId: 11, id: "rec-1" });
+    await userEvent.selectOptions(screen.getByLabelText("Global recording: After auto-reconnect"), "rec-2");
+    expect(calls("set_default_recording")[0][1]).toEqual({ slot: "afterReconnect", id: "rec-2" });
+    await userEvent.selectOptions(screen.getByLabelText("Global recording: On anti-AFK"), "");
+    expect(calls("set_default_recording")[1][1]).toEqual({ slot: "antiAfk", id: null });
   });
 
-  it("voltar a conta para a de todas manda id nulo", async () => {
-    payload = library({ accountIds: { "22": "rec-2" } });
+  it("cada conta escolhe a própria ou nenhuma, em cada vaga", async () => {
     renderTab();
     await screen.findByLabelText("Recording name");
-    await userEvent.click(screen.getByLabelText("Recording for bravo"));
-    await userEvent.click(screen.getByRole("button", { name: "Same as all accounts" }));
-    expect(calls("set_account_recording")[0][1]).toEqual({ userId: 22, id: null });
+    await userEvent.selectOptions(screen.getByLabelText("After auto-reconnect for alpha"), "rec:rec-1");
+    expect(calls("set_account_recording")[0][1]).toEqual({
+      slot: "afterReconnect",
+      userId: 11,
+      choice: { kind: "recording", id: "rec-1" },
+    });
+    await userEvent.selectOptions(screen.getByLabelText("On anti-AFK for bravo"), "none");
+    expect(calls("set_account_recording")[1][1]).toEqual({ slot: "antiAfk", userId: 22, choice: { kind: "none" } });
   });
 
+  it("a célula herdada mostra a global, apagada; a própria fica destacada, com Use global", async () => {
+    payload = library({
+      afterReconnect: { defaultId: "rec-1", accounts: { "22": "rec-2" } },
+      antiAfk: { defaultId: null, accounts: { "11": null } },
+    });
+    renderTab();
+    await screen.findByLabelText("Recording name");
+    const inherited = screen.getByLabelText("After auto-reconnect for alpha") as HTMLSelectElement;
+    expect(inherited).toHaveAttribute("data-own", "false");
+    expect(inherited.selectedOptions[0]).toHaveTextContent("Global: Walk forward");
+    expect(screen.queryByRole("button", { name: "Use global for After auto-reconnect on alpha" })).not.toBeInTheDocument();
+
+    const own = screen.getByLabelText("After auto-reconnect for bravo") as HTMLSelectElement;
+    expect(own).toHaveAttribute("data-own", "true");
+    expect(own.selectedOptions[0]).toHaveTextContent("Jump");
+    // "None" escolhido é escolha da conta, mesmo sem global.
+    const none = screen.getByLabelText("On anti-AFK for alpha") as HTMLSelectElement;
+    expect(none).toHaveAttribute("data-own", "true");
+    expect(none.selectedOptions[0]).toHaveTextContent("None for this account");
+    expect((screen.getByLabelText("On anti-AFK for bravo") as HTMLSelectElement).selectedOptions[0]).toHaveTextContent(
+      "Global: none"
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Use global for After auto-reconnect on bravo" }));
+    expect(calls("set_account_recording")[0][1]).toEqual({
+      slot: "afterReconnect",
+      userId: 22,
+      choice: { kind: "inherit" },
+    });
+  });
+
+  /**
+   * Achado no harness (11/10/2026): a lista é controlada pelo arquivo, que só
+   * volta depois do `recordings-changed`; descendo as opções com a seta, ela
+   * voltava à escolha antiga entre uma tecla e outra e a seta seguinte mandava
+   * a mesma escolha de novo. A escolha que acabou de sair fica na tela.
+   */
+  it("a escolha feita fica na lista enquanto o arquivo não volta, e a seguinte parte dela", async () => {
+    renderTab();
+    await screen.findByLabelText("Recording name");
+    const cell = screen.getByLabelText("On anti-AFK for alpha") as HTMLSelectElement;
+    await userEvent.selectOptions(cell, "none");
+    expect(cell.value).toBe("none");
+    expect(cell).toHaveAttribute("data-own", "true");
+    await userEvent.selectOptions(cell, "rec:rec-1");
+    expect(cell.value).toBe("rec:rec-1");
+    expect(calls("set_account_recording").map((c) => (c[1] as { choice: unknown }).choice)).toEqual([
+      { kind: "none" },
+      { kind: "recording", id: "rec-1" },
+    ]);
+  });
+
+  it("gravação recusada pelo backend devolve a lista à escolha salva", async () => {
+    route({ set_account_recording: () => Promise.reject("That recording no longer exists.") });
+    const { store } = renderTab();
+    await screen.findByLabelText("Recording name");
+    const cell = screen.getByLabelText("After auto-reconnect for bravo") as HTMLSelectElement;
+    await userEvent.selectOptions(cell, "rec:rec-2");
+    await waitFor(() => expect(cell.value).toBe("inherit"));
+    expect(store.addToast).toHaveBeenCalledWith("That recording no longer exists.", "error");
+  });
+  it("lista as contas com cliente aberto e as com escolha própria em qualquer vaga", async () => {
+    payload = library({ antiAfk: { defaultId: null, accounts: { "33": null } } });
+    renderTab({
+      accounts: [...ACCOUNTS, makeAccount({ UserID: 33, Username: "charlie" }), makeAccount({ UserID: 44, Username: "delta" })],
+      launchedByProgram: new Set([11]),
+    });
+    await screen.findByLabelText("Recording name");
+    const area = screen.getByTestId("recording-slots");
+    expect(within(area).getByTestId("recording-slots-11")).toBeInTheDocument();
+    expect(within(area).getByTestId("recording-slots-33")).toHaveTextContent("no client open");
+    expect(within(area).queryByTestId("recording-slots-22")).not.toBeInTheDocument();
+    expect(within(area).queryByTestId("recording-slots-44")).not.toBeInTheDocument();
+  });
+
+  it("sem gravação na biblioteca, a área diz o que fazer primeiro", async () => {
+    payload = library({ recordings: [] });
+    renderTab();
+    const area = await screen.findByTestId("recording-slots");
+    expect(area).toHaveTextContent("Create or import a recording first.");
+    expect(within(area).queryByRole("combobox")).not.toBeInTheDocument();
+  });
   it("tocar depois da reconexão grava no INI, com o tempo no jogo", async () => {
     const { store } = renderTab();
     await screen.findByLabelText("Recording name");
@@ -264,23 +352,32 @@ describe("RecordingsTab — qual gravação toca", () => {
     expect(screen.getByRole("switch", { name: "Repeat in AFK mode" })).toHaveAttribute("aria-disabled", "true");
   });
 
-  /** "Por gravação": a aberta no editor diz para quem toca e vira a de todas num clique. */
-  it("a gravação aberta diz para quem toca e vira a de todas as contas num clique", async () => {
+  /** "Por gravação": a aberta no editor diz, por vaga, para quem toca e vira a global num clique. */
+  it("a gravação aberta diz para quem toca em cada vaga e vira a global de uma vaga num clique", async () => {
+    payload = library({
+      afterReconnect: { defaultId: "rec-1", accounts: {} },
+      antiAfk: { defaultId: null, accounts: { "22": "rec-1" } },
+    });
     renderTab();
     await screen.findByLabelText("Recording name");
     const box = screen.getByTestId("recording-use");
-    expect(box).toHaveTextContent("No account plays this recording yet.");
-    await userEvent.click(within(box).getByRole("button", { name: "Use for all accounts" }));
-    expect(calls("set_default_recording")[0][1]).toEqual({ id: "rec-1" });
+    expect(box).toHaveTextContent("After auto-reconnect: global, for every account without its own choice.");
+    expect(box).toHaveTextContent("On anti-AFK: own choice of 1 account(s).");
+    expect(
+      within(box).queryByRole("button", { name: "Make Walk forward the global recording for After auto-reconnect" })
+    ).not.toBeInTheDocument();
+    await userEvent.click(
+      within(box).getByRole("button", { name: "Make Walk forward the global recording for On anti-AFK" })
+    );
+    expect(calls("set_default_recording")[0][1]).toEqual({ slot: "antiAfk", id: "rec-1" });
   });
 
-  it("a gravação de todas as contas diz isso, sem o botão", async () => {
-    payload = library({ defaultId: "rec-1", accountIds: { "22": "rec-1" } });
+  it("gravação que nenhuma vaga usa diz isso", async () => {
     renderTab();
     await screen.findByLabelText("Recording name");
     const box = screen.getByTestId("recording-use");
-    expect(box).toHaveTextContent("Plays for every account that has no recording of its own.");
-    expect(within(box).queryByRole("button", { name: "Use for all accounts" })).not.toBeInTheDocument();
+    expect(box).toHaveTextContent("After auto-reconnect: not used.");
+    expect(box).toHaveTextContent("On anti-AFK: not used.");
   });
 });
 
@@ -506,7 +603,11 @@ describe("ClicksTab — modo gravação", () => {
   }
 
   it("liga no modo gravação sem tecla e mostra a gravação de cada conta", async () => {
-    payload = library({ defaultId: "rec-1", accountIds: { "22": "rec-2" } });
+    // O Modo AFK lê a vaga "On anti-AFK"; a da reconexão não conta aqui.
+    payload = library({
+      antiAfk: { defaultId: "rec-1", accounts: { "22": "rec-2" } },
+      afterReconnect: { defaultId: null, accounts: { "11": null } },
+    });
     const { store } = renderClicks({ Mode: "recording" });
     expect(await screen.findByText("Walk forward")).toBeInTheDocument();
     expect(screen.getByText("Jump")).toBeInTheDocument();
@@ -515,10 +616,12 @@ describe("ClicksTab — modo gravação", () => {
     expect(store.startAfkMode).toHaveBeenCalledWith(expect.objectContaining({ mode: "recording", userIds: [11, 22] }));
   });
 
-  it("sem gravação para nenhuma conta marcada, não liga e diz por quê", async () => {
+  it("sem gravação de anti-AFK para nenhuma conta marcada, não liga e diz por quê", async () => {
+    // Só a vaga da reconexão tem gravação: o Modo AFK não tem o que tocar.
+    payload = library({ afterReconnect: { defaultId: "rec-1", accounts: {} } });
     renderClicks({ Mode: "recording" });
     expect(await screen.findAllByText("no recording")).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Start AFK Mode" })).toBeDisabled();
-    expect(screen.getByText("None of the ticked accounts has a recording to play")).toBeInTheDocument();
+    expect(screen.getByText("None of the ticked accounts has an anti-AFK recording to play")).toBeInTheDocument();
   });
 });

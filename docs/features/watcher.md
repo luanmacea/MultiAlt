@@ -240,7 +240,9 @@ continua sem relançar nada).
 - **Auto Rejoin manda:** conta gerenciada pelo Auto Rejoin (sessão ativa e a
   conta na lista) não entra na reconexão; se ele assumir no meio, a reconexão sai.
 - **Gravação depois da reconexão** (opcional, `Recordings.AfterReconnect`,
-  padrão desligado): a conta que a reconexão relançou toca a gravação dela
+  padrão desligado): a conta que a reconexão relançou toca a gravação dela na
+  vaga **After auto-reconnect** (a própria ou a global dessa vaga — desde
+  11/10/2026 é outra escolha que a do Modo AFK, a vaga **On anti-AFK**)
   **uma vez**, só nela, depois de ficar `Recordings.AfterReconnectDelaySeconds`
   (padrão 30 s) no jogo — para voltar ao lugar do mapa. O `Relaunched` arma; a
   passada de 2 s confere o jogo pelo log do cliente novo. Ver

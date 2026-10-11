@@ -8,7 +8,7 @@ Mandar **uma tecla ou um clique, de tempo em tempo**, para a janela do cliente d
 
 **Tecla ou clique** (`Afk.Mode`): toda tecla da lista mexe no personagem (anda, pula, usa item). Quem quer a conta **parada** usa o modo clique — um clique esquerdo num ponto vazio da tela do jogo, que também conta como atividade e não move o personagem. Especificação: [docs/superpowers/specs/2026-09-29-afk-click-design.md](../superpowers/specs/2026-09-29-afk-click-design.md).
 
-**Gravação** (`Afk.Mode = recording`, desde 11/10/2026): em vez de uma tecla ou um clique, cada conta toca a **gravação** dela (a própria ou a de todas as contas) do começo ao fim, a cada intervalo. É o mesmo ciclo — uma janela por vez, foco conferido, devolvido no fim —, com a ação `AfkCycleAction::Recording`. Conta sem gravação é pulada sem a janela vir para frente (`noRecording`); outra janela na frente no meio da gravação para o resto dela (`focusLost`); parar no meio dá `stopped`. O Start recusa se nenhuma conta marcada tem gravação. Detalhes em [recordings.md](recordings.md).
+**Gravação** (`Afk.Mode = recording`, desde 11/10/2026): em vez de uma tecla ou um clique, cada conta toca a **gravação** dela na vaga **On anti-AFK** (a própria ou a global dessa vaga) do começo ao fim, a cada intervalo. A gravação de depois da reconexão automática é **outra** escolha (vaga **After auto-reconnect**), pedido do dono: uma posiciona o personagem, a outra faz uma ação em outro lugar. É o mesmo ciclo — uma janela por vez, foco conferido, devolvido no fim —, com a ação `AfkCycleAction::Recording`. Conta sem gravação é pulada sem a janela vir para frente (`noRecording`); outra janela na frente no meio da gravação para o resto dela (`focusLost`); parar no meio dá `stopped`. O Start recusa se nenhuma conta marcada tem gravação no anti-AFK. Detalhes em [recordings.md](recordings.md#as-duas-vagas).
 
 **O que o módulo não faz, por regra:** nunca lê o teclado nem os botões do mouse do usuário (nada de gancho global, estado de tecla/botão ou entrada crua), nunca fecha, mata ou minimiza cliente, nunca envia tecla fora de uma lista fechada e nunca clica fora da área interna da janela da conta.
 
@@ -173,7 +173,7 @@ o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado,
 | `Afk.IntervalSeconds` | `0` | Parte em segundos do mesmo intervalo (0–59). Total mínimo de 5 s, máximo de 120 min; contado do fim do ciclo. |
 | `Afk.Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada. Vazio = o modo não liga (chave vazia não é gravada no INI). |
 | `Afk.BeepOnCycle` | `false` | Bipe curto quando um ciclo manda tecla. |
-| `Afk.Mode` | `key` | `key` (tecla), `click` (clique) ou `recording` (a gravação de cada conta, [recordings.md](recordings.md)). Qualquer outro valor vira `key`. |
+| `Afk.Mode` | `key` | `key` (tecla), `click` (clique) ou `recording` (a gravação de cada conta na vaga On anti-AFK, [recordings.md](recordings.md#as-duas-vagas)). Qualquer outro valor vira `key`. |
 | `Afk.WaitForFullscreen` | `true` | Com uma janela em tela cheia de outro programa na frente, o ciclo espera (até 5 min além da hora). Ver [Tela cheia na frente](#tela-cheia-na-frente-ideia-25). |
 | `Afk.Mode` | `key` | `key` (tecla) ou `click` (clique). Qualquer outro valor vira `key`. |
 | `Afk.ClickX`, `Afk.ClickY` | `50`, `50` | Ponto padrão do clique, em % da área interna da janela. |

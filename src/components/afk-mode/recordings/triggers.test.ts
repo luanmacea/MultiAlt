@@ -8,8 +8,8 @@ function payload(overrides: Partial<RecordingsPayload> = {}): RecordingsPayload 
       { id: "a", name: "Farm loop", steps: [], createdAt: 0, updatedAt: 0 },
       { id: "b", name: "Jump", steps: [], createdAt: 0, updatedAt: 0 },
     ],
-    defaultId: null,
-    accountIds: {},
+    afterReconnect: { defaultId: null, accounts: {} },
+    antiAfk: { defaultId: null, accounts: {} },
     keys: [],
     ...overrides,
   };
@@ -22,17 +22,24 @@ function payload(overrides: Partial<RecordingsPayload> = {}): RecordingsPayload 
  */
 describe("gatilhos das gravações", () => {
   it("lê o modo, o intervalo e a reconexão do INI", () => {
-    const out = recordingTriggers(payload({ defaultId: "a", accountIds: { "11": "b", "22": "a" } }), {
+    const out = recordingTriggers(
+      payload({
+        antiAfk: { defaultId: "a", accounts: { "11": "b", "22": "a" } },
+        afterReconnect: { defaultId: "b", accounts: { "33": null, "11": "a" } },
+      }),
+      {
       Afk: { Mode: "recording", IntervalMinutes: "2", IntervalSeconds: "30" },
       Recordings: { AfterReconnect: "true", AfterReconnectDelaySeconds: "45" },
-    });
+      }
+    );
     expect(out).toEqual({
       afkRepeats: true,
       intervalSeconds: 150,
       afterReconnect: true,
       delaySeconds: 45,
-      allAccountsName: "Farm loop",
-      ownCount: 2,
+      globalNames: { antiAfk: "Farm loop", afterReconnect: "Jump" },
+      // 11 e 22 no anti-AFK, 33 ("nenhuma") na reconexão; 11 conta uma vez.
+      ownCount: 3,
     });
   });
 
@@ -42,14 +49,14 @@ describe("gatilhos das gravações", () => {
       intervalSeconds: 600,
       afterReconnect: false,
       delaySeconds: 30,
-      allAccountsName: null,
+      globalNames: { antiAfk: null, afterReconnect: null },
       ownCount: 0,
     });
   });
 
   it("escolha que aponta para gravação apagada não conta", () => {
-    const out = recordingTriggers(payload({ defaultId: "gone", accountIds: { "11": "gone" } }), {});
-    expect(out.allAccountsName).toBeNull();
+    const out = recordingTriggers(payload({ antiAfk: { defaultId: "gone", accounts: { "11": "gone" } } }), {});
+    expect(out.globalNames.antiAfk).toBeNull();
     expect(out.ownCount).toBe(0);
   });
 
