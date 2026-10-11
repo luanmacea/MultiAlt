@@ -55,7 +55,7 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
    4. retrato **depois**; a conta do preset que tem PID novo (e não é cliente do site) entra em
       `PRESET_RUNS[preset]` (`clients_opened_by_run`, `merge_preset_run`);
    5. com **Arrange the windows in a grid when done**, chama o mesmo `arrange_windows_grid` do
-      botão da aba Windows, com `GridMonitors`/`GridGap`.
+      botão Arrange in grid da página Console, com `GridMonitors`/`GridGap`.
 5. **Fechar:** **Close them** (aparece quando o preset tem cliente aberto) ou o horário de
    fechar → `close_preset_run`: para cada cliente da execução, **confere de novo** que o tracker
    ainda tem aquele PID para aquela conta e que não é cliente adotado do site, e só então

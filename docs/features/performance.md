@@ -126,7 +126,7 @@ código nativo novo no binário. Por isso:
 
 Dois interruptores em Settings > Optimization, logo abaixo de **Arrange in grid
 on launch**. Valem na grade automática do launch e no botão **Arrange in grid**
-(aba Windows da Choose Game) — ver [ui-layout.md](ui-layout.md#grade-de-janelas).
+(cartão Window grid da página Console) — ver [ui-layout.md](ui-layout.md#grade-de-janelas).
 
 - **Allow smaller windows in the grid**: a célula fica do tamanho pedido, mesmo
   abaixo do mínimo do Roblox (~800x600 de área útil). A janela é posta com

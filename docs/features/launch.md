@@ -263,7 +263,7 @@ O registro não resolve tudo: um cliente aberto reescreve o XML por conta própr
 
 A restauração da posição salva pelo Watcher (`Window_Position_*`, launch de uma conta) passou para a mesma task: a posição vem do salvo e o tamanho do plano (ou o salvo, se não houver tamanho). Conta que começa minimizada não é mais movida.
 
-**Grade automática** (`General.AutoArrangeGrid`, ligada por padrão): a mesma task põe a janela na primeira célula livre da grade da aba Windows, com o tamanho imposto acima como tamanho da célula — ver [ui-layout.md](ui-layout.md#grade-de-janelas). Conta com janela própria (exceção com tamanho ou tela cheia) fica fora da grade e mantém tamanho e posição (inclusive a salva pelo Watcher); para as outras, a grade vence a posição salva. Depois de posta, a janela é devolvida à mesma célula nas duas conferências seguintes (a célula não é escolhida de novo).
+**Grade automática** (`General.AutoArrangeGrid`, ligada por padrão): a mesma task põe a janela na primeira célula livre da grade (cartão Window grid da página Console), com o tamanho imposto acima como tamanho da célula — ver [ui-layout.md](ui-layout.md#grade-de-janelas). Conta com janela própria (exceção com tamanho ou tela cheia) fica fora da grade e mantém tamanho e posição (inclusive a salva pelo Watcher); para as outras, a grade vence a posição salva. Depois de posta, a janela é devolvida à mesma célula nas duas conferências seguintes (a célula não é escolhida de novo).
 
 ## Onde o `ClientAppSettings.json` é gravado
 

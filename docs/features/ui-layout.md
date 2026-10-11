@@ -175,7 +175,7 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 
 Favorites e Recent já nasciam prontos (vêm do `localStorage`); Follow, Console e Windows não buscam nada da rede. A volta **não** faz requisição a mais que antes — ela já recarregava; a aba Friends até economiza, juntando-se a uma rodada que ainda esteja em curso. Os testes zeram esses caches pelo `resetTauriMocks()`.
 
-Controles de grade (aba **Windows**): o campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior.
+Controles de grade (cartão **Window grid** no topo da página **Console**, [WindowGridCard.tsx](../../src/components/console/WindowGridCard.tsx); era a aba Windows da Choose Game até 11/10/2026): monitores, **Gap**, **Arrange in grid** e **Arrange in grid on launch**. O campo **Gap** (0–200 px) é editado como texto e só é aplicado/persistido (`General.GridGap`) ao perder o foco ou com Enter (`commitGap`); valor inválido volta ao anterior. Os monitores marcados, o gap e a grade automática são **lidos de `store.settings` e gravados por `store.updateSetting`**, que atualiza a store junto com o INI. Antes o cartão guardava a seleção num estado próprio, nascido da store, e gravava direto no backend: a store ficava velha e, ao reabrir a tela, o monitor desmarcado aparecia marcado de novo (travado em `WindowGridCard.test.tsx`). Só no Windows.
 
 ### Grade de janelas
 
@@ -187,7 +187,7 @@ A grade é feita de **células fixas** ([windowing.rs](../../src-tauri/src/platf
 
 - **Menor que o mínimo e sem moldura** (opcionais, desligados): `General.GridAllowSmallWindows` deixa a célula do tamanho pedido (a janela é posta com `SWP_NOSENDCHANGING`, e o Roblox não a aumenta) e `General.GridBorderless` tira a barra de título e a borda das janelas da grade. Só nos clientes que o app abriu; a moldura volta quando a opção desliga ou o app fecha. Ver [performance.md](performance.md#grade-menor-que-o-mínimo-e-sem-moldura-generalgridallowsmallwindows-generalgridborderless).
 
-Testes: `win_grid_slot_tests` (células, primeira livre, volta, célula do tamanho aceito, janelas fora da grade bloqueando), `win_grid_style_tests` (célula pequena, sem moldura), `client_window_plan_tests` (quem entra na grade). Interruptores: `ChooseGameScreen.test.tsx` e `settingsTabs.test.tsx` (aba Optimization, junto do tamanho de janela global).
+Testes: `win_grid_slot_tests` (células, primeira livre, volta, célula do tamanho aceito, janelas fora da grade bloqueando), `win_grid_style_tests` (célula pequena, sem moldura), `client_window_plan_tests` (quem entra na grade). Interruptores: `WindowGridCard.test.tsx` e `settingsTabs.test.tsx` (aba Optimization, junto do tamanho de janela global).
 
 ### Tela "Choose Game" — chips e abas
 
@@ -291,8 +291,8 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 | `General.ThemeWindowsNavbar` | Barra nativa segue o tema. |
 | `General.RestrictedBackgroundStyle` | Fundo da tela de senha. |
 | `General.InterfaceScale` | Tamanho da interface: `auto` (padrão) ou `110`/`100`/`90`/`80` (ver "Tamanho da interface"). |
-| `General.GridGap`, `GridMonitors` | Arranjo em grade (aba Windows da Choose Game). |
-| `General.AutoArrangeGrid` | Grade automática no launch (aba Windows e Settings > Optimization). |
+| `General.GridGap`, `GridMonitors` | Arranjo em grade (cartão Window grid da página Console). |
+| `General.AutoArrangeGrid` | Grade automática no launch (cartão Window grid da página Console e Settings > Optimization). |
 | `General.FirstRunWalkthroughState` | Exibição do walkthrough inicial. |
 
 ## Armadilhas / cuidados

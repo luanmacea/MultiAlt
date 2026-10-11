@@ -10,7 +10,7 @@ vi.mock("../hooks/usePrompt", async () => (await import("../test-utils/promptMoc
 
 import { ChooseGameScreen } from "./ChooseGameScreen";
 import { saveRecentGames } from "./server-list/types";
-import { defaultSettings, makeAccount, setStore } from "../test-utils/renderWithStore";
+import { makeAccount, setStore } from "../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
 import { promptAnswers, resetPromptMocks } from "../test-utils/promptMocks";
 import type { JoinTarget } from "../types";
@@ -599,23 +599,6 @@ describe("ChooseGameScreen — abas guardam o que carregaram", () => {
     await userEvent.click(screen.getByRole("button", { name: "Friends" }));
     expect(screen.getByTestId("friend-1001-7001")).toBeInTheDocument();
   });
-
-  it("volta à aba Windows já com os monitores", async () => {
-    setInvokeHandler((cmd) =>
-      cmd === "list_display_monitors" ? [{ index: 1, width: 1920, height: 1080, primary: true }] : []
-    );
-    setup();
-    render(<ChooseGameScreen />);
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    await screen.findByTitle("1920×1080");
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-    setInvokeHandler((cmd) => (cmd === "list_display_monitors" ? new Promise(() => {}) : []));
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-
-    expect(screen.getByTitle("1920×1080")).toBeInTheDocument();
-    expect(screen.queryByText("No monitors detected")).not.toBeInTheDocument();
-  });
 });
 
 /**
@@ -1012,49 +995,11 @@ describe("ChooseGameScreen — descoberta", () => {
     renderScreen();
 
     await userEvent.click(screen.getByRole("button", { name: "Console" }));
-    expect(screen.queryByText("Window layout")).not.toBeInTheDocument();
+    expect(screen.queryByText("Window grid")).not.toBeInTheDocument();
     expect(screen.getByText("No activity yet")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    expect(await screen.findByText("Window layout")).toBeInTheDocument();
-  });
-
-  /**
-   * A grade automática (cada janela nova entra na primeira célula livre) mora
-   * ao lado dos controles da grade, que são os mesmos monitores e o mesmo gap.
-   * Vem ligada: quem nunca salvou a opção vê o interruptor ligado.
-   */
-  it("liga a grade automática por padrão e a desliga ao lado dos controles da grade", async () => {
-    renderScreen();
-
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-
-    await userEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
-      section: "General",
-      key: "AutoArrangeGrid",
-      value: "false",
-    });
-  });
-
-  it("mostra a grade automática desligada quando o usuário a desligou", async () => {
-    const base = defaultSettings();
-    renderScreen({ settings: { ...base, General: { ...base.General, AutoArrangeGrid: "false" } } });
-
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-
-    await userEvent.click(toggle);
-    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
-      section: "General",
-      key: "AutoArrangeGrid",
-      value: "true",
-    });
+    expect(await screen.findByText("Window grid")).toBeInTheDocument();
   });
 
   /**

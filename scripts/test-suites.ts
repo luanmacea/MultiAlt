@@ -489,7 +489,8 @@ export const SUITES: Record<string, TestSuite> = {
       "generator_http_tests",
       "platform_info_tests",
     ],
-    front: ["src/utils/platform.test.ts"],
+    // Grade de janelas (cartão Window grid da página Console).
+    front: ["src/utils/platform.test.ts", "src/components/console/WindowGridCard.test.tsx"],
   },
   support: {
     description: "Pacote Suporte: checagem \"o launch não faz nada\" (16), reportar problema com resumo anonimizado (28), trancar por inatividade (27), Quick Login (12) e reserva do singleton do Roblox (3)",
@@ -535,7 +536,7 @@ export const SUITES: Record<string, TestSuite> = {
       "win_settings_restore_tests",
       "settings_on_exit_tests",
     ],
-    front: ["src/components/settings/settingsTabs.test.tsx"],
+    front: ["src/components/settings/settingsTabs.test.tsx", "src/components/console/WindowGridCard.test.tsx"],
   },
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",
