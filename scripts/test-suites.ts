@@ -142,7 +142,6 @@ export const SUITES: Record<string, TestSuite> = {
       "src/utils/clientHealth.test.ts",
       "src/components/session/SessionPanel.test.tsx",
       "src/utils/autoReconnect.test.ts",
-      "src/components/accounts/AccountAutoReconnect.test.tsx",
     ],
   },
   afk: {

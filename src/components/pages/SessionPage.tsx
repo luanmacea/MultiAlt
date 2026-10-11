@@ -3,6 +3,8 @@ import { useStore } from "../../store";
 import { useTr } from "../../i18n/text";
 import { SessionPanel } from "../session/SessionPanel";
 import { PageShell } from "./PageShell";
+import { Toggle } from "../ui/Toggle";
+import { isWindowsPlatform } from "../../utils/platform";
 
 /**
  * Página Session: o Painel de Sessão (o mesmo da aba Console da Choose Game)
@@ -28,6 +30,8 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
       }).length
     : null;
 
+  const isWindows = isWindowsPlatform(store.platformCapabilities);
+  const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
   const bottingOn = store.bottingStatus?.active === true;
   const afkOn = store.afkStatus?.active === true;
   // Reconexão automática em andamento (commands/reconnect.rs).
@@ -100,6 +104,18 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
               {t("Keep accounts in game")}
             </h2>
             <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">{keepAliveText}</p>
+            {/* O mesmo `General.AutoReconnect` de Settings › General, mesmo texto.
+                Cada conta muda o seu na lista "Em jogo" (SessionPanel). */}
+            {isWindows && (
+              <div className="mt-2 -mx-1">
+                <Toggle
+                  checked={reconnectDefault}
+                  onChange={(v) => void store.updateSetting("General", "AutoReconnect", v ? "true" : "false")}
+                  label="Reconnect accounts that drop"
+                  description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in the In game list of the Session page."
+                />
+              </div>
+            )}
             <button
               type="button"
               onClick={() => store.setActivePage("afk")}

@@ -98,6 +98,34 @@ const baseHandler: InvokeHandler = (cmd, args) => {
       return [];
     case "get_unidentified_clients":
       return [];
+    // Modo AFK parado, como o backend responde sem sessão. O `[]` do fallback
+    // derrubava a página Session (`afkStatus.accounts` não existe num array).
+    case "get_afk_mode_status":
+      return {
+        active: false,
+        startedAtMs: null,
+        intervalSeconds: 0,
+        key: "",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+        accounts: [],
+      };
+    // Auto Rejoin parado, idem (`bottingStatus.userIds`).
+    case "get_botting_mode_status":
+      return {
+        active: false,
+        startedAtMs: null,
+        placeId: 0,
+        jobId: "",
+        launchData: "",
+        intervalMinutes: 19,
+        launchDelaySeconds: 20,
+        playerGraceMinutes: 15,
+        playerUserIds: [],
+        userIds: [],
+        accounts: [],
+      };
     case "batched_get_avatar_headshots":
       return [];
     case "update_setting": {
@@ -1877,8 +1905,16 @@ const SCENARIOS: Record<string, () => void> = {
    * volta ao jogo; a 2ª está na 2ª tentativa (a 1ª não entrou no jogo); a 3ª
    * espera a internet voltar; a 6ª (fora do "Em jogo": o cliente fechou
    * sozinho) desistiu depois de 5 tentativas. A 4ª, do site, nunca reconecta.
+   *
+   * Chaves de reconexão do "Em jogo": o padrão (`General.AutoReconnect`) está
+   * ligado, a 2ª conta desligou a sua (campo `AutoReconnect`), e a 3ª tem o
+   * AutoRelaunch do Nexus (`get_nexus_accounts`). `update_account` guarda em
+   * memória o que a chave e o lote gravam.
    */
   "client-drops"() {
+    // Reconexão: padrão ligado; a 2ª conta desligou a sua (escolha própria).
+    settings.General = { ...settings.General, AutoReconnect: "true" };
+    if (accounts[1]) accounts[1].Fields = { ...accounts[1].Fields, AutoReconnect: "false" };
     type Drop = {
       kind: string;
       reason: string | null;
@@ -2017,6 +2053,17 @@ const SCENARIOS: Record<string, () => void> = {
         }));
       }
       if (cmd === "get_auto_reconnect_status") return { entries: reconnect };
+      // A chave de reconexão por conta (Sessão → Em jogo) grava a conta inteira.
+      if (cmd === "update_account") {
+        const next = args?.account as (typeof accounts)[number] | undefined;
+        const index = next ? accounts.findIndex((a) => a.UserID === next.UserID) : -1;
+        if (next && index >= 0) accounts[index] = next;
+        return null;
+      }
+      // A 3ª conta tem o AutoRelaunch do Nexus ligado: a chave dela fica travada.
+      if (cmd === "get_nexus_accounts") {
+        return rows[2] ? [{ username: accounts[2].Username, auto_relaunch: true }] : [];
+      }
       // Os botões só chegam ao backend: quem muda o estado é ele, e aqui não há backend.
       if (cmd === "stop_auto_reconnect" || cmd === "retry_auto_reconnect") return true;
       return baseHandler(cmd, args);

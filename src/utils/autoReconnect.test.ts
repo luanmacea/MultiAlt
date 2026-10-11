@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { autoReconnectLabel, reconnectErrorText } from "./autoReconnect";
+import { autoReconnectLabel, fieldsWithReconnect, reconnectChoice, reconnectErrorText } from "./autoReconnect";
 import ptCommon from "../locales/pt/common.json";
 import type { AutoReconnectEntry } from "../types";
 
@@ -121,5 +121,46 @@ describe("the error of an attempt", () => {
 
   it("keeps an unknown message as it came", () => {
     expect(reconnectErrorText("PID não detectado", ptT)).toBe("PID não detectado");
+  });
+});
+
+/** Mesma regra de `reconnect_enabled` (commands/reconnect.rs). */
+describe("reconnectChoice", () => {
+  it("follows the default without a field on the account", () => {
+    expect(reconnectChoice({}, true, false)).toEqual({
+      own: null,
+      globalDefault: true,
+      nexusForced: false,
+      effective: true,
+    });
+    expect(reconnectChoice(undefined, false, false).effective).toBe(false);
+  });
+
+  it("the account's field wins over the default", () => {
+    expect(reconnectChoice({ AutoReconnect: "false" }, true, false)).toMatchObject({ own: false, effective: false });
+    expect(reconnectChoice({ AutoReconnect: "true" }, false, false)).toMatchObject({ own: true, effective: true });
+  });
+
+  it("Nexus AutoRelaunch turns it on over both", () => {
+    expect(reconnectChoice({ AutoReconnect: "false" }, false, true)).toMatchObject({ own: false, effective: true });
+  });
+
+  it("an unknown value counts as no choice", () => {
+    expect(reconnectChoice({ AutoReconnect: "yes" }, true, false).own).toBeNull();
+  });
+});
+
+describe("fieldsWithReconnect", () => {
+  it("writes the choice and keeps the other fields", () => {
+    expect(fieldsWithReconnect({ RobloxVersion: "LIVE:abc" }, false)).toEqual({
+      RobloxVersion: "LIVE:abc",
+      AutoReconnect: "false",
+    });
+  });
+
+  it("null removes the field (back to the default) without touching the original", () => {
+    const original = { AutoReconnect: "true", Other: "x" };
+    expect(fieldsWithReconnect(original, null)).toEqual({ Other: "x" });
+    expect(original.AutoReconnect).toBe("true");
   });
 });

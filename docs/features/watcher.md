@@ -174,16 +174,28 @@ quedas acima diz que a conta caiu, o app reabre **só aquela conta**, no mesmo
 jogo. Desligada por padrão; vale com o Watcher desligado também (o Watcher
 continua sem relançar nada).
 
-- **Onde liga:** por conta, no painel da conta ("Reconnect automatically if it
-  drops", campo `AutoReconnect` = `true`/`false`); sem o campo, vale o padrão
-  `General.AutoReconnect` (Settings › General, "Reconnect accounts that drop").
-  O `AutoRelaunch` do Nexus também liga a conta (mesmo nome de usuário), mesmo
-  com o campo em `false`. O painel diz isso: com o AutoRelaunch ligado
-  (`get_nexus_accounts`), o interruptor aparece ligado e travado, com o aviso
-  de que o Nexus mantém a reconexão. "Following the default…" e "Use the
-  default…" dizem se o padrão está ligado ou desligado; desligada com uma
-  tentativa em andamento, o painel diz que ela para depois dessa tentativa (o
-  backend só solta a conta fora da fase `launching`).
+- **Onde liga:** tudo na página **Session** (desde 10/10/2026; antes ficava no
+  painel de uma conta, que quem tem muitas contas não abre):
+  - o **padrão de todas as contas** é `General.AutoReconnect`, "Reconnect
+    accounts that drop" — no cartão "Keep accounts in game" do resumo da
+    página e em Settings › General, mesmo texto, mesma setting (a página grava
+    por `store.updateSetting`; a Settings relê o INI ao abrir);
+  - **por conta**, uma chave pequena em cada linha da lista **In game** do
+    Painel de Sessão (campo `AutoReconnect` = `true`/`false`; sem o campo, a
+    conta segue o padrão e a linha diz "default"; com escolha própria aparece
+    o botão de voltar ao padrão). Marcando linhas, a faixa de lote oferece
+    **Reconnect on** / **Reconnect off** / **Use default**, que gravam o campo
+    de cada conta marcada (`updateAccount`, uma por vez; nada abre nem fecha
+    cliente). O tooltip da chave diz de onde vem o valor ("Following the
+    default…" com ligado/desligado, ou escolhido para a conta).
+  - O `AutoRelaunch` do Nexus também liga a conta (mesmo nome de usuário),
+    mesmo com o campo em `false`. Com ele ligado (`get_nexus_accounts`, uma
+    leitura para a lista toda, refeita quando muda quem está em jogo), a chave
+    da linha aparece ligada e travada, com cadeado e o aviso no tooltip.
+  - Desligada com uma tentativa em andamento, a linha da seção "Reconnecting"
+    diz que ela para depois dessa tentativa (o backend só solta a conta fora da
+    fase `launching`).
+  - Só no Windows (o log do Roblox só é lido lá): fora dele não há chave nem lote.
 - **Quando reconecta:** queda com motivo (perdeu a conexão, parada tempo demais,
   outro código), expulsão, servidor fechado, ou o cliente fechou sem sair do
   jogo. Só cliente **que o app abriu**: cliente do site (adotado) nunca é
@@ -231,8 +243,9 @@ continua sem relançar nada).
 - **Na tela:** seção "Reconnecting" do Painel de Sessão ("Reconnecting in 30 s
   (attempt 2/5)", "Waiting for the internet to come back", "Reopened, checking
   it stays in the game", "Gave up after 5 tries", "Not reconnecting: …"), com
-  "Try now"/"Try again" e "Stop" (nunca fecha cliente). O painel da conta
-  mostra a mesma linha. O erro da última tentativa vai numa **segunda linha**
+  "Try now"/"Try again" e "Stop" (nunca fecha cliente). O painel da conta não
+  tem mais seção de reconexão (o topo dele ainda mostra a queda, pelo
+  `ClientHealthNote`). O erro da última tentativa vai numa **segunda linha**
   embaixo do estado (não só no tooltip), traduzido: as frases que o backend
   escreve são as constantes `RECONNECT_ERROR_*` de reconnect.rs, traduzidas
   por `reconnectErrorText` (src/utils/autoReconnect.ts — o teste lê a lista do

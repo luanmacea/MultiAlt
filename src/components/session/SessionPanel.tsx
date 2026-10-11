@@ -19,7 +19,16 @@ import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
 import { ClientHealthNote } from "./ClientHealthNote";
-import { autoReconnectLabel, reconnectErrorText } from "../../utils/autoReconnect";
+import { ReconnectSwitch } from "./ReconnectSwitch";
+import {
+  autoReconnectLabel,
+  fieldsWithReconnect,
+  reconnectChoice,
+  reconnectErrorText,
+  type ReconnectChoice,
+} from "../../utils/autoReconnect";
+import { useNexusAutoRelaunch } from "../../hooks/useNexusAutoRelaunch";
+import { isWindowsPlatform } from "../../utils/platform";
 import type {
   AutoReconnectEntry,
   FriendLinkAccountState,
@@ -194,9 +203,45 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     return () => clearInterval(timer);
   }, [countingDown]);
 
+  // Reconexão automática por conta (commands/reconnect.rs lê o log do Roblox,
+  // então só no Windows). O campo da conta manda; sem ele, o padrão
+  // `General.AutoReconnect`; o AutoRelaunch do Nexus liga por cima.
+  const isWindows = isWindowsPlatform(store.platformCapabilities);
+  const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
+  const nexusRelaunch = useNexusAutoRelaunch(isWindows, runningIds.join(","));
+  const [reconnectSaving, setReconnectSaving] = useState(false);
+
   function nameFor(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
     return accountLabel(account, store, userId);
+  }
+
+  function choiceFor(userId: number): ReconnectChoice | null {
+    const account = store.accounts.find((a) => a.UserID === userId);
+    if (!account) return null;
+    const nexusForced = nexusRelaunch.has((account.Username ?? "").toLowerCase());
+    return reconnectChoice(account.Fields, reconnectDefault, nexusForced);
+  }
+
+  /**
+   * Grava a escolha (`null` = volta ao padrão) no `Fields.AutoReconnect` de
+   * cada conta, uma por vez. Não fecha nem abre cliente nenhum: o backend lê o
+   * campo na próxima queda.
+   */
+  async function saveReconnect(userIds: number[], value: boolean | null) {
+    const targets = store.accounts.filter((a) => userIds.includes(a.UserID));
+    if (targets.length === 0) return;
+    setError(null);
+    setReconnectSaving(true);
+    try {
+      for (const account of targets) {
+        await store.updateAccount({ ...account, Fields: fieldsWithReconnect(account.Fields, value) });
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setReconnectSaving(false);
+    }
   }
 
   function toggleChecked(userId: number) {
@@ -504,6 +549,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
               const name = nameFor(entry.userId);
               const pending = info.tone === "pending";
               const busy = reconnectBusy.has(entry.userId);
+              const turnedOff = choiceFor(entry.userId)?.effective === false;
               return (
                 <li
                   key={entry.userId}
@@ -531,6 +577,12 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                         title={info.detail}
                       >
                         {info.detail}
+                      </span>
+                    )}
+                    {/* Desligada com a tentativa em andamento: o backend só a solta depois dela. */}
+                    {pending && turnedOff && (
+                      <span className="truncate text-[11px] theme-muted">
+                        {t("Turned off: it stops after the attempt in progress.")}
                       </span>
                     )}
                   </span>
@@ -636,6 +688,50 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
           </div>
         </header>
 
+        {/* Lote da reconexão: só com contas marcadas, numa faixa própria para
+            o cabeçalho não estourar a largura da aba Console. */}
+        {isWindows && selected.length > 0 && (
+          <div
+            data-testid="session-reconnect-bulk"
+            className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 border-b theme-border text-[12px]"
+          >
+            <span className="flex items-center gap-1 theme-muted mr-auto min-w-0">
+              <RotateCw size={12} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />
+              <span className="truncate">
+                {selected.length === 1
+                  ? t("Auto-reconnect for 1 selected")
+                  : t("Auto-reconnect for {{count}} selected", { count: selected.length })}
+              </span>
+            </span>
+            <button
+              onClick={() => void saveReconnect(selected, true)}
+              disabled={reconnectSaving}
+              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t("Reconnect on")}
+            </button>
+            <button
+              onClick={() => void saveReconnect(selected, false)}
+              disabled={reconnectSaving}
+              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t("Reconnect off")}
+            </button>
+            <button
+              onClick={() => void saveReconnect(selected, null)}
+              disabled={reconnectSaving}
+              title={
+                reconnectDefault
+                  ? t("Use the default from Settings › General (on)")
+                  : t("Use the default from Settings › General (off)")
+              }
+              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t("Use default")}
+            </button>
+          </div>
+        )}
+
         {runningIds.length === 0 && unidentified.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
             <Gamepad2 size={20} strokeWidth={1.5} />
@@ -647,6 +743,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
           <ul className="max-h-56 overflow-y-auto py-1">
             {runningIds.map((userId) => {
               const name = nameFor(userId);
+              const choice = isWindows ? choiceFor(userId) : null;
               return (
                 <li
                   key={userId}
@@ -674,6 +771,14 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                     </span>
                   )}
                   <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                    {choice && (
+                      <ReconnectSwitch
+                        name={name}
+                        choice={choice}
+                        disabled={reconnectSaving}
+                        onChange={(value) => void saveReconnect([userId], value)}
+                      />
+                    )}
                     <button
                       onClick={() => void handleFocus(userId)}
                       title={t("Bring this client's window to the front")}

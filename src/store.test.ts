@@ -2823,6 +2823,36 @@ describe("theme and settings reload", () => {
     expect(result.current.settings?.General?.Language).toBe("de-DE");
   });
 
+  /**
+   * Uma setting mudada fora da página Settings (o padrão de reconexão na página
+   * Session): a tela vê o valor novo na hora e o INI recebe a gravação.
+   */
+  it("updates one setting right away and saves it", async () => {
+    settingsData = { General: { AutoReconnect: "false", Language: "en" } };
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.updateSetting("General", "AutoReconnect", "true");
+    });
+
+    expect(result.current.settings?.General?.AutoReconnect).toBe("true");
+    expect(result.current.settings?.General?.Language).toBe("en");
+    expect(lastArgs("update_setting")).toEqual({ section: "General", key: "AutoReconnect", value: "true" });
+  });
+
+  it("puts the old value back and says so when saving a setting fails", async () => {
+    settingsData = { General: { AutoReconnect: "false" } };
+    const { result } = await renderStore();
+    failures.set("update_setting", new Error("disk full"));
+
+    await act(async () => {
+      await result.current.updateSetting("General", "AutoReconnect", "true");
+    });
+
+    expect(result.current.settings?.General?.AutoReconnect).toBe("false");
+    expect(result.current.toasts.some((toast) => toast.message.includes("disk full"))).toBe(true);
+  });
+
   it("themes the titlebar from the forms colors for a light top bar", async () => {
     settingsData = { General: { ThemeWindowsNavbar: "false" } };
     results.set("get_theme", { forms_background: "#123456", dark_top_bar: false });

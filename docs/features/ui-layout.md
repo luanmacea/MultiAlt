@@ -54,7 +54,7 @@ Até 03/10/2026 a Toolbar tinha uma fileira de ícones (Session, Theme, Nexus, A
 | Item | Página | Observação |
 |---|---|---|
 | **Accounts** | lista de contas (home) | contador de contas |
-| **Session** | `SessionPage`: Painel de Sessão + resumo ao lado (clientes abertos, entrando, em jogo; quem mantém as contas no jogo) | contador de clientes rodando (`launchedByProgram`) |
+| **Session** | `SessionPage`: Painel de Sessão + resumo ao lado (clientes abertos, entrando, em jogo; quem mantém as contas no jogo, com o padrão "Reconnect accounts that drop") | contador de clientes rodando (`launchedByProgram`) |
 | **AFK Mode** | `AfkPage` → `AfkModeView variant="page"` (Auto Rejoin + AFK) | ponto verde "On" com AFK ou Auto Rejoin ligado |
 | **Avatars** | `AvatarsPage` (abas Montar/Distribuir sob o cabeçalho) | |
 | **Groups** (pt/es "Grupos") | `GroupsPage` (+ `pages/groups/`): busca de grupos e entrada das contas marcadas, uma por vez (ver [groups.md](groups.md)) | selo "Entrando n/m" no cabeçalho durante o lote |
@@ -126,7 +126,9 @@ O botão da toolbar existe para gravar ou compartilhar a tela sem expor as conta
 
 ### Sidebar de conta única (`SingleSelectSidebar`)
 
-Alias, descrição, validade, presença, **Roblox Version (all accounts)** — grava a `Versions.DefaultVersion` **global**, não o campo `RobloxVersion` da conta (com "Latest installed" e "Manage versions...", e só aparece com alguma versão no catálogo) —, Join Group, Browser (abre navegador logado), Server List e Utilities (`AccountUtilsDialog`). A versão **por conta** existe no backend (`RobloxVersion`, `versions_set_account_override`), mas nenhuma tela a define — ver [roblox-versions.md](roblox-versions.md).
+Alias, descrição, validade, presença (no topo, a queda da conta pelo `ClientHealthNote`), **Roblox Version (all accounts)** — grava a `Versions.DefaultVersion` **global**, não o campo `RobloxVersion` da conta (com "Latest installed" e "Manage versions...", e só aparece com alguma versão no catálogo) —, Join Group, Browser (abre navegador logado), Server List e Utilities (`AccountUtilsDialog`). A versão **por conta** existe no backend (`RobloxVersion`, `versions_set_account_override`), mas nenhuma tela a define — ver [roblox-versions.md](roblox-versions.md).
+
+**O que vale para muitas contas não mora aqui** (decisão do dono, 10/10/2026: o painel mostra uma conta por vez e quase não é aberto por quem tem muitas). A reconexão automática saiu do painel e foi para a página Session — padrão no resumo, chave por conta e lote na lista **In game** (ver [Painel de Sessão](#painel-de-sessão-sessionpanel)). Configuração nova desse tipo vai para lá, não para cá.
 
 ### Barra de ações em lote (`BottomActionBar`)
 
@@ -203,7 +205,7 @@ Aparece em dois lugares, com o mesmo estado vindo do store:
 |---|---|---|
 | **Joining** | evento `launch-queue` ([multi-launch.md](multi-launch.md#fila-observável-e-cancelamento)) | ✕ por conta (`cancel_account_launch`), "Stop queue" (`stop_launch_queue`) |
 | **Make Friends** | evento `friend-link-state` | nenhuma (só acompanhamento) — uma linha por conta com aguardando/processando/amizade feita/erro, o erro **na conta que enviou** o pedido que falhou, marca de conta principal no modo `star`, e o contador "X / Y contas processadas" |
-| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`) e **Close** (`cmd_kill_roblox`) por linha; no cabeçalho, **AFK Mode** (abre o Modo AFK com as contas marcadas, ou todas — o Start do Auto Rejoin de lá adota **sem fechar nada**, ver [botting.md](botting.md#modo-afk-a-tela)) e **Close accounts** (fecha as marcadas, ou **todas as da lista** sem marcação — `closeRobloxClients`, nunca `killAllRobloxProcesses`; mais de uma pede uma confirmação só) |
+| **In game** | `get_running_instances` (rastreador de PID) | **Focus** (`focus_roblox_window`) e **Close** (`cmd_kill_roblox`) por linha; no cabeçalho, **AFK Mode** (abre o Modo AFK com as contas marcadas, ou todas — o Start do Auto Rejoin de lá adota **sem fechar nada**, ver [botting.md](botting.md#modo-afk-a-tela)) e **Close accounts** (fecha as marcadas, ou **todas as da lista** sem marcação — `closeRobloxClients`, nunca `killAllRobloxProcesses`; mais de uma pede uma confirmação só). Só no Windows: uma **chave de reconexão automática** por linha (o que vale de fato; "default" quando segue o padrão, botão de voltar ao padrão quando a conta tem escolha própria, cadeado quando o AutoRelaunch do Nexus a mantém ligada) e, com linhas marcadas, uma faixa de lote abaixo do cabeçalho com **Reconnect on** / **Reconnect off** / **Use default** — ver [watcher.md](watcher.md#reconexão-automática) |
 
 Ao lado do nome de cada conta da **In game** aparece, em vermelho, **por que ela caiu** quando o log do Roblox diz — "Disconnected: lost connection", "Kicked: <mensagem do jogo>", "The server shut down", "Disconnected: the account joined somewhere else", "Closed without leaving the game" (o código do Roblox fica no tooltip). O aviso some quando a conta entra num jogo de novo. Janela travada há 30 s (só clientes abertos pelo app) mostra **"Not responding"** em âmbar, no mesmo lugar ([watcher.md](watcher.md#não-respondendo)). O mesmo texto aparece no topo do painel da conta (`SingleSelectSidebar`) e num toast. Vem de `health` em `get_running_instances` e do evento `roblox-client-health` — ver [watcher.md](watcher.md#quedas-lidas-do-log-do-cliente). Só avisa: não fecha nada, inclusive nos clientes abertos pelo site.
 
