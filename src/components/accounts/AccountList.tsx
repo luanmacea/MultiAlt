@@ -56,7 +56,9 @@ export function AccountList() {
   // A lista entra na base da pilha: o Escape só limpa a seleção quando não há
   // menu, popover nem diálogo aberto. Antes os dois handlers rodavam no mesmo
   // evento e fechar um menu de contexto apagava a seleção junto.
-  useEscapeStack(true, store.deselectAll, { ignoreFromFields: true });
+  // Fora do botão Voltar do mouse: limpar a seleção não é "fechar algo aberto",
+  // e o Voltar tem que andar no histórico de páginas (useMouseNavigation).
+  useEscapeStack(true, store.deselectAll, { ignoreFromFields: true, closesOnBack: false });
 
   function handleDrop(targetGroupKey: string) {
     if (!store.dragState) return;
