@@ -650,7 +650,7 @@ function PresetEditor({ initial, onDone }: { initial: LaunchPreset; onDone: () =
           checked={draft.arrangeGrid}
           onChange={(v) => setDraft((d) => ({ ...d, arrangeGrid: v }))}
           label="Arrange the windows in a grid when done"
-          description="Same as the Arrange in grid button in Choose Game > Windows."
+          description="Same as the Arrange in grid button on the Console page."
         />
 
         <div ref={scheduleRef} className="rounded-xl border theme-border p-3 space-y-2">

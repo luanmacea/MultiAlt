@@ -17,13 +17,14 @@ import { ArrowLeft, User, Link2, AlertTriangle, X, Bookmark } from "lucide-react
 import { newPresetDraft } from "../utils/presets";
 import type { LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
-import { SessionPanel } from "./session/SessionPanel";
-import { LaunchConsole } from "./console/LaunchConsole";
-import { WindowGridCard } from "./console/WindowGridCard";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
 import { TourButton } from "./tour/TourButton";
 
-type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
+/**
+ * Só as formas de escolher o jogo. Console e Windows viraram a página Console
+ * da barra lateral (11/10/2026), e as listas da sessão moram na página Session.
+ */
+type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow";
 
 /** Extra launch parameters for targets that were already resolved (join links). */
 type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode">;
@@ -144,7 +145,7 @@ function useLauncher() {
  * game, `roblox://` deep link, `ro.blox.com` short link) through the backend
  * and launches every selected account into the resolved target.
  */
-function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsole?: () => void }) {
+function JoinLinkSection({ userIds, onOpenSession }: { userIds: number[]; onOpenSession?: () => void }) {
   const t = useTr();
   const launchAll = useLauncher();
   const [link, setLink] = useState("");
@@ -241,12 +242,13 @@ function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoTo
       {resolved && (
         <div className="flex items-center justify-between gap-2 text-[12px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-2">
           <span className="truncate">{describeTarget(resolved)}</span>
-          {onGoToConsole && (
+          {/* Quem está entrando aparece na página Session. */}
+          {onOpenSession && (
             <button
-              onClick={onGoToConsole}
+              onClick={onOpenSession}
               className="shrink-0 text-[12px] theme-muted hover:text-[var(--panel-fg)] transition-colors"
             >
-              {t("View console")}
+              {t("Open Session")}
             </button>
           )}
         </div>
@@ -286,7 +288,7 @@ type FollowPresence = {
   game_id?: string | null;
 };
 
-function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsole?: () => void }) {
+function FollowTab({ userIds, onLaunchStarted }: { userIds: number[]; onLaunchStarted?: () => void }) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
@@ -335,7 +337,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
         if (!ok) return;
       }
 
-      const result = await launchAll(userIds, placeId, jobId, onGoToConsole);
+      const result = await launchAll(userIds, placeId, jobId, onLaunchStarted);
       if (result.ok) {
         store.addToast(
           tr("Following {{name}} with {{count}} account(s)...", { name: followUser, count: userIds.length })
@@ -351,7 +353,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
   return (
     <div className="h-full overflow-y-auto p-5">
       {/* Join link */}
-      <JoinLinkSection userIds={userIds} onGoToConsole={onGoToConsole} />
+      <JoinLinkSection userIds={userIds} onOpenSession={onLaunchStarted} />
 
       {/* Follow card */}
       <div className="theme-panel theme-border border rounded-xl p-5 mb-4">
@@ -426,19 +428,6 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
   );
 }
 
-// ── Console Tab ───────────────────────────────────────────────────────────────
-function ConsoleTab() {
-  return (
-    <div className="flex flex-col h-full">
-      {/* Painel de Sessão acima do log, com teto de 45% da aba. */}
-      <div className="shrink-0 pb-3 max-h-[45%] overflow-y-auto">
-        <SessionPanel />
-      </div>
-      <LaunchConsole className="flex-1" />
-    </div>
-  );
-}
-
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export function ChooseGameScreen() {
   const t = useTr();
@@ -460,7 +449,12 @@ export function ChooseGameScreen() {
 
   // ── Game selection handlers ────────────────────────────────────────────────
 
-  const goToConsole = () => setActiveTab("console");
+  /**
+   * Lançou: vai para a página Session, onde está a fila de quem está entrando
+   * (era a aba Console daqui). A Choose Game continua aberta para quando a
+   * pessoa voltar às contas.
+   */
+  const goToSession = () => store.setActivePage("session");
 
   /**
    * Clique no card, nas abas Games/Recent.
@@ -484,11 +478,11 @@ export function ChooseGameScreen() {
   }
 
   async function handleFavoritesSelectGame(placeId: number, privateServer?: string) {
-    await launchAll(userIds, placeId, privateServer || "", goToConsole);
+    await launchAll(userIds, placeId, privateServer || "", goToSession);
   }
 
   async function handleJoinGame(placeId: number) {
-    await launchAll(userIds, placeId, "", goToConsole);
+    await launchAll(userIds, placeId, "", goToSession);
   }
 
   /** Vai para a aba Servers já com o place do jogo clicado. */
@@ -583,16 +577,6 @@ export function ChooseGameScreen() {
       id: "follow",
       label: t("Follow"),
       hint: t("Paste any Roblox link here — experience invite, VIP/private server or a plain game link — or follow a player into the game they are in right now."),
-    },
-    {
-      id: "console",
-      label: t("Console"),
-      hint: t("Live history of what the app did: launch, Auto Rejoin, Watcher and errors, with the origin of each line."),
-    },
-    {
-      id: "windows",
-      label: t("Windows"),
-      hint: t("Tile the Roblox windows that are already open across your monitors."),
     },
   ];
   const activeTabDef = TABS.find((tab) => tab.id === activeTab);
@@ -766,24 +750,14 @@ export function ChooseGameScreen() {
             placeId={store.placeId}
             setPlaceId={store.setPlaceId}
             launchAll={launchAll}
-            onGoToConsole={goToConsole}
+            onLaunchStarted={goToSession}
           />
         )}
         {activeTab === "friends" && (
-          <FriendsTab userIds={userIds} launchAll={launchAll} onGoToConsole={goToConsole} />
+          <FriendsTab userIds={userIds} launchAll={launchAll} onLaunchStarted={goToSession} />
         )}
         {activeTab === "follow" && (
-          <FollowTab userIds={userIds} onGoToConsole={goToConsole} />
-        )}
-        {activeTab === "console" && (
-          <div className="h-full px-4 pt-3 pb-4">
-            <ConsoleTab />
-          </div>
-        )}
-        {activeTab === "windows" && (
-          <div className="h-full overflow-y-auto px-4 pt-3 pb-4">
-            <WindowGridCard />
-          </div>
+          <FollowTab userIds={userIds} onLaunchStarted={goToSession} />
         )}
       </div>
       </div>

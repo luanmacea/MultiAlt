@@ -275,7 +275,7 @@ function OptimizationProfileSection({
             checked={s.get("General", "AutoArrangeGrid", "true") !== "false"}
             onChange={(v) => s.setBool("General", "AutoArrangeGrid", v)}
             label="Arrange in grid on launch"
-            description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
+            description="Each new Roblox window takes the first free cell of the grid (Console page). Accounts with their own window size keep it."
           />
           {splitProfiles ? (
             <div className="text-[12px] leading-5 text-zinc-500">

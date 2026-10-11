@@ -25,6 +25,7 @@ export function ConsolePage({ active, onLeave }: { active: boolean; onLeave: () 
       description={t("What the app did: launch, Auto Rejoin, Watcher and errors, with where each line came from.")}
       onLeave={onLeave}
       dataTour="console-page"
+      tour="console"
       bodyClassName="flex flex-col gap-4 px-6 py-5 overflow-y-auto"
     >
       {/* Grade de janelas no topo, compacta (era a aba Windows da Choose Game). */}

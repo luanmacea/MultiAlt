@@ -150,10 +150,10 @@ export interface FriendsTabProps {
   userIds: number[];
   /** `useLauncher().launchAll` da Choose Game. Único caminho de launch. */
   launchAll: LaunchAllFn;
-  onGoToConsole?: () => void;
+  onLaunchStarted?: () => void;
 }
 
-export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProps) {
+export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabProps) {
   const t = useTr();
   const store = useStore();
 
@@ -305,7 +305,7 @@ export function FriendsTab({ userIds, launchAll, onGoToConsole }: FriendsTabProp
     try {
       // Um alvo só, resolvido uma vez: TODAS as contas selecionadas entram no
       // mesmo servidor pelo caminho normal de launch em lote.
-      await launchAll(userIdsRef.current, target.placeId, target.jobId, onGoToConsole);
+      await launchAll(userIdsRef.current, target.placeId, target.jobId, onLaunchStarted);
     } finally {
       setJoining(null);
     }

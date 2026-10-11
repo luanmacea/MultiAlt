@@ -20,6 +20,7 @@ export type TourId =
   | "accounts"
   | "choose-game"
   | "session"
+  | "console"
   | "afk"
   | "avatars"
   | "groups"
@@ -131,13 +132,6 @@ export const TOURS: Record<TourId, TourDefinition> = {
         reveal: tour("cg-tab-friends"),
         targets: [tour("cg-panel")],
       },
-      {
-        id: "windows",
-        title: "Windows",
-        description: "Put all open Roblox windows side by side in a grid.",
-        reveal: tour("cg-tab-windows"),
-        targets: [tour("cg-panel")],
-      },
     ],
   },
 
@@ -175,6 +169,26 @@ export const TOURS: Record<TourId, TourDefinition> = {
         title: "Right now",
         description: "A quick count of what is open and running.",
         targets: [tour("session-summary")],
+      },
+    ],
+  },
+
+  console: {
+    id: "console",
+    label: "Console",
+    root: tour("console-page"),
+    steps: [
+      {
+        id: "grid",
+        title: "Window grid",
+        description: "Put all open Roblox windows side by side on the monitors you tick. New windows can take a free spot on their own.",
+        targets: [inside("console-page", "console-grid")],
+      },
+      {
+        id: "log",
+        title: "What the app did",
+        description: "Each line says what happened and where it came from: launch, Auto Rejoin or Watcher. Look here when an account did not open.",
+        targets: [inside("console-page", "console-log")],
       },
     ],
   },
