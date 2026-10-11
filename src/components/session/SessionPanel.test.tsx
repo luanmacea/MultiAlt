@@ -287,18 +287,51 @@ describe("SessionPanel — running clients", () => {
     );
   });
 
-  it("closes a single client without asking for confirmation", async () => {
+  /**
+   * O "Close" da linha ficava colado no "Focus" e fechava no primeiro clique.
+   * Agora o primeiro clique só arma ("Close?"); o segundo fecha aquela conta.
+   */
+  it("a row's Close asks inline first, then closes only that client", async () => {
     const user = userEvent.setup();
     renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
+    const row = within(screen.getByTestId("session-running-2"));
 
-    await user.click(within(screen.getByTestId("session-running-2")).getByRole("button", { name: "Close" }));
+    await user.click(row.getByRole("button", { name: "Close" }));
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
+    await user.click(row.getByRole("button", { name: "Close?" }));
 
     await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(1));
     expect(callsFor("cmd_kill_roblox")[0][1]).toEqual({ userId: 2 });
     expect(confirmMock).not.toHaveBeenCalled();
   });
 
-  it("closes a multi-selection after a single confirmation", async () => {
+  it("the armed Close goes back on Escape, closing nothing", async () => {
+    const user = userEvent.setup();
+    renderPanel({ launchQueue: null, launchedByProgram: new Set([1]) });
+    const row = within(screen.getByTestId("session-running-1"));
+    await user.click(row.getByRole("button", { name: "Close" }));
+    await user.keyboard("{Escape}");
+    expect(row.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
+  });
+
+  it("the armed Close goes back by itself after a few seconds", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderPanel({ launchQueue: null, launchedByProgram: new Set([1]) });
+      const row = within(screen.getByTestId("session-running-1"));
+      await user.click(row.getByRole("button", { name: "Close" }));
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(row.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("closes the selected clients after one confirmation that names them", async () => {
     const user = userEvent.setup();
     promptAnswers.confirm = true;
     renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2, 3]) });
@@ -307,11 +340,15 @@ describe("SessionPanel — running clients", () => {
     await user.click(screen.getByRole("checkbox", { name: "Select Bravo Alt" }));
     await user.click(screen.getByRole("checkbox", { name: "Select charlie" }));
 
-    await user.click(screen.getByRole("button", { name: /Close accounts \(3\)/ }));
+    await user.click(screen.getByRole("button", { name: "Close selected (3)" }));
 
     await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(3));
     expect(confirmMock).toHaveBeenCalledTimes(1);
-    expect(confirmMock.mock.calls[0][0]).toContain("3");
+    const [message, destructive, options] = confirmMock.mock.calls[0];
+    expect(message).toBe("Close the Roblox client of these accounts?");
+    expect(destructive).toBe(true);
+    expect(options?.confirmLabel).toBe("Close 3 clients");
+    expect(options?.details).toEqual(["alpha", "Bravo Alt", "charlie"]);
     expect(callsFor("cmd_kill_roblox").map((c) => c[1])).toEqual([
       { userId: 1 },
       { userId: 2 },
@@ -325,7 +362,7 @@ describe("SessionPanel — running clients", () => {
     renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
 
     await user.click(screen.getByRole("checkbox", { name: "Select all running clients" }));
-    await user.click(screen.getByRole("button", { name: /Close accounts \(2\)/ }));
+    await user.click(screen.getByRole("button", { name: "Close selected (2)" }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
     expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
@@ -426,7 +463,7 @@ describe("SessionPanel — live updates", () => {
     const { rerender } = renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
 
     await user.click(screen.getByRole("checkbox", { name: "Select all running clients" }));
-    expect(screen.getByRole("button", { name: /Close accounts \(2\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close selected (2)" })).toBeInTheDocument();
 
     // O polling deixa de ver a conta 2: ela some da lista e do lote.
     setStore({
@@ -438,27 +475,38 @@ describe("SessionPanel — live updates", () => {
     rerender(<SessionPanel />);
 
     expect(screen.queryByTestId("session-running-2")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Close accounts \(1\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close selected (1)" })).toBeInTheDocument();
   });
 });
 
 /**
- * Fechar as contas em jogo: sem marcação, o botão vale para **todas as que
- * estão na lista** — nunca para clientes fora dela (`closeRobloxClients`, não o
- * `killAllRobloxProcesses`). Mais de uma sempre pergunta antes.
+ * Fechar as contas em jogo. "Close all clients (n)" no cabeçalho vale para
+ * **todas as que estão na lista** — nunca para clientes fora dela
+ * (`closeRobloxClients`, não o `killAllRobloxProcesses`) — e sempre pergunta,
+ * listando as contas e dizendo quais foram abertas pelo site. O botão do
+ * diálogo diz quantos fecha.
  */
 describe("SessionPanel — fechar contas", () => {
-  it("sem marcar ninguém, fecha todas as da lista depois de uma confirmação", async () => {
+  it("Close all closes every account in the list after a confirmation", async () => {
     const user = userEvent.setup();
     promptAnswers.confirm = true;
     const { store } = renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
 
-    await user.click(screen.getByRole("button", { name: "Close accounts" }));
+    await user.click(screen.getByRole("button", { name: "Close all clients (2)" }));
 
     await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(2));
     expect(confirmMock).toHaveBeenCalledTimes(1);
-    expect(confirmMock.mock.calls[0][0]).toContain("2");
+    expect(confirmMock.mock.calls[0][2]?.confirmLabel).toBe("Close 2 clients");
     expect(store.killAllRobloxProcesses).not.toHaveBeenCalled();
+  });
+
+  it("Close all still means all, even with some rows ticked", async () => {
+    const user = userEvent.setup();
+    promptAnswers.confirm = true;
+    renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2, 3]) });
+    await user.click(screen.getByRole("checkbox", { name: "Select alpha" }));
+    await user.click(screen.getByRole("button", { name: "Close all clients (3)" }));
+    await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(3));
   });
 
   it("recusada a confirmação, nada fecha", async () => {
@@ -466,26 +514,49 @@ describe("SessionPanel — fechar contas", () => {
     promptAnswers.confirm = false;
     renderPanel({ launchQueue: null, launchedByProgram: new Set([1, 2]) });
 
-    await user.click(screen.getByRole("button", { name: "Close accounts" }));
+    await user.click(screen.getByRole("button", { name: "Close all clients (2)" }));
 
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1));
     expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
   });
 
-  it("com uma conta só em jogo, fecha sem perguntar", async () => {
+  it("asks even for a single client, in the singular", async () => {
     const user = userEvent.setup();
+    promptAnswers.confirm = true;
     renderPanel({ launchQueue: null, launchedByProgram: new Set([3]) });
 
-    await user.click(screen.getByRole("button", { name: "Close accounts" }));
+    await user.click(screen.getByRole("button", { name: "Close all clients (1)" }));
 
     await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(1));
-    expect(callsFor("cmd_kill_roblox")[0][1]).toEqual({ userId: 3 });
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmMock.mock.calls[0][2]?.confirmLabel).toBe("Close 1 client");
+  });
+
+  it("lists the first five accounts and how many more, and flags clients opened from the website", async () => {
+    const user = userEvent.setup();
+    promptAnswers.confirm = false;
+    const many = Array.from({ length: 7 }, (_, i) => makeAccount({ UserID: 10 + i, Username: `acc${i}` }));
+    renderWithStore(<SessionPanel />, {
+      accounts: many,
+      launchedByProgram: new Set(many.map((a) => a.UserID)),
+      adoptedClients: new Set([11]),
+      ...storeActions(),
+    });
+    await user.click(screen.getByRole("button", { name: "Close all clients (7)" }));
+    const options = confirmMock.mock.calls[0][2];
+    expect(options?.details).toEqual([
+      "acc0",
+      "acc1 (opened from the website)",
+      "acc2",
+      "acc3",
+      "acc4",
+      "and 2 more",
+    ]);
+    expect(options?.note).toBe("Includes 1 client opened from the Roblox website.");
   });
 
   it("não aparece sem cliente rodando", () => {
     renderPanel({ launchQueue: null, launchedByProgram: new Set() });
-    expect(screen.queryByRole("button", { name: /Close accounts/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Close all clients/ })).not.toBeInTheDocument();
   });
 });
 

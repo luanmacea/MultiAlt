@@ -229,6 +229,32 @@ describe("confirm", () => {
     expect(screen.getByText("Confirm").className).toContain("bg-red-600");
   });
 
+  /**
+   * Fechar clientes (página Session): o botão diz o que faz ("Close 3
+   * clients") e o diálogo lista quem vai ser fechado, com uma nota.
+   */
+  it("shows its own button label, a list and a note", async () => {
+    const user = userEvent.setup();
+    const { result } = renderDialogs();
+    let resolved: boolean | undefined;
+    act(() => {
+      void result.current
+        .confirm("Close these clients?", true, {
+          confirmLabel: "Close 3 clients",
+          details: ["alpha", "bravo", "charlie"],
+          note: "Nothing else is closed.",
+        })
+        .then((v) => {
+          resolved = v;
+        });
+    });
+    expect(screen.getByRole("list").textContent).toBe("alphabravocharlie");
+    expect(screen.getByText("Nothing else is closed.")).toBeTruthy();
+    expect(screen.queryByText("Confirm")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Close 3 clients" }));
+    await waitFor(() => expect(resolved).toBe(true));
+  });
+
   it("confirms on Enter and cancels on Escape", async () => {
     const { result } = renderDialogs();
 

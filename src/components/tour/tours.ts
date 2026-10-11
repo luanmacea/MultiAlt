@@ -161,7 +161,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "actions",
         title: "Keep or close",
-        description: "AFK Mode keeps these accounts in the game. Close accounts closes their Roblox windows.",
+        description: "AFK Mode keeps these accounts in the game. Close all clients closes their Roblox windows, after asking. Closing MultiAlt closes nothing.",
         targets: [inside("session-page", "session-in-game-actions"), inside("session-page", "session-in-game")],
       },
       {
