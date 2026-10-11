@@ -127,7 +127,9 @@ export function WatcherTab({ s }: { s: UseSettingsReturn }) {
         onChange={(v) => s.setNumber("Watcher", "MemoryLowValue", v)}
         label="Memory Threshold"
         description={
-          !closeOnLowMemory ? "Requires Close If Memory Low" : "A client using less than this is closed."
+          !closeOnLowMemory
+            ? "Requires Close If Memory Low"
+            : "A client using less than this (the Memory column in Task Manager) is closed. A client whose memory MultiAlt freed is skipped."
         }
         min={50}
         max={2048}

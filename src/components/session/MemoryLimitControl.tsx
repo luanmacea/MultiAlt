@@ -6,6 +6,7 @@ import type { ClientMemory } from "../../types";
 import {
   MEMORY_LIMIT_PRESETS_MB,
   formatMemoryMb,
+  formatMemoryReading,
   parseCustomMemoryLimit,
   parseMemoryLimit,
   type MemoryLimitChoice,
@@ -14,7 +15,8 @@ import { ChipMenu, type ChipMenuOption } from "./ChipMenu";
 
 /**
  * Teto de memória de um cliente, num chip da linha da lista "Em jogo" (Painel
- * de Sessão): a memória de agora ("1.2 GB", âmbar acima do limite) e o limite
+ * de Sessão): a memória privada de agora ("1,187 MB", o número da coluna
+ * "Memória" do Gerenciador de Tarefas; âmbar acima do limite) e o limite
  * que vale; o menu muda o limite — padrão, sem limite, os tamanhos comuns, o
  * próprio da conta e "Custom…". Grava no campo `MemoryLimit` da conta (vale na
  * hora, sem relançar, e nos próximos launches). Passou do limite, o app libera a
@@ -91,7 +93,8 @@ export function MemoryChip({
   const pick = usePickLimit();
   const { own, defaultMb, effectiveMb } = choice;
   const limit = limitText(effectiveMb, t, lang);
-  const reading = memory && memory.memoryMb !== null ? formatMemoryMb(memory.memoryMb, lang) : null;
+  // MB inteiros, o mesmo número da coluna "Memória" do Gerenciador de Tarefas.
+  const reading = memory && memory.memoryMb !== null ? formatMemoryReading(memory.memoryMb, lang) : null;
   const over = memory?.over === true;
   const limitSource =
     own === null
@@ -104,9 +107,15 @@ export function MemoryChip({
       ? memory?.trimmedAtMs !== null
         ? t("Over its limit of {{limit}}: MultiAlt asked Windows to free this client's memory.", { limit: measuredLimit })
         : t("Over its limit of {{limit}}.", { limit: measuredLimit })
-      : t("Memory in use now: {{memory}}.", { memory: reading })
+      : t("Private memory now: {{memory}} (the Memory column in Task Manager).", { memory: reading })
     : null;
-  const title = [usage, limitSource, t("Above the limit, MultiAlt first asks Windows to free the client's memory.")]
+  // Liberou e caiu para baixo do limite: fica mais baixa até o jogo precisar
+  // de novo, e isso é normal (não é a leitura que parou).
+  const afterTrim =
+    reading && !over && memory?.trimmedAtMs != null
+      ? t("MultiAlt freed this client's memory: it stays lower until the game needs it again, which is expected.")
+      : null;
+  const title = [usage, afterTrim, limitSource, t("Above the limit, MultiAlt first asks Windows to free the client's memory.")]
     .filter(Boolean)
     .join(" ");
   return (

@@ -910,7 +910,8 @@ describe("OptimizationTab", () => {
     renderTab((s) => <OptimizationTab s={s} />);
     const field = await screen.findByLabelText("Memory limit per client");
     expect(field).toHaveValue("0");
-    expect(screen.getByText(/asks Windows to free the client's memory first/)).toBeInTheDocument();
+    expect(screen.getByText(/Measured like the Memory column in Task Manager/)).toBeInTheDocument();
+    expect(screen.getByText(/at most every 5 minutes/)).toBeInTheDocument();
   });
 
   /**

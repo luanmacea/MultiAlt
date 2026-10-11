@@ -159,6 +159,8 @@ export const SUITES: Record<string, TestSuite> = {
       // Teto de memória que libera RAM antes de fechar (memory_ceiling.rs, memory_trim.rs).
       "memory_ceiling_tests",
       "win_memory_trim_tests",
+      // A leitura de memória (memória privada, a do Gerenciador de Tarefas).
+      "win_process_memory_tests",
     ],
     // A aba Auto Rejoin do Modo AFK e a moldura (abas, modal) que a abre.
     front: [

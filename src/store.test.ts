@@ -2129,6 +2129,30 @@ describe("presence and running instances", () => {
     await waitFor(() => expect(result.current.launchedByProgram.size).toBe(2));
     expect([...result.current.launchedByProgram].sort()).toEqual([1, 2]);
   });
+
+  /**
+   * Relato do dono (11/10/2026): a memória da linha "Em jogo" parecia lida só
+   * nos primeiros segundos. A store relê `get_running_instances` a cada 2,5 s
+   * e a memória acompanha cada leitura.
+   */
+  it("keeps the client's memory live on every refresh", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    accountsData = [account({ UserID: 1 })];
+    const reading = (memoryMb: number) => [
+      { user_id: 1, pid: 10, adopted: false, memory: { memoryMb, limitMb: null, over: false, trimmedAtMs: null } },
+    ];
+    runningInstances = reading(1187);
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.clientMemory.get(1)?.memoryMb).toBe(1187));
+
+    for (const memoryMb of [1203, 1164]) {
+      runningInstances = reading(memoryMb);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      await waitFor(() => expect(result.current.clientMemory.get(1)?.memoryMb).toBe(memoryMb));
+    }
+  });
 });
 
 describe("AFK mode", () => {

@@ -447,13 +447,21 @@ export interface CurrentSession {
 
 /** Memória e limite de um cliente que o app abriu (`ClientMemoryView`, memory_ceiling.rs). */
 export interface ClientMemory {
-  /** Working set agora, em MB (`null` se não deu para ler). */
+  /**
+   * Memória privada agora, em MB — o número da coluna "Memória" do Gerenciador
+   * de Tarefas (`get_process_memory_mb`); `null` se não deu para ler. Relida a
+   * cada 2 s no backend e a cada 2,5 s pela store.
+   */
   memoryMb: number | null;
   /** O limite que vale agora; `null` = sem limite. */
   limitMb: number | null;
   /** Acima do limite nesta passada. */
   over: boolean;
-  /** Quando o app pediu ao Windows para liberar, enquanto acima. */
+  /**
+   * Quando o app pediu ao Windows para liberar pela última vez (neste cliente).
+   * Fica depois de a memória cair: abaixo do limite, a tela explica que ela
+   * fica mais baixa até o jogo precisar de novo.
+   */
   trimmedAtMs: number | null;
 }
 
