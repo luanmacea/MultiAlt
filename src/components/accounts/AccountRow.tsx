@@ -7,6 +7,7 @@ import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 import { StatusBadge, STATUS_COLORS, type StatusKind } from "./StatusBadge";
 import { moderationBadge, moderationLabel } from "../../utils/moderation";
+import { AccountLiveSegment } from "./AccountLiveSegment";
 
 export function AccountRow({ account }: { account: Account }) {
   const t = useTr();
@@ -156,7 +157,7 @@ export function AccountRow({ account }: { account: Account }) {
     <div
       data-account-row="true"
       data-user-id={account.UserID}
-      className={`group/row theme-row-hover flex items-center gap-3 px-3 py-1.5 cursor-default select-none border-l-2 transition-colors duration-100 ${
+      className={`@container/row group/row theme-row-hover flex items-center gap-3 px-3 py-1.5 cursor-default select-none border-l-2 transition-colors duration-100 ${
         selected ? "theme-row-selected" : "border-l-transparent"
       }`}
       style={selected ? { borderLeftColor: "var(--accent-color)" } : undefined}
@@ -260,6 +261,10 @@ export function AccountRow({ account }: { account: Account }) {
           </div>
         )}
       </div>
+
+      {/* Estado ao vivo (jogando, caiu, reconectando...) e o jogo; nada com a
+          conta parada. Ver AccountLiveSegment. */}
+      <AccountLiveSegment userId={account.UserID} />
 
       {description && (
         <div className="min-w-0 max-w-[38%]">

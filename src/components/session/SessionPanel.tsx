@@ -37,6 +37,7 @@ import { SessionStats, type SessionCounts, type SessionFilter } from "./SessionS
 import { AttentionGroupHeader, GameGroupHeader, NoGameGroupHeader, SelectBox, ServerHeader } from "./InGameGroups";
 import { groupRunning, needsAttention, runningStatus, type RunningStatus } from "../../utils/sessionGroups";
 import { clientHealthLabel } from "../../utils/clientHealth";
+import { activeReconnectIds } from "../../utils/accountLiveState";
 import { useGameIdentity } from "../../hooks/useGameIdentity";
 import type {
   AutoReconnectEntry,
@@ -309,11 +310,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   // Jogo e início da sessão de cada conta (o mesmo do histórico). Só no
   // Windows: é lá que o log do Roblox é lido.
   const sessions = useCurrentSessions(isWindows, runningIds.join(","));
-  const reconnectingIds = new Set(
-    (store.autoReconnect ?? [])
-      .filter((entry) => entry.phase !== "gaveUp" && entry.phase !== "stopped")
-      .map((entry) => entry.userId)
-  );
+  const reconnectingIds = activeReconnectIds(store.autoReconnect);
   const [reconnectSaving, setReconnectSaving] = useState(false);
 
   // Teto de memória (commands/memory_ceiling.rs): só com a feature
