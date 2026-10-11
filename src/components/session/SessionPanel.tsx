@@ -611,6 +611,10 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   const groups = groupRunning(shownIds, sessions, statusOf);
   const grouped = sessions.size > 0 || groups.attention.length > 0;
   const listBox = contained ? "max-h-56 overflow-y-auto" : "";
+  // Lista larga (página Session num monitor grande): as linhas do "Em jogo"
+  // viram colunas pela largura da própria lista (`@container/ingame`), não da
+  // janela — no painel estreito e na janela padrão continua uma coluna só.
+  const rowGrid = "grid grid-cols-1 gap-x-3 @6xl/ingame:grid-cols-2 @min-[110rem]/ingame:grid-cols-3";
   // Reconexão: quem ainda tem cliente aberto mostra a tentativa na própria
   // linha do "Em jogo" (uma conta, um lugar); a seção "Reconnecting" fica só
   // com quem não tem cliente aberto (fechou, desistiu). Antes as duas listas
@@ -1111,7 +1115,11 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
       )}
 
       {/* ── Em jogo ────────────────────────────────────────────────────── */}
-      <section data-tour="session-in-game" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
+      <section
+        data-tour="session-in-game"
+        data-testid="session-in-game"
+        className="@container/ingame rounded-lg border theme-border bg-[var(--panel-soft)]"
+      >
         <header className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 border-b theme-border">
           <div className="flex items-center gap-2 min-w-0">
             {runningIds.length > 0 && (
@@ -1204,7 +1212,9 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                       expanded={!collapsed.has("attention")}
                       onToggle={() => toggleCollapsed("attention")}
                     />
-                    {!collapsed.has("attention") && <ul>{groups.attention.map((id) => renderRow(id, "full"))}</ul>}
+                    {!collapsed.has("attention") && (
+                      <ul className={rowGrid}>{groups.attention.map((id) => renderRow(id, "full"))}</ul>
+                    )}
                   </div>
                 )}
                 {groups.games.map((game) => (
@@ -1227,7 +1237,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                             onSelect={() => toggleGroup(server.userIds)}
                             selectable={game.servers.length > 1}
                           />
-                          <ul>{server.userIds.map((id) => renderRow(id, "game"))}</ul>
+                          <ul className={rowGrid}>{server.userIds.map((id) => renderRow(id, "game"))}</ul>
                         </div>
                       ))}
                   </div>
@@ -1241,12 +1251,14 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                       expanded={!collapsed.has("no-game")}
                       onToggle={() => toggleCollapsed("no-game")}
                     />
-                    {!collapsed.has("no-game") && <ul>{groups.noGame.map((id) => renderRow(id, "full"))}</ul>}
+                    {!collapsed.has("no-game") && (
+                      <ul className={rowGrid}>{groups.noGame.map((id) => renderRow(id, "full"))}</ul>
+                    )}
                   </div>
                 )}
               </>
             ) : (
-              <ul>{shownIds.map((id) => renderRow(id, "full"))}</ul>
+              <ul className={rowGrid}>{shownIds.map((id) => renderRow(id, "full"))}</ul>
             )}
             <ul>
             {unidentified.map((client) => {
