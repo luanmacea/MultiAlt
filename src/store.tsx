@@ -637,6 +637,13 @@ export interface StoreValue {
    */
   setSettingsOpen: (open: boolean) => void;
   reloadSettings: () => Promise<void>;
+  /**
+   * Grava uma setting fora da página Settings (ex.: o padrão de reconexão na
+   * página Session). A tela muda na hora; se o INI recusar, volta o valor
+   * antigo e avisa. A página Settings relê tudo ao abrir, então as duas telas
+   * mostram o mesmo valor.
+   */
+  updateSetting: (section: string, key: string, value: string) => Promise<void>;
 
   serverListOpen: boolean;
   setServerListOpen: (open: boolean) => void;
@@ -2230,6 +2237,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     applyThemeCssVariables(normalized);
   }, []);
 
+  async function updateSetting(section: string, key: string, value: string) {
+    let previous: string | undefined;
+    setSettings((prev) => {
+      previous = prev?.[section]?.[key];
+      return { ...(prev || {}), [section]: { ...(prev?.[section] || {}), [key]: value } };
+    });
+    try {
+      await invoke("update_setting", { section, key, value });
+    } catch (e) {
+      setSettings((prev) => {
+        const rest = { ...(prev?.[section] || {}) };
+        if (previous === undefined) delete rest[key];
+        else rest[key] = previous;
+        return { ...(prev || {}), [section]: rest };
+      });
+      addToast(tr("Could not save the setting: {{error}}", { error: String(e) }), "error");
+    }
+  }
+
   async function reloadSettings() {
     try {
       const s = await invoke<Record<string, Record<string, string>>>("get_all_settings");
@@ -3510,6 +3536,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setActivePage,
     setSettingsOpen,
     reloadSettings,
+    updateSetting,
     serverListOpen,
     setServerListOpen,
     accountUtilsOpen,

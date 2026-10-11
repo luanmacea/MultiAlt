@@ -109,6 +109,43 @@ export function autoReconnectLabel(entry: AutoReconnectEntry, nowMs: number, t: 
   }
 }
 
+/** Campo da conta lido por `commands/reconnect.rs` (`"true"`/`"false"`; sem ele, o padrão). */
+export const AUTO_RECONNECT_FIELD = "AutoReconnect";
+
+/** O que vale para uma conta, e de onde vem. */
+export interface ReconnectChoice {
+  /** Escolha da própria conta; `null` = segue o padrão. */
+  own: boolean | null;
+  /** O padrão de todas as contas (`General.AutoReconnect`). */
+  globalDefault: boolean;
+  /** O AutoRelaunch do Nexus liga por cima de tudo (`reconnect_enabled`). */
+  nexusForced: boolean;
+  /** Se a conta reconecta, somando os três. */
+  effective: boolean;
+}
+
+/** Mesma regra de `reconnect_enabled` (commands/reconnect.rs). */
+export function reconnectChoice(
+  fields: Record<string, string> | undefined,
+  globalDefault: boolean,
+  nexusForced: boolean
+): ReconnectChoice {
+  const field = fields?.[AUTO_RECONNECT_FIELD];
+  const own = field === "true" ? true : field === "false" ? false : null;
+  return { own, globalDefault, nexusForced, effective: nexusForced || (own ?? globalDefault) };
+}
+
+/** Os campos da conta com a escolha gravada (`null` apaga: volta ao padrão). */
+export function fieldsWithReconnect(
+  fields: Record<string, string> | undefined,
+  value: boolean | null
+): Record<string, string> {
+  const next = { ...(fields || {}) };
+  if (value === null) delete next[AUTO_RECONNECT_FIELD];
+  else next[AUTO_RECONNECT_FIELD] = value ? "true" : "false";
+  return next;
+}
+
 function stopLabel(entry: AutoReconnectEntry, t: Translate): string {
   switch (entry.reason) {
     case "joinedElsewhere":
