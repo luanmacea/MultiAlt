@@ -2578,5 +2578,11 @@
   "Nothing happened yet.": "Nothing happened yet.",
   "Reconnected and stayed in the game": "Reconnected and stayed in the game",
   "Responding again": "Responding again",
-  "While you were away": "While you were away"
+  "While you were away": "While you were away",
+  "{{count}} need attention": "{{count}} need attention",
+  "1 needs attention": "1 needs attention",
+  "Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.": "Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.",
+  "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.": "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.",
+  "While they play": "While they play",
+  "account-dropped": "Dropped"
 }

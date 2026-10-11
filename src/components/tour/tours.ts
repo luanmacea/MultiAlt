@@ -68,6 +68,13 @@ export const TOURS: Record<TourId, TourDefinition> = {
         targets: ["[data-account-row='true']", tour("accounts-list")],
       },
       {
+        id: "live",
+        title: "While they play",
+        description:
+          "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.",
+        targets: [tour("toolbar-attention"), tour("accounts-live"), tour("accounts-list")],
+      },
+      {
         id: "add",
         title: "Add an account",
         description: "Click Add to bring in a new account. Browser Login is the easiest way.",

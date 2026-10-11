@@ -3,6 +3,7 @@ import { User } from "lucide-react";
 import { useStore } from "../../store";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { GroupSection } from "./GroupSection";
+import { AccountLiveStateProvider } from "../../hooks/useAccountLiveState";
 import { useTr } from "../../i18n/text";
 import { AddAccountDialog } from "../dialogs/AddAccountDialog";
 import { COOKIE_PATTERN } from "../../utils/cookies";
@@ -329,15 +330,18 @@ export function AccountList() {
           }}
         />
       )}
-      {store.groups.map((group) => (
-        <GroupSection
-          key={group.key}
-          group={group}
-          collapsed={store.collapsedGroups.has(group.key)}
-          onToggle={() => store.toggleGroup(group.key)}
-          onDrop={handleDrop}
-        />
-      ))}
+      {/* Jogo e início da sessão de agora, lidos uma vez para a lista toda. */}
+      <AccountLiveStateProvider>
+        {store.groups.map((group) => (
+          <GroupSection
+            key={group.key}
+            group={group}
+            collapsed={store.collapsedGroups.has(group.key)}
+            onToggle={() => store.toggleGroup(group.key)}
+            onDrop={handleDrop}
+          />
+        ))}
+      </AccountLiveStateProvider>
     </div>
   );
 }
