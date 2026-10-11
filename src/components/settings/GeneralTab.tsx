@@ -503,6 +503,17 @@ export function GeneralTab({ s }: { s: UseSettingsReturn }) {
           description="Windows won't go to sleep while AFK Mode, Auto Rejoin or auto-reconnect is running. The screen can still turn off."
         />
       )}
+      {/* commands/shake_stop.rs: com o ciclo do AFK ou uma gravação levando o
+          cursor, o Parar fica fora de alcance. Lê só a posição do cursor, e só
+          enquanto algo está rodando. Desligado por padrão (escolha do dono). */}
+      {isWindows && (
+        <Toggle
+          checked={s.getBool("Afk", "ShakeToStop")}
+          onChange={(v) => s.setBool("Afk", "ShakeToStop", v)}
+          label="Stop AFK and recordings when I shake the mouse"
+          description="Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read."
+        />
+      )}
       <Toggle
         checked={s.getBool("General", "ShowPresence")}
         onChange={(v) => s.setBool("General", "ShowPresence", v)}

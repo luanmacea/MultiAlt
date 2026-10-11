@@ -2255,6 +2255,50 @@ describe("AFK mode", () => {
   });
 });
 
+describe("AFK mode — parada de emergência por chacoalhar", () => {
+  /** commands/shake_stop.rs: o backend já parou; a tela guarda o motivo e avisa. */
+  it("guarda a parada e mostra o toast quando o mouse é chacoalhado", async () => {
+    const { result } = await renderStore();
+    expect(result.current.afkEmergencyStop).toBeNull();
+
+    act(() => {
+      emit("afk-emergency-stop", { reason: "shake", afk: true, recordings: false });
+    });
+
+    expect(result.current.afkEmergencyStop).toMatchObject({ reason: "shake", afk: true, recordings: false });
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "Emergency stop: you shook the mouse."
+    );
+  });
+
+  it("some quando o usuário fecha o aviso ou liga o modo de novo", async () => {
+    const { result } = await renderStore();
+    act(() => {
+      emit("afk-emergency-stop", { reason: "shake", afk: true, recordings: false });
+    });
+    act(() => {
+      result.current.dismissAfkEmergencyStop();
+    });
+    expect(result.current.afkEmergencyStop).toBeNull();
+
+    act(() => {
+      emit("afk-emergency-stop", { reason: "shake", afk: true, recordings: false });
+    });
+    results.set("start_afk_mode", { active: true, startedAtMs: 1, intervalSeconds: 600, key: "Space", accounts: [] });
+    await act(async () => {
+      await result.current.startAfkMode({
+        userIds: [11],
+        intervalSeconds: 600,
+        key: "Space",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+      });
+    });
+    expect(result.current.afkEmergencyStop).toBeNull();
+  });
+});
+
 describe("botting and generator commands", () => {
   it("maps the botting start config onto the backend arguments", async () => {
     const { result } = await renderStore();

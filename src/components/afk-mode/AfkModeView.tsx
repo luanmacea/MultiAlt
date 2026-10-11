@@ -5,6 +5,7 @@ import { useTr } from "../../i18n/text";
 import { RejoinTab } from "./RejoinTab";
 import { ClicksTab } from "./ClicksTab";
 import { RecordingsTab } from "./RecordingsTab";
+import { ShakeStopNotice } from "./ShakeStopNotice";
 import { formatAfkIntervalSeconds, recordingTriggers } from "./recordings/triggers";
 
 export interface AfkModeViewProps {
@@ -230,6 +231,9 @@ export function AfkModeView({
       >
         <ClicksTab targetUserIds={targetUserIds} />
       </div>
+      {/* Parada de emergência por chacoalhar o mouse: a aba de cliques diz na
+          barra dela; a das gravações, aqui. */}
+      {tab === "recordings" ? <ShakeStopNotice /> : null}
       <div
         role="tabpanel"
         id="afk-mode-panel-recordings"

@@ -2534,5 +2534,9 @@
   "Use global": "Usar a global",
   "Use global for {{slot}} on {{name}}": "Usar a global em {{slot}} para {{name}}",
   "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.": "Com o Modo AFK ligado, cada conta toca de novo a sua gravação do anti-AFK neste intervalo, contado do fim da anterior. Escolha as contas e ligue em Cliques AFK.",
-  "goes back to the global one.": "volta para a global."
+  "goes back to the global one.": "volta para a global.",
+  "Emergency stop: you shook the mouse.": "Parada de emergência: você chacoalhou o mouse.",
+  "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read.": "Chacoalhe o mouse com força para os lados para parar quando o app estiver movendo ele. Só a posição do mouse é lida.",
+  "Shake the mouse to stop.": "Chacoalhe o mouse para parar.",
+  "Stop AFK and recordings when I shake the mouse": "Parar o AFK e as gravações quando eu chacoalhar o mouse"
 }

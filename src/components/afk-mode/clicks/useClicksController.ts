@@ -428,10 +428,34 @@ export function useClicksController({ targetUserIds }: ClicksTabOptions = {}) {
             ? t("Tick at least one account")
             : null;
 
+  /**
+   * Parada de emergência por chacoalhar o mouse (`Afk.ShakeToStop`, desligada
+   * por padrão — commands/shake_stop.rs). Lida do store, que relê as settings
+   * ao sair da página Settings.
+   */
+  const shakeToStop = store.settings?.Afk?.ShakeToStop === "true";
+  const emergencyStop = store.afkEmergencyStop;
+
+  /**
+   * A linha de baixo da barra: a parada de emergência (com o modo parado), o
+   * que impede o Start, ou — ligado e com a opção — o lembrete de que
+   * chacoalhar o mouse para, já que o ciclo leva o cursor para longe do Parar.
+   */
+  const statusMessage: { text: string; tone: "muted" | "warn" | "error" } | null =
+    !running && emergencyStop?.afk
+      ? { text: t("Emergency stop: you shook the mouse."), tone: "warn" }
+      : startBlocker
+        ? { text: startBlocker, tone: "muted" }
+        : running && shakeToStop
+          ? { text: t("Shake the mouse to stop."), tone: "muted" }
+          : null;
+
   return {
     t,
     store,
     status,
+    statusMessage,
+    shakeToStop,
     running,
     nowMs,
     busy,

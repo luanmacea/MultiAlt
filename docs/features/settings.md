@@ -200,6 +200,7 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 | `BeepOnCycle` | `false` | Bipe curto (sintetizado, sem arquivo de áudio) quando um ciclo de envio termina. |
 | `Mode` | `key` | `key`, `click` ou `recording` (toca a gravação de cada conta na vaga On anti-AFK — [recordings.md](recordings.md#as-duas-vagas)). |
 | `ClickX`, `ClickY` | `50`, `50` | Ponto padrão do modo clique, em % da área interna da janela. |
+| `ShakeToStop` | `false` | "Stop AFK and recordings when I shake the mouse" (Settings › General): chacoalhar o mouse (4 viradas horizontais de ≥ 80 px em 1 s) para o Modo AFK e as gravações tocando. Lê só a posição do cursor. Só Windows. Ver [afk-mode.md](afk-mode.md#parada-de-emergência-chacoalhar-o-mouse). |
 
 ### `[Recordings]` — detalhes em [recordings.md](recordings.md)
 
