@@ -2438,16 +2438,11 @@
   "TinyTask file": "TinyTask file",
   "Waits longer than 60 s shortened to 60 s: {{count}}.": "Waits longer than 60 s shortened to 60 s: {{count}}.",
   "Window it was recorded in": "Window it was recorded in",
-  "AFK mode is on: stop it in AFK clicks to change what it sends.": "AFK mode is on: stop it in AFK clicks to change what it sends.",
   "After a reconnect, only the account that came back plays, and only once.": "After a reconnect, only the account that came back plays, and only once.",
-  "Every": "Every",
   "Every {{interval}} in AFK mode": "Every {{interval}} in AFK mode",
   "Every {{interval}} in AFK mode, and after a reconnect": "Every {{interval}} in AFK mode, and after a reconnect",
   "Open Recordings": "Open Recordings",
   "Plays after an automatic reconnect": "Plays after an automatic reconnect",
-  "Repeat every: minutes": "Repeat every: minutes",
-  "Repeat every: seconds": "Repeat every: seconds",
-  "Repeat in AFK mode": "Repeat in AFK mode",
   "What the app did: launch, Auto Rejoin, Watcher and errors, with where each line came from.": "What the app did: launch, Auto Rejoin, Watcher and errors, with where each line came from.",
   "Each new Roblox window takes the first free cell of the grid. Accounts with their own window size keep it.": "Each new Roblox window takes the first free cell of the grid. Accounts with their own window size keep it.",
   "Window grid": "Window grid",
@@ -2531,7 +2526,6 @@
   "Two separate choices: one plays after an automatic reconnect (to put the character in place), the other on every AFK mode turn.": "Two separate choices: one plays after an automatic reconnect (to put the character in place), the other on every AFK mode turn.",
   "Use global": "Use global",
   "Use global for {{slot}} on {{name}}": "Use global for {{slot}} on {{name}}",
-  "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.": "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.",
   "goes back to the global one.": "goes back to the global one.",
   "{{count}} account(s)": "{{count}} account(s)",
   "Choose a .rec file": "Choose a .rec file",
@@ -2558,5 +2552,7 @@
   "Stop AFK and recordings when I shake the mouse": "Stop AFK and recordings when I shake the mouse",
   "Added {{count}} account to the launch queue": "Added {{count}} account to the launch queue",
   "Added {{count}} accounts to the launch queue": "Added {{count}} accounts to the launch queue",
-  "Already waiting in the launch queue": "Already waiting in the launch queue"
+  "Already waiting in the launch queue": "Already waiting in the launch queue",
+  "Off. To play the anti-AFK recording on every AFK turn, pick Play the recording under What to send in AFK clicks.": "Off. To play the anti-AFK recording on every AFK turn, pick Play the recording under What to send in AFK clicks.",
+  "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).": "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks)."
 }

@@ -2438,16 +2438,11 @@
   "TinyTask file": "Arquivo do TinyTask",
   "Waits longer than 60 s shortened to 60 s: {{count}}.": "Esperas maiores que 60 s encurtadas para 60 s: {{count}}.",
   "Window it was recorded in": "Janela em que foi gravado",
-  "AFK mode is on: stop it in AFK clicks to change what it sends.": "O Modo AFK está ligado: pare em Cliques AFK para mudar o que ele envia.",
   "After a reconnect, only the account that came back plays, and only once.": "Depois de uma reconexão, só a conta que voltou toca, e uma vez só.",
-  "Every": "A cada",
   "Every {{interval}} in AFK mode": "A cada {{interval}} no Modo AFK",
   "Every {{interval}} in AFK mode, and after a reconnect": "A cada {{interval}} no Modo AFK, e depois de uma reconexão",
   "Open Recordings": "Abrir Gravações",
   "Plays after an automatic reconnect": "Toca depois de uma reconexão automática",
-  "Repeat every: minutes": "Repetir a cada: minutos",
-  "Repeat every: seconds": "Repetir a cada: segundos",
-  "Repeat in AFK mode": "Repetir no Modo AFK",
   "What the app did: launch, Auto Rejoin, Watcher and errors, with where each line came from.": "O que o app fez: launch, Auto Rejoin, Watcher e erros, com a origem de cada linha.",
   "Each new Roblox window takes the first free cell of the grid. Accounts with their own window size keep it.": "Cada janela nova do Roblox ocupa a primeira célula livre da grade. Contas com tamanho de janela próprio ficam com o delas.",
   "Window grid": "Grade de janelas",
@@ -2531,7 +2526,6 @@
   "Two separate choices: one plays after an automatic reconnect (to put the character in place), the other on every AFK mode turn.": "Duas escolhas separadas: uma toca depois da reconexão automática (para posicionar o personagem), a outra a cada vez do Modo AFK.",
   "Use global": "Usar a global",
   "Use global for {{slot}} on {{name}}": "Usar a global em {{slot}} para {{name}}",
-  "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.": "Com o Modo AFK ligado, cada conta toca de novo a sua gravação do anti-AFK neste intervalo, contado do fim da anterior. Escolha as contas e ligue em Cliques AFK.",
   "goes back to the global one.": "volta para a global.",
   "{{count}} account(s)": "{{count}} conta(s)",
   "Choose a .rec file": "Escolher arquivo .rec",
@@ -2558,5 +2552,7 @@
   "Stop AFK and recordings when I shake the mouse": "Parar o AFK e as gravações quando eu chacoalhar o mouse",
   "Added {{count}} account to the launch queue": "{{count}} conta entrou na fila de launch",
   "Added {{count}} accounts to the launch queue": "{{count}} contas entraram na fila de launch",
-  "Already waiting in the launch queue": "Já está esperando na fila de launch"
+  "Already waiting in the launch queue": "Já está esperando na fila de launch",
+  "Off. To play the anti-AFK recording on every AFK turn, pick Play the recording under What to send in AFK clicks.": "Desligado. Para tocar a gravação do anti-AFK a cada volta do AFK, escolha Tocar a gravação em O que enviar, nos Cliques AFK.",
+  "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).": "Ligado: com o Modo AFK rodando, cada conta toca a sua gravação do anti-AFK a cada {{interval}} (definido em Cliques AFK)."
 }

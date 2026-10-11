@@ -110,17 +110,14 @@ dono: configuração de muitas contas não vai para o painel de uma conta — ve
   à salva e o erro vira toast. Sem espaço para três colunas (container estreito),
   cada conta vira um bloco com o nome da vaga ao lado de cada lista. Biblioteca
   vazia: a área diz para criar ou importar uma gravação primeiro.
-- **When it plays** (pedido do dono, 11/10/2026: os dois gatilhos à vista, sem
-  caçar), na coluna da esquerda, em dois grupos com o nome das vagas. **After
-  auto-reconnect:** "Play after an automatic reconnect" e o tempo no jogo antes
-  de tocar. **On anti-AFK:** **Repeat in AFK mode** liga o modo gravação do
-  Modo AFK (`Afk.Mode = recording`; desligar volta a `key`) e, ligado, mostra o
-  intervalo em **minutos + segundos** (`Afk.IntervalMinutes`/`IntervalSeconds`,
-  os mesmos da aba AFK clicks); com o Modo AFK rodando, fica travado (a sessão
-  usa o que começou com ela). As contas e o Iniciar continuam na aba **AFK
-  clicks**. As duas abas gravam pelo `store.updateSetting` e ficam montadas
-  juntas: a AFK clicks segue o INI quando ele muda pela aba Recordings
-  (`useClicksController`).
+- **When it plays**, ao lado das contas, em dois grupos com o nome das vagas.
+  **After auto-reconnect:** "Play after an automatic reconnect" e o tempo no
+  jogo antes de tocar. **On anti-AFK:** só o estado, em uma frase — ligado (com
+  o intervalo) ou desligado, apontando para **What to send › Play the
+  recording** na aba **AFK clicks**. Até 11/10/2026 havia aqui um **Repeat in
+  AFK mode** com o intervalo, a mesma configuração da AFK clicks; o dono pediu
+  para tirar a duplicata: liga-se, escolhe-se o intervalo e as contas só na
+  AFK clicks (`Afk.Mode = recording`).
 - **A gravação aberta** (salva, sem mudança): uma linha por vaga dizendo para
   quem ela toca ("global, for every account without its own choice.", "own
   choice of N account(s)." ou "not used.") e, quando não é a global da vaga,

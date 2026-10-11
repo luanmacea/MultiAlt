@@ -8,7 +8,6 @@ import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { Select } from "../ui/Select";
 import { NumericInput } from "../ui/NumericInput";
 import { ToggleRow } from "../ui/ToggleRow";
-import { Toggle } from "../ui/Toggle";
 import { recordingTriggers } from "./recordings/triggers";
 import { RecordingSlots, slotLabel } from "./recordings/RecordingSlots";
 import { DANGER_ACTION, ModeStatusBar, NEUTRAL_ACTION, PRIMARY_ACTION } from "./ModeStatusBar";
@@ -135,14 +134,6 @@ export function RecordingsTab() {
   // Os gatilhos (Modo AFK e depois da reconexão), lidos do INI do store: a aba
   // AFK clicks grava pelo store também, então os dois lados se veem.
   const triggers = recordingTriggers(payload, store.settings);
-  const afkRunning = store.afkStatus?.active === true;
-  const iniAfk = store.settings?.Afk;
-  const [afkMinutes, setAfkMinutes] = useState(() => Math.floor(triggers.intervalSeconds / 60));
-  const [afkSeconds, setAfkSeconds] = useState(() => triggers.intervalSeconds % 60);
-  useEffect(() => {
-    setAfkMinutes(Math.floor(triggers.intervalSeconds / 60));
-    setAfkSeconds(triggers.intervalSeconds % 60);
-  }, [triggers.intervalSeconds, iniAfk?.IntervalMinutes, iniAfk?.IntervalSeconds]);
 
   const settingsRec = store.settings?.Recordings ?? {};
   const afterReconnect = settingsRec.AfterReconnect === "true";
@@ -428,10 +419,6 @@ export function RecordingsTab() {
 
   function persist(key: string, value: string) {
     void store.updateSetting("Recordings", key, value).catch(() => {});
-  }
-
-  function persistAfk(key: string, value: string) {
-    void store.updateSetting("Afk", key, value).catch(() => {});
   }
 
   const duration = draft ? recordingDurationMs(draft.steps) : 0;
@@ -757,48 +744,18 @@ export function RecordingsTab() {
                 <div id="recordings-when-afk" className="text-[11px] font-semibold uppercase tracking-wide theme-muted">
                   {slotLabel(t, "antiAfk")}
                 </div>
-                <Toggle
-                  checked={triggers.afkRepeats}
-                  disabled={afkRunning}
-                  onChange={(v) => persistAfk("Mode", v ? "recording" : "key")}
-                  label="Repeat in AFK mode"
-                  description={
-                    afkRunning
-                      ? "AFK mode is on: stop it in AFK clicks to change what it sends."
-                      : "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks."
-                  }
-                />
-                {triggers.afkRepeats ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[12px] theme-muted flex-1">{t("Every")}</span>
-                    <NumericInput
-                      value={afkMinutes}
-                      min={0}
-                      max={120}
-                      integer
-                      disabled={afkRunning}
-                      ariaLabel={t("Repeat every: minutes")}
-                      onChange={setAfkMinutes}
-                      onCommit={(v) => persistAfk("IntervalMinutes", String(v))}
-                      containerClassName="relative w-16"
-                      className="sidebar-input text-xs w-full"
-                    />
-                    <span className="text-[12px] theme-muted">{t("min")}</span>
-                    <NumericInput
-                      value={afkSeconds}
-                      min={0}
-                      max={59}
-                      integer
-                      disabled={afkRunning}
-                      ariaLabel={t("Repeat every: seconds")}
-                      onChange={setAfkSeconds}
-                      onCommit={(v) => persistAfk("IntervalSeconds", String(v))}
-                      containerClassName="relative w-16"
-                      className="sidebar-input text-xs w-full"
-                    />
-                    <span className="text-[12px] theme-muted">s</span>
-                  </div>
-                ) : null}
+                {/* Ligar e o intervalo moram na AFK clicks ("What to send"):
+                    aqui era a mesma configuração duplicada. Só o estado. */}
+                <p className="text-[12px] leading-4 theme-muted" data-testid="recordings-afk-state">
+                  {triggers.afkRepeats
+                    ? t(
+                        "On: while AFK mode runs, each account plays its anti-AFK recording every {{interval}} (set in AFK clicks).",
+                        { interval: formatDurationMs(triggers.intervalSeconds * 1000) }
+                      )
+                    : t(
+                        "Off. To play the anti-AFK recording on every AFK turn, pick Play the recording under What to send in AFK clicks."
+                      )}
+                </p>
               </div>
             </section>
             </div>
