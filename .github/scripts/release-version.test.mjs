@@ -33,11 +33,30 @@ describe("nextReleaseVersion", () => {
     const tags = [...SERIES_4, "v0.1.0-beta", "v0.4.2-beta"];
     expect(nextReleaseVersion({ current: "1.0.0", tags, bump: "patch" })).toEqual({
       version: "1.0.0",
-      previousTag: "",
+      // A anterior é a mais alta ABAIXO do número novo, de qualquer série: a
+      // série 4 fica de fora por ser maior.
+      previousTag: "v0.4.2-beta",
     });
     expect(nextReleaseVersion({ current: "0.3.0", tags: ["v0.1.5-beta"], bump: "patch" })).toEqual({
       version: "0.3.0",
       previousTag: "v0.1.5-beta",
+    });
+  });
+
+  /**
+   * 2.0.0 (11/10/2026): a primeira release de uma série nova não tem tag da
+   * própria série. Sem "anterior", as notas técnicas e o intervalo de
+   * contribuidores da release ficavam sem base de comparação.
+   */
+  it("uses the last release of the previous series as the previous tag of a new major", () => {
+    const tags = ["v0.1.0-beta", "v0.1.10-beta", "v1.0.0", "v1.0.1", "v1.1.0", "v1.2.0", "v1.2.1"];
+    expect(nextReleaseVersion({ current: "2.0.0", tags, bump: "minor" })).toEqual({
+      version: "2.0.0",
+      previousTag: "v1.2.1",
+    });
+    expect(nextReleaseVersion({ current: "2.0.0", tags: [...tags, "v2.0.0"], bump: "patch" })).toEqual({
+      version: "2.0.1",
+      previousTag: "v2.0.0",
     });
   });
 
