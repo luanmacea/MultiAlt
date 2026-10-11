@@ -62,6 +62,12 @@ export const windowMock = {
   startDragging: vi.fn(async () => {}),
   onMoved: vi.fn(async () => unlistenMock),
   onScaleChanged: vi.fn(async () => unlistenMock),
+  /**
+   * Área interna da janela (px físicos) e escala: o automático do tamanho da
+   * interface cresce com a janela grande. Padrão = a janela do app, 1100x700.
+   */
+  innerSize: vi.fn(async () => ({ width: 1100, height: 700 })),
+  scaleFactor: vi.fn(async () => 1),
 };
 
 /**

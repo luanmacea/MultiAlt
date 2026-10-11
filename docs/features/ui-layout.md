@@ -245,16 +245,37 @@ Em monitor de notebook (1920x1080 a 150% no Windows → monitor lógico de 1280x
 
 | Opção (INI) | Zoom |
 |---|---|
-| `auto` (padrão, também chave ausente ou valor desconhecido) | pelo tamanho do **monitor** da janela, ver abaixo |
-| `110` / `100` / `90` / `80` | fixo, ignora o monitor |
+| `auto` (padrão, também chave ausente ou valor desconhecido) | pela **janela** (cresce) e pelo **monitor** (encolhe), ver abaixo |
+| `110` / `100` / `90` / `80` | fixo, ignora janela e monitor |
 
-**Regra do automático** ([uiScale.ts](../../src/uiScale.ts), `autoUiScale`): `min(largura / 1440, altura / 800)`, arredondado **para baixo** em passos de 5% e preso entre 80% e 100%. Exemplos (monitor lógico): 2560x1440 → 100%; 1920x1080 a 125% (1536x864) → 100%; 1366x768 → 90%; 1920x1080 a 150% (1280x720) → 85%. Nunca passa de 100%: quem quer maior escolhe 110%.
+Quem nunca mexeu fica no automático; quem escolheu um tamanho fixo continua com ele — nada é migrado. Na lista, a opção mostra o zoom que o automático escolheu agora (**"Automatic (170%)"**; `useAppliedUiScale` em [useUiScale.ts](../../src/hooks/useUiScale.ts), publicado a cada `setZoom` bem-sucedido). Com um valor fixo salvo, a opção aparece só como "Automatic".
 
-- O tamanho usado é o **lógico do monitor** em que a janela está: `currentMonitor()` (pixels físicos) dividido pelo `scaleFactor` dele. **Não** é o da janela: a primeira versão usava a janela, e uma janela restaurada no tamanho padrão (1100x700) encolhia a interface para 80% até no monitor de 2560x1440 do dono. **Não** usar `window.innerWidth` também: está em px CSS, muda com o próprio zoom, e o zoom passaria a realimentar a conta que o decide.
-- [useUiScale.ts](../../src/hooks/useUiScale.ts) roda no [App.tsx](../../src/App.tsx) antes dos `return` antecipados, então vale também na tela de senha. Espera as settings chegarem (`store.settings !== null`) para quem escolheu valor fixo não ver o automático piscar na abertura. No automático recalcula em `onMoved` — a janela pode ter ido para outro monitor — (debounce de 150 ms); `setZoom` só é chamado quando o fator muda. A exceção é `onScaleChanged` (janela arrastada para monitor com outra escala): em qualquer modo, reaplica mesmo com o mesmo fator, porque a troca de DPI mexe na escala do WebView2 e o zoom não pode ficar para trás sem o hook perceber.
+**Regra do automático** ([uiScale.ts](../../src/uiScale.ts), `resolveUiScale`), duas metades que nunca brigam:
+
+- **Crescer, pela janela** (`growUiScale`, desde 11/10/2026): `min(largura / 2200, altura / 1240)` da área interna da janela em px lógicos, arredondado para o degrau de 5% **mais próximo** e preso entre 100% e 200%. 2200x1240 é o dobro do desenho do app: a tela crescida ainda tem o espaço de uma janela padrão. Exemplos: 4K a 100% maximizada (~3840x2090) → **170%**; 2560x1440 maximizada (~2560x1390) → 110%; 1920x1080 maximizada, janela padrão 1100x700 ou mínima → 100%. Pedido do dono: num monitor 4K a 100% tudo ficava pequeno no canto de cima.
+- **Encolher, pelo monitor** (`autoUiScale`): só quando a janela não cresceu. `min(largura / 1440, altura / 800)` do monitor lógico, arredondado **para baixo** em passos de 5% e preso entre 80% e 100%. Exemplos: 2560x1440 → 100%; 1920x1080 a 125% (1536x864) → 100%; 1366x768 → 90%; 1920x1080 a 150% (1280x720) → 85%. Janela acima de 2200x1240 só existe em monitor muito acima de 1440x800, então as duas metades não se cruzam.
+
+- Para **encolher**, o tamanho usado é o **lógico do monitor** em que a janela está: `currentMonitor()` (pixels físicos) dividido pelo `scaleFactor` dele. **Não** é o da janela: a primeira versão encolhia pela janela, e uma janela restaurada no tamanho padrão (1100x700) encolhia a interface para 80% até no monitor de 2560x1440 do dono. Para **crescer**, é a janela, mas só para cima — a janela padrão fica em 100%. O tamanho da janela vem de `getCurrentWindow().innerSize()` (px físicos) dividido por `scaleFactor()`. **Não** usar `window.innerWidth` em nenhuma das duas: está em px CSS, muda com o próprio zoom, e o zoom passaria a realimentar a conta que o decide.
+- [useUiScale.ts](../../src/hooks/useUiScale.ts) roda no [App.tsx](../../src/App.tsx) antes dos `return` antecipados, então vale também na tela de senha. Espera as settings chegarem (`store.settings !== null`) para quem escolheu valor fixo não ver o automático piscar na abertura. No automático recalcula em `onMoved` — a janela pode ter ido para outro monitor — e em `onResized` — maximizar/restaurar cresce ou devolve a interface — (debounce de 150 ms); `setZoom` só é chamado quando o fator muda. A exceção é `onScaleChanged` (janela arrastada para monitor com outra escala): em qualquer modo, reaplica mesmo com o mesmo fator, porque a troca de DPI mexe na escala do WebView2 e o zoom não pode ficar para trás sem o hook perceber.
 - A escolha vale **na hora**: a página Settings grava pelo `useSettings` dela e a store só relê as settings ao sair da página, então o `GeneralTab` também dispara o evento `ram-ui-scale` (`announceUiScale`), que o hook escuta até a store recarregar.
 - Com zoom, o viewport CSS simplesmente fica maior (janela de 1280 px lógicos a 85% = ~1506 px CSS). `100vh`, os tetos `max-h-[calc(100vh-…)]` dos diálogos, o posicionamento de menus/tooltips por `window.innerWidth` e `clientX` (tudo em px CSS) e o limiar da `NavSidebar` (900 px CSS de layout) continuam coerentes; o mínimo da janela (750x450 lógicos) vira ~937x562 px CSS a 80%. Arrastar pela `TitleBar` usa `startDragging`, que não depende de coordenada.
-- Fora do Tauri (testes, navegador) a API não existe: o hook engole o erro e a interface fica em 100%. No harness (`bun run dev:ui`) o `setZoom` é um no-op registrado em `window.__harness.calls()` como `plugin:webview|set_webview_zoom`.
+- Fora do Tauri (testes, navegador) a API não existe: o hook engole o erro e a interface fica em 100%. No harness (`bun run dev:ui`) o `setZoom` é um no-op registrado em `window.__harness.calls()` como `plugin:webview|set_webview_zoom`; a "janela" e o "monitor" do dublê são a própria aba (`innerWidth` x `devicePixelRatio`), lidos só na abertura — para ver o 170% na opção, abra a aba já no tamanho grande.
+
+### Janela grande (layout largo)
+
+Num monitor 4K a 100% (pedido do dono, 11/10/2026) a página Session parava em ~1040 px de lista + 300 px de coluna e o resto ficava vazio. Regra desde então: **listas, cartões e tabelas das páginas ocupam a largura**; teto de largura fica só para texto de leitura (`max-w-[68ch]` da frase do `PageShell`, notas de versão) e formulário (rótulo longe do controle). Travado por [wideLayout.test.ts](../../src/components/pages/wideLayout.test.ts): `max-w-[≥600px]` ou `max-w-3xl`+ em `pages/`, `session/`, `afk-mode/`, `console/` e `accounts/` só com exceção listada e motivo.
+
+| Página | Na janela grande |
+|---|---|
+| Session | Listas sem teto (`flex-1`). As linhas do **In game** viram 2 colunas com a lista a partir de 72rem (~1150 px) e 3 a partir de 110rem (~1760 px) — container query na própria lista (`@container/ingame`), então o painel estreito e a janela padrão continuam com uma coluna. A coluna de ajustes: 300 px (xl), 340 px (2xl), **640 px em duas colunas de cartões** a partir de 125rem (2000 px), 760 px a partir de 175rem (2800 px). |
+| Settings | Formulário: 760 px, 920 px a partir de 2xl. |
+| AFK Mode › Recordings | Coluna "When it plays" até 420 px com a área a partir de 80rem (antes 320 px). Clicks e Rejoin já seguiam o contêiner. |
+| Theme, Avatars, Scripts, Nexus | A coluna lateral fixa alarga um pouco a partir de 2xl (Theme 340, Avatars 380/320, Scripts 380, Nexus 320 px); o miolo já era `1fr`. |
+| Console, lista de contas, What's new | Sem mudança: já ocupavam a largura (What's new é texto de leitura, 880 px centralizado). |
+
+**Breakpoint arbitrário de janela é em rem** (`min-[125rem]:`, não `min-[2000px]:`): o Tailwind 4 não ordena px junto dos `sm:`…`2xl:` (em rem) — a regra em px saía **antes** no CSS e o `xl:w-[300px]` vencia o `min-[2000px]:w-[640px]` (achado no build, 11/10/2026). O `wideLayout.test.ts` recusa `min-[Npx]:`/`max-[Npx]:` em `src/components`.
+
+Com o automático, uma janela 4K maximizada fica em ~2260 px CSS (170%); com 100% fixo, em 3840 px CSS — o layout cobre os dois. Medido no harness (11/10/2026, cenário `client-drops`, 8 contas): 820, 1100, 2300 e 3840 px de largura sem rolagem lateral; em 2300 px, listas com 1400 px e 2 colunas de linhas; em 3840 px, 3 colunas.
 
 ### Status bar
 
@@ -298,7 +319,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 | `General.MinimizeToTray` | Botão fechar da TitleBar esconde na bandeja. |
 | `General.ThemeWindowsNavbar` | Barra nativa segue o tema. |
 | `General.RestrictedBackgroundStyle` | Fundo da tela de senha. |
-| `General.InterfaceScale` | Tamanho da interface: `auto` (padrão) ou `110`/`100`/`90`/`80` (ver "Tamanho da interface"). |
+| `General.InterfaceScale` | Tamanho da interface: `auto` (padrão; cresce com a janela grande, encolhe em monitor pequeno) ou `110`/`100`/`90`/`80` (ver "Tamanho da interface"). |
 | `General.GridGap`, `GridMonitors` | Arranjo em grade (cartão Window grid da página Console). |
 | `General.AutoArrangeGrid` | Grade automática no launch (cartão Window grid da página Console e Settings > Optimization). |
 | `General.FirstRunWalkthroughState` | Exibição do walkthrough inicial. |

@@ -46,7 +46,7 @@ export function BuildTab({
   const { activeCategory, selection, skinColor } = draft;
 
   return (
-    <div className="h-full grid grid-cols-[176px_minmax(0,1fr)_272px] gap-3">
+    <div className="h-full grid grid-cols-[176px_minmax(0,1fr)_272px] 2xl:grid-cols-[200px_minmax(0,1fr)_320px] gap-3">
       {/* Categorias */}
       <nav
         aria-label={t("Categories")}

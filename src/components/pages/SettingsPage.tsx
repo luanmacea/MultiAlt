@@ -107,7 +107,10 @@ export function SettingsPage({
       </nav>
 
       <div ref={scrollRef} data-tour="settings-content" className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-[760px] px-7 py-5">
+        {/* Formulário: rótulo à esquerda, controle à direita. Esticado na
+            janela de um monitor 4K, o controle ia parar longe do rótulo —
+            fica numa medida confortável, um pouco mais larga em tela grande. */}
+        <div className="max-w-[760px] 2xl:max-w-[920px] px-7 py-5">
           <h2 className="mb-3 text-[14px] font-semibold text-[var(--panel-fg)]">{t(current.label)}</h2>
           <TabContent
             activeTab={current.id}

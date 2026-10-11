@@ -1,12 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, type ReactNode } from "react";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
+vi.mock("@tauri-apps/api/window", async () => (await import("../../test-utils/tauriMocks")).tauriWindowMock());
+vi.mock("@tauri-apps/api/webview", async () => (await import("../../test-utils/tauriMocks")).tauriWebviewMock());
 vi.mock("@tauri-apps/plugin-autostart", () => ({
   enable: vi.fn(async () => {}),
   disable: vi.fn(async () => {}),
@@ -28,7 +30,14 @@ import { OptimizationTab } from "./OptimizationTab";
 import { VersionsTab } from "./VersionsTab";
 import { useSettings, type UseSettingsReturn } from "../../hooks/useSettings";
 import { setStore } from "../../test-utils/renderWithStore";
-import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
+import {
+  invokeMock,
+  monitorMock,
+  resetTauriMocks,
+  setInvokeHandler,
+  windowMock,
+} from "../../test-utils/tauriMocks";
+import { useUiScale } from "../../hooks/useUiScale";
 import { ENABLE_WEBSERVER } from "../../featureFlags";
 import type { PlatformCapabilities } from "../../types";
 import i18n from "../../i18n";
@@ -429,7 +438,9 @@ describe("GeneralTab", () => {
     window.addEventListener("ram-ui-scale", onAnnounce);
     try {
       renderGeneral();
-      expect(await screen.findByText("Auto shrinks the interface on smaller screens")).toBeInTheDocument();
+      expect(
+        await screen.findByText("Automatic follows the screen: smaller on small screens, larger in big windows")
+      ).toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "Interface size" }));
       await userEvent.click(await screen.findByText("90%"));
       await expectSaved("General", "InterfaceScale", "90");
@@ -442,6 +453,33 @@ describe("GeneralTab", () => {
   it("shows Automatic when the interface size was never set", async () => {
     renderGeneral();
     expect(await screen.findByRole("button", { name: "Interface size" })).toHaveTextContent("Automatic");
+  });
+
+  /**
+   * Monitor 4K a 100% com a janela maximizada: o automático cresce a interface
+   * e a opção diz quanto ("Automatic (170%)"), para o dono saber o que vale.
+   */
+  it("shows the size Automatic picked next to it", async () => {
+    monitorMock.mockResolvedValue({ size: { width: 3840, height: 2160 }, scaleFactor: 1 });
+    windowMock.innerSize.mockResolvedValue({ width: 3840, height: 2090 });
+    try {
+      renderHook(() => useUiScale("auto"));
+      renderGeneral();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Interface size" })).toHaveTextContent("Automatic (170%)")
+      );
+    } finally {
+      monitorMock.mockResolvedValue({ size: { width: 1440, height: 800 }, scaleFactor: 1 });
+      windowMock.innerSize.mockResolvedValue({ width: 1100, height: 700 });
+    }
+  });
+
+  it("a fixed size shows plain Automatic in the list", async () => {
+    renderGeneral({ General: { InterfaceScale: "90" } });
+    const button = await screen.findByRole("button", { name: "Interface size" });
+    expect(button).toHaveTextContent("90%");
+    await userEvent.click(button);
+    expect(await screen.findByText("Automatic")).toBeInTheDocument();
   });
 
   it("saves the picked language", async () => {

@@ -428,6 +428,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/types.test.ts",
       "src/tauriWindowConfig.test.ts",
       "src/uiScale.test.ts",
+      // Janela grande: páginas sem teto de largura em lista/cartão.
+      "src/components/pages/wideLayout.test.ts",
       "src/repoOwnership.test.ts",
       "src/utils",
       "src/featureFlags.test.ts",
