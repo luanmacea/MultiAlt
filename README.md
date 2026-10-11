@@ -73,7 +73,7 @@ Only download from this repository. The `zz-…sig` files on the [releases page]
 | Optimization | FPS cap, graphics, window size, process priority, EcoQoS, CPU/memory limits and FastFlags — one profile for normal play and separate ones for Auto Rejoin mains and alts |
 | Pre-launch isolation | Clears cache, registry traces, MachineGuid and MAC before each launch so one account doesn't inherit another's session (Windows, only when no client is open) |
 | Scripts | JavaScript automation inside the manager (sandboxed, with per-script permissions) using the `ram.*` API |
-| Local Web API / Nexus | Local HTTP API and a WebSocket server for external tools and `Nexus.lua`. **Full edition only:** `MultiAlt_<version>_Full-Setup.msi` on the [releases page](https://github.com/luanmacea/MultiAlt/releases/latest) |
+| Local Web API / Nexus | Local HTTP API and a WebSocket server for external tools and `Nexus.lua` (not in the standard installer) |
 
 ### App
 | Feature | What it does |
