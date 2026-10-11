@@ -32,7 +32,7 @@ Três telas cobrem quase tudo: a **lista de contas** (principal), a **Choose Gam
 |---|---|
 | `Filter accounts...` | Filtra a lista. Atenção: contas escondidas pelo filtro **continuam selecionadas** e sujeitas às ações em lote. |
 | ícone de checkbox | `Select all` / `Deselect all`. |
-| `Names shown` / `Names hidden` | Mascara os nomes das contas em todas as telas, inclusive toasts e confirmações (para gravar tela). Quantas letras ficam visíveis: Settings › General › `Preview Letters`. |
+| `Names shown` / `Names hidden` | Mascara os nomes das contas em todas as telas, inclusive toasts e confirmações (para gravar tela). Quantas letras ficam visíveis: Settings › Privacy & security › `Preview Letters`. |
 | ícone de painel | Mostra/esconde o painel de detalhes. Fica desabilitado quando não há exatamente uma conta selecionada. |
 | `Presets` | Presets de launch: "estas contas → este jogo/servidor" salvos com nome, abertos com `Launch`; opcionalmente abrem e fecham sozinhos num horário (só com o app aberto, e fechar mexe só no que o preset abriu). Ver [presets.md](features/presets.md). |
 | `Add ▾` | Todas as formas de trazer conta para dentro (abaixo). |
@@ -101,7 +101,7 @@ Abre com contas selecionadas e mostra `N accounts will be launched together` com
 |---|---|
 | `Favorites` | Seus jogos salvos, com servidores VIP/privados guardados por jogo. Tem `Browse servers` como as outras listas. |
 | `Games` | Busca na Roblox. Cada card traz `Browse servers`, `Favorite` e `Join Game`. |
-| `Recent` | Jogos abertos recentemente, com as mesmas ações das outras listas (tamanho em Settings › General › `Max Recent Games`). |
+| `Recent` | Jogos abertos recentemente, com as mesmas ações das outras listas (tamanho em Settings › App › `Max Recent Games`). |
 | `Servers` | Varredura de servidores do place, ordenada por **quanto o lote cabe**. Filtros: `Sort by`, `Region`, `Pages to scan`. |
 | `Friends` | Amigos online de cada conta; `Join` manda o lote inteiro para o servidor do amigo. |
 | `Follow` | **`Join link`** (cola qualquer link de convite/servidor privado) e **`Follow a Player`** (por nome de usuário). Também atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
@@ -127,11 +127,16 @@ As duas em negrito abrem a tela já **com aquele jogo preenchido** — antes era
 
 ## 4. Settings
 
-Seções numa lista vertical à esquerda. As mais úteis no dia a dia:
+Seções numa lista vertical à esquerda: as do dia a dia em cima, as técnicas embaixo, sob **Advanced**. Até 11/10/2026 havia uma `General` com ~40 opções e uma `Misc`; viraram as seis primeiras abaixo (as chaves do INI não mudaram).
 
 | Aba | O que mora ali |
 |---|---|
-| `General` | Idioma, updates, **Multi Roblox**, **Auto Rejoin**, `Launch one account at a time` e o atraso entre lançamentos (piso de 8 s), presença, nomes ocultos, navegador de login. |
+| `Launch` | `Launch does nothing?` (a checagem), **Multi Roblox** (+ o experimental de teleporte e `Auto Close Roblox for Multi Roblox`), `Launch one account at a time`, o atraso entre contas (piso de 8 s), esperar a conta entrar no jogo, e o que roda antes de cada launch: checar ban, avisar conta online, `Auto Close Last Process`, `Shuffle Job ID`. |
+| `Keep in game` | **Auto Rejoin** (o interruptor; as opções dele ficam na página AFK Mode, com botão até lá), o estado do "Reconnect accounts that drop" com botão para a página Session (onde ele muda), PC acordado e chacoalhar o mouse para parar. |
+| `Accounts` | Lista de contas (presença e o intervalo dela, nomes longos, alerta de idade, imagens, refresh de cookie) e navegador de login (perfil persistente, menos sinais de automação, executável próprio, navegador embutido). |
+| `Privacy & security` | Nomes ocultos (letras visíveis, avatares, Robux, nome na janela do Roblox), criptografia do arquivo de contas, aviso ao copiar credencial, **trancar por inatividade** (só com senha do app; a tela tranca e tudo continua rodando), "lembrar senha" e o fundo da tela de senha. |
+| `Updates` | Checar ao abrir, canal de release, canal de edição e checar agora. |
+| `App` | Idioma, tamanho da interface, barra do Windows com o tema, abrir com o Windows, bandeja, tamanho das listas de recentes, formato da região e o walkthrough. |
 | `Backups` | Criar, listar, restaurar e apagar backups (contas, settings, scripts e temas), com a pasta de dados e o aviso de chave no zip. |
 | `Developer` | `Enable Developer Mode` (destrava itens do menu de contexto), web server, diagnóstico de mutex. |
 | `WebServer` | API HTTP local para ferramentas externas. A aba é sempre visível; os ajustes destravam com Developer Mode ou com o servidor ligado. A senha precisa de 6+ caracteres ou o servidor responde 401 a tudo. |
@@ -140,11 +145,9 @@ Seções numa lista vertical à esquerda. As mais úteis no dia a dia:
 | `Isolation` | Limpeza de rastros antes de cada launch (cache, registro, MachineGuid, MAC). Windows. |
 | `Versions` | Versão padrão do Roblox e o baixador de versões. |
 | `Optimization` | FPS, gráficos, tamanho de janela e política de processo do Windows — um perfil por papel: `Normal`, `Auto Rejoin Main` e `Auto Rejoin Alt` (os dois últimos só aparecem com o Auto Rejoin ligado e perfis separados). |
-| `Misc` | Sincronia dos campos de launch, shuffle de Job ID, criptografia, **trancar por inatividade** (só com senha do app; a tela tranca e tudo continua rodando) e "lembrar senha". |
+Em Launch também fica, **desligado**, `Experimental: keep clients open across teleports` (só com Multi Roblox): reserva o nome que o Roblox usa para permitir uma janela só, para um teleporte não fechar outra conta. Ainda falta teste com teleporte de verdade.
 
-Em General também fica, **desligado**, `Experimental: keep clients open across teleports` (só com Multi Roblox): reserva o nome que o Roblox usa para permitir uma janela só, para um teleporte não fechar outra conta. Ainda falta teste com teleporte de verdade.
-
-**Dois interruptores em General mudam o app inteiro:** `Multi Roblox` (várias instâncias ao mesmo tempo) e `Auto Rejoin` (destrava todo o ciclo de rejoin automático). Sem eles ligados, várias funcionalidades simplesmente não aparecem.
+**Dois interruptores mudam o app inteiro:** `Multi Roblox` (Launch; várias instâncias ao mesmo tempo) e `Auto Rejoin` (Keep in game; põe o Auto Rejoin na barra de ações da lista e separa os perfis de otimização). Sem eles ligados, várias funcionalidades simplesmente não aparecem.
 
 ---
 
@@ -159,7 +162,7 @@ Em General também fica, **desligado**, `Experimental: keep clients open across 
 | `Roblox Versions` | Add ▾ ou Settings › Versions | Instala, rotula e remove versões do cliente; `Browse` lista o catálogo remoto. |
 | `Backups` | Settings › Backups | Cópia de contas, settings, scripts e temas; restaura com backup de segurança automático. |
 | `Theme Editor` | toolbar | Cores, estilo de botão e fontes; presets exportáveis. |
-| `Launch check` | Settings › General › `Launch does nothing?` ou o botão `Check what's wrong` da faixa de erro do launch | Confere Roblox instalado, pastas graváveis, internet até o Roblox, processos do Roblox sem janela e o Multi Roblox; cada linha diz o que fazer. **Só olha**: nunca fecha nada. Ver [support.md](features/support.md). |
+| `Launch check` | Settings › Launch › `Launch does nothing?` ou o botão `Check what's wrong` da faixa de erro do launch | Confere Roblox instalado, pastas graváveis, internet até o Roblox, processos do Roblox sem janela e o Multi Roblox; cada linha diz o que fazer. **Só olha**: nunca fecha nada. Ver [support.md](features/support.md). |
 | `Session` | barra lateral | Números de agora (jogando, reconectando, não responde, entrando — cada um filtra a lista), fila de lançamento (cancelar) e clientes abertos **agrupados por jogo e servidor**, com quem precisa de atenção no topo (focar; fechar em dois cliques na linha; `Close all clients` / `Close selected` com confirmação que lista as contas). Por linha, chips de teto de memória e de reconexão automática; os mesmos menus valem para as marcadas, na barra presa ao pé da lista. Depois, os ajustes: `Reconnect accounts that drop`, gravações e teto de memória de todas as contas. |
 
 ---

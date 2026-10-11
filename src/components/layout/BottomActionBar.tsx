@@ -50,7 +50,7 @@ export function BottomActionBar() {
     "Keeps a group of accounts in one server by closing and relaunching each client every few minutes. Needs Multi Roblox."
   );
   const bottingOffHint = t(
-    "Keeps a group of accounts in one server by closing and relaunching each client every few minutes. Needs Multi Roblox — turn it on in Settings › General."
+    "Keeps a group of accounts in one server by closing and relaunching each client every few minutes. Needs Multi Roblox. Auto Rejoin is off: turn it on in Settings › Keep in game."
   );
   const activeBottingIds = useMemo(
     () => new Set(store.bottingStatus?.userIds || []),
@@ -209,8 +209,8 @@ export function BottomActionBar() {
   // Com o modo desligado o diálogo não adianta: leva direto para o toggle.
   function handleOpenBottingSettings() {
     setActionsOpen(false);
-    store.addToast(t("Auto Rejoin is off — enable it in Settings › General."));
-    store.setSettingsOpen(true);
+    store.addToast(t("Auto Rejoin is off — enable it in Settings › Keep in game."));
+    store.openSettingsSection("keep-in-game");
   }
 
   async function handleRestartClients() {

@@ -126,7 +126,7 @@ src/                          - Frontend React/TypeScript
     accounts/                 - Lista de contas, linhas, chips, painel de UMA conta (DetailSidebar → SingleSelectSidebar). O painel de multi-seleção foi apagado: ação em lote fica na BottomActionBar e na Choose Game
     dialogs/                  - Modais: AddAccount, Import, Botting (Auto Rejoin), Afk, Backups, Generator, Versions, AccountUtils, AccountFields, Update
     pages/                    - Páginas da barra lateral (`activePage`): PageShell, Session, Afk, Avatars (+ `pages/avatars/`), Scripts, Theme, Nexus, Settings — ver docs/features/ui-layout.md
-    settings/                 - Seções da página Settings: General, Developer, WebServer, Watcher, Account Generator, Isolation, Versions, Optimization, Misc
+    settings/                 - Seções da página Settings: Launch, Keep in game, Accounts, Privacy & security, Updates, App, Backups e, em Advanced, Developer, WebServer, Watcher, Account Generator, Isolation, Versions, Optimization
     server-list/              - Diálogo Server List: Games, Servers, Favorites, Recent
     servers/                  - Aba Servers da Choose Game (varredura, preferência de servidor, região)
     friends/                  - Aba Friends da Choose Game

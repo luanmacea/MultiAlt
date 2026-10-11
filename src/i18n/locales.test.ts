@@ -172,7 +172,6 @@ const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   // Presets de launch: "place" e "VIP" não se traduzem (glossário).
   "Place {{placeId}}",
   "VIP: {{name}}",
-  "General",
   "WebServer",
   "Watcher",
   "auto rejoin",

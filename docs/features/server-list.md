@@ -162,7 +162,7 @@ O comando `parse_private_server_link_code(userId, placeId, linkCode)` ([private_
 | `General.WarnOnOnlineJoin` | `true` | Confirmação antes de entrar com conta já online. |
 | `General.SavedPlaceId`, `SavedJobId`, `SavedLaunchData` | — | Últimos valores digitados, restaurados no startup. |
 | `General.ServerRegionFormat` | `<city>, <countryCode>` | Exibido/editável em Settings → General (ver armadilhas). |
-| `General.ShuffleJobId` | `false` | Opção "Shuffle Job ID" (Misc). |
+| `General.ShuffleJobId` | `false` | Opção "Shuffle Job ID" (Settings › Launch › Before each launch). |
 
 ## Armadilhas / cuidados
 

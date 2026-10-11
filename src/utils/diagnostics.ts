@@ -90,13 +90,13 @@ export function diagnosticText(check: DiagnosticCheck, t: T): DiagnosticText {
     case "multiRoblox.off":
       return {
         title: t("Multi Roblox is off"),
-        detail: t("Only one Roblox window at a time. Turn it on in Settings › General to play several accounts at once."),
+        detail: t("Only one Roblox window at a time. Turn it on in Settings › Launch to play several accounts at once."),
       };
     case "multiRoblox.offWithClients":
       return {
         title: t("Multi Roblox is off and Roblox is already open"),
         detail: t(
-          "Opening another account closes the one that's open, or doesn't start at all. Turn on Multi Roblox in Settings › General."
+          "Opening another account closes the one that's open, or doesn't start at all. Turn on Multi Roblox in Settings › Launch."
         ),
       };
     case "multiRoblox.legacyRam":

@@ -558,14 +558,14 @@ describe("BottomActionBar — Botting Mode discovery", () => {
     settings.General.BottingEnabled = "true";
     renderBar([A, B], { settings });
     await openActions();
-    expect(screen.queryByText(/turn it on in Settings/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/turn it on in Settings › Keep in game/i)).not.toBeInTheDocument();
   });
 
   it("points at Settings instead of the dialog while the mode is off", async () => {
     const store = renderBar([A, B]);
     await openActions();
     await userEvent.click(screen.getByRole("button", { name: /Auto Rejoin/ }));
-    expect(store.setSettingsOpen).toHaveBeenCalledWith(true);
+    expect(store.openSettingsSection).toHaveBeenCalledWith("keep-in-game");
     expect(store.openBottingDialog).not.toHaveBeenCalled();
     expect(store.openAfkMode).not.toHaveBeenCalled();
   });

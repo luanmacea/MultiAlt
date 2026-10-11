@@ -320,6 +320,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     activePage: "accounts" as const,
     setActivePage: vi.fn(),
     setSettingsOpen: vi.fn(),
+    settingsSectionRequest: null,
+    openSettingsSection: vi.fn(),
     reloadSettings: vi.fn(async () => {}),
     updateSetting: vi.fn(async () => {}),
 

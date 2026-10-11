@@ -48,8 +48,8 @@ export function ReconnectChip({
     ? t("Nexus AutoRelaunch is on for this account, so it reconnects even with this off.")
     : own === null
       ? globalDefault
-        ? t("Following the default from Settings › General (on).")
-        : t("Following the default from Settings › General (off).")
+        ? t("Following the default for all accounts (on).")
+        : t("Following the default for all accounts (off).")
       : effective
         ? t("Reconnects if it drops (set for this account)")
         : t("Does not reconnect if it drops (set for this account)");

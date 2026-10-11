@@ -168,7 +168,7 @@ describe("NavSidebar — items", () => {
 
   /**
    * Pedido do dono (08/10/2026): o Help some por enquanto (pode virar FAQ). O
-   * tutorial continua em Settings › General. O recolher fica sozinho na linha,
+   * tutorial continua em Settings › App. O recolher fica sozinho na linha,
    * à direita com a barra aberta e no centro recolhida.
    */
   it("hides Help by default", async () => {

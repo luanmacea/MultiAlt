@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { autoUiScale, growUiScale, normalizeUiScaleSetting, resolveUiScale, UI_SCALE_SETTINGS } from "./uiScale";
 
 /**
- * Tamanho da interface (Settings › General). Em monitor de notebook (janela
+ * Tamanho da interface (Settings › App). Em monitor de notebook (janela
  * lógica ~1280x690, 1920x1080 a 150%) a interface ocupava a tela toda; no
  * monitor grande (2560x1440) estava certa. "Automatic" encolhe pelo tamanho
  * lógico da janela — que não muda com o zoom, senão o zoom realimentaria a conta.

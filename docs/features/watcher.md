@@ -179,8 +179,9 @@ continua sem relançar nada).
   painel de uma conta, que quem tem muitas contas não abre):
   - o **padrão de todas as contas** é `General.AutoReconnect`, "Reconnect
     accounts that drop" — no cartão "Keep accounts in game" do resumo da
-    página e em Settings › General, mesmo texto, mesma setting (a página grava
-    por `store.updateSetting`; a Settings relê o INI ao abrir);
+    página (grava por `store.updateSetting`). É o único interruptor dele desde
+    11/10/2026: Settings › Keep in game mostra se está ligado e tem o botão
+    "Change it on the Session page", que leva até aqui;
   - **por conta**, um chip **↻ On/Off** em cada linha da lista **In game** do
     Painel de Sessão ([ReconnectChip.tsx](../../src/components/session/ReconnectChip.tsx);
     campo `AutoReconnect` = `true`/`false`). O texto apagado quer dizer que a

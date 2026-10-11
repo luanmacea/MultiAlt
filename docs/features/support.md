@@ -17,7 +17,7 @@ Ajudar quem relata "clico e nada acontece" sem precisar de conversa longa:
 | Checagens (backend) | `src-tauri/src/commands/diagnostics.rs` — comando `run_launch_diagnostics`, funções puras `install_check`, `folder_check`, `probe_folder_writable`, `internet_check`, `count_stuck_processes`, `multi_roblox_check` |
 | Frases (frontend) | `src/utils/diagnostics.ts` — `diagnosticText`, `overallStatus`, `diagnosticsSummaryLines` |
 | Tela | `src/components/dialogs/DiagnosticsDialog.tsx` (estado `diagnosticsOpen` na store) |
-| Entradas | Settings › General › "Launch does nothing?" e o botão "Check what's wrong" da faixa de erro (`App.tsx`), que aparece quando há log de launch |
+| Entradas | Settings › Launch › "Launch does nothing?" (primeiro cartão da seção) e o botão "Check what's wrong" da faixa de erro (`App.tsx`), que aparece quando há log de launch |
 | Resumo do relato | `src/utils/problemReport.ts` (`buildProblemReport`, `anonymizeContextFor`), `src/utils/anonymize.ts` (`anonymize`), `src/components/dialogs/FeedbackDialog.tsx` (passo "Report a problem"), comando `get_report_environment` em `src-tauri/src/commands/services.rs` e `os_version_label` em `platform/windows/core.rs` |
 
 ## Fluxo

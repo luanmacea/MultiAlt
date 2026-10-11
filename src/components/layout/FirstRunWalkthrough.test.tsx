@@ -114,7 +114,7 @@ describe("FirstRunWalkthrough — pages", () => {
     const store = openTour();
     await gotoStep(/Power settings/i);
     await userEvent.click(screen.getByRole("button", { name: /Open Settings/i }));
-    expect(store.setActivePage).toHaveBeenCalledWith("settings");
+    expect(store.openSettingsSection).toHaveBeenCalledWith("launch");
   });
 });
 

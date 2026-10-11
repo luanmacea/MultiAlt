@@ -2068,7 +2068,7 @@ describe("backend events", () => {
   });
 
   /**
-   * `browserDownload` é o que a Settings > General "Bundled Browser" usa para
+   * `browserDownload` é o que a Settings > Accounts "Bundled Browser" usa para
    * desenhar a barra de progresso e o botão Download/Reinstall — trilha o
    * mesmo evento do teste acima, mas guarda estado em vez de só mostrar toast.
    */
@@ -3340,6 +3340,24 @@ describe("activePage", () => {
     act(() => result.current.setActivePage("avatars"));
     act(() => result.current.setSettingsOpen(false));
     expect(result.current.activePage).toBe("avatars");
+  });
+
+  /**
+   * Settings › General virou seções (11/10/2026): quem manda para as Settings
+   * por causa de um ajuste (Auto Rejoin desligado, login com CAPTCHA) abre a
+   * seção dele, não a primeira.
+   */
+  it("openSettingsSection opens the Settings page on that section", async () => {
+    const { result } = await renderStore();
+    expect(result.current.settingsSectionRequest).toBeNull();
+    act(() => result.current.openSettingsSection("accounts"));
+    expect(result.current.activePage).toBe("settings");
+    const first = result.current.settingsSectionRequest;
+    expect(first?.section).toBe("accounts");
+    // Pedir a mesma seção de novo é outro pedido (o usuário pode ter trocado de seção no meio).
+    act(() => result.current.openSettingsSection("accounts"));
+    expect(result.current.settingsSectionRequest).not.toBe(first);
+    expect(result.current.settingsSectionRequest?.seq).toBeGreaterThan(first!.seq);
   });
 
   it("reopening the walkthrough from Settings leaves the Settings page", async () => {
