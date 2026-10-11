@@ -1,11 +1,11 @@
 {
-  "version": "1.2.1",
-  "notes": "<!-- release-kind: fix -->\n**🩹 Hotfix**\n\n> [!NOTE]\nThis is a stable release intended for general use.\n\nChannel: Stable\nRelease commit: e5267d6\nApp version: 1.2.1\n\n## What's Changed\n* Hotfix: AFK mode focus (#23) [channel:stable] [type:fix] by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/24\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v1.2.0...v1.2.1",
-  "pub_date": "2026-10-10T20:05:40.2655308Z",
+  "version": "1.3.0",
+  "notes": "<!-- release-kind: mixed -->\n**📦 General update**\n\n> [!NOTE]\nThis is a stable release intended for general use.\n\nChannel: Stable\nRelease commit: e817ed2\nApp version: 1.3.0\n\n## What's Changed\n* MultiAlt 1.3.0: drops, auto-reconnect and Nexus fix [channel:stable] by @luanmacea in https://github.com/luanmacea/MultiAlt/pull/26\n\n\n**Full Changelog**: https://github.com/luanmacea/MultiAlt/compare/v1.2.1...v1.3.0",
+  "pub_date": "2026-10-11T20:00:11.2433073Z",
   "platforms": {
     "windows-x86_64-msi": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclhIa1RHUUVLeWR4S3h1dlQvazc2K1E3c2ZSdjIvbytVbmJ1Y1dxeDRUUHZ2UFlUY1RubmdOZEdRcnlUZDlGazRObFg2SXNWVStZVFptN2RtQUx2K1FFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNjYyNzM5CWZpbGU6TXVsdGlBbHRfMS4yLjFfeDY0X2VuLVVTLm1zaQprdzg4OTJEUmV2MHY3T0hnZGdrZHl5bVQ3WlpWN2RzYnI4bXdjbm1pOE8xbjhmWFdqQlB3aUV3VWFwdVR3U293a1V1TDQyZ1czb0RSa3lrR0hHRkpEdz09Cg==",
-      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v1.2.1/MultiAlt_1.2.1_Full-Setup.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSVkVJb2JudGdkclNENnMyQm0wNEFHUmJsTi9CYzUxOVkwbjI0aktPV1ZWZzFGM2lzWEhRRWhhdjdwZDcrSHFEMWlnMmJSc0JXRG1WaVh0Snd5Y00ySUdVWUpPMHhQcGdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNzQ4ODEwCWZpbGU6TXVsdGlBbHRfMS4zLjBfeDY0X2VuLVVTLm1zaQoxeWZtd21TZFY5dVJkdWxQYXNmRHJ3NGpRQ0d4dFlaY2VvUmtVNkJQeXYrMmZVYTRGQXRQNWIyQlZpcE5zRHZKTmQ2a0JQTTh4ajJmUUFjbXN3cEFCQT09Cg==",
+      "url": "https://github.com/luanmacea/MultiAlt/releases/download/v1.3.0/MultiAlt_1.3.0_Full-Setup.msi"
     }
   }
 }
