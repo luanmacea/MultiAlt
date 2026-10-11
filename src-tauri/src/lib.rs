@@ -61,6 +61,7 @@ include!("commands/moderation.rs");
 include!("commands/account_check.rs");
 include!("commands/reconnect.rs");
 include!("commands/keep_awake.rs");
+include!("commands/memory_ceiling.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -85,6 +86,67 @@ fn exit_cleanup_plan(multi_rbx_enabled: bool, roblox_clients: usize) -> ExitClea
         return ExitCleanup::Nothing;
     }
     ExitCleanup::ReleaseSingleton
+}
+
+/// O que fazer, ao fechar, com o que o launch mudou nos arquivos do Roblox
+/// (ideia 21, `General.RestoreRobloxSettingsOnExit`).
+#[derive(Debug, PartialEq, Eq)]
+enum SettingsOnExit {
+    /// Nada anotado, ou nada a fazer agora.
+    Nothing,
+    /// Devolve os valores do usuário.
+    Restore,
+    /// Um cliente que o app abriu ainda roda: ele relê e regrava esses
+    /// arquivos. A anotação fica para o próximo fechar. Nenhum cliente é
+    /// fechado por isso.
+    WaitForClients,
+    /// A opção foi desligada: esquece o anotado (sem mexer nos arquivos).
+    Discard,
+}
+
+fn settings_on_exit_plan(enabled: bool, pending: bool, app_clients_running: bool) -> SettingsOnExit {
+    if !pending {
+        return SettingsOnExit::Nothing;
+    }
+    if !enabled {
+        return SettingsOnExit::Discard;
+    }
+    if app_clients_running {
+        return SettingsOnExit::WaitForClients;
+    }
+    SettingsOnExit::Restore
+}
+
+/// Ao fechar: devolve as configurações do Roblox (ideia 21). Antes da limpeza
+/// do Multi Roblox, que esvazia o rastreamento. Nunca fecha cliente.
+#[cfg(target_os = "windows")]
+static SETTINGS_EXIT_DECIDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "windows")]
+fn restore_roblox_settings_on_exit(app: &AppHandle<Wry>) {
+    use platform::windows;
+    // Decide uma vez só: o `Exit` vem depois do `ExitRequested`, com o
+    // rastreamento já esvaziado pela limpeza do Multi Roblox — e aí pareceria
+    // que nenhum cliente do app está aberto.
+    if SETTINGS_EXIT_DECIDED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let enabled = app
+        .state::<SettingsStore>()
+        .get_bool("General", "RestoreRobloxSettingsOnExit");
+    let pending = windows::has_pending_roblox_settings_restore();
+    let alive: std::collections::HashSet<u32> = windows::get_roblox_pids().into_iter().collect();
+    let app_clients_running = windows::tracker()
+        .get_all()
+        .iter()
+        .any(|process| !process.adopted && alive.contains(&process.pid));
+    match settings_on_exit_plan(enabled, pending, app_clients_running) {
+        SettingsOnExit::Nothing | SettingsOnExit::WaitForClients => {}
+        SettingsOnExit::Restore => {
+            windows::restore_roblox_settings();
+        }
+        SettingsOnExit::Discard => windows::discard_roblox_settings_restore(),
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -608,6 +670,8 @@ pub fn run() {
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
                 #[cfg(target_os = "windows")]
+                restore_roblox_settings_on_exit(app);
+                #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
                 // Devolve o PC ao normal (commands/keep_awake.rs).
                 #[cfg(target_os = "windows")]
@@ -618,6 +682,8 @@ pub fn run() {
             tauri::RunEvent::Exit => {
                 #[cfg(target_os = "windows")]
                 release_focus_follow_on_exit(app);
+                #[cfg(target_os = "windows")]
+                restore_roblox_settings_on_exit(app);
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
                 #[cfg(target_os = "windows")]
