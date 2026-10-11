@@ -2498,5 +2498,8 @@
   "Put all open Roblox windows side by side on the monitors you tick. New windows can take a free spot on their own.": "Put all open Roblox windows side by side on the monitors you tick. New windows can take a free spot on their own.",
   "Same as the Arrange in grid button on the Console page.": "Same as the Arrange in grid button on the Console page.",
   "Step-by-step details of the last launch are on the Console page.": "Step-by-step details of the last launch are on the Console page.",
-  "What the app did": "What the app did"
+  "What the app did": "What the app did",
+  "Needs attention": "Needs attention",
+  "Not in a game": "Not in a game",
+  "Server unknown": "Server unknown"
 }

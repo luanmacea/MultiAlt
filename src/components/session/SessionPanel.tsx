@@ -33,7 +33,9 @@ import {
 import { useNexusAutoRelaunch } from "../../hooks/useNexusAutoRelaunch";
 import { isWindowsPlatform } from "../../utils/platform";
 import { useCurrentSessions } from "../../hooks/useCurrentSessions";
-import { CurrentSessionLine } from "./CurrentSessionLine";
+import { CurrentSessionLine, SessionClock } from "./CurrentSessionLine";
+import { AttentionGroupHeader, GameGroupHeader, NoGameGroupHeader, SelectBox, ServerHeader } from "./InGameGroups";
+import { groupRunning, runningStatus } from "../../utils/sessionGroups";
 import type {
   AutoReconnectEntry,
   ClientHealth,
@@ -210,6 +212,8 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   const [checked, setChecked] = useState<Set<number>>(new Set());
   // Cliente não identificado com o seletor de conta aberto, e a conta escolhida.
   const [identifying, setIdentifying] = useState<{ pid: number; userId: string } | null>(null);
+  // Grupos recolhidos da lista "Em jogo" (chave do grupo).
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
 
   const entries = store.launchQueue?.entries ?? [];
   const pending = entries.filter(isPending);
@@ -485,6 +489,132 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Lista "Em jogo" por jogo e servidor; quem precisa de atenção vai para o
+  // topo (utils/sessionGroups.ts). Sem nenhuma sessão conhecida (fora do
+  // Windows, ou nada entrou em jogo ainda) fica a lista simples de antes.
+  const statusOf = (userId: number) =>
+    runningStatus(sessions.get(userId), store.clientHealth?.get(userId), reconnectingIds.has(userId));
+  const groups = groupRunning(runningIds, sessions, statusOf);
+  const grouped = sessions.size > 0 || groups.attention.length > 0;
+
+  function selectionOf(ids: number[]): "all" | "some" | "none" {
+    const count = ids.filter((id) => checked.has(id)).length;
+    return count === 0 ? "none" : count === ids.length ? "all" : "some";
+  }
+
+  /** A caixa do grupo: marca todas as contas dele, ou desmarca se já estavam todas marcadas. */
+  function toggleGroup(ids: number[]) {
+    const all = ids.every((id) => checked.has(id));
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (all) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleCollapsed(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  /**
+   * Uma conta da lista "Em jogo". `context` "game": a linha está dentro do
+   * grupo do jogo e do servidor, então só leva o tempo em jogo; "full": fora
+   * deles (atenção, sem jogo, lista simples), leva jogo · servidor · tempo.
+   */
+  function renderRow(userId: number, context: "game" | "full") {
+    const session = sessions.get(userId);
+    const name = nameFor(userId);
+    const choice = isWindows ? choiceFor(userId) : null;
+    const account = store.accounts.find((a) => a.UserID === userId);
+    const memoryChoice =
+      memoryTrim && account && !store.adoptedClients.has(userId)
+        ? memoryLimitChoice(account.Fields, memoryDefaultRaw)
+        : null;
+    return (
+      <li key={userId} data-testid={`session-running-${userId}`} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
+        <SelectBox
+          label={t("Select {{name}}", { name })}
+          checked={checked.has(userId)}
+          onChange={() => toggleChecked(userId)}
+        />
+        {/* Conta e estado em cima; fora do grupo do jogo, jogo · servidor ·
+            tempo embaixo. Cabe em 820 px sem rolar de lado. */}
+        <span className="min-w-0 flex-1 flex flex-col">
+          <span className="flex items-center gap-2 min-w-0">
+            {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
+            <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[45%]" title={name}>
+              {name}
+            </span>
+            <RunningState
+              session={session}
+              health={store.clientHealth?.get(userId)}
+              reconnecting={reconnectingIds.has(userId)}
+            />
+            {session && context === "game" && (
+              <span className="shrink-0 text-[11px] theme-muted">
+                <SessionClock userId={userId} sinceMs={session.sinceMs} />
+              </span>
+            )}
+            {memoryChoice && <MemoryReading memory={store.clientMemory?.get(userId)} />}
+            {store.adoptedClients.has(userId) && (
+              <span
+                className="min-w-0 flex items-center gap-1 theme-muted"
+                title={t("Opened from the Roblox website and recognized by the Roblox log")}
+              >
+                <Globe size={11} strokeWidth={1.5} className="shrink-0" />
+                <span className="truncate">{t("Opened outside the app")}</span>
+              </span>
+            )}
+          </span>
+          {session && context === "full" && <CurrentSessionLine session={session} />}
+        </span>
+        <span className="ml-auto flex items-center gap-1.5 shrink-0">
+          {memoryChoice && (
+            <MemoryLimitSelect
+              ariaLabel={t("Memory limit for {{name}}", { name })}
+              choice={memoryChoice}
+              defaultMb={memoryDefaultMb}
+              disabled={memorySaving}
+              onChange={(value) => void saveMemoryLimit([userId], value)}
+            />
+          )}
+          {choice && (
+            <ReconnectSwitch
+              name={name}
+              choice={choice}
+              disabled={reconnectSaving}
+              onChange={(value) => void saveReconnect([userId], value)}
+            />
+          )}
+          <button
+            onClick={() => void handleFocus(userId)}
+            title={t("Bring this client's window to the front")}
+            className="sidebar-btn-sm flex items-center gap-1.5"
+          >
+            <Crosshair size={12} strokeWidth={1.5} />
+            {t("Focus")}
+          </button>
+          <button
+            onClick={() => void handleClose([userId])}
+            disabled={busy}
+            className="sidebar-btn-sm flex items-center gap-1.5 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <PowerOff size={12} strokeWidth={1.5} />
+            {t("Close")}
+          </button>
+        </span>
+      </li>
+    );
   }
 
   return (
@@ -851,92 +981,62 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
             </p>
           </div>
         ) : (
-          <ul className="max-h-56 overflow-y-auto py-1">
-            {runningIds.map((userId) => {
-              const name = nameFor(userId);
-              const choice = isWindows ? choiceFor(userId) : null;
-              const account = store.accounts.find((a) => a.UserID === userId);
-              const memoryChoice =
-                memoryTrim && account && !store.adoptedClients.has(userId)
-                  ? memoryLimitChoice(account.Fields, memoryDefaultRaw)
-                  : null;
-              return (
-                <li
-                  key={userId}
-                  data-testid={`session-running-${userId}`}
-                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
-                >
-                  <input
-                    type="checkbox"
-                    aria-label={t("Select {{name}}", { name })}
-                    checked={checked.has(userId)}
-                    onChange={() => toggleChecked(userId)}
-                    className="accent-[var(--accent-color)]"
-                  />
-                  {/* Duas linhas: conta e estado em cima; jogo, servidor e
-                      tempo em jogo embaixo. Cabe em 820 px sem rolar de lado. */}
-                  <span className="min-w-0 flex-1 flex flex-col">
-                    <span className="flex items-center gap-2 min-w-0">
-                      {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
-                      <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[45%]" title={name}>
-                        {name}
-                      </span>
-                      <RunningState
-                        session={sessions.get(userId)}
-                        health={store.clientHealth?.get(userId)}
-                        reconnecting={reconnectingIds.has(userId)}
-                      />
-                      {memoryChoice && <MemoryReading memory={store.clientMemory?.get(userId)} />}
-                      {store.adoptedClients.has(userId) && (
-                        <span
-                          className="min-w-0 flex items-center gap-1 theme-muted"
-                          title={t("Opened from the Roblox website and recognized by the Roblox log")}
-                        >
-                          <Globe size={11} strokeWidth={1.5} className="shrink-0" />
-                          <span className="truncate">{t("Opened outside the app")}</span>
-                        </span>
-                      )}
-                    </span>
-                    {sessions.has(userId) && <CurrentSessionLine session={sessions.get(userId)!} />}
-                  </span>
-                  <span className="ml-auto flex items-center gap-1.5 shrink-0">
-                    {memoryChoice && (
-                      <MemoryLimitSelect
-                        ariaLabel={t("Memory limit for {{name}}", { name })}
-                        choice={memoryChoice}
-                        defaultMb={memoryDefaultMb}
-                        disabled={memorySaving}
-                        onChange={(value) => void saveMemoryLimit([userId], value)}
-                      />
-                    )}
-                    {choice && (
-                      <ReconnectSwitch
-                        name={name}
-                        choice={choice}
-                        disabled={reconnectSaving}
-                        onChange={(value) => void saveReconnect([userId], value)}
-                      />
-                    )}
-                    <button
-                      onClick={() => void handleFocus(userId)}
-                      title={t("Bring this client's window to the front")}
-                      className="sidebar-btn-sm flex items-center gap-1.5"
-                    >
-                      <Crosshair size={12} strokeWidth={1.5} />
-                      {t("Focus")}
-                    </button>
-                    <button
-                      onClick={() => void handleClose([userId])}
-                      disabled={busy}
-                      className="sidebar-btn-sm flex items-center gap-1.5 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <PowerOff size={12} strokeWidth={1.5} />
-                      {t("Close")}
-                    </button>
-                  </span>
-                </li>
-              );
-            })}
+          <div className="max-h-56 overflow-y-auto py-1">
+            {grouped ? (
+              <>
+                {groups.attention.length > 0 && (
+                  <div data-testid="session-attention">
+                    <AttentionGroupHeader
+                      count={groups.attention.length}
+                      selection={selectionOf(groups.attention)}
+                      onSelect={() => toggleGroup(groups.attention)}
+                      expanded={!collapsed.has("attention")}
+                      onToggle={() => toggleCollapsed("attention")}
+                    />
+                    {!collapsed.has("attention") && <ul>{groups.attention.map((id) => renderRow(id, "full"))}</ul>}
+                  </div>
+                )}
+                {groups.games.map((game) => (
+                  <div key={game.key} data-testid={`session-game-${game.placeId}`}>
+                    <GameGroupHeader
+                      placeId={game.placeId}
+                      userId={game.userIds[0]}
+                      count={game.userIds.length}
+                      selection={selectionOf(game.userIds)}
+                      onSelect={() => toggleGroup(game.userIds)}
+                      expanded={!collapsed.has(game.key)}
+                      onToggle={() => toggleCollapsed(game.key)}
+                    />
+                    {!collapsed.has(game.key) &&
+                      game.servers.map((server) => (
+                        <div key={server.key} data-testid={`session-server-${server.key}`}>
+                          <ServerHeader
+                            server={server}
+                            selection={selectionOf(server.userIds)}
+                            onSelect={() => toggleGroup(server.userIds)}
+                          />
+                          <ul>{server.userIds.map((id) => renderRow(id, "game"))}</ul>
+                        </div>
+                      ))}
+                  </div>
+                ))}
+                {groups.noGame.length > 0 && (
+                  <div data-testid="session-no-game">
+                    <NoGameGroupHeader
+                      count={groups.noGame.length}
+                      selection={selectionOf(groups.noGame)}
+                      onSelect={() => toggleGroup(groups.noGame)}
+                      expanded={!collapsed.has("no-game")}
+                      onToggle={() => toggleCollapsed("no-game")}
+                    />
+                    {!collapsed.has("no-game") && <ul>{groups.noGame.map((id) => renderRow(id, "full"))}</ul>}
+                  </div>
+                )}
+              </>
+            ) : (
+              <ul>{runningIds.map((id) => renderRow(id, "full"))}</ul>
+            )}
+            <ul>
             {unidentified.map((client) => {
               const namedAccount =
                 client.userId !== null
@@ -1020,7 +1120,8 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                 </li>
               );
             })}
-          </ul>
+            </ul>
+          </div>
         )}
       </section>
     </div>

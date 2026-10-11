@@ -9,7 +9,7 @@ import type { CurrentSession } from "../../types";
  * Tempo em jogo, andando sozinho ("45s", "12m", "1h 05m"). O relógio é da
  * linha, não do painel: o resto da lista não redesenha a cada segundo.
  */
-function SessionClock({ userId, sinceMs }: { userId: number; sinceMs: number }) {
+export function SessionClock({ userId, sinceMs }: { userId: number; sinceMs: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setNow(Date.now());
@@ -21,7 +21,7 @@ function SessionClock({ userId, sinceMs }: { userId: number; sinceMs: number }) 
       data-testid={`session-time-${userId}`}
       className="shrink-0 inline-flex items-center gap-1 tabular-nums"
     >
-      <Clock size={10} strokeWidth={1.75} aria-hidden="true" />
+      <Clock size={11} strokeWidth={1.75} aria-hidden="true" />
       {formatDuration(now - sinceMs)}
     </span>
   );
