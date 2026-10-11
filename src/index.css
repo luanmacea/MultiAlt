@@ -118,6 +118,9 @@ body {
 :root[data-theme-tone="light"] .text-red-400 {
   color: #b91c1c;
 }
+:root[data-theme-tone="light"] .\!text-red-400 {
+  color: #b91c1c !important;
+}
 :root[data-theme-tone="light"] .text-emerald-400 {
   color: #047857;
 }

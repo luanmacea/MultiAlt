@@ -251,7 +251,12 @@ continua sem relançar nada).
 - **Ao reabrir o app nada é retomado sozinho:** o estado é só em memória, e os
   clientes de antes voltam como "abertos fora do app" (adotados), que a
   reconexão não toca.
-- **Na tela:** seção "Reconnecting" do Painel de Sessão ("Reconnecting in 30 s
+- **Na tela:** conta com o cliente ainda aberto mostra a tentativa **na própria
+  linha** da lista "In game" (em "Needs attention"), com os mesmos botões; a
+  seção "Reconnecting" do Painel de Sessão fica só com quem não tem cliente
+  aberto (fechou, desistiu) — desde 11/10/2026: as duas listas repetiam as
+  mesmas contas e empurravam o "In game" para baixo (harness `client-drops`,
+  820x560). A contagem regressiva é `role="timer"`. Os textos ("Reconnecting in 30 s
   (attempt 2/5)", "Waiting for the internet to come back", "Reopened, checking
   it stays in the game", "Gave up after 5 tries", "Not reconnecting: …"), com
   "Try now"/"Try again" e "Stop" (nunca fecha cliente). O painel da conta não

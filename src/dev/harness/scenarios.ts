@@ -2255,7 +2255,8 @@ const SCENARIOS: Record<string, () => void> = {
       // Voltou: sessão nova, contando de agora.
       sessionOf.set(rows[0].userId, {
         placeId: 606849621,
-        jobId: "job-back",
+        // A reconexão volta ao mesmo servidor (dividido com outra conta).
+        jobId: SHARED_JAILBREAK_JOB,
         sinceMs: Date.now(),
         privateServer: false,
       });

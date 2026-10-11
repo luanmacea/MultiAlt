@@ -1822,3 +1822,52 @@ describe("SessionPanel — acessibilidade e texto", () => {
     expect(within(inGame).getByText("Closing MultiAlt leaves every Roblox client running.")).toBeInTheDocument();
   });
 });
+
+/**
+ * Uma conta, um lugar: com o cliente ainda aberto, a tentativa de reconexão
+ * aparece na própria linha do "Em jogo" (em "Needs attention"), e a seção
+ * "Reconnecting" fica só com quem não tem cliente aberto. As duas listas
+ * repetiam as mesmas contas e empurravam o "Em jogo" para baixo (harness
+ * `client-drops`, 820x560).
+ */
+describe("SessionPanel — reconexão na linha da conta", () => {
+  const NOW = Date.now();
+  function reconnect(userId: number, partial: Partial<AutoReconnectEntry> = {}): AutoReconnectEntry {
+    return {
+      userId,
+      phase: "waiting",
+      attempt: 2,
+      maxAttempts: 5,
+      nextAttemptAtMs: NOW + 30_000,
+      reason: null,
+      error: null,
+      drop: { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: NOW },
+      ...partial,
+    };
+  }
+
+  it("shows the attempt in the row of an account whose client is open, and only the others apart", async () => {
+    setInvokeMap({ get_nexus_accounts: [], retry_auto_reconnect: true });
+    renderPanel({
+      launchedByProgram: new Set([1, 2]),
+      autoReconnect: [reconnect(1), reconnect(3, { phase: "gaveUp", attempt: 5 })],
+      retryAutoReconnect: vi.fn(async (userId: number) => (await invokeMock("retry_auto_reconnect", { userId })) as boolean),
+    });
+    const row = screen.getByTestId("session-running-1");
+    const line = within(row).getByTestId("session-reconnect-1");
+    expect(within(line).getByRole("timer")).toHaveTextContent(/Reconnecting in/);
+    await userEvent.click(within(line).getByRole("button", { name: /Try now/ }));
+    expect(callsFor("retry_auto_reconnect")).toEqual([["retry_auto_reconnect", { userId: 1 }]]);
+
+    const apart = screen.getByTestId("auto-reconnect-panel");
+    expect(within(apart).queryByTestId("session-reconnect-1")).not.toBeInTheDocument();
+    expect(within(apart).getByTestId("session-reconnect-3")).toBeInTheDocument();
+  });
+
+  it("has no Reconnecting section when every account being reconnected is in the list", () => {
+    setInvokeMap({ get_nexus_accounts: [] });
+    renderPanel({ launchedByProgram: new Set([1]), autoReconnect: [reconnect(1)] });
+    expect(screen.queryByTestId("auto-reconnect-panel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-reconnect-1")).toBeInTheDocument();
+  });
+});
