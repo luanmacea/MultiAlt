@@ -597,7 +597,7 @@ function WindowInUseSection({ s }: { s: UseSettingsReturn }) {
             value={s.getNumber("Optimization", "MemoryLimit", 0)}
             onChange={(v) => s.setNumber("Optimization", "MemoryLimit", v)}
             label="Memory limit per client"
-            description="Above it, MultiAlt asks Windows to free the client's memory first, and again every minute while it stays over. 0 = no limit. Each account can have its own on the Session page."
+            description="Measured like the Memory column in Task Manager. Above it, MultiAlt asks Windows to free the client's memory; after that it stays lower until the game needs it again. It asks again at most every 5 minutes, only if the client climbs back over. 0 = no limit. Each account can have its own on the Session page."
             min={0}
             max={65536}
             suffix="MB"
