@@ -50,7 +50,9 @@ export function PageShell({
   children,
 }: PageShellProps) {
   const headingId = useId();
-  useEscapeStack(true, onLeave, { ignoreFromFields: true });
+  // `closesOnBack: false`: o botão Voltar do mouse anda no histórico de páginas
+  // (useMouseNavigation) em vez de sempre cair em Accounts.
+  useEscapeStack(true, onLeave, { ignoreFromFields: true, closesOnBack: false });
 
   return (
     <section

@@ -50,6 +50,7 @@ import { useTr } from "./i18n/text";
 import { useUpdateHandoffToast } from "./hooks/useUpdateHandoffToast";
 import { useBackdropClose } from "./hooks/useBackdropClose";
 import { useUiScale } from "./hooks/useUiScale";
+import { useMouseNavigation } from "./hooks/useMouseNavigation";
 import { TONE_STYLES } from "./utils/toastTone";
 import { isMultiRobloxCloseProcessError } from "./utils/robloxErrors";
 import { ENABLE_NEXUS } from "./featureFlags";
@@ -104,6 +105,16 @@ function AppContent() {
     store.appLocked,
     store.lockApp
   );
+
+  // Botões laterais do mouse (Voltar/Avançar) e Alt+setas, como no navegador:
+  // Voltar fecha o que está aberto por cima ou volta à página anterior. Fora da
+  // tela de senha, da de criptografia e do app trancado. Ver useMouseNavigation.
+  useMouseNavigation({
+    enabled:
+      store.initialized && !store.needsPassword && !store.encryptionSetupOpen && !store.appLocked,
+    page: store.activePage,
+    setPage: store.setActivePage,
+  });
 
   useEffect(() => {
     if (!store.initialized || store.needsPassword || store.firstRunWalkthroughOpen) return;

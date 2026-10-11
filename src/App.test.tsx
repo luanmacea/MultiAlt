@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("./store", async () => (await import("./test-utils/renderWithStore")).storeModuleMock());
@@ -173,6 +173,38 @@ describe("App — main layout", () => {
     cleanup();
     renderApp({ sidebarOpen: false, ...selecting([1]) });
     expect(screen.queryByText("Account Details")).not.toBeInTheDocument();
+  });
+});
+
+/** Botão lateral do mouse como o WebView2 entrega (3 = Voltar, 4 = Avançar). */
+function pressSideButton(button: 3 | 4) {
+  act(() => {
+    for (const type of ["mousedown", "mouseup", "auxclick"]) {
+      window.dispatchEvent(new MouseEvent(type, { button, bubbles: true, cancelable: true }));
+    }
+  });
+}
+
+describe("App — botões laterais do mouse", () => {
+  it("Voltar fecha a Choose Game como o Escape fecharia", () => {
+    const store = renderApp({ chooseGameOpen: true, ...selecting([1]) });
+    pressSideButton(3);
+    expect(store.setChooseGameOpen).toHaveBeenCalledWith(false);
+    expect(store.setActivePage).not.toHaveBeenCalled();
+  });
+
+  it("Voltar na lista de contas, sem histórico, não faz nada (nem limpa a seleção)", () => {
+    const store = renderApp(selecting([1]));
+    pressSideButton(3);
+    pressSideButton(4);
+    expect(store.setActivePage).not.toHaveBeenCalled();
+    expect(store.deselectAll).not.toHaveBeenCalled();
+  });
+
+  it("Voltar numa página não cai em Accounts pelo Escape da página quando não há para onde voltar", () => {
+    const store = renderApp({ activePage: "settings" });
+    pressSideButton(3);
+    expect(store.setActivePage).not.toHaveBeenCalled();
   });
 });
 
