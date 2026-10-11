@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppWindow,
   Check,
@@ -6,7 +6,6 @@ import {
   Crosshair,
   Gamepad2,
   Globe,
-  ListX,
   PowerOff,
   RotateCw,
   SquareStop,
@@ -33,6 +32,7 @@ import { useNexusAutoRelaunch } from "../../hooks/useNexusAutoRelaunch";
 import { isWindowsPlatform } from "../../utils/platform";
 import { useCurrentSessions } from "../../hooks/useCurrentSessions";
 import { CurrentSessionLine, SessionClock } from "./CurrentSessionLine";
+import { SessionStats, type SessionCounts, type SessionFilter } from "./SessionStats";
 import { AttentionGroupHeader, GameGroupHeader, NoGameGroupHeader, SelectBox, ServerHeader } from "./InGameGroups";
 import { groupRunning, runningStatus } from "../../utils/sessionGroups";
 import type {
@@ -197,9 +197,20 @@ function RunningState({
 
 interface SessionPanelProps {
   className?: string;
+  /**
+   * Faixa de números em cima (jogando, reconectando, não responde, entrando),
+   * cada um um filtro da lista. Só a página Session mostra.
+   */
+  showStats?: boolean;
+  /**
+   * Cada lista com rolagem própria (teto de altura). Embutido em outro lugar o
+   * painel precisa disso; na página Session a página rola inteira e uma caixa
+   * de rolagem dentro dela escondia contas.
+   */
+  contained?: boolean;
 }
 
-export function SessionPanel({ className = "" }: SessionPanelProps) {
+export function SessionPanel({ className = "", showStats = false, contained = true }: SessionPanelProps) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
@@ -210,6 +221,9 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   const [identifying, setIdentifying] = useState<{ pid: number; userId: string } | null>(null);
   // Grupos recolhidos da lista "Em jogo" (chave do grupo).
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Filtro da faixa de números (só o estado escolhido na lista).
+  const [filter, setFilter] = useState<SessionFilter | null>(null);
+  const joiningRef = useRef<HTMLElement>(null);
 
   const entries = store.launchQueue?.entries ?? [];
   const pending = entries.filter(isPending);
@@ -488,8 +502,20 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   // Windows, ou nada entrou em jogo ainda) fica a lista simples de antes.
   const statusOf = (userId: number) =>
     runningStatus(sessions.get(userId), store.clientHealth?.get(userId), reconnectingIds.has(userId));
-  const groups = groupRunning(runningIds, sessions, statusOf);
+  // A faixa de números conta das mesmas linhas da lista.
+  const counts: SessionCounts = { playing: 0, reconnecting: 0, notResponding: 0, dropped: 0, joining: pending.length };
+  for (const id of runningIds) {
+    const status = statusOf(id);
+    if (status === "playing" || status === "reconnecting" || status === "notResponding" || status === "dropped") {
+      counts[status] += 1;
+    }
+  }
+  // Filtro que ficou sem ninguém (a conta voltou ao jogo) se desfaz sozinho.
+  const activeFilter = filter && counts[filter] > 0 ? filter : null;
+  const shownIds = activeFilter ? runningIds.filter((id) => statusOf(id) === activeFilter) : runningIds;
+  const groups = groupRunning(shownIds, sessions, statusOf);
   const grouped = sessions.size > 0 || groups.attention.length > 0;
+  const listBox = contained ? "max-h-56 overflow-y-auto" : "";
 
   function selectionOf(ids: number[]): "all" | "some" | "none" {
     const count = ids.filter((id) => checked.has(id)).length;
@@ -620,37 +646,45 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         </div>
       )}
 
+      {showStats && (
+        <SessionStats
+          counts={counts}
+          filter={activeFilter}
+          onFilter={setFilter}
+          onJoining={() => joiningRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
+        />
+      )}
+
       {/* ── Entrando ───────────────────────────────────────────────────── */}
-      <section data-tour="session-joining" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
-        <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
+      {/* Fila vazia é só o cabeçalho: uma caixa vazia empurrava o "Em jogo"
+          para baixo. */}
+      <section ref={joiningRef} data-tour="session-joining" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
+        <header
+          className={`flex items-center justify-between gap-2 px-3 ${entries.length > 0 ? "py-2 border-b theme-border" : "py-1.5"}`}
+        >
           <div className="flex items-baseline gap-2 min-w-0">
             <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Joining")}</h3>
             <span className="text-[12px] theme-muted truncate">
               {pending.length > 0
                 ? t("{{count}} waiting", { count: pending.length })
-                : t("idle")}
+                : t("Nothing waiting")}
             </span>
           </div>
-          <button
-            onClick={() => void handleStopQueue()}
-            disabled={pending.length === 0}
-            className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={t("Remove every waiting account from the queue")}
-          >
-            <SquareStop size={13} strokeWidth={1.5} />
-            {t("Stop queue")}
-          </button>
+          {entries.length > 0 && (
+            <button
+              onClick={() => void handleStopQueue()}
+              disabled={pending.length === 0}
+              className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={t("Remove every waiting account from the queue")}
+            >
+              <SquareStop size={13} strokeWidth={1.5} />
+              {t("Stop queue")}
+            </button>
+          )}
         </header>
 
-        {entries.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
-            <ListX size={20} strokeWidth={1.5} />
-            <p className="text-[12px] text-center">
-              {t("Nothing in the launch queue. Pick a game to start joining accounts.")}
-            </p>
-          </div>
-        ) : (
-          <ul className="max-h-48 overflow-y-auto py-1">
+        {entries.length > 0 && (
+          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
             {entries.map((entry) => {
               const style = STATE_STYLES[entry.state] ?? STATE_STYLES.queued;
               const name = nameFor(entry.userId);
@@ -713,7 +747,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
             </span>
           </header>
 
-          <ul className="max-h-48 overflow-y-auto py-1">
+          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
             {friendLink.accounts.map((entry) => {
               const style = FRIEND_STATE_STYLES[entry.state] ?? FRIEND_STATE_STYLES.pending;
               return (
@@ -756,7 +790,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
               {t("Accounts that dropped go back to the same game on their own")}
             </span>
           </header>
-          <ul className="max-h-48 overflow-y-auto py-1">
+          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
             {reconnecting.map((entry) => {
               const info = autoReconnectLabel(entry, now, t);
               const name = nameFor(entry.userId);
@@ -938,7 +972,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
             </p>
           </div>
         ) : (
-          <div className="max-h-56 overflow-y-auto py-1">
+          <div className={`${listBox} py-1`}>
             {grouped ? (
               <>
                 {groups.attention.length > 0 && (
@@ -991,7 +1025,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                 )}
               </>
             ) : (
-              <ul>{runningIds.map((id) => renderRow(id, "full"))}</ul>
+              <ul>{shownIds.map((id) => renderRow(id, "full"))}</ul>
             )}
             <ul>
             {unidentified.map((client) => {
