@@ -1387,46 +1387,104 @@ pub fn arrange_roblox_grid(
     Ok((arranged, wins.len()))
 }
 
-pub fn get_process_memory_mb(pid: u32) -> Option<u64> {
-    #[repr(C)]
-    struct ProcessMemoryCounters {
-        cb: u32,
-        page_fault_count: u32,
-        peak_working_set_size: usize,
-        working_set_size: usize,
-        quota_peak_paged_pool_usage: usize,
-        quota_paged_pool_usage: usize,
-        quota_peak_non_paged_pool_usage: usize,
-        quota_non_paged_pool_usage: usize,
-        pagefile_usage: usize,
-        peak_pagefile_usage: usize,
-    }
+/// Os contadores de memória de um processo (`PROCESS_MEMORY_COUNTERS_EX2`). Os
+/// dez primeiros campos são o `PROCESS_MEMORY_COUNTERS` antigo; os três do fim
+/// só existem no Windows 10 1809+ (antes disso a chamada com este tamanho falha
+/// e a leitura cai para o tamanho antigo).
+#[repr(C)]
+#[derive(Default)]
+struct ProcessMemoryCountersEx2 {
+    cb: u32,
+    page_fault_count: u32,
+    peak_working_set_size: usize,
+    working_set_size: usize,
+    quota_peak_paged_pool_usage: usize,
+    quota_paged_pool_usage: usize,
+    quota_peak_non_paged_pool_usage: usize,
+    quota_non_paged_pool_usage: usize,
+    pagefile_usage: usize,
+    peak_pagefile_usage: usize,
+    private_usage: usize,
+    private_working_set_size: usize,
+    shared_commit_usage: u64,
+}
 
+/// Tamanho do `PROCESS_MEMORY_COUNTERS` antigo: até `peak_pagefile_usage`.
+const PROCESS_MEMORY_COUNTERS_SIZE: u32 = (2 * std::mem::size_of::<u32>() + 8 * std::mem::size_of::<usize>()) as u32;
+
+/// A leitura em MB a partir dos contadores: a memória privada (`private_ws`,
+/// bytes) quando o Windows a deu; senão o working set inteiro. `Some(0)` com
+/// working set > 0 é tratado como "não deu" (nenhum processo vivo tem 0 de
+/// memória privada).
+fn memory_reading_mb(private_ws: Option<usize>, working_set: usize) -> u64 {
+    let bytes = match private_ws {
+        Some(private) if private > 0 || working_set == 0 => private,
+        _ => working_set,
+    };
+    bytes as u64 / 1024 / 1024
+}
+
+/// Lê os contadores com o handle já aberto: primeiro o formato novo (com a
+/// memória privada), depois o antigo. `None` se as duas leituras falharam.
+unsafe fn read_memory_counters(handle: HANDLE) -> Option<(Option<usize>, usize)> {
     extern "system" {
         fn K32GetProcessMemoryInfo(
             process: HANDLE,
-            ppsmemcounters: *mut ProcessMemoryCounters,
+            ppsmemcounters: *mut ProcessMemoryCountersEx2,
             cb: u32,
         ) -> i32;
     }
+    let full = std::mem::size_of::<ProcessMemoryCountersEx2>() as u32;
+    let mut counters = ProcessMemoryCountersEx2 {
+        cb: full,
+        ..Default::default()
+    };
+    if K32GetProcessMemoryInfo(handle, &mut counters, full) != 0 {
+        return Some((Some(counters.private_working_set_size), counters.working_set_size));
+    }
+    let mut counters = ProcessMemoryCountersEx2 {
+        cb: PROCESS_MEMORY_COUNTERS_SIZE,
+        ..Default::default()
+    };
+    if K32GetProcessMemoryInfo(handle, &mut counters, PROCESS_MEMORY_COUNTERS_SIZE) != 0 {
+        return Some((None, counters.working_set_size));
+    }
+    None
+}
 
+/// Abre o processo com `access` e lê os contadores.
+fn read_process_memory_with(pid: u32, access: u32) -> Option<(Option<usize>, usize)> {
     unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid);
+        let handle = OpenProcess(access, 0, pid);
         if handle.is_null() {
             return None;
         }
-        let mut counters: ProcessMemoryCounters = std::mem::zeroed();
-        counters.cb = std::mem::size_of::<ProcessMemoryCounters>() as u32;
-        let result = K32GetProcessMemoryInfo(
-            handle,
-            &mut counters,
-            std::mem::size_of::<ProcessMemoryCounters>() as u32,
-        );
+        let counters = read_memory_counters(handle);
         CloseHandle(handle);
-        if result != 0 {
-            Some(counters.working_set_size as u64 / 1024 / 1024)
-        } else {
-            None
-        }
+        counters
     }
+}
+
+/// Memória do processo em MB, **a mesma da coluna "Memória" do Gerenciador de
+/// Tarefas**: o working set privado (`PrivateWorkingSetSize`). É o número da
+/// linha "Em jogo" da página Session, o que o teto de memória compara com o
+/// limite e o que o "Close If Memory Low" do Watcher compara com o mínimo.
+///
+/// Até 11/10/2026 era o `WorkingSetSize` (working set inteiro, com as páginas
+/// compartilhadas e a memória de vídeo mapeada): num cliente Roblox dava ~4 GB
+/// com o Gerenciador mostrando ~1,2 GB, quase não mexia (a parte compartilhada é
+/// estável) e ficava acima do limite logo depois de cada liberação.
+///
+/// Sem a memória privada (Windows anterior ao 10 1809), cai para o working set
+/// inteiro — maior que o do Gerenciador, mas é o que dá para ler sem percorrer
+/// as páginas do processo. Abre com o acesso mínimo (o mesmo do Gerenciador) e,
+/// se o sistema recusar, com o acesso antigo (leitura de memória).
+pub fn get_process_memory_mb(pid: u32) -> Option<u64> {
+    use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
+    if pid == 0 {
+        return None;
+    }
+    let (private_ws, working_set) = read_process_memory_with(pid, PROCESS_QUERY_LIMITED_INFORMATION)
+        .or_else(|| read_process_memory_with(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ))?;
+    Some(memory_reading_mb(private_ws, working_set))
 }

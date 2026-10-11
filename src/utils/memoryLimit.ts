@@ -68,6 +68,19 @@ export function formatMemoryMb(mb: number, language?: string): string {
   return `${comma ? text.replace(".", ",") : text} GB`;
 }
 
+/**
+ * A leitura de memória de um cliente: MB inteiros com separador de milhar,
+ * como a coluna "Memória" do Gerenciador de Tarefas ("1,187 MB"; "1.187 MB" em
+ * pt/es/de). O número é a memória privada, o mesmo do Gerenciador
+ * (`get_process_memory_mb`). Em GB com uma casa, mudanças de dezenas de MB não
+ * apareciam e a leitura parecia congelada (11/10/2026).
+ */
+export function formatMemoryReading(mb: number, language?: string): string {
+  const separator = /^(pt|es|de)(-|_|$)/i.test(language ?? "") ? "." : ",";
+  const whole = String(Math.max(0, Math.round(mb)));
+  return `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, separator)} MB`;
+}
+
 /** O que a pessoa digitou no "Custom…": MB, ou GB com a unidade. */
 export function parseCustomMemoryLimit(raw: string): number | null {
   const match = raw.trim().toLowerCase().match(/^(\d+(?:[.,]\d+)?)\s*(gb|g|mb|m)?$/);

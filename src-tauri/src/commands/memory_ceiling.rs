@@ -8,12 +8,15 @@
 // está usando (`trim_working_set`, em platform/windows). Só se continuar acima
 // um minuto depois **e** a opção própria de fechar estiver ligada
 // (`Optimization.CloseOverMemoryLimit`, desligada por padrão), o cliente é
-// fechado. Sem ela, o app pede de novo a cada minuto. Até 11/10/2026 a opção
-// era o "Close If Memory Low" do Watcher, que liga também a regra de memória
-// baixa — coisa sem relação; agora as duas são separadas.
+// fechado. Sem ela, o app pede de novo — no máximo a cada 5 minutos, e só com
+// o cliente acima por um minuto seguido (histerese: nunca libera em laço). Até
+// 11/10/2026 a opção era o "Close If Memory Low" do Watcher, que liga também a
+// regra de memória baixa — coisa sem relação; agora as duas são separadas.
 //
 // Nunca toca cliente aberto pelo site (adotado), nem a janela que a pessoa está
-// usando agora. A leitura de memória é a do working set, a mesma do Watcher.
+// usando agora. A leitura de memória é a **memória privada** (o número da coluna
+// "Memória" do Gerenciador de Tarefas, `get_process_memory_mb`), a mesma que a
+// tela mostra e a mesma do Watcher.
 //
 // O pedido ao Windows só existe com a feature `memory-trim` (nas duas edições,
 // como o plano das ideias decidiu); sem ela, o teto inteiro fica desligado e a
@@ -21,8 +24,16 @@
 
 /// Carência de um cliente recém-aberto: carregando, a memória sobe e desce.
 const MEMORY_STARTUP_GRACE_MS: i64 = 30_000;
-/// Depois de liberar, quanto esperar antes de conferir de novo.
+/// Depois de liberar, quanto esperar antes de conferir de novo (e fechar, se a
+/// opção estiver ligada e o cliente continuar acima o tempo todo).
 const MEMORY_TRIM_GRACE_MS: i64 = 60_000;
+/// Intervalo mínimo entre duas liberações do mesmo cliente. Até 11/10/2026 era
+/// um minuto, e com a leitura errada (working set inteiro, ver
+/// `get_process_memory_mb`) o cliente nunca ficava abaixo: liberava em laço.
+const MEMORY_RETRIM_INTERVAL_MS: i64 = 300_000;
+/// Depois de uma liberação, quanto tempo seguido acima do limite antes de
+/// liberar de novo (um pico curto não conta).
+const MEMORY_RETRIM_SUSTAIN_MS: i64 = 60_000;
 /// Limite mínimo aceito: abaixo disso o cliente nem joga, e o app ficaria
 /// pedindo para liberar memória o tempo todo.
 const MEMORY_LIMIT_MIN_MB: u64 = 256;
@@ -73,8 +84,25 @@ enum MemoryAction {
 struct MemoryWatch {
     pid: u32,
     first_seen_ms: i64,
-    /// Quando o app pediu para liberar pela última vez (enquanto acima).
+    /// Quando o app pediu para liberar pela última vez. Fica guardado mesmo
+    /// depois de a memória voltar para baixo: é dele que conta o intervalo
+    /// mínimo até a próxima liberação.
     trimmed_at_ms: Option<i64>,
+    /// Desde quando a memória está acima do limite sem parar (`None` = abaixo).
+    over_since_ms: Option<i64>,
+}
+
+/// O cliente deste retrato já foi liberado pelo teto (neste PID)? O "Close If
+/// Memory Low" do Watcher não o julga: depois de liberar, a memória fica baixa
+/// até o jogo precisar de novo, e a regra fecharia um cliente saudável.
+fn view_was_trimmed(view: Option<&ClientMemoryView>) -> bool {
+    view.is_some_and(|v| v.trimmed_at_ms.is_some())
+}
+
+/// `view_was_trimmed` do cliente da conta agora (para o Watcher).
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub(crate) fn client_memory_was_trimmed(user_id: i64) -> bool {
+    view_was_trimmed(client_memory_of(user_id).as_ref())
 }
 
 impl MemoryWatch {
@@ -83,6 +111,7 @@ impl MemoryWatch {
             pid,
             first_seen_ms: now_ms,
             trimmed_at_ms: None,
+            over_since_ms: None,
         }
     }
 }
@@ -98,44 +127,60 @@ fn memory_ceiling_step(
     close_allowed: bool,
 ) -> MemoryAction {
     let (Some(memory), Some(limit)) = (memory_mb, limit_mb) else {
-        watch.trimmed_at_ms = None;
+        // Sem leitura ou sem limite: a subida acaba, a última liberação fica
+        // (tirar e pôr o limite de volta não libera de novo na hora).
+        watch.over_since_ms = None;
         return MemoryAction::Nothing;
     };
     if now_ms.saturating_sub(watch.first_seen_ms) < MEMORY_STARTUP_GRACE_MS {
         return MemoryAction::Nothing;
     }
     if memory <= limit {
-        watch.trimmed_at_ms = None;
+        watch.over_since_ms = None;
         return MemoryAction::Nothing;
     }
+    let over_since = *watch.over_since_ms.get_or_insert(now_ms);
     if in_use {
         return MemoryAction::Nothing;
     }
-    match watch.trimmed_at_ms {
-        None => {
-            watch.trimmed_at_ms = Some(now_ms);
-            MemoryAction::Trim
+    let Some(trimmed_at) = watch.trimmed_at_ms else {
+        // Primeira vez acima: libera.
+        watch.trimmed_at_ms = Some(now_ms);
+        return MemoryAction::Trim;
+    };
+    let since_trim = now_ms.saturating_sub(trimmed_at);
+    if trimmed_at >= over_since {
+        // Liberou nesta subida e continua acima desde então.
+        if since_trim < MEMORY_TRIM_GRACE_MS {
+            return MemoryAction::Nothing;
         }
-        Some(at) if now_ms.saturating_sub(at) < MEMORY_TRIM_GRACE_MS => MemoryAction::Nothing,
-        Some(_) if close_allowed => MemoryAction::Close,
-        Some(_) => {
-            // Sem a opção de fechar: pede de novo.
-            watch.trimmed_at_ms = Some(now_ms);
-            MemoryAction::Trim
+        if close_allowed {
+            return MemoryAction::Close;
         }
     }
+    // Liberar de novo (sem a opção de fechar, ou numa subida nova depois de uma
+    // liberação antiga): só com a subida durando e o intervalo mínimo passado.
+    if now_ms.saturating_sub(over_since) >= MEMORY_RETRIM_SUSTAIN_MS && since_trim >= MEMORY_RETRIM_INTERVAL_MS {
+        watch.trimmed_at_ms = Some(now_ms);
+        return MemoryAction::Trim;
+    }
+    MemoryAction::Nothing
 }
 
 /// O que a tela recebe de cada cliente (em `get_running_instances`).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientMemoryView {
+    /// Memória privada agora (a do Gerenciador de Tarefas), relida a cada
+    /// passada de 2 s.
     pub memory_mb: Option<u64>,
     /// O limite que vale agora (`None` = sem limite).
     pub limit_mb: Option<u64>,
     /// Acima do limite nesta passada.
     pub over: bool,
-    /// Quando o app pediu para liberar pela última vez, enquanto acima.
+    /// Quando o app pediu para liberar pela última vez (neste PID). Fica depois
+    /// de a memória cair: a tela explica que ela fica mais baixa até o jogo
+    /// precisar de novo.
     pub trimmed_at_ms: Option<i64>,
 }
 
