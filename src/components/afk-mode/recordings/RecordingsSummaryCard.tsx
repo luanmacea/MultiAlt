@@ -9,12 +9,14 @@ import { RecordingTriggerLines } from "./RecordingTriggerLines";
  * Cartão "Recordings" do resumo da página Session: qual gravação vale para
  * todas as contas, quando ela toca (Modo AFK de tanto em tanto tempo, depois
  * da reconexão) e o atalho para a aba Recordings do Modo AFK. Só leitura —
- * tudo se muda na aba.
+ * tudo se muda na aba. Sem nenhuma gravação o cartão não aparece: não haveria
+ * o que dizer além de "nenhuma".
  */
 export function RecordingsSummaryCard() {
   const t = useTr();
   const store = useStore();
   const { payload } = useRecordings();
+  if (!payload || payload.recordings.length === 0) return null;
   const triggers = recordingTriggers(payload, store.settings);
   return (
     <section className="rounded-xl border theme-border px-4 py-3" aria-label={t("Recordings")} data-testid="session-recordings">

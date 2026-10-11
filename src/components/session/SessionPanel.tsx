@@ -35,7 +35,8 @@ import { useCurrentSessions } from "../../hooks/useCurrentSessions";
 import { CurrentSessionLine, SessionClock } from "./CurrentSessionLine";
 import { SessionStats, type SessionCounts, type SessionFilter } from "./SessionStats";
 import { AttentionGroupHeader, GameGroupHeader, NoGameGroupHeader, SelectBox, ServerHeader } from "./InGameGroups";
-import { groupRunning, runningStatus } from "../../utils/sessionGroups";
+import { groupRunning, needsAttention, runningStatus, type RunningStatus } from "../../utils/sessionGroups";
+import { clientHealthLabel } from "../../utils/clientHealth";
 import type {
   AutoReconnectEntry,
   ClientHealth,
@@ -591,6 +592,35 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   const groups = groupRunning(shownIds, sessions, statusOf);
   const grouped = sessions.size > 0 || groups.attention.length > 0;
   const listBox = contained ? "max-h-56 overflow-y-auto" : "";
+
+  // Mudança de estado anunciada ao leitor de tela, com calma (aria-live
+  // polite): caiu, não responde, reconectando, voltou a jogar. A primeira
+  // leitura não anuncia nada; a contagem regressiva não fala a cada segundo.
+  const statusSignature = runningIds.map((id) => `${id}:${statusOf(id)}`).join(",");
+  const previousStatus = useRef<Map<number, RunningStatus> | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  useEffect(() => {
+    const next = new Map(runningIds.map((id) => [id, statusOf(id)] as const));
+    const previous = previousStatus.current;
+    previousStatus.current = next;
+    if (!previous) return;
+    const messages: string[] = [];
+    for (const [id, status] of next) {
+      const before = previous.get(id);
+      if (before === undefined || before === status) continue;
+      const name = nameFor(id);
+      if (status === "dropped" || status === "notResponding") {
+        const info = clientHealthLabel(store.clientHealth?.get(id), t);
+        if (info) messages.push(`${name}: ${info.label}`);
+      } else if (status === "reconnecting") {
+        messages.push(t("{{name}} is reconnecting", { name }));
+      } else if (status === "playing" && needsAttention(before)) {
+        messages.push(t("{{name}} is playing again", { name }));
+      }
+    }
+    if (messages.length > 0) setAnnouncement(messages.join(". "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusSignature]);
   // Ordem das linhas como aparecem (grupos recolhidos ficam de fora).
   visibleOrderRef.current = grouped
     ? [
@@ -732,6 +762,9 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
 
   return (
     <div className={`flex flex-col gap-3 min-h-0 ${className}`} data-testid="session-panel">
+      <div data-testid="session-live" aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </div>
       {error && (
         <div
           role="alert"
@@ -758,7 +791,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           className={`flex items-center justify-between gap-2 px-3 ${entries.length > 0 ? "py-2 border-b theme-border" : "py-1.5"}`}
         >
           <div className="flex items-baseline gap-2 min-w-0">
-            <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Joining")}</h3>
+            <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Joining")}</h2>
             <span className="text-[12px] theme-muted truncate">
               {pending.length > 0
                 ? t("{{count}} waiting", { count: pending.length })
@@ -805,7 +838,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                         onClick={() => void handleCancel(entry.userId)}
                         aria-label={t("Cancel {{name}}", { name })}
                         title={t("Take this account out of the queue (does not close any client)")}
-                        className="p-1 rounded-md theme-muted hover:text-red-400 hover:bg-[var(--panel-soft)] transition-colors"
+                        className="inline-flex w-6 h-6 items-center justify-center rounded-md theme-muted hover:text-red-400 hover:bg-[var(--row-hover)] transition-colors"
                       >
                         <X size={13} strokeWidth={2} />
                       </button>
@@ -826,10 +859,10 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
         >
           <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
             <div className="flex items-baseline gap-2 min-w-0">
-              <h3 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5">
-                <UserPlus size={13} strokeWidth={1.5} />
+              <h2 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5">
+                <UserPlus size={13} strokeWidth={1.5} aria-hidden="true" />
                 {t("Make Friends")}
-              </h3>
+              </h2>
               <span className="text-[12px] theme-muted truncate">
                 {t("{{done}} / {{total}} accounts processed", {
                   done: friendLink.processed,
@@ -877,10 +910,10 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
       {reconnecting.length > 0 && (
         <section data-testid="auto-reconnect-panel" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
           <header className="flex items-center gap-2 px-3 py-2 border-b theme-border min-w-0">
-            <h3 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
-              <RotateCw size={13} strokeWidth={1.5} />
+            <h2 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
+              <RotateCw size={13} strokeWidth={1.5} aria-hidden="true" />
               {t("Reconnecting")}
-            </h3>
+            </h2>
             <span className="text-[12px] theme-muted truncate">
               {t("Accounts that dropped go back to the same game on their own")}
             </span>
@@ -906,7 +939,9 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
                   {/* A causa (erro da última tentativa) fica à vista, embaixo. */}
                   <span className="min-w-0 flex flex-col">
+                    {/* Contagem regressiva: `timer` (não fala a cada segundo). */}
                     <span
+                      role={entry.phase === "waiting" ? "timer" : undefined}
                       className={`truncate ${pending ? "text-amber-400" : "text-red-400"}`}
                       title={info.label}
                     >
@@ -956,7 +991,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                         disabled={busy}
                         aria-label={t("Dismiss {{name}}", { name })}
                         title={t("Hide this line")}
-                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors disabled:opacity-50"
+                        className="inline-flex w-6 h-6 items-center justify-center rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] transition-colors disabled:opacity-50"
                       >
                         <X size={13} strokeWidth={2} />
                       </button>
@@ -971,18 +1006,17 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
 
       {/* ── Em jogo ────────────────────────────────────────────────────── */}
       <section data-tour="session-in-game" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
-        <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
+        <header className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 border-b theme-border">
           <div className="flex items-center gap-2 min-w-0">
             {runningIds.length > 0 && (
-              <input
-                type="checkbox"
-                aria-label={t("Select all running clients")}
+              <SelectBox
+                label={t("Select all running clients")}
                 checked={selected.length === runningIds.length}
+                indeterminate={selected.length > 0}
                 onChange={toggleAll}
-                className="accent-[var(--accent-color)]"
               />
             )}
-            <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("In game")}</h3>
+            <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("In game")}</h2>
             <span className="text-[12px] theme-muted truncate">
               {t("{{count}} running", { count: runningIds.length })}
             </span>
@@ -1023,14 +1057,33 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
               </>
             )}
           </div>
+          {/* Onde a dúvida aparece: perto do "Close all". */}
+          {runningIds.length > 0 && (
+            <p className="basis-full text-[11.5px] leading-snug theme-muted">
+              {t("Closing MultiAlt leaves every Roblox client running.")}
+            </p>
+          )}
         </header>
 
         {runningIds.length === 0 && unidentified.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
-            <Gamepad2 size={20} strokeWidth={1.5} />
+          <div className="flex flex-col items-center justify-center gap-2 px-3 py-6 theme-muted">
+            <Gamepad2 size={20} strokeWidth={1.5} aria-hidden="true" />
             <p className="text-[12px] text-center">
               {t("No Roblox client is running. Accounts you launch show up here.")}
             </p>
+            {/* Com contas marcadas, direto para a Choose Game; sem, para a
+                lista de contas, onde se escolhe quem joga. */}
+            <button
+              type="button"
+              onClick={() => {
+                store.setActivePage("accounts");
+                if (store.selectedIds.size > 0) store.setChooseGameOpen(true);
+              }}
+              className="theme-btn inline-flex items-center gap-1.5 min-h-[28px] px-3 py-1.5 text-[12px] font-medium"
+            >
+              <Gamepad2 size={13} strokeWidth={1.6} aria-hidden="true" />
+              {t("Choose a game")}
+            </button>
           </div>
         ) : (
           <div className={`${listBox} py-1`}>
@@ -1105,9 +1158,12 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   className="flex flex-col gap-1.5 px-3 py-1.5 text-[12px]"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span className="text-[var(--panel-fg)] shrink-0">{t("Unidentified client")}</span>
-                    <span className="theme-muted shrink-0">{t("PID {{pid}}", { pid: client.pid })}</span>
+                    <span aria-hidden="true" className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    {/* Em palavras simples: o que é. O PID (para quem procura no
+                        Gerenciador de Tarefas) fica no tooltip. */}
+                    <span className="text-[var(--panel-fg)] shrink-0" title={t("PID {{pid}}", { pid: client.pid })}>
+                      {t("Roblox open, account unknown")}
+                    </span>
                     <span className="theme-muted truncate" title={unidentifiedReasonLabel(client, namedLabel, t)}>
                       {unidentifiedReasonLabel(client, namedLabel, t)}
                     </span>
@@ -1126,12 +1182,17 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                           title={t("Tell the app which account is playing in this client")}
                           className="sidebar-btn-sm flex items-center gap-1.5"
                         >
-                          <UserCheck size={12} strokeWidth={1.5} />
+                          <UserCheck size={12} strokeWidth={1.5} aria-hidden="true" />
                           {t("Identify")}
                         </button>
                       )}
                     </span>
                   </div>
+                  {!picking && (
+                    <p className="pl-3.5 text-[11.5px] leading-snug theme-muted">
+                      {t("Opened outside MultiAlt, for example from the website. Click Identify and pick the account playing in it to manage it here.")}
+                    </p>
+                  )}
                   {picking && (
                     <div className="flex items-center gap-1.5 pl-3.5">
                       <select
@@ -1163,7 +1224,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                       <button
                         onClick={() => setIdentifying(null)}
                         aria-label={t("Cancel")}
-                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] transition-colors shrink-0"
+                        className="inline-flex w-6 h-6 items-center justify-center rounded-md theme-muted hover:text-[var(--panel-fg)] transition-colors shrink-0"
                       >
                         <X size={13} strokeWidth={2} />
                       </button>

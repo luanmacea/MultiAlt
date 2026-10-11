@@ -16,6 +16,7 @@ import {
   renderWithStore,
   setStore,
 } from "../../test-utils/renderWithStore";
+import i18n from "../../i18n";
 import { confirmMock, promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import { clearGameIdentityCache } from "../../hooks/useGameIdentity";
@@ -743,8 +744,9 @@ describe("SessionPanel — clientes abertos fora do app", () => {
     });
 
     const waiting = screen.getByTestId("session-unidentified-4100");
-    expect(within(waiting).getByText("Unidentified client")).toBeInTheDocument();
-    expect(within(waiting).getByText(/PID 4100/)).toBeInTheDocument();
+    // Em palavras simples: o que é, e o que fazer. O PID fica no tooltip.
+    expect(within(waiting).getByText("Roblox open, account unknown")).toBeInTheDocument();
+    expect(within(waiting).getByText("Roblox open, account unknown")).toHaveAttribute("title", expect.stringContaining("PID 4100"));
     expect(within(waiting).getByText(/hasn't joined a game yet/)).toBeInTheDocument();
     expect(within(screen.getByTestId("session-unidentified-4200")).getByText(/No Roblox log matched/)).toBeInTheDocument();
     expect(within(screen.getByTestId("session-unidentified-4300")).getByText(/not in your list/)).toBeInTheDocument();
@@ -1720,5 +1722,103 @@ describe("SessionPanel — Em jogo por jogo e servidor", () => {
     expect(screen.getByTestId("session-running-1")).toBeInTheDocument();
     expect(screen.queryByTestId("session-no-game")).not.toBeInTheDocument();
     expect(screen.queryByTestId("session-attention")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Acessibilidade e texto (crítica da página Session, 11/10/2026): títulos em
+ * ordem, mudança de estado anunciada, área de clique de 24 px, decimal com
+ * vírgula em pt/es, estado vazio com ação.
+ */
+describe("SessionPanel — acessibilidade e texto", () => {
+  it("section titles are h2, under the page's h1", () => {
+    renderPanel({ launchQueue: queue([entry(1, "queued")]), launchedByProgram: new Set([2]) });
+    expect(screen.getByRole("heading", { level: 2, name: "Joining" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "In game" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 3, name: "Joining" })).not.toBeInTheDocument();
+  });
+
+  it("announces a drop politely to screen readers", () => {
+    const { rerender } = renderPanel({ launchedByProgram: new Set([1, 2]) });
+    const live = screen.getByTestId("session-live");
+    expect(live).toHaveAttribute("aria-live", "polite");
+    expect(live).toHaveTextContent("");
+    setStore({
+      accounts: ACCOUNTS,
+      ...storeActions(),
+      launchedByProgram: new Set([1, 2]),
+      clientHealth: new Map([
+        [1, { pid: 1, logFound: true, drop: { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 1 } }],
+      ]),
+    });
+    rerender(<SessionPanel />);
+    expect(live).toHaveTextContent("alpha: Disconnected: lost connection");
+  });
+
+  it("the reconnect countdown is a timer", () => {
+    renderPanel({
+      autoReconnect: [
+        {
+          userId: 1,
+          phase: "waiting",
+          attempt: 1,
+          maxAttempts: 5,
+          nextAttemptAtMs: Date.now() + 30_000,
+          reason: null,
+          error: null,
+          drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 0 },
+        },
+      ],
+    });
+    expect(within(screen.getByTestId("session-reconnect-1")).getByRole("timer")).toHaveTextContent(/Reconnecting in/);
+  });
+
+  it("small icon buttons get a 24 px target", () => {
+    renderPanel({ launchQueue: queue([entry(1, "queued")]), launchedByProgram: new Set<number>() });
+    const cancel = within(screen.getByTestId("session-queue-1")).getByRole("button", { name: "Cancel alpha" });
+    expect(cancel.className).toMatch(/\bw-6\b/);
+    expect(cancel.className).toMatch(/\bh-6\b/);
+  });
+
+  it("writes memory with a decimal comma in Portuguese", async () => {
+    await i18n.changeLanguage("pt");
+    try {
+      renderWithStore(<SessionPanel />, {
+        accounts: [makeAccount({ UserID: 1, Username: "alpha" })],
+        launchedByProgram: new Set([1]),
+        platformCapabilities: makePlatformCapabilities({ supportsMemoryTrim: true }),
+        settings: { Optimization: { MemoryLimit: "1536" } },
+        clientMemory: new Map([[1, { memoryMb: 1250, limitMb: 1536, over: false, trimmedAtMs: null }]]),
+        ...storeActions(),
+      });
+      expect(within(screen.getByTestId("memory-chip")).getByTestId("memory-reading")).toHaveTextContent("1,2 GB");
+      expect(screen.getByTestId("memory-chip")).toHaveTextContent("1,5 GB");
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
+
+  it("the empty In game list offers to choose a game", async () => {
+    const { store } = renderPanel({
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      selectedIds: new Set([1]),
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Choose a game" }));
+    expect(store.setActivePage).toHaveBeenCalledWith("accounts");
+    expect(store.setChooseGameOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("without accounts selected, the empty state leads to the account list", async () => {
+    const { store } = renderPanel({ launchQueue: null, launchedByProgram: new Set<number>(), selectedIds: new Set() });
+    await userEvent.click(screen.getByRole("button", { name: "Choose a game" }));
+    expect(store.setActivePage).toHaveBeenCalledWith("accounts");
+    expect(store.setChooseGameOpen).not.toHaveBeenCalled();
+  });
+
+  it("says next to Close all that closing MultiAlt leaves the clients running", () => {
+    renderPanel({ launchedByProgram: new Set([1]) });
+    const inGame = document.querySelector("[data-tour='session-in-game']") as HTMLElement;
+    expect(within(inGame).getByText("Closing MultiAlt leaves every Roblox client running.")).toBeInTheDocument();
   });
 });

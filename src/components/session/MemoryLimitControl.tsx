@@ -1,5 +1,6 @@
 import { MemoryStick } from "lucide-react";
 import { usePrompt } from "../../hooks/usePrompt";
+import { useTranslation } from "react-i18next";
 import { useTr } from "../../i18n/text";
 import type { ClientMemory } from "../../types";
 import {
@@ -29,22 +30,28 @@ export type MemoryLimitValue = number | null;
 
 type Translate = ReturnType<typeof useTr>;
 
-function limitText(mb: number, t: Translate): string {
-  return mb > 0 ? formatMemoryMb(mb) : t("no limit");
+function limitText(mb: number, t: Translate, lang: string): string {
+  return mb > 0 ? formatMemoryMb(mb, lang) : t("no limit");
 }
 
 /** As opções do menu. `current`: o valor escolhido (`undefined` no lote, onde não há um só). */
-function limitOptions(defaultMb: number, own: number | null, current: MemoryLimitValue | undefined, t: Translate): ChipMenuOption[] {
+function limitOptions(
+  defaultMb: number,
+  own: number | null,
+  current: MemoryLimitValue | undefined,
+  t: Translate,
+  lang: string
+): ChipMenuOption[] {
   const custom = own !== null && own > 0 && !MEMORY_LIMIT_PRESETS_MB.includes(own) ? own : null;
   return [
     {
       value: "default",
-      label: t("Default ({{limit}})", { limit: limitText(defaultMb, t) }),
+      label: t("Default ({{limit}})", { limit: limitText(defaultMb, t, lang) }),
       checked: current === null,
     },
     { value: "0", label: t("No limit"), checked: current === 0 },
-    ...MEMORY_LIMIT_PRESETS_MB.map((mb) => ({ value: String(mb), label: formatMemoryMb(mb), checked: current === mb })),
-    ...(custom !== null ? [{ value: String(custom), label: formatMemoryMb(custom), checked: current === custom }] : []),
+    ...MEMORY_LIMIT_PRESETS_MB.map((mb) => ({ value: String(mb), label: formatMemoryMb(mb, lang), checked: current === mb })),
+    ...(custom !== null ? [{ value: String(custom), label: formatMemoryMb(custom, lang), checked: current === custom }] : []),
     { value: "custom", label: t("Custom…"), separated: true },
   ];
 }
@@ -80,17 +87,18 @@ export function MemoryChip({
   onChange: (value: MemoryLimitValue) => void;
 }) {
   const t = useTr();
+  const lang = useTranslation().i18n.language;
   const pick = usePickLimit();
   const { own, defaultMb, effectiveMb } = choice;
-  const limit = limitText(effectiveMb, t);
-  const reading = memory && memory.memoryMb !== null ? formatMemoryMb(memory.memoryMb) : null;
+  const limit = limitText(effectiveMb, t, lang);
+  const reading = memory && memory.memoryMb !== null ? formatMemoryMb(memory.memoryMb, lang) : null;
   const over = memory?.over === true;
   const limitSource =
     own === null
-      ? t("Following the default ({{limit}}).", { limit: limitText(defaultMb, t) })
+      ? t("Following the default ({{limit}}).", { limit: limitText(defaultMb, t, lang) })
       : t("Set for this account: {{limit}}.", { limit });
   // O "acima do limite" é do backend: vale o limite que ele mediu.
-  const measuredLimit = memory?.limitMb ? formatMemoryMb(memory.limitMb) : limit;
+  const measuredLimit = memory?.limitMb ? formatMemoryMb(memory.limitMb, lang) : limit;
   const usage = reading
     ? over
       ? memory?.trimmedAtMs !== null
@@ -106,7 +114,7 @@ export function MemoryChip({
       ariaLabel={`${t("Memory limit for {{name}}", { name })}: ${own === null ? t("default, {{limit}}", { limit }) : limit}`}
       title={title}
       menuLabel={t("Memory limit for {{name}}", { name })}
-      options={limitOptions(defaultMb, own, own, t)}
+      options={limitOptions(defaultMb, own, own, t, lang)}
       onSelect={(raw) =>
         void pick(raw).then((value) => {
           if (value !== undefined) onChange(value);
@@ -142,6 +150,7 @@ export function MemoryBulkChip({
   onChange: (value: MemoryLimitValue) => void;
 }) {
   const t = useTr();
+  const lang = useTranslation().i18n.language;
   const pick = usePickLimit();
   const label = count === 1 ? t("Memory limit for 1 selected") : t("Memory limit for {{count}} selected", { count });
   return (
@@ -149,7 +158,7 @@ export function MemoryBulkChip({
       ariaLabel={label}
       title={t("Above the limit, MultiAlt first asks Windows to free the client's memory.")}
       menuLabel={label}
-      options={limitOptions(defaultMb, null, undefined, t)}
+      options={limitOptions(defaultMb, null, undefined, t, lang)}
       onSelect={(raw) =>
         void pick(raw).then((value) => {
           if (value !== undefined) onChange(value);
@@ -176,6 +185,7 @@ export function MemoryDefaultSelect({
   onChange: (mb: number) => void;
 }) {
   const t = useTr();
+  const lang = useTranslation().i18n.language;
   const prompt = usePrompt();
   const custom = valueMb > 0 && !MEMORY_LIMIT_PRESETS_MB.includes(valueMb) ? valueMb : null;
 
@@ -202,10 +212,10 @@ export function MemoryDefaultSelect({
       <option value="0">{t("No limit")}</option>
       {MEMORY_LIMIT_PRESETS_MB.map((mb) => (
         <option key={mb} value={String(mb)}>
-          {formatMemoryMb(mb)}
+          {formatMemoryMb(mb, lang)}
         </option>
       ))}
-      {custom !== null && <option value={String(custom)}>{formatMemoryMb(custom)}</option>}
+      {custom !== null && <option value={String(custom)}>{formatMemoryMb(custom, lang)}</option>}
       <option value="custom">{t("Custom…")}</option>
     </select>
   );

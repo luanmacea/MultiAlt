@@ -453,3 +453,56 @@ describe("SessionPage — tutorial", () => {
     await walkTour("session", { invoke: invokeMock });
   });
 });
+
+describe("SessionPage — texto", () => {
+  it("describes the page without untranslated feature names", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      ...storeActions(),
+    });
+    const header = screen.getByRole("heading", { level: 1, name: "Session" }).closest("header") as HTMLElement;
+    expect(header).not.toHaveTextContent("Make Friends");
+  });
+
+  it("the reconnect default does not send you to the page you are on", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      ...storeActions(),
+    });
+    const toggle = screen.getByRole("switch", { name: /Reconnect accounts that drop/ });
+    expect(toggle).not.toHaveTextContent("Session page");
+  });
+
+  it("hides the Recordings card while there are no recordings", async () => {
+    setInvokeMap({
+      get_recordings: { recordings: [], defaultId: null, accountIds: {}, keys: [] },
+      get_recording_playback: { active: false },
+    });
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      platformCapabilities: makePlatformCapabilities({ os: "windows" }),
+      ...storeActions(),
+    });
+    await waitFor(() => expect(callsFor("get_recordings").length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("session-recordings")).not.toBeInTheDocument();
+  });
+
+  it("headings never skip a level", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: QUEUE,
+      launchedByProgram: new Set([10]),
+      platformCapabilities: makePlatformCapabilities({ supportsMemoryTrim: true }),
+      ...storeActions(),
+    });
+    const levels = screen.getAllByRole("heading").map((h) => Number(h.tagName.slice(1)));
+    expect(levels[0]).toBe(1);
+    for (let i = 1; i < levels.length; i += 1) expect(levels[i] - levels[i - 1]).toBeLessThanOrEqual(1);
+  });
+});

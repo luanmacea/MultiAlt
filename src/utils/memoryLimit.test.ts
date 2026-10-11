@@ -64,3 +64,14 @@ describe("memoryLimit", () => {
     expect(parseCustomMemoryLimit("lots")).toBeNull();
   });
 });
+
+describe("formatMemoryMb — decimal separator", () => {
+  it("uses a comma in Portuguese, Spanish and German", () => {
+    expect(formatMemoryMb(1250, "pt")).toBe("1,2 GB");
+    expect(formatMemoryMb(1536, "es")).toBe("1,5 GB");
+    expect(formatMemoryMb(1536, "de")).toBe("1,5 GB");
+    expect(formatMemoryMb(1536, "en")).toBe("1.5 GB");
+    expect(formatMemoryMb(2048, "pt")).toBe("2 GB");
+    expect(formatMemoryMb(900, "pt")).toBe("900 MB");
+  });
+});

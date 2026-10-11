@@ -1593,7 +1593,6 @@
   "Sending friend requests": "Enviando solicitudes de amistad",
   "Verifying the friendships": "Verificando las amistades",
   "Waiting": "Esperando",
-  "Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.": "Sigue lo que se está ejecutando ahora: cuentas uniéndose, Hacer amigos en curso y clientes ya en juego.",
   "Friends {{done}}/{{total}}": "Amigos {{done}}/{{total}}",
   "Could not save: {{error}}": "No se pudo guardar: {{error}}",
   "Delay between requests (s)": "Intervalo entre solicitudes (s)",
@@ -2513,5 +2512,12 @@
   "Close this account's Roblox client": "Cierra el cliente de Roblox de esta cuenta",
   "Close?": "¿Cerrar?",
   "Includes {{count}} clients opened from the Roblox website.": "Incluye {{count}} clientes abiertos desde el sitio web de Roblox.",
-  "Includes 1 client opened from the Roblox website.": "Incluye 1 cliente abierto desde el sitio web de Roblox."
+  "Includes 1 client opened from the Roblox website.": "Incluye 1 cliente abierto desde el sitio web de Roblox.",
+  "{{name}} is playing again": "{{name}} volvió a jugar",
+  "{{name}} is reconnecting": "{{name}} se está reconectando",
+  "Choose a game": "Elegir un juego",
+  "Opened outside MultiAlt, for example from the website. Click Identify and pick the account playing in it to manage it here.": "Abierto fuera de MultiAlt, por ejemplo desde el sitio web. Haz clic en Identificar y elige la cuenta que juega en él para gestionarlo aquí.",
+  "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its row of the In game list.": "Vuelve a abrir la cuenta en el mismo juego tras perder la conexión, ser expulsada o cerrarse sola. Solo ventanas que abrió MultiAlt, nunca las abiertas desde el sitio web. Cada cuenta puede cambiarlo en su fila de la lista En juego.",
+  "Roblox open, account unknown": "Roblox abierto, cuenta desconocida",
+  "What is running now: accounts joining and Roblox clients in game, grouped by game and server, with the ones that need you on top.": "Lo que está corriendo ahora: cuentas entrando y clientes de Roblox en juego, agrupados por juego y servidor, con los que te necesitan arriba."
 }

@@ -58,7 +58,7 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
   return (
     <PageShell
       title={t("Session")}
-      description={t("Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.")}
+      description={t("What is running now: accounts joining and Roblox clients in game, grouped by game and server, with the ones that need you on top.")}
       onLeave={onLeave}
       dataTour="session-page"
       tour="session"
@@ -90,7 +90,7 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
                   checked={reconnectDefault}
                   onChange={(v) => void store.updateSetting("General", "AutoReconnect", v ? "true" : "false")}
                   label="Reconnect accounts that drop"
-                  description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in the In game list of the Session page."
+                  description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its row of the In game list."
                 />
               </div>
             )}
@@ -139,9 +139,6 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
             </section>
           )}
 
-          <p className="px-1 text-[11.5px] leading-snug text-[var(--panel-muted)]">
-            {t("Closing MultiAlt leaves every Roblox client running.")}
-          </p>
         </aside>
       </div>
     </PageShell>

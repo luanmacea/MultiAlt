@@ -373,6 +373,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/settings",
       "src/components/pages/ThemePage.test.tsx",
       "src/theme.test.ts",
+      // Texto apagado a 4,5:1 em todo tema (página Session, 11/10/2026).
+      "src/themeContrast.test.ts",
       "src/themeFonts.test.ts",
       "src/fontPresets.test.ts",
       "src/hooks/useSettings.test.ts",

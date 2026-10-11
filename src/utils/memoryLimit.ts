@@ -56,11 +56,16 @@ export function fieldsWithMemoryLimit(
   return next;
 }
 
-/** "900 MB", "1 GB", "1.5 GB". */
-export function formatMemoryMb(mb: number): string {
+/**
+ * "900 MB", "1 GB", "1.5 GB" — com vírgula decimal em pt/es/de ("1,5 GB").
+ * `language` é o idioma da interface (`i18n.language`); sem ele, ponto.
+ */
+export function formatMemoryMb(mb: number, language?: string): string {
   if (mb < 1024) return `${Math.round(mb)} MB`;
   const gb = Math.round((mb / 1024) * 10) / 10;
-  return `${Number.isInteger(gb) ? gb.toFixed(0) : gb.toFixed(1)} GB`;
+  const text = Number.isInteger(gb) ? gb.toFixed(0) : gb.toFixed(1);
+  const comma = /^(pt|es|de)(-|_|$)/i.test(language ?? "");
+  return `${comma ? text.replace(".", ",") : text} GB`;
 }
 
 /** O que a pessoa digitou no "Custom…": MB, ou GB com a unidade. */
