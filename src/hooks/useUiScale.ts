@@ -3,14 +3,14 @@ import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { normalizeUiScaleSetting, resolveUiScale, type LogicalSize } from "../uiScale";
 
-/** Evento com que Settings › General avisa a escolha antes de a store recarregar. */
+/** Evento com que Settings › App avisa a escolha antes de a store recarregar. */
 const UI_SCALE_EVENT = "ram-ui-scale";
 /** Arrastar a janela dispara dezenas de eventos: calcula só no fim. */
 const RESIZE_DEBOUNCE_MS = 150;
 
 /**
  * Zoom aplicado agora, para Settings mostrar o "Automatic (170%)". Fica fora
- * do React porque quem aplica (App) e quem mostra (GeneralTab) não se veem.
+ * do React porque quem aplica (App) e quem mostra (AppTab) não se veem.
  */
 let appliedFactor: number | null = null;
 const appliedListeners = new Set<() => void>();
