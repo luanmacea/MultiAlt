@@ -2534,5 +2534,8 @@
   "Use global": "Usar la global",
   "Use global for {{slot}} on {{name}}": "Usar la global en {{slot}} para {{name}}",
   "While AFK mode is on, each account plays its anti-AFK recording again at this interval, counted from the end of the last one. Pick the accounts and start it in AFK clicks.": "Con el Modo AFK activado, cada cuenta vuelve a reproducir su grabación del anti-AFK en este intervalo, contado desde el final de la anterior. Elige las cuentas y actívalo en Clics AFK.",
-  "goes back to the global one.": "vuelve a la global."
+  "goes back to the global one.": "vuelve a la global.",
+  "Added {{count}} account to the launch queue": "{{count}} cuenta añadida a la cola de inicio",
+  "Added {{count}} accounts to the launch queue": "{{count}} cuentas añadidas a la cola de inicio",
+  "Already waiting in the launch queue": "Ya está esperando en la cola de inicio"
 }

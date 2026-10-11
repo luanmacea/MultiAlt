@@ -17,6 +17,7 @@ import type {
   ParsedGroup,
   PlatformCapabilities,
   FriendLinkState,
+  LaunchOutcome,
   LaunchQueuePayload,
   ModerationStatus,
   ServerPreference,
@@ -357,9 +358,10 @@ import { parsePrivateServerCode } from "./utils/privateServerCode";
  * launch closure would otherwise still read the PREVIOUS place/job).
  */
 /**
- * O que aconteceu com um launch de uma conta: `started` = o backend aceitou e o
- * cliente está subindo; `refused` = já havia uma sequência de launch em
- * andamento; `failed` = erro de launch (já reportado na tela). Quem chama usa
+ * O que aconteceu com um launch de uma conta: `started` = o backend aceitou (o
+ * cliente está subindo, ou a conta entrou no fim da fila que já roda);
+ * `refused` = a sequência em andamento não aceita conta nova (a da reconexão
+ * automática); `failed` = erro de launch (já reportado na tela). Quem chama usa
  * isto para não anunciar sucesso quando nada começou.
  */
 export type LaunchAttempt = "started" | "refused" | "failed";
@@ -1634,9 +1636,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * O backend recusa um launch quando já existe uma sequência em andamento
-   * (duas filas ao mesmo tempo brigariam pelo mutex do Multi Roblox, pelo
-   * registro e pelo `ClientAppSettings.json`, que é global). A mensagem é a
+   * O backend recusa um launch quando a sequência em andamento não aceita conta
+   * no fim (hoje, só a da reconexão automática — as outras recebem o lote no fim
+   * da fila, ver `reportAddedToQueue`). Duas filas ao mesmo tempo brigariam pelo
+   * mutex do Multi Roblox, pelo registro e pelo `ClientAppSettings.json`, que é
+   * global. A mensagem é a
    * mesma no launch de uma conta e no de várias — e é aqui que o código do
    * backend vira frase traduzida.
    *
@@ -1652,20 +1656,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   /**
+   * Com uma fila de launch rodando, o backend põe as contas no fim dela (cada
+   * uma com o jogo do seu lote) e o comando volta na hora — quem lança é o laço
+   * daquela fila. Antes ele recusava, com o toast acima, e as contas não abriam.
+   * O aviso aqui é curto: as contas já aparecem como "Queued" no Painel de
+   * Sessão. `added` não conta quem já esperava a vez.
+   */
+  function reportAddedToQueue(added: number) {
+    if (added > 0) {
+      addToast(
+        tr(added === 1 ? "Added {{count}} account to the launch queue" : "Added {{count}} accounts to the launch queue", {
+          count: added,
+        }),
+        "success"
+      );
+    } else {
+      addToast(tr("Already waiting in the launch queue"));
+    }
+  }
+
+  /**
    * Launch de uma conta. Nenhum erro sobe daqui — quem chama não precisa de
    * `try/catch` —, mas o resultado **diz se começou**: a tela que anuncia
    * "seguindo com 1 conta..." em cima de um aviso de recusa ou de uma faixa
    * vermelha de erro está mentindo para o usuário.
    */
   async function joinServer(userId: number, target?: LaunchTarget): Promise<LaunchAttempt> {
-    clearLaunchTimeout();
-    setJoiningAccounts(new Set([userId]));
-    setLaunchProgress({
-      mode: "single",
-      current: 1,
-      total: 1,
-      userId,
-    });
+    // Com a fila rodando, esta conta vai para o fim dela: o "entrando agora" e
+    // o progresso continuam sendo os da conta que a fila está abrindo.
+    const queueRunning = launchQueue?.active === true;
+    if (!queueRunning) {
+      clearLaunchTimeout();
+      setJoiningAccounts(new Set([userId]));
+      setLaunchProgress({
+        mode: "single",
+        current: 1,
+        total: 1,
+        userId,
+      });
+    }
     const launchAccount = accounts.find((a) => a.UserID === userId);
     const accountName = accountLabel(launchAccount, nameMaskingRef.current, userId);
     const launchingLine = tr("Launching {{name}}...", { name: accountName });
@@ -1694,7 +1723,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (target?.linkCode !== undefined) linkCode = target.linkCode;
       if (joinVip) resolvedJobId = "";
 
-      await invoke("launch_roblox", {
+      const outcome = await invoke<LaunchOutcome | null>("launch_roblox", {
         userId,
         placeId: pid,
         jobId: resolvedJobId,
@@ -1719,6 +1748,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } catch {
           // Guardar recentes é conveniência; nunca derruba o launch.
         }
+      }
+      if (outcome?.appended) {
+        // Entrou no fim da fila que já roda: não está abrindo agora, então o
+        // "Launching X…" do rodapé e o "entrando" desta conta saem.
+        withdrawActionStatus(launchingLine);
+        if (!queueRunning) {
+          setJoiningAccounts((prev) => {
+            const next = new Set(prev);
+            next.delete(userId);
+            return next;
+          });
+          setLaunchProgress((prev) => (prev?.mode === "single" && prev.userId === userId ? null : prev));
+        }
+        reportAddedToQueue(outcome.added);
+        return "started";
       }
       addToast(tr("Launching game..."));
     } catch (e) {
@@ -1797,14 +1841,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       throw new Error(message);
     }
 
-    clearLaunchTimeout();
-    setJoiningAccounts(new Set([userIds[0]]));
-    setLaunchProgress({
-      mode: "multi",
-      current: 0,
-      total: userIds.length,
-      userId: userIds[0],
-    });
+    // Ver `joinServer`: com a fila rodando, o lote vai para o fim dela e o
+    // progresso na tela segue sendo o da conta que a fila está abrindo.
+    const queueRunning = launchQueue?.active === true;
+    if (!queueRunning) {
+      clearLaunchTimeout();
+      setJoiningAccounts(new Set([userIds[0]]));
+      setLaunchProgress({
+        mode: "multi",
+        current: 0,
+        total: userIds.length,
+        userId: userIds[0],
+      });
+    }
     const launchingLine = tr("Launching {{count}} accounts...", { count: userIds.length });
     setActionStatusMessage(launchingLine, "info", 5000);
 
@@ -1817,7 +1866,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // the Job ID field — a single launch accepts both, so this must too.
       const explicitCode = target?.joinVip ? (target.linkCode || "").trim() : "";
       const vipCode = explicitCode || parsePrivateServerCode(rawJobId);
-      await invoke("launch_multiple", {
+      const outcome = await invoke<LaunchOutcome | null>("launch_multiple", {
         userIds,
         placeId: pid,
         jobId: vipCode ? `vip:${vipCode}` : rawJobId,
@@ -1841,10 +1890,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // Guardar recentes é conveniência; nunca derruba o launch.
         }
       }
+      if (outcome?.appended) {
+        // Entrou no fim da fila que já roda (ver `reportAddedToQueue`).
+        withdrawActionStatus(launchingLine);
+        reportAddedToQueue(outcome.added);
+        return;
+      }
       addToast(tr("Launching {{count}} accounts...", { count: userIds.length }));
     } catch (e) {
-      setJoiningAccounts(new Set());
-      setLaunchProgress(null);
+      if (!queueRunning) {
+        setJoiningAccounts(new Set());
+        setLaunchProgress(null);
+      }
       if (isLaunchAlreadyActiveError(e)) {
         // Ver `joinServer`: recusa por sequência já em andamento é aviso, e o
         // "Launching N accounts…" deste lote sai do rodapé. O erro original é
