@@ -332,6 +332,70 @@ describe("SessionPanel — running clients", () => {
   });
 });
 
+/**
+ * Marcar contas não pode empurrar as linhas: a faixa de lote entrava entre o
+ * cabeçalho e a lista e descia tudo ~76 px no primeiro clique. Agora é uma
+ * barra presa ao pé do cartão. Shift+clique marca um intervalo, como na lista
+ * de contas.
+ */
+describe("SessionPanel — seleção em lote", () => {
+  const FIVE = [...ACCOUNTS, makeAccount({ UserID: 4, Username: "delta" }), makeAccount({ UserID: 5, Username: "echo" })];
+
+  function renderFive(overrides: Partial<StoreValue> = {}) {
+    setInvokeMap({ get_nexus_accounts: [] });
+    return renderWithStore(<SessionPanel />, {
+      accounts: FIVE,
+      launchedByProgram: new Set([1, 2, 3, 4, 5]),
+      ...storeActions(),
+      ...overrides,
+    });
+  }
+
+  it("shows the bulk bar under the rows, pinned to the bottom, so nothing above them moves", async () => {
+    renderFive();
+    const firstRow = screen.getByTestId("session-running-1");
+    const before = firstRow.previousElementSibling;
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select alpha" }));
+    const bar = screen.getByTestId("session-bulk-bar");
+    expect(bar.className).toMatch(/sticky/);
+    expect(bar.className).toMatch(/bottom-0/);
+    expect(screen.getByTestId("session-running-5").compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Nada entrou entre o cabeçalho e a primeira linha.
+    expect(firstRow.previousElementSibling).toBe(before);
+    expect(within(bar).getByText("1 selected")).toBeInTheDocument();
+  });
+
+  it("shift-click selects the range from the last clicked row", async () => {
+    const user = userEvent.setup();
+    renderFive();
+    await user.click(screen.getByRole("checkbox", { name: "Select Bravo Alt" }));
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getByRole("checkbox", { name: "Select delta" }));
+    await user.keyboard("{/Shift}");
+    expect(screen.getByRole("checkbox", { name: "Select alpha" })).not.toBeChecked();
+    for (const name of ["Bravo Alt", "charlie", "delta"]) {
+      expect(screen.getByRole("checkbox", { name: `Select ${name}` })).toBeChecked();
+    }
+    expect(screen.getByRole("checkbox", { name: "Select echo" })).not.toBeChecked();
+
+    // Shift+clique numa marcada desmarca o intervalo.
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getByRole("checkbox", { name: "Select charlie" }));
+    await user.keyboard("{/Shift}");
+    expect(screen.getByRole("checkbox", { name: "Select charlie" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select delta" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select Bravo Alt" })).toBeChecked();
+  });
+
+  it("clears the selection from the bar", async () => {
+    renderFive();
+    await userEvent.click(screen.getByRole("checkbox", { name: "Select all running clients" }));
+    await userEvent.click(within(screen.getByTestId("session-bulk-bar")).getByRole("button", { name: "Clear selection" }));
+    expect(screen.queryByTestId("session-bulk-bar")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select alpha" })).not.toBeChecked();
+  });
+});
+
 describe("SessionPanel — live updates", () => {
   it("follows the store's queue state without a reload", async () => {
     // O evento `launch-queue` é ouvido pela store; o painel só reflete o

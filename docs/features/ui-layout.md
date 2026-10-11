@@ -214,6 +214,8 @@ Ao lado do nome de cada conta da **In game** aparece, em vermelho, **por que ela
 
 Na **In game** também entram os clientes abertos **fora do app** (pelo site, ou antes de o app abrir): os reconhecidos pelo log do Roblox aparecem como qualquer conta, com a marca "Opened outside the app"; os que não deu para reconhecer aparecem como **"Unidentified client"** (PID e motivo), com **Show window** (`focus_client_window`) e **Identify** (escolher a conta → `identify_external_client`), sem caixa de seleção, fora da contagem e sem botão de fechar — ver [external-clients.md](external-clients.md).
 
+**Marcar contas não mexe nas linhas:** a faixa de lote entrava entre o cabeçalho e a lista e descia tudo (~76 px no primeiro clique). Agora é uma **barra presa ao pé do cartão** (`sticky bottom-0`, `session-bulk-bar`) com "N selected", **Clear selection** e os menus de lote (**Reconnect**, **Memory limit**). **Shift+clique** marca o intervalo desde a última conta clicada, na ordem em que as linhas estão na tela (grupos recolhidos ficam de fora), com o novo estado da clicada — como na lista de contas. A caixa de cada grupo (jogo, servidor, atenção, sem jogo) marca as contas dele.
+
 **Joining** vazio é só o cabeçalho ("Nothing waiting", sem o Stop queue): a caixa vazia empurrava o "In game" para baixo. Embutido em outro lugar, o painel guarda a rolagem própria de cada lista (`contained`, o padrão); a página Session desliga.
 
 Regras: cancelar **nunca** chama `cmd_kill_roblox` (há teste de regressão para isso); os nomes respeitam o mascaramento de `hideUsernames`; linhas terminais (`done`/`failed`/`cancelled`) continuam visíveis até a próxima fila substituir.

@@ -188,7 +188,7 @@ continua sem relançar nada).
     **Use the default (on/off)**, com a escolha atual marcada (teclado: seta
     abre e anda, Enter escolhe, Escape fecha). Era uma chave com "default" e um
     botão de voltar ao padrão até 11/10/2026. Marcando linhas, o menu
-    **Reconnect** da faixa de lote tem as mesmas opções e grava o campo de cada
+    **Reconnect** da barra de lote (presa ao pé da lista) tem as mesmas opções e grava o campo de cada
     conta marcada (`updateAccount`, uma por vez; nada abre nem fecha cliente).
     O tooltip do chip diz de onde vem o valor ("Following the default…" com
     ligado/desligado, ou escolhido para a conta); o nome acessível diz o estado
