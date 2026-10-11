@@ -125,7 +125,7 @@ export function NavSidebar() {
     if (page === "accounts" && store.accounts.length > 0) {
       return {
         visual: collapsed ? null : (
-          <span className="ml-auto text-[11px] tabular-nums text-[var(--panel-muted)] opacity-70">
+          <span className="ml-auto text-[11px] tabular-nums text-[var(--panel-muted)]">
             {store.accounts.length}
           </span>
         ),
