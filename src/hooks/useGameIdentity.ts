@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { parsePlaceIdInput } from "../components/server-list/types";
+import { loadFavorites, loadRecentGames, parsePlaceIdInput } from "../components/server-list/types";
 
 /**
  * O que o backend devolve em `batched_get_game_info` (serde camelCase).
@@ -128,6 +128,23 @@ export async function loadGameIdentity(
   return { placeId, name: resolved.name, iconUrl: resolved.iconUrl, loading: false };
 }
 
+/**
+ * O nome que o app já guardou para o place (Favoritos, depois Recentes), para
+ * mostrar enquanto a API não responde — a fila mostrava "Place 107052…" por
+ * alguns segundos com o jogo nos Favoritos. Lista ilegível é só "não sei".
+ */
+function localGameName(placeId: number): string | null {
+  try {
+    const fav = loadFavorites().find((f) => f.placeId === placeId)?.name;
+    if (fav && fav.trim() && fav !== String(placeId)) return fav.trim();
+    const recent = loadRecentGames().find((g) => g.placeId === placeId)?.name;
+    if (recent && recent.trim() && recent !== String(placeId)) return recent.trim();
+  } catch {
+    // Storage bloqueado: segue sem nome local.
+  }
+  return null;
+}
+
 /** Só places plausíveis viram consulta. Texto pode ser o link colado do jogo. */
 function toPlaceId(input: string | number | null | undefined): number | null {
   if (typeof input === "number") {
@@ -176,10 +193,11 @@ export function useGameIdentity(
     };
   }, [placeId, userId]);
 
+  const localName = useMemo(() => (placeId !== null && !entry?.name ? localGameName(placeId) : null), [placeId, entry?.name]);
   if (placeId === null) return null;
   return {
     placeId,
-    name: entry?.name ?? null,
+    name: entry?.name ?? localName,
     iconUrl: entry?.iconUrl ?? null,
     loading,
   };

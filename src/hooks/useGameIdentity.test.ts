@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { clearGameIdentityCache, useGameIdentity } from "./useGameIdentity";
+import { saveFavorites } from "../components/server-list/types";
 
 const ICON = "https://tr.rbxcdn.com/jailbreak.png";
 
@@ -46,6 +47,21 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("useGameIdentity", () => {
+  /**
+   * A fila mostrava "Place 107052…" por alguns segundos até a API responder
+   * (teste do dono, 12/10/2026), mesmo com o jogo nos Favoritos. O nome que o
+   * app já guardou aparece na hora; a API continua sendo a fonte depois.
+   */
+  it("mostra na hora o nome que os Favoritos já têm, antes da API responder", async () => {
+    localStorage.clear();
+    saveFavorites([{ placeId: 4924922222, name: "Huss Valley", iconUrl: null, addedAt: 1, vipServers: [] }]);
+    invokeMock.mockImplementation(() => new Promise(() => {}));
+    const { result } = renderHook(() => useGameIdentity(4924922222, 5));
+    expect(result.current?.name).toBe("Huss Valley");
+    expect(result.current?.loading).toBe(true);
+    localStorage.clear();
+  });
+
   it("diz que jogo é aquele Place ID, com nome e ícone", async () => {
     const { result } = renderHook(() => useGameIdentity("606849621", 5));
 
