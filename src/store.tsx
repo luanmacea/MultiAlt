@@ -28,6 +28,7 @@ import type {
   ClientMemory,
   AutoReconnectEntry,
   AutoReconnectPayload,
+  ClosedClient,
   VaultKeyWarning,
   LaunchPreset,
   LaunchPresetEvent,
@@ -560,6 +561,14 @@ export interface StoreValue {
   stopAutoReconnect: (userId: number) => Promise<boolean>;
   /** "Tentar agora" / "Tentar de novo". */
   retryAutoReconnect: (userId: number) => Promise<boolean>;
+  /**
+   * Contas cujo cliente fechou no meio do jogo e não está sendo reaberto
+   * (`commands/closed_clients.rs`, evento `closed-clients`). "Entrar
+   * novamente" é o `joinServer` com `rejoinLaunchTarget` (utils/closedClients.ts).
+   */
+  closedClients: Map<number, ClosedClient>;
+  /** O "×" do aviso: esquece o cliente fechado. Não abre nem fecha nada. */
+  dismissClosedClient: (userId: number) => Promise<boolean>;
   startBottingMode: (config: BottingStartConfig) => Promise<void>;
   /**
    * Liga o Auto Rejoin nas contas que **já estão em jogo**, sem fechar nem
@@ -1025,6 +1034,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [autoReconnect, setAutoReconnect] = useState<AutoReconnectEntry[]>([]);
   // Retrato anterior, para avisar só na mudança (desistiu, parou, reconectou).
   const autoReconnectRef = useRef<AutoReconnectEntry[]>([]);
+  const [closedClients, setClosedClients] = useState<Map<number, ClosedClient>>(() => new Map());
   const [missingAssets, setMissingAssets] = useState<{ userId: number; username: string; assetIds: number[] } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
@@ -2078,6 +2088,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   async function retryAutoReconnect(userId: number): Promise<boolean> {
     return invoke<boolean>("retry_auto_reconnect", { userId });
+  }
+
+  async function dismissClosedClient(userId: number): Promise<boolean> {
+    // Some na hora; o evento do backend confirma (ou traz de volta).
+    setClosedClients((prev) => {
+      if (!prev.has(userId)) return prev;
+      const next = new Map(prev);
+      next.delete(userId);
+      return next;
+    });
+    return invoke<boolean>("dismiss_closed_client", { userId });
   }
 
   async function restartRobloxClients(userIds: number[]) {
@@ -3268,6 +3289,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .then((fn) => (disposed ? fn() : unsubs.push(fn)))
       .catch(() => {});
 
+    // Contas cujo cliente fechou no meio do jogo (commands/closed_clients.rs):
+    // mesmo par. A lista vem inteira; nada é anotado aqui.
+    const closedOf = (payload: { entries?: unknown } | null | undefined): Map<number, ClosedClient> =>
+      new Map(
+        (Array.isArray(payload?.entries) ? (payload.entries as ClosedClient[]) : [])
+          .filter((entry) => typeof entry?.userId === "number")
+          .map((entry) => [entry.userId, entry] as const)
+      );
+    invoke<{ entries: ClosedClient[] }>("get_closed_clients")
+      .then((payload) => {
+        if (!disposed) setClosedClients(closedOf(payload));
+      })
+      .catch(() => {});
+    listen<{ entries: ClosedClient[] }>("closed-clients", (e) => setClosedClients(closedOf(e.payload)))
+      .then((fn) => (disposed ? fn() : unsubs.push(fn)))
+      .catch(() => {});
+
     return () => {
       disposed = true;
       unsubs.forEach((fn) => fn());
@@ -3699,6 +3737,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     autoReconnect,
     stopAutoReconnect,
     retryAutoReconnect,
+    closedClients,
+    dismissClosedClient,
     startBottingMode,
     adoptRunningIntoBotting,
     detectRunningGamePlace,

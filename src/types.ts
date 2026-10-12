@@ -446,6 +446,35 @@ export interface ClientDrop {
   sinceMs: number;
 }
 
+/**
+ * Para onde "Entrar novamente" manda a conta (`RejoinTargetView`,
+ * commands/closed_clients.rs): o mesmo destino da reconexão automática.
+ */
+export interface RejoinTarget {
+  placeId: number;
+  /** Job ID do servidor público, ou o `vip:<código>`/link que o launch pediu. */
+  jobId: string;
+  launchData: string;
+  joinVip: boolean;
+  linkCode: string;
+}
+
+/**
+ * Conta cujo cliente (aberto pelo app) fechou no meio do jogo e não está sendo
+ * reconectado (`get_closed_clients` / evento `closed-clients`). Só memória:
+ * some quando a conta abre de novo, ao dispensar ou ao reabrir o app.
+ */
+export interface ClosedClient {
+  userId: number;
+  closedAtMs: number;
+  /** O motivo; `crashed` = fechou sem sair do jogo. */
+  drop: ClientDrop;
+  /** O jogo em que estava. */
+  placeId: number | null;
+  /** `null`: nem o log nem o launch dizem para onde voltar. */
+  rejoin: RejoinTarget | null;
+}
+
 /** Saúde de um cliente rastreado (vem junto de `get_running_instances`). */
 /**
  * O jogo em que a conta está agora e desde quando (`get_current_sessions`,
