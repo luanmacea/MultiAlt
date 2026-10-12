@@ -450,7 +450,8 @@ export interface StoreValue {
   setHideUsernames: (hide: boolean) => void;
   hiddenNameLetters: number;
   showAvatarsWhenHidden: boolean;
-  hideRobuxWhenHidden: boolean;
+  /** `General.ShowRobux` (desligado): o saldo de Robux no painel da conta. */
+  showRobux: boolean;
 
   placeId: string;
   setPlaceId: (id: string) => void;
@@ -1066,7 +1067,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const devMode = settings?.Developer?.DevMode === "true";
   const hiddenNameLetters = parseInt(settings?.General?.HiddenNameLetters || "0") || 0;
   const showAvatarsWhenHidden = settings?.General?.ShowAvatarsWhenHidden === "true";
-  const hideRobuxWhenHidden = settings?.General?.HideRobuxWhenHidden === "true";
+  const showRobux = settings?.General?.ShowRobux === "true";
   /**
    * O "Names hidden" de agora, para os toasts que nomeiam uma conta — inclusive
    * os dos listeners montados uma vez só, que veriam o valor do primeiro render.
@@ -3681,7 +3682,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setHideUsernames,
     hiddenNameLetters,
     showAvatarsWhenHidden,
-    hideRobuxWhenHidden,
+    showRobux,
     placeId,
     setPlaceId,
     jobId,

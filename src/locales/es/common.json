@@ -148,8 +148,6 @@
   "Preview Letters": "Letras visibles",
   "Show Avatars When Hidden": "Mostrar avatares con nombres ocultos",
   "Display profile pictures even when names are hidden": "Muestra las fotos de perfil incluso con los nombres ocultos",
-  "Hide Robux When Hidden": "Ocultar Robux con nombres ocultos",
-  "Mask the Robux balance in the sidebar when names are hidden": "Oculta el saldo de Robux en la barra lateral cuando los nombres están ocultos",
   "Multi Roblox": "Multi Roblox",
   "use at own risk": "úsalo bajo tu propio riesgo",
   "Allow multiple Roblox instances to run simultaneously": "Permite ejecutar varios clientes de Roblox al mismo tiempo",
@@ -2608,5 +2606,7 @@
   "Put this account back in the same game and server": "Devolver esta cuenta al mismo juego y servidor",
   "Rejoin": "Volver a entrar",
   "Their Roblox closed during a game. Rejoin puts them back in the same server.": "Su Roblox se cerró en medio del juego. Volver a entrar las devuelve al mismo servidor.",
-  "Waiting in the launch queue": "Esperando en la cola de inicio"
+  "Waiting in the launch queue": "Esperando en la cola de inicio",
+  "Show Robux": "Mostrar Robux",
+  "Show the account's Robux balance in its side panel": "Muestra el saldo de Robux de la cuenta en su panel lateral"
 }
