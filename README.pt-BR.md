@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://multialt.pages.dev/get/readme/"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://multialt.pages.dev/pt/">🌐 site</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
+  <sub>Windows 10/11 · <a href="https://multialt.pages.dev/pt/">🌐 site</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a> · <a href="https://discord.gg/NPvyWgKbfH">💬 Discord</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
@@ -19,7 +19,7 @@ Rápido e leve: reescrito do zero em **Rust + TypeScript** com [Tauri](https://t
 
 Todo o crédito a [ic3w0lf22](https://github.com/ic3w0lf22), que criou o Roblox Account Manager original, e a [niccdevs](https://github.com/niccdevs), que o manteve depois. Este projeto continua o trabalho deles: o Roblox Account Manager original foi [arquivado em outubro de 2024](https://github.com/ic3w0lf22/Roblox-Account-Manager), e o MultiAlt é o sucessor mantido. Vindo do RAM? **Add → Import Old Account Data** traz as suas contas.
 
-Achou um bug ou tem uma ideia? Abra uma [issue](https://github.com/luanmacea/MultiAlt/issues).
+Achou um bug ou tem uma ideia? Abra uma [issue](https://github.com/luanmacea/MultiAlt/issues) ou fale com a gente no [Discord](https://discord.gg/NPvyWgKbfH).
 
 # ⚠️ Aviso
 Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link pode entrar em qualquer jogo (ou até no Roblox Studio) com a sua conta, gastar seu Robux ou fazer você ser banido.
