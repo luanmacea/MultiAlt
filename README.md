@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://multialt.pages.dev/get/readme/"><img src="Images/download-button.svg" alt="Download for Windows (.msi installer)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://multialt.pages.dev/">🌐 website</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
+  <sub>Windows 10/11 · <a href="https://multialt.pages.dev/">🌐 website</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a> · <a href="https://discord.gg/NPvyWgKbfH">💬 Discord</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
@@ -19,7 +19,7 @@ Fast and lightweight: rewritten from scratch in **Rust + TypeScript** with [Taur
 
 Full credit to [ic3w0lf22](https://github.com/ic3w0lf22), who created the original Roblox Account Manager, and to [niccdevs](https://github.com/niccdevs), who maintained it afterwards. This project continues their work: the original Roblox Account Manager was [archived in October 2024](https://github.com/ic3w0lf22/Roblox-Account-Manager), and MultiAlt is its maintained successor. Coming from RAM? **Add → Import Old Account Data** brings your accounts over.
 
-Found a bug or have an idea? Open an [issue](https://github.com/luanmacea/MultiAlt/issues).
+Found a bug or have an idea? Open an [issue](https://github.com/luanmacea/MultiAlt/issues) or talk to us on [Discord](https://discord.gg/NPvyWgKbfH).
 
 # ⚠️ Warning
 Never generate an "rbx-player link" because someone asked you to — anyone holding that link can join any game (or even Roblox Studio) as you, spend your Robux or get your account banned.
@@ -52,21 +52,24 @@ Only download from this repository. The `zz-…sig` files on the [releases page]
 | Feature | What it does |
 | :--- | :--- |
 | Multi Roblox | Run as many Roblox clients as you want at the same time |
-| Multi Launch | Launch a whole selection of accounts into the same game or server, one at a time with a safe delay |
+| Multi Launch | Launch a whole selection of accounts into the same game or server, one at a time — the next one can start as soon as the previous one is in the game, instead of waiting a fixed time |
 | Server finder | Scans the game's servers and picks the best one for your group: *Best fit* (fullest server where everyone still fits), fullest, emptiest or random. Region filter and "no permission" check |
 | Join links | Paste any link — game, private/VIP server, share link, invite, deep link — and everyone joins |
 | Friends | See each account's online friends and send the whole group to a friend's server. Follow a player by username |
 | Favorites & recent | Save games with several VIP links each; recent games and servers |
 | Roblox version manager | Install Roblox builds side by side and choose the one to launch. Finds Bloxstrap, Fishstrap and Voidstrap installs |
 | Window grid | Arrange every Roblox window in a grid across the monitors you choose |
-| Session panel | Launch queue (cancel anytime), open clients (focus, close) and a live console explaining every launch, rejoin and watcher action |
+| Session panel | Launch queue (cancel anytime), open clients (focus, close), **why an account dropped** (lost connection, kicked — with Roblox's message —, game closed by itself or server shut down) and a live console explaining every launch, rejoin and watcher action |
+| Named windows | Each Roblox window is named after its account ("account - Roblox"), so you can tell them apart in the taskbar |
 
 ### Automation
 | Feature | What it does |
 | :--- | :--- |
+| Auto-reconnect | An account that drops goes back to the same game — and the same private server — on its own. Turn it on for every account or per account |
 | Auto Rejoin | Keeps your alts inside a server: every N minutes each alt is closed and relaunched, while your main accounts stay open and are never restarted |
 | AFK mode (anti-AFK) | Sends a key **or a mouse click** to each account's window every few minutes so nobody gets kicked for being idle — no rejoin, no lost progress. Click point set once for all accounts or per account |
-| Watcher | Closes a client that lost connection, ran low on memory or changed title (beta detection) |
+| Watcher | Flags a Roblox window that stops responding, and closes a client that lost connection, ran low on memory or changed title (beta detection) |
+| Keep the PC awake | The PC doesn't go to sleep while AFK mode, Auto Rejoin or auto-reconnect are running |
 | Optimization | FPS cap, graphics, window size, process priority, EcoQoS, CPU/memory limits and FastFlags — one profile for normal play and separate ones for Auto Rejoin mains and alts |
 | Pre-launch isolation | Clears cache, registry traces, MachineGuid and MAC before each launch so one account doesn't inherit another's session (Windows, only when no client is open) |
 | Scripts | JavaScript automation inside the manager (sandboxed, with per-script permissions) using the `ram.*` API |
@@ -116,6 +119,7 @@ MultiAlt is actively maintained. What is planned next:
 What MultiAlt will **not** do: anything that breaks Roblox's rules, like cheats, exploits or buying items with Robux for you.
 
 # Community
+- **Chat, help and ideas:** join the [Discord server](https://discord.gg/NPvyWgKbfH).
 - **Questions and ideas:** [Discussions](https://github.com/luanmacea/MultiAlt/discussions).
 - **Found a bug?** Use **Send feedback** in the app, or open an [issue](https://github.com/luanmacea/MultiAlt/issues/new/choose).
 - **Security problem?** Report it privately — see the [security policy](SECURITY.md).
