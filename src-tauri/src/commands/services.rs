@@ -308,6 +308,15 @@ fn export_nexus_lua() -> Result<String, String> {
 /// deste). O lado TS tem o par disto em `src/repo.ts`.
 const REPO_URL: &str = "https://github.com/luanmacea/MultiAlt";
 
+/// Convite do servidor do app no Discord (o mesmo do README e do site). Fica
+/// aqui, numa constante: a tela só pede para abrir, nunca manda um endereço.
+const DISCORD_INVITE_URL: &str = "https://discord.gg/NPvyWgKbfH";
+
+#[tauri::command]
+fn open_discord_invite() -> Result<(), String> {
+    open_url_in_browser(DISCORD_INVITE_URL)
+}
+
 #[tauri::command]
 fn open_repo_url() -> Result<(), String> {
     open_url_in_browser(REPO_URL)
