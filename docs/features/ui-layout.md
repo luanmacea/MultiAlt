@@ -170,6 +170,8 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 
 **Console e Windows saíram da Choose Game em 11/10/2026** (pedido do dono): viraram a página **Console** da barra lateral — o log e, no topo, o cartão da grade de janelas (ver [Barra lateral e páginas](#barra-lateral-e-páginas)). As listas da sessão moram só na página **Session**. A Choose Game ficou só com as formas de escolher o jogo.
 
+**Depois de mandar entrar, volta para a lista de contas** (pedido do dono, 12/10/2026): Join Game, Favorites, Servers, Friends e Follow fecham a Choose Game e mostram a lista de contas, que já diz o estado de cada uma ao vivo (Entrando, Jogando...). Antes iam para a Session e a Choose Game ficava aberta por baixo — clicar em Contas a reabria com o lote anterior. O link resolvido continua com o botão **Open Session**, que é um pedido explícito.
+
 `launchAll` (hook `useLauncher`): confirma contas online, leva para a página **Session** (onde está a fila de quem está entrando; era a aba Console), grava `placeId`/`jobId` na store e chama `joinServer` (1 conta) ou `launchMultiple` (várias) passando o alvo explicitamente. O registro nos recentes é feito pela **store**, só quando o `invoke` de launch retorna sucesso (a `ChooseGameScreen` não registra mais por conta própria).
 
 **Trocar de aba não perde o que foi carregado.** Cada aba é desmontada ao sair, então o que ela buscou vive num cache de memória da sessão ([utils/sessionCache.ts](../../src/utils/sessionCache.ts)) — nunca em disco nem no `localStorage`, e some ao fechar o app. Ao voltar (para a aba ou para a Choose Game), a aba mostra o que tinha no primeiro desenho e atualiza por trás, com um indicador discreto, trocando os dados quando a resposta chega:

@@ -483,8 +483,12 @@ describe("ChooseGameScreen — Recent tab", () => {
         expect.objectContaining({ placeId: "606849621" })
       )
     );
-    // A fila de quem está entrando mora na página Session (era a aba Console).
-    expect(store.setActivePage).toHaveBeenCalledWith("session");
+    // Lançou: volta sozinho para a lista de contas (pedido do dono, 12/10/2026),
+    // que agora mostra o estado de cada conta ao vivo. Antes ia para a Session
+    // e a Choose Game ficava aberta por baixo, voltando ao clicar em Contas.
+    expect(store.setChooseGameOpen).toHaveBeenCalledWith(false);
+    expect(store.setActivePage).toHaveBeenCalledWith("accounts");
+    expect(store.setActivePage).not.toHaveBeenCalledWith("session");
   });
 });
 

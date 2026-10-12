@@ -288,7 +288,16 @@ type FollowPresence = {
   game_id?: string | null;
 };
 
-function FollowTab({ userIds, onLaunchStarted }: { userIds: number[]; onLaunchStarted?: () => void }) {
+function FollowTab({
+  userIds,
+  onLaunchStarted,
+  onOpenSession,
+}: {
+  userIds: number[];
+  onLaunchStarted?: () => void;
+  /** O "Open Session" do link resolvido: aí a pessoa pediu a Session. */
+  onOpenSession?: () => void;
+}) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
@@ -353,7 +362,7 @@ function FollowTab({ userIds, onLaunchStarted }: { userIds: number[]; onLaunchSt
   return (
     <div className="h-full overflow-y-auto p-5">
       {/* Join link */}
-      <JoinLinkSection userIds={userIds} onOpenSession={onLaunchStarted} />
+      <JoinLinkSection userIds={userIds} onOpenSession={onOpenSession} />
 
       {/* Follow card */}
       <div className="theme-panel theme-border border rounded-xl p-5 mb-4">
@@ -450,11 +459,17 @@ export function ChooseGameScreen() {
   // ── Game selection handlers ────────────────────────────────────────────────
 
   /**
-   * Lançou: vai para a página Session, onde está a fila de quem está entrando
-   * (era a aba Console daqui). A Choose Game continua aberta para quando a
-   * pessoa voltar às contas.
+   * Lançou: fecha a Choose Game e volta para a lista de contas, que mostra o
+   * estado de cada conta ao vivo (Entrando, Jogando...). Pedido do dono,
+   * 12/10/2026: antes ia para a Session e a Choose Game ficava aberta por
+   * baixo — clicar em Contas a reabria com as contas do lote anterior. A fila
+   * continua na Session (chip e barra lateral levam até ela).
    */
   const goToSession = () => store.setActivePage("session");
+  const backToAccounts = () => {
+    store.setChooseGameOpen(false);
+    store.setActivePage("accounts");
+  };
 
   /**
    * Clique no card, nas abas Games/Recent.
@@ -478,11 +493,11 @@ export function ChooseGameScreen() {
   }
 
   async function handleFavoritesSelectGame(placeId: number, privateServer?: string) {
-    await launchAll(userIds, placeId, privateServer || "", goToSession);
+    await launchAll(userIds, placeId, privateServer || "", backToAccounts);
   }
 
   async function handleJoinGame(placeId: number) {
-    await launchAll(userIds, placeId, "", goToSession);
+    await launchAll(userIds, placeId, "", backToAccounts);
   }
 
   /** Vai para a aba Servers já com o place do jogo clicado. */
@@ -750,14 +765,14 @@ export function ChooseGameScreen() {
             placeId={store.placeId}
             setPlaceId={store.setPlaceId}
             launchAll={launchAll}
-            onLaunchStarted={goToSession}
+            onLaunchStarted={backToAccounts}
           />
         )}
         {activeTab === "friends" && (
-          <FriendsTab userIds={userIds} launchAll={launchAll} onLaunchStarted={goToSession} />
+          <FriendsTab userIds={userIds} launchAll={launchAll} onLaunchStarted={backToAccounts} />
         )}
         {activeTab === "follow" && (
-          <FollowTab userIds={userIds} onLaunchStarted={goToSession} />
+          <FollowTab userIds={userIds} onLaunchStarted={backToAccounts} onOpenSession={goToSession} />
         )}
       </div>
       </div>
