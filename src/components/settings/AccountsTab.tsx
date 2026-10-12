@@ -54,7 +54,7 @@ export function AccountsTab({ s }: { s: UseSettingsReturn }) {
         checked={s.getBool("General", "ShowRobux")}
         onChange={(v) => s.setBool("General", "ShowRobux", v)}
         label="Show Robux"
-        description="Show the account's Robux balance in its side panel"
+        description="Show the account's Robux balance in its side panel. Hidden names hide it too."
       />
       <Toggle
         checked={s.getBool("General", "ShowPresence")}

@@ -2608,5 +2608,5 @@
   "Their Roblox closed during a game. Rejoin puts them back in the same server.": "Su Roblox se cerró en medio del juego. Volver a entrar las devuelve al mismo servidor.",
   "Waiting in the launch queue": "Esperando en la cola de inicio",
   "Show Robux": "Mostrar Robux",
-  "Show the account's Robux balance in its side panel": "Muestra el saldo de Robux de la cuenta en su panel lateral"
+  "Show the account's Robux balance in its side panel. Hidden names hide it too.": "Muestra el saldo de Robux de la cuenta en su panel lateral. Con los nombres ocultos, también se oculta."
 }
