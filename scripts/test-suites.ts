@@ -86,6 +86,8 @@ export const SUITES: Record<string, TestSuite> = {
       // Estado ao vivo na lista de contas e o chip "precisam de atenção".
       "src/utils/accountLiveState.test.ts",
       "src/components/accounts/AccountLiveState.test.tsx",
+      // Cliente que fechou no meio do jogo: motivo e "Entrar novamente".
+      "src/utils/closedClients.test.ts",
       "src/components/layout/Toolbar.test.tsx",
     ],
   },
@@ -160,6 +162,8 @@ export const SUITES: Record<string, TestSuite> = {
       // Reconexão automática da conta que caiu (commands/reconnect.rs).
       "auto_reconnect_tests",
       "auto_reconnect_target_tests",
+      // Cliente que fechou no meio do jogo e o "Entrar novamente" (commands/closed_clients.rs).
+      "closed_clients_tests",
       // Teto de memória que libera RAM antes de fechar (memory_ceiling.rs, memory_trim.rs).
       "memory_ceiling_tests",
       "win_memory_trim_tests",

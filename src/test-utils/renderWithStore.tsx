@@ -248,6 +248,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     autoReconnect: [],
     stopAutoReconnect: vi.fn(async () => true),
     retryAutoReconnect: vi.fn(async () => true),
+    closedClients: new Map(),
+    dismissClosedClient: vi.fn(async () => true),
     startBottingMode: vi.fn(async () => {}),
     adoptRunningIntoBotting: vi.fn(async () => {}),
     detectRunningGamePlace: vi.fn(async () => null),

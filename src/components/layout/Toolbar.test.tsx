@@ -446,4 +446,18 @@ describe("Toolbar — accounts that need attention", () => {
     });
     expect(screen.queryByTestId("toolbar-attention")).not.toBeInTheDocument();
   });
+
+  it("an account whose client closed counts: it needs the person to rejoin or dismiss it", () => {
+    renderToolbar({
+      accounts: [1, 2].map((UserID) => makeAccount({ UserID })),
+      // A 1ª fechou no meio do jogo; a reconexão dela desistiu (não reconecta mais).
+      closedClients: new Map([
+        [1, { userId: 1, closedAtMs: 1, drop: { ...drop, kind: "crashed" as const, reason: null }, placeId: 42, rejoin: null }],
+      ]),
+      autoReconnect: [
+        { userId: 1, phase: "gaveUp", attempt: 5, maxAttempts: 5, nextAttemptAtMs: null, reason: null, error: null, drop },
+      ],
+    });
+    expect(screen.getByTestId("toolbar-attention")).toHaveAccessibleName("1 needs attention");
+  });
 });

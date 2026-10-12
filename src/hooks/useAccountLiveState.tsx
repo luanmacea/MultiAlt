@@ -9,7 +9,7 @@ import {
   type AccountLiveState,
   type LiveSources,
 } from "../utils/accountLiveState";
-import type { CurrentSession } from "../types";
+import type { ClosedClient, CurrentSession } from "../types";
 
 /**
  * Estado ao vivo das contas na lista de contas (ver utils/accountLiveState.ts).
@@ -20,6 +20,7 @@ import type { CurrentSession } from "../types";
  */
 
 const EMPTY: ReadonlyMap<number, CurrentSession> = new Map();
+const NO_CLOSED: ReadonlyMap<number, ClosedClient> = new Map();
 const SessionsContext = createContext<ReadonlyMap<number, CurrentSession>>(EMPTY);
 
 export function AccountLiveStateProvider({ children }: { children: ReactNode }) {
@@ -41,6 +42,7 @@ function useLiveSources(sessions: ReadonlyMap<number, CurrentSession>): LiveSour
     clientHealth: store.clientHealth,
     reconnecting: activeReconnectIds(store.autoReconnect),
     sessions,
+    closed: store.closedClients ?? NO_CLOSED,
   };
 }
 
@@ -50,7 +52,7 @@ export function useAccountLiveState(userId: number): AccountLiveState {
   return accountLiveState(userId, useLiveSources(sessions));
 }
 
-/** Quantas contas precisam de atenção (caiu, reconectando, não responde). */
+/** Quantas contas precisam de atenção (caiu, reconectando, não responde, fechou). */
 export function useAttentionCount(): number {
   return attentionIds(useLiveSources(EMPTY)).size;
 }

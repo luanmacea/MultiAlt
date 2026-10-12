@@ -2561,8 +2561,6 @@
   "While you were away": "While you were away",
   "{{count}} need attention": "{{count}} need attention",
   "1 needs attention": "1 needs attention",
-  "Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.": "Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.",
-  "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.": "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.",
   "While they play": "While they play",
   "account-dropped": "Dropped",
   "next {{time}}": "next {{time}}",
@@ -2600,5 +2598,15 @@
   "Window": "Window",
   "Recent games and servers": "Recent games and servers",
   "Launch comes first: how accounts open, Multi Roblox, and a check for when launching does nothing.": "Launch comes first: how accounts open, Multi Roblox, and a check for when launching does nothing.",
-  "Discord": "Discord"
+  "Discord": "Discord",
+  "Accounts that dropped, are reconnecting, are not responding or closed during a game. Click to see them in Session.": "Accounts that dropped, are reconnecting, are not responding or closed during a game. Click to see them in Session.",
+  "An account with Roblox open shows how it is doing and which game it is in. If one drops, stops responding or closes during a game, a yellow button at the top counts it. Click it to see those accounts. A closed account has Rejoin, which puts it back in the same server.": "An account with Roblox open shows how it is doing and which game it is in. If one drops, stops responding or closes during a game, a yellow button at the top counts it. Click it to see those accounts. A closed account has Rejoin, which puts it back in the same server.",
+  "account-closed": "Closed",
+  "Closed": "Closed",
+  "Closed at {{time}}": "Closed at {{time}}",
+  "Hide this notice": "Hide this notice",
+  "Put this account back in the same game and server": "Put this account back in the same game and server",
+  "Rejoin": "Rejoin",
+  "Their Roblox closed during a game. Rejoin puts them back in the same server.": "Their Roblox closed during a game. Rejoin puts them back in the same server.",
+  "Waiting in the launch queue": "Waiting in the launch queue"
 }

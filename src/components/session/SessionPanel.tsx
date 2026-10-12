@@ -19,6 +19,7 @@ import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
 import { ClientHealthNote } from "./ClientHealthNote";
+import { ClosedClientsSection } from "./ClosedClientsSection";
 import { ReconnectBulkChip, ReconnectChip } from "./ReconnectChip";
 import { MemoryBulkChip, MemoryChip, type MemoryLimitValue } from "./MemoryLimitControl";
 import { MEMORY_LIMIT_SETTING, fieldsWithMemoryLimit, memoryLimitChoice } from "../../utils/memoryLimit";
@@ -440,6 +441,12 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
     setError(null);
     setReconnectBusy((prev) => new Set(prev).add(userId));
     if (action === "dismiss") setDismissed((prev) => new Set(prev).add(key));
+    // A mesma conta com o aviso de "fechou" (seção Closed, linha da lista de
+    // contas): dispensar a linha da reconexão dispensa os dois — senão o
+    // aviso escondido reaparecia na seção de baixo.
+    if (action === "dismiss" && store.closedClients?.has(userId)) {
+      void store.dismissClosedClient(userId).catch(() => {});
+    }
     try {
       const ok =
         action === "retry" ? await store.retryAutoReconnect(userId) : await store.stopAutoReconnect(userId);
@@ -1110,6 +1117,12 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           </ul>
         </section>
       )}
+
+      {/* ── Fechou (cliente que fechou no meio do jogo) ───────────────── */}
+      <ClosedClientsSection
+        hiddenIds={new Set([...runningIds, ...reconnecting.map((entry) => entry.userId)])}
+        contained={contained}
+      />
 
       {/* ── Em jogo ────────────────────────────────────────────────────── */}
       <section

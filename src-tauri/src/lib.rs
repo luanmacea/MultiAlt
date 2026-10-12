@@ -60,6 +60,7 @@ include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
 include!("commands/reconnect.rs");
+include!("commands/closed_clients.rs");
 include!("commands/keep_awake.rs");
 include!("commands/quick_login.rs");
 include!("commands/memory_ceiling.rs");
@@ -699,6 +700,8 @@ pub fn run() {
             get_auto_reconnect_status,
             stop_auto_reconnect,
             retry_auto_reconnect,
+            get_closed_clients,
+            dismiss_closed_client,
             chromium::commands::open_login_browser,
             chromium::commands::extract_browser_cookie,
             chromium::commands::close_login_browser,
