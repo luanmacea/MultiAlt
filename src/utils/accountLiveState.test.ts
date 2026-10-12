@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { accountLiveState, activeReconnectIds, attentionIds, type LiveSources } from "./accountLiveState";
-import type { AutoReconnectEntry, ClientDrop } from "../types";
+import { accountLiveState, activeReconnectIds, attentionIds, isAttention, type LiveSources } from "./accountLiveState";
+import type { AutoReconnectEntry, ClientDrop, ClosedClient } from "../types";
 
 const DROP: ClientDrop = { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 1 };
 
@@ -16,6 +16,7 @@ function sources(overrides: Partial<LiveSources> = {}): LiveSources {
     clientHealth: new Map(),
     reconnecting: new Set(),
     sessions: new Map(),
+    closed: new Map(),
     ...overrides,
   };
 }
@@ -80,5 +81,34 @@ describe("accountLiveState", () => {
       })
     );
     expect([...ids].sort()).toEqual([1, 4]);
+  });
+
+  describe("an account whose client closed", () => {
+    const CLOSED: ClosedClient = {
+      userId: 1,
+      closedAtMs: 5000,
+      drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 5000 },
+      placeId: 42,
+      rejoin: { placeId: 42, jobId: "job-a", launchData: "", joinVip: false, linkCode: "" },
+    };
+
+    it("says Closed, with the game it was in", () => {
+      expect(accountLiveState(1, sources({ closed: new Map([[1, CLOSED]]) }))).toEqual({
+        state: "closed",
+        placeId: 42,
+        sinceMs: 5000,
+      });
+    });
+
+    it("reconnecting and joining again win over closed", () => {
+      const closed = new Map([[1, CLOSED]]);
+      expect(accountLiveState(1, sources({ closed, reconnecting: new Set([1]) })).state).toBe("reconnecting");
+      expect(accountLiveState(1, sources({ closed, joining: new Set([1]) })).state).toBe("joining");
+    });
+
+    it("counts as needing attention (it needs the person to act)", () => {
+      expect(isAttention("closed")).toBe(true);
+      expect([...attentionIds(sources({ closed: new Map([[1, CLOSED]]) }))]).toEqual([1]);
+    });
   });
 });

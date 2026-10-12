@@ -201,6 +201,19 @@ Mensagem de erro: `http_client::describe_error` transforma timeout em frase ("Ro
 - **Preset com horário de fechar** ([presets.md](presets.md)) fecha só os clientes que **aquela** execução abriu: confere conta + PID no tracker e pula cliente adotado do site. Não existe outro caminho de fechamento em lote além do "Close All Roblox" explícito.
 - **Ao sair do app** o app **não fecha** cliente nenhum: só solta o mutex do Multi Roblox (e a reserva experimental do nome, se houver) e limpa o rastreamento (`exit_cleanup_tests`, ver CLAUDE.md).
 
+## Cliente que fechou e "Entrar novamente"
+
+Pedido do dono (12/10/2026): quando o cliente de uma conta fechava (caiu, foi morto, fechou sem sair do jogo, ou caiu sem reconexão automática), a conta só sumia do estado ao vivo da lista de contas; nada dizia que tinha fechado, e o único registro era o "fechou sem sair do jogo" do While you were away.
+
+- **Quem anota:** [commands/closed_clients.rs](../../src-tauri/src/commands/closed_clients.rs) (`ClosedClientBook`, puro e testado em `closed_clients_tests`), uma vez por passada do monitor de quedas (`closed_clients_after_health_tick`, logo depois da reconexão). Ele guarda o último retrato de cada cliente vivo (em jogo, queda, destino do log) e, quando a conta fica sem cliente vivo — saiu do tracker, ou o processo morreu e o tracker ainda o lista —, decide se foi um "fechou".
+- **Conta como fechou:** cliente **aberto pelo app** que estava num jogo (log) ou que já tinha caído (kick, desconexão, servidor fechou) quando terminou. O motivo é a queda que o monitor viu; sem queda, "fechou sem sair do jogo" (`crashed`).
+- **Não conta:** cliente do site (adotado — é da pessoa, e o app nunca relança cliente adotado); cliente que **o próprio app** fechou (`was_terminated_by_app`: Fechar, Auto Rejoin, Watcher, teto de memória, a reconexão trocando o cliente); conta gerenciada pelo Auto Rejoin (ele reabre sozinho); quem saiu pelo menu do Roblox ou nunca entrou num jogo; cliente sem log achado (não chuta, mesma regra do monitor).
+- **Some quando:** a conta tem um cliente novo (qualquer launch, inclusive pelo site — PID diferente), a pessoa dispensa (`dismiss_closed_client`, o "×") ou o app reabre (só memória, nada vai para disco).
+- **Para onde volta:** o mesmo alvo da reconexão automática (`reconnect_target` em [reconnect.rs](../../src-tauri/src/commands/reconnect.rs)): servidor privado com os dados do último launch (`vip:<código>`, link ou VIP + código — nunca um link inventado); público com o place e o Job ID do último "Joining game" do log, **sem** o Job ID quando o servidor fechou; sem log, o que o app pediu no launch. Sem nenhum dos dois, não há "Entrar novamente".
+- **Como volta:** a tela recebe o alvo (`get_closed_clients` / evento `closed-clients`, `rejoin`) e chama o **launch normal** (`joinServer` com `rejoinLaunchTarget`, [utils/closedClients.ts](../../src/utils/closedClients.ts)) — pela fila, como qualquer launch: com uma fila rodando, a conta entra no fim dela. Não existe caminho próprio de abrir cliente aqui. `joinVip`/`linkCode` só vão quando o backend os resolveu: um `false`/"" explícito apagaria o código que o `joinServer` tira de um Job ID `vip:` ou de um link colado. Se o servidor já não existe, vale o mesmo que no launch normal (o Roblox manda para outro servidor do jogo).
+- **Reconexão automática ligada:** enquanto ela tenta, a conta mostra "Reconectando" (vence o "fechou"); se ela desiste ou para, o "fechou" aparece com o "Entrar novamente".
+- **Onde aparece:** na linha da lista de contas e na seção **Closed** da página Session — ver [ui-layout.md](ui-layout.md#lista-de-contas).
+
 ## Configurações relacionadas
 
 Arquivo `RAMSettings.ini`.

@@ -25,6 +25,7 @@ import type {
   AutoReconnectEntry,
   ClientDrop,
   ClientHealth,
+  ClosedClient,
   CurrentSession,
   FriendLinkState,
   LaunchQueueEntry,
@@ -1989,3 +1990,57 @@ describe("SessionPanel — reconexão na linha da conta", () => {
     expect(screen.getByTestId("session-reconnect-1")).toBeInTheDocument();
   });
 });
+
+describe("SessionPanel — accounts whose client closed", () => {
+  function closedClient(userId: number, overrides: Partial<ClosedClient> = {}): ClosedClient {
+    return {
+      userId,
+      closedAtMs: Date.now() - 120_000,
+      drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 1 },
+      placeId: 606849621,
+      rejoin: { placeId: 606849621, jobId: "job-x", launchData: "", joinVip: false, linkCode: "" },
+      ...overrides,
+    };
+  }
+
+  it("lists them with the reason, and Rejoin goes back to the same server through the normal launch", async () => {
+    const { store } = renderPanel({ closedClients: new Map([[2, closedClient(2)]]) });
+    const line = screen.getByTestId("session-closed-2");
+    expect(within(line).getByText("Bravo Alt")).toBeInTheDocument();
+    expect(within(line).getByText("Closed without leaving the game")).toBeInTheDocument();
+
+    await userEvent.click(within(line).getByRole("button", { name: "Rejoin" }));
+    expect(store.joinServer).toHaveBeenCalledWith(2, { placeId: "606849621", jobId: "job-x", launchData: "" });
+  });
+
+  it("the × dismisses it", async () => {
+    const { store } = renderPanel({ closedClients: new Map([[2, closedClient(2)]]) });
+    await userEvent.click(within(screen.getByTestId("session-closed-2")).getByRole("button", { name: "Dismiss Bravo Alt" }));
+    expect(store.dismissClosedClient).toHaveBeenCalledWith(2);
+  });
+
+  it("an account the reconnection still shows is not listed twice; hiding that line hides both", async () => {
+    setInvokeMap({ stop_auto_reconnect: true });
+    const gaveUp: AutoReconnectEntry = {
+      userId: 2,
+      phase: "gaveUp",
+      attempt: 5,
+      maxAttempts: 5,
+      nextAttemptAtMs: null,
+      reason: null,
+      error: null,
+      drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 1 },
+    };
+    const { store } = renderPanel({
+      closedClients: new Map([[2, closedClient(2)]]),
+      autoReconnect: [gaveUp],
+      stopAutoReconnect: vi.fn(async () => true),
+    });
+    expect(screen.getByTestId("session-reconnect-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-closed-2")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss Bravo Alt" }));
+    expect(store.dismissClosedClient).toHaveBeenCalledWith(2);
+  });
+});
+

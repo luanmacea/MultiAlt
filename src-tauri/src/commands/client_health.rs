@@ -919,6 +919,8 @@ pub(crate) fn start_client_health_monitor(app: tauri::AppHandle) {
             }
             // Reconexão automática da conta que caiu (commands/reconnect.rs).
             reconnect_after_health_tick(&app, &notices);
+            // Conta cujo cliente fechou no meio do jogo (commands/closed_clients.rs).
+            closed_clients_after_health_tick(&app);
             // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs).
             keep_awake_tick(&app);
             // Teto de memória dos clientes do app (commands/memory_ceiling.rs).

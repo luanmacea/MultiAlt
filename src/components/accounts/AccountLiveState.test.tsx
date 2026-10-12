@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
@@ -10,7 +11,7 @@ import { AccountList } from "./AccountList";
 import { makeAccount, setStore } from "../../test-utils/renderWithStore";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
 import { clearGameIdentityCache } from "../../hooks/useGameIdentity";
-import type { AutoReconnectEntry, ClientHealth, CurrentSession } from "../../types";
+import type { AutoReconnectEntry, ClientHealth, ClosedClient, CurrentSession } from "../../types";
 import type { StoreValue } from "../../store";
 
 /**
@@ -46,8 +47,9 @@ function renderList(sessions: CurrentSession[], overrides: Partial<StoreValue> =
       iconUrl: null,
     }),
   });
-  setStore({ accounts: ACCOUNTS, ...overrides });
+  const store = setStore({ accounts: ACCOUNTS, ...overrides });
   render(<AccountList />);
+  return store;
 }
 
 function row(userId: number): HTMLElement {
@@ -148,5 +150,93 @@ describe("Accounts list — live state of running accounts", () => {
     });
     expect(await within(row(1)).findByText("Playing")).toBeInTheDocument();
     expect(within(row(1)).queryByText("alpha")).not.toBeInTheDocument();
+  });
+
+  describe("an account whose client closed (owner, 12/10/2026: it just vanished from the row)", () => {
+    function closedClient(overrides: Partial<ClosedClient> = {}): ClosedClient {
+      return {
+        userId: 2,
+        closedAtMs: Date.now() - 60_000,
+        drop: { kind: "kicked", reason: null, code: 267, message: "AFK too long", sinceMs: 1 },
+        placeId: JAILBREAK,
+        rejoin: { placeId: JAILBREAK, jobId: "job-b", launchData: "", joinVip: false, linkCode: "" },
+        ...overrides,
+      };
+    }
+
+    it("says Closed, with the reason and the game", async () => {
+      renderList([], { closedClients: new Map([[2, closedClient()]]) });
+
+      const live = within(row(2)).getByTestId("account-live-2");
+      expect(live).toHaveAttribute("data-state", "closed");
+      expect(within(live).getByText("Closed")).toBeInTheDocument();
+      expect(within(live).getByText("Kicked: AFK too long")).toBeInTheDocument();
+      expect(await within(live).findByText("Jailbreak", {}, { timeout: 2000 })).toBeInTheDocument();
+    });
+
+    it("Rejoin launches it back into the same server through the normal launch", async () => {
+      const store = renderList([], { closedClients: new Map([[2, closedClient()]]) });
+
+      await userEvent.click(within(row(2)).getByRole("button", { name: "Rejoin" }));
+      expect(store.joinServer).toHaveBeenCalledWith(2, {
+        placeId: String(JAILBREAK),
+        jobId: "job-b",
+        launchData: "",
+      });
+      // O clique no botão não seleciona a linha.
+      expect(store.handleSelect).not.toHaveBeenCalled();
+    });
+
+    it("Rejoin to a private server carries the VIP join and its code", async () => {
+      const store = renderList([], {
+        closedClients: new Map([
+          [2, closedClient({ rejoin: { placeId: JAILBREAK, jobId: "", launchData: "", joinVip: true, linkCode: "CODE" } })],
+        ]),
+      });
+
+      await userEvent.click(within(row(2)).getByRole("button", { name: "Rejoin" }));
+      expect(store.joinServer).toHaveBeenCalledWith(2, {
+        placeId: String(JAILBREAK),
+        jobId: "",
+        launchData: "",
+        joinVip: true,
+        linkCode: "CODE",
+      });
+    });
+
+    it("the × dismisses it", async () => {
+      const store = renderList([], { closedClients: new Map([[2, closedClient()]]) });
+
+      await userEvent.click(within(row(2)).getByRole("button", { name: "Dismiss" }));
+      expect(store.dismissClosedClient).toHaveBeenCalledWith(2);
+    });
+
+    it("waiting in the launch queue: Rejoin is off (it is already going back)", () => {
+      renderList([], {
+        closedClients: new Map([[2, closedClient()]]),
+        launchQueue: {
+          entries: [{ userId: 2, state: "queued", error: null, updatedAtMs: 1, placeId: JAILBREAK, jobId: "job-b" }],
+          active: true,
+          placeId: JAILBREAK,
+          jobId: "",
+        },
+      });
+      expect(within(row(2)).getByRole("button", { name: "Rejoin" })).toBeDisabled();
+    });
+
+    it("joining again replaces it", () => {
+      renderList([], {
+        closedClients: new Map([[2, closedClient()]]),
+        joiningAccounts: new Set([2]),
+      });
+      expect(within(row(2)).getByTestId("account-live-2")).toHaveAttribute("data-state", "joining");
+      expect(within(row(2)).queryByRole("button", { name: "Rejoin" })).not.toBeInTheDocument();
+    });
+
+    it("no destination known: no Rejoin, the state still shows", () => {
+      renderList([], { closedClients: new Map([[2, closedClient({ rejoin: null })]]) });
+      expect(within(row(2)).getByTestId("account-live-2")).toHaveAttribute("data-state", "closed");
+      expect(within(row(2)).queryByRole("button", { name: "Rejoin" })).not.toBeInTheDocument();
+    });
   });
 });

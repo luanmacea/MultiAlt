@@ -11,6 +11,7 @@ Varredura periódica dos clientes Roblox **lançados e rastreados pelo app** par
 | [watcher.rs](../../src-tauri/src/commands/watcher.rs) | `start_watcher` (Windows e macOS), `stop_watcher`, config `load_windows_watcher_config` |
 | [client_health.rs](../../src-tauri/src/commands/client_health.rs) | Monitor de quedas: classificador do log, máquina de estados da sessão, laço de 2 s (sempre ligado no Windows) |
 | [reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | [Reconexão automática](#reconexão-automática) da conta que caiu, a cada passada do monitor de quedas |
+| [closed_clients.rs](../../src-tauri/src/commands/closed_clients.rs) | Conta cujo cliente fechou no meio do jogo: aviso "Fechou" e o destino do "Entrar novamente" (o mesmo da reconexão), a cada passada do monitor de quedas — ver [launch.md](launch.md#cliente-que-fechou-e-entrar-novamente) |
 | [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | Sessão do watcher (`try_start_watcher`, `is_watcher_session_active`, `stop_watcher`), `cleanup_dead_processes`, `kill_for_user` |
 | [platform/windows/windowing.rs](../../src-tauri/src/platform/windows/windowing.rs) | `find_main_window`, `get_window_title`, `get_window_position`, `get_process_memory_mb` (memória privada, a do Gerenciador de Tarefas — ver [Teto de memória](#teto-de-memória)) |
 | [store.tsx](../../src/store.tsx) | Liga/desliga conforme `Watcher.Enabled` e mostra toasts dos eventos |
@@ -278,6 +279,10 @@ continua sem relançar nada).
   `retry_auto_reconnect`; linhas no Console com `step: "reconnect"`.
 - Testes: `auto_reconnect_tests` (máquina de estados) e
   `auto_reconnect_target_tests` (destino e internet).
+- **Reconexão que desistiu ou parou** com o cliente já fechado deixa a conta
+  com o aviso "Fechou" e o **Entrar novamente** manual (um launch só, pelo
+  launch normal, para o mesmo destino) — ver
+  [launch.md](launch.md#cliente-que-fechou-e-entrar-novamente).
 
 ## Teto de memória
 

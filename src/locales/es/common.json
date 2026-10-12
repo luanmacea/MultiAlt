@@ -2561,8 +2561,8 @@
   "While you were away": "Mientras no estabas",
   "{{count}} need attention": "{{count}} necesitan atención",
   "1 needs attention": "1 necesita atención",
-  "Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.": "Cuentas que se cayeron, se están reconectando o no responden. Haz clic para verlas en Sesión.",
-  "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.": "Una cuenta con Roblox abierto muestra cómo está y en qué juego está. Si una se cae o deja de responder, un botón amarillo arriba muestra cuántas son. Haz clic en él para ver esas cuentas.",
+  "Accounts that dropped, are reconnecting, are not responding or closed during a game. Click to see them in Session.": "Cuentas que se cayeron, se están reconectando, no responden o se cerraron en medio del juego. Haz clic para verlas en Sesión.",
+  "An account with Roblox open shows how it is doing and which game it is in. If one drops, stops responding or closes during a game, a yellow button at the top counts it. Click it to see those accounts. A closed account has Rejoin, which puts it back in the same server.": "Una cuenta con Roblox abierto muestra cómo está y en qué juego está. Si una se cae, deja de responder o se cierra en medio del juego, un botón amarillo arriba muestra cuántas son. Haz clic en él para ver esas cuentas. Una cuenta que se cerró tiene Volver a entrar, que la devuelve al mismo servidor.",
   "While they play": "Mientras juegan",
   "account-dropped": "Se cayó",
   "next {{time}}": "próximo en {{time}}",
@@ -2599,5 +2599,13 @@
   "Password screen": "Pantalla de contraseña",
   "Window": "Ventana",
   "Recent games and servers": "Juegos y servidores recientes",
-  "Launch comes first: how accounts open, Multi Roblox, and a check for when launching does nothing.": "Iniciar va primero: cómo se abren las cuentas, Multi Roblox y una comprobación para cuando abrir no hace nada."
+  "Launch comes first: how accounts open, Multi Roblox, and a check for when launching does nothing.": "Iniciar va primero: cómo se abren las cuentas, Multi Roblox y una comprobación para cuando abrir no hace nada.",
+  "account-closed": "Se cerró",
+  "Closed": "Se cerraron",
+  "Closed at {{time}}": "Se cerró a las {{time}}",
+  "Hide this notice": "Ocultar este aviso",
+  "Put this account back in the same game and server": "Devolver esta cuenta al mismo juego y servidor",
+  "Rejoin": "Volver a entrar",
+  "Their Roblox closed during a game. Rejoin puts them back in the same server.": "Su Roblox se cerró en medio del juego. Volver a entrar las devuelve al mismo servidor.",
+  "Waiting in the launch queue": "Esperando en la cola de inicio"
 }

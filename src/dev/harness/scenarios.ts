@@ -2189,6 +2189,13 @@ const SCENARIOS: Record<string, () => void> = {
    * `session-history-changed`, como o backend). Com `&accounts=9`, três contas
    * a mais jogam sem cair — uma num jogo de nome comprido, outra num place sem
    * nome conhecido.
+   *
+   * Clientes que fecharam no meio do jogo (`commands/closed_clients.rs`,
+   * `get_closed_clients` e evento `closed-clients`): a 6ª já chega fechada
+   * (servidor privado — o "Entrar novamente" leva o código); aos 9 s a 8ª
+   * (com `&accounts=8` ou mais) some do tracker e chega como fechada, expulsa.
+   * O "×" e o "Entrar novamente" só chegam ao backend: quem tira o aviso é ele
+   * (ou o cliente novo da conta), e aqui não há backend.
    */
   "client-drops"() {
     // Reconexão: padrão ligado; a 2ª conta desligou a sua (escolha própria).
@@ -2367,6 +2374,40 @@ const SCENARIOS: Record<string, () => void> = {
         500
       );
     }
+    // Clientes que fecharam (closed_clients.rs), na forma do backend.
+    let closedList: unknown[] = [];
+    if (sixth) {
+      closedList = [
+        {
+          userId: sixth.UserID,
+          closedAtMs: started - 4 * 60_000,
+          drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: started - 4 * 60_000 },
+          placeId: LONG_NAME_PLACE,
+          rejoin: { placeId: LONG_NAME_PLACE, jobId: "", launchData: "", joinVip: true, linkCode: "harness-private-code" },
+        },
+      ];
+    }
+    const eighth = accounts[7];
+    if (eighth) {
+      setTimeout(() => {
+        const index = rows.findIndex((row) => row.userId === eighth.UserID);
+        if (index >= 0) rows.splice(index, 1);
+        sessionOf.delete(eighth.UserID);
+        harnessEmit("session-history-changed", { userIds: [eighth.UserID] });
+        const now = Date.now();
+        closedList = [
+          ...closedList,
+          {
+            userId: eighth.UserID,
+            closedAtMs: now,
+            drop: { kind: "kicked", reason: null, code: 267, message: "Too many players were AFK", sinceMs: now },
+            placeId: 1234567890,
+            rejoin: { placeId: 1234567890, jobId: `job-${eighth.UserID}`, launchData: "", joinVip: false, linkCode: "" },
+          },
+        ];
+        harnessEmit("closed-clients", { entries: closedList });
+      }, 9_000);
+    }
     // Teto de memória (memory_ceiling.rs): padrão de 2 GB; a 3ª conta tem o
     // seu. O retrato é o que o backend mandaria — a 2ª está acima e já foi
     // liberada uma vez; a 6ª foi liberada e ficou abaixo (memória baixa até o
@@ -2403,6 +2444,8 @@ const SCENARIOS: Record<string, () => void> = {
         }));
       }
       if (cmd === "get_auto_reconnect_status") return { entries: reconnect };
+      if (cmd === "get_closed_clients") return { entries: closedList };
+      if (cmd === "dismiss_closed_client") return true;
       if (cmd === "get_current_sessions") {
         return [...sessionOf.entries()]
           .map(([userId, s]) => ({ userId, ...s }))

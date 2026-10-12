@@ -3426,6 +3426,44 @@ describe("auto-reconnect", () => {
   });
 });
 
+/**
+ * Cliente que fechou no meio do jogo (commands/closed_clients.rs): a lista vem
+ * inteira do backend; o "×" some na hora e avisa o backend.
+ */
+describe("closed clients", () => {
+  function closed(userId: number) {
+    return {
+      userId,
+      closedAtMs: 1,
+      drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 1 },
+      placeId: 42,
+      rejoin: { placeId: 42, jobId: "job-a", launchData: "", joinVip: false, linkCode: "" },
+    };
+  }
+
+  it("loads the list, follows the event and ignores a broken payload", async () => {
+    results.set("get_closed_clients", { entries: [closed(1)] });
+    const { result } = await renderStore();
+    await waitFor(() => expect([...result.current.closedClients.keys()]).toEqual([1]));
+    act(() => emit("closed-clients", { entries: [closed(1), closed(2)] }));
+    expect([...result.current.closedClients.keys()]).toEqual([1, 2]);
+    act(() => emit("closed-clients", []));
+    expect(result.current.closedClients.size).toBe(0);
+  });
+
+  it("dismiss hides it at once and tells the backend", async () => {
+    results.set("get_closed_clients", { entries: [closed(1)] });
+    results.set("dismiss_closed_client", true);
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.closedClients.has(1)).toBe(true));
+    await act(async () => {
+      await result.current.dismissClosedClient(1);
+    });
+    expect(result.current.closedClients.has(1)).toBe(false);
+    expect(invokeCalls("dismiss_closed_client").map((c) => c[1])).toEqual([{ userId: 1 }]);
+  });
+});
+
 /** Queda lida do log do Roblox: o aviso dizia "user1 in Roblox: Disconnected: lost connection". */
 describe("client drop toast", () => {
   it("names the account and the drop without a double colon", async () => {
