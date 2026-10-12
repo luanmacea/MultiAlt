@@ -339,6 +339,15 @@ describe("DetailSidebar — Robux", () => {
     expect(invokeMock).toHaveBeenCalledWith("get_robux", { userId: 1 });
   });
 
+  /** Pedido do dono (12/10/2026): com os nomes escondidos, o saldo também some. */
+  it("com os nomes escondidos, o saldo fica mascarado", async () => {
+    setInvokeHandler((cmd) => (cmd === "get_robux" ? 1234 : cmd === "versions_list_installed" ? [] : undefined));
+    renderSidebar({ showRobux: true, hideUsernames: true });
+    const robux = await screen.findByTestId("account-robux");
+    expect(robux).toHaveTextContent("R$ ****");
+    expect(robux).not.toHaveTextContent("1,234");
+  });
+
   it("ligado, um erro na leitura só não mostra o saldo", async () => {
     setInvokeHandler((cmd) =>
       cmd === "get_robux" ? Promise.reject("401") : cmd === "versions_list_installed" ? [] : undefined

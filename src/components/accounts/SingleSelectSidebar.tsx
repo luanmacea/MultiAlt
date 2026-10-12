@@ -175,7 +175,10 @@ export function SingleSelectSidebar() {
           {robux !== null && (
             <span className="ml-2 tabular-nums" data-testid="account-robux">
               <span className="text-amber-500">R$</span>{" "}
-              <span className="text-[var(--panel-fg)]">{robux.toLocaleString("en-US")}</span>
+              {/* Nomes escondidos (modo streamer) escondem o saldo junto. */}
+              <span className="text-[var(--panel-fg)]">
+                {store.hideUsernames ? "****" : robux.toLocaleString("en-US")}
+              </span>
             </span>
           )}
         </div>
