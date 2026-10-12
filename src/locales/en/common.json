@@ -148,8 +148,6 @@
   "Preview Letters": "Preview Letters",
   "Show Avatars When Hidden": "Show Avatars When Hidden",
   "Display profile pictures even when names are hidden": "Display profile pictures even when names are hidden",
-  "Hide Robux When Hidden": "Hide Robux When Hidden",
-  "Mask the Robux balance in the sidebar when names are hidden": "Mask the Robux balance in the sidebar when names are hidden",
   "Multi Roblox": "Multi Roblox",
   "use at own risk": "use at own risk",
   "Allow multiple Roblox instances to run simultaneously": "Allow multiple Roblox instances to run simultaneously",
@@ -2608,5 +2606,7 @@
   "Put this account back in the same game and server": "Put this account back in the same game and server",
   "Rejoin": "Rejoin",
   "Their Roblox closed during a game. Rejoin puts them back in the same server.": "Their Roblox closed during a game. Rejoin puts them back in the same server.",
-  "Waiting in the launch queue": "Waiting in the launch queue"
+  "Waiting in the launch queue": "Waiting in the launch queue",
+  "Show Robux": "Show Robux",
+  "Show the account's Robux balance in its side panel": "Show the account's Robux balance in its side panel"
 }

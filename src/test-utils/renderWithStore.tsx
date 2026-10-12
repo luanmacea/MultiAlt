@@ -185,7 +185,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     setHideUsernames: vi.fn(),
     hiddenNameLetters: 0,
     showAvatarsWhenHidden: true,
-    hideRobuxWhenHidden: false,
+    showRobux: false,
 
     placeId: "",
     setPlaceId: vi.fn(),

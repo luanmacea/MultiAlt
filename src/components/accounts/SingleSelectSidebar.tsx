@@ -27,6 +27,23 @@ export function SingleSelectSidebar() {
   >([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** Saldo de Robux (`General.ShowRobux`); `null` = não pedido, carregando ou erro. */
+  const [robux, setRobux] = useState<number | null>(null);
+
+  // Leitura sem renovar a sessão (`get_robux` usa `read_without_refresh`).
+  useEffect(() => {
+    setRobux(null);
+    if (!store.showRobux) return;
+    let alive = true;
+    invoke<number>("get_robux", { userId: account.UserID })
+      .then((value) => {
+        if (alive && typeof value === "number") setRobux(value);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [account.UserID, store.showRobux]);
 
   useEffect(() => {
     setAlias(account.Alias);
@@ -154,6 +171,12 @@ export function SingleSelectSidebar() {
           </span>
           {!store.hideUsernames && (
             <span className="theme-muted font-mono ml-2">ID: {account.UserID}</span>
+          )}
+          {robux !== null && (
+            <span className="ml-2 tabular-nums" data-testid="account-robux">
+              <span className="text-amber-500">R$</span>{" "}
+              <span className="text-[var(--panel-fg)]">{robux.toLocaleString("en-US")}</span>
+            </span>
           )}
         </div>
 

@@ -70,6 +70,8 @@ const INVENTORY: Entry[] = [
   { label: "Disable Aging Alert", tab: "accounts", save: ["General", "DisableAgingAlert", "true"] },
   { label: "Disable Image Loading", tab: "accounts", save: ["General", "DisableImages", "true"] },
   { label: "Auto Cookie Refresh", tab: "accounts", save: ["General", "AutoCookieRefresh", "true"] },
+  // Pedido do dono (12/10/2026): "Show Robux" (desligado) no lugar do "Hide Robux When Hidden".
+  { label: "Show Robux", tab: "accounts", save: ["General", "ShowRobux", "true"] },
   { label: "Persistent login profile", tab: "accounts", save: ["Login", "PersistentProfile", "false"] },
   { label: "Reduce automation signals", tab: "accounts", save: ["Login", "StealthMode", "false"] },
   { label: "Custom browser executable", tab: "accounts" },
@@ -77,7 +79,6 @@ const INVENTORY: Entry[] = [
   // Privacy & security
   { label: "Preview Letters", tab: "privacy" },
   { label: "Show Avatars When Hidden", tab: "privacy", save: ["General", "ShowAvatarsWhenHidden", "true"] },
-  { label: "Hide Robux When Hidden", tab: "privacy", save: ["General", "HideRobuxWhenHidden", "true"] },
   {
     label: "Show Account Name on Roblox Window",
     tab: "privacy",

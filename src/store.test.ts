@@ -184,7 +184,7 @@ describe("store bootstrap", () => {
         HideUsernames: "true",
         HiddenNameLetters: "3",
         ShowAvatarsWhenHidden: "true",
-        HideRobuxWhenHidden: "true",
+        ShowRobux: "true",
       },
       Developer: { DevMode: "true" },
     };
@@ -199,7 +199,7 @@ describe("store bootstrap", () => {
     expect(result.current.hideUsernames).toBe(true);
     expect(result.current.hiddenNameLetters).toBe(3);
     expect(result.current.showAvatarsWhenHidden).toBe(true);
-    expect(result.current.hideRobuxWhenHidden).toBe(true);
+    expect(result.current.showRobux).toBe(true);
     expect(result.current.devMode).toBe(true);
   });
 

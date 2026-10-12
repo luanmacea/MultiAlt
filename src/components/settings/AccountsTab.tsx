@@ -48,6 +48,14 @@ export function AccountsTab({ s }: { s: UseSettingsReturn }) {
   return (
     <div className="space-y-0">
       <SectionLabel>Account list</SectionLabel>
+      {/* Pedido do dono (12/10/2026): no lugar do "Hide Robux When Hidden". O
+          saldo saiu do painel em julho; volta só com esta opção ligada. */}
+      <Toggle
+        checked={s.getBool("General", "ShowRobux")}
+        onChange={(v) => s.setBool("General", "ShowRobux", v)}
+        label="Show Robux"
+        description="Show the account's Robux balance in its side panel"
+      />
       <Toggle
         checked={s.getBool("General", "ShowPresence")}
         onChange={(v) => s.setBool("General", "ShowPresence", v)}

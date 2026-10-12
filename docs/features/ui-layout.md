@@ -335,7 +335,7 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 
 | Seção.Chave | Efeito na UI |
 |---|---|
-| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden` | Mascaramento de nomes e fotos em todas as telas (ver "Nomes ocultos" acima; helper `utils/accountName.ts`). |
+| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden` | Mascaramento de nomes e fotos em todas as telas (ver "Nomes ocultos" acima; helper `utils/accountName.ts`). |
 | `General.ShowPresence`, `PresenceUpdateRate` | Pontos de presença e contagem na status bar. |
 | `General.DisableAgingAlert`, `DisableImages` | Indicador de idade / avatares. |
 | `General.MinimizeToTray` | Botão fechar da TitleBar esconde na bandeja. |

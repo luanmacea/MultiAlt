@@ -76,12 +76,6 @@ export function PrivacyTab({
         label="Show Avatars When Hidden"
         description="Display profile pictures even when names are hidden"
       />
-      <Toggle
-        checked={s.getBool("General", "HideRobuxWhenHidden")}
-        onChange={(v) => s.setBool("General", "HideRobuxWhenHidden", v)}
-        label="Hide Robux When Hidden"
-        description="Mask the Robux balance in the sidebar when names are hidden"
-      />
       {/* commands/client_health.rs: SetWindowText nas janelas que o app acompanha. */}
       {isWindows && (
         <Toggle

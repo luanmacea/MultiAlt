@@ -316,3 +316,35 @@ describe("DetailSidebar — layout", () => {
     expect(text).not.toHaveClass("truncate");
   });
 });
+
+/**
+ * O saldo de Robux saiu do painel em julho, junto com o "Hide Robux When
+ * Hidden" que não escondia mais nada. Pedido do dono (12/10/2026): um "Show
+ * Robux", desligado por padrão, que mostra o saldo no painel da conta.
+ */
+describe("DetailSidebar — Robux", () => {
+  it("desligado (o padrão), não pergunta o saldo nem mostra nada", async () => {
+    renderSidebar();
+    await screen.findByText("ann");
+    expect(invokeMock.mock.calls.some((c) => c[0] === "get_robux")).toBe(false);
+    expect(screen.queryByTestId("account-robux")).not.toBeInTheDocument();
+  });
+
+  it("ligado, mostra o saldo da conta escolhida", async () => {
+    setInvokeHandler((cmd) => (cmd === "get_robux" ? 1234 : cmd === "versions_list_installed" ? [] : undefined));
+    const settings = defaultSettings() as Record<string, Record<string, string>>;
+    settings.General = { ...(settings.General ?? {}), ShowRobux: "true" };
+    renderSidebar({ settings: settings as never, showRobux: true });
+    expect(await screen.findByTestId("account-robux")).toHaveTextContent("R$ 1,234");
+    expect(invokeMock).toHaveBeenCalledWith("get_robux", { userId: 1 });
+  });
+
+  it("ligado, um erro na leitura só não mostra o saldo", async () => {
+    setInvokeHandler((cmd) =>
+      cmd === "get_robux" ? Promise.reject("401") : cmd === "versions_list_installed" ? [] : undefined
+    );
+    renderSidebar({ showRobux: true });
+    await waitFor(() => expect(invokeMock.mock.calls.some((c) => c[0] === "get_robux")).toBe(true));
+    expect(screen.queryByTestId("account-robux")).not.toBeInTheDocument();
+  });
+});

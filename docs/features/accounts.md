@@ -320,7 +320,8 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 | `General.DisableAgingAlert` | `false` | Esconde indicador de idade. |
 | `General.CheckModerationBeforeLaunch` | `true` | Consulta a moderação logo antes de abrir cada conta e pula a banida/encerrada. |
 | `General.GroupOrder` | `[]` | Ordem manual dos grupos, em JSON. Vazio/`[]` = ordem automática (prefixo numérico, depois alfabética). |
-| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden` | `false` / `0` | Mascaramento de nomes. |
+| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden` | `false` / `0` | Mascaramento de nomes. |
+| `General.ShowRobux` | `false` | Mostra o saldo de Robux no painel da conta (`get_robux`, leitura sem renovar a sessão). Substituiu o `HideRobuxWhenHidden` em 12/10/2026: o saldo tinha saído do painel em julho e a opção não escondia mais nada. |
 | `General.ShowPresence`, `PresenceUpdateRate` | `true`, `5` | Presença na lista. |
 | `Friends.RequestDelayMs` | (sem default no INI → 2500) | Intervalo entre pedidos de amizade, em ms. Editável no submenu Make Friends (em segundos). |
 | `Login.PersistentProfile`, `Login.StealthMode` | `true`, `true` | Comportamento do navegador de login. |

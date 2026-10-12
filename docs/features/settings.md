@@ -37,7 +37,7 @@ A página abre em **Launch**. Outra tela abre uma seção com `store.openSetting
 | Launch | sempre | Cartão "Launch does nothing?" (abre a checagem, [support.md](support.md)); **Several accounts at once**: `General.EnableMultiRbx`, `ReserveSingletonEvent` (Windows), `AutoCloseRobloxForMultiRbx` (vinha de Misc); **Time between accounts**: `AsyncJoin`, `AccountJoinDelay`, `WaitForGameJoin` (Windows); **Before each launch**: `CheckModerationBeforeLaunch`, `WarnOnOnlineJoin`, `AutoCloseLastProcess` e `ShuffleJobId` (os dois vinham de Misc) |
 | Keep in game | sempre | `General.BottingEnabled` (Auto Rejoin) + linha "Auto Rejoin options" com botão **Open AFK Mode**; "Reconnect accounts that drop" **sem interruptor** — mostra se o padrão `General.AutoReconnect` está ligado e tem o botão **Change it on the Session page** (Windows); `General.KeepPcAwake`, `Afk.ShakeToStop` (Windows) |
 | Accounts | sempre | **Account list**: `ShowPresence`, `PresenceUpdateRate` (vinha de Misc), `WrapLongNames`, `DisableAgingAlert`, `DisableImages`, `AutoCookieRefresh`; **Login browser**: `Login.PersistentProfile`, `Login.StealthMode`, `Login.ManualBinaryPath` e o cartão do navegador embutido |
-| Privacy & security | sempre | **Hidden names**: `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden`, `ShowAccountNameOnWindow` (Windows); **Account file**: botão "Change Encryption Method" (vinha de Misc), `WarnOnCopyCredential`; **Password screen**: `LockOnInactivity`, `LockAfterMinutes`, "Stay signed in on this computer" (os três vinham de Misc), `RestrictedBackgroundStyle` |
+| Privacy & security | sempre | **Hidden names**: `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `ShowAccountNameOnWindow` (Windows); **Account file**: botão "Change Encryption Method" (vinha de Misc), `WarnOnCopyCredential`; **Password screen**: `LockOnInactivity`, `LockAfterMinutes`, "Stay signed in on this computer" (os três vinham de Misc), `RestrictedBackgroundStyle` |
 | Updates | sempre | `CheckForUpdates`, `UpdaterReleaseChannel`, `UpdaterFeatureChannel` e o cartão "Manual Update Check" |
 | App | sempre | `Language`, `InterfaceScale`; **Window**: `ThemeWindowsNavbar` (Windows), `StartOnPCStartup`, `MinimizeToTray`; **Recent games and servers**: `MaxRecentGames`, `MaxRecentJobs`, `ServerRegionFormat`; **Help**: cartão "First-Time Walkthrough" |
 | Backups | sempre | nenhuma chave: criar, listar, restaurar e apagar backups inline ([BackupsTab](../../src/components/settings/BackupsTab.tsx), ver [backups.md](backups.md)). Era um diálogo aberto por "Manage" em Misc > Data até 03/10/2026. Fecha o grupo do dia a dia |
@@ -79,7 +79,8 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `HideUsernames` | `false` | Mascara nomes na lista. |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
 | `WrapLongNames` | `false` | Ligado, o alias/username quebra em mais de uma linha na linha da conta em vez de truncar (o alias vai até 240 caracteres). |
-| `ShowAvatarsWhenHidden` / `HideRobuxWhenHidden` | — (false) | Comportamento com nomes ocultos. |
+| `ShowAvatarsWhenHidden` | — (false) | Comportamento com nomes ocultos. |
+| `ShowRobux` | — (false) | Seção Accounts: o saldo de Robux no painel da conta (no lugar do antigo `HideRobuxWhenHidden`). |
 | `DisableImages` | — (false) | Não carregar thumbnails de avatar. |
 | `ServerRegionFormat` | `<city>, <countryCode>` | Formato do rótulo de região: `<city>`, `<region>`, `<country>`, `<countryCode>`, `<ip>` — ver [server-choice.md](server-choice.md). |
 | `ServerPreference` | `bestfit` | Preferência de servidor do lote: `bestfit` \| `fullest` \| `emptiest` \| `random` \| `none`. |
