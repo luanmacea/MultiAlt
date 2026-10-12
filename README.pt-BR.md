@@ -6,7 +6,7 @@
 <p align="center">
   <a href="https://multialt.pages.dev/get/readme/"><img src="Images/download-button-pt.svg" alt="Baixar para Windows (instalador .msi)" width="420"></a>
   <br>
-  <sub>Windows 10/11 · <a href="https://multialt.pages.dev/pt/">🌐 site</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a></sub>
+  <sub>Windows 10/11 · <a href="https://multialt.pages.dev/pt/">🌐 site</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a> · <a href="https://discord.gg/NPvyWgKbfH">💬 Discord</a></sub>
 </p>
 
 [![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
@@ -19,7 +19,7 @@ Rápido e leve: reescrito do zero em **Rust + TypeScript** com [Tauri](https://t
 
 Todo o crédito a [ic3w0lf22](https://github.com/ic3w0lf22), que criou o Roblox Account Manager original, e a [niccdevs](https://github.com/niccdevs), que o manteve depois. Este projeto continua o trabalho deles: o Roblox Account Manager original foi [arquivado em outubro de 2024](https://github.com/ic3w0lf22/Roblox-Account-Manager), e o MultiAlt é o sucessor mantido. Vindo do RAM? **Add → Import Old Account Data** traz as suas contas.
 
-Achou um bug ou tem uma ideia? Abra uma [issue](https://github.com/luanmacea/MultiAlt/issues).
+Achou um bug ou tem uma ideia? Abra uma [issue](https://github.com/luanmacea/MultiAlt/issues) ou fale com a gente no [Discord](https://discord.gg/NPvyWgKbfH).
 
 # ⚠️ Aviso
 Nunca gere um "rbx-player link" a pedido de terceiros — quem tiver esse link pode entrar em qualquer jogo (ou até no Roblox Studio) com a sua conta, gastar seu Robux ou fazer você ser banido.
@@ -52,21 +52,24 @@ Baixe só deste repositório. Os arquivos `zz-…sig` da [página da release](ht
 | Funcionalidade | O que faz |
 | :--- | :--- |
 | Multi Roblox | Quantos clientes do Roblox você quiser ao mesmo tempo |
-| Multi Launch | Lança uma seleção inteira de contas no mesmo jogo ou servidor, uma por vez com atraso seguro |
+| Multi Launch | Lança uma seleção inteira de contas no mesmo jogo ou servidor, uma por vez — a próxima pode começar assim que a anterior entra no jogo, em vez de esperar um tempo fixo |
 | Busca de servidor | Varre os servidores do jogo e escolhe o melhor para o seu grupo: *Best fit* (o mais cheio em que todos ainda cabem), mais cheio, mais vazio ou aleatório. Filtro de região e checagem de "sem permissão" |
 | Links de entrada | Cole qualquer link — jogo, servidor privado/VIP, link de compartilhamento, convite, deep link — e todos entram |
 | Amigos | Amigos online de cada conta e o grupo inteiro no servidor de um amigo. Seguir um jogador pelo nome |
 | Favoritos e recentes | Jogos salvos com vários links VIP cada; jogos e servidores recentes |
 | Versões do Roblox | Instala builds do Roblox lado a lado e escolhe qual abrir. Acha instalações do Bloxstrap, Fishstrap e Voidstrap |
 | Grade de janelas | Organiza todas as janelas do Roblox em grade nos monitores escolhidos |
-| Painel de sessão | Fila de launch (cancelável), clientes abertos (focar, fechar) e um console ao vivo explicando cada launch, rejoin e ação do Watcher |
+| Painel de sessão | Fila de launch (cancelável), clientes abertos (focar, fechar), **por que uma conta caiu** (perdeu a conexão, foi expulsa — com a mensagem do Roblox —, o jogo fechou sozinho ou o servidor foi desligado) e um console ao vivo explicando cada launch, rejoin e ação do Watcher |
+| Janelas com nome | Cada janela do Roblox leva o nome da conta ("conta - Roblox"), para distinguir na barra de tarefas |
 
 ### Automação
 | Funcionalidade | O que faz |
 | :--- | :--- |
+| Reconexão automática | A conta que cai volta sozinha para o mesmo jogo — e o mesmo servidor privado. Liga para todas as contas ou por conta |
 | Auto Rejoin | Mantém suas alts num servidor: a cada N minutos cada alt é fechada e relançada, e as contas main ficam abertas e nunca são reiniciadas |
 | AFK mode (anti-AFK) | Manda uma tecla **ou um clique** para a janela de cada conta a cada poucos minutos para ninguém ser kickado por inatividade — sem rejoin, sem perder progresso. Ponto do clique marcado uma vez para todas ou por conta |
-| Watcher | Fecha o cliente que perdeu a conexão, ficou sem memória ou mudou de título (detecção de beta) |
+| Watcher | Avisa quando uma janela do Roblox para de responder, e fecha o cliente que perdeu a conexão, ficou sem memória ou mudou de título (detecção de beta) |
+| PC acordado | O PC não entra em suspensão enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática estão rodando |
 | Otimização | Limite de FPS, gráficos, tamanho de janela, prioridade do processo, EcoQoS, limites de CPU/memória e FastFlags — um perfil para jogar normal e perfis separados para mains e alts do Auto Rejoin |
 | Isolamento pré-launch | Limpa cache, rastros no registro, MachineGuid e MAC antes de cada launch para uma conta não herdar a sessão da outra (Windows, só com nenhum cliente aberto) |
 | Scripts | Automação em JavaScript dentro do gerenciador (isolada, com permissões por script) pela API `ram.*` |
