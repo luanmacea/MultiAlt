@@ -155,7 +155,7 @@ export function Toolbar() {
       <div className="flex items-center gap-1.5 ml-auto">
         {attention > 0 && (
           <Tooltip
-            content={t("Accounts that dropped, are reconnecting or are not responding. Click to see them in Session.")}
+            content={t("Accounts that dropped, are reconnecting, are not responding or closed during a game. Click to see them in Session.")}
             side="bottom"
           >
             <button

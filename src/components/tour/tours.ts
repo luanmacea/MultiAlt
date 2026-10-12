@@ -71,7 +71,7 @@ export const TOURS: Record<TourId, TourDefinition> = {
         id: "live",
         title: "While they play",
         description:
-          "An account with Roblox open shows how it is doing and which game it is in. If one drops or stops responding, a yellow button at the top counts it. Click it to see those accounts.",
+          "An account with Roblox open shows how it is doing and which game it is in. If one drops, stops responding or closes during a game, a yellow button at the top counts it. Click it to see those accounts. A closed account has Rejoin, which puts it back in the same server.",
         targets: [tour("toolbar-attention"), tour("accounts-live"), tour("accounts-list")],
       },
       {
