@@ -308,6 +308,15 @@ fn export_nexus_lua() -> Result<String, String> {
 /// deste). O lado TS tem o par disto em `src/repo.ts`.
 const REPO_URL: &str = "https://github.com/luanmacea/MultiAlt";
 
+/// Convite do servidor do app no Discord (o mesmo do README e do site). Fica
+/// aqui, numa constante: a tela só pede para abrir, nunca manda um endereço.
+const DISCORD_INVITE_URL: &str = "https://discord.gg/NPvyWgKbfH";
+
+#[tauri::command]
+fn open_discord_invite() -> Result<(), String> {
+    open_url_in_browser(DISCORD_INVITE_URL)
+}
+
 #[tauri::command]
 fn open_repo_url() -> Result<(), String> {
     open_url_in_browser(REPO_URL)
@@ -453,6 +462,14 @@ mod services_command_tests {
         assert!(REPO_URL.starts_with("https://github.com/"));
         // No shell metacharacters: the URL is handed to `cmd /C start`.
         assert!(!REPO_URL.contains(|c: char| c.is_whitespace() || c == '&' || c == '"'));
+    }
+
+    /// O convite do servidor do app no Discord (o mesmo do README e do site).
+    #[test]
+    fn discord_invite_is_the_apps_server_over_https() {
+        assert_eq!(DISCORD_INVITE_URL, "https://discord.gg/NPvyWgKbfH");
+        // Sem metacaractere de shell: o endereço vai para `cmd /C start`.
+        assert!(!DISCORD_INVITE_URL.contains(|c: char| c.is_whitespace() || c == '&' || c == '"'));
     }
 
     #[test]

@@ -4,6 +4,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
+vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 
 /** O Help está atrás de `ENABLE_HELP_BUTTON` (desligado); os testes ligam quando precisam. */
 const helpFlag = vi.hoisted(() => ({ on: false }));
@@ -25,6 +26,7 @@ vi.mock("../../featureFlags", async (importOriginal) => {
 import { NavSidebar, NAV_COLLAPSED_KEY } from "./NavSidebar";
 import { makeAccount, makeBottingStatus, setStore } from "../../test-utils/renderWithStore";
 import { ENABLE_NEXUS } from "../../featureFlags";
+import { invokeMock } from "../../test-utils/tauriMocks";
 import type { AfkStatus, StoreValue } from "../../store";
 
 function renderNav(overrides: Partial<StoreValue> = {}) {
@@ -149,6 +151,20 @@ describe("NavSidebar — items", () => {
     const collapsedRow = screen.getByTestId("nav-footer-actions");
     expect(collapsedRow).toHaveClass("flex-col", "items-center");
     expect(within(collapsedRow).getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+  });
+
+  /**
+   * O app ganhou um servidor no Discord (12/10/2026): o botão fica logo acima
+   * do "Send feedback" e abre o convite no navegador. O endereço mora no
+   * backend (`open_discord_invite`), numa constante — a tela só pede.
+   */
+  it("has a Discord button right above Send feedback that opens the invite", async () => {
+    renderNav();
+    const discord = screen.getByRole("button", { name: "Discord" });
+    const feedback = screen.getByRole("button", { name: "Send feedback" });
+    expect(discord.compareDocumentPosition(feedback) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await userEvent.click(discord);
+    expect(invokeMock).toHaveBeenCalledWith("open_discord_invite");
   });
 
   it("keeps What's new named when the sidebar is collapsed", async () => {

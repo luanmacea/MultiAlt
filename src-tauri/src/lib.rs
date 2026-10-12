@@ -727,6 +727,7 @@ pub fn run() {
             set_nexus_element_value,
             export_nexus_lua,
             open_repo_url,
+            open_discord_invite,
             open_feedback_form,
             get_report_environment,
             sync_windows_navbar_theme,

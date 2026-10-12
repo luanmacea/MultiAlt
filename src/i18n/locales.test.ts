@@ -26,6 +26,8 @@ function placeholders(text: string): string[] {
  * ("Volume", "Console") não é a mesma que coincide em espanhol.
  */
 const IDENTICAL_BY_DESIGN_PT = new Set<string>([
+  // Marca: o servidor da comunidade no Discord (barra lateral).
+  "Discord",
   // Gravações: "global" é a mesma palavra (a gravação que vale para toda conta).
   "global",
   // Presets de launch: "place" e "VIP" não se traduzem (glossário).
@@ -167,6 +169,8 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
 
 /** Mesma regra para o espanhol: marcas, fontes, jargão e exemplos de formato. */
 const IDENTICAL_BY_DESIGN_ES = new Set<string>([
+  // Marca: o servidor da comunidade no Discord (barra lateral).
+  "Discord",
   // Gravações: "global" é a mesma palavra (a gravação que vale para toda conta).
   "global",
   // Presets de launch: "place" e "VIP" não se traduzem (glossário).
