@@ -151,6 +151,7 @@ window.RAM_I18N = {
 
     "fq.title": "Dúvidas",
     "fq.lede": "Não achou o que procurava?",
+    "fq.discord": "Pergunte no Discord",
     "fq.issue": "Abra uma issue no GitHub",
     "q1": "Por que o meu antivírus acusa o app?",
     "a1": "O app não tem assinatura de código, e ferramentas que abrem processos de jogo são um falso positivo comum para antivírus que aprendem por padrões. O .msi sai limpo no VirusTotal. Se ficar na dúvida, leia o código ou compile você mesmo.",
@@ -343,6 +344,7 @@ window.RAM_I18N = {
 
     "fq.title": "Preguntas",
     "fq.lede": "¿No encontraste lo que buscabas?",
+    "fq.discord": "Pregunta en Discord",
     "fq.issue": "Abre un issue en GitHub",
     "q1": "¿Por qué mi antivirus marca la app?",
     "a1": "La app no tiene firma de código, y las herramientas que abren procesos de juegos son un falso positivo común para los antivirus que aprenden por patrones. El .msi sale limpio en VirusTotal. Si tienes dudas, lee el código o compílalo tú mismo.",

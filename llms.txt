@@ -5,6 +5,7 @@
 - Website: https://multialt.pages.dev/
 - Source code and releases: https://github.com/luanmacea/MultiAlt
 - Download (Windows .msi installer, no administrator prompt, updates itself): https://github.com/luanmacea/MultiAlt/releases/latest
+- Community (Discord: help, suggestions, bug reports): https://discord.gg/NPvyWgKbfH
 - Platforms: Windows 10 and 11. macOS support is partial, with no Mac download yet.
 - Price: free. No paid tier, no ads, no account to create.
 - Languages: English, Portuguese, Spanish.
