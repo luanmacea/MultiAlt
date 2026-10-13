@@ -7,7 +7,7 @@ import { copyAccountSecret } from "../../utils/copySecret";
 import { collectGroupNames, parseGroupName } from "../../types";
 import { accountLabel } from "../../utils/accountName";
 import { tr, useTr } from "../../i18n/text";
-import { ChevronDown, Gamepad2, Settings2, ShieldCheck, Users } from "lucide-react";
+import { ChevronDown, Gamepad2, Settings2, ShieldCheck, UserCheck, Users } from "lucide-react";
 
 /**
  * Faixa aceita para o delay entre pedidos de amizade, em segundos. É a mesma
@@ -29,6 +29,9 @@ export function BottomActionBar() {
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const [friendMenuOpen, setFriendMenuOpen] = useState(false);
   const [friendBusy, setFriendBusy] = useState(false);
+  const [followMenuOpen, setFollowMenuOpen] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [followQuery, setFollowQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const actionsRef = useRef<HTMLDivElement>(null);
 
@@ -71,17 +74,18 @@ export function BottomActionBar() {
 
   // Close dropdown when clicking outside
   useEffect(() => {
-    if (!actionsOpen && !groupMenuOpen && !friendMenuOpen) return;
+    if (!actionsOpen && !groupMenuOpen && !friendMenuOpen && !followMenuOpen) return;
     function handler(e: MouseEvent) {
       if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
         setActionsOpen(false);
         setGroupMenuOpen(false);
         setFriendMenuOpen(false);
+        setFollowMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [actionsOpen, groupMenuOpen, friendMenuOpen]);
+  }, [actionsOpen, groupMenuOpen, friendMenuOpen, followMenuOpen]);
 
   async function handleMakeFriends(mode: "mesh" | "star", mainUserId: number | null) {
     setFriendMenuOpen(false);
@@ -128,6 +132,83 @@ export function BottomActionBar() {
     } finally {
       setFriendBusy(false);
     }
+  }
+
+  /**
+   * "Follow a user": as contas selecionadas seguem um alvo — digitado (nome,
+   * ID ou link do perfil; não precisa estar no app) ou escolhido na lista de
+   * contas. O alvo nunca segue a si mesmo: o backend o tira da seleção.
+   */
+  async function runFollow(target: { id: number; name: string; label: string }) {
+    setFollowMenuOpen(false);
+    setActionsOpen(false);
+    setFollowBusy(true);
+    try {
+      const res = await invoke<{
+        total: number;
+        followed: number;
+        alreadyFollowing: number;
+        failed: number;
+        skippedTarget: boolean;
+      }>("follow_user_with_accounts", {
+        userIds: accounts.map((a) => a.UserID),
+        targetUserId: target.id,
+        targetName: target.name,
+        delayMs: friendDelayMs(),
+      });
+      store.addToast(
+        tr("Follow {{name}}: {{ok}} followed, {{already}} already following, {{fail}} failed", {
+          name: target.label,
+          ok: res.followed,
+          already: res.alreadyFollowing,
+          fail: res.failed,
+        })
+      );
+      if (res.skippedTarget) {
+        store.addToast(
+          tr("{{name}} was in the selection and was skipped: an account can't follow itself.", {
+            name: target.label,
+          })
+        );
+      }
+      setFollowQuery("");
+    } catch (e) {
+      store.addToast(tr("Follow failed: {{error}}", { error: String(e) }));
+    } finally {
+      setFollowBusy(false);
+    }
+  }
+
+  /** Alvo digitado: confere no Roblox quem é e confirma antes de disparar. */
+  async function handleFollowTyped() {
+    const query = followQuery.trim();
+    if (!query) return;
+    let user: { id: number; name: string; displayName: string };
+    try {
+      user = await invoke<{ id: number; name: string; displayName: string }>("resolve_follow_target", { query });
+    } catch (e) {
+      store.addToast(tr("User not found: {{error}}", { error: String(e) }));
+      return;
+    }
+    const followers = accounts.filter((a) => a.UserID !== user.id).length;
+    if (followers === 0) {
+      store.addToast(t("Select at least one account other than the one being followed."));
+      return;
+    }
+    const label =
+      user.displayName && user.displayName !== user.name ? `${user.displayName} (@${user.name})` : `@${user.name}`;
+    if (
+      !(await confirm(
+        tr("{{count}} account(s) will follow {{name}} (ID {{id}}). Continue?", {
+          count: followers,
+          name: label,
+          id: user.id,
+        })
+      ))
+    ) {
+      return;
+    }
+    await runFollow({ id: user.id, name: user.name, label });
   }
 
   async function handleRefreshAll() {
@@ -307,6 +388,22 @@ export function BottomActionBar() {
         })
       : t("Linking friends...");
 
+  const followRun = store.followUserState;
+  const followPhaseLabel =
+    followRun && followRun.active && followRun.total > 0
+      ? t("Following {{done}}/{{total}}", { done: followRun.processed, total: followRun.total })
+      : t("Following...");
+  // A lista de contas filtra pelo que foi digitado: digitar o nome de uma
+  // conta do app já a mostra para escolher, sem ir ao Roblox.
+  const followQueryLower = followQuery.trim().replace(/^@/, "").toLowerCase();
+  const followPickable = store.accounts.filter(
+    (a) =>
+      !followQueryLower ||
+      a.Username.toLowerCase().includes(followQueryLower) ||
+      (a.Alias || "").toLowerCase().includes(followQueryLower) ||
+      String(a.UserID) === followQueryLower
+  );
+
   return (
     <div className="theme-border border-t shrink-0 flex items-center gap-3 px-4 h-14 bg-[var(--app-bg)]">
       {/* Selection info */}
@@ -360,7 +457,9 @@ export function BottomActionBar() {
         >
           {friendBusy
             ? friendPhaseLabel
-            : refreshing
+            : followBusy
+              ? followPhaseLabel
+              : refreshing
               ? t("Refreshing...")
               : checkProgress
                 ? t("Checking {{done}}/{{total}}...", checkProgress)
@@ -469,6 +568,109 @@ export function BottomActionBar() {
                 )}
               </div>
             )}
+
+            {/* Follow a user submenu */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setFollowMenuOpen((v) => !v);
+                  setFriendMenuOpen(false);
+                  setGroupMenuOpen(false);
+                }}
+                disabled={followBusy}
+                className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-50 flex items-center justify-between gap-2"
+              >
+                <span className="flex items-center gap-2">
+                  <UserCheck size={13} strokeWidth={1.5} />
+                  {followBusy ? followPhaseLabel : t("Follow a user ({{count}})", { count })}
+                </span>
+                <ChevronDown size={10} className={`theme-muted transition-transform ${followMenuOpen ? "-rotate-90" : "rotate-90"}`} />
+              </button>
+              {followMenuOpen && (
+                <div
+                  data-testid="follow-menu"
+                  className="theme-panel theme-border absolute bottom-0 right-full mr-1 border rounded-xl shadow-2xl z-40 py-1 w-72 animate-scale-in"
+                >
+                  <div className="flex flex-col gap-1 px-3 py-1.5 text-[12px] theme-muted">
+                    <label htmlFor="follow-target-input">{t("Who should the selected accounts follow?")}</label>
+                    <div className="flex gap-1.5">
+                      <input
+                        id="follow-target-input"
+                        autoFocus
+                        value={followQuery}
+                        onChange={(e) => setFollowQuery(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          // Sem isso o mesmo Enter chegava ao "Confirm" da
+                          // confirmação (que abre com foco) e a aceitava
+                          // sozinho — visto no harness.
+                          e.preventDefault();
+                          void handleFollowTyped();
+                        }}
+                        placeholder={t("Username, user ID or profile link")}
+                        className="sidebar-input flex-1 min-w-0 text-[12px]"
+                      />
+                      <button
+                        onClick={() => void handleFollowTyped()}
+                        disabled={!followQuery.trim()}
+                        className="shrink-0 px-2.5 rounded-md bg-[var(--accent-color)] text-white text-[12px] font-medium hover:opacity-90 disabled:opacity-40"
+                      >
+                        {t("Follow")}
+                      </button>
+                    </div>
+                    <span className="text-[11px] leading-snug">
+                      {t("The account doesn't need to be in MultiAlt.")}
+                    </span>
+                  </div>
+                  <label className="flex flex-col gap-1 px-3 py-1.5 text-[12px] theme-muted">
+                    <span>{t("Delay between requests (s)")}</span>
+                    <input
+                      type="number"
+                      min={FRIEND_DELAY_MIN_S}
+                      max={FRIEND_DELAY_MAX_S}
+                      step={0.5}
+                      value={friendDelay}
+                      onChange={(e) => {
+                        delayTouchedRef.current = true;
+                        setFriendDelay(e.target.value);
+                      }}
+                      onBlur={commitFriendDelay}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitFriendDelay();
+                      }}
+                      title={t("Roblox rate-limits new accounts. Slower is safer.")}
+                      className="sidebar-input w-full text-[12px] tabular-nums"
+                    />
+                  </label>
+                  <div className="theme-border h-px border-t my-1" />
+                  <div className="px-3 py-1 text-[11px] theme-muted uppercase tracking-widest font-semibold">
+                    {t("Or pick an account")}
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    {followPickable.length === 0 ? (
+                      <div className="px-3 py-1.5 text-[12px] theme-muted">{t("No account matches.")}</div>
+                    ) : (
+                      followPickable.map((a) => {
+                        // Única selecionada é ela mesma: não sobra quem siga.
+                        const onlySelf = accounts.every((s) => s.UserID === a.UserID);
+                        const label = accountLabel(a, store);
+                        return (
+                          <button
+                            key={a.UserID}
+                            onClick={() => void runFollow({ id: a.UserID, name: a.Username, label })}
+                            disabled={onlySelf}
+                            title={onlySelf ? t("An account can't follow itself.") : undefined}
+                            className="w-full text-left px-3 py-1.5 text-[12px] text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-40 truncate"
+                          >
+                            👤 {label}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Move to Group submenu */}
             <div className="relative">
