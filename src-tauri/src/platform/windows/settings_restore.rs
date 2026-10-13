@@ -114,6 +114,40 @@ fn settings_keys(
     out
 }
 
+/// O texto de dentro de `<tag name="…">texto</tag>`, sem espaços sobrando.
+fn element_text(element: &str) -> String {
+    let inner = match (element.find('>'), element.rfind('<')) {
+        (Some(open), Some(close)) if close > open => &element[open + 1..close],
+        _ => element,
+    };
+    inner.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Dois elementos da mesma propriedade guardam o mesmo valor? Pelo número,
+/// não pelo texto: o Roblox regrava o arquivo inteiro ao fechar, no formato
+/// dele (`0.300000` vira `0.300000012`, `1.000000` vira `1`).
+fn same_value(a: &str, b: &str) -> bool {
+    let (a, b) = (element_text(a), element_text(b));
+    match (a.parse::<f64>(), b.parse::<f64>()) {
+        (Ok(x), Ok(y)) => (x - y).abs() <= 1e-4 * x.abs().max(1.0),
+        _ => a == b,
+    }
+}
+
+/// A propriedade ainda tem o valor que o app pôs (então volta à do usuário)?
+/// A janela (`WINDOW_PROPS`) é sempre do app enquanto estiver anotada: o
+/// Roblox a regrava com o tamanho real ao fechar, e a grade do app mexe nela.
+fn still_the_apps(name: &str, now: Option<&String>, written: Option<&String>) -> bool {
+    if WINDOW_PROPS.contains(&name) {
+        return true;
+    }
+    match (now, written) {
+        (Some(now), Some(written)) => same_value(now, written),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 impl RestoreJournal {
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
@@ -197,7 +231,7 @@ impl RestoreJournal {
                 let mut props = xml[start..end].to_string();
                 let mut changed = false;
                 for (name, key) in &file.keys {
-                    if now.get(name) == key.written.as_ref() {
+                    if still_the_apps(name, now.get(name), key.written.as_ref()) {
                         restore_property(&mut props, name, key.original.as_deref());
                         changed = true;
                     }
@@ -384,7 +418,42 @@ fn settings_restore_dir() -> PathBuf {
 }
 
 pub fn record_roblox_settings_change(snapshot: RobloxSettingsSnapshot) {
+    LAST_SETTINGS_RECORD.store(unix_now_secs(), std::sync::atomic::Ordering::SeqCst);
     record_roblox_settings_change_in(&settings_restore_dir(), snapshot);
+}
+
+/// Quando o launch escreveu nos arquivos pela última vez (segundos Unix).
+static LAST_SETTINGS_RECORD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Folga depois da última escrita do launch: o patch é o último passo antes
+/// do spawn, mas o processo do cliente leva uns segundos para aparecer, e
+/// devolver nesse meio deixaria o cliente novo sem a otimização.
+pub const RESTORE_WATCH_GRACE_SECS: u64 = 60;
+
+fn unix_now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Segundos desde a última escrita do launch (`u64::MAX` = nenhuma nesta
+/// execução do app).
+pub fn secs_since_last_settings_record() -> u64 {
+    match LAST_SETTINGS_RECORD.load(std::sync::atomic::Ordering::SeqCst) {
+        0 => u64::MAX,
+        at => unix_now_secs().saturating_sub(at),
+    }
+}
+
+/// Com o app aberto: é hora de devolver? Só com a opção ligada, algo anotado,
+/// **nenhum** Roblox rodando (nem o aberto pelo site: ele regravaria os valores
+/// que tem na memória ao fechar) e a folga do último launch vencida.
+///
+/// Antes a devolução só acontecia ao fechar o app: quem fechava o jogo e
+/// abria pelo site com o MultiAlt aberto ficava com a otimização (13/10/2026).
+pub fn restore_watch_due(enabled: bool, pending: bool, roblox_running: bool, secs_since_record: u64) -> bool {
+    enabled && pending && !roblox_running && secs_since_record >= RESTORE_WATCH_GRACE_SECS
 }
 
 pub fn has_pending_roblox_settings_restore() -> bool {
@@ -441,6 +510,56 @@ mod win_settings_restore_tests {
             journal.restore_action("g.xml", Some(&xml_with("30", Some("0.500000")))),
             RestoreAction::Keep
         );
+    }
+
+    /// Bug de 13/10/2026: o app grava `0.300000`, o Roblox, ao fechar, regrava
+    /// o arquivo inteiro no formato dele (`0.300000012`). A comparação por
+    /// texto achava que "o jogador mudou" e o volume otimizado ficava.
+    #[test]
+    fn the_value_roblox_rewrote_in_its_own_format_still_goes_back() {
+        let mut journal = RestoreJournal::default();
+        let launched = xml_with("240", Some("0.300000"));
+        journal.record("g.xml", SettingsFileKind::Xml, Some(XML_USER), Some(&launched), None);
+        let rewritten = xml_with("240", Some("0.300000012"));
+        assert_eq!(
+            journal.restore_action("g.xml", Some(&rewritten)),
+            RestoreAction::Write(XML_USER.to_string())
+        );
+    }
+
+    /// A janela o Roblox regrava com o tamanho real ao fechar (a grade do app
+    /// muda a janela): ela é do app enquanto estiver anotada e sempre volta.
+    #[test]
+    fn the_window_goes_back_even_after_roblox_rewrote_it() {
+        let user = "<roblox><Item class=\"UserGameSettings\"><Properties>\n\t\t\t<bool name=\"StartMaximized\">true</bool>\n</Properties></Item></roblox>";
+        let launched = user.replace(">true<", ">false<");
+        let mut journal = RestoreJournal::default();
+        journal.record("g.xml", SettingsFileKind::Xml, Some(user), Some(&launched), None);
+        // O Roblox fechou maximizado pela grade? Não: regravou outra coisa.
+        let rewritten = user.replace("<bool name=\"StartMaximized\">true</bool>", "<bool name=\"StartMaximized\">false</bool>\n\t\t\t<string name=\"Other\">y</string>");
+        assert_eq!(
+            journal.restore_action("g.xml", Some(&rewritten)),
+            RestoreAction::Write(user.replace("<bool name=\"StartMaximized\">true</bool>", "<bool name=\"StartMaximized\">true</bool>\n\t\t\t<string name=\"Other\">y</string>"))
+        );
+        let size_user = "<roblox><Item class=\"UserGameSettings\"><Properties>\n\t\t\t<Vector2 name=\"StartScreenSize\"><X>1280</X><Y>720</Y></Vector2>\n</Properties></Item></roblox>";
+        let size_app = size_user.replace("1280", "640").replace("720", "360");
+        let size_roblox = size_user.replace("1280", "656").replace("720", "399");
+        let mut journal = RestoreJournal::default();
+        journal.record("s.xml", SettingsFileKind::Xml, Some(size_user), Some(&size_app), None);
+        assert_eq!(
+            journal.restore_action("s.xml", Some(&size_roblox)),
+            RestoreAction::Write(size_user.to_string())
+        );
+    }
+
+    #[test]
+    fn same_value_reads_numbers_not_text() {
+        assert!(same_value("<float name=\"MasterVolume\">0.300000</float>", "<float name=\"MasterVolume\">0.300000012</float>"));
+        assert!(same_value("<float name=\"MasterVolume\">1.000000</float>", "<float name=\"MasterVolume\">1</float>"));
+        assert!(!same_value("<float name=\"MasterVolume\">0.3</float>", "<float name=\"MasterVolume\">0.5</float>"));
+        assert!(same_value("<int name=\"FramerateCap\">240</int>", "<int name=\"FramerateCap\"> 240 </int>"));
+        assert!(!same_value("<int name=\"FramerateCap\">240</int>", "<int name=\"FramerateCap\">60</int>"));
+        assert!(same_value("<bool name=\"MaxQualityEnabled\">false</bool>", "<bool name=\"MaxQualityEnabled\">false</bool>"));
     }
 
     #[test]
@@ -519,6 +638,30 @@ mod win_settings_restore_tests {
         let mut journal = RestoreJournal::default();
         journal.record("g.xml", SettingsFileKind::Xml, Some(XML_USER), Some(&xml_with("240", Some("0.8"))), None);
         assert_eq!(journal.restore_action("g.xml", None), RestoreAction::Keep);
+    }
+
+    #[test]
+    fn with_the_app_open_it_restores_once_no_roblox_runs() {
+        assert!(restore_watch_due(true, true, false, RESTORE_WATCH_GRACE_SECS));
+        assert!(restore_watch_due(true, true, false, u64::MAX));
+    }
+
+    #[test]
+    fn a_running_client_even_from_the_website_holds_the_restore() {
+        assert!(!restore_watch_due(true, true, true, u64::MAX));
+    }
+
+    #[test]
+    fn right_after_a_launch_wrote_the_files_it_waits() {
+        // O cliente novo ainda não apareceu: devolver agora tiraria a otimização dele.
+        assert!(!restore_watch_due(true, true, false, 5));
+        assert!(!restore_watch_due(true, true, false, RESTORE_WATCH_GRACE_SECS - 1));
+    }
+
+    #[test]
+    fn nothing_recorded_or_the_option_off_does_nothing() {
+        assert!(!restore_watch_due(true, false, false, u64::MAX));
+        assert!(!restore_watch_due(false, true, false, u64::MAX));
     }
 
     #[test]
