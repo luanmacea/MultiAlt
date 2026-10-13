@@ -12,12 +12,21 @@ const TONES: Record<ReleaseKind, string> = {
   fix: "bg-amber-500/12 text-amber-300 ring-amber-400/25",
   feature: "bg-[var(--accent-soft)] text-[var(--accent-color)] ring-[var(--accent-color)]/25",
   mixed: "bg-violet-500/12 text-violet-300 ring-violet-400/25",
+  // Versão nova de série (a 2.0.0): verde, a única que não é rotina.
+  major: "bg-emerald-500/12 text-emerald-300 ring-emerald-400/25",
 };
 
 export function ReleaseKindBadge({ kind, className = "" }: { kind: ReleaseKind | null; className?: string }) {
   const t = useTr();
   if (!kind) return null;
-  const label = kind === "fix" ? t("Fix") : kind === "feature" ? t("New features") : t("General update");
+  const label =
+    kind === "fix"
+      ? t("Fix")
+      : kind === "feature"
+        ? t("New features")
+        : kind === "major"
+          ? t("Major update")
+          : t("General update");
   return (
     <span
       data-release-kind={kind}

@@ -287,7 +287,7 @@ describe("prepare-release.mjs", () => {
   });
 
   it("recusa tipo desconhecido", () => {
-    expect(() => runPrepare({ RELEASE_BUMP: "patch", RELEASE_KIND: "major" })).toThrow();
+    expect(() => runPrepare({ RELEASE_BUMP: "patch", RELEASE_KIND: "epic" })).toThrow();
   });
 });
 
