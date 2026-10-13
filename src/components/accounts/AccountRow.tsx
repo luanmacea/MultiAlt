@@ -7,6 +7,7 @@ import { Tooltip } from "../ui/Tooltip";
 import { useTr } from "../../i18n/text";
 import { StatusBadge, STATUS_COLORS, type StatusKind } from "./StatusBadge";
 import { moderationBadge, moderationLabel } from "../../utils/moderation";
+import { AccountLiveSegment } from "./AccountLiveSegment";
 
 export function AccountRow({ account }: { account: Account }) {
   const t = useTr();
@@ -156,7 +157,7 @@ export function AccountRow({ account }: { account: Account }) {
     <div
       data-account-row="true"
       data-user-id={account.UserID}
-      className={`group/row theme-row-hover flex items-center gap-3 px-3 py-1.5 cursor-default select-none border-l-2 transition-colors duration-100 ${
+      className={`@container/row group/row theme-row-hover flex items-center gap-3 px-3 py-1.5 cursor-default select-none border-l-2 transition-colors duration-100 ${
         selected ? "theme-row-selected" : "border-l-transparent"
       }`}
       style={selected ? { borderLeftColor: "var(--accent-color)" } : undefined}
@@ -261,6 +262,10 @@ export function AccountRow({ account }: { account: Account }) {
         )}
       </div>
 
+      {/* Estado ao vivo (jogando, caiu, reconectando...) e o jogo; nada com a
+          conta parada. Ver AccountLiveSegment. */}
+      <AccountLiveSegment userId={account.UserID} />
+
       {description && (
         <div className="min-w-0 max-w-[38%]">
           <Tooltip content={description}>
@@ -290,7 +295,7 @@ export function AccountRow({ account }: { account: Account }) {
           disabled={!contaAcima}
           aria-label={t("Move up")}
           title={t("Move up")}
-          className="p-0.5 rounded theme-muted opacity-40 group-hover/row:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded theme-muted opacity-60 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronUp size={13} strokeWidth={2} />
         </button>
@@ -300,7 +305,7 @@ export function AccountRow({ account }: { account: Account }) {
           disabled={!contaAbaixo}
           aria-label={t("Move down")}
           title={t("Move down")}
-          className="p-0.5 rounded theme-muted opacity-40 group-hover/row:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
+          className="w-6 h-6 flex items-center justify-center rounded theme-muted opacity-60 group-hover/row:opacity-100 focus-visible:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-15 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronDown size={13} strokeWidth={2} />
         </button>

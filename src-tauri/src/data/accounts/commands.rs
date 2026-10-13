@@ -193,6 +193,59 @@ pub fn set_encryption_password(
     Ok(())
 }
 
+/// Tentativas erradas seguidas na tela "trancado por inatividade" (ideia 27)
+/// e até quando a próxima fica recusada.
+struct AppLockAttempts {
+    failures: u32,
+    blocked_until: Option<std::time::Instant>,
+}
+
+static APP_LOCK_ATTEMPTS: Mutex<AppLockAttempts> = Mutex::new(AppLockAttempts {
+    failures: 0,
+    blocked_until: None,
+});
+
+/// Espera depois de `failures` senhas erradas seguidas: as três primeiras são
+/// livres (dedo errado), depois 5 s dobrando até 60 s.
+fn app_lock_retry_delay_secs(failures: u32) -> u64 {
+    if failures < 3 {
+        return 0;
+    }
+    let doublings = (failures - 3).min(4);
+    (5u64 << doublings).min(60)
+}
+
+/// Destranca a tela de inatividade. **Só confere a senha** — não relê as
+/// contas, não troca a sessão, não para nada que esteja rodando.
+#[tauri::command]
+pub fn verify_app_password(state: tauri::State<'_, AccountStore>, password: String) -> Result<(), String> {
+    check_app_password(&APP_LOCK_ATTEMPTS, std::time::Instant::now(), |p| state.verify_password(p), &password)
+}
+
+fn check_app_password(
+    attempts: &Mutex<AppLockAttempts>,
+    now: std::time::Instant,
+    verify: impl Fn(&str) -> Result<bool, String>,
+    password: &str,
+) -> Result<(), String> {
+    let mut slot = attempts.lock().map_err(|e| e.to_string())?;
+    if let Some(until) = slot.blocked_until {
+        if now < until {
+            let wait = until.duration_since(now).as_secs().max(1);
+            return Err(format!("Too many wrong passwords. Wait {wait} seconds and try again."));
+        }
+    }
+    if verify(password)? {
+        slot.failures = 0;
+        slot.blocked_until = None;
+        return Ok(());
+    }
+    slot.failures = slot.failures.saturating_add(1);
+    let delay = app_lock_retry_delay_secs(slot.failures);
+    slot.blocked_until = (delay > 0).then(|| now + std::time::Duration::from_secs(delay));
+    Err("Wrong password.".to_string())
+}
+
 #[tauri::command]
 pub fn reorder_accounts(
     state: tauri::State<'_, AccountStore>,

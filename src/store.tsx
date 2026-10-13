@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   type ReactNode,
 } from "react";
@@ -17,17 +18,24 @@ import type {
   ParsedGroup,
   PlatformCapabilities,
   FriendLinkState,
+  LaunchOutcome,
   LaunchQueuePayload,
   ModerationStatus,
   ServerPreference,
   UnidentifiedClient,
   ClientDrop,
   ClientHealth,
+  ClientMemory,
   AutoReconnectEntry,
   AutoReconnectPayload,
+  ClosedClient,
   VaultKeyWarning,
+  LaunchPreset,
+  LaunchPresetEvent,
+  LaunchPresetView,
 } from "./types";
 import { playAfkBeep } from "./utils/afkBeep";
+import type { TabId as SettingsTabId } from "./components/settings/tabs";
 import type { AfkMode } from "./afkClickPoint";
 import {
   orderGroupKeys,
@@ -59,8 +67,8 @@ export function normalizeServerScanPages(value: number | undefined): number {
 /** Abas do diálogo do gerador de contas. */
 export type GeneratorDialogTab = "provider" | "signup";
 
-/** Abas do Modo AFK: Auto Rejoin (ciclo de rejoin) e cliques AFK (tecla/clique). */
-export type AfkModeTab = "rejoin" | "clicks";
+/** Abas do Modo AFK: cliques AFK (tecla/clique), Gravações e Auto Rejoin (ciclo de rejoin). */
+export type AfkModeTab = "rejoin" | "clicks" | "recordings";
 
 /**
  * O que está aberto no Modo AFK — `null` com a janela fechada.
@@ -95,6 +103,7 @@ export interface AdoptBottingOptions {
 export type AppPage =
   | "accounts"
   | "session"
+  | "console"
   | "afk"
   | "avatars"
   | "groups"
@@ -129,6 +138,14 @@ import { tr } from "./i18n/text";
 import { accountLabel, maskAccountName } from "./utils/accountName";
 import { clientHealthLabel } from "./utils/clientHealth";
 import { autoReconnectLabel } from "./utils/autoReconnect";
+import {
+  EMPTY_AWAY_DIGEST,
+  afkFailureEvents,
+  awayDigestReducer,
+  awayUnreadCount,
+  clientHealthEvent,
+  type AwayEvent,
+} from "./utils/awayDigest";
 import { accountCheckSummaryText, type AccountCheckSummary } from "./utils/accountCheck";
 import {
   type UpdaterReleaseChannel,
@@ -154,6 +171,8 @@ interface RunningInstanceEntry {
   adopted?: boolean;
   /** Queda lida do log (`commands/client_health.rs`). */
   health?: ClientHealth | null;
+  /** Memória e limite (`commands/memory_ceiling.rs`); só cliente do app. */
+  memory?: ClientMemory | null;
 }
 
 interface OptimizationWarningPayload {
@@ -187,7 +206,7 @@ interface ActionStatusState {
   at: number;
 }
 
-/** Estado do botão "Download"/"Reinstall" de Settings > General. */
+/** Estado do botão "Download"/"Reinstall" de Settings > Accounts. */
 export interface BrowserDownloadState {
   active: boolean;
   stage: "resolving" | "downloading" | "extracting" | "ready" | "error";
@@ -275,6 +294,28 @@ export interface AfkStatus {
   clickX: number;
   clickY: number;
   accounts: AfkAccountStatus[];
+  /**
+   * O ciclo está na hora mas espera: há uma janela em tela cheia de outro
+   * programa na frente (`Afk.WaitForFullscreen`). O backend sempre manda;
+   * opcional só para os retratos antigos dos testes.
+   */
+  waitingFullscreen?: boolean;
+}
+
+/**
+ * Parada de emergência por chacoalhar o mouse (`Afk.ShakeToStop`,
+ * commands/shake_stop.rs): o backend já ligou as bandeiras dos botões Parar
+ * quando isto chega. Fica guardada até o usuário fechar o aviso ou ligar o modo
+ * de novo.
+ */
+export interface AfkEmergencyStop {
+  /** Hoje só `shake`. */
+  reason: string;
+  /** Havia sessão do Modo AFK, e ela recebeu o parar. */
+  afk: boolean;
+  /** Havia gravação tocando avulsa, e ela recebeu o parar. */
+  recordings: boolean;
+  atMs: number;
 }
 
 export interface AfkStartConfig {
@@ -333,32 +374,9 @@ export interface GeneratorStartConfig {
   maxAccounts: number;
 }
 
-/**
- * A private-server code written into the Job ID field, either as `vip:<code>`
- * or inside a pasted link (`?privateServerLinkCode=`/`linkCode=`/`code=`).
- * Returns an empty string when the field holds a plain Job ID.
- *
- * Both launch paths must agree on this: a single launch used to understand
- * pasted links while a multi launch forwarded the whole URL as the Job ID.
- */
-export function parsePrivateServerCode(rawJobId: string): string {
-  const raw = rawJobId.trim();
-  if (!raw) return "";
-
-  const vipPrefix = raw.match(/^vip:\s*(.+)$/i);
-  if (vipPrefix?.[1]) return vipPrefix[1].trim();
-
-  const linkLike = raw.match(/(?:privateServerLinkCode|linkCode|code)=([^&\s]+)/i);
-  if (linkLike?.[1]) {
-    try {
-      return decodeURIComponent(linkLike[1]);
-    } catch {
-      return linkLike[1];
-    }
-  }
-
-  return "";
-}
+// Mora em utils/ para os módulos puros (presets) usarem sem carregar o store.
+export { parsePrivateServerCode } from "./utils/privateServerCode";
+import { parsePrivateServerCode } from "./utils/privateServerCode";
 
 /**
  * Explicit place/job for a launch. When provided, these take precedence over
@@ -367,9 +385,10 @@ export function parsePrivateServerCode(rawJobId: string): string {
  * launch closure would otherwise still read the PREVIOUS place/job).
  */
 /**
- * O que aconteceu com um launch de uma conta: `started` = o backend aceitou e o
- * cliente está subindo; `refused` = já havia uma sequência de launch em
- * andamento; `failed` = erro de launch (já reportado na tela). Quem chama usa
+ * O que aconteceu com um launch de uma conta: `started` = o backend aceitou (o
+ * cliente está subindo, ou a conta entrou no fim da fila que já roda);
+ * `refused` = a sequência em andamento não aceita conta nova (a da reconexão
+ * automática); `failed` = erro de launch (já reportado na tela). Quem chama usa
  * isto para não anunciar sucesso quando nada começou.
  */
 export type LaunchAttempt = "started" | "refused" | "failed";
@@ -431,7 +450,8 @@ export interface StoreValue {
   setHideUsernames: (hide: boolean) => void;
   hiddenNameLetters: number;
   showAvatarsWhenHidden: boolean;
-  hideRobuxWhenHidden: boolean;
+  /** `General.ShowRobux` (desligado): o saldo de Robux no painel da conta. */
+  showRobux: boolean;
 
   placeId: string;
   setPlaceId: (id: string) => void;
@@ -490,6 +510,11 @@ export interface StoreValue {
   unidentifiedClients: UnidentifiedClient[];
   /** Queda (com motivo) de cada conta em jogo, lida do log do Roblox. */
   clientHealth: Map<number, ClientHealth>;
+  /**
+   * Memória e limite de cada cliente que o app abriu (teto de memória, só com
+   * a feature `memory-trim`). Atualizado no mesmo polling de 2,5 s.
+   */
+  clientMemory: Map<number, ClientMemory>;
   /** Diz ao app de quem é um cliente não identificado (não fecha nada). */
   identifyExternalClient: (pid: number, userId: number) => Promise<boolean>;
   /** Traz para a frente a janela de um cliente pelo PID. */
@@ -497,6 +522,17 @@ export interface StoreValue {
 
   joinServer: (userId: number, target?: LaunchTarget) => Promise<LaunchAttempt>;
   launchMultiple: (userIds: number[], target?: LaunchTarget) => Promise<void>;
+  /**
+   * Presets de launch (ideia 13). `presetsDialog` nulo = fechado; com `draft`
+   * nulo abre na lista, com rascunho abre no editor. `presetsRevision` sobe a
+   * cada resultado de preset (inclusive pelo horário) para a tela reler.
+   */
+  presetsDialog: { draft: LaunchPreset | null } | null;
+  openPresetsDialog: (draft?: LaunchPreset | null) => void;
+  closePresetsDialog: () => void;
+  presetsRevision: number;
+  /** Abre um preset pela fila normal. Devolve se começou. */
+  launchPreset: (preset: LaunchPresetView) => Promise<LaunchAttempt>;
   restartRobloxClients: (userIds: number[]) => Promise<void>;
   focusRobloxClient: (userId: number) => Promise<boolean>;
   /** Fecha os clientes das contas informadas; devolve quantos foram fechados. */
@@ -526,6 +562,14 @@ export interface StoreValue {
   stopAutoReconnect: (userId: number) => Promise<boolean>;
   /** "Tentar agora" / "Tentar de novo". */
   retryAutoReconnect: (userId: number) => Promise<boolean>;
+  /**
+   * Contas cujo cliente fechou no meio do jogo e não está sendo reaberto
+   * (`commands/closed_clients.rs`, evento `closed-clients`). "Entrar
+   * novamente" é o `joinServer` com `rejoinLaunchTarget` (utils/closedClients.ts).
+   */
+  closedClients: Map<number, ClosedClient>;
+  /** O "×" do aviso: esquece o cliente fechado. Não abre nem fecha nada. */
+  dismissClosedClient: (userId: number) => Promise<boolean>;
   startBottingMode: (config: BottingStartConfig) => Promise<void>;
   /**
    * Liga o Auto Rejoin nas contas que **já estão em jogo**, sem fechar nem
@@ -574,6 +618,19 @@ export interface StoreValue {
    */
   captureAfkPoint: () => Promise<AfkCapturedPoint>;
   afkStatus: AfkStatus | null;
+  /** A última parada de emergência por chacoalhar o mouse, até o aviso ser fechado. */
+  afkEmergencyStop: AfkEmergencyStop | null;
+  dismissAfkEmergencyStop: () => void;
+  /**
+   * "While you were away" (utils/awayDigest.ts): quedas, reconexões, falhas do
+   * Modo AFK e paradas de emergência desta sessão do app, do mais novo para o
+   * mais antigo. Os toasts somem; isto fica.
+   */
+  awayEvents: AwayEvent[];
+  /** Quantos chegaram depois da última olhada (abrir a página Session zera). */
+  awayUnread: number;
+  markAwaySeen: () => void;
+  clearAwayEvents: () => void;
   /** A lista fechada de teclas que o backend aceita. */
   afkKeys: string[];
   startGenerator: (config: GeneratorStartConfig) => Promise<GeneratorStatus>;
@@ -617,6 +674,14 @@ export interface StoreValue {
    */
   unlocking: boolean;
   unlock: (password: string, rememberHours?: number) => Promise<void>;
+  /**
+   * Tela trancada por inatividade (ideia 27). Só a tela: o app segue montado
+   * por baixo e nada que esteja rodando para.
+   */
+  appLocked: boolean;
+  lockApp: () => void;
+  /** Confere a senha (`verify_app_password`) e destranca; devolve o erro, se houver. */
+  unlockApp: (password: string) => Promise<string | null>;
   encryptionSetupOpen: boolean;
   encryptionSetupMode: "firstRun" | "settings";
   accountsEncrypted: boolean | null;
@@ -645,6 +710,13 @@ export interface StoreValue {
    * página for a aberta (fechar o que não está aberto não tira ninguém do lugar).
    */
   setSettingsOpen: (open: boolean) => void;
+  /**
+   * Abre a página Settings numa seção (link de outra tela: "Auto Rejoin is
+   * off" leva a Keep in game, o CAPTCHA do login a Accounts). `seq` muda a
+   * cada pedido, para pedir de novo a mesma seção depois de o usuário trocar.
+   */
+  settingsSectionRequest: { section: SettingsTabId; seq: number } | null;
+  openSettingsSection: (section: SettingsTabId) => void;
   reloadSettings: () => Promise<void>;
   /**
    * Grava uma setting fora da página Settings (ex.: o padrão de reconexão na
@@ -691,6 +763,12 @@ export interface StoreValue {
   generatorStatus: GeneratorStatus | null;
   versionsDialogOpen: boolean;
   setVersionsDialogOpen: (open: boolean) => void;
+  /** Checagem "o launch não faz nada" (ideia 16) — Settings e a faixa de erro. */
+  diagnosticsOpen: boolean;
+  setDiagnosticsOpen: (open: boolean) => void;
+  /** Adicionar conta por Quick Login (ideia 12) — menu Add e AddAccountDialog. */
+  quickLoginOpen: boolean;
+  setQuickLoginOpen: (open: boolean) => void;
   /** Abre (ou fecha) o Modo AFK na aba de cliques AFK — o atalho da barra. */
   setAfkDialogOpen: (open: boolean) => void;
   setAvatarsDialogOpen: (open: boolean) => void;
@@ -837,12 +915,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [adoptedClients, setAdoptedClients] = useState<Set<number>>(new Set());
   const [unidentifiedClients, setUnidentifiedClients] = useState<UnidentifiedClient[]>([]);
   const [clientHealth, setClientHealth] = useState<Map<number, ClientHealth>>(new Map());
+  const [clientMemory, setClientMemory] = useState<Map<number, ClientMemory>>(new Map());
   // O efeito do polling registra aqui o seu refresh, para identificar um
   // cliente refletir na hora em vez de esperar o próximo tique.
   const refreshRunningRef = useRef<() => Promise<void>>(async () => {});
   const [error, setError] = useState<string | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [appLocked, setAppLocked] = useState(false);
+  const lockApp = useCallback(() => setAppLocked(true), []);
+  const unlockApp = useCallback(async (password: string): Promise<string | null> => {
+    try {
+      await invoke("verify_app_password", { password });
+      setAppLocked(false);
+      return null;
+    } catch (e) {
+      // Sem senha não há o que conferir (não deveria acontecer: a opção só
+      // vale com senha). Destrancar é melhor que prender a pessoa para sempre.
+      if (String(e).includes("No app password is set")) {
+        setAppLocked(false);
+        return null;
+      }
+      return String(e);
+    }
+  }, []);
   const [encryptionSetupOpen, setEncryptionSetupOpen] = useState(false);
   const [encryptionSetupMode, setEncryptionSetupMode] = useState<"firstRun" | "settings">("firstRun");
   const [accountsEncrypted, setAccountsEncrypted] = useState<boolean | null>(null);
@@ -864,6 +960,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setActivePageState((current) => (open ? page : current === page ? "accounts" : current));
   }, []);
   const setSettingsOpen = useCallback((open: boolean) => togglePage("settings", open), [togglePage]);
+  const [settingsSectionRequest, setSettingsSectionRequest] = useState<{ section: SettingsTabId; seq: number } | null>(
+    null
+  );
+  const openSettingsSection = useCallback((section: SettingsTabId) => {
+    setSettingsSectionRequest((prev) => ({ section, seq: (prev?.seq ?? 0) + 1 }));
+    setActivePageState("settings");
+  }, []);
   const setThemeEditorOpen = useCallback((open: boolean) => togglePage("theme", open), [togglePage]);
   const setAvatarsDialogOpen = useCallback((open: boolean) => togglePage("avatars", open), [togglePage]);
   const setSessionDialogOpen = useCallback((open: boolean) => togglePage("session", open), [togglePage]);
@@ -892,6 +995,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   const [bottingStatus, setBottingStatus] = useState<BottingStatus | null>(null);
   const [afkStatus, setAfkStatus] = useState<AfkStatus | null>(null);
+  const [afkEmergencyStop, setAfkEmergencyStop] = useState<AfkEmergencyStop | null>(null);
+  const dismissAfkEmergencyStop = useCallback(() => setAfkEmergencyStop(null), []);
+  const [awayDigest, dispatchAway] = useReducer(awayDigestReducer, EMPTY_AWAY_DIGEST);
+  const markAwaySeen = useCallback(() => dispatchAway({ type: "seen" }), []);
+  const clearAwayEvents = useCallback(() => dispatchAway({ type: "clear" }), []);
+  // Abrir a página Session é olhar o resumo: o "não lido" zera.
+  useEffect(() => {
+    if (activePage === "session") dispatchAway({ type: "seen" });
+  }, [activePage]);
+  // Falhas de envio do Modo AFK: anotadas quando começam ou mudam de motivo,
+  // não a cada ciclo (a janela fechada falharia de 10 em 10 minutos).
+  const afkFailuresRef = useRef<Map<number, string | null>>(new Map());
+  useEffect(() => {
+    const { events, next } = afkFailureEvents(afkFailuresRef.current, afkStatus);
+    afkFailuresRef.current = next;
+    for (const event of events) dispatchAway({ type: "add", event });
+  }, [afkStatus]);
   const [afkKeys, setAfkKeys] = useState<string[]>([]);
   const [generatorDialogOpen, setGeneratorDialogOpen] = useState(false);
   const [generatorDialogTab, setGeneratorDialogTab] = useState<GeneratorDialogTab>("provider");
@@ -902,11 +1022,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
   const [generatorStatus, setGeneratorStatus] = useState<GeneratorStatus | null>(null);
   const [versionsDialogOpen, setVersionsDialogOpen] = useState(false);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [quickLoginOpen, setQuickLoginOpen] = useState(false);
+  const [presetsDialog, setPresetsDialog] = useState<{ draft: LaunchPreset | null } | null>(null);
+  const [presetsRevision, setPresetsRevision] = useState(0);
+  const openPresetsDialog = useCallback((draft?: LaunchPreset | null) => {
+    setPresetsDialog({ draft: draft ?? null });
+  }, []);
+  const closePresetsDialog = useCallback(() => setPresetsDialog(null), []);
   const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
   const [friendLinkState, setFriendLinkState] = useState<FriendLinkState | null>(null);
   const [autoReconnect, setAutoReconnect] = useState<AutoReconnectEntry[]>([]);
   // Retrato anterior, para avisar só na mudança (desistiu, parou, reconectou).
   const autoReconnectRef = useRef<AutoReconnectEntry[]>([]);
+  const [closedClients, setClosedClients] = useState<Map<number, ClosedClient>>(() => new Map());
   const [missingAssets, setMissingAssets] = useState<{ userId: number; username: string; assetIds: number[] } | null>(null);
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
@@ -938,7 +1067,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const devMode = settings?.Developer?.DevMode === "true";
   const hiddenNameLetters = parseInt(settings?.General?.HiddenNameLetters || "0") || 0;
   const showAvatarsWhenHidden = settings?.General?.ShowAvatarsWhenHidden === "true";
-  const hideRobuxWhenHidden = settings?.General?.HideRobuxWhenHidden === "true";
+  const showRobux = settings?.General?.ShowRobux === "true";
   /**
    * O "Names hidden" de agora, para os toasts que nomeiam uma conta — inclusive
    * os dos listeners montados uma vez só, que veriam o valor do primeiro render.
@@ -1588,9 +1717,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   /**
-   * O backend recusa um launch quando já existe uma sequência em andamento
-   * (duas filas ao mesmo tempo brigariam pelo mutex do Multi Roblox, pelo
-   * registro e pelo `ClientAppSettings.json`, que é global). A mensagem é a
+   * O backend recusa um launch quando a sequência em andamento não aceita conta
+   * no fim (hoje, só a da reconexão automática — as outras recebem o lote no fim
+   * da fila, ver `reportAddedToQueue`). Duas filas ao mesmo tempo brigariam pelo
+   * mutex do Multi Roblox, pelo registro e pelo `ClientAppSettings.json`, que é
+   * global. A mensagem é a
    * mesma no launch de uma conta e no de várias — e é aqui que o código do
    * backend vira frase traduzida.
    *
@@ -1606,20 +1737,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   /**
+   * Com uma fila de launch rodando, o backend põe as contas no fim dela (cada
+   * uma com o jogo do seu lote) e o comando volta na hora — quem lança é o laço
+   * daquela fila. Antes ele recusava, com o toast acima, e as contas não abriam.
+   * O aviso aqui é curto: as contas já aparecem como "Queued" no Painel de
+   * Sessão. `added` não conta quem já esperava a vez.
+   */
+  function reportAddedToQueue(added: number) {
+    if (added > 0) {
+      addToast(
+        tr(added === 1 ? "Added {{count}} account to the launch queue" : "Added {{count}} accounts to the launch queue", {
+          count: added,
+        }),
+        "success"
+      );
+    } else {
+      addToast(tr("Already waiting in the launch queue"));
+    }
+  }
+
+  /**
    * Launch de uma conta. Nenhum erro sobe daqui — quem chama não precisa de
    * `try/catch` —, mas o resultado **diz se começou**: a tela que anuncia
    * "seguindo com 1 conta..." em cima de um aviso de recusa ou de uma faixa
    * vermelha de erro está mentindo para o usuário.
    */
   async function joinServer(userId: number, target?: LaunchTarget): Promise<LaunchAttempt> {
-    clearLaunchTimeout();
-    setJoiningAccounts(new Set([userId]));
-    setLaunchProgress({
-      mode: "single",
-      current: 1,
-      total: 1,
-      userId,
-    });
+    // Com a fila rodando, esta conta vai para o fim dela: o "entrando agora" e
+    // o progresso continuam sendo os da conta que a fila está abrindo.
+    const queueRunning = launchQueue?.active === true;
+    if (!queueRunning) {
+      clearLaunchTimeout();
+      setJoiningAccounts(new Set([userId]));
+      setLaunchProgress({
+        mode: "single",
+        current: 1,
+        total: 1,
+        userId,
+      });
+    }
     const launchAccount = accounts.find((a) => a.UserID === userId);
     const accountName = accountLabel(launchAccount, nameMaskingRef.current, userId);
     const launchingLine = tr("Launching {{name}}...", { name: accountName });
@@ -1648,7 +1804,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (target?.linkCode !== undefined) linkCode = target.linkCode;
       if (joinVip) resolvedJobId = "";
 
-      await invoke("launch_roblox", {
+      const outcome = await invoke<LaunchOutcome | null>("launch_roblox", {
         userId,
         placeId: pid,
         jobId: resolvedJobId,
@@ -1673,6 +1829,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } catch {
           // Guardar recentes é conveniência; nunca derruba o launch.
         }
+      }
+      if (outcome?.appended) {
+        // Entrou no fim da fila que já roda: não está abrindo agora, então o
+        // "Launching X…" do rodapé e o "entrando" desta conta saem.
+        withdrawActionStatus(launchingLine);
+        if (!queueRunning) {
+          setJoiningAccounts((prev) => {
+            const next = new Set(prev);
+            next.delete(userId);
+            return next;
+          });
+          setLaunchProgress((prev) => (prev?.mode === "single" && prev.userId === userId ? null : prev));
+        }
+        reportAddedToQueue(outcome.added);
+        return "started";
       }
       addToast(tr("Launching game..."));
     } catch (e) {
@@ -1708,6 +1879,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return "started";
   }
 
+  /**
+   * Preset de launch: o backend abre pela mesma fila do `launch_multiple` e
+   * anota quais clientes esta execução abriu (é o que "fechar" usa). Aqui só o
+   * mesmo retorno visual do lote e os recentes.
+   */
+  async function launchPreset(preset: LaunchPresetView): Promise<LaunchAttempt> {
+    const total = preset.userIds.length;
+    clearLaunchTimeout();
+    setLaunchProgress({ mode: "multi", current: 0, total, userId: preset.userIds[0] ?? null });
+    const launchingLine = tr("Launching {{count}} accounts...", { count: total });
+    setActionStatusMessage(launchingLine, "info", 5000);
+    try {
+      await invoke<number>("launch_preset", { id: preset.id });
+      await loadAccounts();
+      void recordRecentGame(preset.placeId, preset.userIds[0] ?? null, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
+      setPresetsRevision((n) => n + 1);
+      return "started";
+    } catch (e) {
+      setJoiningAccounts(new Set());
+      setLaunchProgress(null);
+      if (isLaunchAlreadyActiveError(e)) {
+        withdrawActionStatus(launchingLine);
+        reportLaunchAlreadyActive();
+        return "refused";
+      }
+      setError(String(e));
+      setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
+      return "failed";
+    }
+  }
+
   async function launchMultiple(userIds: number[], target?: LaunchTarget) {
     if (userIds.length === 0) return;
     if (userIds.length > 1 && platformCapabilities?.os === "linux" && !platformCapabilities.supportsMultiLaunch) {
@@ -1720,14 +1922,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       throw new Error(message);
     }
 
-    clearLaunchTimeout();
-    setJoiningAccounts(new Set([userIds[0]]));
-    setLaunchProgress({
-      mode: "multi",
-      current: 0,
-      total: userIds.length,
-      userId: userIds[0],
-    });
+    // Ver `joinServer`: com a fila rodando, o lote vai para o fim dela e o
+    // progresso na tela segue sendo o da conta que a fila está abrindo.
+    const queueRunning = launchQueue?.active === true;
+    if (!queueRunning) {
+      clearLaunchTimeout();
+      setJoiningAccounts(new Set([userIds[0]]));
+      setLaunchProgress({
+        mode: "multi",
+        current: 0,
+        total: userIds.length,
+        userId: userIds[0],
+      });
+    }
     const launchingLine = tr("Launching {{count}} accounts...", { count: userIds.length });
     setActionStatusMessage(launchingLine, "info", 5000);
 
@@ -1740,7 +1947,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // the Job ID field — a single launch accepts both, so this must too.
       const explicitCode = target?.joinVip ? (target.linkCode || "").trim() : "";
       const vipCode = explicitCode || parsePrivateServerCode(rawJobId);
-      await invoke("launch_multiple", {
+      const outcome = await invoke<LaunchOutcome | null>("launch_multiple", {
         userIds,
         placeId: pid,
         jobId: vipCode ? `vip:${vipCode}` : rawJobId,
@@ -1764,10 +1971,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           // Guardar recentes é conveniência; nunca derruba o launch.
         }
       }
+      if (outcome?.appended) {
+        // Entrou no fim da fila que já roda (ver `reportAddedToQueue`).
+        withdrawActionStatus(launchingLine);
+        reportAddedToQueue(outcome.added);
+        return;
+      }
       addToast(tr("Launching {{count}} accounts...", { count: userIds.length }));
     } catch (e) {
-      setJoiningAccounts(new Set());
-      setLaunchProgress(null);
+      if (!queueRunning) {
+        setJoiningAccounts(new Set());
+        setLaunchProgress(null);
+      }
       if (isLaunchAlreadyActiveError(e)) {
         // Ver `joinServer`: recusa por sequência já em andamento é aviso, e o
         // "Launching N accounts…" deste lote sai do rodapé. O erro original é
@@ -1874,6 +2089,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   async function retryAutoReconnect(userId: number): Promise<boolean> {
     return invoke<boolean>("retry_auto_reconnect", { userId });
+  }
+
+  async function dismissClosedClient(userId: number): Promise<boolean> {
+    // Some na hora; o evento do backend confirma (ou traz de volta).
+    setClosedClients((prev) => {
+      if (!prev.has(userId)) return prev;
+      const next = new Map(prev);
+      next.delete(userId);
+      return next;
+    });
+    return invoke<boolean>("dismiss_closed_client", { userId });
   }
 
   async function restartRobloxClients(userIds: number[]) {
@@ -2110,6 +2336,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         clickY: config.clickY,
       });
       setAfkStatus(status);
+      // Ligou de novo: o aviso da parada de emergência anterior já não vale.
+      setAfkEmergencyStop(null);
       addToast(
         config.userIds.length === 1
           ? tr("AFK mode started for 1 account")
@@ -2704,7 +2932,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const unlisten = listen<{ browser: string; error: string }>("chromium-fallback", (e) => {
       addToast(
         tr(
-          "Browser download failed, using {{browser}} instead. You can point Settings > General > Login Browser at your own copy, or retry the download.",
+          "Browser download failed, using {{browser}} instead. You can point Settings > Accounts > Login browser at your own copy, or retry the download.",
           { browser: e.payload.browser }
         ),
         "warn"
@@ -2745,12 +2973,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen<{ userId: number; drop?: ClientDrop | null; notResponding?: boolean }>("roblox-client-health", (e) => {
         const { userId, drop, notResponding } = e.payload;
         void refreshRunningRef.current();
+        const awayEvent = clientHealthEvent(e.payload, Date.now());
+        if (awayEvent) dispatchAway({ type: "add", event: awayEvent });
         if (!drop && !notResponding) return;
         const status = clientHealthLabel({ pid: 0, logFound: true, drop: drop ?? null, notResponding }, tr);
         if (!status) return;
         const acct = accountsRef.current.find((a) => a.UserID === userId);
         const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(tr("{{name}} in Roblox — {{status}}", { name, status: status.label }), "warn");
+      }),
+      // Presets (ideia 13). O resultado de quem clicou já aparece onde o clique
+      // foi; o que vem do horário precisa de um toast, porque ninguém clicou.
+      listen<LaunchPresetEvent>("launch-preset", (e) => {
+        const p = e.payload;
+        setPresetsRevision((n) => n + 1);
+        if (!p.scheduled) return;
+        if (!p.ok) {
+          addToast(tr("Preset {{name}} failed: {{error}}", { name: p.name, error: p.error ?? "" }), "error");
+        } else if (p.action === "open") {
+          addToast(tr("Preset {{name}} opened {{count}} account(s) on schedule", { name: p.name, count: p.count }), "success");
+        } else {
+          addToast(tr("Preset {{name}} closed {{count}} window(s) on schedule", { name: p.name, count: p.count }), "info");
+        }
       }),
       // Moderação lida pelo backend (painel, "conferir contas", antes do launch).
       listen<{ userId: number; status: ModerationStatus }>("account-moderation", (e) => {
@@ -2886,6 +3130,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen("afk-stopped", () => {
         setAfkStatus((prev) => (prev ? { ...prev, active: false, accounts: [] } : prev));
       }),
+      // Chacoalhar o mouse parou o Modo AFK e/ou a gravação (commands/shake_stop.rs).
+      // O backend já parou tudo; aqui só o porquê: o alerta no meio da janela
+      // (EmergencyStopAlert) e a linha nas abas do Modo AFK. Sem toast: sumia
+      // em um segundo, antes de dar para ler.
+      listen<{ reason?: string; afk?: boolean; recordings?: boolean }>("afk-emergency-stop", (e) => {
+        setAfkEmergencyStop({
+          reason: e.payload?.reason ?? "shake",
+          afk: e.payload?.afk === true,
+          recordings: e.payload?.recordings === true,
+          atMs: Date.now(),
+        });
+        dispatchAway({
+          type: "add",
+          event: {
+            kind: "emergencyStop",
+            userId: null,
+            atMs: Date.now(),
+            afk: e.payload?.afk === true,
+            recordings: e.payload?.recordings === true,
+          },
+        });
+      }),
+      // Uma gravação começou a tocar: o aviso da parada anterior já não vale.
+      listen<{ active?: boolean }>("recording-playback", (e) => {
+        if (e.payload?.active === true) setAfkEmergencyStop(null);
+      }),
       listen<GeneratorStatus>("generator-status", (e) => {
         setGeneratorStatus(e.payload);
       }),
@@ -2918,6 +3188,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const uid = e.payload?.userId;
         const ok = e.payload?.ok;
         if (typeof uid === "number" && ok === false) {
+          const rawError = typeof e.payload?.error === "string" ? e.payload.error.trim() : "";
+          dispatchAway({
+            type: "add",
+            event: { kind: "rejoinFailed", userId: uid, atMs: Date.now(), error: rawError || null },
+          });
           const errorText =
             typeof e.payload?.error === "string" && e.payload.error.trim().length > 0
               ? `: ${e.payload.error}`
@@ -2941,7 +3216,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       disposed = true;
       unsubs.forEach((fn) => fn());
     };
-  }, [needsPassword, initialized, setActionStatusMessage]);
+  }, [needsPassword, initialized, setActionStatusMessage, addToast]);
 
   useEffect(() => {
     if (needsPassword || !initialized) return;
@@ -3000,13 +3275,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const final = entry.phase === "gaveUp" || entry.phase === "stopped";
         if (!final || previous?.phase === entry.phase) continue;
         const status = autoReconnectLabel(entry, Date.now(), tr).label;
+        dispatchAway({
+          type: "add",
+          event: { kind: "reconnectEnded", userId: entry.userId, atMs: Date.now(), reconnect: entry },
+        });
         addToast(tr("Auto-reconnect ({{name}}) — {{status}}", { name: nameOf(entry.userId), status }), "warn");
       }
       // Relançada e conferida: ficou no jogo.
       for (const userId of Array.isArray(e.payload?.reconnected) ? e.payload.reconnected : []) {
+        dispatchAway({ type: "add", event: { kind: "reconnected", userId, atMs: Date.now() } });
         addToast(tr("{{name}} is back in the game", { name: nameOf(userId) }), "success");
       }
     })
+      .then((fn) => (disposed ? fn() : unsubs.push(fn)))
+      .catch(() => {});
+
+    // Contas cujo cliente fechou no meio do jogo (commands/closed_clients.rs):
+    // mesmo par. A lista vem inteira; nada é anotado aqui.
+    const closedOf = (payload: { entries?: unknown } | null | undefined): Map<number, ClosedClient> =>
+      new Map(
+        (Array.isArray(payload?.entries) ? (payload.entries as ClosedClient[]) : [])
+          .filter((entry) => typeof entry?.userId === "number")
+          .map((entry) => [entry.userId, entry] as const)
+      );
+    invoke<{ entries: ClosedClient[] }>("get_closed_clients")
+      .then((payload) => {
+        if (!disposed) setClosedClients(closedOf(payload));
+      })
+      .catch(() => {});
+    listen<{ entries: ClosedClient[] }>("closed-clients", (e) => setClosedClients(closedOf(e.payload)))
       .then((fn) => (disposed ? fn() : unsubs.push(fn)))
       .catch(() => {});
 
@@ -3026,18 +3323,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const next = new Set<number>();
         const adopted = new Set<number>();
         const health = new Map<number, ClientHealth>();
+        const memory = new Map<number, ClientMemory>();
         for (const row of rows) {
           const userId = row.userId ?? row.user_id;
           if (typeof userId === "number") {
             next.add(userId);
             if (row.adopted) adopted.add(userId);
             if (row.health) health.set(userId, row.health);
+            if (row.memory) memory.set(userId, row.memory);
           }
         }
         if (!cancelled) {
           setLaunchedByProgram(next);
           setAdoptedClients(adopted);
           setClientHealth(health);
+          setClientMemory(memory);
         }
       } catch {
       }
@@ -3170,6 +3470,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
       listen<{ userId: number; memoryMb: number }>("roblox-low-memory", (e) => {
         addToast(tr("Watcher: low memory {{memoryMb}}MB ({{userId}})", { memoryMb: e.payload.memoryMb, userId: e.payload.userId }));
+      }),
+      // Teto de memória (memory_ceiling.rs): continuou acima depois de liberar.
+      listen<{ userId: number; memoryMb: number; limitMb: number }>("roblox-memory-limit", (e) => {
+        addToast(
+          tr("Closed {{name}}: memory stayed over its limit after it was freed", {
+            name: accountLabel(accountsRef.current.find((a) => a.UserID === e.payload.userId), nameMaskingRef.current, e.payload.userId),
+          }),
+          "warn"
+        );
       }),
       listen<{ userId: number; expected: string }>("roblox-title-mismatch", (e) => {
         addToast(tr("Watcher: title mismatch for {{userId}} ({{expected}})", { userId: e.payload.userId, expected: e.payload.expected }));
@@ -3373,7 +3682,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setHideUsernames,
     hiddenNameLetters,
     showAvatarsWhenHidden,
-    hideRobuxWhenHidden,
+    showRobux,
     placeId,
     setPlaceId,
     jobId,
@@ -3407,10 +3716,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     adoptedClients,
     unidentifiedClients,
     clientHealth,
+    clientMemory,
     identifyExternalClient,
     focusClientWindow,
     joinServer,
     launchMultiple,
+    presetsDialog,
+    openPresetsDialog,
+    closePresetsDialog,
+    presetsRevision,
+    launchPreset,
     restartRobloxClients,
     focusRobloxClient,
     closeRobloxClients,
@@ -3423,6 +3738,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     autoReconnect,
     stopAutoReconnect,
     retryAutoReconnect,
+    closedClients,
+    dismissClosedClient,
     startBottingMode,
     adoptRunningIntoBotting,
     detectRunningGamePlace,
@@ -3438,6 +3755,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     afkTriggerNow,
     captureAfkPoint,
     afkStatus,
+    afkEmergencyStop,
+    dismissAfkEmergencyStop,
+    awayEvents: awayDigest.events,
+    awayUnread: awayUnreadCount(awayDigest),
+    markAwaySeen,
+    clearAwayEvents,
     afkKeys,
     setAfkDialogOpen,
     setAvatarsDialogOpen,
@@ -3469,6 +3792,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     needsPassword,
     unlocking,
     unlock,
+    appLocked,
+    lockApp,
+    unlockApp,
     encryptionSetupOpen,
     encryptionSetupMode,
     accountsEncrypted,
@@ -3488,6 +3814,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     activePage,
     setActivePage,
     setSettingsOpen,
+    settingsSectionRequest,
+    openSettingsSection,
     reloadSettings,
     updateSetting,
     serverListOpen,
@@ -3513,6 +3841,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     generatorStatus,
     versionsDialogOpen,
     setVersionsDialogOpen,
+    diagnosticsOpen,
+    setDiagnosticsOpen,
+    quickLoginOpen,
+    setQuickLoginOpen,
     setSessionDialogOpen,
     setDefaultVersion,
     missingAssets,

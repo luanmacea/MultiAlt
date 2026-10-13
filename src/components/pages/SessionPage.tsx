@@ -5,33 +5,40 @@ import { SessionPanel } from "../session/SessionPanel";
 import { PageShell } from "./PageShell";
 import { Toggle } from "../ui/Toggle";
 import { isWindowsPlatform } from "../../utils/platform";
+import { MemoryDefaultSelect } from "../session/MemoryLimitControl";
+import { MEMORY_LIMIT_SETTING, memoryLimitChoice } from "../../utils/memoryLimit";
+import { RecordingsSummaryCard } from "../afk-mode/recordings/RecordingsSummaryCard";
+import { AwayDigestCard } from "../session/AwayDigest";
 
 /**
- * Página Session: o Painel de Sessão (o mesmo da aba Console da Choose Game)
- * na coluna principal, e ao lado um resumo do que está rodando e de quem
- * mantém as contas no jogo (AFK Mode / Auto Rejoin) — a página tem largura
- * para isso, o modal de 560 px não tinha.
+ * Página Session, o centro de quem joga com muitas contas: primeiro, em
+ * qualquer largura, a faixa de números e as listas da sessão (Entrando, Em
+ * jogo, agrupado por jogo e servidor); depois os cartões de ajuste — quem
+ * mantém as contas no jogo, gravações e teto de memória. Abaixo de 1280 px os
+ * cartões vão para baixo das listas (em duas colunas), para a lista ter a
+ * largura; acima, ficam numa coluna ao lado. A página rola inteira: as listas
+ * não têm rolagem própria aqui (`contained={false}`).
+ *
+ * Janela grande (monitor 4K, pedido de 11/10/2026): as listas não têm teto de
+ * largura — ocupam o que sobra, e as linhas do "Em jogo" viram colunas pela
+ * largura da lista (SessionPanel, `@container/ingame`). A coluna de ajustes
+ * alarga com a janela e, a partir de 2000 px (125rem), vira duas colunas de cartões.
+ * Breakpoint em **rem**, não px: o Tailwind 4 não ordena `min-[2000px]` junto
+ * dos `xl:`/`2xl:` (em rem) — a regra saía antes no CSS e o `xl:` vencia.
  */
 export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () => void }) {
   const t = useTr();
   const store = useStore();
   if (!active) return null;
 
-  const clientsOpen = store.launchedByProgram.size;
-  const joining = (store.launchQueue?.entries ?? []).filter(
-    (entry) => entry.state === "queued" || entry.state === "launching"
-  ).length;
-  const showPresence = store.settings?.General?.ShowPresence === "true";
-  // Mesma regra do StatusBar: 1 = online, 3 = Studio, o resto (>= 2) é jogo.
-  const inGame = showPresence
-    ? store.accounts.filter((a) => {
-        const presence = store.presenceByUserId.get(a.UserID) ?? 0;
-        return presence >= 2 && presence !== 3;
-      }).length
-    : null;
-
   const isWindows = isWindowsPlatform(store.platformCapabilities);
   const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
+  // Teto de memória: só com a feature `memory-trim` (nas duas edições).
+  const memoryTrim = isWindows && store.platformCapabilities?.supportsMemoryTrim === true;
+  const memoryDefaultMb = memoryLimitChoice(
+    undefined,
+    store.settings?.[MEMORY_LIMIT_SETTING.section]?.[MEMORY_LIMIT_SETTING.key]
+  ).defaultMb;
   const bottingOn = store.bottingStatus?.active === true;
   const afkOn = store.afkStatus?.active === true;
   // Reconexão automática em andamento (commands/reconnect.rs).
@@ -56,44 +63,28 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
           ? t("Auto-reconnect is bringing back {{count}} accounts.", { count: reconnecting })
           : t("Nothing is keeping accounts in game right now.");
 
-  const stats: { label: string; value: number | null }[] = [
-    { label: t("Clients open"), value: clientsOpen },
-    { label: t("Joining"), value: joining },
-    { label: t("In game"), value: inGame },
-  ];
-
   return (
     <PageShell
       title={t("Session")}
-      description={t("Follow what is running now: accounts joining, Make Friends in progress, and clients already in game.")}
+      description={t("What is running now: accounts joining and Roblox clients in game, grouped by game and server, with the ones that need you on top.")}
       onLeave={onLeave}
       dataTour="session-page"
       tour="session"
     >
-      <div className="flex flex-col-reverse gap-6 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1 max-w-[1040px]">
-          <SessionPanel />
+      <div data-testid="session-layout" className="flex flex-col gap-6 xl:flex-row xl:items-start">
+        <div data-testid="session-lists" className="min-w-0 flex-1">
+          <SessionPanel showStats contained={false} />
         </div>
 
-        <aside aria-label={t("Summary")} data-tour="session-summary" className="w-full lg:w-[260px] xl:w-[300px] shrink-0 space-y-3 lg:sticky lg:top-0">
-          <section className="rounded-xl border theme-border bg-[var(--panel-soft)] px-4 py-3">
-            <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Right now")}</h2>
-            <dl className="mt-2 divide-y divide-[var(--border-color)]">
-              {stats.map((stat) => (
-                <div key={stat.label} className="flex items-baseline justify-between py-1.5">
-                  <dt className="text-[12px] text-[var(--panel-muted)]">{stat.label}</dt>
-                  <dd className="text-[15px] font-semibold tabular-nums text-[var(--panel-fg)]">
-                    {stat.value === null ? "–" : stat.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            {inGame === null ? (
-              <p className="mt-1.5 text-[11.5px] leading-snug text-[var(--panel-muted)]">
-                {t("Turn on presence in Settings › General to count accounts in game.")}
-              </p>
-            ) : null}
-          </section>
+        <aside
+          aria-label={t("Session settings")}
+          data-tour="session-summary"
+          className="w-full xl:w-[300px] 2xl:w-[340px] min-[125rem]:w-[640px] min-[175rem]:w-[760px] shrink-0 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 min-[125rem]:grid-cols-2 items-start xl:sticky xl:top-0"
+        >
+          {/* "While you were away": o que aconteceu enquanto ninguém olhava
+              (quedas, reconexões, falhas do Modo AFK). Primeiro da coluna:
+              é o que quem volta ao PC procura. */}
+          <AwayDigestCard />
 
           <section className="rounded-xl border theme-border px-4 py-3">
             <h2 className="flex items-center gap-2 text-[12px] font-semibold text-[var(--panel-fg)]">
@@ -104,7 +95,7 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
               {t("Keep accounts in game")}
             </h2>
             <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">{keepAliveText}</p>
-            {/* O mesmo `General.AutoReconnect` de Settings › General, mesmo texto.
+            {/* `General.AutoReconnect`: o único interruptor dele (Settings › Keep in game só leva até aqui).
                 Cada conta muda o seu na lista "Em jogo" (SessionPanel). */}
             {isWindows && (
               <div className="mt-2 -mx-1">
@@ -112,7 +103,7 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
                   checked={reconnectDefault}
                   onChange={(v) => void store.updateSetting("General", "AutoReconnect", v ? "true" : "false")}
                   label="Reconnect accounts that drop"
-                  description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in the In game list of the Session page."
+                  description="Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in its row of the In game list."
                 />
               </div>
             )}
@@ -126,9 +117,41 @@ export function SessionPage({ active, onLeave }: { active: boolean; onLeave: () 
             </button>
           </section>
 
-          <p className="px-1 text-[11.5px] leading-snug text-[var(--panel-muted)]">
-            {t("Closing MultiAlt leaves every Roblox client running.")}
-          </p>
+          {/* Gravações: quando tocam (Modo AFK, depois da reconexão), à vista
+              sem ir até a aba Recordings. Gravação é só Windows. */}
+          {isWindows && <RecordingsSummaryCard />}
+
+          {/* O mesmo `Optimization.MemoryLimit` de Settings › Optimization.
+              Cada conta muda o seu na lista "Em jogo" (SessionPanel). */}
+          {memoryTrim && (
+            <section className="rounded-xl border theme-border px-4 py-3">
+              <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Memory limit")}</h2>
+              <p className="mt-1.5 text-[12px] leading-snug text-[var(--panel-muted)]">
+                {t(
+                  "A client over this limit: MultiAlt asks Windows to free its memory first. Only windows MultiAlt opened; each account can change it in the In game list."
+                )}
+              </p>
+              <div className="mt-2">
+                <MemoryDefaultSelect
+                  valueMb={memoryDefaultMb}
+                  onChange={(mb) =>
+                    void store.updateSetting(MEMORY_LIMIT_SETTING.section, MEMORY_LIMIT_SETTING.key, String(mb))
+                  }
+                />
+              </div>
+              <div className="mt-1">
+                <Toggle
+                  checked={store.settings?.Optimization?.CloseOverMemoryLimit === "true"}
+                  onChange={(v) =>
+                    void store.updateSetting("Optimization", "CloseOverMemoryLimit", v ? "true" : "false")
+                  }
+                  label="Close a client that stays over its limit"
+                  description="If a client is still over its limit a minute after MultiAlt freed its memory, it is closed. Only that client, only windows MultiAlt opened. Off: MultiAlt only frees memory and never closes."
+                />
+              </div>
+            </section>
+          )}
+
         </aside>
       </div>
     </PageShell>

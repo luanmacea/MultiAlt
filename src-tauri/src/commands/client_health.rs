@@ -218,6 +218,9 @@ pub struct ClientLogSession {
     left: bool,
     /// Já entrou num jogo alguma vez (cliente parado no mutex nunca entra).
     joined: bool,
+    /// Place e servidor do último `Joining game` (histórico de sessões).
+    place_id: Option<i64>,
+    job_id: Option<String>,
     destination: Option<JoinedDestination>,
 }
 
@@ -226,6 +229,8 @@ impl ClientLogSession {
         match event {
             ClientLogEvent::JoinedGame { place_id, job_id } => {
                 // Entrou num jogo (de novo): o que caiu antes já não vale.
+                self.place_id = *place_id;
+                self.job_id = job_id.clone();
                 self.pending = None;
                 self.drop = None;
                 self.left = false;
@@ -511,6 +516,18 @@ pub struct ClientHealthView {
     pub exited: bool,
 }
 
+/// Retrato de um cliente para o histórico de sessões: o jogo em que está, se
+/// caiu, se a pessoa saiu e se o processo já terminou.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientSessionSnapshot {
+    pub pid: u32,
+    pub place_id: Option<i64>,
+    pub job_id: Option<String>,
+    pub drop: Option<ClientDrop>,
+    pub left: bool,
+    pub exited: bool,
+}
+
 /// Quanto tempo a janela fica "Não respondendo" antes de o app avisar (e de
 /// o Watcher poder fechá-la, se a opção estiver ligada).
 pub const HUNG_THRESHOLD_MS: i64 = 30_000;
@@ -718,6 +735,28 @@ impl ClientHealthMonitor {
         }
     }
 
+    /// Onde cada cliente está e como a sessão dele terminou, para o histórico
+    /// de sessões (commands/session_history.rs). Só leitura do que o monitor já
+    /// sabe: nada novo é lido do log por causa disto.
+    pub fn session_snapshots(&self) -> HashMap<i64, ClientSessionSnapshot> {
+        self.entries
+            .iter()
+            .map(|(uid, entry)| {
+                (
+                    *uid,
+                    ClientSessionSnapshot {
+                        pid: entry.pid,
+                        place_id: entry.session.place_id,
+                        job_id: entry.session.job_id.clone(),
+                        drop: entry.current_drop().cloned(),
+                        left: entry.session.left,
+                        exited: entry.exit_seen,
+                    },
+                )
+            })
+            .collect()
+    }
+
     pub fn views(&self) -> HashMap<i64, ClientHealthView> {
         self.entries
             .iter()
@@ -858,6 +897,10 @@ fn run_client_health_tick(app: &tauri::AppHandle) -> Vec<HealthNotice> {
     if let Ok(mut views) = CLIENT_HEALTH_VIEWS.lock() {
         *views = monitor.views();
     }
+    let snapshots = monitor.session_snapshots();
+    drop(monitor);
+    // Histórico de sessões (ideia 6): grava cada mudança na hora.
+    record_session_history(app, &snapshots, now_ms);
     notices
 }
 
@@ -876,8 +919,12 @@ pub(crate) fn start_client_health_monitor(app: tauri::AppHandle) {
             }
             // Reconexão automática da conta que caiu (commands/reconnect.rs).
             reconnect_after_health_tick(&app, &notices);
+            // Conta cujo cliente fechou no meio do jogo (commands/closed_clients.rs).
+            closed_clients_after_health_tick(&app);
             // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs).
             keep_awake_tick(&app);
+            // Teto de memória dos clientes do app (commands/memory_ceiling.rs).
+            memory_ceiling_tick(&app).await;
             tokio::time::sleep(CLIENT_HEALTH_TICK).await;
         }
     });

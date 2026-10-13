@@ -341,7 +341,7 @@ export interface ServersTabProps {
   placeId: string;
   setPlaceId: (placeId: string) => void;
   launchAll: LaunchAllFn;
-  onGoToConsole?: () => void;
+  onLaunchStarted?: () => void;
 }
 
 export function ServersTab({
@@ -349,7 +349,7 @@ export function ServersTab({
   placeId,
   setPlaceId,
   launchAll,
-  onGoToConsole,
+  onLaunchStarted,
 }: ServersTabProps) {
   const t = useTr();
   const store = useStore();
@@ -671,7 +671,7 @@ export function ServersTab({
     if (!place) return;
     setJoining(row.id);
     try {
-      await launchAll(userIds, place, row.id, onGoToConsole);
+      await launchAll(userIds, place, row.id, onLaunchStarted);
     } finally {
       setJoining(null);
     }

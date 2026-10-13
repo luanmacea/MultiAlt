@@ -17,6 +17,7 @@ import { useEffect, useRef } from "react";
 interface EscapeEntry {
   fire: () => void;
   ignoreFromFields: boolean;
+  closesOnBack: boolean;
 }
 
 const stack: EscapeEntry[] = [];
@@ -41,6 +42,20 @@ function onKeyDown(event: KeyboardEvent) {
   top.fire();
 }
 
+/**
+ * O botão Voltar do mouse (e Alt+Esquerda) fecha o que está aberto por cima
+ * exatamente como o Escape fecharia — ver `useMouseNavigation`. Só o **topo**
+ * conta: se ele é a base de uma tela (`closesOnBack: false` — a casca da página,
+ * a seleção da lista de contas), não há nada "por cima", e quem age é o
+ * histórico de páginas. Devolve `true` quando fechou alguma coisa.
+ */
+export function fireEscapeForBack(): boolean {
+  const top = stack[stack.length - 1];
+  if (!top || !top.closesOnBack) return false;
+  top.fire();
+  return true;
+}
+
 function ensureListening() {
   if (listening) return;
   window.addEventListener("keydown", onKeyDown);
@@ -53,14 +68,18 @@ function ensureListening() {
  * @param onEscape o que fazer — fechar, cancelar, limpar seleção.
  * @param options `ignoreFromFields` deixa o Escape digitado dentro de um campo
  *   passar direto, para não fechar a tela inteira enquanto alguém edita um valor.
+ *   `closesOnBack: false` marca a base de uma tela (sair da página, limpar a
+ *   seleção): o botão Voltar do mouse não a dispara e anda no histórico de
+ *   páginas no lugar (ver `fireEscapeForBack`).
  */
 export function useEscapeStack(
   active: boolean,
   onEscape: () => void,
-  options: { ignoreFromFields?: boolean } = {}
+  options: { ignoreFromFields?: boolean; closesOnBack?: boolean } = {}
 ) {
   const onEscapeRef = useRef(onEscape);
   const ignoreFromFields = options.ignoreFromFields ?? false;
+  const closesOnBack = options.closesOnBack ?? true;
 
   useEffect(() => {
     onEscapeRef.current = onEscape;
@@ -71,6 +90,7 @@ export function useEscapeStack(
     const entry: EscapeEntry = {
       fire: () => onEscapeRef.current(),
       ignoreFromFields,
+      closesOnBack,
     };
     stack.push(entry);
     ensureListening();
@@ -78,7 +98,7 @@ export function useEscapeStack(
       const index = stack.indexOf(entry);
       if (index >= 0) stack.splice(index, 1);
     };
-  }, [active, ignoreFromFields]);
+  }, [active, ignoreFromFields, closesOnBack]);
 }
 
 /** Só para teste: quantos estão na pilha agora (pega entrada pendurada). */

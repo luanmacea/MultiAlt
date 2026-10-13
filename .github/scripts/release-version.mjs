@@ -23,7 +23,15 @@ export function nextReleaseVersion({ current, tags, bump }) {
 
   // Só o núcleo conta: a tag v0.1.0-beta já ocupa o número 0.1.0.
   if (!highest || compareCore(base, highest) > 0) {
-    return { version: coreOf(base), previousTag };
+    // Número escolhido à mão (série nova, como a 2.0.0): a anterior é a release
+    // mais alta ABAIXO dele, de qualquer série — senão as notas técnicas e o
+    // intervalo de contribuidores ficam sem base de comparação.
+    const below = tags
+      .map((tag) => parseTag(tag))
+      .filter(Boolean)
+      .filter((version) => compareCore(version, base) < 0);
+    const previous = below.length > 0 ? pickLatest(below) : null;
+    return { version: coreOf(base), previousTag: previous?.tag || "" };
   }
 
   const next =

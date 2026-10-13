@@ -105,6 +105,13 @@ export interface PlatformCapabilities {
   supportsBotting: boolean;
   supportsUpdater: boolean;
   supportsClientSettings: boolean;
+  /** Volume ao vivo por cliente: só com a feature `live-audio` no binário. */
+  supportsLiveAudio: boolean;
+  /**
+   * Teto de memória que libera RAM antes de fechar o cliente: só com a feature
+   * `memory-trim` no binário (nas duas edições).
+   */
+  supportsMemoryTrim: boolean;
   reasons: string[];
   warnings: string[];
 }
@@ -383,6 +390,22 @@ export interface LaunchQueueEntry {
   /** Mensagem de erro quando `state === "failed"`; `null` nos demais estados. */
   error: string | null;
   updatedAtMs: number;
+  /**
+   * O jogo **desta** conta. A fila pode misturar jogos: um launch disparado com
+   * outro rodando entra no fim da mesma fila, com o alvo dele.
+   */
+  placeId?: number;
+  jobId?: string;
+}
+
+/**
+ * Retorno de `launch_roblox` e `launch_multiple`. `appended` = havia uma fila
+ * rodando e as contas entraram no fim dela (o comando volta na hora); `added`
+ * não conta as que já esperavam a vez.
+ */
+export interface LaunchOutcome {
+  appended: boolean;
+  added: number;
 }
 
 /**
@@ -423,7 +446,70 @@ export interface ClientDrop {
   sinceMs: number;
 }
 
+/**
+ * Para onde "Entrar novamente" manda a conta (`RejoinTargetView`,
+ * commands/closed_clients.rs): o mesmo destino da reconexão automática.
+ */
+export interface RejoinTarget {
+  placeId: number;
+  /** Job ID do servidor público, ou o `vip:<código>`/link que o launch pediu. */
+  jobId: string;
+  launchData: string;
+  joinVip: boolean;
+  linkCode: string;
+}
+
+/**
+ * Conta cujo cliente (aberto pelo app) fechou no meio do jogo e não está sendo
+ * reconectado (`get_closed_clients` / evento `closed-clients`). Só memória:
+ * some quando a conta abre de novo, ao dispensar ou ao reabrir o app.
+ */
+export interface ClosedClient {
+  userId: number;
+  closedAtMs: number;
+  /** O motivo; `crashed` = fechou sem sair do jogo. */
+  drop: ClientDrop;
+  /** O jogo em que estava. */
+  placeId: number | null;
+  /** `null`: nem o log nem o launch dizem para onde voltar. */
+  rejoin: RejoinTarget | null;
+}
+
 /** Saúde de um cliente rastreado (vem junto de `get_running_instances`). */
+/**
+ * O jogo em que a conta está agora e desde quando (`get_current_sessions`,
+ * commands/session_history.rs): a sessão aberta do histórico.
+ */
+export interface CurrentSession {
+  userId: number;
+  placeId: number;
+  jobId: string | null;
+  /** Início da sessão (entrou no jogo, ou teleportou). */
+  sinceMs: number;
+  /** Servidor privado/VIP; `null` = não se sabe (aberta pelo site, teleporte). */
+  privateServer: boolean | null;
+}
+
+/** Memória e limite de um cliente que o app abriu (`ClientMemoryView`, memory_ceiling.rs). */
+export interface ClientMemory {
+  /**
+   * Memória privada agora, em MB — o número da coluna "Memória" do Gerenciador
+   * de Tarefas (`get_process_memory_mb`); `null` se não deu para ler. Relida a
+   * cada 2 s no backend e a cada 2,5 s pela store.
+   */
+  memoryMb: number | null;
+  /** O limite que vale agora; `null` = sem limite. */
+  limitMb: number | null;
+  /** Acima do limite nesta passada. */
+  over: boolean;
+  /**
+   * Quando o app pediu ao Windows para liberar pela última vez (neste cliente).
+   * Fica depois de a memória cair: abaixo do limite, a tela explica que ela
+   * fica mais baixa até o jogo precisar de novo.
+   */
+  trimmedAtMs: number | null;
+}
+
 export interface ClientHealth {
   pid: number;
   /** O log foi achado: a queda vem dele, e não do título da janela. */
@@ -787,4 +873,82 @@ export function writeAccountLaunchOverrides(
   set(ACCOUNT_OVERRIDE_FIELDS.windowHeight, overrides.windowHeight.trim());
 
   return out;
+}
+
+/**
+ * Preset de launch: "estas contas → este jogo/servidor", com horário opcional
+ * de abrir e de fechar. Espelha `data::launch_presets::LaunchPreset` (camelCase).
+ * Ver docs/features/presets.md.
+ */
+export interface PresetSchedule {
+  openEnabled: boolean;
+  /** `HH:MM`, 24 h, hora local. */
+  openAt: string;
+  /** Dias de abrir: 0 = segunda … 6 = domingo. Fechar vale todo dia. */
+  days: number[];
+  closeEnabled: boolean;
+  closeAt: string;
+}
+
+export interface LaunchPreset {
+  /** Vazio num preset novo: o backend gera. */
+  id: string;
+  name: string;
+  userIds: number[];
+  placeId: number;
+  /** Vazio = servidor público; Job ID; ou `vip:<código>` de um VIP dos favoritos. */
+  jobId: string;
+  gameName?: string | null;
+  vipName?: string | null;
+  arrangeGrid: boolean;
+  schedule?: PresetSchedule | null;
+  createdAt?: number;
+}
+
+/** `get_launch_presets`: o preset e o que a tela mostra ao lado dele. */
+export interface LaunchPresetView extends LaunchPreset {
+  nextOpenAt: number | null;
+  nextCloseAt: number | null;
+  /** Clientes que as execuções deste preset abriram e que seguem abertos. */
+  openClients: number;
+  /** As contas desses clientes — o "fechar" pergunta antes nomeando cada uma. */
+  openUserIds: number[];
+}
+
+/**
+ * Uma sessão do histórico (ideia 6): de quando a conta entrou num jogo até
+ * como terminou. Espelha `data::session_history::SessionRecord`.
+ */
+export type SessionEnd =
+  | "ongoing"
+  | "left"
+  | "dropped"
+  | "teleported"
+  | "closed"
+  | "appClosed"
+  | "unknown"
+  | "moderated";
+
+export interface SessionRecord {
+  startedAt: number;
+  endedAt: number | null;
+  placeId: number | null;
+  jobId: string | null;
+  end: SessionEnd;
+  /** Só com `end = dropped`: o que o log do Roblox disse. */
+  dropKind: ClientDropKind | null;
+  reason: ClientDropReason | null;
+  code: number | null;
+  message: string | null;
+}
+
+/** Evento `launch-preset`: resultado de abrir/fechar (pelo horário ou à mão). */
+export interface LaunchPresetEvent {
+  presetId: string;
+  name: string;
+  action: "open" | "close";
+  scheduled: boolean;
+  ok: boolean;
+  count: number;
+  error: string | null;
 }

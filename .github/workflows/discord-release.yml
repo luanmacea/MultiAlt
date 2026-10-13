@@ -1,0 +1,89 @@
+name: Discord release announcement
+
+# Avisa no #releases do Discord quando o "Release v4" publica uma versão nova,
+# marcando o cargo 🔔 Updates. Roda separado do release (workflow_run) para
+# uma falha aqui nunca derrubar a publicação. Sem o segredo
+# DISCORD_RELEASES_WEBHOOK (URL do webhook do canal #releases) ele só avisa no log.
+#
+# workflow_run só vale para o arquivo que está na branch padrão (main).
+
+on:
+  workflow_run:
+    workflows: ["Release v4"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag a anunciar (ex.: v2.0.0). Vazio = a última release."
+        required: false
+
+jobs:
+  announce:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Post the new release to Discord
+        uses: actions/github-script@v7
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
+          # Cargo 🔔 Updates no servidor do MultiAlt.
+          UPDATES_ROLE: "1559009011662065755"
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RUN_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+        with:
+          script: |
+            const webhook = process.env.WEBHOOK;
+            if (!webhook) {
+              core.warning("DISCORD_RELEASES_WEBHOOK is not set; nothing posted.");
+              return;
+            }
+            const { owner, repo } = context.repo;
+            const inputTag = (process.env.INPUT_TAG || "").trim();
+            const release = inputTag
+              ? (await github.rest.repos.getReleaseByTag({ owner, repo, tag: inputTag })).data
+              : (await github.rest.repos.getLatestRelease({ owner, repo })).data;
+
+            // Um run do Release v4 sem versão nova ([skip release], só site)
+            // também termina com sucesso: só anuncia o que foi publicado neste run.
+            const startedAt = process.env.RUN_STARTED_AT;
+            if (!inputTag && startedAt && new Date(release.published_at) < new Date(startedAt)) {
+              core.info(`Latest release ${release.tag_name} predates this run; nothing to announce.`);
+              return;
+            }
+            if (release.draft || release.prerelease) {
+              core.info(`${release.tag_name} is a draft or prerelease; skipped.`);
+              return;
+            }
+
+            // Corpo da release: só a lista "What's Changed", sem os detalhes técnicos.
+            const body = release.body || "";
+            const start = body.search(/^## What's Changed/m);
+            let notes = start >= 0 ? body.slice(start).replace(/^## What's Changed\s*/m, "") : "";
+            const end = notes.search(/^(<details>|## )/m);
+            if (end >= 0) notes = notes.slice(0, end);
+            notes = notes.trim();
+            if (notes.length > 3500) notes = notes.slice(0, 3500).replace(/\n[^\n]*$/, "") + "\n…";
+
+            const version = release.tag_name.replace(/^v/, "");
+            const payload = {
+              username: "MultiAlt",
+              content: `<@&${process.env.UPDATES_ROLE}> **MultiAlt ${version} is out!** Already have it? It updates itself.`,
+              allowed_mentions: { roles: [process.env.UPDATES_ROLE] },
+              embeds: [{
+                title: `MultiAlt ${version}`,
+                url: release.html_url,
+                color: 0x5b8cff,
+                description: (notes ? `**What's new**\n${notes}\n\n` : "") +
+                  "📥 [Download](https://multialt.pages.dev) · 📝 [Release notes](" + release.html_url + ")",
+                timestamp: release.published_at,
+              }],
+            };
+            const res = await fetch(webhook, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (!res.ok) core.setFailed(`Discord answered ${res.status}: ${await res.text()}`);
+            else core.info(`Announced ${release.tag_name} on Discord.`);

@@ -11,6 +11,10 @@ import { ModalWindowControls } from "./components/layout/ModalWindowControls";
 import { UpdateBanner } from "./components/layout/UpdateBanner";
 import { SafeModeBanner } from "./components/layout/SafeModeBanner";
 import { VaultKeyBanner } from "./components/layout/VaultKeyBanner";
+import { LockOverlay } from "./components/layout/LockOverlay";
+import { EmergencyStopAlert } from "./components/afk-mode/EmergencyStopAlert";
+import { useInactivityLock } from "./hooks/useInactivityLock";
+import { inactivityLockActive, normalizeLockMinutes } from "./utils/inactivityLock";
 import { Toolbar } from "./components/layout/Toolbar";
 import { AccountList } from "./components/accounts/AccountList";
 import { ContextMenu } from "./components/menus/ContextMenu";
@@ -28,8 +32,12 @@ import { UpdateDialog } from "./components/dialogs/UpdateDialog";
 import { AfkModeDialog } from "./components/afk-mode/AfkModeDialog";
 import { GeneratorDialog } from "./components/dialogs/GeneratorDialog";
 import { VersionsDialog } from "./components/dialogs/VersionsDialog";
+import { DiagnosticsDialog } from "./components/dialogs/DiagnosticsDialog";
+import { QuickLoginDialog } from "./components/dialogs/QuickLoginDialog";
+import { PresetsDialog } from "./components/presets/PresetsDialog";
 import { IsolationProgressOverlay } from "./components/IsolationProgressOverlay";
 import { SessionPage } from "./components/pages/SessionPage";
+import { ConsolePage } from "./components/pages/ConsolePage";
 import { AfkPage } from "./components/pages/AfkPage";
 import { AvatarsPage } from "./components/pages/AvatarsPage";
 import { GroupsPage } from "./components/pages/GroupsPage";
@@ -42,6 +50,7 @@ import { useTr } from "./i18n/text";
 import { useUpdateHandoffToast } from "./hooks/useUpdateHandoffToast";
 import { useBackdropClose } from "./hooks/useBackdropClose";
 import { useUiScale } from "./hooks/useUiScale";
+import { useMouseNavigation } from "./hooks/useMouseNavigation";
 import { TONE_STYLES } from "./utils/toastTone";
 import { isMultiRobloxCloseProcessError } from "./utils/robloxErrors";
 import { ENABLE_NEXUS } from "./featureFlags";
@@ -53,8 +62,8 @@ function AppContent() {
   const hasCheckedForUpdatesRef = useRef(false);
   const showCloseRobloxAction = isMultiRobloxCloseProcessError(store.error);
   // O log de lançamento é a única explicação passo a passo do que falhou, e ele
-  // mora na aba Console da Choose Game. Só vale apontar para lá quando existe
-  // log: fora do launch, a faixa mandaria o usuário para uma tela vazia.
+  // mora na página Console. Só vale apontar para lá quando existe log: fora do
+  // launch, a faixa mandaria o usuário para uma tela vazia.
   const hasLaunchLog = store.launchLogs.length > 0;
   // Páginas (Settings, Theme, Scripts...) não entram aqui: não cobrem a janela,
   // então os botões da barra de título continuam onde estão.
@@ -67,6 +76,9 @@ function AppContent() {
     !!store.afkModeDialog ||
     store.generatorDialogOpen ||
     store.updateDialogOpen ||
+    store.diagnosticsOpen ||
+    store.quickLoginOpen ||
+    store.presetsDialog !== null ||
     store.firstRunWalkthroughOpen ||
     !!store.modal;
   const page = store.activePage;
@@ -78,10 +90,31 @@ function AppContent() {
   // que a instalação não terminou). Ver updateHandoff.ts.
   useUpdateHandoffToast(store.initialized && !store.needsPassword, store.addToast, t);
 
-  // Tamanho da interface (Settings › General): zoom nativo do WebView, que no
+  // Tamanho da interface (Settings › App): zoom nativo do WebView, que no
   // automático encolhe a interface em janela pequena. Antes dos `return`
   // antecipados para valer também na tela de senha. Ver uiScale.ts.
   useUiScale(store.settings?.General?.InterfaceScale, store.settings !== null);
+
+  // Trancar por inatividade (ideia 27): só com a opção ligada e senha do app.
+  // Antes dos `return` antecipados, como todo hook.
+  useInactivityLock(
+    store.initialized &&
+      !store.needsPassword &&
+      inactivityLockActive(store.settings?.General?.LockOnInactivity, store.accountsEncrypted),
+    normalizeLockMinutes(store.settings?.General?.LockAfterMinutes),
+    store.appLocked,
+    store.lockApp
+  );
+
+  // Botões laterais do mouse (Voltar/Avançar) e Alt+setas, como no navegador:
+  // Voltar fecha o que está aberto por cima ou volta à página anterior. Fora da
+  // tela de senha, da de criptografia e do app trancado. Ver useMouseNavigation.
+  useMouseNavigation({
+    enabled:
+      store.initialized && !store.needsPassword && !store.encryptionSetupOpen && !store.appLocked,
+    page: store.activePage,
+    setPage: store.setActivePage,
+  });
 
   useEffect(() => {
     if (!store.initialized || store.needsPassword || store.firstRunWalkthroughOpen) return;
@@ -132,7 +165,13 @@ function AppContent() {
   }
 
   return (
-    <div className="theme-app flex h-screen flex-col">
+    <>
+    {/* Trancado: a janela inteira fica `inert` (nem foco nem clique) e a tela de
+        senha vem por cima — nada é desmontado, então nada que roda para. */}
+    {store.appLocked && <LockOverlay />}
+    {/* A parada de emergência do Modo AFK/gravações: alerta que fica até fechar. */}
+    <EmergencyStopAlert />
+    <div className="theme-app flex h-screen flex-col" inert={store.appLocked || undefined}>
       <ModalWindowControls visible={anyModalOpen} />
       <TitleBar controlsHidden={anyModalOpen} />
       <UpdateBanner />
@@ -167,18 +206,25 @@ function AppContent() {
                     {t("Close Roblox")}
                   </button>
                 )}
-                {/* O detalhe do que falhou no launch só existe no log, em outra
-                    tela. Enquanto houver log, a faixa diz onde ele está e abre a
-                    Choose Game — a aba Console é escolhida lá dentro. */}
-                {hasLaunchLog && !(onAccounts && store.chooseGameOpen) && (
+                {/* O detalhe do que falhou no launch só existe no log, na página
+                    Console. Enquanto houver log, a faixa diz onde ele está e leva
+                    até lá (some com a página já aberta). */}
+                {hasLaunchLog && page !== "console" && (
                   <button
-                    onClick={() => {
-                      store.setActivePage("accounts");
-                      store.setChooseGameOpen(true);
-                    }}
+                    onClick={() => store.setActivePage("console")}
                     className="px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-colors"
                   >
                     {t("Open launch log")}
+                  </button>
+                )}
+                {/* "O launch não faz nada" (ideia 16): a checagem só lê, então
+                    pode ficar a um clique de qualquer erro de launch. */}
+                {hasLaunchLog && (
+                  <button
+                    onClick={() => store.setDiagnosticsOpen(true)}
+                    className="px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-colors"
+                  >
+                    {t("Check what's wrong")}
                   </button>
                 )}
                 <button
@@ -192,7 +238,7 @@ function AppContent() {
               </div>
               {hasLaunchLog && (
                 <p className="basis-full text-xs text-red-400/70">
-                  {t("Step-by-step details of the last launch are in Choose Game › Console.")}
+                  {t("Step-by-step details of the last launch are on the Console page.")}
                 </p>
               )}
             </div>
@@ -216,6 +262,7 @@ function AppContent() {
           )}
 
           <SessionPage active={page === "session"} onLeave={leavePage} />
+          <ConsolePage active={page === "console"} onLeave={leavePage} />
           <AfkPage active={page === "afk"} onLeave={leavePage} />
           <AvatarsPage active={page === "avatars"} onLeave={leavePage} />
           <GroupsPage active={page === "groups"} onLeave={leavePage} />
@@ -291,6 +338,12 @@ function AppContent() {
         onClose={() => store.setVersionsDialogOpen(false)}
       />
 
+      <DiagnosticsDialog open={store.diagnosticsOpen} onClose={() => store.setDiagnosticsOpen(false)} />
+
+      <QuickLoginDialog open={store.quickLoginOpen} onClose={() => store.setQuickLoginOpen(false)} />
+
+      <PresetsDialog />
+
       <IsolationProgressOverlay />
 
       <UpdateDialog />
@@ -327,6 +380,7 @@ function AppContent() {
         </div>
       )}
     </div>
+    </>
   );
 }
 

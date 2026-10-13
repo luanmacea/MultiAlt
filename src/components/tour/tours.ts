@@ -20,6 +20,7 @@ export type TourId =
   | "accounts"
   | "choose-game"
   | "session"
+  | "console"
   | "afk"
   | "avatars"
   | "groups"
@@ -65,6 +66,13 @@ export const TOURS: Record<TourId, TourDefinition> = {
         title: "Select accounts",
         description: "Click an account to select it. Hold Ctrl and click to pick more than one.",
         targets: ["[data-account-row='true']", tour("accounts-list")],
+      },
+      {
+        id: "live",
+        title: "While they play",
+        description:
+          "An account with Roblox open shows how it is doing and which game it is in. If one drops, stops responding or closes during a game, a yellow button at the top counts it. Click it to see those accounts. A closed account has Rejoin, which puts it back in the same server.",
+        targets: [tour("toolbar-attention"), tour("accounts-live"), tour("accounts-list")],
       },
       {
         id: "add",
@@ -131,13 +139,6 @@ export const TOURS: Record<TourId, TourDefinition> = {
         reveal: tour("cg-tab-friends"),
         targets: [tour("cg-panel")],
       },
-      {
-        id: "windows",
-        title: "Windows",
-        description: "Put all open Roblox windows side by side in a grid.",
-        reveal: tour("cg-tab-windows"),
-        targets: [tour("cg-panel")],
-      },
     ],
   },
 
@@ -147,21 +148,27 @@ export const TOURS: Record<TourId, TourDefinition> = {
     root: tour("session-page"),
     steps: [
       {
+        id: "stats",
+        title: "Right now",
+        description: "How many accounts are playing, reconnecting or stuck. Click a number to show only those accounts.",
+        targets: [inside("session-page", "session-stats")],
+      },
+      {
         id: "joining",
         title: "Joining",
-        description: "Accounts waiting to open show here. Click the × to take one out of the line.",
+        description: "Accounts waiting to open show here. Accounts you launch while it runs join the end of the line, even for another game. Click the × to take one out.",
         targets: [inside("session-page", "session-joining")],
       },
       {
         id: "in-game",
         title: "In game",
-        description: "Accounts with Roblox open show here. Focus brings a window to the front.",
+        description: "Accounts with Roblox open, grouped by game and server. Problems show on top. Focus brings a window to the front.",
         targets: [inside("session-page", "session-in-game")],
       },
       {
         id: "actions",
         title: "Keep or close",
-        description: "AFK Mode keeps these accounts in the game. Close accounts closes their Roblox windows.",
+        description: "AFK Mode keeps these accounts in the game. Close all clients closes their Roblox windows, after asking. Closing MultiAlt closes nothing.",
         targets: [inside("session-page", "session-in-game-actions"), inside("session-page", "session-in-game")],
       },
       {
@@ -171,10 +178,36 @@ export const TOURS: Record<TourId, TourDefinition> = {
         targets: [inside("session-page", "session-unidentified"), inside("session-page", "session-in-game")],
       },
       {
-        id: "summary",
-        title: "Right now",
-        description: "A quick count of what is open and running.",
+        id: "away",
+        title: "While you were away",
+        description: "Drops, reconnects, AFK Mode send failures and emergency stops, newest first, so you can see what happened after leaving the PC. Opening this page marks them as seen.",
+        targets: [inside("session-page", "session-away")],
+      },
+      {
+        id: "settings",
+        title: "Keep accounts in game",
+        description: "Settings for every account: reconnect the ones that drop, recordings and the memory limit.",
         targets: [tour("session-summary")],
+      },
+    ],
+  },
+
+  console: {
+    id: "console",
+    label: "Console",
+    root: tour("console-page"),
+    steps: [
+      {
+        id: "grid",
+        title: "Window grid",
+        description: "Put all open Roblox windows side by side on the monitors you tick. New windows can take a free spot on their own.",
+        targets: [inside("console-page", "console-grid")],
+      },
+      {
+        id: "log",
+        title: "What the app did",
+        description: "Each line says what happened and where it came from: launch, Auto Rejoin or Watcher. Look here when an account did not open.",
+        targets: [inside("console-page", "console-log")],
       },
     ],
   },
@@ -186,8 +219,8 @@ export const TOURS: Record<TourId, TourDefinition> = {
     steps: [
       {
         id: "tabs",
-        title: "Two ways to stay in game",
-        description: "AFK clicks press a key so Roblox does not kick you. Auto Rejoin reopens the game on a timer.",
+        title: "Three ways to stay in game",
+        description: "AFK clicks press a key so Roblox does not kick you. Recordings play back what you recorded. Auto Rejoin reopens the game on a timer.",
         reveal: inside("afk-page", "afk-tab-clicks"),
         targets: [inside("afk-page", "afk-tabs")],
       },
@@ -206,8 +239,21 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "clicks-start",
         title: "Start and stop",
-        description: "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game.",
+        description: "Click Start AFK Mode. The bar turns green while it runs. Stopping never closes a game. To stop by shaking the mouse, turn it on in Settings › Keep in game.",
         targets: [inside("afk-page", "afk-clicks-start")],
+      },
+      {
+        id: "recordings-slots",
+        title: "Recordings: who plays what",
+        description: "On top, pick the recording each account plays after a reconnect and on each AFK turn, and when they play.",
+        reveal: inside("afk-page", "afk-tab-recordings"),
+        targets: [inside("afk-page", "afk-recordings-slots")],
+      },
+      {
+        id: "recordings-library",
+        title: "Recordings: your library",
+        description: "Import a TinyTask .rec here: it is saved right away. Click a recording to open its steps.",
+        targets: [inside("afk-page", "afk-recordings-library")],
       },
       {
         id: "rejoin-server",
@@ -377,8 +423,15 @@ export const TOURS: Record<TourId, TourDefinition> = {
       {
         id: "sections",
         title: "Sections",
-        description: "Settings are split into sections. Click one on the left.",
+        description: "Everyday settings are on top, the advanced ones below. Click a section on the left.",
         targets: [tour("settings-sections")],
+      },
+      {
+        id: "launch",
+        title: "Launch",
+        description: "Launch comes first: how accounts open, Multi Roblox, and a check for when launching does nothing.",
+        reveal: tour("settings-section-launch"),
+        targets: [tour("settings-content")],
       },
       {
         id: "autosave",

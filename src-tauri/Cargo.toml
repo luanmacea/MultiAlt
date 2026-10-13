@@ -1,6 +1,6 @@
 [package]
 name = "roblox-account-manager"
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
 
 [lib]
@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 # para as duas edições, ou direto no `full` se for segurada por marcação de
 # scanner; o release-workflow.test.mjs falha se alguma ficar fora do `full`.
 default = ["full"]
-standard = ["avatar-batch"]
+standard = ["avatar-batch", "live-audio", "memory-trim"]
 full = ["standard", "nexus", "webserver"]
 # Só na edição completa.
 nexus = []
@@ -30,6 +30,15 @@ webserver = ["dep:axum"]
 # Distribuir avatares salvos entre várias contas (resgate dos itens gratuitos
 # + vestir). Nas duas edições desde 08/10/2026 (via `standard`).
 avatar-batch = []
+# Volume ao vivo por cliente (fundo mudo) pelo mixer do Windows: COM de audio
+# escrito a mao em platform/windows/live_audio.rs, sem crate novo. Nas duas
+# edições (via `standard`; docs/features/performance.md).
+live-audio = ["windows-sys/Win32_System_Com"]
+# Teto de memória que libera RAM antes de fechar o cliente: pede ao Windows
+# para tirar da RAM o que o cliente não usa (platform/windows/memory_trim.rs,
+# API nativa nova). Nas duas edições (via `standard`) desde o scan limpo de
+# 11/10/2026 (docs/features/watcher.md, "Teto de memória").
+memory-trim = []
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }

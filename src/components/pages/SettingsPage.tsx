@@ -3,6 +3,7 @@ import { useSettings } from "../../hooks/useSettings";
 import { TabContent } from "../settings/TabContent";
 import { SETTINGS_TABS, type TabId } from "../settings/tabs";
 import { useTr } from "../../i18n/text";
+import { useStore } from "../../store";
 import { PageShell } from "./PageShell";
 
 interface SettingsPageProps {
@@ -31,7 +32,9 @@ export function SettingsPage({
 }: SettingsPageProps) {
   const t = useTr();
   const s = useSettings();
-  const [activeTab, setActiveTab] = useState<TabId>("general");
+  const store = useStore();
+  const [activeTab, setActiveTab] = useState<TabId>("launch");
+  const sectionRequest = store.settingsSectionRequest;
   const scrollRef = useRef<HTMLDivElement>(null);
   const wasActiveRef = useRef(false);
   const onSettingsChangedRef = useRef(onSettingsChanged);
@@ -49,6 +52,14 @@ export function SettingsPage({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
+
+  // Outra tela pediu uma seção (`store.openSettingsSection`): o Auto Rejoin
+  // desligado leva a Keep in game, o CAPTCHA do login a Accounts.
+  useEffect(() => {
+    if (sectionRequest && VISIBLE_TABS.some((tab) => tab.id === sectionRequest.section)) {
+      setActiveTab(sectionRequest.section);
+    }
+  }, [sectionRequest]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo?.({ top: 0 });
@@ -80,10 +91,19 @@ export function SettingsPage({
         className="w-[208px] shrink-0 border-r theme-border overflow-y-auto py-4 px-3"
       >
         <ul className="space-y-0.5">
-          {VISIBLE_TABS.map((tab) => {
+          {VISIBLE_TABS.map((tab, index) => {
             const selected = tab.id === current.id;
+            // Primeira seção técnica: abre o grupo "Advanced", separado do dia a dia.
+            const opensAdvanced = tab.advanced === true && VISIBLE_TABS[index - 1]?.advanced !== true;
             return (
               <li key={tab.id}>
+                {opensAdvanced && (
+                  <div
+                    className="mt-3 mb-1 border-t theme-border px-2.5 pt-3 text-[11px] font-medium text-[var(--panel-muted)]"
+                  >
+                    {t("Advanced")}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
@@ -107,7 +127,10 @@ export function SettingsPage({
       </nav>
 
       <div ref={scrollRef} data-tour="settings-content" className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-[760px] px-7 py-5">
+        {/* Formulário: rótulo à esquerda, controle à direita. Esticado na
+            janela de um monitor 4K, o controle ia parar longe do rótulo —
+            fica numa medida confortável, um pouco mais larga em tela grande. */}
+        <div className="max-w-[760px] 2xl:max-w-[920px] px-7 py-5">
           <h2 className="mb-3 text-[14px] font-semibold text-[var(--panel-fg)]">{t(current.label)}</h2>
           <TabContent
             activeTab={current.id}

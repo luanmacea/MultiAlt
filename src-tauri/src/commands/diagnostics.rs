@@ -74,3 +74,277 @@ fn diagnose_mutex_holder() -> Result<MutexDiagnosis, String> {
         })
     }
 }
+
+// ── Diagnóstico "o launch não faz nada" (ideia 16) ─────────────────────────
+//
+// Uma lista de checagens para quem relata "clico e nada acontece". **Só lê**:
+// nunca fecha cliente, nunca mexe em registro, nunca baixa build. A única
+// escrita é o arquivo de prova da checagem de pasta, criado e apagado na hora.
+//
+// O backend devolve só `id` + `reason` (+ um número quando faz sentido); a
+// frase que a pessoa lê sai do frontend (`src/utils/diagnostics.ts`), traduzida.
+// Assim nada de caminho, nome de conta ou PID vai para a tela — e o resumo do
+// "Reportar problema" (ideia 28) pode levar o resultado sem anonimizar nada.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+enum CheckStatus {
+    Ok,
+    Warn,
+    Problem,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagnosticCheck {
+    id: &'static str,
+    status: CheckStatus,
+    reason: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    count: Option<u32>,
+}
+
+impl DiagnosticCheck {
+    fn new(id: &'static str, status: CheckStatus, reason: &'static str) -> Self {
+        Self { id, status, reason, count: None }
+    }
+
+    fn with_count(mut self, count: u32) -> Self {
+        self.count = Some(count);
+        self
+    }
+}
+
+/// Um processo do Roblox sem janela há mais que isto conta como "preso": um
+/// cliente subindo leva alguns segundos para mostrar a janela; 150 s é o limite
+/// que o RobloxKeeper (ideia 16) usa, folgado para máquina lenta.
+const STUCK_PROCESS_MIN_AGE_SECS: u64 = 150;
+
+/// Hosts consultados na checagem de internet: pedidos sem conta, pequenos.
+/// Qualquer resposta HTTP (até 404) prova que o Roblox é alcançável.
+const REACHABILITY_PROBES: &[(&str, &str)] = &[("users", "/v1/users/1"), ("auth", "/v2/metadata")];
+
+fn install_check(build_found: bool) -> DiagnosticCheck {
+    if build_found {
+        DiagnosticCheck::new("robloxInstall", CheckStatus::Ok, "found")
+    } else {
+        // Não é defeito por si: o launch baixa a build de produção sozinho.
+        // Vira problema quando a internet também falha — a frase diz isso.
+        DiagnosticCheck::new("robloxInstall", CheckStatus::Warn, "missing")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FolderProbe {
+    Writable,
+    /// A pasta ainda não existe, mas a mais próxima que existe aceita escrita
+    /// (o app a cria quando precisar).
+    CanBeCreated,
+    NotWritable,
+    /// Nem dá para saber onde fica (variável de ambiente faltando).
+    Unknown,
+}
+
+fn folder_check(id: &'static str, probe: FolderProbe) -> DiagnosticCheck {
+    match probe {
+        FolderProbe::Writable | FolderProbe::CanBeCreated => DiagnosticCheck::new(id, CheckStatus::Ok, "writable"),
+        FolderProbe::NotWritable => DiagnosticCheck::new(id, CheckStatus::Problem, "notWritable"),
+        FolderProbe::Unknown => DiagnosticCheck::new(id, CheckStatus::Warn, "unknown"),
+    }
+}
+
+/// Tenta criar e apagar um arquivo de prova em `dir` (ou na pasta mais
+/// próxima que existir acima dela). Não cria a pasta: se ela não existe, só
+/// diz se daria para criar.
+fn probe_folder_writable(dir: &std::path::Path) -> FolderProbe {
+    let mut target = dir.to_path_buf();
+    let mut exists = target.is_dir();
+    while !exists {
+        match target.parent() {
+            Some(parent) if parent != target.as_path() => {
+                target = parent.to_path_buf();
+                exists = target.is_dir();
+            }
+            _ => return FolderProbe::NotWritable,
+        }
+    }
+    let probe = target.join(format!(".multialt-write-check-{}.tmp", std::process::id()));
+    let writable = std::fs::write(&probe, b"ok").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    match (writable, target.as_path() == dir) {
+        (false, _) => FolderProbe::NotWritable,
+        (true, true) => FolderProbe::Writable,
+        (true, false) => FolderProbe::CanBeCreated,
+    }
+}
+
+fn internet_check(reached: usize, total: usize) -> DiagnosticCheck {
+    if total == 0 || reached == total {
+        DiagnosticCheck::new("internet", CheckStatus::Ok, "reachable")
+    } else if reached == 0 {
+        DiagnosticCheck::new("internet", CheckStatus::Problem, "unreachable")
+    } else {
+        DiagnosticCheck::new("internet", CheckStatus::Warn, "partial")
+    }
+}
+
+/// Quantos hosts do Roblox responderam (com qualquer status HTTP). Timeout,
+/// DNS ou TLS quebrado contam como "não alcançou".
+async fn probe_roblox_hosts() -> (usize, usize) {
+    let client = match api::http_client::builder_with(
+        std::time::Duration::from_secs(6),
+        std::time::Duration::from_secs(10),
+    )
+    .build()
+    {
+        Ok(client) => client,
+        Err(_) => return (0, REACHABILITY_PROBES.len()),
+    };
+    let mut reached = 0;
+    for (sub, path) in REACHABILITY_PROBES {
+        let url = format!("{}{}", api::endpoints::host(sub), path);
+        if client.get(url).send().await.is_ok() {
+            reached += 1;
+        }
+    }
+    (reached, REACHABILITY_PROBES.len())
+}
+
+/// Um processo do Roblox visto pela checagem de presos.
+#[derive(Debug, Clone, Copy)]
+struct RobloxProcessView {
+    has_window: bool,
+    /// Há quanto tempo o processo existe; `None` = não deu para ler.
+    age_secs: Option<u64>,
+}
+
+/// Quantos processos estão **sem janela há tempo demais**. Sem idade conhecida
+/// o processo não entra: melhor não acusar um cliente que acabou de abrir.
+fn count_stuck_processes(processes: &[RobloxProcessView], min_age_secs: u64) -> usize {
+    processes
+        .iter()
+        .filter(|p| !p.has_window && p.age_secs.is_some_and(|age| age >= min_age_secs))
+        .count()
+}
+
+fn stuck_processes_check(stuck: usize) -> DiagnosticCheck {
+    if stuck == 0 {
+        DiagnosticCheck::new("stuckProcesses", CheckStatus::Ok, "none")
+    } else {
+        DiagnosticCheck::new("stuckProcesses", CheckStatus::Warn, "stuck").with_count(stuck as u32)
+    }
+}
+
+/// Estado do Multi Roblox para quem vai abrir mais uma conta.
+fn multi_roblox_check(enabled: bool, holder: &str, roblox_running: bool) -> DiagnosticCheck {
+    if !enabled {
+        return if roblox_running {
+            // Com um cliente aberto e o Multi Roblox desligado, a conta nova
+            // derruba a que está aberta (ou não sobe) — o "não faz nada" clássico.
+            DiagnosticCheck::new("multiRoblox", CheckStatus::Warn, "offWithClients")
+        } else {
+            DiagnosticCheck::new("multiRoblox", CheckStatus::Ok, "off")
+        };
+    }
+    match holder {
+        "legacyRam" => DiagnosticCheck::new("multiRoblox", CheckStatus::Problem, "legacyRam"),
+        "thisProcess" => DiagnosticCheck::new("multiRoblox", CheckStatus::Ok, "held"),
+        "roblox" => DiagnosticCheck::new("multiRoblox", CheckStatus::Ok, "clientOpen"),
+        _ => DiagnosticCheck::new("multiRoblox", CheckStatus::Ok, "free"),
+    }
+}
+
+/// A reserva experimental do nome do singleton (ideia 3). Só aparece com a
+/// opção ligada: desligada, não há o que dizer.
+fn singleton_reservation_check(enabled: bool, held: bool) -> Option<DiagnosticCheck> {
+    if !enabled {
+        return None;
+    }
+    Some(if held {
+        DiagnosticCheck::new("singletonReservation", CheckStatus::Ok, "reserved")
+    } else {
+        // Ainda não houve launch com a opção ligada, ou um cliente segura o
+        // Event e ele não pôde ser fechado. O método atual continua valendo.
+        DiagnosticCheck::new("singletonReservation", CheckStatus::Warn, "notReserved")
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn collect_roblox_process_views() -> Vec<RobloxProcessView> {
+    use platform::windows::ExternalClientOs;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let os = platform::windows::WindowsExternalClientOs;
+    platform::windows::get_roblox_pids()
+        .into_iter()
+        .map(|pid| RobloxProcessView {
+            has_window: platform::windows::find_main_window(pid).is_some(),
+            age_secs: os
+                .process_created_ms(pid)
+                .map(|created| (now_ms.saturating_sub(created).max(0) / 1000) as u64),
+        })
+        .collect()
+}
+
+/// Roda todas as checagens. Read-only: nunca fecha nada.
+#[tauri::command]
+async fn run_launch_diagnostics(
+    settings: tauri::State<'_, SettingsStore>,
+) -> Result<Vec<DiagnosticCheck>, String> {
+    let mut checks = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    checks.push(install_check(platform::windows::get_roblox_path().is_ok()));
+
+    checks.push(folder_check(
+        "dataFolder",
+        probe_folder_writable(&data::settings::get_runtime_data_dir()),
+    ));
+    checks.push(folder_check(
+        "versionsFolder",
+        match data::versions::ram_managed_versions_root() {
+            Some(dir) => probe_folder_writable(&dir),
+            None => FolderProbe::Unknown,
+        },
+    ));
+
+    let (reached, total) = probe_roblox_hosts().await;
+    checks.push(internet_check(reached, total));
+
+    #[cfg(target_os = "windows")]
+    {
+        let views = tauri::async_runtime::spawn_blocking(collect_roblox_process_views)
+            .await
+            .unwrap_or_default();
+        checks.push(stuck_processes_check(count_stuck_processes(
+            &views,
+            STUCK_PROCESS_MIN_AGE_SECS,
+        )));
+
+        let roblox_pids = platform::windows::get_roblox_pids();
+        let legacy_ram_pids = platform::windows::find_legacy_ram_pids();
+        let holder = mutex_holder_label(
+            platform::windows::this_process_holds_multi_roblox(),
+            &roblox_pids,
+            &legacy_ram_pids,
+        );
+        checks.push(multi_roblox_check(
+            settings.get_bool("General", "EnableMultiRbx"),
+            holder,
+            !roblox_pids.is_empty(),
+        ));
+        if let Some(check) = singleton_reservation_check(
+            settings.get_bool("General", "EnableMultiRbx")
+                && settings.get_bool("General", "ReserveSingletonEvent"),
+            platform::windows::singleton_reservation_held(),
+        ) {
+            checks.push(check);
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = &settings;
+
+    Ok(checks)
+}

@@ -9,7 +9,7 @@ export const SUPPORTED_LANGUAGES = ["en", "de", "pt", "es"] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
 /**
- * Fonte unica das opcoes de idioma: Settings > Geral e o passo de idioma do tour
+ * Fonte unica das opcoes de idioma: Settings > App e o passo de idioma do tour
  * liam listas separadas, e `pt` entrou so numa delas — o tour mostrava o codigo
  * cru "pt" e travava o Avancar. Os rotulos sao chaves do catalogo, entao cada
  * idioma ve os nomes na sua propria lingua.
