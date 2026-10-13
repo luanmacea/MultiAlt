@@ -75,6 +75,16 @@ fn only_launched_by_app<T>(instances: Vec<T>, adopted: impl Fn(&T) -> bool) -> V
     instances.into_iter().filter(|inst| !adopted(inst)).collect()
 }
 
+/// "Close If Memory Low" fecha este cliente? `memory_mb` é a memória privada
+/// (a do Gerenciador de Tarefas, `get_process_memory_mb`). Um cliente que o
+/// teto de memória liberou (`trimmed_by_ceiling`) fica de fora: depois de
+/// liberar, a memória fica baixa até o jogo precisar de novo, e a regra
+/// fecharia um cliente saudável.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn low_memory_should_close(memory_mb: u64, low_mb: u64, trimmed_by_ceiling: bool) -> bool {
+    !trimmed_by_ceiling && memory_mb < low_mb
+}
+
 fn windows_title_indicates_disconnect(title_lower: &str) -> bool {
     title_lower.contains("disconnected")
         || title_lower.contains("connection error")
@@ -193,7 +203,12 @@ async fn start_watcher(
 
                     if cfg.memory_enabled && startup_grace_elapsed {
                         if let Some(mem) = windows::get_process_memory_mb(inst.pid) {
-                            if mem < cfg.memory_low_mb && tracker.kill_for_user(inst.user_id) {
+                            if low_memory_should_close(
+                                mem,
+                                cfg.memory_low_mb,
+                                client_memory_was_trimmed(inst.user_id),
+                            ) && tracker.kill_for_user(inst.user_id)
+                            {
                                 let _ = app_handle.emit(
                                     "roblox-low-memory",
                                     serde_json::json!({
@@ -608,6 +623,17 @@ mod watcher_tests {
         let all = vec![(1, false), (2, true), (3, false)];
         let watched = only_launched_by_app(all, |(_, adopted)| *adopted);
         assert_eq!(watched, vec![(1, false), (3, false)]);
+    }
+
+    /// "Close If Memory Low": abaixo do mínimo fecha — menos o cliente que o
+    /// teto de memória liberou, cuja memória fica baixa de propósito até o
+    /// jogo precisar de novo (memory_ceiling.rs).
+    #[test]
+    fn the_low_memory_rule_skips_a_client_the_ceiling_freed() {
+        assert!(low_memory_should_close(150, 200, false));
+        assert!(!low_memory_should_close(150, 200, true));
+        assert!(!low_memory_should_close(250, 200, false));
+        assert!(!low_memory_should_close(200, 200, false), "only below the threshold");
     }
     use std::path::PathBuf;
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};

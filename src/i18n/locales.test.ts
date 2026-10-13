@@ -26,6 +26,13 @@ function placeholders(text: string): string[] {
  * ("Volume", "Console") não é a mesma que coincide em espanhol.
  */
 const IDENTICAL_BY_DESIGN_PT = new Set<string>([
+  // Marca: o servidor da comunidade no Discord (barra lateral).
+  "Discord",
+  // Gravações: "global" é a mesma palavra (a gravação que vale para toda conta).
+  "global",
+  // Presets de launch: "place" e "VIP" não se traduzem (glossário).
+  "Place {{placeId}}",
+  "VIP: {{name}}",
   "WebServer",
   "Watcher",
   "online",
@@ -85,6 +92,8 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
   "Social",
   "Catppuccin",
   "Global",
+  // Vaga de gravação herdada: "Global: <nome da gravação>" (mesma palavra).
+  "Global: {{name}}",
   "Graphite",
   "Legacy v4 (Original)",
   "Ocean",
@@ -160,7 +169,13 @@ const IDENTICAL_BY_DESIGN_PT = new Set<string>([
 
 /** Mesma regra para o espanhol: marcas, fontes, jargão e exemplos de formato. */
 const IDENTICAL_BY_DESIGN_ES = new Set<string>([
-  "General",
+  // Marca: o servidor da comunidade no Discord (barra lateral).
+  "Discord",
+  // Gravações: "global" é a mesma palavra (a gravação que vale para toda conta).
+  "global",
+  // Presets de launch: "place" e "VIP" não se traduzem (glossário).
+  "Place {{placeId}}",
+  "VIP: {{name}}",
   "WebServer",
   "Watcher",
   "auto rejoin",
@@ -209,6 +224,8 @@ const IDENTICAL_BY_DESIGN_ES = new Set<string>([
   "Social",
   "Catppuccin",
   "Global",
+  // Vaga de gravação herdada: "Global: <nome da gravação>" (mesma palavra).
+  "Global: {{name}}",
   "Graphite",
   "Legacy v4 (Original)",
   "Ocean",
@@ -405,6 +422,10 @@ const TONE_EXCEPTIONS = new Set<string>([
   "Every few seconds the watcher checks each Roblox client this app launched and closes the ones that match a rule below.",
   "It never reopens them, ignores clients you started outside the app, and skips the window you are using right now.",
   "Getting Started",
+  // Texto de corpo da importação do TinyTask (aba Recordings): "saved" no
+  // inglês não faz dele um aviso de sucesso.
+  "Not saved yet: pick exactly one account to test these steps, or save to play them on several.",
+  "Pick the window you recorded in and don't move or resize it before importing. Record in a window the same size as your accounts' windows (for example after Arrange in grid): clicks are saved as a position relative to the window.",
 ]);
 
 describe.each([

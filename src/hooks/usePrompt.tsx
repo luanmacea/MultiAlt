@@ -31,7 +31,21 @@ export interface PromptOptions {
 interface ConfirmState {
   message: string;
   destructive: boolean;
+  options: ConfirmOptions;
   resolve: (value: boolean) => void;
+}
+
+/**
+ * Extras do `confirm`. Quem confirma uma ação de lote diz no botão o que vai
+ * acontecer ("Close 3 clients", não "Confirm") e mostra a lista de quem entra.
+ * Textos já traduzidos por quem chama.
+ */
+export interface ConfirmOptions {
+  confirmLabel?: string;
+  /** Uma linha por item (ex.: as contas que serão fechadas). */
+  details?: string[];
+  /** Frase curta embaixo da lista. */
+  note?: string;
 }
 
 interface ConfirmWithOptOutState {
@@ -52,7 +66,7 @@ interface ConfirmWithOptOutOptions {
 
 interface DialogContext {
   prompt: (message: string, defaultValue?: string, options?: PromptOptions) => Promise<string | null>;
-  confirm: (message: string, destructive?: boolean) => Promise<boolean>;
+  confirm: (message: string, destructive?: boolean, options?: ConfirmOptions) => Promise<boolean>;
   confirmWithOptOut: (
     message: string,
     options?: ConfirmWithOptOutOptions
@@ -97,9 +111,9 @@ export function PromptProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const confirm = useCallback((message: string, destructive = false) => {
+  const confirm = useCallback((message: string, destructive = false, options: ConfirmOptions = {}) => {
     return new Promise<boolean>((resolve) => {
-      setConfirmState({ message, destructive, resolve });
+      setConfirmState({ message, destructive, options, resolve });
     });
   }, []);
 
@@ -240,6 +254,18 @@ export function PromptProvider({ children }: { children: ReactNode }) {
               <>
                 <div className="px-4 pt-4 pb-3">
                   <p className="text-[13px] text-zinc-300">{t(confirmState.message)}</p>
+                  {confirmState.options.details && confirmState.options.details.length > 0 && (
+                    <ul className="mt-2.5 space-y-1 rounded-lg border border-zinc-800/80 bg-zinc-800/30 px-3 py-2 text-[12px] text-zinc-200">
+                      {confirmState.options.details.map((line, index) => (
+                        <li key={index} className="truncate" title={line}>
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {confirmState.options.note && (
+                    <p className="mt-2 text-[12px] leading-snug text-zinc-400">{confirmState.options.note}</p>
+                  )}
                 </div>
                 <div className="flex items-center justify-end gap-2 px-4 pb-3.5 pt-1">
                   <button
@@ -258,7 +284,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
                         : "bg-sky-600 hover:bg-sky-500"
                     }`}
                   >
-                    {t("Confirm")}
+                    {confirmState.options.confirmLabel ?? t("Confirm")}
                   </button>
                 </div>
               </>

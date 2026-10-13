@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppWindow,
   Check,
@@ -6,7 +6,6 @@ import {
   Crosshair,
   Gamepad2,
   Globe,
-  ListX,
   PowerOff,
   RotateCw,
   SquareStop,
@@ -15,11 +14,15 @@ import {
   X,
 } from "lucide-react";
 import { useConfirm } from "../../hooks/usePrompt";
+import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
 import { accountLabel } from "../../utils/accountName";
 import { ClientHealthNote } from "./ClientHealthNote";
-import { ReconnectSwitch } from "./ReconnectSwitch";
+import { ClosedClientsSection } from "./ClosedClientsSection";
+import { ReconnectBulkChip, ReconnectChip } from "./ReconnectChip";
+import { MemoryBulkChip, MemoryChip, type MemoryLimitValue } from "./MemoryLimitControl";
+import { MEMORY_LIMIT_SETTING, fieldsWithMemoryLimit, memoryLimitChoice } from "../../utils/memoryLimit";
 import {
   autoReconnectLabel,
   fieldsWithReconnect,
@@ -29,8 +32,18 @@ import {
 } from "../../utils/autoReconnect";
 import { useNexusAutoRelaunch } from "../../hooks/useNexusAutoRelaunch";
 import { isWindowsPlatform } from "../../utils/platform";
+import { useCurrentSessions } from "../../hooks/useCurrentSessions";
+import { CurrentSessionLine, SessionClock } from "./CurrentSessionLine";
+import { SessionStats, type SessionCounts, type SessionFilter } from "./SessionStats";
+import { AttentionGroupHeader, GameGroupHeader, NoGameGroupHeader, SelectBox, ServerHeader } from "./InGameGroups";
+import { groupRunning, needsAttention, runningStatus, type RunningStatus } from "../../utils/sessionGroups";
+import { clientHealthLabel } from "../../utils/clientHealth";
+import { activeReconnectIds } from "../../utils/accountLiveState";
+import { useGameIdentity } from "../../hooks/useGameIdentity";
 import type {
   AutoReconnectEntry,
+  ClientHealth,
+  CurrentSession,
   FriendLinkAccountState,
   LaunchQueueEntry,
   LaunchQueueState,
@@ -138,6 +151,22 @@ function unidentifiedReasonLabel(client: UnidentifiedClient, name: string, t: Tr
   }
 }
 
+/**
+ * O jogo de uma conta da fila. Só aparece quando a fila mistura jogos (um
+ * launch disparado com outro rodando entra no fim da mesma fila, com o jogo
+ * dele); com um jogo só, o nome em cada linha seria a mesma palavra repetida.
+ */
+function QueueEntryGame({ placeId, userId }: { placeId: number; userId: number }) {
+  const t = useTr();
+  const identity = useGameIdentity(placeId, userId);
+  const name = identity?.name ?? t("Place {{placeId}}", { placeId });
+  return (
+    <span className="theme-muted truncate min-w-0" title={name}>
+      {name}
+    </span>
+  );
+}
+
 /** Estados em que a conta ainda pode sair da fila. */
 function isPending(entry: LaunchQueueEntry): boolean {
   return entry.state === "queued" || entry.state === "launching";
@@ -148,11 +177,61 @@ function dropKey(entry: AutoReconnectEntry): string {
   return `${entry.userId}:${entry.drop?.sinceMs ?? 0}`;
 }
 
-interface SessionPanelProps {
-  className?: string;
+/**
+ * Estado de uma conta do "Em jogo", curto, ao lado do nome: reconectando
+ * (âmbar), jogando (verde) ou ainda sem jogo. A queda e o "não responde" vão
+ * numa linha própria embaixo (`ClientHealthNote`), que pode quebrar: o motivo
+ * cortado em 0 px não dizia nada. Sem log achado e sem sessão, não diz nada.
+ */
+function RunningState({
+  session,
+  health,
+  reconnecting,
+}: {
+  session: CurrentSession | undefined;
+  health: ClientHealth | undefined;
+  reconnecting: boolean;
+}) {
+  const t = useTr();
+  if (reconnecting) {
+    return (
+      <span className="shrink-0 inline-flex items-center gap-1 text-amber-400">
+        <RotateCw size={11} strokeWidth={1.75} aria-hidden="true" />
+        {t("Reconnecting")}
+      </span>
+    );
+  }
+  if (health?.drop || health?.notResponding) return null;
+  if (session) {
+    return (
+      <span className="shrink-0 inline-flex items-center gap-1 text-emerald-400">
+        <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+        {t("Playing")}
+      </span>
+    );
+  }
+  if (health?.logFound && !health.inGame) {
+    return <span className="shrink-0 theme-muted">{t("Not in a game yet")}</span>;
+  }
+  return null;
 }
 
-export function SessionPanel({ className = "" }: SessionPanelProps) {
+interface SessionPanelProps {
+  className?: string;
+  /**
+   * Faixa de números em cima (jogando, reconectando, não responde, entrando),
+   * cada um um filtro da lista. Só a página Session mostra.
+   */
+  showStats?: boolean;
+  /**
+   * Cada lista com rolagem própria (teto de altura). Embutido em outro lugar o
+   * painel precisa disso; na página Session a página rola inteira e uma caixa
+   * de rolagem dentro dela escondia contas.
+   */
+  contained?: boolean;
+}
+
+export function SessionPanel({ className = "", showStats = false, contained = true }: SessionPanelProps) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
@@ -161,9 +240,29 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   const [checked, setChecked] = useState<Set<number>>(new Set());
   // Cliente não identificado com o seletor de conta aberto, e a conta escolhida.
   const [identifying, setIdentifying] = useState<{ pid: number; userId: string } | null>(null);
+  // Grupos recolhidos da lista "Em jogo" (chave do grupo).
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // "Close" da linha armado ("Close?"), esperando o segundo clique.
+  const [armedClose, setArmedClose] = useState<number | null>(null);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (armTimer.current) clearTimeout(armTimer.current);
+    },
+    []
+  );
+  useEscapeStack(armedClose !== null, () => setArmedClose(null));
+  // Shift+clique: a última conta clicada e a ordem das linhas na tela.
+  const anchorRef = useRef<number | null>(null);
+  const visibleOrderRef = useRef<number[]>([]);
+  // Filtro da faixa de números (só o estado escolhido na lista).
+  const [filter, setFilter] = useState<SessionFilter | null>(null);
+  const joiningRef = useRef<HTMLElement>(null);
 
   const entries = store.launchQueue?.entries ?? [];
   const pending = entries.filter(isPending);
+  // Fila com mais de um jogo: cada linha diz o seu.
+  const queueMixesGames = new Set(entries.map((entry) => entry.placeId).filter((id) => !!id)).size > 1;
   // Só aparece depois que houve um Make Friends: uma seção vazia permanente
   // roubaria altura de um painel que já tem teto de 45% na aba Console.
   const friendLink = store.friendLinkState;
@@ -209,7 +308,41 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
   const isWindows = isWindowsPlatform(store.platformCapabilities);
   const reconnectDefault = store.settings?.General?.AutoReconnect === "true";
   const nexusRelaunch = useNexusAutoRelaunch(isWindows, runningIds.join(","));
+  // Jogo e início da sessão de cada conta (o mesmo do histórico). Só no
+  // Windows: é lá que o log do Roblox é lido.
+  const sessions = useCurrentSessions(isWindows, runningIds.join(","));
+  const reconnectingIds = activeReconnectIds(store.autoReconnect);
   const [reconnectSaving, setReconnectSaving] = useState(false);
+
+  // Teto de memória (commands/memory_ceiling.rs): só com a feature
+  // `memory-trim` no binário, e só nos clientes que o app abriu. O campo
+  // `MemoryLimit` da conta manda; sem ele, `Optimization.MemoryLimit`.
+  const memoryTrim = isWindows && store.platformCapabilities?.supportsMemoryTrim === true;
+  const memoryDefaultRaw = store.settings?.[MEMORY_LIMIT_SETTING.section]?.[MEMORY_LIMIT_SETTING.key];
+  const memoryDefaultMb = memoryLimitChoice(undefined, memoryDefaultRaw).defaultMb;
+  const [memorySaving, setMemorySaving] = useState(false);
+  const memoryBulkIds = selected.filter((id) => !store.adoptedClients.has(id));
+
+  /**
+   * Grava o limite (`null` = volta ao padrão) no `Fields.MemoryLimit` de cada
+   * conta, uma por vez. Vale na próxima passada do backend (2 s), sem relançar
+   * e sem fechar nada.
+   */
+  async function saveMemoryLimit(userIds: number[], value: MemoryLimitValue) {
+    const targets = store.accounts.filter((a) => userIds.includes(a.UserID));
+    if (targets.length === 0) return;
+    setError(null);
+    setMemorySaving(true);
+    try {
+      for (const account of targets) {
+        await store.updateAccount({ ...account, Fields: fieldsWithMemoryLimit(account.Fields, value) });
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setMemorySaving(false);
+    }
+  }
 
   function nameFor(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
@@ -244,7 +377,29 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     }
   }
 
-  function toggleChecked(userId: number) {
+  /**
+   * Marca/desmarca uma conta. Com Shift, o intervalo desde a última clicada
+   * (na ordem em que as linhas estão na tela) recebe o novo estado da clicada,
+   * como na lista de contas.
+   */
+  function toggleChecked(userId: number, event?: { shiftKey: boolean }) {
+    const anchor = anchorRef.current;
+    anchorRef.current = userId;
+    const order = visibleOrderRef.current;
+    if (event?.shiftKey && anchor !== null && anchor !== userId && order.includes(anchor) && order.includes(userId)) {
+      const [from, to] = [order.indexOf(anchor), order.indexOf(userId)].sort((a, b) => a - b);
+      const range = order.slice(from, to + 1);
+      const on = !checked.has(userId);
+      setChecked((prev) => {
+        const next = new Set(prev);
+        for (const id of range) {
+          if (on) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      });
+      return;
+    }
     setChecked((prev) => {
       const next = new Set(prev);
       if (next.has(userId)) next.delete(userId);
@@ -286,6 +441,12 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     setError(null);
     setReconnectBusy((prev) => new Set(prev).add(userId));
     if (action === "dismiss") setDismissed((prev) => new Set(prev).add(key));
+    // A mesma conta com o aviso de "fechou" (seção Closed, linha da lista de
+    // contas): dispensar a linha da reconexão dispensa os dois — senão o
+    // aviso escondido reaparecia na seção de baixo.
+    if (action === "dismiss" && store.closedClients?.has(userId)) {
+      void store.dismissClosedClient(userId).catch(() => {});
+    }
     try {
       const ok =
         action === "retry" ? await store.retryAutoReconnect(userId) : await store.stopAutoReconnect(userId);
@@ -374,21 +535,19 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     });
   }
 
-  /**
-   * Uma confirmação só para o lote inteiro; fechar uma conta é imediato. Fecha
-   * só as contas da lista (`closeRobloxClients`), nunca cliente de fora dela.
-   */
-  async function handleClose(userIds: number[]) {
+  /** Fecha só as contas da lista (`closeRobloxClients`), nunca cliente de fora dela. */
+  async function closeNow(userIds: number[]) {
     if (userIds.length === 0) return;
     setError(null);
-    if (userIds.length > 1) {
-      const ok = await confirm(t("Close {{count}} clients?", { count: userIds.length }), true);
-      if (!ok) return;
-    }
+    setArmedClose(null);
     setBusy(true);
     try {
       await store.closeRobloxClients(userIds);
-      setChecked(new Set());
+      setChecked((prev) => {
+        const next = new Set(prev);
+        for (const id of userIds) next.delete(id);
+        return next;
+      });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -396,8 +555,327 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
     }
   }
 
+  /**
+   * "Close all clients" e "Close selected": sempre perguntam, uma vez para o
+   * lote. O diálogo lista as contas (as cinco primeiras e "and N more"), marca
+   * as abertas pelo site e o botão diz quantos clientes fecha.
+   */
+  async function confirmAndClose(userIds: number[]) {
+    if (userIds.length === 0) return;
+    setError(null);
+    const lines = userIds.map((id) =>
+      store.adoptedClients.has(id)
+        ? t("{{name}} (opened from the website)", { name: nameFor(id) })
+        : nameFor(id)
+    );
+    const details =
+      lines.length > 5 ? [...lines.slice(0, 5), t("and {{count}} more", { count: lines.length - 5 })] : lines;
+    const website = userIds.filter((id) => store.adoptedClients.has(id)).length;
+    const note =
+      website === 0
+        ? undefined
+        : website === 1
+          ? t("Includes 1 client opened from the Roblox website.")
+          : t("Includes {{count}} clients opened from the Roblox website.", { count: website });
+    const ok = await confirm(t("Close the Roblox client of these accounts?"), true, {
+      confirmLabel:
+        userIds.length === 1 ? t("Close 1 client") : t("Close {{count}} clients", { count: userIds.length }),
+      details,
+      note,
+    });
+    if (ok) await closeNow(userIds);
+  }
+
+  /**
+   * "Close" da linha: o primeiro clique só arma ("Close?"), o segundo fecha.
+   * Desarma sozinho em 4 s, no Escape ou quando o foco sai do botão.
+   */
+  function armClose(userId: number) {
+    setArmedClose(userId);
+    if (armTimer.current) clearTimeout(armTimer.current);
+    armTimer.current = setTimeout(() => setArmedClose(null), 4_000);
+  }
+
+  // Lista "Em jogo" por jogo e servidor; quem precisa de atenção vai para o
+  // topo (utils/sessionGroups.ts). Sem nenhuma sessão conhecida (fora do
+  // Windows, ou nada entrou em jogo ainda) fica a lista simples de antes.
+  const statusOf = (userId: number) =>
+    runningStatus(sessions.get(userId), store.clientHealth?.get(userId), reconnectingIds.has(userId));
+  // A faixa de números conta das mesmas linhas da lista.
+  const counts: SessionCounts = { playing: 0, reconnecting: 0, notResponding: 0, dropped: 0, joining: pending.length };
+  for (const id of runningIds) {
+    const status = statusOf(id);
+    if (status === "playing" || status === "reconnecting" || status === "notResponding" || status === "dropped") {
+      counts[status] += 1;
+    }
+  }
+  // Filtro que ficou sem ninguém (a conta voltou ao jogo) se desfaz sozinho.
+  const activeFilter = filter && counts[filter] > 0 ? filter : null;
+  const shownIds = activeFilter ? runningIds.filter((id) => statusOf(id) === activeFilter) : runningIds;
+  const groups = groupRunning(shownIds, sessions, statusOf);
+  const grouped = sessions.size > 0 || groups.attention.length > 0;
+  const listBox = contained ? "max-h-56 overflow-y-auto" : "";
+  // Lista larga (página Session num monitor grande): as linhas do "Em jogo"
+  // viram colunas pela largura da própria lista (`@container/ingame`), não da
+  // janela — no painel estreito e na janela padrão continua uma coluna só.
+  const rowGrid = "grid grid-cols-1 gap-x-3 @6xl/ingame:grid-cols-2 @min-[110rem]/ingame:grid-cols-3";
+  // Reconexão: quem ainda tem cliente aberto mostra a tentativa na própria
+  // linha do "Em jogo" (uma conta, um lugar); a seção "Reconnecting" fica só
+  // com quem não tem cliente aberto (fechou, desistiu). Antes as duas listas
+  // repetiam as mesmas contas e empurravam o "Em jogo" para baixo.
+  const runningSet = new Set(runningIds);
+  const reconnectInRow = new Map(
+    reconnecting.filter((entry) => runningSet.has(entry.userId)).map((entry) => [entry.userId, entry] as const)
+  );
+  const reconnectApart = reconnecting.filter((entry) => !runningSet.has(entry.userId));
+
+  // Mudança de estado anunciada ao leitor de tela, com calma (aria-live
+  // polite): caiu, não responde, reconectando, voltou a jogar. A primeira
+  // leitura não anuncia nada; a contagem regressiva não fala a cada segundo.
+  const statusSignature = runningIds.map((id) => `${id}:${statusOf(id)}`).join(",");
+  const previousStatus = useRef<Map<number, RunningStatus> | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  useEffect(() => {
+    const next = new Map(runningIds.map((id) => [id, statusOf(id)] as const));
+    const previous = previousStatus.current;
+    previousStatus.current = next;
+    if (!previous) return;
+    const messages: string[] = [];
+    for (const [id, status] of next) {
+      const before = previous.get(id);
+      if (before === undefined || before === status) continue;
+      const name = nameFor(id);
+      if (status === "dropped" || status === "notResponding") {
+        const info = clientHealthLabel(store.clientHealth?.get(id), t);
+        if (info) messages.push(`${name}: ${info.label}`);
+      } else if (status === "reconnecting") {
+        messages.push(t("{{name}} is reconnecting", { name }));
+      } else if (status === "playing" && needsAttention(before)) {
+        messages.push(t("{{name}} is playing again", { name }));
+      }
+    }
+    if (messages.length > 0) setAnnouncement(messages.join(". "));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusSignature]);
+  // Ordem das linhas como aparecem (grupos recolhidos ficam de fora).
+  visibleOrderRef.current = grouped
+    ? [
+        ...(collapsed.has("attention") ? [] : groups.attention),
+        ...groups.games.flatMap((game) => (collapsed.has(game.key) ? [] : game.servers.flatMap((sv) => sv.userIds))),
+        ...(collapsed.has("no-game") ? [] : groups.noGame),
+      ]
+    : shownIds;
+
+  function selectionOf(ids: number[]): "all" | "some" | "none" {
+    const count = ids.filter((id) => checked.has(id)).length;
+    return count === 0 ? "none" : count === ids.length ? "all" : "some";
+  }
+
+  /** A caixa do grupo: marca todas as contas dele, ou desmarca se já estavam todas marcadas. */
+  function toggleGroup(ids: number[]) {
+    const all = ids.every((id) => checked.has(id));
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (all) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleCollapsed(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  /**
+   * A tentativa de reconexão dentro da linha da conta: o que está acontecendo
+   * (contagem regressiva como `timer`), a causa e os botões pequenos de tentar
+   * agora / parar / dispensar. Mesmas ações da seção "Reconnecting".
+   */
+  function renderReconnectLine(entry: AutoReconnectEntry) {
+    const info = autoReconnectLabel(entry, now, t);
+    const name = nameFor(entry.userId);
+    const pending = info.tone === "pending";
+    const lineBusy = reconnectBusy.has(entry.userId);
+    const turnedOff = choiceFor(entry.userId)?.effective === false;
+    const small =
+      "inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11.5px] text-[var(--panel-fg)] hover:bg-[var(--row-hover)] disabled:opacity-50 disabled:cursor-default";
+    return (
+      <span
+        data-testid={`session-reconnect-${entry.userId}`}
+        data-phase={entry.phase}
+        aria-busy={lineBusy || undefined}
+        className="flex flex-wrap items-center gap-x-2 text-[11.5px]"
+      >
+        <span role={entry.phase === "waiting" ? "timer" : undefined} className={pending ? "text-amber-400" : "text-red-400"}>
+          {info.label}
+        </span>
+        {info.detail && (
+          <span data-testid={`session-reconnect-detail-${entry.userId}`} className="theme-muted">
+            {info.detail}
+          </span>
+        )}
+        {pending && turnedOff && <span className="theme-muted">{t("Turned off: it stops after the attempt in progress.")}</span>}
+        <span className="inline-flex items-center gap-0.5">
+          {(info.canTryNow || info.canTryAgain) && (
+            <button
+              type="button"
+              onClick={() => void handleReconnectAction(entry, "retry")}
+              disabled={lineBusy}
+              title={t("Reopen this account now, in the same game")}
+              className={small}
+            >
+              <RotateCw size={11} strokeWidth={1.75} aria-hidden="true" className={lineBusy ? "animate-spin" : undefined} />
+              {info.canTryNow ? t("Try now") : t("Try again")}
+            </button>
+          )}
+          {pending ? (
+            <button
+              type="button"
+              onClick={() => void handleReconnectAction(entry, "stop")}
+              disabled={lineBusy}
+              title={t("Stop reconnecting this account (does not close any client)")}
+              className={small}
+            >
+              <SquareStop size={11} strokeWidth={1.75} aria-hidden="true" />
+              {t("Stop")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void handleReconnectAction(entry, "dismiss")}
+              disabled={lineBusy}
+              aria-label={t("Dismiss {{name}}", { name })}
+              title={t("Hide this line")}
+              className="inline-flex w-6 h-6 items-center justify-center rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] disabled:opacity-50"
+            >
+              <X size={12} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
+        </span>
+      </span>
+    );
+  }
+
+  /**
+   * Uma conta da lista "Em jogo". `context` "game": a linha está dentro do
+   * grupo do jogo e do servidor, então só leva o tempo em jogo; "full": fora
+   * deles (atenção, sem jogo, lista simples), leva jogo · servidor · tempo.
+   */
+  function renderRow(userId: number, context: "game" | "full") {
+    const session = sessions.get(userId);
+    const health = store.clientHealth?.get(userId);
+    const name = nameFor(userId);
+    const choice = isWindows ? choiceFor(userId) : null;
+    const account = store.accounts.find((a) => a.UserID === userId);
+    const memoryChoice =
+      memoryTrim && account && !store.adoptedClients.has(userId)
+        ? memoryLimitChoice(account.Fields, memoryDefaultRaw)
+        : null;
+    return (
+      <li
+        key={userId}
+        data-testid={`session-running-${userId}`}
+        className={`flex items-start gap-2 px-3 py-1.5 text-[12px] ${
+          checked.has(userId) ? "session-row-selected" : "hover:bg-[var(--row-hover)]"
+        }`}
+      >
+        <span className="pt-0.5">
+          <SelectBox
+            label={t("Select {{name}}", { name })}
+            checked={checked.has(userId)}
+            onChange={(event) => toggleChecked(userId, event)}
+          />
+        </span>
+        {/* A informação ao vivo tem a largura que sobra; os controles são
+            chips compactos à direita. Em cima: conta, estado e tempo; embaixo,
+            quando há, o motivo da queda (quebra linha) e, fora do grupo do
+            jogo, jogo · servidor · tempo. */}
+        <span className="min-w-0 flex-1 flex flex-col gap-0.5 pt-[3px]">
+          <span className="flex items-center gap-2 min-w-0">
+            <span className="text-[var(--panel-fg)] truncate min-w-[3ch]" title={name}>
+              {name}
+            </span>
+            <RunningState session={session} health={health} reconnecting={reconnectingIds.has(userId)} />
+            {session && context === "game" && (
+              <span className="shrink-0 text-[11.5px] theme-muted">
+                <SessionClock userId={userId} sinceMs={session.sinceMs} />
+              </span>
+            )}
+            {store.adoptedClients.has(userId) && (
+              <span
+                className="min-w-0 flex items-center gap-1 theme-muted"
+                title={t("Opened from the Roblox website and recognized by the Roblox log")}
+              >
+                <Globe size={11} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />
+                <span className="truncate">{t("Opened outside the app")}</span>
+              </span>
+            )}
+          </span>
+          {(health?.drop || health?.notResponding) && <ClientHealthNote health={health} wrap />}
+          {reconnectInRow.has(userId) && renderReconnectLine(reconnectInRow.get(userId)!)}
+          {session && context === "full" && <CurrentSessionLine session={session} />}
+        </span>
+        <span className="flex items-center gap-1 shrink-0">
+          {memoryChoice && (
+            <MemoryChip
+              name={name}
+              choice={memoryChoice}
+              memory={store.clientMemory?.get(userId)}
+              disabled={memorySaving}
+              onChange={(value) => void saveMemoryLimit([userId], value)}
+            />
+          )}
+          {choice && (
+            <ReconnectChip
+              name={name}
+              choice={choice}
+              disabled={reconnectSaving}
+              onChange={(value) => void saveReconnect([userId], value)}
+            />
+          )}
+          <button
+            onClick={() => void handleFocus(userId)}
+            title={t("Bring this client's window to the front")}
+            className="session-row-btn"
+          >
+            <Crosshair size={12} strokeWidth={1.5} aria-hidden="true" />
+            {t("Focus")}
+          </button>
+          {/* Longe do Focus: fechar não pode ser o clique errado. */}
+          <span aria-hidden="true" className="w-3" />
+          <button
+            onClick={() => (armedClose === userId ? void closeNow([userId]) : armClose(userId))}
+            onBlur={() => {
+              if (armedClose === userId) setArmedClose(null);
+            }}
+            disabled={busy}
+            title={
+              armedClose === userId
+                ? t("Click again to close this client")
+                : t("Close this account's Roblox client")
+            }
+            className={`session-row-btn ${armedClose === userId ? "session-row-btn-armed" : "session-row-btn-danger"}`}
+          >
+            <PowerOff size={12} strokeWidth={1.5} aria-hidden="true" />
+            {armedClose === userId ? t("Close?") : t("Close")}
+          </button>
+        </span>
+      </li>
+    );
+  }
+
   return (
     <div className={`flex flex-col gap-3 min-h-0 ${className}`} data-testid="session-panel">
+      <div data-testid="session-live" aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </div>
       {error && (
         <div
           role="alert"
@@ -407,37 +885,45 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         </div>
       )}
 
+      {showStats && (
+        <SessionStats
+          counts={counts}
+          filter={activeFilter}
+          onFilter={setFilter}
+          onJoining={() => joiningRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })}
+        />
+      )}
+
       {/* ── Entrando ───────────────────────────────────────────────────── */}
-      <section data-tour="session-joining" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
-        <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
+      {/* Fila vazia é só o cabeçalho: uma caixa vazia empurrava o "Em jogo"
+          para baixo. */}
+      <section ref={joiningRef} data-tour="session-joining" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
+        <header
+          className={`flex items-center justify-between gap-2 px-3 ${entries.length > 0 ? "py-2 border-b theme-border" : "py-1.5"}`}
+        >
           <div className="flex items-baseline gap-2 min-w-0">
-            <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Joining")}</h3>
+            <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("Joining")}</h2>
             <span className="text-[12px] theme-muted truncate">
               {pending.length > 0
                 ? t("{{count}} waiting", { count: pending.length })
-                : t("idle")}
+                : t("Nothing waiting")}
             </span>
           </div>
-          <button
-            onClick={() => void handleStopQueue()}
-            disabled={pending.length === 0}
-            className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={t("Remove every waiting account from the queue")}
-          >
-            <SquareStop size={13} strokeWidth={1.5} />
-            {t("Stop queue")}
-          </button>
+          {entries.length > 0 && (
+            <button
+              onClick={() => void handleStopQueue()}
+              disabled={pending.length === 0}
+              className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={t("Remove every waiting account from the queue")}
+            >
+              <SquareStop size={13} strokeWidth={1.5} />
+              {t("Stop queue")}
+            </button>
+          )}
         </header>
 
-        {entries.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
-            <ListX size={20} strokeWidth={1.5} />
-            <p className="text-[12px] text-center">
-              {t("Nothing in the launch queue. Pick a game to start joining accounts.")}
-            </p>
-          </div>
-        ) : (
-          <ul className="max-h-48 overflow-y-auto py-1">
+        {entries.length > 0 && (
+          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
             {entries.map((entry) => {
               const style = STATE_STYLES[entry.state] ?? STATE_STYLES.queued;
               const name = nameFor(entry.userId);
@@ -452,6 +938,9 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                   <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
                   <span className="text-[var(--panel-fg)] truncate max-w-[40%]">{name}</span>
                   <span className={`shrink-0 ${style.text}`}>{stateLabel(entry.state, t)}</span>
+                  {queueMixesGames && entry.placeId ? (
+                    <QueueEntryGame placeId={entry.placeId} userId={entry.userId} />
+                  ) : null}
                   {error && (
                     <span className="text-red-400 truncate" title={error}>
                       {error}
@@ -463,7 +952,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                         onClick={() => void handleCancel(entry.userId)}
                         aria-label={t("Cancel {{name}}", { name })}
                         title={t("Take this account out of the queue (does not close any client)")}
-                        className="p-1 rounded-md theme-muted hover:text-red-400 hover:bg-[var(--panel-soft)] transition-colors"
+                        className="inline-flex w-6 h-6 items-center justify-center rounded-md theme-muted hover:text-red-400 hover:bg-[var(--row-hover)] transition-colors"
                       >
                         <X size={13} strokeWidth={2} />
                       </button>
@@ -484,10 +973,10 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         >
           <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
             <div className="flex items-baseline gap-2 min-w-0">
-              <h3 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5">
-                <UserPlus size={13} strokeWidth={1.5} />
+              <h2 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5">
+                <UserPlus size={13} strokeWidth={1.5} aria-hidden="true" />
                 {t("Make Friends")}
-              </h3>
+              </h2>
               <span className="text-[12px] theme-muted truncate">
                 {t("{{done}} / {{total}} accounts processed", {
                   done: friendLink.processed,
@@ -500,7 +989,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
             </span>
           </header>
 
-          <ul className="max-h-48 overflow-y-auto py-1">
+          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
             {friendLink.accounts.map((entry) => {
               const style = FRIEND_STATE_STYLES[entry.state] ?? FRIEND_STATE_STYLES.pending;
               return (
@@ -532,19 +1021,19 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
       )}
 
       {/* ── Reconectando ───────────────────────────────────────────────── */}
-      {reconnecting.length > 0 && (
+      {reconnectApart.length > 0 && (
         <section data-testid="auto-reconnect-panel" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
           <header className="flex items-center gap-2 px-3 py-2 border-b theme-border min-w-0">
-            <h3 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
-              <RotateCw size={13} strokeWidth={1.5} />
+            <h2 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
+              <RotateCw size={13} strokeWidth={1.5} aria-hidden="true" />
               {t("Reconnecting")}
-            </h3>
+            </h2>
             <span className="text-[12px] theme-muted truncate">
               {t("Accounts that dropped go back to the same game on their own")}
             </span>
           </header>
-          <ul className="max-h-48 overflow-y-auto py-1">
-            {reconnecting.map((entry) => {
+          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
+            {reconnectApart.map((entry) => {
               const info = autoReconnectLabel(entry, now, t);
               const name = nameFor(entry.userId);
               const pending = info.tone === "pending";
@@ -564,7 +1053,9 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                   <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
                   {/* A causa (erro da última tentativa) fica à vista, embaixo. */}
                   <span className="min-w-0 flex flex-col">
+                    {/* Contagem regressiva: `timer` (não fala a cada segundo). */}
                     <span
+                      role={entry.phase === "waiting" ? "timer" : undefined}
                       className={`truncate ${pending ? "text-amber-400" : "text-red-400"}`}
                       title={info.label}
                     >
@@ -614,7 +1105,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                         disabled={busy}
                         aria-label={t("Dismiss {{name}}", { name })}
                         title={t("Hide this line")}
-                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors disabled:opacity-50"
+                        className="inline-flex w-6 h-6 items-center justify-center rounded-md theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] transition-colors disabled:opacity-50"
                       >
                         <X size={13} strokeWidth={2} />
                       </button>
@@ -627,20 +1118,29 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
         </section>
       )}
 
+      {/* ── Fechou (cliente que fechou no meio do jogo) ───────────────── */}
+      <ClosedClientsSection
+        hiddenIds={new Set([...runningIds, ...reconnecting.map((entry) => entry.userId)])}
+        contained={contained}
+      />
+
       {/* ── Em jogo ────────────────────────────────────────────────────── */}
-      <section data-tour="session-in-game" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
-        <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
+      <section
+        data-tour="session-in-game"
+        data-testid="session-in-game"
+        className="@container/ingame rounded-lg border theme-border bg-[var(--panel-soft)]"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-3 py-2 border-b theme-border">
           <div className="flex items-center gap-2 min-w-0">
             {runningIds.length > 0 && (
-              <input
-                type="checkbox"
-                aria-label={t("Select all running clients")}
+              <SelectBox
+                label={t("Select all running clients")}
                 checked={selected.length === runningIds.length}
+                indeterminate={selected.length > 0}
                 onChange={toggleAll}
-                className="accent-[var(--accent-color)]"
               />
             )}
-            <h3 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("In game")}</h3>
+            <h2 className="text-[12px] font-semibold text-[var(--panel-fg)]">{t("In game")}</h2>
             <span className="text-[12px] theme-muted truncate">
               {t("{{count}} running", { count: runningIds.length })}
             </span>
@@ -667,138 +1167,110 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                   <Coffee size={13} strokeWidth={1.5} />
                   {t("AFK Mode")}
                 </button>
-                {/* Sem marcação vale para todas as da lista; mais de uma pergunta. */}
+                {/* Sempre todas as da lista, com confirmação; as marcadas
+                    fecham pela barra de lote ("Close selected"). */}
                 <button
-                  onClick={() => void handleClose(selected.length > 0 ? selected : runningIds)}
+                  onClick={() => void confirmAndClose(runningIds)}
                   disabled={busy}
-                  title={
-                    selected.length > 0
-                      ? undefined
-                      : t("Closes the Roblox client of every account in this list")
-                  }
-                  className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title={t("Closes the Roblox client of every account in this list")}
+                  className="sidebar-btn-sm flex items-center gap-1.5 shrink-0 !text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <PowerOff size={13} strokeWidth={1.5} />
-                  {selected.length > 0
-                    ? t("Close accounts ({{count}})", { count: selected.length })
-                    : t("Close accounts")}
+                  <PowerOff size={13} strokeWidth={1.5} aria-hidden="true" />
+                  {t("Close all clients ({{count}})", { count: runningIds.length })}
                 </button>
               </>
             )}
           </div>
+          {/* Onde a dúvida aparece: perto do "Close all". */}
+          {runningIds.length > 0 && (
+            <p className="basis-full text-[11.5px] leading-snug theme-muted">
+              {t("Closing MultiAlt leaves every Roblox client running.")}
+            </p>
+          )}
         </header>
 
-        {/* Lote da reconexão: só com contas marcadas, numa faixa própria para
-            o cabeçalho não estourar a largura da aba Console. */}
-        {isWindows && selected.length > 0 && (
-          <div
-            data-testid="session-reconnect-bulk"
-            className="flex flex-wrap items-center gap-1.5 px-3 py-1.5 border-b theme-border text-[12px]"
-          >
-            <span className="flex items-center gap-1 theme-muted mr-auto min-w-0">
-              <RotateCw size={12} strokeWidth={1.5} className="shrink-0" aria-hidden="true" />
-              <span className="truncate">
-                {selected.length === 1
-                  ? t("Auto-reconnect for 1 selected")
-                  : t("Auto-reconnect for {{count}} selected", { count: selected.length })}
-              </span>
-            </span>
-            <button
-              onClick={() => void saveReconnect(selected, true)}
-              disabled={reconnectSaving}
-              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {t("Reconnect on")}
-            </button>
-            <button
-              onClick={() => void saveReconnect(selected, false)}
-              disabled={reconnectSaving}
-              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {t("Reconnect off")}
-            </button>
-            <button
-              onClick={() => void saveReconnect(selected, null)}
-              disabled={reconnectSaving}
-              title={
-                reconnectDefault
-                  ? t("Use the default from Settings › General (on)")
-                  : t("Use the default from Settings › General (off)")
-              }
-              className="sidebar-btn-sm shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {t("Use default")}
-            </button>
-          </div>
-        )}
-
         {runningIds.length === 0 && unidentified.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-1.5 px-3 py-6 theme-muted">
-            <Gamepad2 size={20} strokeWidth={1.5} />
+          <div className="flex flex-col items-center justify-center gap-2 px-3 py-6 theme-muted">
+            <Gamepad2 size={20} strokeWidth={1.5} aria-hidden="true" />
             <p className="text-[12px] text-center">
               {t("No Roblox client is running. Accounts you launch show up here.")}
             </p>
+            {/* Com contas marcadas, direto para a Choose Game; sem, para a
+                lista de contas, onde se escolhe quem joga. */}
+            <button
+              type="button"
+              onClick={() => {
+                store.setActivePage("accounts");
+                if (store.selectedIds.size > 0) store.setChooseGameOpen(true);
+              }}
+              className="theme-btn inline-flex items-center gap-1.5 min-h-[28px] px-3 py-1.5 text-[12px] font-medium"
+            >
+              <Gamepad2 size={13} strokeWidth={1.6} aria-hidden="true" />
+              {t("Choose a game")}
+            </button>
           </div>
         ) : (
-          <ul className="max-h-56 overflow-y-auto py-1">
-            {runningIds.map((userId) => {
-              const name = nameFor(userId);
-              const choice = isWindows ? choiceFor(userId) : null;
-              return (
-                <li
-                  key={userId}
-                  data-testid={`session-running-${userId}`}
-                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
-                >
-                  <input
-                    type="checkbox"
-                    aria-label={t("Select {{name}}", { name })}
-                    checked={checked.has(userId)}
-                    onChange={() => toggleChecked(userId)}
-                    className="accent-[var(--accent-color)]"
-                  />
-                  {/* O nome vem primeiro: o aviso de queda encolhe antes dele. */}
-                  <span className="text-[var(--panel-fg)] truncate shrink-0 max-w-[40%]">{name}</span>
-                  {/* Queda com motivo, lida do log do Roblox (client_health.rs). */}
-                  <ClientHealthNote health={store.clientHealth?.get(userId)} className="shrink" />
-                  {store.adoptedClients.has(userId) && (
-                    <span
-                      className="shrink-0 flex items-center gap-1 theme-muted"
-                      title={t("Opened from the Roblox website and recognized by the Roblox log")}
-                    >
-                      <Globe size={11} strokeWidth={1.5} />
-                      {t("Opened outside the app")}
-                    </span>
-                  )}
-                  <span className="ml-auto flex items-center gap-1.5 shrink-0">
-                    {choice && (
-                      <ReconnectSwitch
-                        name={name}
-                        choice={choice}
-                        disabled={reconnectSaving}
-                        onChange={(value) => void saveReconnect([userId], value)}
-                      />
+          <div className={`${listBox} py-1`}>
+            {grouped ? (
+              <>
+                {groups.attention.length > 0 && (
+                  <div data-testid="session-attention" className="session-group">
+                    <AttentionGroupHeader
+                      count={groups.attention.length}
+                      selection={selectionOf(groups.attention)}
+                      onSelect={() => toggleGroup(groups.attention)}
+                      expanded={!collapsed.has("attention")}
+                      onToggle={() => toggleCollapsed("attention")}
+                    />
+                    {!collapsed.has("attention") && (
+                      <ul className={rowGrid}>{groups.attention.map((id) => renderRow(id, "full"))}</ul>
                     )}
-                    <button
-                      onClick={() => void handleFocus(userId)}
-                      title={t("Bring this client's window to the front")}
-                      className="sidebar-btn-sm flex items-center gap-1.5"
-                    >
-                      <Crosshair size={12} strokeWidth={1.5} />
-                      {t("Focus")}
-                    </button>
-                    <button
-                      onClick={() => void handleClose([userId])}
-                      disabled={busy}
-                      className="sidebar-btn-sm flex items-center gap-1.5 text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <PowerOff size={12} strokeWidth={1.5} />
-                      {t("Close")}
-                    </button>
-                  </span>
-                </li>
-              );
-            })}
+                  </div>
+                )}
+                {groups.games.map((game) => (
+                  <div key={game.key} data-testid={`session-game-${game.placeId}`} className="session-group">
+                    <GameGroupHeader
+                      placeId={game.placeId}
+                      userId={game.userIds[0]}
+                      count={game.userIds.length}
+                      selection={selectionOf(game.userIds)}
+                      onSelect={() => toggleGroup(game.userIds)}
+                      expanded={!collapsed.has(game.key)}
+                      onToggle={() => toggleCollapsed(game.key)}
+                    />
+                    {!collapsed.has(game.key) &&
+                      game.servers.map((server) => (
+                        <div key={server.key} data-testid={`session-server-${server.key}`}>
+                          <ServerHeader
+                            server={server}
+                            selection={selectionOf(server.userIds)}
+                            onSelect={() => toggleGroup(server.userIds)}
+                            selectable={game.servers.length > 1}
+                          />
+                          <ul className={rowGrid}>{server.userIds.map((id) => renderRow(id, "game"))}</ul>
+                        </div>
+                      ))}
+                  </div>
+                ))}
+                {groups.noGame.length > 0 && (
+                  <div data-testid="session-no-game" className="session-group">
+                    <NoGameGroupHeader
+                      count={groups.noGame.length}
+                      selection={selectionOf(groups.noGame)}
+                      onSelect={() => toggleGroup(groups.noGame)}
+                      expanded={!collapsed.has("no-game")}
+                      onToggle={() => toggleCollapsed("no-game")}
+                    />
+                    {!collapsed.has("no-game") && (
+                      <ul className={rowGrid}>{groups.noGame.map((id) => renderRow(id, "full"))}</ul>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <ul className={rowGrid}>{shownIds.map((id) => renderRow(id, "full"))}</ul>
+            )}
+            <ul>
             {unidentified.map((client) => {
               const namedAccount =
                 client.userId !== null
@@ -815,9 +1287,12 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                   className="flex flex-col gap-1.5 px-3 py-1.5 text-[12px]"
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span className="text-[var(--panel-fg)] shrink-0">{t("Unidentified client")}</span>
-                    <span className="theme-muted shrink-0">{t("PID {{pid}}", { pid: client.pid })}</span>
+                    <span aria-hidden="true" className="shrink-0 w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    {/* Em palavras simples: o que é. O PID (para quem procura no
+                        Gerenciador de Tarefas) fica no tooltip. */}
+                    <span className="text-[var(--panel-fg)] shrink-0" title={t("PID {{pid}}", { pid: client.pid })}>
+                      {t("Roblox open, account unknown")}
+                    </span>
                     <span className="theme-muted truncate" title={unidentifiedReasonLabel(client, namedLabel, t)}>
                       {unidentifiedReasonLabel(client, namedLabel, t)}
                     </span>
@@ -836,12 +1311,17 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                           title={t("Tell the app which account is playing in this client")}
                           className="sidebar-btn-sm flex items-center gap-1.5"
                         >
-                          <UserCheck size={12} strokeWidth={1.5} />
+                          <UserCheck size={12} strokeWidth={1.5} aria-hidden="true" />
                           {t("Identify")}
                         </button>
                       )}
                     </span>
                   </div>
+                  {!picking && (
+                    <p className="pl-3.5 text-[11.5px] leading-snug theme-muted">
+                      {t("Opened outside MultiAlt, for example from the website. Click Identify and pick the account playing in it to manage it here.")}
+                    </p>
+                  )}
                   {picking && (
                     <div className="flex items-center gap-1.5 pl-3.5">
                       <select
@@ -873,7 +1353,7 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                       <button
                         onClick={() => setIdentifying(null)}
                         aria-label={t("Cancel")}
-                        className="p-1 rounded-md theme-muted hover:text-[var(--panel-fg)] transition-colors shrink-0"
+                        className="inline-flex w-6 h-6 items-center justify-center rounded-md theme-muted hover:text-[var(--panel-fg)] transition-colors shrink-0"
                       >
                         <X size={13} strokeWidth={2} />
                       </button>
@@ -882,7 +1362,58 @@ export function SessionPanel({ className = "" }: SessionPanelProps) {
                 </li>
               );
             })}
-          </ul>
+            </ul>
+          </div>
+        )}
+
+        {/* Lote das contas marcadas, preso ao pé do cartão: aparecer não
+            empurra as linhas (a faixa de antes entrava entre o cabeçalho e a
+            lista). Reconexão e teto de memória nos mesmos menus das linhas; o
+            teto pula os clientes abertos pelo site. */}
+        {selected.length > 0 && (
+          <div
+            data-testid="session-bulk-bar"
+            className="sticky bottom-0 z-10 flex flex-wrap items-center gap-1.5 rounded-b-lg border-t theme-border bg-[var(--panel-bg)] px-3 py-2 text-[12px] shadow-[0_-6px_16px_rgba(0,0,0,0.18)]"
+          >
+            <span className="font-medium text-[var(--panel-fg)] tabular-nums">
+              {selected.length === 1 ? t("1 selected") : t("{{count}} selected", { count: selected.length })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setChecked(new Set())}
+              className="inline-flex items-center gap-1 h-6 rounded-md px-1.5 theme-muted hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)]"
+            >
+              <X size={12} strokeWidth={2} aria-hidden="true" />
+              {t("Clear selection")}
+            </button>
+            <span className="ml-auto flex flex-wrap items-center gap-1.5">
+              {isWindows && (
+                <ReconnectBulkChip
+                  count={selected.length}
+                  globalDefault={reconnectDefault}
+                  disabled={reconnectSaving}
+                  onChange={(value) => void saveReconnect(selected, value)}
+                />
+              )}
+              {memoryTrim && memoryBulkIds.length > 0 && (
+                <MemoryBulkChip
+                  count={memoryBulkIds.length}
+                  defaultMb={memoryDefaultMb}
+                  disabled={memorySaving}
+                  onChange={(value) => void saveMemoryLimit(memoryBulkIds, value)}
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => void confirmAndClose(selected)}
+                disabled={busy}
+                className="sidebar-btn-sm !px-2 h-6 !py-0 ml-1 flex items-center gap-1 !text-red-400 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <PowerOff size={12} strokeWidth={1.5} aria-hidden="true" />
+                {t("Close selected ({{count}})", { count: selected.length })}
+              </button>
+            </span>
+          </div>
         )}
       </section>
     </div>

@@ -18,7 +18,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | Login por navegador / user:pass | [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) |
 | Estado e ações no frontend | [store.tsx](../../src/store.tsx) (`loadAccounts`, `addAccountByCookie`, `removeAccounts`, `updateAccount`, `moveToGroup`, `reorderAccounts`, `unlock`, `applyEncryptionMethod`) |
 | Tipo TS | [types.ts](../../src/types.ts) (`Account`, `parseGroupName`, `getFreshnessColor`) |
-| Telas de senha/criptografia | [PasswordScreen.tsx](../../src/components/layout/PasswordScreen.tsx), [EncryptionSetupScreen.tsx](../../src/components/layout/EncryptionSetupScreen.tsx), [MiscellaneousTab.tsx](../../src/components/settings/MiscellaneousTab.tsx) |
+| Telas de senha/criptografia | [PasswordScreen.tsx](../../src/components/layout/PasswordScreen.tsx), [EncryptionSetupScreen.tsx](../../src/components/layout/EncryptionSetupScreen.tsx), [PrivacyTab.tsx](../../src/components/settings/PrivacyTab.tsx) |
 | Adicionar/importar | [Toolbar.tsx](../../src/components/layout/Toolbar.tsx), [ImportDialog.tsx](../../src/components/dialogs/ImportDialog.tsx), [AccountList.tsx](../../src/components/accounts/AccountList.tsx) (drag & drop) |
 | Campos | [AccountFieldsDialog.tsx](../../src/components/dialogs/AccountFieldsDialog.tsx) |
 | Utilitários por conta | [AccountUtilsDialog.tsx](../../src/components/dialogs/AccountUtilsDialog.tsx), [ContextMenu.tsx](../../src/components/menus/ContextMenu.tsx) |
@@ -51,6 +51,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | `Window_Position_X`, `Window_Position_Y`, `Window_Width`, ... | [watcher.rs](../../src-tauri/src/commands/watcher.rs) | Posição de janela salva pelo Watcher (`SaveWindowPositions`). |
 | `ClientOverridesEnabled`, `ClientOverrideMaxFPS`, `ClientOverrideVolume`, `ClientOverrideGraphics`, `ClientOverrideFullscreen`, `ClientOverrideStartMinimized`, `ClientOverrideWindowWidth`, `ClientOverrideWindowHeight` | [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) | Exceções de launch por conta — ver [launch.md](launch.md#exceções-de-launch-por-conta). |
 
+| `MemoryLimit` | [memory_ceiling.rs](../../src-tauri/src/commands/memory_ceiling.rs) | Teto de memória desta conta em MB (`0` = sem limite); seletor na linha da conta em "In game", página Session, e lote com as linhas marcadas. Sem o campo vale `Optimization.MemoryLimit`. Só com a feature `memory-trim`. Ver [watcher.md](watcher.md#teto-de-memória). |
 | `AutoReconnect` | [reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | `true`/`false`: reconexão automática desta conta (chave na linha da conta em "In game", página Session; lote com as linhas marcadas). Sem o campo vale `General.AutoReconnect`. Ver [watcher.md](watcher.md#reconexão-automática). |
 
 Qualquer outra chave é livre (editável em "View/Edit Fields").
@@ -67,6 +68,17 @@ Qualquer outra chave é livre (editável em "View/Edit Fields").
 3. O usuário digita a senha → `unlock_accounts(password)` → `load_with_password`: calcula `sha512(senha.trim())`, descriptografa, parseia e **guarda em memória o hash e a chave já derivada** (`SessionKey`), reutilizados por todos os saves da sessão.
 4. Falha de criptografia **nunca** impede o app de abrir: `lib.rs` só registra o aviso. É na tela do programa que o usuário lê o que aconteceu.
 
+### Trancar por inatividade (ideia 27)
+
+Opção em Settings › Privacy & security › Password screen, **desligada por padrão** e só disponível com **senha do app** (com a chave do aparelho a caixa fica desabilitada, dizendo por quê).
+
+1. Ligada, [useInactivityLock](../../src/hooks/useInactivityLock.ts) marca a hora de cada clique, tecla, roda ou movimento **na janela do MultiAlt** e confere a cada 10 s. Janela minimizada ou atrás de outra conta como inatividade.
+2. Passados `General.LockAfterMinutes` minutos (1 a 240, padrão 10), `store.lockApp()` liga `appLocked`.
+3. [App.tsx](../../src/App.tsx) põe a tela de senha (`LockOverlay` → `PasswordScreen mode="lock"`) **por cima** de tudo e deixa o resto `inert`. **Nada é desmontado**: Scripts, o lote de avatares e os ouvintes de eventos continuam vivos, e no backend o Modo AFK, a reconexão, o Auto Rejoin e a fila de launch nem ficam sabendo. Teclas digitadas na tela trancada não chegam aos atalhos da janela.
+4. A senha vai para `verify_app_password` → `AccountStore::verify_password`, que **só confere** se ela abre o arquivo do disco: não relê contas, não troca a sessão, não grava. (O `unlock_accounts` do boot relê tudo do disco — usá-lo aqui trocaria a memória por baixo do que está rodando.)
+5. Senha errada: as três primeiras são livres; depois a próxima tentativa espera 5 s, dobrando até 60 s (`app_lock_retry_delay_secs`), e nem a senha certa passa durante a espera. Acertar zera a contagem.
+6. Sem a caixa "manter conectado" nessa tela: ela é do boot.
+
 ### Migração de `AccountData.json` em texto puro
 
 Acontece na primeira abertura depois da mudança, em `migrate_plain_vault`, **nesta ordem** — ela é o único momento em que o usuário pode perder contas:
@@ -82,7 +94,7 @@ Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro e inteiro**; a
 ### Onboarding / troca de método de criptografia
 
 1. Primeira execução (settings recém-criadas → `EncryptionOnboardingState = pending`) e zero contas → `EncryptionSetupScreen` em modo `firstRun`.
-2. Também acessível por Settings → Misc → "Change Encryption Method".
+2. Também acessível por Settings → Privacy & security → "Change Encryption Method".
 3. Opções:
    - **Pass Lock**: senha com pelo menos 8 caracteres (validado na UI e no backend) → `set_encryption_password(password)`.
    - **No Password (Device Key)**: `set_encryption_password(null)` — o arquivo **continua cifrado**, pela chave do aparelho. O rótulo já foi "Default Encryption" (escondia que era texto puro) e depois "No Password (Not Encrypted)" (verdade na época, mentira agora).
@@ -98,6 +110,7 @@ Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro e inteiro**; a
 |---|---|
 | Cookie (Quick Add / Import Cookie / drag & drop de texto) | `validate_cookie(cookie)` → `add_account(securityToken, username, userId)` |
 | `username:password:cookie` em lote (mesma caixa do Import Cookie, e também aceito na aba User:Pass e no Quick Add) | `parseImportLine` ([utils/cookies.ts](../../src/utils/cookies.ts)) → `validate_cookie(cookie)` → `add_account(..., password)` — sem navegador, porque a sessão já veio na linha |
+| Quick Login (menu Add / Add Account) | código aprovado num aparelho já logado → `add_by_quick_login_poll` troca pela sessão → `validate_cookie` → `AccountStore::add`, no backend (o cookie nem passa pelo frontend). Ver [authentication.md](authentication.md#adicionar-conta-por-quick-login-ideia-12). |
 | Username (Quick Add sem cookie) | `lookup_user(username)` → `add_account` com `securityToken: ""` (conta sem sessão) |
 | Login no navegador | `open_login_browser` abre Chromium via CDP; ao detectar o cookie emite `browser-login-detected`; a store chama `extract_browser_cookie` (até 8 tentativas, 350 ms) → `addAccountByCookie` → `close_login_browser`. |
 | user:pass em lote | uma linha `usuario:senha` por vez → `import_userpass`: abre o login, preenche `#login-username`, espera até ~240 s (480 × 500 ms) pelo cookie, valida e salva com `Password` preenchida. |
@@ -159,7 +172,7 @@ Morrer entre 1 e 2, ou entre 2 e 3, deixa o vault **em texto puro e inteiro**; a
   - **Falhas:** 401 = cookie morto (não é ban); **429 / rede / 5xx = "tente depois"**, nunca "banida", e nada vai para o cache.
   - **Cache:** por conta, 10 min, só em memória (`MODERATION_TTL`). "Check ban status" no painel ignora o cache.
   - **Onde aparece:** selo na linha (`banned` com ícone de proibido para banida/encerrada, `warned` com triângulo para advertida ou ban que já acabou), com a nota do moderador no tooltip; linha no painel da conta ("Banned until dd/mm", "Warned", "Terminated", "No moderation" ou "Ban status not checked yet") com o botão **Check ban status**; a legenda da barra de status ganha esses dois selos só quando alguma conta os tem. O frontend guarda em `moderationByUserId` (evento `account-moderation`).
-  - **Antes do launch** (`moderation_launch_block`, nos quatro fluxos de launch — conta única e lote, Windows e macOS): se a conta está **banida com ban valendo** ou **encerrada**, o launch dela é **pulado** com a frase "Skipped: this account is banned until dd/mm/aaaa hh:mm." (ou "…terminated…") e a nota do moderador; no lote a fila segue para a próxima. Advertência e ban que já acabou **não** bloqueiam. Qualquer falha da consulta (429, rede, cookie) **não** bloqueia: o launch segue o caminho de sempre. Teto de 8 s para a consulta não segurar a fila. Desligável em `General.CheckModerationBeforeLaunch` (Settings › General › "Check Bans Before Launch", ligado por padrão).
+  - **Antes do launch** (`moderation_launch_block`, nos quatro fluxos de launch — conta única e lote, Windows e macOS): se a conta está **banida com ban valendo** ou **encerrada**, o launch dela é **pulado** com a frase "Skipped: this account is banned until dd/mm/aaaa hh:mm." (ou "…terminated…") e a nota do moderador; no lote a fila segue para a próxima. Advertência e ban que já acabou **não** bloqueiam. Qualquer falha da consulta (429, rede, cookie) **não** bloqueia: o launch segue o caminho de sempre. Teto de 8 s para a consulta não segurar a fila. Desligável em `General.CheckModerationBeforeLaunch` (Settings › Launch › "Check Bans Before Launch", ligado por padrão).
   - **Grupo `moderadas`:** banida (valendo) ou encerrada também passa por `mark_account_moderated`, a mesma regra do erro de auth ticket.
 - **Conferir contas ("Check Accounts")** — [commands/account_check.rs](../../src-tauri/src/commands/account_check.rs), no menu **Actions › Batch Actions** da barra inferior, logo abaixo de "Refresh Cookies" (é o oposto dele: só lê). Age sobre a **seleção**: para conferir todas, "Select all" na barra de cima (ou Ctrl+A) e depois Actions.
   - Para cada conta: primeiro a moderação (acima; conta banida pode ter a sessão recusada sem o cookie estar morto), depois a sessão em `GET https://users.roblox.com/v1/users/authenticated` (campo lido: `id`) — as duas pelo caminho **sem refresh**.
@@ -301,11 +314,14 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 |---|---|---|
 | `General.EncryptionMethod` | `default` | Método escolhido (`default`/`password`), informativo. |
 | `General.EncryptionOnboardingState` | `pending` em instalação nova, `completed` se o INI já existia | Abre o onboarding. |
+| `General.LockOnInactivity` | — (`false`) | Tranca a tela depois de um tempo sem usar a janela; só vale com senha do app. Ver [Trancar por inatividade](#trancar-por-inatividade-ideia-27). |
+| `General.LockAfterMinutes` | — (`10`) | Minutos sem interação até trancar (1 a 240). |
 | `General.AutoCookieRefresh` | `true` | Auto-refresh (ver [authentication.md](authentication.md)). |
 | `General.DisableAgingAlert` | `false` | Esconde indicador de idade. |
 | `General.CheckModerationBeforeLaunch` | `true` | Consulta a moderação logo antes de abrir cada conta e pula a banida/encerrada. |
 | `General.GroupOrder` | `[]` | Ordem manual dos grupos, em JSON. Vazio/`[]` = ordem automática (prefixo numérico, depois alfabética). |
-| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `HideRobuxWhenHidden` | `false` / `0` | Mascaramento de nomes. |
+| `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden` | `false` / `0` | Mascaramento de nomes. |
+| `General.ShowRobux` | `false` | Mostra o saldo de Robux no painel da conta (`get_robux`, leitura sem renovar a sessão); com os nomes escondidos, o saldo aparece como `****`. Substituiu o `HideRobuxWhenHidden` em 12/10/2026: o saldo tinha saído do painel em julho e a opção não escondia mais nada. |
 | `General.ShowPresence`, `PresenceUpdateRate` | `true`, `5` | Presença na lista. |
 | `Friends.RequestDelayMs` | (sem default no INI → 2500) | Intervalo entre pedidos de amizade, em ms. Editável no submenu Make Friends (em segundos). |
 | `Login.PersistentProfile`, `Login.StealthMode` | `true`, `true` | Comportamento do navegador de login. |

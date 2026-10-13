@@ -103,6 +103,16 @@ impl SettingsStore {
                 "true",
                 Some("New Roblox windows take the first free cell of the window grid (GridMonitors, GridGap)"),
             ),
+            (
+                "GridAllowSmallWindows",
+                "false",
+                Some("Grid cells may be smaller than Roblox's minimum window (only clients MultiAlt launched)"),
+            ),
+            (
+                "GridBorderless",
+                "false",
+                Some("Grid windows lose their title bar and border; turning it off gives them back"),
+            ),
             ("StartOnPCStartup", "false", None),
             ("MinimizeToTray", "false", None),
             ("ThemeWindowsNavbar", "true", None),
@@ -308,6 +318,11 @@ impl SettingsStore {
             ("BottingBotJobCpuLimitPercent", "20"),
             ("BottingBotEnableJobMemoryLimit", "false"),
             ("BottingBotJobMemoryLimitMb", "1536"),
+            // Otimizacao que segue o foco (docs/features/performance.md):
+            // opcional, desligada por padrao.
+            ("FollowFocus", "false"),
+            // Fundo mudo (feature `live-audio`; sem ela a chave e ignorada).
+            ("MuteBackgroundClients", "false"),
         ];
 
         let optimization = ini.section("Optimization");
@@ -431,12 +446,29 @@ impl SettingsStore {
             ("Mode", "key"),
             ("ClickX", "50"),
             ("ClickY", "50"),
+            // Parada de emergência por chacoalhar o mouse: desligada por
+            // padrão, escolha do dono (commands/shake_stop.rs).
+            ("ShakeToStop", "false"),
         ];
 
         let afk = ini.section("Afk");
         for (key, value) in afk_defaults {
             if !afk.exists(key) {
                 afk.set(key, value, None);
+            }
+        }
+
+        // Gravações (docs/features/recordings.md): tocar a gravação da conta
+        // depois de a reconexão automática devolvê-la ao jogo nasce desligado;
+        // ligado, espera a conta ficar 30 s no jogo antes de tocar.
+        let recordings_defaults: &[(&str, &str)] = &[
+            ("AfterReconnect", "false"),
+            ("AfterReconnectDelaySeconds", "30"),
+        ];
+        let recordings = ini.section("Recordings");
+        for (key, value) in recordings_defaults {
+            if !recordings.exists(key) {
+                recordings.set(key, value, None);
             }
         }
 
@@ -602,6 +634,8 @@ mod settings_store_tests {
                 ("ClientWindowHeight", "720"),
                 ("StartRobloxMinimized", "false"),
                 ("AutoArrangeGrid", "true"),
+                ("GridAllowSmallWindows", "false"),
+                ("GridBorderless", "false"),
                 ("StartOnPCStartup", "false"),
                 ("MinimizeToTray", "false"),
                 ("ThemeWindowsNavbar", "true"),
@@ -731,6 +765,11 @@ mod settings_store_tests {
             ));
             out.push(("Optimization", format!("BottingBot{suffix}"), bot.to_string()));
         }
+        push(
+            &mut out,
+            "Optimization",
+            &[("FollowFocus", "false"), ("MuteBackgroundClients", "false")],
+        );
 
         push(
             &mut out,
@@ -776,7 +815,16 @@ mod settings_store_tests {
                 ("Mode", "key"),
                 ("ClickX", "50"),
                 ("ClickY", "50"),
+                // Parada de emergência por chacoalhar o mouse: desligada por
+                // padrão, escolha do dono (commands/shake_stop.rs).
+                ("ShakeToStop", "false"),
             ],
+        );
+
+        push(
+            &mut out,
+            "Recordings",
+            &[("AfterReconnect", "false"), ("AfterReconnectDelaySeconds", "30")],
         );
 
         push(

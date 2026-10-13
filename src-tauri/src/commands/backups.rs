@@ -1161,6 +1161,62 @@ mod backups_tests {
         assert!(resolve_entry_target(&layout, GAME_LISTS_FILE_NAME).is_some());
     }
 
+    /// Presets de launch (ideia 13): entram no zip e voltam sem reiniciar (o
+    /// store relê o disco a cada leitura).
+    #[test]
+    fn restoring_a_backup_brings_the_launch_presets_back_without_a_restart() {
+        use crate::data::launch_presets::{LaunchPreset, LaunchPresetStore, LAUNCH_PRESETS_FILE_NAME};
+
+        let layout = temp_layout("launch-presets");
+        let store = LaunchPresetStore::new(layout.data_dir.join(LAUNCH_PRESETS_FILE_NAME));
+        let saved = store
+            .upsert(
+                LaunchPreset {
+                    name: "Farm".into(),
+                    user_ids: vec![7, 8],
+                    place_id: 920587237,
+                    ..Default::default()
+                },
+                1,
+            )
+            .unwrap();
+
+        let entry = create_backup_in(&layout, None, false, chrono::Utc::now()).unwrap();
+        assert!(entry.files.iter().any(|f| f == LAUNCH_PRESETS_FILE_NAME), "{:?}", entry.files);
+
+        assert!(store.delete(&saved.id).unwrap());
+        let zip_path = resolve_backup_path(&layout.backups_dir(), &entry.id).unwrap();
+        let outcome = restore_backup_archive(&layout, &zip_path).unwrap();
+        assert!(outcome.restored.iter().any(|f| f == LAUNCH_PRESETS_FILE_NAME));
+        assert_eq!(store.list().unwrap(), vec![saved]);
+        assert!(restart_reasons_for(&outcome.restored).is_empty());
+    }
+
+    /// Histórico de sessões (ideia 6): entra no zip e volta sem reiniciar (o
+    /// store lê o disco a cada consulta e grava por append).
+    #[test]
+    fn restoring_a_backup_brings_the_session_history_back_without_a_restart() {
+        use crate::data::session_history::{
+            HistoryEvent, HistoryEventKind, SessionHistoryStore, SESSION_HISTORY_FILE_NAME,
+        };
+
+        let layout = temp_layout("session-history");
+        let store = SessionHistoryStore::new(layout.data_dir.join(SESSION_HISTORY_FILE_NAME));
+        let now = chrono::Utc::now().timestamp_millis();
+        let joined = HistoryEvent::new(now, 7, HistoryEventKind::Joined).at_place(Some(1), Some("job".into()));
+        store.append(&[joined.clone()], now).unwrap();
+
+        let entry = create_backup_in(&layout, None, false, chrono::Utc::now()).unwrap();
+        assert!(entry.files.iter().any(|f| f == SESSION_HISTORY_FILE_NAME), "{:?}", entry.files);
+
+        std::fs::remove_file(layout.data_dir.join(SESSION_HISTORY_FILE_NAME)).unwrap();
+        let zip_path = resolve_backup_path(&layout.backups_dir(), &entry.id).unwrap();
+        let outcome = restore_backup_archive(&layout, &zip_path).unwrap();
+        assert!(outcome.restored.iter().any(|f| f == SESSION_HISTORY_FILE_NAME));
+        assert_eq!(store.read_all(), vec![joined]);
+        assert!(restart_reasons_for(&outcome.restored).is_empty());
+    }
+
     #[test]
     fn the_catalog_is_backed_up_and_restored_even_outside_the_data_dir() {
         let mut layout = temp_layout("catalog-outside");

@@ -8,6 +8,7 @@ import {
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
   Settings,
   Shirt,
   Sparkles,
@@ -16,6 +17,7 @@ import {
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useStore, type AppPage } from "../../store";
 import { useTr } from "../../i18n/text";
 import { ENABLE_GROUPS, ENABLE_HELP_BUTTON, ENABLE_NEXUS } from "../../featureFlags";
@@ -79,6 +81,8 @@ const navGroups = (): NavItemDef[][] => [
   [{ page: "accounts", label: "Accounts", icon: Users, tour: "nav-accounts" }],
   [
     { page: "session", label: "Session", icon: Gamepad2, tour: "nav-session" },
+    // O que o app fez (launch, Auto Rejoin, Watcher), ao lado do que roda agora.
+    { page: "console", label: "Console", icon: ScrollText },
     { page: "afk", label: "AFK Mode", icon: Keyboard, tour: "nav-afk" },
   ],
   [
@@ -122,7 +126,7 @@ export function NavSidebar() {
     if (page === "accounts" && store.accounts.length > 0) {
       return {
         visual: collapsed ? null : (
-          <span className="ml-auto text-[11px] tabular-nums text-[var(--panel-muted)] opacity-70">
+          <span className="ml-auto text-[11px] tabular-nums text-[var(--panel-muted)]">
             {store.accounts.length}
           </span>
         ),
@@ -243,6 +247,23 @@ export function NavSidebar() {
     </button>
   );
 
+  // O servidor da comunidade no Discord: abre o convite no navegador. O
+  // endereço mora no backend (`open_discord_invite`).
+  const discordLabel = t("Discord");
+  const discordButton = (
+    <button
+      type="button"
+      onClick={() => void invoke("open_discord_invite").catch(() => {})}
+      aria-label={discordLabel}
+      className={`flex items-center rounded-lg text-[13px] text-[var(--panel-muted)] hover:text-[var(--panel-fg)] hover:bg-[var(--row-hover)] transition-colors outline-none focus-visible:shadow-[0_0_0_2px_var(--input-focus)] ${
+        collapsed ? "w-10 h-10 justify-center" : "w-full h-9 gap-3 px-2.5"
+      }`}
+    >
+      <DiscordGlyph />
+      <span className={collapsed ? "sr-only" : "truncate"}>{discordLabel}</span>
+    </button>
+  );
+
   const collapseLabel = collapsed ? t("Expand sidebar") : t("Collapse sidebar");
   const CollapseIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
   const collapseButton = (
@@ -277,6 +298,15 @@ export function NavSidebar() {
 
       <div className="shrink-0 border-t theme-border py-2 px-2.5">
         <ul className="mb-0.5 space-y-0.5">
+          <li className={collapsed ? "flex justify-center" : undefined}>
+            {collapsed ? (
+              <Tooltip content={discordLabel} side="right" delayMs={200}>
+                {discordButton}
+              </Tooltip>
+            ) : (
+              discordButton
+            )}
+          </li>
           <li className={collapsed ? "flex justify-center" : undefined}>
             {collapsed ? (
               <Tooltip content={feedbackLabel} side="right" delayMs={200}>
@@ -315,7 +345,20 @@ export function NavSidebar() {
           )}
         </div>
       </div>
-      <FeedbackDialog open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+      <FeedbackDialog
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+        reportSource={() => ({ logs: store.launchLogs, accounts: store.accounts })}
+      />
     </nav>
+  );
+}
+
+/** O logo do Discord (traço único, na cor do texto), do tamanho dos ícones da barra. */
+function DiscordGlyph() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="shrink-0">
+      <path d="M20.32 4.37a19.8 19.8 0 0 0-4.89-1.52.07.07 0 0 0-.08.04c-.21.38-.44.87-.61 1.25a18.3 18.3 0 0 0-5.49 0 12.6 12.6 0 0 0-.62-1.25.08.08 0 0 0-.08-.04 19.7 19.7 0 0 0-4.89 1.52.07.07 0 0 0-.03.03C.53 9.05-.32 13.58.1 18.06a.08.08 0 0 0 .03.06 19.9 19.9 0 0 0 5.99 3.03.08.08 0 0 0 .08-.03c.46-.63.87-1.3 1.23-1.99a.08.08 0 0 0-.04-.11 13.1 13.1 0 0 1-1.87-.89.08.08 0 0 1-.01-.13l.37-.29a.07.07 0 0 1 .08-.01c3.93 1.79 8.18 1.79 12.06 0a.07.07 0 0 1 .08.01l.37.29a.08.08 0 0 1-.01.13c-.6.35-1.22.65-1.87.89a.08.08 0 0 0-.04.11c.36.7.78 1.36 1.22 1.99a.08.08 0 0 0 .08.03 19.8 19.8 0 0 0 6-3.03.08.08 0 0 0 .03-.05c.5-5.18-.84-9.67-3.55-13.66a.06.06 0 0 0-.03-.03ZM8.02 15.33c-1.18 0-2.16-1.09-2.16-2.42s.96-2.42 2.16-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.96 2.42-2.16 2.42Zm7.97 0c-1.18 0-2.15-1.09-2.15-2.42s.95-2.42 2.15-2.42c1.21 0 2.18 1.1 2.16 2.42 0 1.33-.95 2.42-2.16 2.42Z" />
+    </svg>
   );
 }

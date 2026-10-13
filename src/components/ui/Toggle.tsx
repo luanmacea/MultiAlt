@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useTr, trNode } from "../../i18n/text";
 
 export function Toggle({
@@ -14,6 +15,11 @@ export function Toggle({
   disabled?: boolean;
 }) {
   const t = useTr();
+  // O nome do switch é só o rótulo; a descrição vai em `aria-describedby`.
+  // Sem isso o nome vinha do conteúdo: rótulo e descrição colados numa frase só.
+  const id = useId();
+  const labelId = `${id}-label`;
+  const descriptionId = `${id}-description`;
 
   function toggle() {
     if (disabled) return;
@@ -24,6 +30,8 @@ export function Toggle({
     <div
       role="switch"
       aria-checked={checked}
+      aria-labelledby={labelId}
+      aria-describedby={description ? descriptionId : undefined}
       aria-disabled={disabled || undefined}
       tabIndex={disabled ? -1 : 0}
       className={`group flex items-start gap-3 py-2 px-1 rounded-lg select-none transition-colors outline-none ${
@@ -53,9 +61,9 @@ export function Toggle({
         />
       </div>
       <div className="min-w-0">
-        <div className="text-[13px] text-zinc-200 leading-tight">{trNode(label, t)}</div>
+        <div id={labelId} className="text-[13px] text-zinc-200 leading-tight">{trNode(label, t)}</div>
         {description && (
-          <div className="text-[12px] text-zinc-500 leading-snug mt-0.5">{t(description)}</div>
+          <div id={descriptionId} className="text-[12px] text-zinc-500 leading-snug mt-0.5">{t(description)}</div>
         )}
       </div>
     </div>

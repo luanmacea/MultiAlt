@@ -33,6 +33,7 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_join_wait_tests",
       "singleton_event_tests",
       "multi_roblox_decision_tests",
+      "singleton_reservation_tests",
       "exit_cleanup_tests",
       "launch_resolve_tests",
       "launch_shared_helper_tests",
@@ -61,6 +62,33 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/pages/SessionPage.test.tsx",
       "src/accountLaunchOverrides.test.ts",
       "src/components/accounts/AccountLaunchOverrides.test.tsx",
+    ],
+  },
+  presets: {
+    description: "Presets de launch (contas → jogo/servidor), agendamento de abrir/fechar e quais clientes cada execução abriu",
+    rust: [
+      "launch_preset_store_tests",
+      "launch_preset_validation_tests",
+      "launch_preset_schedule_tests",
+      "launch_preset_run_tests",
+    ],
+    front: ["src/components/presets", "src/utils/presets.test.ts"],
+  },
+  history: {
+    description: "Histórico de sessões por conta: observador do monitor de quedas, arquivo JSONL com retenção, sessões, tempo de jogo de 14 dias e CSV",
+    rust: ["session_history_store_tests", "session_history_build_tests", "session_history_observer_tests"],
+    front: [
+      "src/components/accounts/AccountHistory.test.tsx",
+      "src/utils/sessionHistory.test.ts",
+      "src/components/session/SessionPanel.test.tsx",
+      // "Em jogo" agrupado por jogo e servidor.
+      "src/utils/sessionGroups.test.ts",
+      // Estado ao vivo na lista de contas e o chip "precisam de atenção".
+      "src/utils/accountLiveState.test.ts",
+      "src/components/accounts/AccountLiveState.test.tsx",
+      // Cliente que fechou no meio do jogo: motivo e "Entrar novamente".
+      "src/utils/closedClients.test.ts",
+      "src/components/layout/Toolbar.test.tsx",
     ],
   },
   "join-links": {
@@ -134,6 +162,13 @@ export const SUITES: Record<string, TestSuite> = {
       // Reconexão automática da conta que caiu (commands/reconnect.rs).
       "auto_reconnect_tests",
       "auto_reconnect_target_tests",
+      // Cliente que fechou no meio do jogo e o "Entrar novamente" (commands/closed_clients.rs).
+      "closed_clients_tests",
+      // Teto de memória que libera RAM antes de fechar (memory_ceiling.rs, memory_trim.rs).
+      "memory_ceiling_tests",
+      "win_memory_trim_tests",
+      // A leitura de memória (memória privada, a do Gerenciador de Tarefas).
+      "win_process_memory_tests",
     ],
     // A aba Auto Rejoin do Modo AFK e a moldura (abas, modal) que a abre.
     front: [
@@ -141,7 +176,13 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/afk-mode/AfkModeView.test.tsx",
       "src/utils/clientHealth.test.ts",
       "src/components/session/SessionPanel.test.tsx",
+      // A página Console mostra o log do Auto Rejoin e do Watcher.
+      "src/components/pages/ConsolePage.test.tsx",
       "src/utils/autoReconnect.test.ts",
+      "src/utils/memoryLimit.test.ts",
+      // "While you were away" (Session e Modo AFK): quedas e reconexões anotadas.
+      "src/utils/awayDigest.test.ts",
+      "src/components/session/AwayDigest.test.tsx",
     ],
   },
   afk: {
@@ -151,6 +192,8 @@ export const SUITES: Record<string, TestSuite> = {
       "afk_input_safety_tests",
       "win_input_tests",
       "win_focus_tests",
+      // Parada de emergência por chacoalhar o mouse (shake_stop.rs, Afk.ShakeToStop).
+      "shake_stop_tests",
       // PC acordado durante Modo AFK / Auto Rejoin / reconexão (keep_awake.rs, power.rs).
       "keep_awake_tests",
       "win_power_tests",
@@ -159,9 +202,38 @@ export const SUITES: Record<string, TestSuite> = {
     front: [
       "src/components/afk-mode/ClicksTab.test.tsx",
       "src/components/afk-mode/AfkModeView.test.tsx",
+      // O alerta da parada de emergência (chacoalhar o mouse).
+      "src/components/afk-mode/EmergencyStopAlert.test.tsx",
       "src/utils/afkBeep.test.ts",
       "src/store.test.ts",
       "src/afkClickPoint.test.ts",
+      // "While you were away": falhas de envio e parada de emergência anotadas.
+      "src/utils/awayDigest.test.ts",
+      "src/components/session/AwayDigest.test.tsx",
+    ],
+  },
+  recordings: {
+    description: "Gravações: biblioteca, passos, qual vale para cada conta, reprodução e o gatilho depois da reconexão",
+    rust: [
+      "recordings_store_tests",
+      "recordings_validation_tests",
+      "recordings_playback_tests",
+      "recordings_after_reconnect_tests",
+      "recordings_afk_mode_tests",
+      // Importar do TinyTask (.rec): leitura do arquivo e conversão em passos.
+      "tinytask_import_tests",
+      // As portas novas do módulo de entrada (press_recording_key, click_recording_point).
+      "win_input_tests",
+      // A reprodução mora na árvore do Modo AFK: a trava continua valendo.
+      "afk_input_safety_tests",
+      // Chacoalhar o mouse também para a gravação tocando (shake_stop.rs).
+      "shake_stop_tests",
+    ],
+    front: [
+      "src/components/afk-mode/RecordingsTab.test.tsx",
+      "src/recordings.test.ts",
+      "src/components/afk-mode/recordings/triggers.test.ts",
+      "src/components/afk-mode/AfkModeView.test.tsx",
     ],
   },
   isolation: {
@@ -323,6 +395,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/settings",
       "src/components/pages/ThemePage.test.tsx",
       "src/theme.test.ts",
+      // Texto apagado a 4,5:1 em todo tema (página Session, 11/10/2026).
+      "src/themeContrast.test.ts",
       "src/themeFonts.test.ts",
       "src/fontPresets.test.ts",
       "src/hooks/useSettings.test.ts",
@@ -368,10 +442,19 @@ export const SUITES: Record<string, TestSuite> = {
       "src/types.test.ts",
       "src/tauriWindowConfig.test.ts",
       "src/uiScale.test.ts",
+      // Janela grande: páginas sem teto de largura em lista/cartão.
+      "src/components/pages/wideLayout.test.ts",
       "src/repoOwnership.test.ts",
       "src/utils",
       "src/featureFlags.test.ts",
       "src/components/dialogs/FeedbackDialog.test.tsx",
+      "src/utils/inactivityLock.test.ts",
+      "src/hooks/useInactivityLock.test.ts",
+      "src/components/layout/LockOverlay.test.tsx",
+      "src/components/settings/inactivityLockSetting.test.tsx",
+      "src/components/dialogs/QuickLoginDialog.test.tsx",
+      "src/components/dialogs/AddAccountDialog.test.tsx",
+      "src/components/layout/Toolbar.test.tsx",
     ],
   },
   "hidden-names": {
@@ -401,7 +484,7 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   navigation: {
-    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Groups, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais",
+    description: "Barra lateral e páginas (Session, AFK Mode, Avatars, Groups, Scripts, Theme, Nexus, Settings, What's new) no lugar dos modais; Voltar/Avançar do mouse e Alt+setas",
     rust: [],
     front: [
       "src/components/layout/NavSidebar.test.tsx",
@@ -411,6 +494,9 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/settings/settingsTabs.test.tsx",
       "src/App.test.tsx",
       "src/store.test.ts",
+      "src/utils/pageHistory.test.ts",
+      "src/hooks/useMouseNavigation.test.ts",
+      "src/hooks/useEscapeStack.test.ts",
     ],
   },
   tutorials: {
@@ -438,7 +524,54 @@ export const SUITES: Record<string, TestSuite> = {
       "generator_http_tests",
       "platform_info_tests",
     ],
-    front: ["src/utils/platform.test.ts"],
+    // Grade de janelas (cartão Window grid da página Console).
+    front: ["src/utils/platform.test.ts", "src/components/console/WindowGridCard.test.tsx"],
+  },
+  support: {
+    description: "Pacote Suporte: checagem \"o launch não faz nada\" (16), reportar problema com resumo anonimizado (28), trancar por inatividade (27), Quick Login (12) e reserva do singleton do Roblox (3)",
+    rust: [
+      "launch_diagnostics_tests",
+      "os_version_label_tests",
+      "services_command_tests",
+      "app_lock_command_tests",
+      "app_lock_verify_tests",
+      "quick_login_add_tests",
+      "quick_login_command_tests",
+      "singleton_reservation_tests",
+      "multi_roblox_decision_tests",
+    ],
+    front: [
+      "src/utils/diagnostics.test.ts",
+      "src/components/dialogs/DiagnosticsDialog.test.tsx",
+      "src/App.test.tsx",
+      "src/utils/anonymize.test.ts",
+      "src/utils/problemReport.test.ts",
+      "src/components/dialogs/FeedbackDialog.test.tsx",
+      "src/utils/inactivityLock.test.ts",
+      "src/hooks/useInactivityLock.test.ts",
+      "src/components/layout/LockOverlay.test.tsx",
+      "src/components/settings/inactivityLockSetting.test.tsx",
+      "src/components/dialogs/QuickLoginDialog.test.tsx",
+      "src/components/dialogs/AddAccountDialog.test.tsx",
+      "src/components/layout/Toolbar.test.tsx",
+    ],
+  },
+  performance: {
+    description: "Desempenho enquanto joga: otimização que segue a janela em uso, fundo mudo (live-audio), grade menor e sem moldura",
+    rust: [
+      "focus_follow_tests",
+      "win_optimization_tests",
+      "live_audio_tests",
+      "live_audio_com_tests",
+      "platform_info_tests",
+      "win_grid_style_tests",
+      "win_grid_slot_tests",
+      "client_window_plan_tests",
+      // Devolver as configurações do Roblox ao fechar (ideia 21, settings_restore.rs).
+      "win_settings_restore_tests",
+      "settings_on_exit_tests",
+    ],
+    front: ["src/components/settings/settingsTabs.test.tsx", "src/components/console/WindowGridCard.test.tsx"],
   },
   release: {
     description: "Workflow de release: número da próxima versão (série pelo major do package.json), tipo da release (fix/feature/mixed) e o bump que ele decide, manifesto só com o MSI e interruptor do portátil",

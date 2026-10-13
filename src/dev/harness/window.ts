@@ -16,6 +16,14 @@ export function getCurrentWindow() {
     setAlwaysOnTop: noop,
     isMaximized: async () => false,
     isFocused: async () => true,
+    // Área interna em px físicos, como o Tauri entrega (tamanho da interface:
+    // o automático cresce com a janela grande). O zoom do dublê não faz nada,
+    // então ler innerWidth aqui não realimenta.
+    innerSize: async () => {
+      const ratio = window.devicePixelRatio || 1;
+      return { width: Math.round(window.innerWidth * ratio), height: Math.round(window.innerHeight * ratio) };
+    },
+    scaleFactor: async () => window.devicePixelRatio || 1,
     onResized: async () => () => {},
     onMoved: async () => () => {},
     onScaleChanged: async () => () => {},

@@ -66,6 +66,8 @@ function caps(overrides: Partial<PlatformCapabilities> = {}): PlatformCapabiliti
     supportsBotting: true,
     supportsUpdater: true,
     supportsClientSettings: true,
+    supportsLiveAudio: false,
+    supportsMemoryTrim: false,
     reasons: [],
     warnings: [],
     ...overrides,
@@ -182,7 +184,7 @@ describe("store bootstrap", () => {
         HideUsernames: "true",
         HiddenNameLetters: "3",
         ShowAvatarsWhenHidden: "true",
-        HideRobuxWhenHidden: "true",
+        ShowRobux: "true",
       },
       Developer: { DevMode: "true" },
     };
@@ -197,7 +199,7 @@ describe("store bootstrap", () => {
     expect(result.current.hideUsernames).toBe(true);
     expect(result.current.hiddenNameLetters).toBe(3);
     expect(result.current.showAvatarsWhenHidden).toBe(true);
-    expect(result.current.hideRobuxWhenHidden).toBe(true);
+    expect(result.current.showRobux).toBe(true);
     expect(result.current.devMode).toBe(true);
   });
 
@@ -905,6 +907,44 @@ describe("joinServer", () => {
     });
   });
 
+  /**
+   * O dono lançou 3 contas no jogo A e, com a fila andando, mandou mais uma
+   * para o jogo B: o backend agora põe a conta no fim da fila (antes recusava
+   * com "A launch is already in progress", num toast fácil de perder). A tela
+   * diz que ela entrou na fila — e não que está lançando agora.
+   */
+  it("um launch durante a fila entra no fim dela e avisa com um toast curto", async () => {
+    const { result } = await setup();
+    results.set("launch_roblox", { appended: true, added: 1 });
+
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBe("started");
+    });
+
+    const toasts = result.current.toasts.map((toast) => toast.message);
+    expect(toasts).toContain("Added 1 account to the launch queue");
+    expect(toasts).not.toContain("A launch is already in progress");
+    expect(toasts).not.toContain("Launching game...");
+    expect(result.current.error).toBeNull();
+    // O "Launching Main..." do rodapé sai: esta conta não está abrindo agora.
+    expect(result.current.actionStatus?.message ?? "").not.toContain("Main");
+    // Nem o estado de "entrando" desta conta, que é da conta que a fila lança.
+    expect(result.current.joiningAccounts.has(1)).toBe(false);
+  });
+
+  it("uma conta que já esperava na fila não entra de novo, e a tela diz isso", async () => {
+    const { result } = await setup();
+    results.set("launch_roblox", { appended: true, added: 0 });
+
+    await act(async () => {
+      await expect(result.current.joinServer(1)).resolves.toBe("started");
+    });
+
+    expect(result.current.toasts.map((toast) => toast.message)).toContain(
+      "Already waiting in the launch queue"
+    );
+  });
+
   it("announces the account alias in the action status while launching", async () => {
     const { result } = await setup();
     let releaseLaunch = () => {};
@@ -1147,6 +1187,63 @@ describe("launchMultiple", () => {
     expect(result.current.error).toBe("multi failed");
     expect(result.current.joiningAccounts.size).toBe(0);
     expect(result.current.launchProgress).toBeNull();
+  });
+
+  it("um lote durante a fila entra no fim dela e avisa quantas contas entraram", async () => {
+    // O caso do dono: jogo A rodando, 2 contas para o jogo B. Nada de recusa,
+    // nada de exceção (a Choose Game mostraria erro), e o toast diz o que
+    // aconteceu com as contas deste lote.
+    const { result } = await setup();
+    results.set("launch_multiple", { appended: true, added: 2 });
+
+    await act(async () => {
+      await expect(result.current.launchMultiple([1, 2])).resolves.toBeUndefined();
+    });
+
+    const toasts = result.current.toasts.map((toast) => toast.message);
+    expect(toasts).toContain("Added 2 accounts to the launch queue");
+    expect(toasts).not.toContain("A launch is already in progress");
+    expect(toasts).not.toContain("Launching 2 accounts...");
+    expect(result.current.error).toBeNull();
+    expect(result.current.actionStatus?.message).not.toBe("Launching 2 accounts...");
+  });
+
+  it("com a fila rodando, o lote novo não apaga o progresso do lote que está abrindo", async () => {
+    const { result } = await setup();
+    // A fila do lote A está ativa e o backend já disse quem está entrando.
+    act(() => {
+      emit("launch-queue", {
+        entries: [
+          { userId: 3, state: "launching", error: null, updatedAtMs: 1, placeId: 111, jobId: "" },
+        ],
+        active: true,
+        placeId: 111,
+        jobId: "",
+      });
+      emit("launch-progress", { userId: 3, index: 0, total: 1 });
+    });
+    let release = () => {};
+    results.set(
+      "launch_multiple",
+      new Promise((resolve) => {
+        release = () => resolve({ appended: true, added: 2 });
+      })
+    );
+
+    let pending: Promise<unknown> | null = null;
+    await act(async () => {
+      pending = result.current.launchMultiple([1, 2]);
+      await Promise.resolve();
+    });
+    // Enquanto o backend responde, a conta 3 continua sendo a que entra.
+    expect([...result.current.joiningAccounts]).toEqual([3]);
+    expect(result.current.launchProgress).toMatchObject({ userId: 3, total: 1 });
+
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect([...result.current.joiningAccounts]).toEqual([3]);
   });
 
   it("traduz a recusa do backend quando já há um launch em andamento", async () => {
@@ -1971,7 +2068,7 @@ describe("backend events", () => {
   });
 
   /**
-   * `browserDownload` é o que a Settings > General "Bundled Browser" usa para
+   * `browserDownload` é o que a Settings > Accounts "Bundled Browser" usa para
    * desenhar a barra de progresso e o botão Download/Reinstall — trilha o
    * mesmo evento do teste acima, mas guarda estado em vez de só mostrar toast.
    */
@@ -2127,6 +2224,30 @@ describe("presence and running instances", () => {
     await waitFor(() => expect(result.current.launchedByProgram.size).toBe(2));
     expect([...result.current.launchedByProgram].sort()).toEqual([1, 2]);
   });
+
+  /**
+   * Relato do dono (11/10/2026): a memória da linha "Em jogo" parecia lida só
+   * nos primeiros segundos. A store relê `get_running_instances` a cada 2,5 s
+   * e a memória acompanha cada leitura.
+   */
+  it("keeps the client's memory live on every refresh", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    accountsData = [account({ UserID: 1 })];
+    const reading = (memoryMb: number) => [
+      { user_id: 1, pid: 10, adopted: false, memory: { memoryMb, limitMb: null, over: false, trimmedAtMs: null } },
+    ];
+    runningInstances = reading(1187);
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.clientMemory.get(1)?.memoryMb).toBe(1187));
+
+    for (const memoryMb of [1203, 1164]) {
+      runningInstances = reading(memoryMb);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2500);
+      });
+      await waitFor(() => expect(result.current.clientMemory.get(1)?.memoryMb).toBe(memoryMb));
+    }
+  });
 });
 
 describe("AFK mode", () => {
@@ -2226,6 +2347,51 @@ describe("AFK mode", () => {
     });
     // O código cru não vira faixa de erro: a tela escreve a frase.
     expect(result.current.error).not.toBe("notAnAccountWindow");
+  });
+});
+
+describe("AFK mode — parada de emergência por chacoalhar", () => {
+  /** commands/shake_stop.rs: o backend já parou; a tela guarda o motivo e avisa. */
+  it("guarda a parada quando o mouse é chacoalhado, sem toast (o alerta da tela avisa)", async () => {
+    const { result } = await renderStore();
+    expect(result.current.afkEmergencyStop).toBeNull();
+
+    act(() => {
+      emit("afk-emergency-stop", { reason: "shake", afk: true, recordings: false });
+    });
+
+    expect(result.current.afkEmergencyStop).toMatchObject({ reason: "shake", afk: true, recordings: false });
+    // O toast sumia em um segundo; quem avisa é o EmergencyStopAlert.
+    expect(result.current.toasts.map((toast) => toast.message)).not.toContain(
+      "Emergency stop: you shook the mouse."
+    );
+  });
+
+  it("some quando o usuário fecha o aviso ou liga o modo de novo", async () => {
+    const { result } = await renderStore();
+    act(() => {
+      emit("afk-emergency-stop", { reason: "shake", afk: true, recordings: false });
+    });
+    act(() => {
+      result.current.dismissAfkEmergencyStop();
+    });
+    expect(result.current.afkEmergencyStop).toBeNull();
+
+    act(() => {
+      emit("afk-emergency-stop", { reason: "shake", afk: true, recordings: false });
+    });
+    results.set("start_afk_mode", { active: true, startedAtMs: 1, intervalSeconds: 600, key: "Space", accounts: [] });
+    await act(async () => {
+      await result.current.startAfkMode({
+        userIds: [11],
+        intervalSeconds: 600,
+        key: "Space",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+      });
+    });
+    expect(result.current.afkEmergencyStop).toBeNull();
   });
 });
 
@@ -3176,6 +3342,24 @@ describe("activePage", () => {
     expect(result.current.activePage).toBe("avatars");
   });
 
+  /**
+   * Settings › General virou seções (11/10/2026): quem manda para as Settings
+   * por causa de um ajuste (Auto Rejoin desligado, login com CAPTCHA) abre a
+   * seção dele, não a primeira.
+   */
+  it("openSettingsSection opens the Settings page on that section", async () => {
+    const { result } = await renderStore();
+    expect(result.current.settingsSectionRequest).toBeNull();
+    act(() => result.current.openSettingsSection("accounts"));
+    expect(result.current.activePage).toBe("settings");
+    const first = result.current.settingsSectionRequest;
+    expect(first?.section).toBe("accounts");
+    // Pedir a mesma seção de novo é outro pedido (o usuário pode ter trocado de seção no meio).
+    act(() => result.current.openSettingsSection("accounts"));
+    expect(result.current.settingsSectionRequest).not.toBe(first);
+    expect(result.current.settingsSectionRequest?.seq).toBeGreaterThan(first!.seq);
+  });
+
   it("reopening the walkthrough from Settings leaves the Settings page", async () => {
     const { result } = await renderStore();
     act(() => result.current.setSettingsOpen(true));
@@ -3242,6 +3426,44 @@ describe("auto-reconnect", () => {
   });
 });
 
+/**
+ * Cliente que fechou no meio do jogo (commands/closed_clients.rs): a lista vem
+ * inteira do backend; o "×" some na hora e avisa o backend.
+ */
+describe("closed clients", () => {
+  function closed(userId: number) {
+    return {
+      userId,
+      closedAtMs: 1,
+      drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 1 },
+      placeId: 42,
+      rejoin: { placeId: 42, jobId: "job-a", launchData: "", joinVip: false, linkCode: "" },
+    };
+  }
+
+  it("loads the list, follows the event and ignores a broken payload", async () => {
+    results.set("get_closed_clients", { entries: [closed(1)] });
+    const { result } = await renderStore();
+    await waitFor(() => expect([...result.current.closedClients.keys()]).toEqual([1]));
+    act(() => emit("closed-clients", { entries: [closed(1), closed(2)] }));
+    expect([...result.current.closedClients.keys()]).toEqual([1, 2]);
+    act(() => emit("closed-clients", []));
+    expect(result.current.closedClients.size).toBe(0);
+  });
+
+  it("dismiss hides it at once and tells the backend", async () => {
+    results.set("get_closed_clients", { entries: [closed(1)] });
+    results.set("dismiss_closed_client", true);
+    const { result } = await renderStore();
+    await waitFor(() => expect(result.current.closedClients.has(1)).toBe(true));
+    await act(async () => {
+      await result.current.dismissClosedClient(1);
+    });
+    expect(result.current.closedClients.has(1)).toBe(false);
+    expect(invokeCalls("dismiss_closed_client").map((c) => c[1])).toEqual([{ userId: 1 }]);
+  });
+});
+
 /** Queda lida do log do Roblox: o aviso dizia "user1 in Roblox: Disconnected: lost connection". */
 describe("client drop toast", () => {
   it("names the account and the drop without a double colon", async () => {
@@ -3263,5 +3485,77 @@ describe("client drop toast", () => {
     const { result } = await renderStore();
     act(() => emit("auto-reconnect", { entries: [], reconnected: [1] }));
     expect(result.current.toasts.map((t) => t.message)).toContain("user1 is back in the game");
+  });
+});
+
+/**
+ * "While you were away": o que aconteceu enquanto ninguém olhava a tela. Sai
+ * dos mesmos eventos que viram toast (que somem em segundos), guardado na
+ * memória da sessão do app.
+ */
+describe("away digest", () => {
+  const LOST = { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 0 };
+
+  it("notes a drop and an emergency stop, newest first, as unread", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("afk-emergency-stop")).toBe(true));
+    expect(result.current.awayEvents).toEqual([]);
+
+    act(() => emit("roblox-client-health", { userId: 1, drop: LOST }));
+    act(() => emit("afk-emergency-stop", { reason: "shake", afk: true, recordings: false }));
+
+    expect(result.current.awayEvents.map((e) => e.kind)).toEqual(["emergencyStop", "dropped"]);
+    expect(result.current.awayEvents[1]).toMatchObject({ userId: 1, drop: LOST });
+    expect(result.current.awayUnread).toBe(2);
+  });
+
+  it("opening the Session page marks everything as seen", async () => {
+    const { result } = await renderStore();
+    act(() => emit("roblox-client-health", { userId: 1, notResponding: true }));
+    expect(result.current.awayUnread).toBe(1);
+    act(() => result.current.setActivePage("session"));
+    expect(result.current.awayUnread).toBe(0);
+    expect(result.current.awayEvents).toHaveLength(1);
+  });
+
+  it("notes reconnect outcomes, AFK send failures and Auto Rejoin failures", async () => {
+    const { result } = await renderStore();
+    await waitFor(() => expect(listenHandlers.has("auto-reconnect")).toBe(true));
+    const gaveUp = {
+      userId: 2,
+      phase: "gaveUp",
+      attempt: 5,
+      maxAttempts: 5,
+      nextAttemptAtMs: null,
+      reason: null,
+      error: null,
+      drop: LOST,
+    };
+    act(() => emit("auto-reconnect", { entries: [gaveUp], reconnected: [3] }));
+    // O mesmo retrato de novo não vira outro evento.
+    act(() => emit("auto-reconnect", { entries: [gaveUp] }));
+    act(() =>
+      emit("afk-status", {
+        active: true,
+        startedAtMs: 1,
+        intervalSeconds: 600,
+        key: "Space",
+        mode: "key",
+        clickX: 50,
+        clickY: 50,
+        accounts: [
+          { userId: 4, lastSendAtMs: Date.now(), nextSendAtMs: 0, sends: 0, lastError: "x", lastErrorCode: "noWindow" },
+        ],
+      })
+    );
+    act(() => emit("botting-account-cycle", { userId: 5, ok: false, error: "no build" }));
+    act(() => emit("botting-account-cycle", { userId: 5, ok: true }));
+
+    const kinds = result.current.awayEvents.map((e) => `${e.kind}:${e.userId}`).sort();
+    expect(kinds).toEqual(["afkSendFailed:4", "reconnectEnded:2", "reconnected:3", "rejoinFailed:5"]);
+
+    act(() => result.current.clearAwayEvents());
+    expect(result.current.awayEvents).toEqual([]);
   });
 });

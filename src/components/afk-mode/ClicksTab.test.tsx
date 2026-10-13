@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tau
 import { ClicksTab, formatAfkElapsed } from "./ClicksTab";
 import type { AfkStatus, StoreValue } from "../../store";
 import { defaultSettings, makeAccount, setStore, storeRef } from "../../test-utils/renderWithStore";
-import { invokeMock, resetTauriMocks } from "../../test-utils/tauriMocks";
+import { resetTauriMocks } from "../../test-utils/tauriMocks";
 import i18n from "../../i18n";
 import { writeAfkPoint } from "../../afkClickPoint";
 
@@ -288,16 +288,8 @@ describe("ClicksTab — intervalo em minutos e segundos", () => {
     await typeInto("Send every: minutes", "0");
     await typeInto("Send every: seconds", "10");
 
-    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
-      section: "Afk",
-      key: "IntervalMinutes",
-      value: "0",
-    });
-    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
-      section: "Afk",
-      key: "IntervalSeconds",
-      value: "10",
-    });
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "IntervalMinutes", "0");
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "IntervalSeconds", "10");
 
     await start();
     expect(store.startAfkMode).toHaveBeenCalledWith(expect.objectContaining({ intervalSeconds: 10 }));
@@ -339,7 +331,8 @@ describe("ClicksTab — intervalo em minutos e segundos", () => {
           accounts: [makeAfkAccount({ userId: 11, lastSendAtMs: startedAt, nextSendAtMs: startedAt + 10_000 })],
         }),
       });
-      expect(screen.getByRole("button", { name: ACCOUNTS[0].Username }).textContent).toContain("0:10");
+      // "next 0:10": só "0:10" solto não dizia que era o próximo envio.
+      expect(screen.getByRole("button", { name: ACCOUNTS[0].Username }).textContent).toContain("next 0:10");
     } finally {
       vi.useRealTimers();
     }
@@ -478,16 +471,65 @@ describe("ClicksTab — dá para saber que está funcionando", () => {
 
   /** O som explica o piscar de foco; ligado por quem quer, nunca por padrão. */
   it("o aviso sonoro nasce desligado e grava a escolha no INI", async () => {
-    renderDialog();
+    const { store } = renderDialog();
     const toggle = screen.getByRole("button", { name: "Beep when a cycle finishes" });
     expect(toggle).toHaveAttribute("aria-pressed", "false");
 
     await userEvent.click(toggle);
-    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
-      section: "Afk",
-      key: "BeepOnCycle",
-      value: "true",
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "BeepOnCycle", "true");
+  });
+});
+
+/**
+ * Ideia 25: com um vídeo ou outro jogo em tela cheia na frente, o ciclo espera
+ * em vez de roubar o foco (`afk_fullscreen_gate`). Ligado por padrão — protege
+ * quem está vendo algo — e a tela diz quando está esperando.
+ */
+describe("ClicksTab — espera a tela cheia sair", () => {
+  it("nasce ligado, explica numa frase e grava a escolha no INI", async () => {
+    const { store } = renderDialog();
+    const toggle = screen.getByRole("button", { name: "Wait while a fullscreen window is in front" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/a video or another game in fullscreen/i)).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "WaitForFullscreen", "false");
+  });
+
+  it("lê a escolha desligada do INI", () => {
+    const settings = defaultSettings();
+    settings.Afk = { ...(settings.Afk ?? {}), WaitForFullscreen: "false" };
+    renderDialog({ settings });
+    expect(
+      screen.getByRole("button", { name: "Wait while a fullscreen window is in front" })
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("diz que está esperando enquanto a tela cheia segura o ciclo", () => {
+    renderDialog({
+      afkStatus: makeAfkStatus({
+        active: true,
+        startedAtMs: Date.now(),
+        key: "Space",
+        accounts: [makeAfkAccount()],
+        waitingFullscreen: true,
+      }),
     });
+    expect(screen.getByText("Waiting: a fullscreen window is in front")).toBeInTheDocument();
+  });
+
+  it("não diz nada disso com o ciclo andando normalmente", () => {
+    renderDialog({
+      afkStatus: makeAfkStatus({
+        active: true,
+        startedAtMs: Date.now(),
+        key: "Space",
+        accounts: [makeAfkAccount()],
+        waitingFullscreen: false,
+      }),
+    });
+    expect(screen.queryByText("Waiting: a fullscreen window is in front")).not.toBeInTheDocument();
   });
 });
 
@@ -765,15 +807,11 @@ describe("ClicksTab — modo clique", () => {
   }
 
   it("trocar para clique grava o modo no INI e esconde a tecla", async () => {
-    renderDialog();
+    const { store } = renderDialog();
     await userEvent.click(screen.getByLabelText("What to send"));
     await userEvent.click(screen.getByRole("button", { name: "Mouse click" }));
 
-    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
-      section: "Afk",
-      key: "Mode",
-      value: "click",
-    });
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "Mode", "click");
     expect(screen.queryByLabelText("Key to send")).not.toBeInTheDocument();
     expect(screen.getByText("50% × 50%")).toBeInTheDocument();
   });
@@ -820,8 +858,8 @@ describe("ClicksTab — modo clique", () => {
 
       expect(store.captureAfkPoint).toHaveBeenCalledTimes(1);
       expect(screen.getByText("52.5% × 71%")).toBeInTheDocument();
-      expect(invokeMock).toHaveBeenCalledWith("update_setting", { section: "Afk", key: "ClickX", value: "52.5" });
-      expect(invokeMock).toHaveBeenCalledWith("update_setting", { section: "Afk", key: "ClickY", value: "71" });
+      expect(store.updateSetting).toHaveBeenCalledWith("Afk", "ClickX", "52.5");
+      expect(store.updateSetting).toHaveBeenCalledWith("Afk", "ClickY", "71");
       expect(store.addToast).toHaveBeenCalledWith("Point marked on bravo's window");
     } finally {
       vi.useRealTimers();
@@ -845,7 +883,7 @@ describe("ClicksTab — modo clique", () => {
         "error"
       );
       expect(screen.getByText("50% × 50%")).toBeInTheDocument();
-      expect(invokeMock).not.toHaveBeenCalledWith("update_setting", expect.objectContaining({ key: "ClickX" }));
+      expect(store.updateSetting).not.toHaveBeenCalledWith("Afk", "ClickX", expect.anything());
     } finally {
       vi.useRealTimers();
     }
@@ -1032,5 +1070,64 @@ describe("ClicksTab — nomes ocultos", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * A aba Recordings também liga "repetir no Modo AFK" e muda o intervalo. As
+ * abas ficam montadas juntas: esta segue o INI quando ele muda por fora.
+ */
+describe("ClicksTab — segue o INI mudado pela aba Recordings", () => {
+  it("o modo e o intervalo trocados por fora aparecem aqui", () => {
+    const settings = defaultSettings();
+    settings.Afk = { IntervalMinutes: "10", IntervalSeconds: "0", Key: "Space", Mode: "key" };
+    setStore({ accounts: ACCOUNTS, launchedByProgram: new Set([11, 22]), afkKeys: KEYS, afkStatus: makeAfkStatus(), settings });
+    const view = render(<ClicksTab />);
+    expect(screen.getByRole("button", { name: "What to send" })).toHaveTextContent("Key press");
+
+    // A mesma instância (sem remontar): só o store mudou.
+    storeRef.current = {
+      ...storeRef.current,
+      settings: { ...settings, Afk: { ...settings.Afk, Mode: "recording", IntervalMinutes: "2", IntervalSeconds: "30" } },
+    };
+    view.rerender(<ClicksTab />);
+    expect(screen.getByRole("button", { name: "What to send" })).toHaveTextContent("Play the recording");
+    expect(screen.getByLabelText("Send every: minutes")).toHaveValue("2");
+    expect(screen.getByLabelText("Send every: seconds")).toHaveValue("30");
+  });
+});
+
+/**
+ * Parada de emergência por chacoalhar o mouse (`Afk.ShakeToStop`, desligada por
+ * padrão — commands/shake_stop.rs). Com o ciclo levando o cursor, o usuário não
+ * alcança o Parar: a barra diz que chacoalhar para, e depois diz que parou.
+ */
+describe("ClicksTab — parada de emergência por chacoalhar", () => {
+  function running() {
+    return makeAfkStatus({
+      active: true,
+      startedAtMs: Date.now(),
+      key: "Space",
+      accounts: [makeAfkAccount()],
+    });
+  }
+
+  it("com a opção ligada, lembra perto do Parar que chacoalhar o mouse para", () => {
+    const settings = defaultSettings();
+    settings.Afk = { ...(settings.Afk ?? {}), ShakeToStop: "true" };
+    renderDialog({ settings, afkStatus: running() });
+    expect(screen.getByTestId("clicks-status")).toHaveTextContent("Shake the mouse to stop.");
+  });
+
+  it("com a opção desligada (o padrão), não promete nada", () => {
+    renderDialog({ afkStatus: running() });
+    expect(screen.queryByText("Shake the mouse to stop.")).not.toBeInTheDocument();
+  });
+
+  it("depois do chacoalhar, a barra diz por que o modo parou", () => {
+    renderDialog({
+      afkEmergencyStop: { reason: "shake", afk: true, recordings: false, atMs: Date.now() },
+    });
+    expect(screen.getByTestId("clicks-status")).toHaveTextContent("Emergency stop: you shook the mouse.");
   });
 });

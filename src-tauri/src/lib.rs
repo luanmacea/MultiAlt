@@ -14,9 +14,12 @@ use data::accounts::{get_account_data_path, AccountStore};
 use data::avatars::AvatarStore;
 use data::crypto;
 use data::game_lists::GameListsStore;
+use data::launch_presets::LaunchPresetStore;
+use data::recordings::RecordingStore;
+use data::session_history::SessionHistoryStore;
 use data::scripts::ScriptStore;
 use data::settings::{
-    get_avatars_path, get_game_lists_path, get_scripts_path, get_settings_path, get_theme_path, get_theme_presets_path,
+    get_avatars_path, get_game_lists_path, get_launch_presets_path, get_recordings_path, get_scripts_path, get_session_history_path, get_settings_path, get_theme_path, get_theme_presets_path,
     SettingsStore, ThemePresetStore, ThemeStore,
 };
 use data::versions::{get_versions_catalog_path, VersionsCatalogStore};
@@ -36,24 +39,32 @@ include!("commands/launch_shared.rs");
 include!("commands/botting.rs");
 include!("commands/generators.rs");
 include!("commands/launch.rs");
+include!("commands/launch_presets.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
 include!("commands/versions.rs");
 include!("commands/watcher.rs");
 include!("commands/afk.rs");
+include!("commands/recordings.rs");
 include!("commands/services.rs");
 include!("commands/updater.rs");
 include!("commands/backups.rs");
 include!("commands/avatars.rs");
 include!("commands/groups.rs");
 include!("commands/external_clients.rs");
+include!("commands/focus_follow.rs");
 include!("commands/client_health.rs");
+include!("commands/session_history.rs");
 include!("commands/clipboard.rs");
 include!("commands/moderation.rs");
 include!("commands/account_check.rs");
 include!("commands/reconnect.rs");
+include!("commands/closed_clients.rs");
 include!("commands/keep_awake.rs");
+include!("commands/quick_login.rs");
+include!("commands/memory_ceiling.rs");
+include!("commands/shake_stop.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -107,6 +118,95 @@ mod exit_cleanup_tests {
         for clientes in [0, 1, 5] {
             assert_eq!(exit_cleanup_plan(false, clientes), ExitCleanup::Nothing);
         }
+    }
+}
+
+/// O que fazer, ao fechar, com o que o launch mudou nos arquivos do Roblox
+/// (ideia 21, `General.RestoreRobloxSettingsOnExit`).
+#[derive(Debug, PartialEq, Eq)]
+enum SettingsOnExit {
+    /// Nada anotado, ou nada a fazer agora.
+    Nothing,
+    /// Devolve os valores do usuário.
+    Restore,
+    /// Um cliente que o app abriu ainda roda: ele relê e regrava esses
+    /// arquivos. A anotação fica para o próximo fechar. Nenhum cliente é
+    /// fechado por isso.
+    WaitForClients,
+    /// A opção foi desligada: esquece o anotado (sem mexer nos arquivos).
+    Discard,
+}
+
+fn settings_on_exit_plan(enabled: bool, pending: bool, app_clients_running: bool) -> SettingsOnExit {
+    if !pending {
+        return SettingsOnExit::Nothing;
+    }
+    if !enabled {
+        return SettingsOnExit::Discard;
+    }
+    if app_clients_running {
+        return SettingsOnExit::WaitForClients;
+    }
+    SettingsOnExit::Restore
+}
+
+#[cfg(test)]
+mod settings_on_exit_tests {
+    use super::*;
+
+    #[test]
+    fn with_no_client_of_the_app_running_the_users_settings_come_back() {
+        assert_eq!(settings_on_exit_plan(true, true, false), SettingsOnExit::Restore);
+    }
+
+    #[test]
+    fn a_client_the_app_opened_still_running_postpones_and_closes_nothing() {
+        assert_eq!(settings_on_exit_plan(true, true, true), SettingsOnExit::WaitForClients);
+    }
+
+    #[test]
+    fn nothing_recorded_means_nothing_to_do() {
+        for (enabled, running) in [(true, false), (true, true), (false, false)] {
+            assert_eq!(settings_on_exit_plan(enabled, false, running), SettingsOnExit::Nothing);
+        }
+    }
+
+    #[test]
+    fn with_the_option_off_what_was_recorded_is_forgotten() {
+        assert_eq!(settings_on_exit_plan(false, true, false), SettingsOnExit::Discard);
+        assert_eq!(settings_on_exit_plan(false, true, true), SettingsOnExit::Discard);
+    }
+}
+
+/// Ao fechar: devolve as configurações do Roblox (ideia 21). Antes da limpeza
+/// do Multi Roblox, que esvazia o rastreamento. Nunca fecha cliente.
+#[cfg(target_os = "windows")]
+static SETTINGS_EXIT_DECIDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "windows")]
+fn restore_roblox_settings_on_exit(app: &AppHandle<Wry>) {
+    use platform::windows;
+    // Decide uma vez só: o `Exit` vem depois do `ExitRequested`, com o
+    // rastreamento já esvaziado pela limpeza do Multi Roblox — e aí pareceria
+    // que nenhum cliente do app está aberto.
+    if SETTINGS_EXIT_DECIDED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let enabled = app
+        .state::<SettingsStore>()
+        .get_bool("General", "RestoreRobloxSettingsOnExit");
+    let pending = windows::has_pending_roblox_settings_restore();
+    let alive: std::collections::HashSet<u32> = windows::get_roblox_pids().into_iter().collect();
+    let app_clients_running = windows::tracker()
+        .get_all()
+        .iter()
+        .any(|process| !process.adopted && alive.contains(&process.pid));
+    match settings_on_exit_plan(enabled, pending, app_clients_running) {
+        SettingsOnExit::Nothing | SettingsOnExit::WaitForClients => {}
+        SettingsOnExit::Restore => {
+            windows::restore_roblox_settings();
+        }
+        SettingsOnExit::Discard => windows::discard_roblox_settings_restore(),
     }
 }
 
@@ -240,6 +340,9 @@ pub fn run() {
     let script_store = ScriptStore::new(get_scripts_path());
     let avatar_store = AvatarStore::new(get_avatars_path());
     let game_lists_store = GameListsStore::new(get_game_lists_path());
+    let launch_preset_store = LaunchPresetStore::new(get_launch_presets_path());
+    let recording_store = RecordingStore::new(get_recordings_path());
+    let session_history_store = SessionHistoryStore::new(get_session_history_path());
     let versions_catalog = VersionsCatalogStore::new(get_versions_catalog_path());
     let image_cache = ImageCache::new();
 
@@ -265,6 +368,9 @@ pub fn run() {
         .manage(script_store)
         .manage(avatar_store)
         .manage(game_lists_store)
+        .manage(launch_preset_store)
+        .manage(recording_store)
+        .manage(session_history_store)
         .manage(versions_catalog)
         .manage(image_cache)
         .manage(UpdaterRuntimeState::default())
@@ -288,6 +394,10 @@ pub fn run() {
                 app.state::<AccountStore>().inner(),
             );
 
+            // Histórico de sessões: fecha o que a última execução deixou aberto
+            // (antes de o monitor de quedas começar a gravar o novo).
+            start_session_history(app.handle());
+
             // Clientes abertos pelo site (ou antes de o app abrir) entram no
             // "Em jogo" pelo log do Roblox — ver commands/external_clients.rs.
             #[cfg(target_os = "windows")]
@@ -296,6 +406,13 @@ pub fn run() {
             // commands/client_health.rs.
             #[cfg(target_os = "windows")]
             start_client_health_monitor(app.handle().clone());
+
+            // Horários dos presets de launch: só com o app aberto, sem
+            // recuperar o que passou — ver commands/launch_presets.rs.
+            start_preset_scheduler(app.handle().clone());
+            // Otimização que segue o foco: o laço só age com a opção ligada.
+            #[cfg(target_os = "windows")]
+            start_focus_follow_loop(app.handle().clone());
 
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -393,6 +510,7 @@ pub fn run() {
             data::accounts::needs_password,
             data::accounts::vault_key_warning,
             data::accounts::set_encryption_password,
+            data::accounts::verify_app_password,
             data::accounts::reorder_accounts,
             data::accounts::import_old_account_data,
             data::scripts::get_scripts,
@@ -494,6 +612,9 @@ pub fn run() {
             set_display_name,
             quick_login_enter_code,
             quick_login_validate_code,
+            add_by_quick_login_start,
+            add_by_quick_login_poll,
+            add_by_quick_login_cancel,
             batched_get_image,
             batched_get_avatar_headshots,
             batched_get_game_icon,
@@ -502,6 +623,14 @@ pub fn run() {
             clear_image_cache,
             launch_roblox,
             launch_multiple,
+            get_launch_presets,
+            save_launch_preset,
+            delete_launch_preset,
+            launch_preset,
+            close_preset_clients,
+            get_session_history,
+            get_current_sessions,
+            save_history_export,
             cancel_launch,
             get_launch_queue,
             cancel_account_launch,
@@ -532,6 +661,7 @@ pub fn run() {
             cmd_apply_fps_unlock,
             kill_legacy_ram_processes,
             diagnose_mutex_holder,
+            run_launch_diagnostics,
             get_platform_capabilities,
             isolation_get_status,
             isolation_save,
@@ -555,9 +685,23 @@ pub fn run() {
             get_afk_keys,
             afk_trigger_now,
             afk_capture_point,
+            get_recordings,
+            save_recording,
+            duplicate_recording,
+            delete_recording,
+            set_default_recording,
+            set_account_recording,
+            play_recording_now,
+            stop_recording_playback,
+            get_recording_playback,
+            import_tinytask_recording,
+            play_recording_draft,
+            recording_window_area,
             get_auto_reconnect_status,
             stop_auto_reconnect,
             retry_auto_reconnect,
+            get_closed_clients,
+            dismiss_closed_client,
             chromium::commands::open_login_browser,
             chromium::commands::extract_browser_cookie,
             chromium::commands::close_login_browser,
@@ -586,13 +730,20 @@ pub fn run() {
             set_nexus_element_value,
             export_nexus_lua,
             open_repo_url,
+            open_discord_invite,
             open_feedback_form,
+            get_report_environment,
             sync_windows_navbar_theme,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
             tauri::RunEvent::ExitRequested { .. } => {
+                // Antes da limpeza do Multi Roblox, que esvazia o rastreamento.
+                #[cfg(target_os = "windows")]
+                release_focus_follow_on_exit(app);
+                #[cfg(target_os = "windows")]
+                restore_roblox_settings_on_exit(app);
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
                 // Devolve o PC ao normal (commands/keep_awake.rs).
@@ -602,6 +753,10 @@ pub fn run() {
                 cleanup_multi_roblox_on_exit(app);
             }
             tauri::RunEvent::Exit => {
+                #[cfg(target_os = "windows")]
+                release_focus_follow_on_exit(app);
+                #[cfg(target_os = "windows")]
+                restore_roblox_settings_on_exit(app);
                 #[cfg(target_os = "windows")]
                 cleanup_multi_roblox_on_exit(app);
                 #[cfg(target_os = "windows")]

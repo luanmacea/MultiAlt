@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("./store", async () => (await import("./test-utils/renderWithStore")).storeModuleMock());
@@ -176,6 +176,38 @@ describe("App — main layout", () => {
   });
 });
 
+/** Botão lateral do mouse como o WebView2 entrega (3 = Voltar, 4 = Avançar). */
+function pressSideButton(button: 3 | 4) {
+  act(() => {
+    for (const type of ["mousedown", "mouseup", "auxclick"]) {
+      window.dispatchEvent(new MouseEvent(type, { button, bubbles: true, cancelable: true }));
+    }
+  });
+}
+
+describe("App — botões laterais do mouse", () => {
+  it("Voltar fecha a Choose Game como o Escape fecharia", () => {
+    const store = renderApp({ chooseGameOpen: true, ...selecting([1]) });
+    pressSideButton(3);
+    expect(store.setChooseGameOpen).toHaveBeenCalledWith(false);
+    expect(store.setActivePage).not.toHaveBeenCalled();
+  });
+
+  it("Voltar na lista de contas, sem histórico, não faz nada (nem limpa a seleção)", () => {
+    const store = renderApp(selecting([1]));
+    pressSideButton(3);
+    pressSideButton(4);
+    expect(store.setActivePage).not.toHaveBeenCalled();
+    expect(store.deselectAll).not.toHaveBeenCalled();
+  });
+
+  it("Voltar numa página não cai em Accounts pelo Escape da página quando não há para onde voltar", () => {
+    const store = renderApp({ activePage: "settings" });
+    pressSideButton(3);
+    expect(store.setActivePage).not.toHaveBeenCalled();
+  });
+});
+
 describe("App — error banner, toasts and the generic modal", () => {
   it("shows a dismissible error banner", async () => {
     const store = renderApp({ error: "Something went wrong" });
@@ -220,15 +252,26 @@ describe("App — error banner, toasts and the generic modal", () => {
       ],
     });
 
-    expect(screen.getByText(/Choose Game/)).toBeInTheDocument();
+    // O log mora na página Console da barra lateral (era a aba da Choose Game).
+    expect(screen.getByText(/Console page/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Open launch log" }));
-    expect(store.setChooseGameOpen).toHaveBeenCalledWith(true);
+    expect(store.setActivePage).toHaveBeenCalledWith("console");
+    expect(store.setChooseGameOpen).not.toHaveBeenCalled();
+  });
+
+  it("does not offer the launch log while the Console page is already open", () => {
+    renderApp({
+      error: "Launch failed",
+      activePage: "console",
+      launchLogs: [{ id: 1, userId: 1, level: "error", step: "launch", message: "boom", ts: Date.now() }],
+    });
+    expect(screen.queryByRole("button", { name: "Open launch log" })).not.toBeInTheDocument();
   });
 
   it("offers no launch log when nothing was logged", () => {
     renderApp({ error: "Launch failed", launchLogs: [] });
     expect(screen.queryByRole("button", { name: "Open launch log" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Choose Game/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Console page/)).not.toBeInTheDocument();
   });
 
   it("stacks the toasts", () => {
@@ -466,5 +509,46 @@ describe("App — screen tutorials", () => {
     cleanup();
     renderApp({ activePage: "accounts" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 1500 });
+  });
+});
+
+describe("App — trancado por inatividade (ideia 27)", () => {
+  it("covers the app with the lock screen without unmounting what is behind it", () => {
+    renderApp({ appLocked: true });
+    const overlay = screen.getByRole("dialog", { name: "MultiAlt is locked" });
+    expect(overlay).toBeInTheDocument();
+    // A lista de contas continua montada (nada para), só fica inerte.
+    const behind = screen.getByText("ann").closest("[inert]");
+    expect(behind).not.toBeNull();
+    expect(overlay.closest("[inert]")).toBeNull();
+  });
+
+  it("shows no lock screen while unlocked", () => {
+    renderApp();
+    expect(screen.queryByRole("dialog", { name: "MultiAlt is locked" })).not.toBeInTheDocument();
+    expect(document.querySelector("[inert]")).toBeNull();
+  });
+
+  it("locks by itself after the set minutes only with the option on and an app password", () => {
+    vi.useFakeTimers();
+    try {
+      const settings = defaultSettings();
+      const on = { ...settings, General: { ...settings.General, LockOnInactivity: "true", LockAfterMinutes: "1" } };
+      const store = renderApp({ settings: on, accountsEncrypted: true });
+      vi.advanceTimersByTime(70_000);
+      expect(store.lockApp).toHaveBeenCalled();
+      cleanup();
+
+      const noPassword = renderApp({ settings: on, accountsEncrypted: false });
+      vi.advanceTimersByTime(10 * 60_000);
+      expect(noPassword.lockApp).not.toHaveBeenCalled();
+      cleanup();
+
+      const off = renderApp({ settings, accountsEncrypted: true });
+      vi.advanceTimersByTime(10 * 60_000);
+      expect(off.lockApp).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

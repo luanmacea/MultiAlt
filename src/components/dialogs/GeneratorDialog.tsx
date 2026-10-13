@@ -322,7 +322,7 @@ export function GeneratorDialog({ open, onClose, initialTab = "provider" }: Gene
                 // As Settings abrem por cima de tudo; fechar o diálogo primeiro
                 // evita dois modais empilhados sobre o mesmo assunto.
                 handleClose();
-                store.setSettingsOpen(true);
+                store.openSettingsSection("accounts");
               }}
             />
           </div>

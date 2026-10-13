@@ -13,6 +13,10 @@ Ordem de trabalho das ideias de [ideias-de-outros-gerenciadores.md](ideias-de-ou
   `.exe` ser marcado fica fora, ou atrás de um interruptor, até a decisão do dono.
 - **Fácil de entender:** opção nova vem desligada ou com padrão seguro, com uma
   frase dizendo o que faz; nada de tela nova onde um interruptor resolve.
+- **Versões em escada** (pedido do dono, 10/10/2026): cada pacote sai da branch
+  do anterior, na ordem de publicação, e leva tudo o que veio antes. A 1.6 tem
+  o conteúdo da 1.3, 1.4 e 1.5. Pacote feito em paralelo recebe o merge do
+  anterior antes do build de teste.
 
 ## Ritmo das versões
 
@@ -29,8 +33,15 @@ de subir a próxima:
 |---|---|---|---|---|
 | 1.1.0 | telas pequenas, feedback, tamanho da interface | — | 08/10/2026 | |
 | 1.2.0 | **Conta** (8, 10, 26, 7, 9) + ícones na legenda de status | 10/10/2026 | 10/10/2026 | "minor update"; `.exe` e MSI limpos no Defender e VirusTotal |
-| próxima | **Quedas** (1, 19, 4) | branch `feature/quedas` | — | não antes de 12/10/2026; falta teste do dono com cliente real |
-| depois | **Reconexão** (2, 14, 23) | branch a partir de `feature/quedas` (10/10/2026) | — | falta build, scan (API nativa nova: `SetThreadExecutionState`) e teste do dono com cliente real |
+| 1.2.1 | hotfix do Modo AFK: o foco volta para a janela certa depois do ciclo (#23) e o intervalo aceita minutos e segundos; mais a edição completa saindo pela feature `full` (`MultiAlt_<v>_Full-Setup.msi`) | 10/10/2026 | 10/10/2026 | PR #24; já está nos pacotes abaixo (merge da `develop` na escada) |
+| 1.3 (próxima) | **Quedas** (1, 19, 4) | branch `feature/quedas` | — | não antes de 12/10/2026; falta teste do dono com cliente real |
+| 1.4 | **Reconexão** (2, 14, 23) — inclui a 1.3 | branch `feature/reconexao` (sai da `feature/quedas`) | — | API nativa nova (`SetThreadExecutionState`); falta teste do dono com cliente real |
+| 1.5 | **Desempenho** (18, 20, 22) — inclui a 1.3 e a 1.4 | branch `feature/desempenho` (recebeu a `feature/reconexao`) | — | tudo opcional e desligado; volume ao vivo (20) nas duas edições (feature `live-audio`, dentro do `standard`); falta teste do dono com cliente real ([performance.md](features/performance.md)) |
+| 1.6 | **Organização** (13, 6) — inclui a 1.3, 1.4 e 1.5 | branch `feature/organizacao` (recebeu a `feature/desempenho`) | — | presets com horário e histórico de sessões; sem API nativa nova; falta teste do dono com cliente real ([presets.md](features/presets.md), [history.md](features/history.md)) |
+| 1.7 | **Conforto** (teto de memória, 25, 21) — inclui a 1.3 a 1.6 | branch `feature/conforto` (sai da `feature/organizacao`) | — | teto de memória que libera RAM antes de fechar, com limite por cliente na página Session — nas duas edições (feature `memory-trim` no `standard`, scan limpo em 11/10/2026); AFK espera a tela cheia de outro programa (ligado por padrão); devolver as configurações do Roblox ao fechar (desligado); falta teste do dono com cliente real ([watcher.md](features/watcher.md#teto-de-memória), [afk-mode.md](features/afk-mode.md#tela-cheia-na-frente-ideia-25), [performance.md](features/performance.md)) |
+| 1.8 | **Gravações** (fase 1: editor de passos e tocar) — inclui a 1.3 a 1.7 | branch `feature/gravacoes` (recebeu a `feature/conforto`) | — | gravar ao vivo (fase 2) ficou de fora; tocar testado com cliente real em 11/10/2026 ([recordings.md](features/recordings.md)) |
+| 1.9 | **Suporte** (16, 28, 27, 12, 3) — inclui a 1.3 a 1.8 | branch `feature/suporte` (recebeu a `feature/gravacoes`) | — | diagnóstico do launch, resumo anônimo no feedback, trancar por inatividade (desligado), Quick Login e a proteção de teleporte (experimental, desligada); falta teste do dono do Quick Login e do teleporte ([support.md](features/support.md)) |
+| 2.0.0 | **MultiAlt 2.0** = os pacotes 1.3 a 1.9 + o refinamento da navegação e da página Session (pedido do dono, 11/10/2026: o painel por conta quase não é usado; quem tem muitas contas vive na página Session) | branch `feature/v2` | — | Console vira página da barra lateral (log + grade de janelas, com a seleção de monitores lida da store); Choose Game sem Console e Windows; Session com faixa de números que filtra, "In game" agrupado por jogo e servidor com "Needs attention" no topo, chips compactos de memória e reconexão por linha e em lote, barra de lote presa ao pé, Shift+clique, fechar seguro (Close all / Close selected com lista, Close? na linha) e acessibilidade (texto apagado a 4,5:1 em todo tema, claro também; aria-live; alvos de 24 px; vírgula decimal em pt/es) — ver [ui-layout.md](features/ui-layout.md#painel-de-sessão-sessionpanel) |
 
 ## Pacotes
 
@@ -41,6 +52,8 @@ de subir a próxima:
 | 1.4 | **Conta** | 8, 10, 26, 7, 9 | Leituras simples e baratas, sem código nativo novo. |
 | 1.5 | **Desempenho** | 18, 20, 22 | Otimização que segue o foco, volume ao vivo, grade menor. Mexe com APIs nativas: precisa de cuidado com antivírus. |
 | 1.6 | **Organização** | 13, 6 | Presets/agendamento e histórico de sessões. |
+| 1.8 | **Gravações** — fase 1 nas duas edições (branch `feature/gravacoes`, sai da `feature/organizacao`); a gravação ao vivo não foi feita | — | Estado (11/10/2026): biblioteca, editor de passos, reprodução, uma gravação para todas ou por conta, gatilhos no Modo AFK e depois da reconexão — [recordings.md](features/recordings.md); falta teste do dono com cliente real. Pedido do dono (10/10/2026): grava uma vez (teclas, cliques e esperas numa janela; o Roblox só aceita entrada na janela em foco, então espelhar ao vivo não dá) e o app reproduz, uma janela por vez. **Quando roda:** depois da reconexão (a conta voltou e passou o tempo configurado no jogo — só nela, para reposicionar) e no modo AFK (com intervalo entre uma execução e outra). **Biblioteca:** lista das gravações salvas para reusar, renomear e apagar. **Qual roda:** uma gravação para todas as contas ou uma por conta, que vence a geral. Gravar lê teclado e mouse: só na completa; reproduzir passa pelo mesmo ponto único de envio do AFK. |
+| 1.7 | **Edição completa** | 20, memória, 15 | Decisão do dono (10/10/2026): a edição padrão sai sem nenhum alerta; o que um scanner marca vai para a completa (só no GitHub). O volume ao vivo (20) já vai na completa desde a 1.5 (feature `live-audio` no `full`); entram a conferência da assinatura do Roblox (15), mais o que fizer o exe padrão ser marcado desde o Quedas. O teto de memória que libera RAM em vez de fechar o cliente saiu antes, no pacote **Conforto**, nas duas edições (feature `memory-trim`). |
 | depois | — | 24, 25, 27, 28, 21, 30 | Bons, sem urgência. A 30 (Mac) depende de alguém testar num Mac. |
 | teste | **Multi Roblox** | 3 | Ver abaixo: pode até **reduzir** o risco de antivírus. Só com teste real. |
 
@@ -56,6 +69,10 @@ de subir a próxima:
   isso não entra. Bônus: se funcionar, dá para parar de mexer nos processos do
   Roblox, que é justamente o tipo de código que antivírus estranham. Precisa de
   teste com você teleportando entre places com 2+ contas abertas.
+  **Feito no pacote Suporte como opção experimental desligada** ("Experimental:
+  keep clients open across teleports", Settings › General): o método atual
+  continua o padrão e nada fecha cliente. Falta o seu teste com teleporte —
+  ver [launch.md](features/launch.md#regras-de-negócio).
 - **7 — gravar o cookie novo.** Às vezes o Roblox troca o cookie da conta numa
   resposta. Hoje só guardamos o novo em dois casos (sair das outras sessões e
   trocar senha). Se ele trocar em outra hora, a conta salva fica com o cookie

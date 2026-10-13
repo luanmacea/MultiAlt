@@ -3,6 +3,7 @@ import { User } from "lucide-react";
 import { useStore } from "../../store";
 import { useEscapeStack } from "../../hooks/useEscapeStack";
 import { GroupSection } from "./GroupSection";
+import { AccountLiveStateProvider } from "../../hooks/useAccountLiveState";
 import { useTr } from "../../i18n/text";
 import { AddAccountDialog } from "../dialogs/AddAccountDialog";
 import { COOKIE_PATTERN } from "../../utils/cookies";
@@ -56,7 +57,9 @@ export function AccountList() {
   // A lista entra na base da pilha: o Escape só limpa a seleção quando não há
   // menu, popover nem diálogo aberto. Antes os dois handlers rodavam no mesmo
   // evento e fechar um menu de contexto apagava a seleção junto.
-  useEscapeStack(true, store.deselectAll, { ignoreFromFields: true });
+  // Fora do botão Voltar do mouse: limpar a seleção não é "fechar algo aberto",
+  // e o Voltar tem que andar no histórico de páginas (useMouseNavigation).
+  useEscapeStack(true, store.deselectAll, { ignoreFromFields: true, closesOnBack: false });
 
   function handleDrop(targetGroupKey: string) {
     if (!store.dragState) return;
@@ -327,15 +330,18 @@ export function AccountList() {
           }}
         />
       )}
-      {store.groups.map((group) => (
-        <GroupSection
-          key={group.key}
-          group={group}
-          collapsed={store.collapsedGroups.has(group.key)}
-          onToggle={() => store.toggleGroup(group.key)}
-          onDrop={handleDrop}
-        />
-      ))}
+      {/* Jogo e início da sessão de agora, lidos uma vez para a lista toda. */}
+      <AccountLiveStateProvider>
+        {store.groups.map((group) => (
+          <GroupSection
+            key={group.key}
+            group={group}
+            collapsed={store.collapsedGroups.has(group.key)}
+            onToggle={() => store.toggleGroup(group.key)}
+            onDrop={handleDrop}
+          />
+        ))}
+      </AccountLiveStateProvider>
     </div>
   );
 }

@@ -815,6 +815,11 @@ static RECONNECT_LAST_VIEWS: std::sync::LazyLock<std::sync::Mutex<Vec<ReconnectE
 
 fn publish_reconnect(app: &tauri::AppHandle, notices: &[ReconnectNotice]) {
     for notice in notices {
+        // A conta relançada toca a gravação dela quando ficar o tempo
+        // configurado no jogo (commands/recordings.rs).
+        if let ReconnectNotice::Relaunched { user_id, .. } = notice {
+            arm_recording_after_reconnect(*user_id, chrono::Utc::now().timestamp_millis());
+        }
         let (level, line) = reconnect_console_line(notice);
         emit_launch_log(app, reconnect_notice_user(notice), level, "reconnect", line);
     }
@@ -952,6 +957,9 @@ pub(crate) fn reconnect_is_guarding() -> bool {
 /// as voltas que ele avisou, e a conferência de cada conta.
 #[cfg(target_os = "windows")]
 pub(crate) fn reconnect_after_health_tick(app: &tauri::AppHandle, notices: &[HealthNotice]) {
+    // Antes das saídas cedo abaixo: a gravação espera a conta ficar no jogo
+    // mesmo depois de a reconexão já ter dado a conta por reconectada.
+    recording_after_reconnect_tick(app);
     let tracked = platform::windows::tracker().get_all();
     let has_work = with_reconnect_book(|book| !book.entries.is_empty())
         || notices.iter().any(|n| matches!(n, HealthNotice::Dropped { .. }));
@@ -1163,6 +1171,40 @@ mod auto_reconnect_tests {
     use super::*;
 
     const T0: i64 = 1_791_000_000_000;
+
+    /// O trecho de `source` que começa em `start` e vai até o fim da função.
+    fn function_body<'a>(source: &'a str, start: &str) -> &'a str {
+        let from = source.find(start).unwrap_or_else(|| panic!("{start} sumiu"));
+        let body = &source[from..];
+        &body[..body.find("\n}\n").expect("fim da função")]
+    }
+
+    /// Conferido em 11/10/2026: o cliente que a reconexão reabre cai na grade
+    /// dos monitores marcados na aba Windows (`General.GridMonitors`), como o
+    /// launch normal — não há caminho próprio de abrir cliente aqui. Trava a
+    /// corrente inteira: tentativa → `launch_roblox_windows` → plano de janela
+    /// com a grade automática → `place_in_grid` com os monitores do INI.
+    #[test]
+    fn a_reconnected_client_lands_in_the_grid_of_the_ticked_monitors() {
+        let attempt = function_body(include_str!("reconnect.rs"), "async fn run_reconnect_attempt(");
+        assert!(attempt.contains("launch_roblox_windows("), "a reconexão tem de usar o launch normal");
+
+        let launch = function_body(include_str!("launch.rs"), "async fn launch_roblox_windows(");
+        assert!(launch.contains("spawn_client_window_enforcement("));
+        assert!(launch.contains("auto_arrange_grid: auto_arrange_grid_enabled(&settings)"));
+
+        let shared = include_str!("launch_shared.rs");
+        let enforcement = function_body(shared, "pub(crate) fn spawn_client_window_enforcement(");
+        assert!(enforcement.contains("grid_layout_settings(&settings)"));
+        assert!(enforcement.contains("monitor_indices,"));
+        assert!(enforcement.contains("windows::place_in_grid("));
+        let layout = function_body(shared, "pub(crate) fn grid_layout_settings(");
+        assert!(layout.contains(r#""GridMonitors""#));
+
+        let windowing = include_str!("../platform/windows/windowing.rs");
+        let place = function_body(windowing, "pub fn place_in_grid(");
+        assert!(place.contains("selected_monitors(&list_monitors(), &request.monitor_indices)"));
+    }
 
     fn drop_of(kind: DropKind, reason: Option<DropReason>) -> ClientDrop {
         ClientDrop {

@@ -183,6 +183,13 @@ impl ProcessTracker {
         }
     }
 
+    /// Usa o Job do PID com a trava presa: o handle não fecha no meio do uso
+    /// (o `untrack` de outra thread espera). `None` = o PID não tem Job.
+    pub fn with_job_handle<R>(&self, pid: u32, f: impl FnOnce(HANDLE) -> R) -> Option<R> {
+        let jobs = self.job_handles.lock().ok()?;
+        jobs.get(&pid).map(|SendHandle(handle)| f(*handle))
+    }
+
     pub fn clear_job_handle_for_pid(&self, pid: u32) {
         let handle = self
             .job_handles

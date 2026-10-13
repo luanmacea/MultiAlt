@@ -11,8 +11,9 @@ Varredura periódica dos clientes Roblox **lançados e rastreados pelo app** par
 | [watcher.rs](../../src-tauri/src/commands/watcher.rs) | `start_watcher` (Windows e macOS), `stop_watcher`, config `load_windows_watcher_config` |
 | [client_health.rs](../../src-tauri/src/commands/client_health.rs) | Monitor de quedas: classificador do log, máquina de estados da sessão, laço de 2 s (sempre ligado no Windows) |
 | [reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | [Reconexão automática](#reconexão-automática) da conta que caiu, a cada passada do monitor de quedas |
+| [closed_clients.rs](../../src-tauri/src/commands/closed_clients.rs) | Conta cujo cliente fechou no meio do jogo: aviso "Fechou" e o destino do "Entrar novamente" (o mesmo da reconexão), a cada passada do monitor de quedas — ver [launch.md](launch.md#cliente-que-fechou-e-entrar-novamente) |
 | [platform/windows/tracker.rs](../../src-tauri/src/platform/windows/tracker.rs) | Sessão do watcher (`try_start_watcher`, `is_watcher_session_active`, `stop_watcher`), `cleanup_dead_processes`, `kill_for_user` |
-| [platform/windows/windowing.rs](../../src-tauri/src/platform/windows/windowing.rs) | `find_main_window`, `get_window_title`, `get_window_position`, `get_process_memory_mb` (working set) |
+| [platform/windows/windowing.rs](../../src-tauri/src/platform/windows/windowing.rs) | `find_main_window`, `get_window_title`, `get_window_position`, `get_process_memory_mb` (memória privada, a do Gerenciador de Tarefas — ver [Teto de memória](#teto-de-memória)) |
 | [store.tsx](../../src/store.tsx) | Liga/desliga conforme `Watcher.Enabled` e mostra toasts dos eventos |
 
 ## Fluxo
@@ -25,7 +26,7 @@ Varredura periódica dos clientes Roblox **lançados e rastreados pelo app** par
       - **Pula a janela em foreground** (a que o usuário está usando).
       - Registra o início (PID, instante) para a *startup grace* de 30 s.
       - **Não respondendo** (`CloseIfNotResponding`): o monitor de quedas diz que a janela está "Não respondendo" há 30 s ([abaixo](#não-respondendo)) → mata e emite `roblox-not-responding {userId, seconds}`.
-      - **Memória** (`CloseRbxMemory`, após grace): se working set < `MemoryLowValue` MB → mata e emite `roblox-low-memory {userId, memoryMb}`.
+      - **Memória** (`CloseRbxMemory`, após grace): se a memória privada (a do Gerenciador de Tarefas) < `MemoryLowValue` MB → mata (menos cliente que o teto de memória liberou) e emite `roblox-low-memory {userId, memoryMb}`.
       - **Título** (`CloseRbxWindowTitle`, após grace, título esperado não vazio): título efetivo (sem o nome da conta que o app pôs — ver [Nome da conta na janela](#nome-da-conta-na-janela)) ≠ `ExpectedWindowTitle` → mata e emite `roblox-title-mismatch {userId, title, expected}`.
       - **Beta** (`ExitOnBeta`): título contém "roblox beta" (case-insensitive) → mata e emite `roblox-beta-detected {userId, title}`.
       - **Sem conexão** (`ExitIfNoConnection`): o log do cliente diz que caiu (ver [Quedas](#quedas-lidas-do-log-do-cliente)); sem log achado, o título contém "disconnected", "connection error", "lost connection" ou "no connection" → começa a contar; se persistir ≥ `NoConnectionTimeout` s → mata e emite `roblox-no-connection {userId, title, timeout}`. Título normal zera o contador.
@@ -58,7 +59,7 @@ sequenceDiagram
 - O Watcher continua sem relançar. Quem relança a conta que caiu é a [reconexão automática](#reconexão-automática), opcional e separada.
 - A janela em primeiro plano nunca é avaliada (nem para kill, nem para salvar posição).
 - *Startup grace* fixa de 30 s por PID vale para memória, título e posição; **não** vale para beta e sem conexão.
-- A regra de memória é de **memória baixa** (cliente que caiu para um working set pequeno, típico de travado/erro), não de consumo alto.
+- A regra de memória é de **memória baixa** (cliente cuja memória caiu para um valor pequeno, típico de travado/erro), não de consumo alto.
 - A ordem de avaliação é não respondendo → memória → título → beta → sem conexão → posição; o primeiro kill bem-sucedido encerra a avaliação daquela instância.
 - Toda ação é `kill_for_user` (TerminateProcess + espera até 1,2 s e remove do tracker). Se o PID rastreado não for mais um processo Roblox (cliente já fechou e o Windows reutilizou o PID), `kill_for_user` não mata nada: só remove do tracker e retorna `true` (o evento correspondente ainda é emitido). O Watcher **não relança** a conta; relançar é papel do Auto Rejoin ou do usuário.
 - **Todo evento do Watcher também vira linha no Console** (`emit_launch_log`, `step: "watcher"`). O evento só virava toast, que some em 2,5 s: quem voltasse depois não tinha como saber por que a conta caiu. Um teste estrutural (`watcher_console_tests`) lê o próprio arquivo e exige a linha ao lado de cada `emit` — assim cobre também o ramo de macOS, que não compila no Windows.
@@ -102,6 +103,7 @@ que** a conta caiu. Só lê: o log (aberto só para leitura) e a lista de proces
 - **Fechou sozinho:** o processo terminou dentro de um jogo, sem linha de saída,
   sem queda e **sem o app tê-lo fechado** (`kill_process` anota o PID —
   `was_terminated_by_app`). Sem log achado não chuta nada.
+- **Histórico de sessões:** a cada passada o monitor entrega também onde cada cliente está (place, Job ID do último `Joining game`), se caiu, se saiu e se terminou (`session_snapshots`), e o histórico grava o que mudou — ver [history.md](history.md).
 - **O que sai:** `health` em `get_running_instances` (Sessão e painel da conta),
   o evento `roblox-client-health` (toast) e uma linha no Console
   (`step: "client"`, ex.: "Caiu: perdeu a conexão (código 277)").
@@ -178,16 +180,21 @@ continua sem relançar nada).
   painel de uma conta, que quem tem muitas contas não abre):
   - o **padrão de todas as contas** é `General.AutoReconnect`, "Reconnect
     accounts that drop" — no cartão "Keep accounts in game" do resumo da
-    página e em Settings › General, mesmo texto, mesma setting (a página grava
-    por `store.updateSetting`; a Settings relê o INI ao abrir);
-  - **por conta**, uma chave pequena em cada linha da lista **In game** do
-    Painel de Sessão (campo `AutoReconnect` = `true`/`false`; sem o campo, a
-    conta segue o padrão e a linha diz "default"; com escolha própria aparece
-    o botão de voltar ao padrão). Marcando linhas, a faixa de lote oferece
-    **Reconnect on** / **Reconnect off** / **Use default**, que gravam o campo
-    de cada conta marcada (`updateAccount`, uma por vez; nada abre nem fecha
-    cliente). O tooltip da chave diz de onde vem o valor ("Following the
-    default…" com ligado/desligado, ou escolhido para a conta).
+    página (grava por `store.updateSetting`). É o único interruptor dele desde
+    11/10/2026: Settings › Keep in game mostra se está ligado e tem o botão
+    "Change it on the Session page", que leva até aqui;
+  - **por conta**, um chip **↻ On/Off** em cada linha da lista **In game** do
+    Painel de Sessão ([ReconnectChip.tsx](../../src/components/session/ReconnectChip.tsx);
+    campo `AutoReconnect` = `true`/`false`). O texto apagado quer dizer que a
+    conta segue o padrão; o clique abre um menu pequeno com **On**, **Off** e
+    **Use the default (on/off)**, com a escolha atual marcada (teclado: seta
+    abre e anda, Enter escolhe, Escape fecha). Era uma chave com "default" e um
+    botão de voltar ao padrão até 11/10/2026. Marcando linhas, o menu
+    **Reconnect** da barra de lote (presa ao pé da lista) tem as mesmas opções e grava o campo de cada
+    conta marcada (`updateAccount`, uma por vez; nada abre nem fecha cliente).
+    O tooltip do chip diz de onde vem o valor ("Following the default…" com
+    ligado/desligado, ou escolhido para a conta); o nome acessível diz o estado
+    ("on (default)").
   - O `AutoRelaunch` do Nexus também liga a conta (mesmo nome de usuário),
     mesmo com o campo em `false`. Com ele ligado (`get_nexus_accounts`, uma
     leitura para a lista toda, refeita quando muda quem está em jogo), a chave
@@ -234,13 +241,26 @@ continua sem relançar nada).
   é dispensada.
 - **Auto Rejoin manda:** conta gerenciada pelo Auto Rejoin (sessão ativa e a
   conta na lista) não entra na reconexão; se ele assumir no meio, a reconexão sai.
+- **Gravação depois da reconexão** (opcional, `Recordings.AfterReconnect`,
+  padrão desligado): a conta que a reconexão relançou toca a gravação dela na
+  vaga **After auto-reconnect** (a própria ou a global dessa vaga — desde
+  11/10/2026 é outra escolha que a do Modo AFK, a vaga **On anti-AFK**)
+  **uma vez**, só nela, depois de ficar `Recordings.AfterReconnectDelaySeconds`
+  (padrão 30 s) no jogo — para voltar ao lugar do mapa. O `Relaunched` arma; a
+  passada de 2 s confere o jogo pelo log do cliente novo. Ver
+  [recordings.md](recordings.md#depois-da-reconexão).
 - **PC acordado:** enquanto alguma conta com a opção ligada tem cliente aberto
   pelo app (ou há reconexão em andamento), o Windows não dorme
   (`General.KeepPcAwake`, ver [afk-mode.md](afk-mode.md#pc-acordado)).
 - **Ao reabrir o app nada é retomado sozinho:** o estado é só em memória, e os
   clientes de antes voltam como "abertos fora do app" (adotados), que a
   reconexão não toca.
-- **Na tela:** seção "Reconnecting" do Painel de Sessão ("Reconnecting in 30 s
+- **Na tela:** conta com o cliente ainda aberto mostra a tentativa **na própria
+  linha** da lista "In game" (em "Needs attention"), com os mesmos botões; a
+  seção "Reconnecting" do Painel de Sessão fica só com quem não tem cliente
+  aberto (fechou, desistiu) — desde 11/10/2026: as duas listas repetiam as
+  mesmas contas e empurravam o "In game" para baixo (harness `client-drops`,
+  820x560). A contagem regressiva é `role="timer"`. Os textos ("Reconnecting in 30 s
   (attempt 2/5)", "Waiting for the internet to come back", "Reopened, checking
   it stays in the game", "Gave up after 5 tries", "Not reconnecting: …"), com
   "Try now"/"Try again" e "Stop" (nunca fecha cliente). O painel da conta não
@@ -259,6 +279,158 @@ continua sem relançar nada).
   `retry_auto_reconnect`; linhas no Console com `step: "reconnect"`.
 - Testes: `auto_reconnect_tests` (máquina de estados) e
   `auto_reconnect_target_tests` (destino e internet).
+- **Reconexão que desistiu ou parou** com o cliente já fechado deixa a conta
+  com o aviso "Fechou" e o **Entrar novamente** manual (um launch só, pelo
+  launch normal, para o mesmo destino) — ver
+  [launch.md](launch.md#cliente-que-fechou-e-entrar-novamente).
+
+## Teto de memória
+
+[memory_ceiling.rs](../../src-tauri/src/commands/memory_ceiling.rs) e
+[platform/windows/memory_trim.rs](../../src-tauri/src/platform/windows/memory_trim.rs).
+Pacote **Conforto** (ver [plano-ideias.md](../plano-ideias.md)). O contrário da
+regra de memória baixa do Watcher: um cliente **que o app abriu** passou de um
+limite de memória — em vez de fechar, o app primeiro pede ao Windows para tirar
+da RAM o que o cliente não está usando agora (as páginas vão para o arquivo de
+paginação e voltam quando o cliente precisar; nada é perdido).
+
+- **Nas duas edições** (feature `memory-trim` do Cargo, dentro do `standard`):
+  é uma API nativa nova no binário (`K32EmptyWorkingSet`, do kernel32, a mesma
+  família do `K32GetProcessMemoryInfo` que o Watcher já usa), chamada só de
+  `trim_working_set`. Começou só na completa e passou para a padrão depois de o
+  exe padrão com ela sair limpo no Defender e no VirusTotal (11/10/2026).
+  `supportsMemoryTrim` nas capacidades diz à tela; sem a feature, nada do teto
+  aparece e a passada não faz nada.
+- **O limite:** padrão de todas as contas em `Optimization.MemoryLimit` (MB, `0`
+  ou vazio = sem limite, **desligado por padrão**) e, por conta, o campo
+  `MemoryLimit` (`0` = sem limite para esta conta; sem o campo, segue o padrão).
+  Limite aceito entre 256 MB e 64 GB (`parse_memory_limit`, espelhado em
+  `src/utils/memoryLimit.ts`). **A escolha da linha é gravada no campo da conta**
+  (decisão deste pacote): vale na passada seguinte (2 s), sem relançar, e também
+  nos próximos launches da conta.
+- **Onde se muda:**
+  - **por cliente, na página Session** — cada linha da lista **In game** tem um
+    chip com a memória do cliente agora, em MB inteiros como o Gerenciador de
+    Tarefas, e o limite que vale ("1,187 MB / 2 GB"; "1.187 MB" em pt/es —
+    `formatMemoryReading`), âmbar acima do limite
+    ([MemoryLimitControl.tsx](../../src/components/session/MemoryLimitControl.tsx)).
+    A leitura é **ao vivo**: o backend relê a memória a cada passada de 2 s e a
+    tela pega no mesmo polling de 2,5 s do `get_running_instances` (sem leitura
+    nova). Até 11/10/2026 o chip mostrava GB com uma casa ("4 GB"): o working
+    set inteiro de um cliente quase não mexe e qualquer valor de 3,95 a 4,05 GB
+    saía "4 GB", então o número parecia lido só no começo (relato do dono).
+    O clique abre um menu com "Default (2 GB)", "No limit", 1 / 1,5 / 2 / 3 / 4 GB,
+    o valor próprio da conta e "Custom…" (pergunta em MB ou GB), com a escolha
+    atual marcada. Até 11/10/2026 era um seletor nativo de 104 px **ao lado** da
+    leitura, que a cobria inteira junto com o aviso de acima do limite (achado do
+    detector do Impeccable) e espremia o resto da linha; no chip a leitura é o
+    próprio texto (`SessionPanel.test.tsx`, "keeps the memory reading in view"). O
+    tooltip junta a memória ("Private memory now: 1,187 MB (the Memory column in
+    Task Manager)."), de onde vem o limite e o que acontece acima dele; depois de
+    uma liberação, com o cliente abaixo do limite, diz que a memória fica mais
+    baixa até o jogo precisar de novo, e que isso é normal.
+    Com linhas marcadas, o menu **Memory limit** da faixa de lote aplica o mesmo
+    valor a todas as marcadas (ou volta ao padrão), uma conta por vez. Cliente
+    aberto pelo site não tem chip nem entra no lote;
+  - **o padrão** — no cartão "Memory limit" do resumo da página Session e em
+    Settings › Optimization › "While you play" ("Memory limit per client"),
+    mesma setting;
+  - **fechar ou não** — "Close a client that stays over its limit"
+    (`Optimization.CloseOverMemoryLimit`, **desligado por padrão**), logo abaixo
+    do padrão nos dois lugares.
+- **Quando age** (`memory_ceiling_step`, a cada 2 s no laço do monitor de quedas,
+  funciona **com o Watcher desligado também**):
+  1. cliente aberto há menos de 30 s: nada (carregando, a memória sobe e desce);
+  2. a janela que a pessoa está usando agora: nada (liberar a memória do jogo em
+     uso dá engasgo); o estado fica como estava;
+  3. acima do limite pela primeira vez: **libera** (linha no Console, `step:
+     "memory"`: "Memória em 2500 MB, acima do limite de 2048 MB: pedi ao Windows
+     para liberar");
+  4. ainda acima **o tempo todo** por **60 s depois** de liberar: **fecha só
+     se** a opção própria `Optimization.CloseOverMemoryLimit` estiver ligada
+     (`memory_close_allowed`), com ou sem o Watcher ligado. Fecha pelo
+     `kill_for_user` do Watcher (só aquele cliente), com toast "Closed …: memory
+     stayed over its limit after it was freed" (evento `roblox-memory-limit`) e
+     linha no Console. Se caiu para baixo nesse minuto, não fecha;
+  5. **liberar de novo tem histerese** (11/10/2026): só quando o cliente está
+     acima há **1 min seguido** (`MEMORY_RETRIM_SUSTAIN_MS`; um pico curto não
+     conta) **e** já passaram **5 min** da última liberação
+     (`MEMORY_RETRIM_INTERVAL_MS`). Vale para os dois casos: sem a opção de
+     fechar e continuando acima (libera no máximo a cada 5 min, nunca fecha), e
+     voltando a subir depois de ter caído (libera de novo; com a opção de
+     fechar, fecha só se continuar acima 1 min depois **dessa** liberação). A
+     última liberação fica guardada mesmo com o cliente abaixo, e tirar e pôr o
+     limite de volta não libera na hora. Até aqui o app liberava **a cada
+     minuto** enquanto acima — com a leitura errada (abaixo) isso era um laço:
+     o número nunca descia do limite.
+- **A opção de fechar é separada do Watcher** (11/10/2026). Até aqui o teto
+  reaproveitava o "Close If Memory Low" do Watcher (`Watcher.Enabled` +
+  `Watcher.CloseRbxMemory`) para poder fechar quem continuava acima — e ligar
+  isso ligava junto a regra de memória **baixa**, que não tem nada a ver (fecha
+  cliente travado). Agora `Watcher.CloseRbxMemory` só vale para a memória baixa,
+  e o teto tem `Optimization.CloseOverMemoryLimit`, desligado por padrão.
+  **Sem migração:** o teto nunca saiu numa versão publicada (nasceu nas branches
+  do pacote Conforto), então não há usuário com o comportamento antigo a
+  preservar; e copiar o `CloseRbxMemory` para a chave nova ligaria o fechamento
+  por limite em quem só queria a regra de memória baixa. Quem quer fechar liga a
+  opção nova.
+- **Nunca toca** cliente aberto pelo site (adotado), cliente de outra conta, nem
+  PID que não é mais do cliente rastreado (o fechar é o `kill_for_user`, que
+  confere se o PID ainda é um Roblox).
+- **Qual número: a memória privada, a do Gerenciador de Tarefas** (11/10/2026).
+  `get_process_memory_mb` ([windowing.rs](../../src-tauri/src/platform/windows/windowing.rs))
+  lê o `PrivateWorkingSetSize` do `K32GetProcessMemoryInfo` com
+  `PROCESS_MEMORY_COUNTERS_EX2` — o mesmo número da coluna "Memória" do
+  Gerenciador. É ele que a linha "Em jogo" mostra, que o teto compara com o
+  limite e que o "Close If Memory Low" do Watcher compara com o mínimo: um
+  número só no app inteiro. Até aqui era o `WorkingSetSize` (working set
+  inteiro, com as páginas compartilhadas e a memória de vídeo mapeada): o dono
+  viu ~4 GB no app com o Gerenciador mostrando ~1,2 GB em todos os clientes, e
+  depois de cada liberação o número voltava para cima do limite (o teto
+  liberava de novo a cada minuto, e fecharia o cliente com a opção ligada).
+  - **Sem a memória privada** (Windows anterior ao 10 1809, onde o
+    `PROCESS_MEMORY_COUNTERS_EX2` não existe): a chamada com o tamanho novo
+    falha e a leitura cai para o tamanho antigo, usando o **working set
+    inteiro** (maior que o do Gerenciador). Calcular a memória privada nesses
+    sistemas exigiria percorrer as páginas do processo a cada 2 s, caro demais
+    para o ganho. Um `PrivateWorkingSetSize` 0 com working set maior que 0
+    também conta como "não deu" (`memory_reading_mb`).
+  - **Acesso:** abre o processo com `PROCESS_QUERY_LIMITED_INFORMATION` (o do
+    Gerenciador) e só se o sistema recusar tenta o antigo
+    (`PROCESS_QUERY_INFORMATION | PROCESS_VM_READ`). Nenhuma API nova no binário:
+    é a mesma `K32GetProcessMemoryInfo` de antes, com uma estrutura maior.
+- **Depois de liberar, a memória fica mais baixa, e isso é normal.** Com um
+  limite, o Gerenciador mostra o cliente em ~300–400 MB depois da liberação; tirar
+  o limite **não** traz o número de volta. O Windows tirou da RAM as páginas que o
+  cliente não estava usando e só as devolve quando o jogo precisa delas de novo
+  (aí a memória volta a subir aos poucos). Não há nada a desfazer, e o app não
+  tenta "devolver" memória — não é defeito. O tooltip do chip diz isso.
+- **O "Close If Memory Low" do Watcher não julga cliente que o teto liberou**
+  (`low_memory_should_close`, `client_memory_was_trimmed`): a memória baixa
+  depois da liberação é esperada, e a regra (mínimo padrão de 200 MB, agora
+  medido na memória privada, menor que o working set inteiro) fecharia um
+  cliente saudável. Um PID novo da mesma conta volta a ser julgado normalmente.
+- Testes: `memory_ceiling_tests` (limite da conta x padrão, `0`/off, faixa,
+  carência, liberar → esperar → fechar, sem a opção de fechar só depois de 5 min,
+  voltar a subir depois de liberar (subida seguida + intervalo), pico curto,
+  fechar só com liberação na mesma subida, caiu para baixo nunca fecha, a
+  sequência do relato (no máximo uma liberação a cada 5 min em 20 min acima),
+  tirar e pôr o limite, a leitura indo para a tela a cada passada, janela em
+  uso, monitor com dublê do sistema, PID novo da mesma conta, linha do Console,
+  visão em camelCase; a opção de fechar desligada por padrão, o "Close If Memory
+  Low" do Watcher não fechando mais, a opção própria valendo com o Watcher
+  desligado), `watcher_tests` (a regra de memória baixa pulando o cliente
+  liberado), `win_process_memory_tests` (memória privada, queda para o working
+  set, formato antigo como começo do novo, leitura real do próprio processo com
+  o acesso mínimo), `win_memory_trim_tests` (PID 0, API só no
+  `memory_trim.rs` e atrás da feature), `platform_info_tests`
+  (`supportsMemoryTrim`), `memoryLimit.test.ts` (`formatMemoryReading`),
+  `SessionPanel.test.tsx` ("limite de memória por cliente": seletor, campo
+  gravado, padrão, custom, âmbar, leitura em MB acompanhando cada atualização,
+  Gerenciador de Tarefas no tooltip, aviso depois de liberar, site sem seletor,
+  sem a feature, lote), `store.test.ts` (memória ao vivo a cada polling),
+  `SessionPage.test.tsx` e `settingsTabs.test.tsx` (o padrão e a opção de
+  fechar).
 
 ## Configurações relacionadas
 
@@ -269,8 +441,8 @@ Seção `[Watcher]`:
 | `Enabled` | `false` | — | Frontend inicia/para o watcher |
 | `ScanInterval` | `6` (s) | 1–3600 | Intervalo de varredura |
 | `ReadInterval` | `250` (ms) | 50–60000 | Só macOS: leitura de logs |
-| `CloseRbxMemory` | `false` | — | Liga a regra de memória baixa |
-| `MemoryLowValue` | `200` (MB) | 1–16384 | Limite inferior de working set |
+| `CloseRbxMemory` | `false` | — | Liga a regra de memória baixa (só ela; o [teto de memória](#teto-de-memória) tem `Optimization.CloseOverMemoryLimit`) |
+| `MemoryLowValue` | `200` (MB) | 1–16384 | Limite inferior de memória privada (a do Gerenciador de Tarefas) |
 | `CloseRbxWindowTitle` | `false` | — | Liga a regra de título |
 | `ExpectedWindowTitle` | `Roblox` | — | Título esperado exato |
 | `ExitOnBeta` | `false` | — | Fecha clientes com "Roblox Beta" no título |

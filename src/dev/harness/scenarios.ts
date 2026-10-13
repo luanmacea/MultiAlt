@@ -22,7 +22,7 @@ import {
   type InvokeHandler,
 } from "./bus";
 import { GAME_FIXTURES, fixtureIcon, iconForGame } from "./games";
-import { seedTourStorage, tourHandler } from "./tour";
+import { seedTourStorage, tourHandler, tourLogLines } from "./tour";
 import { HARNESS_RELEASES, kindBody } from "./releases";
 import { clipReport } from "./clipReport";
 
@@ -78,6 +78,17 @@ const settings: Record<string, Record<string, string>> = {
 /** O `RAMGameLists.json` do harness, em memória. */
 let harnessGameLists: Record<string, unknown[]> | null = null;
 
+/** Escolhas de uma vaga, como `get_recordings` devolve. */
+type HarnessSlot = { defaultId: string | null; accounts: Record<string, string | null> };
+
+/** O `RAMRecordings.json` do harness, em memória (começa vazio; o cenário `recordings` enche). */
+const harnessRecordings: Record<string, unknown> & { afterReconnect: HarnessSlot; antiAfk: HarnessSlot } = {
+  recordings: [],
+  afterReconnect: { defaultId: null, accounts: {} },
+  antiAfk: { defaultId: null, accounts: {} },
+  keys: ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5", "Shift", "Up", "Down", "Left", "Right"],
+};
+
 const baseHandler: InvokeHandler = (cmd, args) => {
   switch (cmd) {
     case "needs_password":
@@ -89,7 +100,16 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "get_all_settings":
       return settings;
     case "get_platform_capabilities":
-      return { isWindows: true, isMacos: false, supportsIsolation: true, supportsMultiRoblox: true };
+      return {
+        isWindows: true,
+        isMacos: false,
+        supportsIsolation: true,
+        supportsMultiRoblox: true,
+        // Mostra no dev:ui as opções que só existem com a feature `live-audio`.
+        supportsLiveAudio: true,
+        // E o teto de memória (feature `memory-trim`, nas duas edições).
+        supportsMemoryTrim: true,
+      };
     case "remembered_unlock_state":
       return { supported: true, active: false, defaultHours: 24 };
     case "get_launch_queue":
@@ -98,6 +118,84 @@ const baseHandler: InvokeHandler = (cmd, args) => {
       return [];
     case "get_unidentified_clients":
       return [];
+    // Gravações (`commands/recordings.rs`): a biblioteca em memória, sem
+    // validação nenhuma — quem valida de verdade é o backend.
+    case "get_recordings":
+      return harnessRecordings;
+    case "get_recording_playback":
+      return { active: false };
+    // Importar do TinyTask: a janela de referência (uma 1600x900 no monitor da
+    // esquerda; a conta de user id par tem 4:3, para o aviso de formato) e uma
+    // conversão pronta com a forma da do backend — a conversão de verdade é
+    // testada no Rust (tinytask_import_tests), não aqui.
+    case "recording_window_area": {
+      const even = Number(args?.userId) % 2 === 0;
+      return even ? { left: 0, top: 0, width: 800, height: 600 } : { left: -1700, top: 50, width: 1600, height: 900 };
+    }
+    case "import_tinytask_recording":
+      return {
+        steps: [
+          { type: "click", xPct: 53.11, yPct: 17.65 },
+          { type: "wait", ms: 141 },
+          { type: "click", xPct: 52.01, yPct: 17.72 },
+          { type: "wait", ms: 578 },
+          { type: "key", key: "W", holdMs: 120 },
+        ],
+        summary: {
+          events: 175,
+          skippedKeys: [{ key: "Enter", count: 2 }],
+          clicksOutside: 1,
+          otherMouse: 0,
+          cappedWaits: 0,
+          drags: 4,
+          truncated: false,
+          stopKey: "F8",
+        },
+        sourceAspect: 1.7778,
+      };
+    case "play_recording_draft":
+      return [{ userId: args?.userId, errorCode: null, error: null }];
+    case "save_recording": {
+      const rec = args?.recording as { id: string } & Record<string, unknown>;
+      const saved = { ...rec, id: rec.id || `rec-${Date.now()}`, createdAt: Date.now(), updatedAt: Date.now() };
+      const list = harnessRecordings.recordings as { id: string }[];
+      const at = list.findIndex((r) => r.id === saved.id);
+      harnessRecordings.recordings = at >= 0 ? list.map((r, i) => (i === at ? saved : r)) : [...list, saved];
+      harnessEmit("recordings-changed", null);
+      return saved;
+    }
+    case "delete_recording": {
+      const list = harnessRecordings.recordings as { id: string }[];
+      harnessRecordings.recordings = list.filter((r) => r.id !== args?.id);
+      for (const slot of ["afterReconnect", "antiAfk"] as const) {
+        const choices = harnessRecordings[slot];
+        harnessRecordings[slot] = {
+          defaultId: choices.defaultId === args?.id ? null : choices.defaultId,
+          accounts: Object.fromEntries(Object.entries(choices.accounts).filter(([, id]) => id !== args?.id)),
+        };
+      }
+      harnessEmit("recordings-changed", null);
+      return true;
+    }
+    case "set_default_recording": {
+      const slot = args?.slot as "afterReconnect" | "antiAfk";
+      harnessRecordings[slot] = { ...harnessRecordings[slot], defaultId: (args?.id as string | null) ?? null };
+      harnessEmit("recordings-changed", null);
+      return null;
+    }
+    case "set_account_recording": {
+      // O mesmo contrato do backend: herdar tira a conta do mapa, "none" grava
+      // `null`, a própria grava o id.
+      const slot = args?.slot as "afterReconnect" | "antiAfk";
+      const choice = args?.choice as { kind: "inherit" | "none" | "recording"; id?: string };
+      const accounts = { ...harnessRecordings[slot].accounts };
+      const key = String(args?.userId);
+      if (choice.kind === "inherit") delete accounts[key];
+      else accounts[key] = choice.kind === "none" ? null : String(choice.id);
+      harnessRecordings[slot] = { ...harnessRecordings[slot], accounts };
+      harnessEmit("recordings-changed", null);
+      return null;
+    }
     // Modo AFK parado, como o backend responde sem sessão. O `[]` do fallback
     // derrubava a página Session (`afkStatus.accounts` não existe num array).
     case "get_afk_mode_status":
@@ -110,6 +208,7 @@ const baseHandler: InvokeHandler = (cmd, args) => {
         clickX: 50,
         clickY: 50,
         accounts: [],
+        waitingFullscreen: false,
       };
     // Auto Rejoin parado, idem (`bottingStatus.userIds`).
     case "get_botting_mode_status":
@@ -187,6 +286,31 @@ const baseHandler: InvokeHandler = (cmd, args) => {
       return null;
     case "get_theme":
       return null;
+    // Checagem "o launch não faz nada" (ideia 16): um aviso para a tela ter o
+    // que mostrar; a ordem é a do backend.
+    // Adicionar por Quick Login (ideia 12): o código fica esperando aprovação.
+    case "add_by_quick_login_start":
+      return { code: "HAR123", expiresAt: null };
+    case "add_by_quick_login_poll":
+      return { kind: "pending" };
+    case "add_by_quick_login_cancel":
+      return null;
+    // Tela trancada por inatividade (ideia 27): qualquer senha não vazia.
+    case "verify_app_password":
+      if (!String(args?.password ?? "")) throw "Wrong password.";
+      return null;
+    // Resumo do "Reportar problema" (ideia 28).
+    case "get_report_environment":
+      return { version: "0.0.0-harness", edition: "standard", os: "Windows 11 (harness)" };
+    case "run_launch_diagnostics":
+      return [
+        { id: "robloxInstall", status: "ok", reason: "found" },
+        { id: "dataFolder", status: "ok", reason: "writable" },
+        { id: "versionsFolder", status: "ok", reason: "writable" },
+        { id: "internet", status: "ok", reason: "reachable" },
+        { id: "stuckProcesses", status: "warn", reason: "stuck", count: 1 },
+        { id: "multiRoblox", status: "ok", reason: "held" },
+      ];
     // Favoritos e recentes (`RAMGameLists.json`). Começa sem arquivo (`null`):
     // a UI migra o que o `localStorage` tem — inclusive o que `seedTourStorage`
     // semeou — e as gravações ficam em memória. Cair no `[]` do fallback seria
@@ -465,6 +589,7 @@ function afkHandler(
       mode: session.mode,
       clickX: session.clickX,
       clickY: session.clickY,
+      waitingFullscreen: false,
       accounts: [...session.accounts.values()]
         .sort((a, b) => a.userId - b.userId)
         .map((entry) => ({
@@ -1314,6 +1439,148 @@ const SCENARIOS: Record<string, () => void> = {
   },
 
   /**
+   * Histórico de sessões (ideia 6): a conta 1 tem duas semanas de sessões em
+   * três jogos — em jogo agora, quedas com motivo, teleporte, saída, o app
+   * fechado no meio e um aviso de moderação; a conta 2 não tem nada. Abra o
+   * painel da conta (selecione TestAccount1). O backend mandaria a lista já
+   * montada, da mais nova para a mais velha: é o que vai aqui.
+   */
+  history() {
+    const now = Date.now();
+    const min = 60_000;
+    const day = 86_400_000;
+    const s = (
+      startAgo: number,
+      minutes: number | null,
+      placeId: number | null,
+      end: string,
+      extra: Record<string, unknown> = {}
+    ) => ({
+      startedAt: now - startAgo,
+      endedAt: minutes === null ? null : now - startAgo + minutes * min,
+      placeId,
+      jobId: placeId ? `job-${Math.round(startAgo / min)}` : null,
+      end,
+      dropKind: null,
+      reason: null,
+      code: null,
+      message: null,
+      ...extra,
+    });
+    const first = [
+      s(25 * min, null, 6516141723, "ongoing"),
+      s(95 * min, 62, 6516141723, "dropped", { dropKind: "disconnected", reason: "connectionLost", code: 277 }),
+      s(3 * 60 * min, 40, 606849621, "teleported"),
+      s(day + 2 * 60 * min, 120, 606849621, "dropped", { dropKind: "kicked", code: 267, message: "You were AFK for too long" }),
+      s(day + 5 * 60 * min, 0, null, "moderated"),
+      s(2 * day, 180, 15101393044, "left"),
+      s(3 * day, 95, 6516141723, "appClosed"),
+      s(5 * day, 30, 6516141723, "dropped", { dropKind: "serverShutdown", code: 274 }),
+      s(9 * day, 240, 606849621, "closed"),
+      s(20 * day, 300, 15101393044, "left"),
+    ];
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_session_history") return Number(args?.userId) === accounts[0].UserID ? first : [];
+      if (cmd === "save_history_export") return "C:/Users/you/AppData/Local/Roblox Account Manager/exports/history.csv";
+      return baseHandler(cmd, args);
+    });
+  },
+
+  /**
+   * Presets de launch (ideia 13): três presets como o backend devolve — um com
+   * horário de abrir e fechar e dois clientes ainda abertos, um com VIP dos
+   * favoritos e um com uma conta que saiu do app. Salvar e apagar ficam em
+   * memória, como o arquivo `RAMLaunchPresets.json` ficaria. Abra pela Toolbar
+   * (Presets) ou pela Choose Game (Save as preset).
+   */
+  presets() {
+    const hour = 3_600_000;
+    let presets: Record<string, unknown>[] = [
+      {
+        id: "preset-1",
+        name: "Morning farm",
+        userIds: accounts.slice(0, 4).map((a) => a.UserID),
+        placeId: 6516141723,
+        jobId: "",
+        gameName: "Blox Fruits",
+        vipName: null,
+        arrangeGrid: true,
+        schedule: { openEnabled: true, openAt: "08:00", days: [0, 1, 2, 3, 4], closeEnabled: true, closeAt: "18:00" },
+        nextOpenAt: Date.now() + 14 * hour,
+        nextCloseAt: Date.now() + 4 * hour,
+        openClients: 2,
+        openUserIds: accounts.slice(0, 2).map((a) => a.UserID),
+      },
+      {
+        id: "preset-2",
+        name: "Squad VIP",
+        userIds: accounts.slice(0, 2).map((a) => a.UserID),
+        placeId: 606849621,
+        jobId: "vip:ABC123",
+        gameName: "Jailbreak",
+        vipName: "Squad",
+        arrangeGrid: false,
+        schedule: null,
+        nextOpenAt: null,
+        nextCloseAt: null,
+        openClients: 0,
+      },
+      {
+        id: "preset-3",
+        name: "Old alts",
+        userIds: [accounts[accounts.length - 1].UserID, 999_999],
+        placeId: 15101393044,
+        jobId: "",
+        gameName: "Steal a Brainrot",
+        vipName: null,
+        arrangeGrid: false,
+        schedule: null,
+        nextOpenAt: null,
+        nextCloseAt: null,
+        openClients: 0,
+      },
+    ];
+    let serial = 10;
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_launch_presets") return presets;
+      if (cmd === "save_launch_preset") {
+        const preset = { ...(args?.preset as Record<string, unknown>) };
+        if (!preset.id) preset.id = `preset-${++serial}`;
+        const view = { nextOpenAt: null, nextCloseAt: null, openClients: 0, openUserIds: [], ...preset };
+        presets = presets.some((p) => p.id === preset.id)
+          ? presets.map((p) => (p.id === preset.id ? { ...p, ...view } : p))
+          : [...presets, view];
+        return preset;
+      }
+      if (cmd === "delete_launch_preset") {
+        presets = presets.filter((p) => p.id !== args?.id);
+        return true;
+      }
+      if (cmd === "launch_preset") return 2;
+      if (cmd === "close_preset_clients") {
+        presets = presets.map((p) => (p.id === args?.id ? { ...p, openClients: 0, openUserIds: [] } : p));
+        return 2;
+      }
+      return baseHandler(cmd, args);
+    });
+    // Favoritos com um VIP, para o editor oferecer "Jogo — VIP: Squad".
+    harnessGameLists = {
+      favorites: [
+        {
+          placeId: 606849621,
+          name: "Jailbreak",
+          iconUrl: null,
+          addedAt: 1,
+          vipServers: [{ id: "v1", name: "Squad", link: "vip:ABC123" }],
+        },
+        { placeId: 6516141723, name: "Blox Fruits", iconUrl: null, addedAt: 2, vipServers: [] },
+      ],
+      recentGames: [],
+      recentJobs: [],
+    };
+  },
+
+  /**
    * Contas banidas/advertidas/encerradas (ideia 8) e uma que pede verificação
    * ao abrir (ideia 10, conta 6). Ver `harnessModeration`.
    */
@@ -1389,6 +1656,11 @@ const SCENARIOS: Record<string, () => void> = {
    */
   tour() {
     seedTourStorage();
+    // A página Console também não pode estar vazia: algumas linhas do que o
+    // app fez, chegando como o evento `launch-log` chegaria.
+    tourLogLines(accounts.map((a) => a.UserID)).forEach((line, index) => {
+      setTimeout(() => harnessEmit("launch-log", line), 300 * (index + 1));
+    });
     const pages = realPlacePages as { id: string; playing: number; maxPlayers: number; ping: number | null }[][];
     const withTour = tourHandler(groupsHandler(baseHandler), accounts.map((a) => a.UserID));
     setInvokeHandler((cmd, args) => {
@@ -1910,6 +2182,20 @@ const SCENARIOS: Record<string, () => void> = {
    * ligado, a 2ª conta desligou a sua (campo `AutoReconnect`), e a 3ª tem o
    * AutoRelaunch do Nexus (`get_nexus_accounts`). `update_account` guarda em
    * memória o que a chave e o lote gravam.
+   *
+   * Sessão de agora de cada linha do "Em jogo" (`get_current_sessions`): jogo,
+   * servidor público/privado (a 4ª, do site, sem tipo) e tempo em jogo. Quem
+   * cai perde a sessão, e a 1ª ganha uma nova ao voltar (com
+   * `session-history-changed`, como o backend). Com `&accounts=9`, três contas
+   * a mais jogam sem cair — uma num jogo de nome comprido, outra num place sem
+   * nome conhecido.
+   *
+   * Clientes que fecharam no meio do jogo (`commands/closed_clients.rs`,
+   * `get_closed_clients` e evento `closed-clients`): a 6ª já chega fechada
+   * (servidor privado — o "Entrar novamente" leva o código); aos 9 s a 8ª
+   * (com `&accounts=8` ou mais) some do tracker e chega como fechada, expulsa.
+   * O "×" e o "Entrar novamente" só chegam ao backend: quem tira o aviso é ele
+   * (ou o cliente novo da conta), e aqui não há backend.
    */
   "client-drops"() {
     // Reconexão: padrão ligado; a 2ª conta desligou a sua (escolha própria).
@@ -1928,6 +2214,47 @@ const SCENARIOS: Record<string, () => void> = {
       adopted: i === 3,
       drop: null as Drop | null,
     }));
+    // Com `&accounts=9` (ou mais), da 7ª à 9ª conta jogam sem cair: é onde se
+    // vê a sessão de agora inteira (jogo, servidor, tempo em jogo). A 6ª fica
+    // de fora (o cliente fechou e a reconexão desistiu, abaixo).
+    accounts.slice(6, 9).forEach((a, i) => {
+      rows.push({ userId: a.UserID, pid: 8300 + i, adopted: false, drop: null });
+    });
+    // Sessão de agora (`get_current_sessions`): onde e desde quando, como o
+    // observador do histórico guarda. Nome comprido para ver o corte; um place
+    // sem nome conhecido para ver o Place ID no lugar.
+    const LONG_NAME_PLACE = 4924922222;
+    const LONG_NAME = "[UPDATE 12] Brookhaven Super Mega Tycoon Simulator: Build Your Empire Edition";
+    const started = Date.now();
+    const sessionOf = new Map<number, { placeId: number; jobId: string; sinceMs: number; privateServer: boolean | null }>();
+    // Contas no mesmo servidor dividem o Job ID (a lista "Em jogo" agrupa por
+    // jogo e servidor); as outras têm o seu.
+    const SHARED_JAILBREAK_JOB = "8e2f6a10-4c1b-4d0e-9a7b-3c5d2e1f0a9b";
+    const playing = (
+      index: number,
+      placeId: number,
+      minutesAgo: number,
+      privateServer: boolean | null,
+      jobId?: string
+    ) => {
+      const row = rows[index];
+      if (row) {
+        sessionOf.set(row.userId, {
+          placeId,
+          jobId: jobId ?? `job-${row.userId}`,
+          sinceMs: started - minutesAgo * 60_000,
+          privateServer,
+        });
+      }
+    };
+    playing(0, 606849621, 47, false, SHARED_JAILBREAK_JOB);
+    playing(1, 6516141723, 130, true);
+    playing(2, 606849621, 8, false, SHARED_JAILBREAK_JOB);
+    playing(3, 15101393044, 20, null);
+    playing(4, 6516141723, 3, false);
+    playing(5, LONG_NAME_PLACE, 65, true);
+    playing(6, 606849621, 12, false, SHARED_JAILBREAK_JOB);
+    playing(7, 1234567890, 0.5, false);
     const drops: [number, Omit<Drop, "sinceMs">][] = [
       [0, { kind: "disconnected", reason: "connectionLost", code: 277, message: null }],
       [1, { kind: "kicked", reason: null, code: 267, message: "You have been kicked for being AFK too long" }],
@@ -1940,12 +2267,24 @@ const SCENARIOS: Record<string, () => void> = {
       setTimeout(() => {
         row.drop = { ...drop, sinceMs: Date.now() };
         harnessEmit("roblox-client-health", { userId: row.userId, drop: row.drop, adopted: row.adopted });
+        // A queda fecha a sessão no histórico (evento `dropped`).
+        sessionOf.delete(row.userId);
+        harnessEmit("session-history-changed", { userIds: [row.userId] });
       }, 1200 * (order + 1));
     });
     setTimeout(() => {
       if (!rows[0]) return;
       rows[0].drop = null;
       harnessEmit("roblox-client-health", { userId: rows[0].userId, drop: null });
+      // Voltou: sessão nova, contando de agora.
+      sessionOf.set(rows[0].userId, {
+        placeId: 606849621,
+        // A reconexão volta ao mesmo servidor (dividido com outra conta).
+        jobId: SHARED_JAILBREAK_JOB,
+        sinceMs: Date.now(),
+        privateServer: false,
+      });
+      harnessEmit("session-history-changed", { userIds: [rows[0].userId] });
     }, 15_000);
     // A 5ª trava: a janela fica "Não respondendo" (o backend só avisa depois
     // de 30 s; aqui chega em 6 s para não esperar).
@@ -2035,13 +2374,65 @@ const SCENARIOS: Record<string, () => void> = {
         500
       );
     }
+    // Clientes que fecharam (closed_clients.rs), na forma do backend.
+    let closedList: unknown[] = [];
+    if (sixth) {
+      closedList = [
+        {
+          userId: sixth.UserID,
+          closedAtMs: started - 4 * 60_000,
+          drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: started - 4 * 60_000 },
+          placeId: LONG_NAME_PLACE,
+          rejoin: { placeId: LONG_NAME_PLACE, jobId: "", launchData: "", joinVip: true, linkCode: "harness-private-code" },
+        },
+      ];
+    }
+    const eighth = accounts[7];
+    if (eighth) {
+      setTimeout(() => {
+        const index = rows.findIndex((row) => row.userId === eighth.UserID);
+        if (index >= 0) rows.splice(index, 1);
+        sessionOf.delete(eighth.UserID);
+        harnessEmit("session-history-changed", { userIds: [eighth.UserID] });
+        const now = Date.now();
+        closedList = [
+          ...closedList,
+          {
+            userId: eighth.UserID,
+            closedAtMs: now,
+            drop: { kind: "kicked", reason: null, code: 267, message: "Too many players were AFK", sinceMs: now },
+            placeId: 1234567890,
+            rejoin: { placeId: 1234567890, jobId: `job-${eighth.UserID}`, launchData: "", joinVip: false, linkCode: "" },
+          },
+        ];
+        harnessEmit("closed-clients", { entries: closedList });
+      }, 9_000);
+    }
+    // Teto de memória (memory_ceiling.rs): padrão de 2 GB; a 3ª conta tem o
+    // seu. O retrato é o que o backend mandaria — a 2ª está acima e já foi
+    // liberada uma vez; a 6ª foi liberada e ficou abaixo (memória baixa até o
+    // jogo precisar). Cliente do site (adotado) não tem memória no retrato.
+    // A memória é a privada (a do Gerenciador de Tarefas) e mexe a cada
+    // leitura, como num cliente de verdade — a tela tem que acompanhar.
+    settings.Optimization = { ...settings.Optimization, MemoryLimit: "2048" };
+    if (accounts[2]) accounts[2].Fields = { ...accounts[2].Fields, MemoryLimit: "1536" };
+    const memoryOf = (index: number) => {
+      const row = rows[index];
+      if (!row || row.adopted) return null;
+      const base = [1250, 2500, 880, 0, 1730, 380, 1410, 2010, 990][index] ?? 1100;
+      const memoryMb = base > 0 ? base + Math.round(Math.sin(Date.now() / 4000 + index) * 35) : base;
+      const limitMb = index === 2 ? 1536 : 2048;
+      const trimmed = base > limitMb || index === 5;
+      return { memoryMb, limitMb, over: memoryMb > limitMb, trimmedAtMs: trimmed ? started : null };
+    };
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_running_instances") {
-        return rows.map((row) => ({
+        return rows.map((row, index) => ({
           pid: row.pid,
           user_id: row.userId,
           browser_tracker_id: `${row.userId}0001`,
           adopted: row.adopted,
+          memory: memoryOf(index),
           health: {
             pid: row.pid,
             logFound: true,
@@ -2053,6 +2444,16 @@ const SCENARIOS: Record<string, () => void> = {
         }));
       }
       if (cmd === "get_auto_reconnect_status") return { entries: reconnect };
+      if (cmd === "get_closed_clients") return { entries: closedList };
+      if (cmd === "dismiss_closed_client") return true;
+      if (cmd === "get_current_sessions") {
+        return [...sessionOf.entries()]
+          .map(([userId, s]) => ({ userId, ...s }))
+          .sort((a, b) => a.userId - b.userId);
+      }
+      if (cmd === "batched_get_game_info" && Number(args?.placeId) === LONG_NAME_PLACE) {
+        return { placeId: LONG_NAME_PLACE, universeId: 1, name: LONG_NAME, iconUrl: null };
+      }
       // A chave de reconexão por conta (Sessão → Em jogo) grava a conta inteira.
       if (cmd === "update_account") {
         const next = args?.account as (typeof accounts)[number] | undefined;
@@ -2125,6 +2526,81 @@ const SCENARIOS: Record<string, () => void> = {
         afkRunningSession(world, Number.isFinite(since) ? Math.max(0, Math.min(since, 24 * 60)) : 65)
       )
     );
+  },
+
+  /**
+   * Gravações em duas vagas (After auto-reconnect / On anti-AFK), no mundo do
+   * `afk-mode` (as quatro primeiras contas com cliente aberto pelo app). Três
+   * gravações; a global da reconexão é "Walk to the spot" e a do anti-AFK é
+   * "Jump loop". Escolhas por conta: a 2ª toca "Farm loop" no anti-AFK, a 3ª
+   * não toca nada depois da reconexão ("None"), e a 6ª — sem cliente aberto —
+   * tem "Farm loop" no anti-AFK (aparece na lista por isso). Modo AFK no modo
+   * gravação a cada 2 min 30 s; reconexão ligada, 45 s. `&recs=0` sobe com a
+   * biblioteca vazia; `&overrides=0`, sem escolha por conta.
+   */
+  recordings() {
+    settings.Afk = {
+      IntervalMinutes: "2",
+      IntervalSeconds: "30",
+      BeepOnCycle: "false",
+      Mode: "recording",
+      ClickX: "50",
+      ClickY: "50",
+    };
+    settings.Recordings = { AfterReconnect: "true", AfterReconnectDelaySeconds: "45" };
+    settings.General = { ...settings.General, EnableMultiRbx: "true", BottingEnabled: "true" };
+    if (params.get("recs") !== "0") {
+      const now = Date.now();
+      harnessRecordings.recordings = [
+        {
+          id: "rec-walk",
+          name: "Walk to the spot",
+          steps: [
+            { type: "keyDown", key: "W" },
+            { type: "wait", ms: 1800 },
+            { type: "keyUp", key: "W" },
+            { type: "click", xPct: 52.5, yPct: 61.25 },
+          ],
+          createdAt: now,
+          updatedAt: now,
+          sourceAspect: 1.7778,
+        },
+        {
+          id: "rec-jump",
+          name: "Jump loop",
+          steps: [
+            { type: "key", key: "Space", holdMs: 40 },
+            { type: "wait", ms: 600 },
+            { type: "key", key: "Space", holdMs: 40 },
+          ],
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "rec-farm",
+          name: "Farm loop",
+          steps: [
+            { type: "click", xPct: 37.5, yPct: 62.5 },
+            { type: "wait", ms: 1200 },
+            { type: "key", key: "E", holdMs: 120 },
+          ],
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+      const id = (n: number) => String(accounts[n - 1]?.UserID ?? 1000 + n);
+      const overrides = params.get("overrides") !== "0";
+      harnessRecordings.afterReconnect = {
+        defaultId: "rec-walk",
+        accounts: overrides ? { [id(3)]: null } : {},
+      };
+      harnessRecordings.antiAfk = {
+        defaultId: "rec-jump",
+        accounts: overrides ? { [id(2)]: "rec-farm", [id(6)]: "rec-farm" } : {},
+      };
+    }
+    const world = afkWorld();
+    setInvokeHandler(afkHandler(bottingHandler(baseHandler, world, false), world, null));
   },
 
   /**

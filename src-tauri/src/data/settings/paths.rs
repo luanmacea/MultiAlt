@@ -23,6 +23,12 @@ pub const DATA_FILES: &[&str] = &[
     // Favoritos (com os links dos servidores VIP), jogos e servidores recentes.
     // Moravam só no `localStorage` do WebView e ficavam fora do backup.
     "RAMGameLists.json",
+    // Presets de launch (contas → jogo/servidor) e os horários deles.
+    "RAMLaunchPresets.json",
+    // Gravações (sequências de teclas, cliques e esperas) e qual vale para quem.
+    "RAMRecordings.json",
+    // Histórico de sessões por conta (uma linha JSON por evento, 90 dias).
+    "RAMSessionHistory.jsonl",
     "AccountControlData.json",
 ];
 pub const DATA_DIRS: &[&str] = &["RAMThemeFonts"];
@@ -174,6 +180,21 @@ pub fn get_game_lists_path() -> PathBuf {
     get_runtime_data_dir().join("RAMGameLists.json")
 }
 
+/// Presets de launch (`data/launch_presets.rs`).
+pub fn get_launch_presets_path() -> PathBuf {
+    get_runtime_data_dir().join("RAMLaunchPresets.json")
+}
+
+/// Gravações (`data/recordings.rs`).
+pub fn get_recordings_path() -> PathBuf {
+    get_runtime_data_dir().join(crate::data::recordings::RECORDINGS_FILE_NAME)
+}
+
+/// Histórico de sessões (`data/session_history.rs`).
+pub fn get_session_history_path() -> PathBuf {
+    get_runtime_data_dir().join(crate::data::session_history::SESSION_HISTORY_FILE_NAME)
+}
+
 pub fn get_theme_fonts_dir() -> PathBuf {
     get_runtime_data_dir().join("RAMThemeFonts")
 }
@@ -246,6 +267,9 @@ mod settings_paths_tests {
             (get_scripts_path(), "RAMScripts.json"),
             (get_avatars_path(), "RAMAvatars.json"),
             (get_game_lists_path(), "RAMGameLists.json"),
+            (get_launch_presets_path(), "RAMLaunchPresets.json"),
+            (get_recordings_path(), "RAMRecordings.json"),
+            (get_session_history_path(), "RAMSessionHistory.jsonl"),
             (get_theme_path(), "RAMTheme.ini"),
             (get_theme_presets_path(), "RAMThemePresets.json"),
             (get_theme_fonts_dir(), "RAMThemeFonts"),

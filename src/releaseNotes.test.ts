@@ -162,6 +162,7 @@ describe("releaseKindOf", () => {
     expect(releaseKindOf(withKind("fix", PLAIN_BODY))).toBe("fix");
     expect(releaseKindOf(withKind("feature", PLAIN_BODY))).toBe("feature");
     expect(releaseKindOf(withKind("mixed", PLAIN_BODY))).toBe("mixed");
+    expect(releaseKindOf(withKind("major", PLAIN_BODY))).toBe("major");
   });
 
   it("sem marca, classifica a lista simples pelo prefixo Fixed:", () => {
@@ -180,7 +181,7 @@ describe("releaseKindOf", () => {
   });
 
   it("marca de tipo desconhecido é ignorada", () => {
-    expect(releaseKindOf("<!-- release-kind: major -->\n## What's Changed\n- Fixed: a")).toBe("fix");
+    expect(releaseKindOf("<!-- release-kind: epic -->\n## What's Changed\n- Fixed: a")).toBe("fix");
   });
 });
 

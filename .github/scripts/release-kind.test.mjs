@@ -57,6 +57,8 @@ describe("kindOverride", () => {
     expect(kindOverride({ message: "Merge develop [type:fix]" })).toBe("fix");
     expect(kindOverride({ message: "[TYPE:Feature] big one" })).toBe("feature");
     expect(kindOverride({ message: "x [type:mixed]" })).toBe("mixed");
+    // A 2.0.0 (12/10/2026): "Major update", pedido do dono.
+    expect(kindOverride({ message: "MultiAlt 2.0 [type:major]" })).toBe("major");
   });
 
   it("lê o rótulo do PR", () => {
@@ -95,6 +97,9 @@ describe("bumpForKind", () => {
     expect(bumpForKind("fix")).toBe("patch");
     expect(bumpForKind("feature")).toBe("minor");
     expect(bumpForKind("mixed")).toBe("minor");
+    // O número de uma major vem do package.json (release-version.mjs); o bump
+    // só vale se ele for menor que a tag mais alta, e aí soma minor.
+    expect(bumpForKind("major")).toBe("minor");
   });
 });
 
@@ -140,7 +145,7 @@ describe("releaseKindHeader", () => {
   });
 
   it("recusa tipo desconhecido", () => {
-    expect(() => releaseKindHeader("major")).toThrow();
+    expect(() => releaseKindHeader("epic")).toThrow();
   });
 });
 
@@ -164,12 +169,12 @@ describe("o app entende o cabeçalho que o workflow escreve", () => {
       "[@luanmacea](https://github.com/luanmacea)",
     ].join("\n");
 
-  for (const kind of ["fix", "feature", "mixed"]) {
+  for (const kind of ["fix", "feature", "mixed", "major"]) {
     it(`${kind}: lê o tipo e esconde marca e selo`, () => {
       const body = finalBody(kind);
       expect(releaseKindOf(body)).toBe(kind);
       const dialog = notesForUpdateDialog(body);
-      expect(dialog).not.toMatch(/release-kind|Hotfix|New features|General update/);
+      expect(dialog).not.toMatch(/release-kind|Hotfix|New features|General update|Major update/);
       expect(dialog.startsWith("## What's Changed")).toBe(true);
       expect(changelogNotes(body)).toBe("- Fixed: something");
     });
@@ -182,6 +187,7 @@ describe("o app entende o cabeçalho que o workflow escreve", () => {
   });
 
   it("os selos são os mesmos dos dois lados", () => {
-    expect(Object.keys(RELEASE_KIND_BADGES).sort()).toEqual(["feature", "fix", "mixed"]);
+    expect(Object.keys(RELEASE_KIND_BADGES).sort()).toEqual(["feature", "fix", "major", "mixed"]);
+    expect(RELEASE_KIND_BADGES.major).toBe("**🚀 Major update**");
   });
 });

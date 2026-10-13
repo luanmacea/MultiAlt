@@ -14,7 +14,7 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 | Comandos (`get_all_settings`, `get_setting`, `update_setting`, tema, presets, fontes) | [data/settings/commands.rs](../../src-tauri/src/data/settings/commands.rs) |
 | Tema (`RAMTheme.ini`) e presets | [data/settings/theme.rs](../../src-tauri/src/data/settings/theme.rs), [data/settings/presets.rs](../../src-tauri/src/data/settings/presets.rs) |
 | Página e seções | [SettingsPage.tsx](../../src/components/pages/SettingsPage.tsx) (seções numa lista vertical), [tabs.tsx](../../src/components/settings/tabs.tsx) (ordem e ícones), [TabContent.tsx](../../src/components/settings/TabContent.tsx) |
-| Abas | [GeneralTab](../../src/components/settings/GeneralTab.tsx), [BackupsTab](../../src/components/settings/BackupsTab.tsx), [DeveloperTab](../../src/components/settings/DeveloperTab.tsx), [WebServerTab](../../src/components/settings/WebServerTab.tsx), [WatcherTab](../../src/components/settings/WatcherTab.tsx), [GeneratorTab](../../src/components/settings/GeneratorTab.tsx), [IsolationTab](../../src/components/settings/IsolationTab.tsx), [VersionsTab](../../src/components/settings/VersionsTab.tsx), [OptimizationTab](../../src/components/settings/OptimizationTab.tsx), [MiscellaneousTab](../../src/components/settings/MiscellaneousTab.tsx) |
+| Abas | [LaunchTab](../../src/components/settings/LaunchTab.tsx), [KeepInGameTab](../../src/components/settings/KeepInGameTab.tsx), [AccountsTab](../../src/components/settings/AccountsTab.tsx), [PrivacyTab](../../src/components/settings/PrivacyTab.tsx), [UpdatesTab](../../src/components/settings/UpdatesTab.tsx), [AppTab](../../src/components/settings/AppTab.tsx) (peças comuns em [settingsParts.tsx](../../src/components/settings/settingsParts.tsx)), [BackupsTab](../../src/components/settings/BackupsTab.tsx), [DeveloperTab](../../src/components/settings/DeveloperTab.tsx), [WebServerTab](../../src/components/settings/WebServerTab.tsx), [WatcherTab](../../src/components/settings/WatcherTab.tsx), [GeneratorTab](../../src/components/settings/GeneratorTab.tsx), [IsolationTab](../../src/components/settings/IsolationTab.tsx), [VersionsTab](../../src/components/settings/VersionsTab.tsx), [OptimizationTab](../../src/components/settings/OptimizationTab.tsx) |
 | Hook de leitura/escrita | [hooks/useSettings.ts](../../src/hooks/useSettings.ts) |
 | Cópia global na store | [store.tsx](../../src/store.tsx) (`settings`, `reloadSettings`) |
 
@@ -26,12 +26,21 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 4. Ao fechar o diálogo, `onSettingsChanged` → `store.reloadSettings()` (recarrega o mapa e o idioma).
 5. No backend, `SettingsStore::set` altera a chave e regrava o arquivo inteiro.
 
-### Abas
+### Seções
+
+Até 11/10/2026 a primeira aba era **General**, um paredão de ~40 opções (crítica de design P1), e havia uma **Misc** com o que sobrava. As duas viraram as seis primeiras seções abaixo. **Só o lugar mudou**: cada controle grava a mesma chave do INI, com o mesmo texto. A barra lista primeiro as do dia a dia (Launch → Backups) e depois, sob o rótulo **Advanced**, as técnicas (`advanced: true` em [tabs.tsx](../../src/components/settings/tabs.tsx)). Os nomes das seções e os cabeçalhos dentro delas (`SectionLabel`) são em sentence case, como no resto do app.
+
+A página abre em **Launch**. Outra tela abre uma seção com `store.openSettingsSection(id)` (o pedido vai em `store.settingsSectionRequest`, que a `SettingsPage` segue): o "Auto Rejoin is off" da barra de ações leva a Keep in game, o "Open login settings" da criação de contas leva a Accounts, o passo "Power settings" do walkthrough leva a Launch. Os textos que citam um caminho ("Settings › Launch", "Settings > Privacy & security > Change Encryption Method") seguem os nomes novos.
 
 | Aba | Visível quando | Seções/chaves |
 |---|---|---|
-| General | sempre | `General.*` (updates, idioma, launch, privacidade de nomes, multi-Roblox, presença, tray...), `Login.*` |
-| Backups | sempre | nenhuma chave: criar, listar, restaurar e apagar backups inline ([BackupsTab](../../src/components/settings/BackupsTab.tsx), ver [backups.md](backups.md)). Era um diálogo aberto por "Manage" em Misc > Data até 03/10/2026 |
+| Launch | sempre | Cartão "Launch does nothing?" (abre a checagem, [support.md](support.md)); **Several accounts at once**: `General.EnableMultiRbx`, `ReserveSingletonEvent` (Windows), `AutoCloseRobloxForMultiRbx` (vinha de Misc); **Time between accounts**: `AsyncJoin`, `AccountJoinDelay`, `WaitForGameJoin` (Windows); **Before each launch**: `CheckModerationBeforeLaunch`, `WarnOnOnlineJoin`, `AutoCloseLastProcess` e `ShuffleJobId` (os dois vinham de Misc) |
+| Keep in game | sempre | `General.BottingEnabled` (Auto Rejoin) + linha "Auto Rejoin options" com botão **Open AFK Mode**; "Reconnect accounts that drop" **sem interruptor** — mostra se o padrão `General.AutoReconnect` está ligado e tem o botão **Change it on the Session page** (Windows); `General.KeepPcAwake`, `Afk.ShakeToStop` (Windows) |
+| Accounts | sempre | **Account list**: `ShowPresence`, `PresenceUpdateRate` (vinha de Misc), `WrapLongNames`, `DisableAgingAlert`, `DisableImages`, `AutoCookieRefresh`; **Login browser**: `Login.PersistentProfile`, `Login.StealthMode`, `Login.ManualBinaryPath` e o cartão do navegador embutido |
+| Privacy & security | sempre | **Hidden names**: `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `ShowAccountNameOnWindow` (Windows); **Account file**: botão "Change Encryption Method" (vinha de Misc), `WarnOnCopyCredential`; **Password screen**: `LockOnInactivity`, `LockAfterMinutes`, "Stay signed in on this computer" (os três vinham de Misc), `RestrictedBackgroundStyle` |
+| Updates | sempre | `CheckForUpdates`, `UpdaterReleaseChannel`, `UpdaterFeatureChannel` e o cartão "Manual Update Check" |
+| App | sempre | `Language`, `InterfaceScale`; **Window**: `ThemeWindowsNavbar` (Windows), `StartOnPCStartup`, `MinimizeToTray`; **Recent games and servers**: `MaxRecentGames`, `MaxRecentJobs`, `ServerRegionFormat`; **Help**: cartão "First-Time Walkthrough" |
+| Backups | sempre | nenhuma chave: criar, listar, restaurar e apagar backups inline ([BackupsTab](../../src/components/settings/BackupsTab.tsx), ver [backups.md](backups.md)). Era um diálogo aberto por "Manage" em Misc > Data até 03/10/2026. Fecha o grupo do dia a dia |
 | Developer | sempre | `Developer.DevMode`, `Developer.EnableWebServer` (toggle só se `ENABLE_WEBSERVER`) |
 | WebServer | `ENABLE_WEBSERVER` (build) — a aba aparece sempre; o que destrava os ajustes é `DevMode` ou `EnableWebServer`, dentro da própria aba ([SettingsPage.tsx](../../src/components/pages/SettingsPage.tsx) só a esconde sem `ENABLE_WEBSERVER`) | `WebServer.*` — ver [webserver.md](webserver.md) |
 | Watcher | sempre | `Watcher.*` — ver [watcher.md](watcher.md) |
@@ -39,7 +48,15 @@ Guardar todas as preferências do app em `RAMSettings.ini` (formato herdado do R
 | Isolation | sempre | `Isolation.*` — ver [isolation.md](isolation.md) |
 | Versions | sempre | `Versions.*` — ver [roblox-versions.md](roblox-versions.md) |
 | Optimization | sempre | `Optimization.*`, `General.BottingUseSharedClientProfile` |
-| Misc | sempre | `General.*` diversos + botão "Change Encryption Method" |
+
+**Opções que aparecem em duas telas — uma só é editável** (decisão de 11/10/2026, a casa é a tela em que o usuário está quando precisa da opção):
+
+| Opção | Onde muda | Na outra tela |
+|---|---|---|
+| `General.AutoReconnect` ("Reconnect accounts that drop") | cartão "Keep accounts in game" da página **Session**, ao lado das contas em jogo, onde cada conta também tem o seu | Settings › Keep in game mostra "On/Off for every account…" e o botão **Change it on the Session page** |
+| Auto Rejoin | o interruptor `General.BottingEnabled` fica em Settings › Keep in game (ele só põe o Auto Rejoin na barra de ações e separa os perfis de otimização — nada que a página AFK Mode mostre); quem entra, em qual place e de quanto em quanto tempo ficam na aba Auto Rejoin da página **AFK Mode** | Settings › Keep in game tem a linha "Auto Rejoin options" com **Open AFK Mode** |
+
+O teste [settingsSplit.test.tsx](../../src/components/settings/settingsSplit.test.tsx) guarda a divisão: o inventário de tudo que morava em General e Misc, cada controle **uma vez só** na página e na seção certa, a chave que cada interruptor grava, os dois botões de navegação e o link direto para uma seção.
 
 ## Chaves do `RAMSettings.ini`
 
@@ -54,6 +71,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `UpdaterFeatureChannel` | a edição que está rodando (`standard` na padrão, `nexus-ws` na completa) | Canal de features do updater. Gravado no INI, nunca é reposto por uma versão nova; o botão "Get the complete edition" da página Avatars grava `nexus-ws` ([avatars.md](avatars.md#trocar-para-a-edição-completa-pelo-app)). |
 | `AccountJoinDelay` | `8` | Segundos entre contas no multi-launch. |
 | `AsyncJoin` | `false` | "Launch one account at a time": espera o sinal `next_account` (teto de 120 s) depois de cada conta. Nada na tela manda o sinal, então na prática são 2 minutos entre contas — é o que a descrição diz. Ligado, `AccountJoinDelay` e `WaitForGameJoin` ficam desabilitados com a dica de que voltam a valer ao desligá-lo. |
+| `RestoreRobloxSettingsOnExit` | `false` | "Restore Roblox settings when MultiAlt closes" (Settings › Optimization): devolve ao fechar o app o FPS, volume, gráficos, janela e FastFlags que o launch gravou nos arquivos do Roblox, quando nenhum cliente aberto pelo app está rodando. Cópia dos arquivos originais em `RobloxSettingsBackup/`. Só Windows. Ver [performance.md](performance.md#devolver-as-configurações-do-roblox-ao-fechar-generalrestorerobloxsettingsonexit). |
 | `KeepPcAwake` | `true` | Não deixa o Windows dormir (a tela pode apagar) enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda; solta ao parar tudo e ao fechar o app. Só Windows. Ver [afk-mode.md](afk-mode.md#pc-acordado). |
 | `AutoReconnect` | `false` | Padrão de todas as contas para a [reconexão automática](watcher.md#reconexão-automática): reabre no mesmo jogo o cliente que o app abriu quando ele cai. O campo `AutoReconnect` da conta (chave na lista "In game" da página Session) vence. Também muda no cartão "Keep accounts in game" da página Session. Só Windows. |
 | `WaitForGameJoin` | `true` | "Start the next account once the previous one is in the game". Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
@@ -61,7 +79,8 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `HideUsernames` | `false` | Mascara nomes na lista. |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
 | `WrapLongNames` | `false` | Ligado, o alias/username quebra em mais de uma linha na linha da conta em vez de truncar (o alias vai até 240 caracteres). |
-| `ShowAvatarsWhenHidden` / `HideRobuxWhenHidden` | — (false) | Comportamento com nomes ocultos. |
+| `ShowAvatarsWhenHidden` | — (false) | Comportamento com nomes ocultos. |
+| `ShowRobux` | — (false) | Seção Accounts: o saldo de Robux no painel da conta (no lugar do antigo `HideRobuxWhenHidden`). |
 | `DisableImages` | — (false) | Não carregar thumbnails de avatar. |
 | `ServerRegionFormat` | `<city>, <countryCode>` | Formato do rótulo de região: `<city>`, `<region>`, `<country>`, `<countryCode>`, `<ip>` — ver [server-choice.md](server-choice.md). |
 | `ServerPreference` | `bestfit` | Preferência de servidor do lote: `bestfit` \| `fullest` \| `emptiest` \| `random` \| `none`. |
@@ -75,6 +94,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `AutoCloseLastProcess` | `false` | Fecha a instância anterior da mesma conta ao relançar. |
 | `AutoCloseRobloxForMultiRbx` | `false` | Fecha Roblox abertos se não conseguir ativar multi-Roblox. |
 | `EnableMultiRbx` | — (false) | Multi-Roblox; também controla a limpeza ao sair do app. |
+| `ReserveSingletonEvent` | — (false) | **Experimental.** "Keep clients open across teleports": com o Multi Roblox ligado, reserva o nome `ROBLOX_singletonEvent` com um Mutex do app para um teleporte não fechar outro cliente. Desabilitado na tela sem o Multi Roblox. Só Windows. Ver [launch.md](launch.md#regras-de-negócio). |
 | `ShowPresence` | `true` | Mostra presença na lista. |
 | `ShowAccountNameOnWindow` | `true` | Só Windows: título "conta — Roblox" (nome primeiro) em cada janela que o app acompanha (mascarado com `HideUsernames`). Ver [watcher.md](watcher.md#nome-da-conta-na-janela). |
 | `PresenceUpdateRate` | `5` | Minutos entre atualizações de presença (mínimo efetivo 30 s). |
@@ -93,7 +113,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ThemeWindowsNavbar` | `true` | Barra de título do Windows segue o tema. |
 | `ThemeWindowsNavbarAutoEnabledV1` | `true` | Marcador de migração (força `ThemeWindowsNavbar=true` uma vez). |
 | `RestrictedBackgroundStyle` | `warp` | Fundo animado da tela de senha: `bubbles`, `warp`, `warpLegacy`, `waves`. |
-| `InterfaceScale` | — (`auto`) | Tamanho da interface (zoom nativo do WebView): `auto` encolhe em janela pequena (80–100%), ou fixo `110`/`100`/`90`/`80`. Vale na hora, sem sair da página. Ver [ui-layout.md](ui-layout.md#tamanho-da-interface). |
+| `InterfaceScale` | — (`auto`) | Tamanho da interface (zoom nativo do WebView): `auto` cresce com a janela grande (100–200%, ex.: 170% num 4K maximizado) e encolhe em monitor pequeno (80–100%); a opção mostra o valor de agora ("Automatic (170%)"). Ou fixo `110`/`100`/`90`/`80`, que vence o automático. Vale na hora, sem sair da página. Ver [ui-layout.md](ui-layout.md#tamanho-da-interface). |
 | `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
 | `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
 | `BottingAutoShareLaunchFields` | `true` | **Ignorada desde 03/10/2026**: o Auto Rejoin não tem mais os campos Place/Job/Data para sincronizar com a sidebar (o servidor é onde as contas estão ou um jogo dos Favoritos). Saiu da aba Miscellaneous; a chave fica no INI sem efeito. |
@@ -104,11 +124,15 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `BottingPlayerGraceMinutes` | `15` | Carência para contas main (papel `player` no INI). Sem campo na tela desde 03/10/2026 (a tela não tem mais conta main); vai no Start com o valor do INI. |
 | `BottingDraft*` (`PlaceId`, `JobId`, `LaunchData`, `PlayerAccountId(s)`, `SelectedUserIds`) | `""` | Rascunho do Auto Rejoin. Desde 03/10/2026 só `PlaceId`/`JobId` são gravados e lidos (o último jogo escolhido, gravado no Start com "um jogo que eu escolher"); `LaunchData`, `PlayerAccountId(s)` e `SelectedUserIds` ficam sem efeito. |
 | `EncryptionMethod` | `default` | `default` ou `password` (ver [accounts.md](accounts.md)). |
+| `LockOnInactivity` | — (false) | Settings › Privacy & security › Password screen: tranca a tela (só a tela; nada para de rodar) depois de `LockAfterMinutes` sem usar a janela. Só com senha do app — sem ela o interruptor fica desabilitado. Ver [accounts.md](accounts.md#trancar-por-inatividade-ideia-27). |
+| `LockAfterMinutes` | — (10) | Minutos sem clique nem tecla na janela até trancar (1 a 240). |
 | `EncryptionOnboardingState` | `pending` (novo) / `completed` (INI existente) | Onboarding de criptografia. |
 | `FirstRunWalkthroughState` | `pending` (novo) / `completed` (INI existente) | Walkthrough; vira `skipped`/`completed`. |
 | `SavedPlaceId` / `SavedJobId` / `SavedLaunchData` | — | Últimos valores de launch. |
 | `GridGap` / `GridMonitors` | — (20 / vazio) | Arranjo de janelas em grade (Choose Game). |
-| `AutoArrangeGrid` | `true` | Grade automática no launch: cada janela nova do Roblox (launch, fila, Auto Rejoin) vai para a primeira célula livre da grade de `GridMonitors`/`GridGap`. Contas com tamanho de janela próprio ficam de fora. Só `"false"` desliga (chave ausente = ligada). Interruptor na aba Windows da Choose Game e em Settings > Optimization. Ver [ui-layout.md](ui-layout.md#grade-de-janelas). |
+| `GridAllowSmallWindows` | `false` | Célula da grade menor que o mínimo do Roblox (~800x600), só nos clientes que o app abriu. Ver [performance.md](performance.md). |
+| `GridBorderless` | `false` | Janelas da grade sem barra de título e borda, só nos clientes que o app abriu; desligar devolve as molduras. Ver [performance.md](performance.md). |
+| `AutoArrangeGrid` | `true` | Grade automática no launch: cada janela nova do Roblox (launch, fila, Auto Rejoin) vai para a primeira célula livre da grade de `GridMonitors`/`GridGap`. Contas com tamanho de janela próprio ficam de fora. Só `"false"` desliga (chave ausente = ligada). Interruptor no cartão Window grid da página Console e em Settings > Optimization. Ver [ui-layout.md](ui-layout.md#grade-de-janelas). |
 
 ### `[Developer]`
 
@@ -137,7 +161,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ExitIfNoConnection` / `NoConnectionTimeout` | `false` / `60` | fecha sem conexão após N s |
 | `ExitOnBeta` | `false` | fecha se detectar Roblox beta |
 | `CloseIfNotResponding` | `false` | fecha o cliente do app que fica "Não respondendo" por 30 s |
-| `CloseRbxMemory` / `MemoryLowValue` | `false` / `200` | fecha abaixo de N MB |
+| `CloseRbxMemory` / `MemoryLowValue` | `false` / `200` | fecha abaixo de N MB de memória privada, a do Gerenciador de Tarefas; pula cliente que o teto de memória liberou (só isso: fechar acima do teto de memória é `Optimization.CloseOverMemoryLimit`) |
 | `CloseRbxWindowTitle` / `ExpectedWindowTitle` | `false` / `Roblox` | fecha se o título divergir |
 | `SaveWindowPositions` | `false` | salva posição da janela nos `Fields` da conta |
 
@@ -157,6 +181,15 @@ Três perfis com as mesmas 13 chaves, prefixadas por `Normal`, `BottingPlayer` e
 | `EnableFastFlags` / `FastFlagsJson` | false / "" | false / "" | false / "" |
 | `EnableJobCpuLimit` / `JobCpuLimitPercent` | false / 25 | false / 25 | false / 20 |
 | `EnableJobMemoryLimit` / `JobMemoryLimitMb` | false / 2048 | false / 2048 | false / 1536 |
+
+Fora dos perfis, uma chave para todos os clientes (cartão **While you play** da aba, ver [performance.md](performance.md)):
+
+| Chave | Default | Significado |
+|---|---|---|
+| `FollowFocus` | `false` | Otimização que segue o foco: o cliente em uso (que o app abriu) a toda velocidade, os outros com a política de fundo; 35 s de carência para cliente novo. |
+| `MemoryLimit` | `0` | Teto de memória de cada cliente que o app abriu, em MB (`0` = sem limite; aceito de 256 a 65536). Medido na **memória privada**, o mesmo número da coluna "Memória" do Gerenciador de Tarefas (e da linha "Em jogo" da página Session). Acima dele o app pede ao Windows para liberar a memória do cliente; depois disso ela fica mais baixa até o jogo precisar de novo — esperado, e tirar o limite não a traz de volta. Libera de novo no máximo a cada 5 min, e só com o cliente acima por 1 min seguido; fecha só com `CloseOverMemoryLimit`. A conta pode ter o seu (campo `MemoryLimit`, página Session). Também muda no resumo da página Session. Feature `memory-trim`, nas duas edições. Ver [watcher.md](watcher.md#teto-de-memória). |
+| `CloseOverMemoryLimit` | `false` | "Close a client that stays over its limit": fecha o cliente que continua acima do `MemoryLimit` (o da conta ou o padrão) um minuto depois de liberar. Desligado, o app só libera e nunca fecha. Não depende do Watcher; ao lado do limite em Settings › Optimization e no resumo da página Session. Até 11/10/2026 o fechamento usava `Watcher.CloseRbxMemory` (sem migração — ver [watcher.md](watcher.md#teto-de-memória)). |
+| `MuteBackgroundClients` | `false` | Fundo mudo: só o cliente em uso faz som (mixer do Windows). Só vale no binário com a feature `live-audio` (nas duas edições, via `standard`); sem ela a opção nem aparece. |
 
 Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Normal (`effective_launch_profile` em [launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs)).
 
@@ -183,6 +216,19 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 | `IntervalSeconds` | `0` | Parte em segundos do mesmo intervalo (0–59). O total (mínimo 5 s, máximo 120 min) conta do **fim** de cada ciclo. |
 | `Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada do AFK mode. Vazio = o modo não liga. |
 | `BeepOnCycle` | `false` | Bipe curto (sintetizado, sem arquivo de áudio) quando um ciclo de envio termina. |
+| `Mode` | `key` | `key`, `click` ou `recording` (toca a gravação de cada conta na vaga On anti-AFK — [recordings.md](recordings.md#as-duas-vagas)). |
+| `ClickX`, `ClickY` | `50`, `50` | Ponto padrão do modo clique, em % da área interna da janela. |
+| `ShakeToStop` | `false` | "Stop AFK and recordings when I shake the mouse" (Settings › Keep in game): chacoalhar o mouse (4 viradas horizontais de ≥ 80 px em 1 s) para o Modo AFK e as gravações tocando. Lê só a posição do cursor. Só Windows. Ver [afk-mode.md](afk-mode.md#parada-de-emergência-chacoalhar-o-mouse). |
+
+### `[Recordings]` — detalhes em [recordings.md](recordings.md)
+
+| Chave | Default | Significado |
+|---|---|---|
+| `AfterReconnect` | `false` | Toca a gravação da conta na vaga After auto-reconnect quando a reconexão automática a devolve ao jogo (uma vez, só nela). |
+| `AfterReconnectDelaySeconds` | `30` | Quanto tempo a conta fica no jogo antes de a gravação tocar (5–3600 s). |
+
+A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas.
+| `WaitForFullscreen` | `true` | "Wait while a fullscreen window is in front": com um vídeo ou outro jogo em tela cheia na frente, o ciclo espera em vez de tirar o foco, até 5 min além da hora da conta. Só `"false"` desliga. |
 
 ### `[Generator]` / `[BloxGen]`
 
@@ -220,7 +266,7 @@ Defaults criados mas sem aba na UI: `PreferredRunner=sober`, `CustomLaunchComman
 
 ## Configurações relacionadas
 
-- Idioma: `General.Language` também é aplicado imediatamente via `i18n.changeLanguage` ao mudar na aba General.
+- Idioma: `General.Language` também é aplicado imediatamente via `i18n.changeLanguage` ao mudar na seção App.
 - `StartOnPCStartup` chama `enable()`/`disable()` do `@tauri-apps/plugin-autostart` além de gravar a chave.
 
 ## Armadilhas / cuidados

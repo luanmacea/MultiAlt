@@ -247,7 +247,9 @@ describe("WatcherTab explains the system it turns on", () => {
   it("explains the memory threshold instead of only naming its switch", async () => {
     renderWatcher("windows", { Watcher: { CloseRbxMemory: "true" } });
     expect(
-      await screen.findByText("A client using less than this is closed.")
+      await screen.findByText(
+        "A client using less than this (the Memory column in Task Manager) is closed. A client whose memory MultiAlt freed is skipped."
+      )
     ).toBeInTheDocument();
   });
 

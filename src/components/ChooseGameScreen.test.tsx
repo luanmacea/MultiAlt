@@ -10,7 +10,7 @@ vi.mock("../hooks/usePrompt", async () => (await import("../test-utils/promptMoc
 
 import { ChooseGameScreen } from "./ChooseGameScreen";
 import { saveRecentGames } from "./server-list/types";
-import { defaultSettings, makeAccount, setStore } from "../test-utils/renderWithStore";
+import { makeAccount, setStore } from "../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
 import { promptAnswers, resetPromptMocks } from "../test-utils/promptMocks";
 import type { JoinTarget } from "../types";
@@ -483,6 +483,12 @@ describe("ChooseGameScreen — Recent tab", () => {
         expect.objectContaining({ placeId: "606849621" })
       )
     );
+    // Lançou: volta sozinho para a lista de contas (pedido do dono, 12/10/2026),
+    // que agora mostra o estado de cada conta ao vivo. Antes ia para a Session
+    // e a Choose Game ficava aberta por baixo, voltando ao clicar em Contas.
+    expect(store.setChooseGameOpen).toHaveBeenCalledWith(false);
+    expect(store.setActivePage).toHaveBeenCalledWith("accounts");
+    expect(store.setActivePage).not.toHaveBeenCalledWith("session");
   });
 });
 
@@ -598,23 +604,6 @@ describe("ChooseGameScreen — abas guardam o que carregaram", () => {
     render(<ChooseGameScreen />);
     await userEvent.click(screen.getByRole("button", { name: "Friends" }));
     expect(screen.getByTestId("friend-1001-7001")).toBeInTheDocument();
-  });
-
-  it("volta à aba Windows já com os monitores", async () => {
-    setInvokeHandler((cmd) =>
-      cmd === "list_display_monitors" ? [{ index: 1, width: 1920, height: 1080, primary: true }] : []
-    );
-    setup();
-    render(<ChooseGameScreen />);
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    await screen.findByTitle("1920×1080");
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-    setInvokeHandler((cmd) => (cmd === "list_display_monitors" ? new Promise(() => {}) : []));
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-
-    expect(screen.getByTitle("1920×1080")).toBeInTheDocument();
-    expect(screen.queryByText("No monitors detected")).not.toBeInTheDocument();
   });
 });
 
@@ -1007,120 +996,27 @@ describe("ChooseGameScreen — descoberta", () => {
     expect(screen.getByPlaceholderText(/ExperienceInvite/)).toBeInTheDocument();
   });
 
-  /** A grade de janelas espremia o log do Console em 35 px. */
-  it("tira a grade de janelas da aba Console", async () => {
-    renderScreen();
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-    expect(screen.queryByText("Window layout")).not.toBeInTheDocument();
-    expect(screen.getByText("No activity yet")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    expect(await screen.findByText("Window layout")).toBeInTheDocument();
-  });
-
   /**
-   * A grade automática (cada janela nova entra na primeira célula livre) mora
-   * ao lado dos controles da grade, que são os mesmos monitores e o mesmo gap.
-   * Vem ligada: quem nunca salvou a opção vê o interruptor ligado.
+   * Console e Windows viraram a página Console da barra lateral (pedido do
+   * dono, 11/10/2026): a Choose Game fica só com as formas de escolher o jogo.
    */
-  it("liga a grade automática por padrão e a desliga ao lado dos controles da grade", async () => {
+  it("keeps only the ways to pick a game in its tabs", () => {
     renderScreen();
-
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-
-    await userEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
-      section: "General",
-      key: "AutoArrangeGrid",
-      value: "false",
-    });
+    const tabs = within(document.querySelector("[data-tour='cg-tabs']") as HTMLElement)
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(tabs).toEqual(["Favorites", "Games", "Recent", "Servers", "Friends", "Follow"]);
+    expect(screen.queryByTestId("session-panel")).not.toBeInTheDocument();
   });
 
-  it("mostra a grade automática desligada quando o usuário a desligou", async () => {
-    const base = defaultSettings();
-    renderScreen({ settings: { ...base, General: { ...base.General, AutoArrangeGrid: "false" } } });
-
-    await userEvent.click(screen.getByRole("button", { name: "Windows" }));
-    const toggle = await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-
-    await userEvent.click(toggle);
-    expect(invokeMock).toHaveBeenCalledWith("update_setting", {
-      section: "General",
-      key: "AutoArrangeGrid",
-      value: "true",
-    });
-  });
-
-  /**
-   * Medido no cenário `launch-queue`: o Painel de Sessão (340px com as duas
-   * listas) sem teto encolhia o log de lançamento a 26px, dos quais 24 eram
-   * padding. O teto no painel (45%) e o piso no log (160px) garantem os dois
-   * um mínimo de espaço, mesmo com o painel cheio.
-   */
-  it("dá teto ao Painel de Sessão e piso ao log, na aba Console", async () => {
-    renderScreen();
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-
-    const sessionPanel = screen.getByTestId("session-panel");
-    const panelWrapper = sessionPanel.parentElement as HTMLElement;
-    expect(panelWrapper.className).toMatch(/max-h-\[45%\]/);
-    expect(panelWrapper.className).toMatch(/overflow-y-auto/);
-
-    const log = screen
-      .getByText("Launch a game or start Auto Rejoin to see the activity here")
-      .closest(".font-mono") as HTMLElement;
-    expect(log.className).toMatch(/min-h-\[160px\]/);
-    expect(log.className).not.toMatch(/min-h-0/);
-  });
-});
-
-/**
- * O console era só do launch: ação do Auto Rejoin não aparecia em lugar
- * nenhum, e o Watcher fechava cliente deixando só um toast de 2,5 s. Agora ele
- * é o histórico geral, e cada linha diz de onde veio.
- */
-describe("ChooseGameScreen — console como histórico geral", () => {
-  function renderConsole() {
-    const store = setStore({
-      accounts: [ACCOUNT_A],
-      selectedIds: new Set([1001]),
-      selectedAccounts: [ACCOUNT_A],
-      launchLogs: [
-        { id: 1, userId: 1001, level: "success", step: "rejoin", message: "Entrou no jogo pelo ciclo do Auto Rejoin", ts: Date.now() },
-        { id: 2, userId: 1001, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s", ts: Date.now() },
-        { id: 3, userId: null, level: "info", step: "rejoin", message: "Auto Rejoin parado", ts: Date.now() },
-      ],
-    });
-    render(<ChooseGameScreen />);
-    return store;
-  }
-
-  it("mostra linha de Botting e de Watcher, com a origem de cada uma", async () => {
-    renderConsole();
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-
-    expect(screen.getByText("Entrou no jogo pelo ciclo do Auto Rejoin")).toBeInTheDocument();
-    expect(screen.getByText(/sem conexao por 30s/)).toBeInTheDocument();
-    const origens = screen.getAllByTestId("log-step").map((el) => el.textContent);
-    expect(origens).toEqual(["[rejoin]", "[watcher]", "[rejoin]"]);
-  });
-
-  it("linha de sessão não finge pertencer a uma conta", async () => {
-    renderConsole();
-
-    await userEvent.click(screen.getByRole("button", { name: "Console" }));
-
-    // `userId: null` desenha "—": passar 0 imprimiria "0" no lugar do nome.
-    const linha = screen.getByText("Auto Rejoin parado").closest("div") as HTMLElement;
-    expect(linha.textContent).toContain("—");
+  it("the resolved join link leads to the Session page", async () => {
+    setInvokeHandler((cmd) => (cmd === "resolve_join_link" ? joinTarget({ kind: "place" }) : undefined));
+    const store = renderScreen();
+    await userEvent.click(screen.getByRole("button", { name: "Follow" }));
+    await userEvent.type(screen.getByPlaceholderText(/ExperienceInvite/), "https://www.roblox.com/games/606849621");
+    await userEvent.click(screen.getByRole("button", { name: "Join" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Session" }));
+    expect(store.setActivePage).toHaveBeenCalledWith("session");
   });
 });
 

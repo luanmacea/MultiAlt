@@ -55,6 +55,20 @@ export function seedTourStorage(): void {
   }
 }
 
+/**
+ * Linhas do Console (evento `launch-log`) para o cenário `tour`: um launch,
+ * uma volta do Auto Rejoin e um aviso do Watcher, como o backend mandaria.
+ */
+export function tourLogLines(userIds: number[]): { userId: number | null; level: string; step: string; message: string }[] {
+  const [first = null, second = null] = userIds;
+  return [
+    { userId: first, level: "info", step: "start", message: "Iniciando launch — place 15101393044" },
+    { userId: first, level: "success", step: "pid", message: "Cliente detectado (pid 4200)" },
+    { userId: second, level: "success", step: "rejoin", message: "Entrou no jogo pelo ciclo do Auto Rejoin" },
+    { userId: second, level: "warn", step: "watcher", message: "Cliente fechado pelo Watcher: sem conexao por 30s" },
+  ];
+}
+
 const SCRIPT_PERMISSIONS = {
   allowInvoke: false,
   allowHttp: true,

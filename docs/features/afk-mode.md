@@ -8,6 +8,8 @@ Mandar **uma tecla ou um clique, de tempo em tempo**, para a janela do cliente d
 
 **Tecla ou clique** (`Afk.Mode`): toda tecla da lista mexe no personagem (anda, pula, usa item). Quem quer a conta **parada** usa o modo clique — um clique esquerdo num ponto vazio da tela do jogo, que também conta como atividade e não move o personagem. Especificação: [docs/superpowers/specs/2026-09-29-afk-click-design.md](../superpowers/specs/2026-09-29-afk-click-design.md).
 
+**Gravação** (`Afk.Mode = recording`, desde 11/10/2026): em vez de uma tecla ou um clique, cada conta toca a **gravação** dela na vaga **On anti-AFK** (a própria ou a global dessa vaga) do começo ao fim, a cada intervalo. A gravação de depois da reconexão automática é **outra** escolha (vaga **After auto-reconnect**), pedido do dono: uma posiciona o personagem, a outra faz uma ação em outro lugar. É o mesmo ciclo — uma janela por vez, foco conferido, devolvido no fim —, com a ação `AfkCycleAction::Recording`. Conta sem gravação é pulada sem a janela vir para frente (`noRecording`); outra janela na frente no meio da gravação para o resto dela (`focusLost`); parar no meio dá `stopped`. O Start recusa se nenhuma conta marcada tem gravação no anti-AFK. Detalhes em [recordings.md](recordings.md#as-duas-vagas).
+
 **O que o módulo não faz, por regra:** nunca lê o teclado nem os botões do mouse do usuário (nada de gancho global, estado de tecla/botão ou entrada crua), nunca fecha, mata ou minimiza cliente, nunca envia tecla fora de uma lista fechada e nunca clica fora da área interna da janela da conta.
 
 ## Onde fica o código
@@ -36,7 +38,7 @@ Mandar **uma tecla ou um clique, de tempo em tempo**, para a janela do cliente d
    5. estando pronta, **modo tecla**: tecla pressionada → 40 ms → tecla solta (com até três tentativas de soltar). **Modo clique**: lê onde o cursor está, calcula o pixel a partir da porcentagem e da área interna **atual** da janela e executa a receita de `afk_click_plan` (ver "Modo clique" abaixo): chega ao ponto por movimento de entrada, treme, dá um clique de foco e o clique de verdade; no fim o cursor **volta para onde estava** — inclusive quando o clique falha. Depois, 250 ms antes da conta seguinte;
    6. janela que estava minimizada volta a ser minimizada;
    7. no fim, devolve o foco para a janela de antes com `give_focus_back_after_cycle` — só o primeiro plano, **sem mexer no estado dela** —, **conferindo na tela** que ela voltou (ver "Devolver o foco" abaixo).
-5. O status vai para a tela pelo evento `afk-status` (modo e ponto padrão da sessão; por conta: último envio, próximo envio, total de envios, último erro **com código**: `noWindow`, `focusDenied`, `keyRefused`, `clickRefused` ou `internal`). Ciclo com pelo menos um envio também emite `afk-cycle { sent }`, que é o gancho do bipe opcional.
+5. O status vai para a tela pelo evento `afk-status` (modo e ponto padrão da sessão; por conta: último envio, próximo envio, total de envios, último erro **com código**: `noWindow`, `focusDenied`, `keyRefused`, `clickRefused`, `internal` e, no modo gravação, `noRecording`, `focusLost` e `stopped`). Ciclo com pelo menos um envio também emite `afk-cycle { sent }`, que é o gancho do bipe opcional.
 6. `stop_afk_mode` marca a sessão como parando; o ciclo em andamento é abandonado no próximo alvo e o foco **não** é devolvido. Depois de 2 s de espera a sessão é descartada de qualquer jeito, e o evento `afk-stopped` sai.
 
 ```mermaid
@@ -100,13 +102,43 @@ sequenceDiagram
 - **Config de sessão em andamento é derivada da sessão**, nunca copiada para o estado da tela: o efeito que relê o INI ao abrir corria contra a cópia e zerava a tecla escolhida (o botão de enviar ficava desabilitado com a sessão rodando).
 - **Parar não esquece quem estava no modo.** Com a sessão ligada, a seleção da tela acompanha as contas da sessão; quando a sessão acaba, continuam marcadas as que estavam nela — inclusive a que entrou com a sessão ligada, e também quando a tela abriu com uma sessão que já rodava —, e religar leva as mesmas. Intervalo e tecla só mudam com o modo parado, então "parar → mudar → ligar" é o caminho normal; antes a seleção voltava à de antes do start, e a conta acrescentada durante a sessão ficava de fora do próximo start sem aviso (e podia cair por inatividade). Desmarcar a última conta é a exceção: ela fica desmarcada, que é o que o usuário pediu.
 
+## Tela cheia na frente (ideia 25)
+
+Com um vídeo ou outro jogo em **tela cheia** na frente, o ciclo **espera** em
+vez de trazer a janela do Roblox (que tiraria a pessoa do que ela está vendo).
+Opção `Afk.WaitForFullscreen`, **ligada por padrão** (decisão de 11/10/2026:
+ela só protege quem está usando o PC, e a tela diz quando está esperando) —
+"Wait while a fullscreen window is in front", nas configurações dos cliques AFK.
+
+- **O que conta como tela cheia** (`afk_fullscreen_in_front` → `afk_foreground_blocks`):
+  a janela em primeiro plano não tem barra de título e cobre o monitor dela
+  inteiro (`window_mode_of` = `Fullscreen`, a mesma regra que reconhece a tela
+  cheia do Roblox) **e** não é: de um cliente que o app abriu, da área de
+  trabalho (o Explorer também cobre o monitor — `get_shell_pids`) nem do
+  próprio MultiAlt. Janela maximizada com barra de título não segura.
+  **Cliente aberto pelo site segura**: é a pessoa jogando.
+- **Só geometria de janela, nenhuma API nova:** `GetForegroundWindow`,
+  `GetWindowRect`, `MonitorFromWindow`/`GetMonitorInfoW`, o estilo da janela e
+  o PID dela (já usados pelo app). Nada de entrada é lido — o
+  `afk_input_safety_tests` continua passando.
+- **Espera e teto:** a cada tique (1 s) o laço confere de novo; sai assim que a
+  tela cheia some. Teto de **5 min** depois da hora da conta mais atrasada do
+  ciclo (`AFK_FULLSCREEN_MAX_WAIT_MS`, `afk_due_since`): o Roblox derruba quem
+  fica 20 min parado, e com o intervalo padrão de 10 min ainda sobra folga.
+  Passado o teto, o ciclo roda mesmo com a tela cheia.
+- **Na tela:** a barra de estado dos cliques AFK mostra "Waiting: a fullscreen
+  window is in front" (`waitingFullscreen` no status); o Console ganha a linha
+  "Modo AFK esperando: há uma janela em tela cheia na frente" (`step: "afk"`).
+- **Só o agendador espera.** "Enviar a tecla agora"/"Clicar agora" é ação da
+  pessoa e roda na hora. Mudar a opção vale no tique seguinte, com o modo ligado.
+
 ## PC acordado
 
 [keep_awake.rs](../../src-tauri/src/commands/keep_awake.rs) e
 [platform/windows/power.rs](../../src-tauri/src/platform/windows/power.rs).
 Enquanto o **Modo AFK**, o **Auto Rejoin** ou a **reconexão automática** roda,
 o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado,
-"Keep the PC awake while accounts are kept in game" em Settings › General).
+"Keep the PC awake while accounts are kept in game" em Settings › Keep in game).
 
 - **Só o sistema, nunca a tela:** `SetThreadExecutionState(ES_CONTINUOUS |
   ES_SYSTEM_REQUIRED)`. A tela continua apagando no tempo do Windows (o pedido
@@ -132,6 +164,63 @@ o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado,
 - Testes: `keep_awake_tests` (dono do estado com dublê) e `win_power_tests`
   (bits do pedido; nenhum teste chama a API de verdade).
 
+## Parada de emergência (chacoalhar o mouse)
+
+[commands/shake_stop.rs](../../src-tauri/src/commands/shake_stop.rs). Durante um
+ciclo do Modo AFK, e durante uma gravação tocando ([recordings.md](recordings.md)),
+o app tira o foco e leva o cursor até a janela de cada conta: o usuário não
+consegue chegar ao botão Parar. Com `Afk.ShakeToStop` ligado ("Stop AFK and
+recordings when I shake the mouse", em Settings › Keep in game), **chacoalhar o
+mouse para tudo**.
+
+- **Desligado por padrão** — escolha explícita do dono. Ligar ou desligar vale
+  na hora, com o modo rodando (o vigia relê a opção a cada segundo, e a sessão
+  o liga a cada tique).
+- **A regra** (`ShakeDetector`, função pura): conta as **viradas** de direção
+  **horizontal** em que o trecho antes e o trecho depois andaram pelo menos
+  **80 px**; **4 viradas dentro de 1000 ms** = chacoalhar. Movimento só
+  vertical, devagar, ou tremida curta (trechos abaixo de 80 px) não conta; uma
+  ida até um botão com uma voltinha também não. Os números são constantes no
+  código (`SHAKE_LEG_MIN_PX`, `SHAKE_REVERSALS`, `SHAKE_WINDOW_MS`), travadas
+  por `the_thresholds_are_the_documented_ones`.
+- **Lê só a posição do cursor** (`cursor_position`, o `GetCursorPos` do módulo
+  de entrada), a cada 15 ms, e **só enquanto há** sessão do Modo AFK ou
+  reprodução de gravação rodando. Nunca lê botão nem tecla, nunca envia nada;
+  a trava do `afk_input_safety_tests` vale para o arquivo como para todo o
+  Modo AFK. Nenhuma API nova no binário.
+- **O movimento do próprio app não conta.** O clique (`click_point_with_plan`,
+  do AFK e das gravações) e o movimento de zero pixel (`nudge_for_focus_back`)
+  marcam "o app está movendo o cursor" (`app_cursor_move`: um contador e uma
+  geração) do começo da função até **depois** do `SetCursorPos` que devolve o
+  cursor. O vigia lê a marca antes e depois de cada leitura: amostra com o app
+  movendo — ou com um movimento começando/terminando no meio — é descartada, e
+  a linha de base recomeça depois. Sem isso, uma gravação com cliques seguidos
+  (o cursor vai à janela e volta ao usuário a cada clique) parecia um
+  chacoalhar (`app_clicks_across_several_windows_never_trip_it`, que confere
+  também que o mesmo caminho **sem** o filtro dispararia).
+- **Ao reconhecer:** liga as mesmas bandeiras dos botões Parar — a da sessão
+  do Modo AFK e a da reprodução avulsa (`RECORDING_PLAYBACK_STOP`). As teclas
+  apertadas são soltas pelos caminhos de sempre (`play_recording_with`);
+  **nenhum cliente é fechado**. Emite `afk-emergency-stop` (`{ reason: "shake",
+  afk, recordings }`) e a linha "Parada de emergência: o mouse foi
+  chacoalhado" no Console.
+- **Na tela:** um **alerta no meio da janela** (`EmergencyStopAlert`, em
+  qualquer página) — "Emergency stop", o que parou (Modo AFK, gravação ou os
+  dois) e "No Roblox client was closed." — que fica até **OK** ou Esc; a frase
+  "Emergency stop: you shook the mouse." também aparece na barra de estado dos
+  cliques AFK e no aviso da aba Recordings, e some junto com o alerta (ou ao
+  ligar de novo). Até 11/10/2026 era um toast, que sumia em um segundo — o dono
+  pediu um aviso que desse para ler. Com a opção ligada e algo rodando, as duas
+  lembram "Shake the mouse to stop." perto do Parar.
+- **Limites:** o "Enviar agora"/"Clicar agora" manual roda sem bandeira de
+  parar (como já era com o botão Parar) — chacoalhar para a sessão, mas o ciclo
+  manual em andamento termina as contas dele. Reprodução que estava na fila
+  esperando a vez zera a bandeira quando começa.
+
+## O que aconteceu enquanto você estava fora
+
+As falhas de envio por conta (`lastErrorCode` no `afk-status`) e a parada de emergência também ficam no resumo **While you were away** da página Session — o toast e a linha da aba somem ou mudam no ciclo seguinte. A falha entra uma vez, quando começa ou muda de motivo, com a hora do envio. No topo do Modo AFK, uma linha diz quantos eventos chegaram desde a última olhada na Session, com **View**. Ver [ui-layout.md](ui-layout.md#while-you-were-away-o-que-aconteceu-longe-do-pc).
+
 ## Configurações relacionadas
 
 | Chave | Default | Significado |
@@ -141,6 +230,9 @@ o app pede ao Windows para não dormir (`General.KeepPcAwake`, padrão ligado,
 | `Afk.IntervalSeconds` | `0` | Parte em segundos do mesmo intervalo (0–59). Total mínimo de 5 s, máximo de 120 min; contado do fim do ciclo. |
 | `Afk.Key` | `""` | Tecla escolhida pelo usuário, de dentro da lista fechada. Vazio = o modo não liga (chave vazia não é gravada no INI). |
 | `Afk.BeepOnCycle` | `false` | Bipe curto quando um ciclo manda tecla. |
+| `Afk.Mode` | `key` | `key` (tecla), `click` (clique) ou `recording` (a gravação de cada conta na vaga On anti-AFK, [recordings.md](recordings.md#as-duas-vagas)). Qualquer outro valor vira `key`. |
+| `Afk.ShakeToStop` | `false` | Chacoalhar o mouse para o Modo AFK e as gravações tocando. Ver [Parada de emergência](#parada-de-emergência-chacoalhar-o-mouse). |
+| `Afk.WaitForFullscreen` | `true` | Com uma janela em tela cheia de outro programa na frente, o ciclo espera (até 5 min além da hora). Ver [Tela cheia na frente](#tela-cheia-na-frente-ideia-25). |
 | `Afk.Mode` | `key` | `key` (tecla) ou `click` (clique). Qualquer outro valor vira `key`. |
 | `Afk.ClickX`, `Afk.ClickY` | `50`, `50` | Ponto padrão do clique, em % da área interna da janela. |
 | `AfkClickX`, `AfkClickY` (campos da conta) | ausentes | Ponto próprio da conta; ausente = usa o padrão. |
@@ -153,7 +245,8 @@ Constantes do ciclo, no código (não são configuráveis): 150 ms de folga depo
 - **Não "consertar" o `SetForegroundWindow` recusado com `AttachThreadInput`** (nem com hook, nem mexendo no `ForegroundLockTimeout` do sistema). O caminho aqui é **não enviar** e dizer na tela; anexar fila de entrada de outra thread é leitura/injeção que este módulo não faz, e `AttachThreadInput` está na lista de proibições do `afk_input_safety_tests` — inclusive dentro de `platform/windows/windowing.rs`, onde mora o `focus_window`.
 - **A identidade do alvo é só o PID.** O tracker guarda `user_id → pid` e não guarda o instante de início do processo. Se o cliente da conta A morrer e o Windows reaproveitar o PID para o cliente de B antes do `cleanup_dead_processes` passar, o AFK mode foca e tecla a janela de **B**. É desenho pré-existente do tracker (o mesmo risco que `kill_for_user` mitiga só checando "ainda é um Roblox"), mas o AFK mode é a primeira funcionalidade que **injeta entrada** com base nele — fechar isso de verdade pede start time no tracker.
 - **Não acrescentar tecla na lista sem pensar no que ela faz no jogo.** A lista é fechada por segurança e por previsibilidade; teclas que abrem chat, trocam de janela ou fecham o cliente ficam fora.
-- **Nada de leitura de teclado, e nada de injeção fora da lista fechada.** O `afk_input_safety_tests` (em `commands/afk.rs`) **caminha por `src-tauri/src` inteiro**, trata como arquivo do AFK mode todo caminho que cite `afk`, todo arquivo que chame `SendInput` (arquivo novo entra na varredura sozinho) **e todo fragmento `include!()` do mesmo módulo que um deles** — `include!()` não cria módulo: os `platform/windows/*.rs` são um módulo só, `windows`, e os `commands/*.rs` são pedaços da raiz do crate; fragmento irmão se chama sem caminho nenhum, então não há fronteira a vigiar entre eles —, tira os módulos de teste contando chaves (código de produção escrito **depois** dos testes continua varrido) e reprova: gancho global (`SetWindowsHookEx`, `SetWinEventHook`), estado de tecla (`GetAsyncKeyState`, `GetKeyState`, `GetKeyboardState`), entrada crua (`GetRawInputData`, `GetRawInputBuffer`, `RegisterRawInputDevices`), tradução de tecla para caractere e nome de tecla (`ToUnicode*`, `ToAscii*`, `GetKeyNameText`), fila de entrada de outra thread (`AttachThreadInput`, `GetGUIThreadInfo`), `GetLastInputInfo`, e injeção fora das portas (`keybd_event`, `mouse_event`, `KEYEVENTF_UNICODE`). A **porta do clique** (`INPUT_MOUSE`, `SetCursorPos`, `MOUSEEVENTF_*`) só pode aparecer em `platform/windows/input.rs` (`no_afk_file_opens_the_click_door_outside_the_input_module`); ler botão do mouse continua proibido em todo lugar, porque é o mesmo `GetAsyncKeyState`. `GetCursorPos` é permitido: é só a posição do ponteiro, usada para devolver o cursor e para o Marcar. Também reprova **alcance indireto**: os arquivos que **são** do AFK mode (os que citam `afk` ou enviam entrada) não podem citar um módulo do backend que leia entrada (hoje o `webview_recovery`, que usa `GetAsyncKeyState` legitimamente), e o nome que conta é o do **módulo**, não o do fragmento: um `windowing.rs` que lesse entrada faz do `windows` inteiro um leitor, e é `windows::` que o `commands/afk.rs` escreve. Antes disso a varredura tratava cada arquivo como módulo, e um `AttachThreadInput` dentro de `windowing.rs` (o "conserto" clássico do foco negado) passava com a suíte verde. Leitura de entrada que outra funcionalidade precise vai para um módulo próprio, como o `webview_recovery`: num fragmento da raiz do crate ou do `windows` ela reprova a varredura. **Limite conhecido:** a varredura segue nomes de módulo, não chamadas. O alcance indireto é conferido só nos arquivos do AFK mode, e não na raiz do crate inteira, porque o `lib.rs` declara e liga o `webview_recovery` de propósito — e uma função do `lib.rs` que o chamasse seria alcançável pelo `commands/afk.rs` só pelo nome, sem a varredura ver. Comentário que **cite** essas APIs no corpo de um arquivo do AFK mode reprova junto — é de propósito; explique-as no módulo de teste ou aqui.
+- **Nada de leitura de teclado, e nada de injeção fora da lista fechada.** O `afk_input_safety_tests` (em `commands/afk.rs`) **caminha por `src-tauri/src` inteiro**, trata como arquivo do AFK mode todo caminho que cite `afk`, todo arquivo que chame `SendInput` (arquivo novo entra na varredura sozinho) **e todo fragmento `include!()` do mesmo módulo que um deles** — `include!()` não cria módulo: os `platform/windows/*.rs` são um módulo só, `windows`, e os `commands/*.rs` são pedaços da raiz do crate; fragmento irmão se chama sem caminho nenhum, então não há fronteira a vigiar entre eles —, tira os módulos de teste contando chaves (código de produção escrito **depois** dos testes continua varrido) e reprova: gancho global (`SetWindowsHookEx`, `SetWinEventHook`), estado de tecla (`GetAsyncKeyState`, `GetKeyState`, `GetKeyboardState`), entrada crua (`GetRawInputData`, `GetRawInputBuffer`, `RegisterRawInputDevices`), tradução de tecla para caractere e nome de tecla (`ToUnicode*`, `ToAscii*`, `GetKeyNameText`), fila de entrada de outra thread (`AttachThreadInput`, `GetGUIThreadInfo`), `GetLastInputInfo`, e injeção fora das portas (`keybd_event`, `mouse_event`, `KEYEVENTF_UNICODE`). A **porta do clique** (`INPUT_MOUSE`, `SetCursorPos`, `MOUSEEVENTF_*`) só pode aparecer em `platform/windows/input.rs` (`no_afk_file_opens_the_click_door_outside_the_input_module`); ler botão do mouse continua proibido em todo lugar, porque é o mesmo `GetAsyncKeyState`. `GetCursorPos` é permitido: é só a posição do ponteiro, usada para devolver o cursor, para o Marcar e para a [parada de emergência](#parada-de-emergência-chacoalhar-o-mouse). Também reprova **alcance indireto**: os arquivos que **são** do AFK mode (os que citam `afk` ou enviam entrada) não podem citar um módulo do backend que leia entrada (hoje o `webview_recovery`, que usa `GetAsyncKeyState` legitimamente), e o nome que conta é o do **módulo**, não o do fragmento: um `windowing.rs` que lesse entrada faz do `windows` inteiro um leitor, e é `windows::` que o `commands/afk.rs` escreve. Antes disso a varredura tratava cada arquivo como módulo, e um `AttachThreadInput` dentro de `windowing.rs` (o "conserto" clássico do foco negado) passava com a suíte verde. Leitura de entrada que outra funcionalidade precise vai para um módulo próprio, como o `webview_recovery`: num fragmento da raiz do crate ou do `windows` ela reprova a varredura. **Limite conhecido:** a varredura segue nomes de módulo, não chamadas. O alcance indireto é conferido só nos arquivos do AFK mode, e não na raiz do crate inteira, porque o `lib.rs` declara e liga o `webview_recovery` de propósito — e uma função do `lib.rs` que o chamasse seria alcançável pelo `commands/afk.rs` só pelo nome, sem a varredura ver. Comentário que **cite** essas APIs no corpo de um arquivo do AFK mode reprova junto — é de propósito; explique-as no módulo de teste ou aqui.
+- **As Gravações tocam por portas do mesmo módulo** ([recordings.md](recordings.md)): `press_recording_key(nome, solta)` resolve o nome pela lista fechada das gravações (`RECORDING_KEYS`, em `data/recordings.rs`; Shift e setas a mais, as perigosas fora) e `click_recording_point` é a receita do clique com o clique de foco opcional (`afk_click_plan_with`). A reprodução mora em `commands/recordings.rs`, fragmento da raiz do crate, então a varredura deste teste vale para ela também.
 - **O caminho até o `SendInput` é um só, e um teste conta os call sites.** `send_key` e `send_mouse_button` são privados de `platform/windows/input.rs`, e as portas públicas são `tap_afk_key(nome_da_tecla)`, que resolve o nome pela lista fechada, e `click_afk_point(janela, porcentagem)`, que calcula o pixel dentro da área interna da janela — não existe chamador com virtual key cru nem com coordenada de tela crua. `only_the_input_module_sends_input` reprova se `SendInput(`/`send_key(`/`send_mouse_button(` aparecer em outro arquivo.
 - **Injeção de mouse é o tipo de coisa que os modelos de ML dos antivírus associam a automação.** Ao mexer em `click_afk_point`, gerar os instaladores e escanear nos dois motores (`bun run scan --release`), como o CLAUDE.md manda.
 - **Intervalo curto rouba o foco com frequência.** O piso é 5 segundos, mas quem usa o PC ao mesmo tempo sente; o default de 10 minutos existe para ficar abaixo do tempo típico de AFK do Roblox sem incomodar.
@@ -171,8 +264,10 @@ Suíte `afk` (`bun run t afk`):
 - `afkClickPoint.test.ts` e `ClicksTab.test.tsx`, "modo clique" — trocar de modo grava no INI e esconde a tecla, start sem tecla com modo e ponto, modo travado com sessão ligada, Marcar com contagem de 3 s gravando o padrão, erro do Marcar com a frase, ponto próprio da conta nos campos e "usar o padrão", "Clicar agora", aviso do cursor e `clickRefused`; `store.test.ts` — argumentos do start, envio manual só com as contas, e o Marcar devolvendo o código sem virar faixa de erro.
 - `win_focus_tests` (em `platform/windows/windowing.rs`) — `SW_RESTORE` só em janela minimizada (`a_maximized_or_normal_window_comes_to_the_front_as_it_is`) e devolver o foco nunca mexe no estado da janela (`giving_the_focus_back_never_changes_the_window_state`); o `afk_command_tests::the_cycle_gives_the_focus_back_without_touching_the_window_state` confere que o ciclo devolve o foco por esse caminho, e não pelo `focus_window`.
 - Foco: `a_window_that_did_not_reach_the_foreground_is_not_ready`, `a_window_in_the_foreground_is_ready_for_the_key`, `a_null_target_is_never_ready`; re-minimizar: `a_window_the_user_had_minimized_goes_back_to_minimized`; envio manual: `a_manual_send_only_reaches_accounts_that_are_in_afk_mode`; código de erro: `every_send_error_carries_a_code_and_a_message`, `the_status_tells_the_screen_which_error_it_was`.
+- Tela cheia na frente (`afk_command_tests`): `a_fullscreen_window_of_another_program_holds_the_cycle`, `the_apps_own_clients_the_desktop_and_multialt_never_hold`, `the_cycle_waits_for_the_fullscreen_window_up_to_the_cap`, `the_wait_counts_from_the_account_that_has_been_due_the_longest`, `waiting_for_a_fullscreen_window_is_on_unless_turned_off`, `the_status_tells_the_screen_it_is_waiting_for_a_fullscreen_window`; `ClicksTab.test.tsx`, "espera a tela cheia sair" — nasce ligado, grava no INI e mostra o "Waiting".
 - `ClicksTab.test.tsx` — o aviso do foco na tela (com o tempo de verdade: o foco só volta depois da última conta do ciclo, e o que o usuário digita nesse meio-tempo vai para o Roblox), só as teclas do backend, start bloqueado sem tecla/sem conta, parar sem fechar cliente, parar sem esquecer quem estava no modo, tempo decorrido (`<1m`, `12m`, `1h 5m`), "enviar agora" e o bipe nascendo desligado.
 - `ClicksTab.test.tsx`, "a tela diz a coisa certa" — contagem nunca acima do intervalo, pílula de estado, aviso ao desmarcar a última conta, singular com uma conta, e em pt o rótulo "Tecla a enviar" e os nomes acessíveis dos dois campos do intervalo; "intervalo em minutos e segundos" — leitura do INI (inclusive `0` minuto), total em segundos no start, limites dos campos, piso de 5 s bloqueando o Start e a contagem com intervalo de segundos; `store.test.ts`, "AFK mode" — o toast de início no singular e no plural.
+- `shake_stop_tests` (em `commands/shake_stop.rs`) — a regra do chacoalhar (horizontal forte para; diagonal conta pela parte horizontal; tremida pequena, só vertical, devagar, 3 viradas e uma ida até um botão não param), os cliques do próprio app em várias janelas nunca disparando (com o controle sem filtro), o usuário chacoalhando entre dois cliques do app ainda parando, amostra lida com o app começando a mover descartada, as marcas do `input.rs` antes do primeiro movimento, as duas bandeiras de parar ligadas, o payload em camelCase e a opção desligada por padrão. `ClicksTab.test.tsx`, "parada de emergência por chacoalhar" — o lembrete só com a opção ligada e a frase depois da parada; `AfkModeView.test.tsx` — o mesmo na aba Recordings; `store.test.ts` — o evento vira estado (sem toast), e some ao fechar ou religar; `EmergencyStopAlert.test.tsx` — o alerta, o texto do que parou, OK e Esc; `settingsTabs.test.tsx` — o toggle nasce desligado e grava `Afk.ShakeToStop`.
 - `afkBeep.test.ts` — o bipe toca um oscilador curto de volume baixo, fecha o contexto no fim e nunca lança sem Web Audio.
 
 `SendInput`, foco, clique e janela de verdade ficam fora de teste: precisam de um cliente Roblox aberto. No navegador, `?scenario=afk-mode` tem o modo clique inteiro com o Marcar achando a janela da 1ª conta em 37,5% × 62,5%.

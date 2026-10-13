@@ -1,12 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, type ReactNode } from "react";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
+vi.mock("@tauri-apps/api/window", async () => (await import("../../test-utils/tauriMocks")).tauriWindowMock());
+vi.mock("@tauri-apps/api/webview", async () => (await import("../../test-utils/tauriMocks")).tauriWebviewMock());
 vi.mock("@tauri-apps/plugin-autostart", () => ({
   enable: vi.fn(async () => {}),
   disable: vi.fn(async () => {}),
@@ -18,7 +20,12 @@ vi.mock("../../featureFlags", async (importOriginal) => ({
   ENABLE_ACCOUNT_GENERATOR: true,
 }));
 
-import { GeneralTab } from "./GeneralTab";
+import { LaunchTab } from "./LaunchTab";
+import { KeepInGameTab } from "./KeepInGameTab";
+import { AccountsTab } from "./AccountsTab";
+import { PrivacyTab } from "./PrivacyTab";
+import { UpdatesTab } from "./UpdatesTab";
+import { AppTab } from "./AppTab";
 import { DeveloperTab } from "./DeveloperTab";
 import { SettingsPage } from "../pages/SettingsPage";
 import { IsolationTab } from "./IsolationTab";
@@ -28,7 +35,14 @@ import { OptimizationTab } from "./OptimizationTab";
 import { VersionsTab } from "./VersionsTab";
 import { useSettings, type UseSettingsReturn } from "../../hooks/useSettings";
 import { setStore } from "../../test-utils/renderWithStore";
-import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
+import {
+  invokeMock,
+  monitorMock,
+  resetTauriMocks,
+  setInvokeHandler,
+  windowMock,
+} from "../../test-utils/tauriMocks";
+import { useUiScale } from "../../hooks/useUiScale";
 import { ENABLE_WEBSERVER } from "../../featureFlags";
 import type { PlatformCapabilities } from "../../types";
 import i18n from "../../i18n";
@@ -65,7 +79,7 @@ async function expectSaved(section: string, key: string, value: string) {
 
 beforeEach(async () => {
   resetTauriMocks();
-  // The GeneralTab language picker switches i18n globally; reset it per test.
+  // The App section language picker switches i18n globally; reset it per test.
   await i18n.changeLanguage("en");
   stored = {};
   setStore({});
@@ -321,20 +335,21 @@ describe("SettingsPage sections", () => {
     expect(document.querySelector(".fixed.inset-0")).toBeNull();
   });
 
-  it("does not keep the old Manage button for backups in Misc", async () => {
+  it("does not keep the old Manage button for backups in any section", async () => {
     stored = {};
     render(<SettingsPage active onLeave={() => {}} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Misc" }));
-    expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "Launch" });
+    await screen.findAllByText("Change Encryption Method");
+    expect(screen.queryByRole("button", { name: "Manage", hidden: true })).not.toBeInTheDocument();
   });
 
   it("lists the sections in a vertical side navigation", async () => {
     stored = {};
     render(<SettingsPage active onLeave={() => {}} />);
     const sections = screen.getByRole("navigation", { name: "Settings sections" });
-    const general = await screen.findByRole("button", { name: "General" });
-    expect(sections).toContainElement(general);
-    expect(general).toHaveAttribute("aria-current", "true");
+    const launch = await screen.findByRole("button", { name: "Launch" });
+    expect(sections).toContainElement(launch);
+    expect(launch).toHaveAttribute("aria-current", "true");
 
     await userEvent.click(screen.getByRole("button", { name: "Watcher" }));
     expect(screen.getByRole("button", { name: "Watcher" })).toHaveAttribute("aria-current", "true");
@@ -351,7 +366,7 @@ describe("SettingsPage sections", () => {
     stored = {};
     const changed = vi.fn();
     const view = render(<SettingsPage active onLeave={() => {}} onSettingsChanged={changed} />);
-    await screen.findByRole("button", { name: "General" });
+    await screen.findByRole("button", { name: "Launch" });
     expect(changed).not.toHaveBeenCalled();
     view.rerender(<SettingsPage active={false} onLeave={() => {}} onSettingsChanged={changed} />);
     expect(changed).toHaveBeenCalledTimes(1);
@@ -361,20 +376,39 @@ describe("SettingsPage sections", () => {
     stored = {};
     const leave = vi.fn();
     render(<SettingsPage active onLeave={leave} />);
-    await screen.findByRole("button", { name: "General" });
+    await screen.findByRole("button", { name: "Launch" });
     await userEvent.keyboard("{Escape}");
     expect(leave).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("GeneralTab", () => {
+/**
+ * O que era a aba General virou seis seções (Launch, Keep in game, Accounts,
+ * Privacy & security, Updates, App). Estes testes de comportamento continuam
+ * valendo controle a controle; montam as seis juntas para não depender de
+ * onde cada um mora — o lugar de cada controle é coberto em settingsSplit.test.tsx.
+ */
+function FormerGeneral({ s }: { s: UseSettingsReturn }) {
+  return (
+    <>
+      <LaunchTab s={s} />
+      <KeepInGameTab s={s} />
+      <AccountsTab s={s} />
+      <PrivacyTab s={s} />
+      <UpdatesTab s={s} />
+      <AppTab s={s} />
+    </>
+  );
+}
+
+describe("Former General controls", () => {
   const WAIT_FOR_GAME = "Start the next account once the previous one is in the game";
   const DISABLED_BY_SERIAL =
     "Not used while “Launch one account at a time” is on. It applies again when you turn that off.";
 
   function renderGeneral(initial: Record<string, Record<string, string>> = {}) {
     stored = initial;
-    renderTab((s) => <GeneralTab s={s} />);
+    renderTab((s) => <FormerGeneral s={s} />);
   }
 
   it.each([
@@ -429,7 +463,9 @@ describe("GeneralTab", () => {
     window.addEventListener("ram-ui-scale", onAnnounce);
     try {
       renderGeneral();
-      expect(await screen.findByText("Auto shrinks the interface on smaller screens")).toBeInTheDocument();
+      expect(
+        await screen.findByText("Automatic follows the screen: smaller on small screens, larger in big windows")
+      ).toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "Interface size" }));
       await userEvent.click(await screen.findByText("90%"));
       await expectSaved("General", "InterfaceScale", "90");
@@ -442,6 +478,33 @@ describe("GeneralTab", () => {
   it("shows Automatic when the interface size was never set", async () => {
     renderGeneral();
     expect(await screen.findByRole("button", { name: "Interface size" })).toHaveTextContent("Automatic");
+  });
+
+  /**
+   * Monitor 4K a 100% com a janela maximizada: o automático cresce a interface
+   * e a opção diz quanto ("Automatic (170%)"), para o dono saber o que vale.
+   */
+  it("shows the size Automatic picked next to it", async () => {
+    monitorMock.mockResolvedValue({ size: { width: 3840, height: 2160 }, scaleFactor: 1 });
+    windowMock.innerSize.mockResolvedValue({ width: 3840, height: 2090 });
+    try {
+      renderHook(() => useUiScale("auto"));
+      renderGeneral();
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Interface size" })).toHaveTextContent("Automatic (170%)")
+      );
+    } finally {
+      monitorMock.mockResolvedValue({ size: { width: 1440, height: 800 }, scaleFactor: 1 });
+      windowMock.innerSize.mockResolvedValue({ width: 1100, height: 700 });
+    }
+  });
+
+  it("a fixed size shows plain Automatic in the list", async () => {
+    renderGeneral({ General: { InterfaceScale: "90" } });
+    const button = await screen.findByRole("button", { name: "Interface size" });
+    expect(button).toHaveTextContent("90%");
+    await userEvent.click(button);
+    expect(await screen.findByText("Automatic")).toBeInTheDocument();
   });
 
   it("saves the picked language", async () => {
@@ -564,21 +627,15 @@ describe("GeneralTab", () => {
       expect(screen.getAllByText(DISABLED_BY_SERIAL)).toHaveLength(2);
     });
 
-    /** commands/reconnect.rs: padrão de todas as contas, nasce desligado. */
-    it("has the auto-reconnect default off, and turning it on saves true", async () => {
-      renderGeneral();
-      const toggle = (await screen.findByText("Reconnect accounts that drop")).closest("[role=switch]");
-      expect(toggle).toHaveAttribute("aria-checked", "false");
-      await userEvent.click(toggle as HTMLElement);
-      await expectSaved("General", "AutoReconnect", "true");
-    });
-
-    /** Descrição curta, sem "cliente", e dizendo que janela aberta pelo site fica de fora. */
-    it("describes auto-reconnect in plain words", async () => {
+    /**
+     * commands/reconnect.rs: o padrão de todas as contas muda na página Session
+     * (ao lado das contas em jogo). Aqui só o estado e o caminho até lá.
+     */
+    it("shows the auto-reconnect default as off when it was never set", async () => {
       renderGeneral();
       expect(
         await screen.findByText(
-          "Reopens an account in the same game after a lost connection, a kick or a crash. Only windows MultiAlt opened, never ones opened from the website. Each account can change this in the In game list of the Session page."
+          "Off for every account that doesn't set its own. It's changed next to the accounts in game."
         )
       ).toBeInTheDocument();
     });
@@ -597,6 +654,38 @@ describe("GeneralTab", () => {
       ).toBeInTheDocument();
       await userEvent.click(toggle as HTMLElement);
       await expectSaved("General", "KeepPcAwake", "false");
+    });
+
+    /** commands/shake_stop.rs: parada de emergência por chacoalhar o mouse, desligada por padrão (escolha do dono). */
+    it("has the shake-to-stop emergency stop off by default, and turning it on saves true", async () => {
+      renderGeneral();
+      const toggle = (await screen.findByText("Stop AFK and recordings when I shake the mouse")).closest(
+        "[role=switch]"
+      );
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(
+        screen.getByText(
+          "Shake the mouse hard left and right to stop when the app is moving it. Only the mouse position is read."
+        )
+      ).toBeInTheDocument();
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("Afk", "ShakeToStop", "true");
+    });
+
+    /** Ideia 3: experimental, nasce desligado e só vale com o Multi Roblox. */
+    it("has the experimental teleport protection off and locked until Multi Roblox is on", async () => {
+      renderGeneral();
+      const label = "Experimental: keep clients open across teleports";
+      const off = (await screen.findByText(label)).closest("[role=switch]");
+      expect(off).toHaveAttribute("aria-checked", "false");
+      expect(off).toHaveAttribute("aria-disabled", "true");
+      cleanup();
+
+      renderGeneral({ General: { EnableMultiRbx: "true" } });
+      const toggle = (await screen.findByText(label)).closest("[role=switch]");
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      await userEvent.click(toggle as HTMLElement);
+      await expectSaved("General", "ReserveSingletonEvent", "true");
     });
   });
 
@@ -826,10 +915,189 @@ describe("OptimizationTab", () => {
     expect(toggle).toHaveAttribute("aria-checked", "true");
   });
 
+  /** Ideia 22: janelas da grade menores que o mínimo e sem moldura, opcionais. */
+  it.each([
+    ["Allow smaller windows in the grid", "GridAllowSmallWindows"],
+    ["Remove window borders in the grid", "GridBorderless"],
+  ])("offers %s off by default and saves it", async (label, key) => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: new RegExp(label) });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+    await expectSaved("General", key, "true");
+  });
+
+  it("hides the grid window options outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(
+      screen.queryByRole("switch", { name: /Allow smaller windows in the grid/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /Remove window borders in the grid/ })
+    ).not.toBeInTheDocument();
+  });
+
   it("hides the automatic window grid outside Windows", async () => {
     renderOptimization({}, "macos");
     await screen.findByText("Override Window Size");
     expect(screen.queryByRole("switch", { name: /Arrange in grid on launch/ })).not.toBeInTheDocument();
+  });
+
+  /**
+   * Ideia 18: as janelas fora de uso devolvem memória, sem desacelerar (até
+   * 11/10/2026 elas desaceleravam e a conta "teleportava" no jogo). Opcional.
+   */
+  it("offers the focus-following optimization off by default and saves it", async () => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: /Free memory from the windows you're not using/ });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(
+      screen.getByText(/Every window keeps running normally/)
+    ).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    await expectSaved("Optimization", "FollowFocus", "true");
+  });
+
+  /** Ideia 20: só aparece quando o binário traz a feature `live-audio`. */
+  it("offers muting the windows not in use only when the build has live audio", async () => {
+    stored = {};
+    setStore({
+      platformCapabilities: { os: "windows", supportsLiveAudio: true } as PlatformCapabilities,
+    });
+    renderTab((s) => <OptimizationTab s={s} />);
+    const toggle = await screen.findByRole("switch", {
+      name: /Mute the Roblox windows you're not using/,
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await userEvent.click(toggle);
+    await expectSaved("Optimization", "MuteBackgroundClients", "true");
+  });
+
+  /** Teto de memória: o padrão de todos os clientes, só com a feature `memory-trim`. */
+  it("offers the memory limit per client only when the build can free memory", async () => {
+    stored = {};
+    setStore({
+      platformCapabilities: { os: "windows", supportsMemoryTrim: true } as PlatformCapabilities,
+    });
+    renderTab((s) => <OptimizationTab s={s} />);
+    const field = await screen.findByLabelText("Memory limit per client");
+    expect(field).toHaveValue("0");
+    expect(screen.getByText(/Measured like the Memory column in Task Manager/)).toBeInTheDocument();
+    expect(screen.getByText(/at most every 5 minutes/)).toBeInTheDocument();
+  });
+
+  /**
+   * Fechar quem continua acima do limite tem opção própria, ao lado do limite
+   * e desligada por padrão — antes era o "Close If Memory Low" do Watcher, que
+   * liga também a regra de memória baixa.
+   */
+  it("has its own switch to close a client that stays over the limit, off by default", async () => {
+    stored = {};
+    setStore({
+      platformCapabilities: { os: "windows", supportsMemoryTrim: true } as PlatformCapabilities,
+    });
+    renderTab((s) => <OptimizationTab s={s} />);
+    const toggle = await screen.findByRole("switch", { name: "Close a client that stays over its limit" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByText(/Close If Memory Low/)).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    await expectSaved("Optimization", "CloseOverMemoryLimit", "true");
+    expect(invokeMock).not.toHaveBeenCalledWith("update_setting", expect.objectContaining({ key: "CloseRbxMemory" }));
+  });
+
+  it("hides the memory limit when the build cannot free memory", async () => {
+    renderOptimization({});
+    await screen.findByRole("switch", { name: /Free memory from the windows you're not using/ });
+    expect(screen.queryByLabelText("Memory limit per client")).not.toBeInTheDocument();
+  });
+
+  it("hides the mute option when the build has no live audio", async () => {
+    renderOptimization({});
+    await screen.findByRole("switch", { name: /Free memory from the windows you're not using/ });
+    expect(
+      screen.queryByRole("switch", { name: /Mute the Roblox windows you're not using/ })
+    ).not.toBeInTheDocument();
+  });
+
+  /**
+   * Revisão no harness (10/10/2026): "While you play" (vale na hora) ficava
+   * entre o cabeçalho dos perfis (vale no próximo launch) e o card do perfil,
+   * separando o seletor de perfil das opções que ele controla.
+   */
+  it("puts the 'While you play' box above the per-profile settings", async () => {
+    renderOptimization({});
+    const whilePlaying = await screen.findByText("While you play");
+    const profiles = screen.getByText("Optimization Profiles");
+    expect(
+      whilePlaying.compareDocumentPosition(profiles) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  /** "35 s" quebrava entre o número e a unidade na janela estreita. */
+  it("keeps '35 s' on one line", async () => {
+    renderOptimization({});
+    // O normalizador padrão do testing-library troca o espaço rígido por um
+    // comum: confere o texto cru.
+    const description = await screen.findByText(/to load first/);
+    expect(description.textContent).toContain("35 s");
+  });
+
+  /** As duas opções também valem para o botão Arrange in grid, mesmo sem a grade no launch. */
+  it.each([
+    "Allow smaller windows in the grid",
+    "Remove window borders in the grid",
+  ])("says %s also applies to the Arrange in grid button", async (label) => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", { name: new RegExp(label) });
+    expect(toggle.closest("label") ?? toggle.parentElement?.parentElement).toHaveTextContent(
+      /Arrange in grid button/
+    );
+  });
+
+  /** A grade é uma só para todos os perfis: com perfis separados, o card diz isso. */
+  it("says the grid options are shared when Auto Rejoin profiles are split", async () => {
+    renderOptimization({
+      General: { BottingEnabled: "true", BottingUseSharedClientProfile: "false" },
+    });
+    await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(screen.getByText(/Grid options are the same for every profile/)).toBeInTheDocument();
+  });
+
+  it("does not mention profiles in the grid when there is only one", async () => {
+    renderOptimization({});
+    await screen.findByRole("switch", { name: /Arrange in grid on launch/ });
+    expect(screen.queryByText(/Grid options are the same for every profile/)).not.toBeInTheDocument();
+  });
+
+  /** Ideia 21: devolver ao fechar o que o launch mudou nos arquivos do Roblox. */
+  it("offers giving the Roblox settings back on close, off by default, and saves it", async () => {
+    renderOptimization({});
+    const toggle = await screen.findByRole("switch", {
+      name: /Restore Roblox settings when MultiAlt closes/,
+    });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText(/the game you open from the website/)).toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    await expectSaved("General", "RestoreRobloxSettingsOnExit", "true");
+  });
+
+  it("hides giving the Roblox settings back outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(
+      screen.queryByRole("switch", { name: /Restore Roblox settings when MultiAlt closes/ })
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the focus-following optimization outside Windows", async () => {
+    renderOptimization({}, "macos");
+    await screen.findByText("Override Window Size");
+    expect(screen.queryByRole("switch", { name: /Free memory from the windows you're not using/ })).not.toBeInTheDocument();
   });
 
   it("rejects a fast flag key that is not on the backend allowlist", async () => {

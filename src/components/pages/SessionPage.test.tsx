@@ -18,7 +18,7 @@ import {
 } from "../../test-utils/renderWithStore";
 import { promptAnswers, resetPromptMocks } from "../../test-utils/promptMocks";
 import { invokeMock, resetTauriMocks, setInvokeMap } from "../../test-utils/tauriMocks";
-import type { LaunchQueuePayload } from "../../types";
+import type { ClientDrop, LaunchQueuePayload } from "../../types";
 import type { StoreValue } from "../../store";
 import { walkTour } from "../../test-utils/tourHelpers";
 
@@ -122,7 +122,7 @@ describe("SessionPage", () => {
     });
 
     await user.click(screen.getByRole("checkbox", { name: "Select all running clients" }));
-    await user.click(screen.getByRole("button", { name: /Close accounts \(2\)/ }));
+    await user.click(screen.getByRole("button", { name: "Close selected (2)" }));
 
     await waitFor(() => expect(callsFor("cmd_kill_roblox")).toHaveLength(2));
   });
@@ -143,20 +143,105 @@ describe("SessionPage", () => {
 });
 
 /**
- * A página tem largura para um resumo ao lado do painel: quantos clientes
- * abertos, quantos entrando, e quem mantém as contas no jogo.
+ * A página mostra primeiro as listas da sessão, em qualquer largura; em cima
+ * delas, uma faixa de números tirada dos mesmos dados das linhas (jogando,
+ * reconectando, não responde, entrando), cada um um filtro. Os cartões de
+ * ajuste (manter no jogo, gravações, teto de memória) vêm depois.
  */
-describe("SessionPage — summary", () => {
-  it("counts open clients and accounts still joining", () => {
-    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
-      accounts: ACCOUNTS,
-      launchQueue: QUEUE,
-      launchedByProgram: new Set([10]),
-      ...storeActions(),
+describe("SessionPage — order and stats", () => {
+  const DROP: ClientDrop = { kind: "disconnected", reason: "connectionLost", code: 277, message: null, sinceMs: 0 };
+
+  function renderStats(overrides: Partial<StoreValue> = {}) {
+    setInvokeMap({
+      get_nexus_accounts: [],
+      get_current_sessions: [{ userId: 10, placeId: 606849621, jobId: "job-a", sinceMs: Date.now() - 60_000, privateServer: false }],
     });
-    const summary = screen.getByRole("complementary", { name: "Summary" });
-    expect(within(summary).getByText("Clients open").nextElementSibling).toHaveTextContent("1");
-    expect(within(summary).getByText("Joining").nextElementSibling).toHaveTextContent("2");
+    return renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: [...ACCOUNTS, makeAccount({ UserID: 30, Username: "charlie" })],
+      launchQueue: QUEUE,
+      launchedByProgram: new Set([10, 20, 30]),
+      clientHealth: new Map([
+        [20, { pid: 2, logFound: true, drop: null, notResponding: true }],
+        [30, { pid: 3, logFound: true, drop: DROP }],
+      ]),
+      ...storeActions(),
+      ...overrides,
+    });
+  }
+
+  it("puts the session lists first and the settings after them", () => {
+    renderStats();
+    const panel = screen.getByTestId("session-panel");
+    const settings = screen.getByRole("complementary", { name: "Session settings" });
+    expect(panel.compareDocumentPosition(settings) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("session-layout").className).not.toMatch(/col-reverse/);
+    // O cartão "Right now" virou a faixa de números em cima das listas.
+    expect(screen.queryByText("Right now")).not.toBeInTheDocument();
+  });
+
+  /**
+   * Monitor 4K (dono, 11/10/2026): as listas paravam em 1040 px e o resto da
+   * janela ficava vazio. Sem teto de largura; a coluna de ajustes alarga e vira
+   * duas colunas na janela grande; as linhas do "Em jogo" viram colunas pela
+   * largura da própria lista (container query — o jsdom não mede, então o
+   * teste confere as classes que o Tailwind compila).
+   */
+  it("fills a big window: no width cap on the lists, wider settings, In game rows in columns", async () => {
+    renderStats();
+    expect(screen.getByTestId("session-lists").className).not.toMatch(/max-w-/);
+    const settings = screen.getByRole("complementary", { name: "Session settings" });
+    // Em rem (125rem = 2000 px): breakpoint em px sai fora de ordem no CSS do
+    // Tailwind 4 e perde para o `xl:`.
+    expect(settings.className).toMatch(/min-\[125rem\]:grid-cols-2/);
+    expect(settings.className).toMatch(/min-\[125rem\]:w-\[640px\]/);
+    expect(settings.className).not.toMatch(/min-\[\d+px\]:/);
+    // Na janela padrão a coluna continua com 300 px.
+    expect(settings.className).toMatch(/xl:w-\[300px\]/);
+    expect(screen.getByTestId("session-in-game").className).toMatch(/@container\/ingame/);
+    const row = await screen.findByTestId("session-running-10");
+    expect(row.parentElement?.className).toMatch(/grid-cols-1/);
+    expect(row.parentElement?.className).toMatch(/@6xl\/ingame:grid-cols-2/);
+  });
+
+  it("counts from the same data as the rows, not from the presence setting", async () => {
+    renderStats();
+    const stats = within(screen.getByRole("group", { name: "Right now" }));
+    expect(await stats.findByRole("button", { name: "1 Playing" })).toBeInTheDocument();
+    expect(stats.getByRole("button", { name: "0 Reconnecting" })).toBeDisabled();
+    expect(stats.getByRole("button", { name: "1 Not responding" })).toBeInTheDocument();
+    expect(stats.getByRole("button", { name: "1 Dropped" })).toBeInTheDocument();
+    expect(stats.getByRole("button", { name: "2 Joining" })).toBeInTheDocument();
+  });
+
+  it("each number filters the In game list, and a second click shows everyone again", async () => {
+    const user = userEvent.setup();
+    renderStats();
+    const notResponding = screen.getByRole("button", { name: "1 Not responding" });
+    await user.click(notResponding);
+    expect(notResponding).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("session-running-20")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-running-10")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-running-30")).not.toBeInTheDocument();
+    await user.click(notResponding);
+    expect(notResponding).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("session-running-10")).toBeInTheDocument();
+  });
+
+  it("the Joining number brings the queue into view", async () => {
+    const user = userEvent.setup();
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    renderStats();
+    await user.click(screen.getByRole("button", { name: "2 Joining" }));
+    expect(scroll).toHaveBeenCalled();
+    expect(scroll.mock.contexts[0]).toBe(document.querySelector("[data-tour='session-joining']"));
+  });
+
+  /** A página rola inteira: uma lista com rolagem própria dentro dela escondia contas. */
+  it("has no scroll box of its own inside the lists", () => {
+    renderStats();
+    const inGame = document.querySelector("[data-tour='session-in-game']") as HTMLElement;
+    expect(inGame.querySelector("[class*='max-h-']")).toBeNull();
   });
 
   it("says when Auto Rejoin keeps accounts in game and links to AFK Mode", async () => {
@@ -186,17 +271,16 @@ describe("SessionPage — summary", () => {
       ],
       ...storeActions(),
     });
-    const summary = screen.getByRole("complementary", { name: "Summary" });
+    const summary = screen.getByRole("complementary", { name: "Session settings" });
     expect(within(summary).getByText("Auto-reconnect is bringing back 1 account.")).toBeInTheDocument();
   });
 
   /**
-   * O padrão de reconexão de todas as contas mora também aqui, no cartão de
-   * quem mantém as contas no jogo: é a mesma setting de Settings › General
-   * (`General.AutoReconnect`), gravada pela store para as duas telas verem o
-   * mesmo valor.
+   * O padrão de reconexão de todas as contas mora aqui, no cartão de quem
+   * mantém as contas no jogo (`General.AutoReconnect`, gravado pela store).
+   * Settings › Keep in game mostra o estado e só leva até aqui.
    */
-  it("turns the reconnect default on and off from the summary, same setting as Settings › General", async () => {
+  it("turns the reconnect default on and off from the summary, the one Settings › Keep in game links to", async () => {
     const user = userEvent.setup();
     const { store } = renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
       accounts: ACCOUNTS,
@@ -205,7 +289,7 @@ describe("SessionPage — summary", () => {
       settings: { General: { AutoReconnect: "false" } },
       ...storeActions(),
     });
-    const summary = within(screen.getByRole("complementary", { name: "Summary" }));
+    const summary = within(screen.getByRole("complementary", { name: "Session settings" }));
     const toggle = summary.getByRole("switch", { name: /Reconnect accounts that drop/ });
     expect(toggle).toHaveAttribute("aria-checked", "false");
     expect(toggle).toHaveTextContent("never ones opened from the website");
@@ -221,11 +305,113 @@ describe("SessionPage — summary", () => {
       settings: { General: { AutoReconnect: "true" } },
       ...storeActions(),
     });
-    const summary = within(screen.getByRole("complementary", { name: "Summary" }));
+    const summary = within(screen.getByRole("complementary", { name: "Session settings" }));
     expect(summary.getByRole("switch", { name: /Reconnect accounts that drop/ })).toHaveAttribute(
       "aria-checked",
       "true"
     );
+  });
+
+  /** Teto de memória: o padrão de todos os clientes também mora no resumo. */
+  it("sets the memory limit of every client from the summary, off by default", async () => {
+    const user = userEvent.setup();
+    const { store } = renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      platformCapabilities: makePlatformCapabilities({ supportsMemoryTrim: true }),
+      ...storeActions(),
+    });
+    const summary = within(screen.getByRole("complementary", { name: "Session settings" }));
+    const select = summary.getByRole("combobox", { name: "Memory limit for every client" }) as HTMLSelectElement;
+    expect(select.value).toBe("0");
+    expect(summary.getByText(/asks Windows to free its memory first/)).toBeInTheDocument();
+    await user.selectOptions(select, "2048");
+    expect(store.updateSetting).toHaveBeenCalledWith("Optimization", "MemoryLimit", "2048");
+
+    // Fechar é opção própria, ao lado do limite, desligada por padrão.
+    const close = summary.getByRole("switch", { name: "Close a client that stays over its limit" });
+    expect(close).toHaveAttribute("aria-checked", "false");
+    expect(summary.queryByText(/Close If Memory Low/)).not.toBeInTheDocument();
+    await user.click(close);
+    expect(store.updateSetting).toHaveBeenCalledWith("Optimization", "CloseOverMemoryLimit", "true");
+  });
+
+  /**
+   * Pedido do dono: o Modo AFK repetindo a gravação e a gravação depois da
+   * reconexão ficam à vista na página Session, com o atalho para a aba — e,
+   * desde 11/10/2026, cada um com a gravação da vaga dele.
+   */
+  it("shows each slot with its global recording and when it plays, and opens the Recordings tab", async () => {
+    setInvokeMap({
+      get_recordings: {
+        recordings: [
+          { id: "a", name: "Farm loop", steps: [], createdAt: 0, updatedAt: 0 },
+          { id: "b", name: "Walk to the spot", steps: [], createdAt: 0, updatedAt: 0 },
+        ],
+        antiAfk: { defaultId: "a", accounts: { "20": "a" } },
+        afterReconnect: { defaultId: "b", accounts: {} },
+        keys: [],
+      },
+      get_recording_playback: { active: false },
+    });
+    const { store } = renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      platformCapabilities: makePlatformCapabilities({ os: "windows" }),
+      settings: {
+        Afk: { Mode: "recording", IntervalMinutes: "2", IntervalSeconds: "30" },
+        Recordings: { AfterReconnect: "true", AfterReconnectDelaySeconds: "45" },
+      },
+      ...storeActions(),
+    });
+    const card = await screen.findByTestId("session-recordings");
+    expect(
+      await within(card).findByText(
+        "After auto-reconnect: Walk to the spot, once, 45 s after the account is back in the game."
+      )
+    ).toBeInTheDocument();
+    expect(card).toHaveTextContent("On anti-AFK: Farm loop, every 2 min 30 s in AFK mode.");
+    expect(card).toHaveTextContent("1 account(s) with their own choice.");
+    await userEvent.click(within(card).getByRole("button", { name: "Open Recordings" }));
+    expect(store.openAfkMode).toHaveBeenCalledWith({ tab: "recordings" });
+  });
+
+  it("has no recordings card outside Windows", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      platformCapabilities: makePlatformCapabilities({ os: "macos" }),
+      ...storeActions(),
+    });
+    expect(screen.queryByTestId("session-recordings")).not.toBeInTheDocument();
+  });
+
+  it("shows the close-over-limit switch on when it was turned on", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      platformCapabilities: makePlatformCapabilities({ supportsMemoryTrim: true }),
+      settings: { Optimization: { CloseOverMemoryLimit: "true" } },
+      ...storeActions(),
+    });
+    expect(screen.getByRole("switch", { name: "Close a client that stays over its limit" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+  });
+
+  it("has no memory limit in the summary without the memory-trim build", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      ...storeActions(),
+    });
+    expect(screen.queryByRole("combobox", { name: "Memory limit for every client" })).not.toBeInTheDocument();
   });
 
   it("has no reconnect default outside Windows", () => {
@@ -250,7 +436,7 @@ describe("SessionPage — summary", () => {
         ...storeActions(),
         ...extra,
       });
-      return within(screen.getByRole("complementary", { name: "Summary" }));
+      return within(screen.getByRole("complementary", { name: "Session settings" }));
     };
     expect(
       keepAlive({ bottingStatus: makeBottingStatus({ active: true, userIds: [10] }) }).getByText(
@@ -296,5 +482,84 @@ describe("SessionPage — tutorial", () => {
       ...storeActions(),
     });
     await walkTour("session", { invoke: invokeMock });
+  });
+});
+
+describe("SessionPage — texto", () => {
+  it("describes the page without untranslated feature names", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      ...storeActions(),
+    });
+    const header = screen.getByRole("heading", { level: 1, name: "Session" }).closest("header") as HTMLElement;
+    expect(header).not.toHaveTextContent("Make Friends");
+  });
+
+  it("the reconnect default does not send you to the page you are on", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      ...storeActions(),
+    });
+    const toggle = screen.getByRole("switch", { name: /Reconnect accounts that drop/ });
+    expect(toggle).not.toHaveTextContent("Session page");
+  });
+
+  it("hides the Recordings card while there are no recordings", async () => {
+    setInvokeMap({
+      get_recordings: {
+        recordings: [],
+        antiAfk: { defaultId: null, accounts: {} },
+        afterReconnect: { defaultId: null, accounts: {} },
+        keys: [],
+      },
+      get_recording_playback: { active: false },
+    });
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      platformCapabilities: makePlatformCapabilities({ os: "windows" }),
+      ...storeActions(),
+    });
+    await waitFor(() => expect(callsFor("get_recordings").length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("session-recordings")).not.toBeInTheDocument();
+  });
+
+  it("headings never skip a level", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: QUEUE,
+      launchedByProgram: new Set([10]),
+      platformCapabilities: makePlatformCapabilities({ supportsMemoryTrim: true }),
+      ...storeActions(),
+    });
+    const levels = screen.getAllByRole("heading").map((h) => Number(h.tagName.slice(1)));
+    expect(levels[0]).toBe(1);
+    for (let i = 1; i < levels.length; i += 1) expect(levels[i] - levels[i - 1]).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("SessionPage — While you were away", () => {
+  it("shows what happened, newest first, next to the session lists", () => {
+    renderWithStore(<SessionPage active onLeave={vi.fn()} />, {
+      accounts: ACCOUNTS,
+      launchQueue: null,
+      launchedByProgram: new Set<number>(),
+      awayEvents: [
+        { id: 2, kind: "notResponding", userId: 20, atMs: 2_000 },
+        { id: 1, kind: "dropped", userId: 10, atMs: 1_000, drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 0 } },
+      ],
+      awayUnread: 2,
+      ...storeActions(),
+    });
+    const card = screen.getByRole("region", { name: "While you were away" });
+    const rows = within(card).getAllByTestId("away-event");
+    expect(rows[0]).toHaveTextContent("bravo");
+    expect(rows[1]).toHaveTextContent("alpha");
+    expect(within(card).getByTestId("away-unread")).toHaveTextContent("2 new");
   });
 });

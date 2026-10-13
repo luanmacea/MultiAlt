@@ -28,9 +28,9 @@ function withoutDetails(lines: string[]): string[] {
  * (.github/scripts/release-kind.mjs), que escreve na primeira linha do texto
  * uma marca para máquina e, logo abaixo, o selo visível na página do GitHub.
  */
-export type ReleaseKind = "fix" | "feature" | "mixed";
+export type ReleaseKind = "fix" | "feature" | "mixed" | "major";
 
-const KIND_MARKER = /<!--\s*release-kind:\s*(fix|feature|mixed)\s*-->/i;
+const KIND_MARKER = /<!--\s*release-kind:\s*(fix|feature|mixed|major)\s*-->/i;
 
 /**
  * Linhas do tipo que o app não mostra como texto: a marca (de qualquer valor)
@@ -39,7 +39,7 @@ const KIND_MARKER = /<!--\s*release-kind:\s*(fix|feature|mixed)\s*-->/i;
  * confere que os dois lados batem.
  */
 const KIND_LINE =
-  /^\s*(?:<!--\s*release-kind:[^>]*-->|\*\*\s*(?:🩹 Hotfix|✨ New features|📦 General update)\s*\*\*)\s*$/u;
+  /^\s*(?:<!--\s*release-kind:[^>]*-->|\*\*\s*(?:🩹 Hotfix|✨ New features|📦 General update|🚀 Major update)\s*\*\*)\s*$/u;
 
 /** Item de lista em linguagem simples que é correção: "Fixed: …". */
 const FIXED_ITEM = /^\**\s*fixed\s*:/i;

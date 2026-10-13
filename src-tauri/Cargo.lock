@@ -3665,7 +3665,7 @@ dependencies = [
 
 [[package]]
 name = "roblox-account-manager"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "argon2",
  "axum",

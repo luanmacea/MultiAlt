@@ -172,7 +172,7 @@ export function GroupSection({
               disabled={!acima}
               aria-label={t("Move group up")}
               title={t("Move group up")}
-              className="p-0.5 rounded theme-muted opacity-40 group-hover/ghead:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+              className="w-6 h-6 flex items-center justify-center rounded theme-muted opacity-60 group-hover/ghead:opacity-100 focus-visible:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronUp size={13} strokeWidth={2} />
             </button>
@@ -183,7 +183,7 @@ export function GroupSection({
               disabled={!abaixo}
               aria-label={t("Move group down")}
               title={t("Move group down")}
-              className="p-0.5 rounded theme-muted opacity-40 group-hover/ghead:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+              className="w-6 h-6 flex items-center justify-center rounded theme-muted opacity-60 group-hover/ghead:opacity-100 focus-visible:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronDown size={13} strokeWidth={2} />
             </button>

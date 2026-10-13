@@ -6,7 +6,8 @@ import { tr, useTr } from "../../i18n/text";
 import { quickAddAccount } from "../../utils/quickAdd";
 import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 import { TourButton } from "../tour/TourButton";
-import { Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus } from "lucide-react";
+import { useAttentionCount } from "../../hooks/useAccountLiveState";
+import { AlertTriangle, Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus, Bookmark, Smartphone } from "lucide-react";
 
 /**
  * Barra de cima da página de contas: filtro, selecionar tudo, nomes, painel
@@ -22,6 +23,11 @@ export function Toolbar() {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const addRef = useRef<HTMLDivElement>(null);
   const activeToggleStyle = "theme-accent theme-accent-bg theme-accent-border";
+  // Contas que caíram, reconectam ou não respondem (mesmas fontes da página
+  // Session). O chip só existe quando há alguma e leva à Session.
+  const attention = useAttentionCount();
+  const attentionLabel =
+    attention === 1 ? t("1 needs attention") : t("{{count}} need attention", { count: attention });
 
   // O painel lateral (DetailSidebar) só existe para uma conta — ver App.tsx.
   // Com 0 ou 2+ selecionadas o botão ficava aceso e nada abria; aqui ele fica
@@ -63,6 +69,11 @@ export function Toolbar() {
   function handleBrowserLogin() {
     setAddMenuOpen(false);
     store.openLoginBrowser();
+  }
+
+  function handleQuickLogin() {
+    setAddMenuOpen(false);
+    store.setQuickLoginOpen(true);
   }
 
   function handleUserPassLogin() {
@@ -142,6 +153,32 @@ export function Toolbar() {
       </div>
 
       <div className="flex items-center gap-1.5 ml-auto">
+        {attention > 0 && (
+          <Tooltip
+            content={t("Accounts that dropped, are reconnecting, are not responding or closed during a game. Click to see them in Session.")}
+            side="bottom"
+          >
+            <button
+              type="button"
+              onClick={() => store.setActivePage("session")}
+              data-testid="toolbar-attention"
+              data-tour="toolbar-attention"
+              aria-label={attentionLabel}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors whitespace-nowrap"
+            >
+              <AlertTriangle size={13} strokeWidth={2} aria-hidden="true" />
+              {/* Janela estreita: só o número (a frase empurrava os botões
+                  vizinhos para duas linhas); o nome inteiro fica no aria-label. */}
+              <span aria-hidden="true" className="tabular-nums min-[60rem]:hidden">
+                {attention}
+              </span>
+              <span aria-hidden="true" className="tabular-nums hidden min-[60rem]:inline">
+                {attentionLabel}
+              </span>
+            </button>
+          </Tooltip>
+        )}
+
         <Tooltip content={selectAllLabel} side="bottom">
           <button
             onClick={() => store.toggleSelectAll()}
@@ -198,6 +235,18 @@ export function Toolbar() {
             Com a Choose Game aberta, o Tutorial que vale é o dela. */}
         {!store.chooseGameOpen && <TourButton tour="accounts" />}
 
+        {/* Presets de launch (ideia 13): contas → jogo salvos, com horário. */}
+        <Tooltip content={t("Saved launches: these accounts into this game, in one click")} side="bottom">
+          <button
+            onClick={() => store.openPresetsDialog()}
+            data-tour="toolbar-presets"
+            className="theme-btn-ghost flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors"
+          >
+            <Bookmark size={13} strokeWidth={2} />
+            {t("Presets")}
+          </button>
+        </Tooltip>
+
         <div ref={addRef} className="relative">
           <button
             onClick={() => setAddMenuOpen(!addMenuOpen)}
@@ -233,6 +282,14 @@ export function Toolbar() {
               >
                 <KeyRound size={14} strokeWidth={1.5} className="theme-muted" />
                 {t("User:Pass Login")}
+              </button>
+              {/* Ideia 12 — mesmo item do AddAccountDialog. */}
+              <button
+                onClick={handleQuickLogin}
+                className="flex items-center gap-2.5 w-full px-3.5 py-2 text-sm text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] text-left"
+              >
+                <Smartphone size={14} strokeWidth={1.5} className="theme-muted" />
+                {t("Quick Login")}
               </button>
               <div className="my-1 border-t theme-border" />
               <button

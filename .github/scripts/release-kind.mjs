@@ -4,7 +4,11 @@
 // atualização e na página "What's new" do app:
 // - `fix`     (Hotfix): só correções → soma patch;
 // - `feature` (New features): só novidades → soma minor;
-// - `mixed`   (General update): os dois, ou sem lista para classificar → minor.
+// - `mixed`   (General update): os dois, ou sem lista para classificar → minor;
+// - `major`   (Major update): uma versão nova de série (a 2.0.0, 12/10/2026) —
+//   só pela marca ou pelo rótulo, nunca pela lista. O número vem do
+//   package.json (release-version.mjs); o bump (minor) só vale se ele for menor
+//   que a tag mais alta.
 //
 // De onde sai o tipo, nesta ordem:
 // 1. marca na mensagem do commit da release: `[type:fix]`, `[type:feature]`,
@@ -21,17 +25,18 @@
 // para máquina (`<!-- release-kind: fix -->`, invisível na página do GitHub)
 // e o selo visível. O app lê a marca e esconde as duas (src/releaseNotes.ts).
 
-export const RELEASE_KINDS = ["fix", "feature", "mixed"];
+export const RELEASE_KINDS = ["fix", "feature", "mixed", "major"];
 
 export const RELEASE_KIND_BADGES = {
   fix: "**🩹 Hotfix**",
   feature: "**✨ New features**",
   mixed: "**📦 General update**",
+  major: "**🚀 Major update**",
 };
 
 const BULLET = /^\s*\\?[-*+]\s+(.*)$/;
 const FIXED = /^\**\s*fixed\s*:/i;
-const TYPE_MARKER = /\[type:(fix|feature|mixed)\]/i;
+const TYPE_MARKER = /\[type:(fix|feature|mixed|major)\]/i;
 
 /** O que está sob `## What's new` no texto do PR, até o próximo título `## `. */
 export function whatsNewSection(prBody) {

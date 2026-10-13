@@ -308,6 +308,15 @@ fn export_nexus_lua() -> Result<String, String> {
 /// deste). O lado TS tem o par disto em `src/repo.ts`.
 const REPO_URL: &str = "https://github.com/luanmacea/MultiAlt";
 
+/// Convite do servidor do app no Discord (o mesmo do README e do site). Fica
+/// aqui, numa constante: a tela só pede para abrir, nunca manda um endereço.
+const DISCORD_INVITE_URL: &str = "https://discord.gg/NPvyWgKbfH";
+
+#[tauri::command]
+fn open_discord_invite() -> Result<(), String> {
+    open_url_in_browser(DISCORD_INVITE_URL)
+}
+
 #[tauri::command]
 fn open_repo_url() -> Result<(), String> {
     open_url_in_browser(REPO_URL)
@@ -330,6 +339,38 @@ fn feedback_form_url(kind: &str) -> Option<String> {
 fn open_feedback_form(kind: String) -> Result<(), String> {
     let url = feedback_form_url(&kind).ok_or_else(|| format!("Unknown feedback kind: {kind}"))?;
     open_url_in_browser(&url)
+}
+
+/// O que o resumo do "Reportar problema" (ideia 28) diz sobre o app e o PC.
+/// Nada aqui identifica a pessoa: versão, edição e versão do sistema.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReportEnvironment {
+    version: String,
+    edition: &'static str,
+    os: String,
+}
+
+/// O canal de features da build vira o nome que a pessoa vê nas releases.
+fn edition_label(feature_channel: &str) -> &'static str {
+    if feature_channel == "nexus-ws" {
+        "complete"
+    } else {
+        "standard"
+    }
+}
+
+#[tauri::command]
+fn get_report_environment(app: tauri::AppHandle) -> ReportEnvironment {
+    #[cfg(target_os = "windows")]
+    let os = platform::windows::os_version_label();
+    #[cfg(not(target_os = "windows"))]
+    let os = format!("{} {}", std::env::consts::OS, std::env::consts::ARCH);
+    ReportEnvironment {
+        version: app.package_info().version.to_string(),
+        edition: edition_label(RUNNING_FEATURE_CHANNEL),
+        os,
+    }
 }
 
 /// Abre um endereço fixo do app no navegador padrão. No Windows vai por
@@ -423,6 +464,14 @@ mod services_command_tests {
         assert!(!REPO_URL.contains(|c: char| c.is_whitespace() || c == '&' || c == '"'));
     }
 
+    /// O convite do servidor do app no Discord (o mesmo do README e do site).
+    #[test]
+    fn discord_invite_is_the_apps_server_over_https() {
+        assert_eq!(DISCORD_INVITE_URL, "https://discord.gg/NPvyWgKbfH");
+        // Sem metacaractere de shell: o endereço vai para `cmd /C start`.
+        assert!(!DISCORD_INVITE_URL.contains(|c: char| c.is_whitespace() || c == '&' || c == '"'));
+    }
+
     #[test]
     fn feedback_forms_open_this_repos_issue_templates() {
         assert_eq!(
@@ -441,6 +490,27 @@ mod services_command_tests {
         for kind in ["", "Bug", "https://evil.example", "bug&calc", "../x"] {
             assert_eq!(feedback_form_url(kind), None, "{kind}");
         }
+    }
+
+    #[test]
+    fn the_report_names_the_edition_like_the_releases_do() {
+        assert_eq!(edition_label("nexus-ws"), "complete");
+        assert_eq!(edition_label("standard"), "standard");
+        assert_eq!(edition_label(""), "standard");
+        assert!(["standard", "complete"].contains(&edition_label(RUNNING_FEATURE_CHANNEL)));
+    }
+
+    #[test]
+    fn the_report_environment_carries_only_version_edition_and_os() {
+        let json = serde_json::to_value(ReportEnvironment {
+            version: "1.2.3".into(),
+            edition: "standard",
+            os: "Windows 11".into(),
+        })
+        .unwrap();
+        let mut keys: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["edition", "os", "version"]);
     }
 
     #[test]

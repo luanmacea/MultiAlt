@@ -1,12 +1,35 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { normalizeUiScaleSetting, resolveUiScale, type LogicalSize } from "../uiScale";
 
-/** Evento com que Settings › General avisa a escolha antes de a store recarregar. */
+/** Evento com que Settings › App avisa a escolha antes de a store recarregar. */
 const UI_SCALE_EVENT = "ram-ui-scale";
 /** Arrastar a janela dispara dezenas de eventos: calcula só no fim. */
 const RESIZE_DEBOUNCE_MS = 150;
+
+/**
+ * Zoom aplicado agora, para Settings mostrar o "Automatic (170%)". Fica fora
+ * do React porque quem aplica (App) e quem mostra (AppTab) não se veem.
+ */
+let appliedFactor: number | null = null;
+const appliedListeners = new Set<() => void>();
+
+function publishApplied(factor: number | null): void {
+  if (appliedFactor === factor) return;
+  appliedFactor = factor;
+  for (const listener of appliedListeners) listener();
+}
+
+function subscribeApplied(listener: () => void): () => void {
+  appliedListeners.add(listener);
+  return () => appliedListeners.delete(listener);
+}
+
+/** Fator de zoom em vigor (1.7 = 170%); `null` antes do primeiro `setZoom`. */
+export function useAppliedUiScale(): number | null {
+  return useSyncExternalStore(subscribeApplied, () => appliedFactor, () => appliedFactor);
+}
 
 /**
  * Settings grava no INI pelo `useSettings` dela, e a store só relê as settings
@@ -18,12 +41,13 @@ export function announceUiScale(value: string): void {
 
 /**
  * Aplica o tamanho da interface (`General.InterfaceScale`) com o zoom nativo
- * do WebView. O automático olha o **monitor** em que a janela está, não a
- * janela: uma janela restaurada num monitor grande não encolhe a interface
- * (era assim na primeira versão, e o monitor de 2560x1440 do dono ficaria em
- * 80% com a janela no tamanho padrão). Recalcula quando a janela anda (pode ter
- * ido para outro monitor); `setZoom` só é chamado quando o fator muda. Troca de
- * escala reaplica em qualquer modo.
+ * do WebView. O automático olha duas coisas (regra em `uiScale.ts`): a
+ * **janela** só para crescer (janela grande num monitor 4K) e o **monitor**
+ * só para encolher — uma janela restaurada num monitor grande não encolhe a
+ * interface (era assim na primeira versão, e o monitor de 2560x1440 do dono
+ * ficaria em 80% com a janela no tamanho padrão). Recalcula quando a janela
+ * anda (pode ter ido para outro monitor) ou muda de tamanho; `setZoom` só é
+ * chamado quando o fator muda. Troca de escala reaplica em qualquer modo.
  *
  * `ready` falso (settings ainda não lidas do INI) não aplica nada: sem isso,
  * quem escolheu um valor fixo veria o automático piscar na abertura.
@@ -79,16 +103,30 @@ export function useUiScale(setting: string | null | undefined, ready = true): vo
       }
     };
 
+    // Área interna da janela em px lógicos. `innerSize` é físico e não muda
+    // com o zoom do WebView (`window.innerWidth` muda: realimentaria a conta).
+    const readWindowSize = async (): Promise<LogicalSize | null> => {
+      try {
+        const [size, scale] = await Promise.all([win.innerSize(), win.scaleFactor()]);
+        if (!size || !(scale > 0)) return null;
+        return { width: size.width / scale, height: size.height / scale };
+      } catch {
+        return null;
+      }
+    };
+
     const apply = async () => {
       const mine = ++seq;
-      const size = mode === "auto" ? await readLogicalSize() : null;
+      const [monitorSize, windowSize] =
+        mode === "auto" ? await Promise.all([readLogicalSize(), readWindowSize()]) : [null, null];
       // Um cálculo mais novo começou (ou o efeito acabou): este fica para trás.
       if (disposed || mine !== seq) return;
-      const factor = resolveUiScale(mode, size);
+      const factor = resolveUiScale(mode, monitorSize, windowSize);
       if (applied.current === factor) return;
       applied.current = factor;
       try {
         await webview.setZoom(factor);
+        publishApplied(factor);
       } catch {
         // Sem permissão/sem WebView: tenta de novo na próxima mudança.
         applied.current = null;
@@ -119,7 +157,11 @@ export function useUiScale(setting: string | null | undefined, ready = true): vo
         .catch(() => {});
     };
     try {
-      if (mode === "auto") keep(win.onMoved(schedule));
+      if (mode === "auto") {
+        keep(win.onMoved(schedule));
+        // Maximizar/arrastar a borda: a janela grande cresce a interface.
+        keep(win.onResized?.(schedule));
+      }
       keep(win.onScaleChanged?.(onScaleChanged));
     } catch {
       // API ausente: fica só o cálculo inicial.

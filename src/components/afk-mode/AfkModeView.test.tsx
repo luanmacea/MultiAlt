@@ -107,6 +107,25 @@ describe("AfkModeView — as duas abas", () => {
     expect(screen.getByTestId("afk-mode-tab-state-clicks")).toHaveTextContent("Running");
   });
 
+  /** O cartão da aba Recordings diz quando a gravação toca, sem abrir a aba. */
+  it("o cartão das gravações diz o intervalo do Modo AFK e a reconexão", () => {
+    const settings = defaultSettings();
+    settings.Afk = { Mode: "recording", IntervalMinutes: "2", IntervalSeconds: "30" };
+    (settings as Record<string, Record<string, string>>).Recordings = { AfterReconnect: "true" };
+    base({ settings });
+    render(<AfkModeView variant="page" />);
+    expect(screen.getByRole("tab", { name: /Recordings/ })).toHaveTextContent(
+      "Every 2 min 30 s in AFK mode, and after a reconnect"
+    );
+
+    cleanup();
+    base();
+    render(<AfkModeView variant="page" />);
+    expect(screen.getByRole("tab", { name: /Recordings/ })).toHaveTextContent(
+      "Sequences of keys, clicks and waits played on each window"
+    );
+  });
+
   it("a página não tem botão de fechar; o modal tem", async () => {
     base();
     render(<AfkModeView variant="page" />);
@@ -175,5 +194,70 @@ describe("AfkModeDialog", () => {
     render(<AfkModeDialog />);
     expect(screen.getByRole("radio", { name: /A game I pick/ })).toBeChecked();
     expect(screen.getByPlaceholderText("Place ID")).toHaveValue("606849621");
+  });
+});
+
+/**
+ * Parada de emergência por chacoalhar (`Afk.ShakeToStop`, commands/shake_stop.rs)
+ * na aba Recordings: o aviso mora no view (a aba é de outra frente de trabalho).
+ */
+describe("AfkModeView — parada de emergência nas gravações", () => {
+  it("na aba Recordings, diz que a gravação parou porque o mouse foi chacoalhado", async () => {
+    const store = base({
+      afkEmergencyStop: { reason: "shake", afk: false, recordings: true, atMs: 1 },
+    });
+    render(<AfkModeView variant="page" initialTab="recordings" />);
+    const notice = screen.getByTestId("afk-shake-notice");
+    expect(notice).toHaveTextContent("Emergency stop: you shook the mouse.");
+    await userEvent.click(within(notice).getByRole("button", { name: "Dismiss" }));
+    expect(store.dismissAfkEmergencyStop).toHaveBeenCalled();
+  });
+
+  it("com a opção ligada e uma gravação tocando, lembra que chacoalhar para", async () => {
+    const settings = defaultSettings();
+    settings.Afk = { ...(settings.Afk ?? {}), ShakeToStop: "true" };
+    base({ settings });
+    setInvokeHandler((cmd) =>
+      cmd === "get_recording_playback" ? { active: true } : cmd === "get_all_settings" ? {} : undefined
+    );
+    render(<AfkModeView variant="page" initialTab="recordings" />);
+    expect(await screen.findByText("Shake the mouse to stop.")).toBeInTheDocument();
+  });
+
+  it("com a opção desligada, não promete nada", async () => {
+    base();
+    setInvokeHandler((cmd) =>
+      cmd === "get_recording_playback" ? { active: true } : cmd === "get_all_settings" ? {} : undefined
+    );
+    render(<AfkModeView variant="page" initialTab="recordings" />);
+    await screen.findByRole("tab", { name: /Recordings/ });
+    expect(screen.queryByText("Shake the mouse to stop.")).not.toBeInTheDocument();
+  });
+});
+
+describe("AfkModeView — While you were away", () => {
+  it("one line says how many things happened and opens Session", async () => {
+    const store = base({
+      awayEvents: [
+        { id: 3, kind: "afkSendFailed", userId: 2, atMs: 3_000, code: "noWindow", error: null },
+        { id: 2, kind: "reconnected", userId: 1, atMs: 2_000 },
+        { id: 1, kind: "dropped", userId: 1, atMs: 1_000, drop: { kind: "crashed", reason: null, code: null, message: null, sinceMs: 0 } },
+      ],
+      awayUnread: 3,
+    });
+    const onClose = vi.fn();
+    render(<AfkModeView variant="modal" initialTab="clicks" onClose={onClose} />);
+    const line = screen.getByTestId("away-digest-line");
+    expect(line).toHaveTextContent("3 events while you were away");
+    await userEvent.click(within(line).getByRole("button", { name: "View" }));
+    expect(store.setActivePage).toHaveBeenCalledWith("session");
+    // No modal, ir para a Sessão fecha o modal: a página fica atrás dele.
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("no line when nothing new happened", () => {
+    base({ awayUnread: 0 });
+    render(<AfkModeView variant="page" initialTab="clicks" />);
+    expect(screen.queryByTestId("away-digest-line")).not.toBeInTheDocument();
   });
 });

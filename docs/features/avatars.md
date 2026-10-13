@@ -42,7 +42,7 @@ Os builds de desenvolvimento (`cargo build`, `bun run tauri dev`, `cargo test --
 
 O botão do cartão chama `switchToCompleteEdition` no store:
 
-1. grava `General.UpdaterFeatureChannel = nexus-ws` (o mesmo valor de Settings › General › Update Feature Channel). A setting mora no `RAMSettings.ini` da pasta de dados: a versão nova não a sobrescreve (`apply_defaults` só preenche chave ausente), então **toda atualização seguinte continua na edição completa**;
+1. grava `General.UpdaterFeatureChannel = nexus-ws` (o mesmo valor de Settings › Updates › Update Feature Channel). A setting mora no `RAMSettings.ini` da pasta de dados: a versão nova não a sobrescreve (`apply_defaults` só preenche chave ausente), então **toda atualização seguinte continua na edição completa**;
 2. roda a checagem manual (`check_for_updates_with_channels` com `allowEditionSwitch: true`) no canal `<release>-nexus-ws`;
 3. abre o diálogo de atualização com `autoInstall`: ele **baixa e instala sozinho**, com o progresso no próprio diálogo, pelo updater do app (a assinatura do pacote é conferida como em qualquer atualização). Nada abre no navegador.
 

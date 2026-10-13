@@ -194,6 +194,13 @@ describe("Toolbar — Add menu", () => {
     expect(generator).toHaveTextContent(/BloxGen/);
   });
 
+  it("offers Quick Login in the Add menu too", async () => {
+    const store = renderToolbar();
+    await openAddMenu();
+    await userEvent.click(screen.getByRole("button", { name: "Quick Login" }));
+    expect(store.setQuickLoginOpen).toHaveBeenCalledWith(true);
+  });
+
   it("opens the versions dialog", async () => {
     const store = renderToolbar();
     await openAddMenu();
@@ -383,5 +390,74 @@ describe("Toolbar — menu Add cabe na janela", () => {
     const classes = painel.className.split(/\s+/);
     expect(classes).toContain("max-h-[calc(100vh-96px)]");
     expect(classes).toContain("overflow-y-auto");
+  });
+});
+
+/**
+ * Contas que precisam de atenção (caiu, reconectando, não responde), contadas
+ * dos mesmos dados da página Session. O chip só aparece quando há alguma e
+ * leva à Session, onde se age sobre elas.
+ */
+describe("Toolbar — accounts that need attention", () => {
+  const drop = { kind: "disconnected" as const, reason: "connectionLost" as const, code: 277, message: null, sinceMs: 1 };
+
+  it("is hidden while no account needs attention", () => {
+    renderToolbar({
+      launchedByProgram: new Set([1]),
+      clientHealth: new Map([[1, { pid: 1, logFound: true, drop: null, inGame: true }]]),
+    });
+    expect(screen.queryByTestId("toolbar-attention")).not.toBeInTheDocument();
+  });
+
+  it("counts dropped, not responding and reconnecting accounts and opens Session", async () => {
+    const store = renderToolbar({
+      accounts: [1, 2, 3, 4].map((UserID) => makeAccount({ UserID })),
+      launchedByProgram: new Set([1, 2, 3]),
+      clientHealth: new Map([
+        [1, { pid: 1, logFound: true, drop, inGame: false }],
+        [2, { pid: 2, logFound: true, drop: null, inGame: true, notResponding: true }],
+        [3, { pid: 3, logFound: true, drop: null, inGame: true }],
+      ]),
+      // A 4ª fechou o cliente e espera a próxima tentativa.
+      autoReconnect: [
+        { userId: 4, phase: "waiting", attempt: 1, maxAttempts: 5, nextAttemptAtMs: null, reason: null, error: null, drop },
+      ],
+    });
+
+    const chip = screen.getByTestId("toolbar-attention");
+    expect(chip).toHaveAccessibleName("3 need attention");
+    await userEvent.click(chip);
+    expect(store.setActivePage).toHaveBeenCalledWith("session");
+  });
+
+  it("uses the singular for one account", () => {
+    renderToolbar({
+      launchedByProgram: new Set([1]),
+      clientHealth: new Map([[1, { pid: 1, logFound: true, drop, inGame: false }]]),
+    });
+    expect(screen.getByTestId("toolbar-attention")).toHaveAccessibleName("1 needs attention");
+  });
+
+  it("a reconnection that gave up does not count", () => {
+    renderToolbar({
+      autoReconnect: [
+        { userId: 1, phase: "gaveUp", attempt: 5, maxAttempts: 5, nextAttemptAtMs: null, reason: null, error: null, drop },
+      ],
+    });
+    expect(screen.queryByTestId("toolbar-attention")).not.toBeInTheDocument();
+  });
+
+  it("an account whose client closed counts: it needs the person to rejoin or dismiss it", () => {
+    renderToolbar({
+      accounts: [1, 2].map((UserID) => makeAccount({ UserID })),
+      // A 1ª fechou no meio do jogo; a reconexão dela desistiu (não reconecta mais).
+      closedClients: new Map([
+        [1, { userId: 1, closedAtMs: 1, drop: { ...drop, kind: "crashed" as const, reason: null }, placeId: 42, rejoin: null }],
+      ]),
+      autoReconnect: [
+        { userId: 1, phase: "gaveUp", attempt: 5, maxAttempts: 5, nextAttemptAtMs: null, reason: null, error: null, drop },
+      ],
+    });
+    expect(screen.getByTestId("toolbar-attention")).toHaveAccessibleName("1 needs attention");
   });
 });

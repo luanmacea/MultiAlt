@@ -45,14 +45,18 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 ### Launch e automação
 - [features/launch.md](features/launch.md) — lançamento de uma conta.
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
+- [features/presets.md](features/presets.md) — presets de launch (contas → jogo/servidor num clique) e horário de abrir/fechar, que fecha só o que o preset abriu.
 - [features/external-clients.md](features/external-clients.md) — clientes abertos pelo site (ou antes de o app abrir) reconhecidos pelo log do Roblox; identificação manual.
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.
+- [features/recordings.md](features/recordings.md) — Gravações: sequências de teclas, cliques e esperas tocadas na janela de cada conta, uma por vez (Modo AFK, depois da reconexão, ou na hora).
 - [features/avatars.md](features/avatars.md) — avatares grátis: montar avatares só com itens oficiais gratuitos do Roblox e distribuí-los entre as contas (resgata o que falta de graça, nunca gasta Robux).
 - [features/groups.md](features/groups.md) — página Groups: busca de grupos do Roblox e entrada das contas marcadas, uma por vez; captcha resolvido pela pessoa no navegador da conta.
 - [features/isolation.md](features/isolation.md) — isolamento pré-launch (cache, registro, MachineGuid/MAC).
 - [features/roblox-versions.md](features/roblox-versions.md) — instalação e seleção de versões do cliente Roblox.
 - [features/watcher.md](features/watcher.md) — monitoramento de processos Roblox, quedas lidas do log e [reconexão automática](features/watcher.md#reconexão-automática).
+- [features/performance.md](features/performance.md) — desempenho enquanto você joga: otimização que segue a janela em uso, fundo mudo (feature `live-audio`), grade menor que o mínimo e sem moldura.
+- [features/history.md](features/history.md) — histórico de sessões por conta (entrou, saiu, caiu com motivo), tempo de jogo de 14 dias, "Join again" e export CSV.
 
 ### Integrações
 - [features/webserver.md](features/webserver.md) — API HTTP local (feature `webserver`).
@@ -68,6 +72,7 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 - [features/settings.md](features/settings.md) — abas de configuração e chaves do `RAMSettings.ini`.
 - [features/ui-layout.md](features/ui-layout.md) — shell da UI, temas/fontes, diálogos, lista de contas, barra de ações, tela "Choose Game".
 - [features/webview-recovery.md](features/webview-recovery.md) — janela abrindo em branco/preta: safe mode de vídeo do WebView2, marcador preso à versão do runtime e tela de erro do React.
+- [features/support.md](features/support.md) — pacote Suporte: checagem "o launch não faz nada" (só lê, nunca fecha nada).
 
 ## Registro de mudanças (2026-09-27)
 

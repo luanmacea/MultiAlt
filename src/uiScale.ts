@@ -1,5 +1,5 @@
 /**
- * Tamanho da interface (Settings › General › Interface size, chave
+ * Tamanho da interface (Settings › App › Interface size, chave
  * `General.InterfaceScale` do `RAMSettings.ini`).
  *
  * O zoom é o nativo do WebView (`setZoom`), que escala tudo por igual —
@@ -12,7 +12,7 @@
 export const UI_SCALE_SETTINGS = ["auto", "110", "100", "90", "80"] as const;
 export type UiScaleSetting = (typeof UI_SCALE_SETTINGS)[number];
 
-/** Monitor lógico a partir do qual a interface fica em 100% no automático. */
+/** Monitor lógico a partir do qual a interface fica em 100% no automático (abaixo, encolhe). */
 export const UI_SCALE_REFERENCE = { width: 1440, height: 800 } as const;
 export const UI_SCALE_AUTO_MIN = 0.8;
 export const UI_SCALE_AUTO_MAX = 1;
@@ -47,8 +47,46 @@ export function autoUiScale(width: number, height: number): number {
   return Math.min(UI_SCALE_AUTO_MAX, Math.max(UI_SCALE_AUTO_MIN, stepped));
 }
 
-/** Zoom a aplicar. Automático sem tamanho conhecido fica em 100%. */
-export function resolveUiScale(setting: UiScaleSetting, size: LogicalSize | null): number {
-  if (setting === "auto") return size ? autoUiScale(size.width, size.height) : 1;
-  return Number(setting) / 100;
+/**
+ * Janela lógica a partir da qual o automático **cresce** a interface: o dobro
+ * do desenho do app (1100x620 de área útil), para que a tela crescida ainda
+ * tenha o espaço de uma janela padrão e não pareça uma lupa.
+ */
+export const UI_SCALE_GROW_REFERENCE = { width: 2200, height: 1240 } as const;
+export const UI_SCALE_GROW_MAX = 2;
+
+/**
+ * Fator de crescimento pelo tamanho **lógico da janela** (área interna em
+ * pixels físicos dividida pela escala do monitor — também não muda com o
+ * zoom). `min(w / 2200, h / 1240)`, arredondado para o degrau de 5% mais
+ * próximo e preso entre 100% e 200%.
+ *
+ * Só cresce: janela pequena (o padrão 1100x700, ou restaurada) fica em 100% e
+ * quem decide se encolhe é o monitor (`autoUiScale`). Exemplos: 4K a 100%
+ * maximizada (~3840x2090) → 170%; 2560x1440 maximizada (~2560x1390) → 110%;
+ * 1920x1080 maximizada → 100%.
+ */
+export function growUiScale(width: number, height: number): number {
+  if (!(width > 0) || !(height > 0)) return 1;
+  const raw = Math.min(width / UI_SCALE_GROW_REFERENCE.width, height / UI_SCALE_GROW_REFERENCE.height);
+  const steps = Math.round(raw / AUTO_STEP + 1e-6);
+  const stepped = steps / Math.round(1 / AUTO_STEP);
+  return Math.min(UI_SCALE_GROW_MAX, Math.max(1, stepped));
+}
+
+/**
+ * Zoom a aplicar. Valor fixo ignora monitor e janela. Automático: janela
+ * grande cresce (`growUiScale`); senão o monitor pequeno encolhe
+ * (`autoUiScale`). Os dois nunca brigam — janela acima de 2200x1240 só existe
+ * em monitor muito acima de 1440x800. Sem tamanho conhecido, 100%.
+ */
+export function resolveUiScale(
+  setting: UiScaleSetting,
+  monitor: LogicalSize | null,
+  windowSize: LogicalSize | null = null
+): number {
+  if (setting !== "auto") return Number(setting) / 100;
+  const grow = windowSize ? growUiScale(windowSize.width, windowSize.height) : 1;
+  if (grow > 1) return grow;
+  return monitor ? autoUiScale(monitor.width, monitor.height) : 1;
 }

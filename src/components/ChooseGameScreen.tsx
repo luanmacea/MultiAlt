@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type UIEvent } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { accountLabel, hideAccountAvatar } from "../utils/accountName";
@@ -13,17 +13,18 @@ import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User, Trash2, Terminal, LayoutGrid, Check, Link2, AlertTriangle, X } from "lucide-react";
-import type { LaunchLogLevel, LaunchTarget } from "../store";
-import { TONE_STYLES, type ToneStyle } from "../utils/toastTone";
+import { ArrowLeft, User, Link2, AlertTriangle, X, Bookmark } from "lucide-react";
+import { newPresetDraft } from "../utils/presets";
+import type { LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
-import { SessionPanel } from "./session/SessionPanel";
-import { Toggle } from "./ui/Toggle";
 import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
-import { SessionCache } from "../utils/sessionCache";
 import { TourButton } from "./tour/TourButton";
 
-type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow" | "console" | "windows";
+/**
+ * Só as formas de escolher o jogo. Console e Windows viraram a página Console
+ * da barra lateral (11/10/2026), e as listas da sessão moram na página Session.
+ */
+type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow";
 
 /** Extra launch parameters for targets that were already resolved (join links). */
 type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode">;
@@ -144,7 +145,7 @@ function useLauncher() {
  * game, `roblox://` deep link, `ro.blox.com` short link) through the backend
  * and launches every selected account into the resolved target.
  */
-function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsole?: () => void }) {
+function JoinLinkSection({ userIds, onOpenSession }: { userIds: number[]; onOpenSession?: () => void }) {
   const t = useTr();
   const launchAll = useLauncher();
   const [link, setLink] = useState("");
@@ -241,12 +242,13 @@ function JoinLinkSection({ userIds, onGoToConsole }: { userIds: number[]; onGoTo
       {resolved && (
         <div className="flex items-center justify-between gap-2 text-[12px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-2">
           <span className="truncate">{describeTarget(resolved)}</span>
-          {onGoToConsole && (
+          {/* Quem está entrando aparece na página Session. */}
+          {onOpenSession && (
             <button
-              onClick={onGoToConsole}
+              onClick={onOpenSession}
               className="shrink-0 text-[12px] theme-muted hover:text-[var(--panel-fg)] transition-colors"
             >
-              {t("View console")}
+              {t("Open Session")}
             </button>
           )}
         </div>
@@ -286,7 +288,16 @@ type FollowPresence = {
   game_id?: string | null;
 };
 
-function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsole?: () => void }) {
+function FollowTab({
+  userIds,
+  onLaunchStarted,
+  onOpenSession,
+}: {
+  userIds: number[];
+  onLaunchStarted?: () => void;
+  /** O "Open Session" do link resolvido: aí a pessoa pediu a Session. */
+  onOpenSession?: () => void;
+}) {
   const t = useTr();
   const store = useStore();
   const confirm = useConfirm();
@@ -335,7 +346,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
         if (!ok) return;
       }
 
-      const result = await launchAll(userIds, placeId, jobId, onGoToConsole);
+      const result = await launchAll(userIds, placeId, jobId, onLaunchStarted);
       if (result.ok) {
         store.addToast(
           tr("Following {{name}} with {{count}} account(s)...", { name: followUser, count: userIds.length })
@@ -351,7 +362,7 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
   return (
     <div className="h-full overflow-y-auto p-5">
       {/* Join link */}
-      <JoinLinkSection userIds={userIds} onGoToConsole={onGoToConsole} />
+      <JoinLinkSection userIds={userIds} onOpenSession={onOpenSession} />
 
       {/* Follow card */}
       <div className="theme-panel theme-border border rounded-xl p-5 mb-4">
@@ -426,338 +437,6 @@ function FollowTab({ userIds, onGoToConsole }: { userIds: number[]; onGoToConsol
   );
 }
 
-// ── Grid window arranger ──────────────────────────────────────────────────────
-type MonitorInfo = { index: number; width: number; height: number; primary: boolean };
-
-/**
- * Últimos monitores detectados. A aba Windows voltava com "No monitors
- * detected" piscando até a consulta responder; agora ela nasce com isto e a
- * consulta só confirma.
- */
-const monitorsCache = new SessionCache<MonitorInfo[]>(1);
-
-/** Monitores marcados: os salvos que ainda existem, ou todos. */
-function initialMonitorSelection(list: MonitorInfo[], saved: string | undefined): Set<number> {
-  const savedIdx = (saved || "")
-    .split(",")
-    .map((s) => parseInt(s.trim()))
-    .filter((n) => Number.isFinite(n));
-  return new Set(
-    savedIdx.length > 0 ? savedIdx.filter((i) => list.some((m) => m.index === i)) : list.map((m) => m.index)
-  );
-}
-
-/**
- * Organiza as janelas do Roblox já abertas nos monitores escolhidos.
- *
- * Morava dentro da aba Console, que é o log de lançamento: não tem relação
- * nenhuma com o log e ainda o espremia em ~35 px de altura. Agora é a aba
- * "Windows", e o Console ficou só com a sessão e o log.
- */
-function GridControls() {
-  const t = useTr();
-  const store = useStore();
-  const [monitors, setMonitors] = useState<MonitorInfo[]>(() => monitorsCache.get("last") ?? []);
-  const [selected, setSelected] = useState<Set<number>>(() =>
-    initialMonitorSelection(monitorsCache.get("last") ?? [], store.settings?.General?.GridMonitors)
-  );
-  const [gap, setGap] = useState<number>(() => parseInt(store.settings?.General?.GridGap || "20") || 20);
-  // Raw text while typing so the field can be cleared; clamped/saved on blur.
-  const [gapText, setGapText] = useState<string>(() => String(gap));
-  const [busy, setBusy] = useState(false);
-  // Grade automática no launch (`General.AutoArrangeGrid`): ligada por padrão,
-  // então só o "false" gravado a desliga.
-  const [autoArrange, setAutoArrange] = useState<boolean>(
-    () => store.settings?.General?.AutoArrangeGrid !== "false"
-  );
-
-  function toggleAutoArrange(next: boolean) {
-    setAutoArrange(next);
-    invoke("update_setting", {
-      section: "General",
-      key: "AutoArrangeGrid",
-      value: String(next),
-    }).catch(() => {});
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    invoke<MonitorInfo[]>("list_display_monitors")
-      .then((mons) => {
-        if (cancelled) return;
-        const list = (mons || []).map((m) => ({
-          index: m.index,
-          width: m.width,
-          height: m.height,
-          primary: !!m.primary,
-        }));
-        monitorsCache.set("last", list);
-        setMonitors(list);
-        setSelected(initialMonitorSelection(list, store.settings?.General?.GridMonitors));
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function persist(nextSel: Set<number>, nextGap: number) {
-    invoke("update_setting", {
-      section: "General",
-      key: "GridMonitors",
-      value: [...nextSel].sort((a, b) => a - b).join(","),
-    }).catch(() => {});
-    invoke("update_setting", { section: "General", key: "GridGap", value: String(nextGap) }).catch(() => {});
-  }
-
-  function toggleMonitor(i: number) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      persist(next, gap);
-      return next;
-    });
-  }
-
-  function commitGap() {
-    const v = parseInt(gapText);
-    const g = Number.isFinite(v) ? Math.max(0, Math.min(200, v)) : gap;
-    setGapText(String(g));
-    if (g !== gap) {
-      setGap(g);
-      persist(selected, g);
-    }
-  }
-
-  async function arrange() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const res = await invoke<{ arranged: number; total: number }>("arrange_windows_grid", {
-        monitorIndices: [...selected].sort((a, b) => a - b),
-        gap,
-      });
-      const leftover = res.total - res.arranged;
-      store.addToast(
-        leftover > 0
-          ? t("{{arranged}}/{{total}} windows arranged ({{leftover}} didn't fit)", {
-              arranged: res.arranged,
-              total: res.total,
-              leftover,
-            })
-          : t("{{arranged}} window(s) arranged in grid", { arranged: res.arranged })
-      );
-    } catch (e) {
-      store.addToast(t("Grid failed: {{error}}", { error: String(e) }));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="theme-panel theme-border border rounded-xl p-4">
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div className="min-w-0">
-          <h3 className="text-[13px] font-semibold text-[var(--panel-fg)]">{t("Window layout")}</h3>
-          <p className="text-[12px] theme-muted">
-            {t("Tile all open Roblox windows across the selected monitors.")}
-          </p>
-        </div>
-        <button
-          onClick={arrange}
-          disabled={busy || selected.size === 0}
-          style={{ width: "auto" }}
-          className="sidebar-btn theme-btn shrink-0 flex items-center gap-1.5 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <LayoutGrid size={13} strokeWidth={1.5} />
-          {busy ? t("Arranging...") : t("Arrange in grid")}
-        </button>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-1.5">
-        {monitors.length === 0 ? (
-          <span className="text-[11px] theme-muted">{t("No monitors detected")}</span>
-        ) : (
-          monitors.map((m) => {
-            const on = selected.has(m.index);
-            return (
-              <button
-                key={m.index}
-                onClick={() => toggleMonitor(m.index)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[12px] transition-colors ${
-                  on
-                    ? "border-[var(--accent-color)] text-[var(--panel-fg)] bg-[var(--accent-soft)]"
-                    : "theme-border theme-muted hover:text-[var(--panel-fg)]"
-                }`}
-                title={`${m.width}×${m.height}`}
-              >
-                <span
-                  className={`w-3 h-3 rounded-[3px] border flex items-center justify-center ${
-                    on ? "border-[var(--accent-color)] bg-[var(--accent-color)]" : "theme-border"
-                  }`}
-                >
-                  {on && <Check size={9} stroke="var(--forms-bg)" strokeWidth={3} />}
-                </span>
-                {t("Monitor {{n}}", { n: m.index })}
-                {m.primary ? ` ${t("(main)")}` : ""}
-                <span className="theme-muted tabular-nums">
-                  {m.width}×{m.height}
-                </span>
-              </button>
-            );
-          })
-        )}
-
-        <div className="flex items-center gap-1.5 ml-auto">
-          <label className="text-[11px] theme-label">{t("Gap")}</label>
-          <input
-            type="number"
-            min={0}
-            max={200}
-            value={gapText}
-            onChange={(e) => setGapText(e.target.value)}
-            onBlur={commitGap}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitGap();
-            }}
-            className="sidebar-input w-16 text-xs tabular-nums"
-          />
-          <span className="text-[11px] theme-muted">px</span>
-        </div>
-      </div>
-
-      <div className="mt-2">
-        <Toggle
-          checked={autoArrange}
-          onChange={toggleAutoArrange}
-          label="Arrange in grid on launch"
-          description="Each new Roblox window takes the first free cell of the grid (Choose Game > Windows). Accounts with their own window size keep it."
-        />
-      </div>
-    </div>
-  );
-}
-
-// ── Console Tab ───────────────────────────────────────────────────────────────
-/**
- * Os níveis do log de launch são os mesmos tons do feedback de ação, então a
- * paleta é a compartilhada (`TONE_STYLES`) — o toast e o rodapé combinam com
- * este Console em vez de cada tela ter a sua cor.
- */
-const LEVEL_STYLES: Record<LaunchLogLevel, ToneStyle> = TONE_STYLES;
-
-function ConsoleTab() {
-  const t = useTr();
-  const store = useStore();
-  const logs = store.launchLogs;
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-
-  // Build a userId → display name map from the loaded accounts.
-  const nameFor = (userId: number | null): string => {
-    if (userId === null) return "—";
-    const a = store.accounts.find((acc) => acc.UserID === userId);
-    return accountLabel(a, store, userId);
-  };
-
-  const fmtTime = (ts: number) =>
-    new Date(ts).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-
-  // Auto-scroll to the newest line unless the user scrolled up.
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs, autoScroll]);
-
-  function onScroll(e: UIEvent<HTMLDivElement>) {
-    const el = e.currentTarget;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    setAutoScroll(atBottom);
-  }
-
-  return (
-    <div className="flex flex-col h-full">
-      {/* Painel de Sessão acima do log: cancelar quem está entrando e
-          achar/fechar quem já está em jogo sem sair da tela.
-          Teto em 45% da aba: com as duas listas cheias (~500px) o painel
-          empurrava o log a pouco mais que o padding — o log é o log de
-          lançamento, não o Painel de Sessão. */}
-      <div className="shrink-0 pb-3 max-h-[45%] overflow-y-auto">
-        <SessionPanel />
-      </div>
-
-      <div className="shrink-0 flex items-center justify-between px-1 pb-2">
-        <span className="text-[12px] theme-muted">
-          {logs.length === 0
-            ? t("No activity yet")
-            : t("{{count}} log lines", { count: logs.length })}
-        </span>
-        <button
-          onClick={() => store.clearLaunchLogs()}
-          disabled={logs.length === 0}
-          className="flex items-center gap-1.5 text-[12px] theme-muted hover:text-[var(--panel-fg)] px-2 py-1 rounded-md theme-btn-ghost border theme-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Trash2 size={12} strokeWidth={1.5} />
-          {t("Clear")}
-        </button>
-      </div>
-
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        // Piso de 160px: sem ele o Painel de Sessão cheio espremia o log a
-        // ~2px de texto visível (26px com 24px de padding).
-        className="flex-1 min-h-[160px] overflow-y-auto rounded-lg border theme-border bg-[var(--panel-soft)] font-mono text-[12px] leading-relaxed p-3"
-      >
-        {logs.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center theme-muted gap-2 py-10">
-            <Terminal size={22} strokeWidth={1.5} />
-            <p className="text-[12px]">
-              {t("Launch a game or start Auto Rejoin to see the activity here")}
-            </p>
-          </div>
-        ) : (
-          logs.map((log) => {
-            const style = LEVEL_STYLES[log.level] ?? LEVEL_STYLES.info;
-            return (
-              <div key={log.id} className="flex items-start gap-2 py-0.5">
-                <span className="theme-muted shrink-0 tabular-nums">{fmtTime(log.ts)}</span>
-                <span className={`shrink-0 w-1.5 h-1.5 rounded-full mt-[6px] ${style.dot}`} />
-                {/* De onde veio a linha. O `step` sempre existiu no evento e
-                    nunca era desenhado; agora que o console tem launch,
-                    Auto Rejoin e Watcher juntos, ele é o que separa um do outro. */}
-                {log.step ? (
-                  <span
-                    data-testid="log-step"
-                    // Largura fixa: sem ela, `[watcher]` e `[rejoin-retry]`
-                    // empurram o nome da conta para colunas diferentes e a
-                    // leitura vertical do log se perde. 112px foi medido no
-                    // nome mais longo na fonte mono de 12px — a 104px de antes
-                    // ele passou a ser cortado quando a fonte do app subiu de
-                    // 11 para 12. A origem do Auto Rejoin é `rejoin` /
-                    // `rejoin-retry` justamente para caber aqui.
-                    className="shrink-0 theme-muted w-[112px] truncate"
-                    title={log.step}
-                  >
-                    [{log.step}]
-                  </span>
-                ) : null}
-                <span className="shrink-0 text-[var(--accent-color)] max-w-[120px] truncate">
-                  {nameFor(log.userId)}
-                </span>
-                <span className={`${style.text} break-words`}>{log.message}</span>
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export function ChooseGameScreen() {
   const t = useTr();
@@ -779,7 +458,18 @@ export function ChooseGameScreen() {
 
   // ── Game selection handlers ────────────────────────────────────────────────
 
-  const goToConsole = () => setActiveTab("console");
+  /**
+   * Lançou: fecha a Choose Game e volta para a lista de contas, que mostra o
+   * estado de cada conta ao vivo (Entrando, Jogando...). Pedido do dono,
+   * 12/10/2026: antes ia para a Session e a Choose Game ficava aberta por
+   * baixo — clicar em Contas a reabria com as contas do lote anterior. A fila
+   * continua na Session (chip e barra lateral levam até ela).
+   */
+  const goToSession = () => store.setActivePage("session");
+  const backToAccounts = () => {
+    store.setChooseGameOpen(false);
+    store.setActivePage("accounts");
+  };
 
   /**
    * Clique no card, nas abas Games/Recent.
@@ -803,11 +493,11 @@ export function ChooseGameScreen() {
   }
 
   async function handleFavoritesSelectGame(placeId: number, privateServer?: string) {
-    await launchAll(userIds, placeId, privateServer || "", goToConsole);
+    await launchAll(userIds, placeId, privateServer || "", backToAccounts);
   }
 
   async function handleJoinGame(placeId: number) {
-    await launchAll(userIds, placeId, "", goToConsole);
+    await launchAll(userIds, placeId, "", backToAccounts);
   }
 
   /** Vai para a aba Servers já com o place do jogo clicado. */
@@ -903,16 +593,6 @@ export function ChooseGameScreen() {
       label: t("Follow"),
       hint: t("Paste any Roblox link here — experience invite, VIP/private server or a plain game link — or follow a player into the game they are in right now."),
     },
-    {
-      id: "console",
-      label: t("Console"),
-      hint: t("Live history of what the app did: launch, Auto Rejoin, Watcher and errors, with the origin of each line."),
-    },
-    {
-      id: "windows",
-      label: t("Windows"),
-      hint: t("Tile the Roblox windows that are already open across your monitors."),
-    },
   ];
   const activeTabDef = TABS.find((tab) => tab.id === activeTab);
   const activeHint = activeTabDef?.hint;
@@ -942,7 +622,18 @@ export function ChooseGameScreen() {
                 : t("{{count}} accounts will be launched together", { count: accounts.length })}
             </p>
           </div>
-          <TourButton tour="choose-game" className="ml-auto" />
+          {/* Guarda estas contas (e o jogo do campo, se houver) como preset. */}
+          <button
+            onClick={() =>
+              store.openPresetsDialog(newPresetDraft(userIds, parseInt(store.placeId) || 0))
+            }
+            className="ml-auto flex items-center gap-1.5 text-[12px] theme-muted hover:text-[var(--panel-fg)] px-2.5 py-1.5 rounded-md theme-btn-ghost border theme-border transition-colors"
+            title={t("Save these accounts and a game as a preset, to launch them later in one click")}
+          >
+            <Bookmark size={13} strokeWidth={1.5} />
+            {t("Save as preset")}
+          </button>
+          <TourButton tour="choose-game" />
         </div>
 
         {/* Account chips */}
@@ -1074,24 +765,14 @@ export function ChooseGameScreen() {
             placeId={store.placeId}
             setPlaceId={store.setPlaceId}
             launchAll={launchAll}
-            onGoToConsole={goToConsole}
+            onLaunchStarted={backToAccounts}
           />
         )}
         {activeTab === "friends" && (
-          <FriendsTab userIds={userIds} launchAll={launchAll} onGoToConsole={goToConsole} />
+          <FriendsTab userIds={userIds} launchAll={launchAll} onLaunchStarted={backToAccounts} />
         )}
         {activeTab === "follow" && (
-          <FollowTab userIds={userIds} onGoToConsole={goToConsole} />
-        )}
-        {activeTab === "console" && (
-          <div className="h-full px-4 pt-3 pb-4">
-            <ConsoleTab />
-          </div>
-        )}
-        {activeTab === "windows" && (
-          <div className="h-full overflow-y-auto px-4 pt-3 pb-4">
-            <GridControls />
-          </div>
+          <FollowTab userIds={userIds} onLaunchStarted={backToAccounts} onOpenSession={goToSession} />
         )}
       </div>
       </div>

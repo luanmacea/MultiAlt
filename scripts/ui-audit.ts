@@ -73,6 +73,18 @@ const RECIPES: { name: string; steps: string[] }[] = [
     name: `Dialog - ${item}`,
     steps: ["Add", item],
   })),
+  // Histórico de sessões (ideia 6) no painel da conta.
+  {
+    name: "Account panel - History",
+    steps: [
+      "text:TestAccount1",
+      "js:const b = document.querySelector('[data-tour=toolbar-panel]'); if (b.getAttribute('aria-label') !== 'Hide panel') b.click()",
+    ],
+  },
+  // Presets de launch (ideia 13): lista vazia, editor novo e o editor vindo da Choose Game.
+  { name: "Dialog - Presets", steps: ["Presets"] },
+  { name: "Dialog - New preset", steps: ["Presets", "New preset", "js:document.querySelectorAll('[role=switch]').forEach((s) => s.getAttribute('aria-checked') === 'false' && s.click())"] },
+  { name: "Dialog - Save as preset", steps: ["text:TestAccount1", "Choose Game", "Save as preset"] },
   { name: "Actions menu", steps: ["text:TestAccount1", "Actions"] },
   { name: "Dialog - Move to Group", steps: ["text:TestAccount1", "Actions", "📁 Move to Group"] },
   { name: "Dialog - Auto Rejoin", steps: ["text:TestAccount1", "Actions", "🤖 Auto Rejoin"] },

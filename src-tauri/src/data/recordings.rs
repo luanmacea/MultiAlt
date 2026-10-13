@@ -1,0 +1,1193 @@
+//! Gravações: sequências de passos (tecla, clique num ponto relativo da janela,
+//! espera) que o app toca na janela do Roblox de uma conta, uma janela por vez.
+//! Ver docs/features/recordings.md.
+//!
+//! O arquivo `RAMRecordings.json`, na pasta de dados, é a única cópia (está em
+//! `DATA_FILES`, então backup, restauração e migração o levam). Mesmas garantias
+//! do `RAMLaunchPresets.json`:
+//!
+//! - gravação atômica (temporário + troca), com o conteúdo anterior em
+//!   `RAMRecordings.json.bak`;
+//! - arquivo ilegível **trava** a gravação em vez de ser sobrescrito;
+//! - o store **não guarda nada em memória**: cada leitura vai ao disco, então
+//!   restaurar um backup vale na hora e o ciclo do Modo AFK sempre toca o que
+//!   está salvo.
+//!
+//! Aqui mora também a parte pura que não depende de janela: a lista fechada de
+//! teclas, a validação dos passos e qual gravação vale para cada conta.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+pub const RECORDINGS_FILE_NAME: &str = "RAMRecordings.json";
+const MAX_RECORDINGS_FILE_BYTES: u64 = 4 * 1024 * 1024;
+const RECORDINGS_FILE_VERSION: u32 = 2;
+pub const MAX_RECORDINGS: usize = 100;
+pub const MAX_RECORDING_STEPS: usize = 500;
+pub const MAX_RECORDING_NAME_CHARS: usize = 60;
+/// Uma espera sozinha: até 10 minutos.
+pub const MAX_WAIT_MS: u64 = 600_000;
+/// Toque de tecla: o mesmo piso do Modo AFK é 40 ms; abaixo de 10 ms alguns
+/// jogos não registram a tecla.
+pub const MIN_HOLD_MS: u64 = 10;
+pub const MAX_HOLD_MS: u64 = 10_000;
+pub const DEFAULT_HOLD_MS: u64 = 40;
+/// A gravação inteira, estimada: até 10 minutos. O foco fica fora da janela do
+/// usuário enquanto ela toca, e uma gravação sem fim prenderia o PC.
+pub const MAX_RECORDING_TOTAL_MS: u64 = 600_000;
+/// Quanto um clique custa na estimativa (a receita do clique do Modo AFK leva
+/// ~0,55 s sem o clique de foco e ~0,8 s com ele).
+pub const CLICK_ESTIMATE_MS: u64 = 800;
+
+/// Lista **fechada** de teclas que uma gravação pode tocar: `(nome, virtual key,
+/// tecla estendida)`. Começa com as 14 do Modo AFK, na mesma ordem, e acrescenta
+/// com cuidado o que um percurso no jogo pede — Shift, setas, as outras letras e
+/// os outros números.
+///
+/// Ficam fora, de propósito, as mesmas do Modo AFK e pelo mesmo motivo: Enter (abre
+/// o chat), Tab, Escape (menu do Roblox; Esc + L sai do jogo, Esc + R reseta o
+/// personagem), F-keys (F4 com Alt fecha o cliente, F9 abre o console), Alt,
+/// Ctrl, Windows, Backspace/Delete, `/` (chat) e `` ` ``.
+pub const RECORDING_KEYS: &[(&str, u16, bool)] = &[
+    ("Space", 0x20, false),
+    ("W", 0x57, false),
+    ("A", 0x41, false),
+    ("S", 0x53, false),
+    ("D", 0x44, false),
+    ("E", 0x45, false),
+    ("F", 0x46, false),
+    ("R", 0x52, false),
+    ("Q", 0x51, false),
+    ("1", 0x31, false),
+    ("2", 0x32, false),
+    ("3", 0x33, false),
+    ("4", 0x34, false),
+    ("5", 0x35, false),
+    // Shift esquerdo: correr ou o shift lock, conforme o jogo.
+    ("Shift", 0xA0, false),
+    // Setas: teclas estendidas (o scan code sozinho seria o do teclado numérico).
+    ("Up", 0x26, true),
+    ("Down", 0x28, true),
+    ("Left", 0x25, true),
+    ("Right", 0x27, true),
+    ("B", 0x42, false),
+    ("C", 0x43, false),
+    ("G", 0x47, false),
+    ("H", 0x48, false),
+    ("I", 0x49, false),
+    ("J", 0x4A, false),
+    ("K", 0x4B, false),
+    ("L", 0x4C, false),
+    ("M", 0x4D, false),
+    ("N", 0x4E, false),
+    ("O", 0x4F, false),
+    ("P", 0x50, false),
+    ("T", 0x54, false),
+    ("U", 0x55, false),
+    ("V", 0x56, false),
+    ("X", 0x58, false),
+    ("Y", 0x59, false),
+    ("Z", 0x5A, false),
+    ("6", 0x36, false),
+    ("7", 0x37, false),
+    ("8", 0x38, false),
+    ("9", 0x39, false),
+    ("0", 0x30, false),
+];
+
+/// Os nomes da lista, na ordem em que a tela os oferece.
+pub fn recording_key_names() -> Vec<String> {
+    RECORDING_KEYS.iter().map(|(name, _, _)| (*name).to_string()).collect()
+}
+
+/// `(virtual key, estendida)` de uma tecla da lista, ou `None` para qualquer outro
+/// nome — é este `None` que impede tecla de fora de chegar ao envio.
+pub fn recording_key(name: &str) -> Option<(u16, bool)> {
+    RECORDING_KEYS
+        .iter()
+        .find(|(key, _, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, vk, extended)| (*vk, *extended))
+}
+
+/// O nome canônico (a grafia da lista) de uma tecla.
+fn canonical_key_name(name: &str) -> Option<&'static str> {
+    RECORDING_KEYS
+        .iter()
+        .find(|(key, _, _)| key.eq_ignore_ascii_case(name))
+        .map(|(key, _, _)| *key)
+}
+
+fn default_hold_ms() -> u64 {
+    DEFAULT_HOLD_MS
+}
+
+/// Um passo da gravação. O JSON usa `type` para dizer qual é:
+///
+/// - `key` — toca a tecla e a segura `holdMs` (toque ou segurar);
+/// - `keyDown` / `keyUp` — aperta / solta, para combinar teclas (segurar W
+///   enquanto pula). Tecla que ficar apertada no fim é solta pelo app;
+/// - `click` — clique esquerdo no ponto `xPct` × `yPct` (0–100) da área interna
+///   da janela, o mesmo ponto relativo do Modo AFK;
+/// - `wait` — espera `ms` milissegundos.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum RecordingStep {
+    #[serde(rename_all = "camelCase")]
+    Key {
+        key: String,
+        #[serde(default = "default_hold_ms")]
+        hold_ms: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    KeyDown { key: String },
+    #[serde(rename_all = "camelCase")]
+    KeyUp { key: String },
+    #[serde(rename_all = "camelCase")]
+    Click { x_pct: f64, y_pct: f64 },
+    #[serde(rename_all = "camelCase")]
+    Wait { ms: u64 },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Recording {
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub steps: Vec<RecordingStep>,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    /// Proporção (largura ÷ altura) da área interna da janela em que a
+    /// gravação foi feita — vem da importação do TinyTask. Os cliques são
+    /// porcentagens da janela, então tocar numa janela de outro formato
+    /// desloca o ponto: a tela avisa quando a da conta difere mais de 5%.
+    /// Ausente em gravação escrita à mão (campo novo com padrão seguro, sem
+    /// subir a versão do arquivo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_aspect: Option<f64>,
+}
+
+/// Proporção aceita: de uma janela 5x mais alta que larga até 5x mais larga.
+pub const MIN_SOURCE_ASPECT: f64 = 0.2;
+pub const MAX_SOURCE_ASPECT: f64 = 5.0;
+
+/// Arquivo sem `version` é da primeira versão (a de antes das duas vagas).
+fn legacy_file_version() -> u32 {
+    1
+}
+
+/// As duas **vagas** de gravação (pedido do dono, 11/10/2026): a que toca
+/// depois da reconexão automática (posicionar o personagem) e a que o Modo AFK
+/// repete (uma ação em outro lugar). Cada vaga tem a gravação global e as
+/// escolhas por conta, independentes da outra vaga.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordingSlot {
+    /// "After auto-reconnect" — `Recordings.AfterReconnect`.
+    AfterReconnect,
+    /// "On anti-AFK" — o Modo AFK no modo `recording`.
+    AntiAfk,
+}
+
+impl RecordingSlot {
+    pub const ALL: [RecordingSlot; 2] = [RecordingSlot::AfterReconnect, RecordingSlot::AntiAfk];
+}
+
+/// Quem toca o quê numa vaga.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlotChoices {
+    /// A gravação global, que toda conta herda (`None` = nenhuma).
+    #[serde(default)]
+    pub default_id: Option<String>,
+    /// A escolha da conta, que vence a global: `Some(id)` = a própria,
+    /// `None` (`null` no JSON) = **nenhuma** para esta conta. Conta fora do
+    /// mapa herda a global.
+    #[serde(default)]
+    pub accounts: HashMap<i64, Option<String>>,
+}
+
+/// O que a conta escolheu numa vaga.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum AccountRecordingChoice {
+    /// Herda a global (tira a escolha da conta).
+    Inherit,
+    /// Nenhuma gravação nesta vaga, mesmo com uma global.
+    None,
+    /// A gravação própria da conta.
+    Recording { id: String },
+}
+
+/// O arquivo inteiro: a biblioteca e qual gravação vale para quem, por vaga.
+///
+/// **Versão 2** (11/10/2026): as escolhas viraram duas vagas. A versão 1 tinha
+/// uma escolha só (`defaultId` e `accountIds` no topo), usada pelos dois
+/// gatilhos; ela é lida e migrada para as **duas** vagas
+/// (`migrate_recordings_file`), então nada muda para quem já usava.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingsFile {
+    #[serde(default = "legacy_file_version")]
+    pub version: u32,
+    #[serde(default)]
+    pub recordings: Vec<Recording>,
+    /// Depois da reconexão automática.
+    #[serde(default)]
+    pub after_reconnect: SlotChoices,
+    /// No Modo AFK (anti-AFK).
+    #[serde(default)]
+    pub anti_afk: SlotChoices,
+    /// Versão 1: a gravação de todas as contas. Só lida, para a migração.
+    #[serde(default, rename = "defaultId", skip_serializing)]
+    pub(crate) legacy_default_id: Option<String>,
+    /// Versão 1: a gravação própria de cada conta. Só lida, para a migração.
+    #[serde(default, rename = "accountIds", skip_serializing)]
+    pub(crate) legacy_account_ids: HashMap<i64, String>,
+}
+
+impl Default for RecordingsFile {
+    fn default() -> Self {
+        Self {
+            version: RECORDINGS_FILE_VERSION,
+            recordings: Vec::new(),
+            after_reconnect: SlotChoices::default(),
+            anti_afk: SlotChoices::default(),
+            legacy_default_id: None,
+            legacy_account_ids: HashMap::new(),
+        }
+    }
+}
+
+impl RecordingsFile {
+    pub fn slot(&self, slot: RecordingSlot) -> &SlotChoices {
+        match slot {
+            RecordingSlot::AfterReconnect => &self.after_reconnect,
+            RecordingSlot::AntiAfk => &self.anti_afk,
+        }
+    }
+
+    pub fn slot_mut(&mut self, slot: RecordingSlot) -> &mut SlotChoices {
+        match slot {
+            RecordingSlot::AfterReconnect => &mut self.after_reconnect,
+            RecordingSlot::AntiAfk => &mut self.anti_afk,
+        }
+    }
+}
+
+/// Leva um arquivo lido do disco para a versão atual. Versão 1 (ou sem
+/// `version`): a escolha única vira a das **duas** vagas — a global e a própria
+/// de cada conta —, então quem já usava continua tocando a mesma gravação nos
+/// dois gatilhos. Arquivo já na versão 2 fica como está (campos antigos que
+/// sobrarem nele são ignorados).
+pub fn migrate_recordings_file(mut file: RecordingsFile) -> RecordingsFile {
+    if file.version < 2 {
+        let choices = SlotChoices {
+            default_id: file.legacy_default_id.take(),
+            accounts: std::mem::take(&mut file.legacy_account_ids)
+                .into_iter()
+                .map(|(user_id, id)| (user_id, Some(id)))
+                .collect(),
+        };
+        file.after_reconnect = choices.clone();
+        file.anti_afk = choices;
+    }
+    file.legacy_default_id = None;
+    file.legacy_account_ids.clear();
+    file.version = RECORDINGS_FILE_VERSION;
+    file
+}
+
+fn clamp_percent(value: f64) -> f64 {
+    if value.is_finite() {
+        value.clamp(0.0, 100.0)
+    } else {
+        50.0
+    }
+}
+
+/// Duração estimada da gravação tocando (esperas + teclas seguradas + cliques).
+pub fn recording_duration_ms(steps: &[RecordingStep]) -> u64 {
+    steps.iter().fold(0u64, |total, step| {
+        total.saturating_add(match step {
+            RecordingStep::Key { hold_ms, .. } => *hold_ms,
+            RecordingStep::Wait { ms } => *ms,
+            RecordingStep::Click { .. } => CLICK_ESTIMATE_MS,
+            RecordingStep::KeyDown { .. } | RecordingStep::KeyUp { .. } => 0,
+        })
+    })
+}
+
+/// Confere e normaliza um passo: tecla da lista (na grafia dela), tempos e
+/// porcentagens dentro dos limites.
+pub fn normalize_step(step: RecordingStep) -> Result<RecordingStep, String> {
+    let key_of = |key: &str| {
+        canonical_key_name(key)
+            .map(str::to_string)
+            .ok_or_else(|| format!("Key not allowed in a recording: {key}"))
+    };
+    Ok(match step {
+        RecordingStep::Key { key, hold_ms } => RecordingStep::Key {
+            key: key_of(&key)?,
+            hold_ms: hold_ms.clamp(MIN_HOLD_MS, MAX_HOLD_MS),
+        },
+        RecordingStep::KeyDown { key } => RecordingStep::KeyDown { key: key_of(&key)? },
+        RecordingStep::KeyUp { key } => RecordingStep::KeyUp { key: key_of(&key)? },
+        RecordingStep::Click { x_pct, y_pct } => RecordingStep::Click {
+            x_pct: clamp_percent(x_pct),
+            y_pct: clamp_percent(y_pct),
+        },
+        RecordingStep::Wait { ms } => RecordingStep::Wait {
+            ms: ms.min(MAX_WAIT_MS),
+        },
+    })
+}
+
+/// Confere e normaliza uma gravação antes de gravar. Devolve a frase (em
+/// inglês; a tela valida antes com as frases dela) do primeiro problema.
+pub fn normalize_recording(mut recording: Recording) -> Result<Recording, String> {
+    let name = recording.name.trim().to_string();
+    if name.is_empty() {
+        return Err("Give the recording a name.".into());
+    }
+    if name.chars().count() > MAX_RECORDING_NAME_CHARS {
+        return Err(format!(
+            "The name is too long (max {MAX_RECORDING_NAME_CHARS} characters)."
+        ));
+    }
+    recording.name = name;
+    if recording.steps.len() > MAX_RECORDING_STEPS {
+        return Err(format!("A recording holds up to {MAX_RECORDING_STEPS} steps."));
+    }
+    recording.steps = recording
+        .steps
+        .into_iter()
+        .map(normalize_step)
+        .collect::<Result<Vec<_>, _>>()?;
+    if recording_duration_ms(&recording.steps) > MAX_RECORDING_TOTAL_MS {
+        return Err("A recording can take up to 10 minutes.".into());
+    }
+    // Proporção fora do que uma janela tem (arquivo editado à mão): some, em
+    // vez de recusar a gravação inteira.
+    recording.source_aspect = recording
+        .source_aspect
+        .filter(|a| a.is_finite() && (MIN_SOURCE_ASPECT..=MAX_SOURCE_ASPECT).contains(a));
+    Ok(recording)
+}
+
+/// A gravação que vale para a conta numa vaga: a escolha da conta vence — a
+/// própria (se ainda existe) ou **nenhuma**, quando ela escolheu "None" —;
+/// sem escolha, a global da vaga. Escolha que aponta para gravação apagada
+/// (arquivo editado à mão) cai na global.
+pub fn recording_for_account(file: &RecordingsFile, slot: RecordingSlot, user_id: i64) -> Option<&Recording> {
+    let find = |id: &str| file.recordings.iter().find(|r| r.id == id);
+    let choices = file.slot(slot);
+    let global = || choices.default_id.as_deref().and_then(find);
+    match choices.accounts.get(&user_id) {
+        Some(None) => None,
+        Some(Some(id)) => find(id).or_else(global),
+        None => global(),
+    }
+}
+
+// ── o store ────────────────────────────────────────────────────────────────
+
+pub struct RecordingStore {
+    file_path: PathBuf,
+    lock: Mutex<()>,
+}
+
+fn sibling(file: &Path, suffix: &str) -> PathBuf {
+    let mut name = file.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+fn new_id(file: &RecordingsFile, now_ms: i64) -> String {
+    let mut n = 0u32;
+    let mut id = format!("rec-{now_ms}");
+    while file.recordings.iter().any(|r| r.id == id) {
+        n += 1;
+        id = format!("rec-{now_ms}-{n}");
+    }
+    id
+}
+
+impl RecordingStore {
+    pub fn new(file_path: PathBuf) -> Self {
+        Self {
+            file_path,
+            lock: Mutex::new(()),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn backup_file_path(&self) -> PathBuf {
+        sibling(&self.file_path, ".bak")
+    }
+
+    /// Arquivo ausente ou vazio = sem gravações. Ilegível = `Err` (nunca "lista
+    /// vazia", senão a próxima gravação apagaria o que ele tem).
+    fn read_from_disk(&self) -> Result<Option<RecordingsFile>, String> {
+        let metadata = match fs::metadata(&self.file_path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(format!("Failed to read the recordings file: {e}")),
+        };
+        if metadata.len() > MAX_RECORDINGS_FILE_BYTES {
+            return Err(format!(
+                "The recordings file is too large (max {MAX_RECORDINGS_FILE_BYTES} bytes)"
+            ));
+        }
+        let data = fs::read(&self.file_path)
+            .map_err(|e| format!("Failed to read the recordings file: {e}"))?;
+        if data.iter().all(|b| b.is_ascii_whitespace()) {
+            return Ok(None);
+        }
+        // Arquivo de versão antiga (inclusive um backup restaurado) é migrado
+        // aqui, na leitura; o disco só muda na próxima gravação, que deixa o
+        // original no `.bak`.
+        serde_json::from_slice::<RecordingsFile>(&data)
+            .map(|file| Some(migrate_recordings_file(file)))
+            .map_err(|e| format!("Failed to parse the recordings file: {e}"))
+    }
+
+    /// A biblioteca e as escolhas, como estão no disco.
+    pub fn load(&self) -> Result<RecordingsFile, String> {
+        let _guard = self.lock.lock().map_err(|e| e.to_string())?;
+        Ok(self.read_from_disk()?.unwrap_or_default())
+    }
+
+    fn write(&self, file: &RecordingsFile, existed: bool) -> Result<(), String> {
+        let bytes = serde_json::to_vec_pretty(file)
+            .map_err(|e| format!("Failed to serialize the recordings: {e}"))?;
+        if let Some(parent) = self.file_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create the data folder: {e}"))?;
+        }
+        if existed {
+            fs::copy(&self.file_path, sibling(&self.file_path, ".bak")).map_err(|e| {
+                format!("Failed to keep the previous recordings ({e}); nothing was saved.")
+            })?;
+        }
+        let tmp = sibling(&self.file_path, ".tmp");
+        match crate::data::versions::write_all_synced(&tmp, &bytes) {
+            Ok(true) => {}
+            Ok(false) => eprintln!("Warning: recordings written but fsync could not be confirmed"),
+            Err(e) => {
+                let _ = fs::remove_file(&tmp);
+                return Err(format!("Failed to write the recordings file: {e}"));
+            }
+        }
+        crate::data::versions::atomic_replace(&tmp, &self.file_path).map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("Failed to write the recordings file: {e}")
+        })
+    }
+
+    /// Lê, deixa `change` mexer e grava — tudo sob o mesmo lock. Arquivo
+    /// ilegível nunca é sobrescrito.
+    fn modify<R>(
+        &self,
+        change: impl FnOnce(&mut RecordingsFile) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let _guard = self.lock.lock().map_err(|e| e.to_string())?;
+        let current = self.read_from_disk().map_err(|e| {
+            format!("{e}; refusing to overwrite it. Fix or restore {RECORDINGS_FILE_NAME} and restart.")
+        })?;
+        let existed = current.is_some();
+        let mut file = current.unwrap_or_default();
+        let out = change(&mut file)?;
+        file.version = RECORDINGS_FILE_VERSION;
+        self.write(&file, existed)?;
+        Ok(out)
+    }
+
+    /// Cria (id vazio ou desconhecido) ou substitui a gravação com o mesmo id.
+    pub fn upsert(&self, recording: Recording, now_ms: i64) -> Result<Recording, String> {
+        let mut recording = normalize_recording(recording)?;
+        self.modify(|file| {
+            match file
+                .recordings
+                .iter_mut()
+                .find(|r| !recording.id.is_empty() && r.id == recording.id)
+            {
+                Some(slot) => {
+                    recording.created_at = slot.created_at;
+                    recording.updated_at = now_ms;
+                    *slot = recording.clone();
+                }
+                None => {
+                    if file.recordings.len() >= MAX_RECORDINGS {
+                        return Err(format!("You can keep up to {MAX_RECORDINGS} recordings."));
+                    }
+                    recording.id = new_id(file, now_ms);
+                    recording.created_at = now_ms;
+                    recording.updated_at = now_ms;
+                    file.recordings.push(recording.clone());
+                }
+            }
+            Ok(recording)
+        })
+    }
+
+    /// Cópia com outro nome (a tela manda o nome, já traduzido).
+    pub fn duplicate(&self, id: &str, name: &str, now_ms: i64) -> Result<Recording, String> {
+        let source = self
+            .load()?
+            .recordings
+            .into_iter()
+            .find(|r| r.id == id)
+            .ok_or("That recording no longer exists.")?;
+        let name: String = name.trim().chars().take(MAX_RECORDING_NAME_CHARS).collect();
+        self.upsert(
+            Recording {
+                id: String::new(),
+                name,
+                steps: source.steps,
+                created_at: 0,
+                updated_at: 0,
+                source_aspect: source.source_aspect,
+            },
+            now_ms,
+        )
+    }
+
+    /// Apaga pelo id e tira a gravação de quem a usava (a de todas e as das
+    /// contas). `Ok(false)` se não existia.
+    pub fn delete(&self, id: &str) -> Result<bool, String> {
+        let _guard = self.lock.lock().map_err(|e| e.to_string())?;
+        let Some(mut file) = self.read_from_disk()? else {
+            return Ok(false);
+        };
+        let before = file.recordings.len();
+        file.recordings.retain(|r| r.id != id);
+        if file.recordings.len() == before {
+            return Ok(false);
+        }
+        // Nas duas vagas: a global some e a conta que a tinha como própria
+        // volta a herdar a global ("None" escolhido fica).
+        for slot in RecordingSlot::ALL {
+            let choices = file.slot_mut(slot);
+            if choices.default_id.as_deref() == Some(id) {
+                choices.default_id = None;
+            }
+            choices.accounts.retain(|_, rec| rec.as_deref() != Some(id));
+        }
+        file.version = RECORDINGS_FILE_VERSION;
+        self.write(&file, true)?;
+        Ok(true)
+    }
+
+    /// A gravação global de uma vaga (`None` tira).
+    pub fn set_default(&self, slot: RecordingSlot, id: Option<String>) -> Result<(), String> {
+        self.modify(|file| {
+            if let Some(id) = &id {
+                if !file.recordings.iter().any(|r| &r.id == id) {
+                    return Err("That recording no longer exists.".into());
+                }
+            }
+            file.slot_mut(slot).default_id = id;
+            Ok(())
+        })
+    }
+
+    /// A escolha de uma conta numa vaga: herdar a global, nenhuma ou a própria.
+    pub fn set_for_account(
+        &self,
+        slot: RecordingSlot,
+        user_id: i64,
+        choice: AccountRecordingChoice,
+    ) -> Result<(), String> {
+        self.modify(|file| {
+            let exists = |id: &str| file.recordings.iter().any(|r| r.id == id);
+            let next = match choice {
+                AccountRecordingChoice::Inherit => {
+                    file.slot_mut(slot).accounts.remove(&user_id);
+                    return Ok(());
+                }
+                AccountRecordingChoice::None => None,
+                AccountRecordingChoice::Recording { id } => {
+                    if !exists(&id) {
+                        return Err("That recording no longer exists.".into());
+                    }
+                    Some(id)
+                }
+            };
+            file.slot_mut(slot).accounts.insert(user_id, next);
+            Ok(())
+        })
+    }
+}
+
+#[cfg(test)]
+mod recordings_store_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    struct TempDir(PathBuf);
+    impl TempDir {
+        fn new() -> Self {
+            let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "ram-recordings-{}-{nanos}-{n}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+        fn file(&self) -> PathBuf {
+            self.0.join(RECORDINGS_FILE_NAME)
+        }
+    }
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn recording(name: &str) -> Recording {
+        Recording {
+            name: name.into(),
+            steps: vec![
+                RecordingStep::Key {
+                    key: "w".into(),
+                    hold_ms: 500,
+                },
+                RecordingStep::Wait { ms: 250 },
+                RecordingStep::Click {
+                    x_pct: 37.5,
+                    y_pct: 62.5,
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_new_recording_gets_an_id_and_round_trips_in_camel_case() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        assert!(store.load().unwrap().recordings.is_empty(), "sem arquivo = sem gravações");
+
+        let saved = store.upsert(recording("Farm"), 1_000).unwrap();
+        assert_eq!(saved.id, "rec-1000");
+        assert_eq!(saved.created_at, 1_000);
+        // A tecla volta na grafia da lista.
+        assert_eq!(
+            saved.steps[0],
+            RecordingStep::Key {
+                key: "W".into(),
+                hold_ms: 500
+            }
+        );
+        assert_eq!(store.load().unwrap().recordings, vec![saved.clone()]);
+
+        let raw: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.file()).unwrap()).unwrap();
+        assert_eq!(raw["version"], 2);
+        let steps = &raw["recordings"][0]["steps"];
+        assert_eq!(steps[0]["type"], "key");
+        assert_eq!(steps[0]["holdMs"], 500);
+        assert_eq!(steps[1]["type"], "wait");
+        assert_eq!(steps[2]["type"], "click");
+        assert_eq!(steps[2]["xPct"], 37.5);
+        assert!(raw["recordings"][0].get("createdAt").is_some());
+    }
+
+    #[test]
+    fn the_step_types_parse_from_the_documented_json() {
+        let json = r#"{"version":1,"recordings":[{"id":"a","name":"A","steps":[
+            {"type":"key","key":"Space"},
+            {"type":"keyDown","key":"W"},
+            {"type":"wait","ms":800},
+            {"type":"keyUp","key":"W"},
+            {"type":"click","xPct":10,"yPct":90}
+        ]}],"antiAfk":{"defaultId":"a","accounts":{"42":"a","43":null}}}"#;
+        let file: RecordingsFile = serde_json::from_str(json).unwrap();
+        let steps = &file.recordings[0].steps;
+        assert_eq!(
+            steps[0],
+            RecordingStep::Key {
+                key: "Space".into(),
+                hold_ms: DEFAULT_HOLD_MS
+            },
+            "sem holdMs, o toque padrão"
+        );
+        assert_eq!(steps[1], RecordingStep::KeyDown { key: "W".into() });
+        assert_eq!(steps[2], RecordingStep::Wait { ms: 800 });
+        assert_eq!(steps[3], RecordingStep::KeyUp { key: "W".into() });
+        assert_eq!(file.anti_afk.accounts.get(&42), Some(&Some("a".to_string())));
+        assert_eq!(file.anti_afk.accounts.get(&43), Some(&None), "null = nenhuma para a conta");
+    }
+
+    #[test]
+    fn saving_with_an_existing_id_replaces_in_place_and_keeps_the_creation_time() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let first = store.upsert(recording("Farm"), 1_000).unwrap();
+        let mut renamed = first.clone();
+        renamed.name = "Night farm".into();
+        let saved = store.upsert(renamed, 9_999).unwrap();
+        assert_eq!(saved.id, first.id);
+        assert_eq!(saved.created_at, 1_000);
+        assert_eq!(saved.updated_at, 9_999);
+        let all = store.load().unwrap().recordings;
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].name, "Night farm");
+    }
+
+    #[test]
+    fn duplicate_copies_the_steps_under_a_new_id_and_name() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let first = store.upsert(recording("Farm"), 5).unwrap();
+        let copy = store.duplicate(&first.id, "Farm (copy)", 5).unwrap();
+        assert_ne!(copy.id, first.id);
+        assert_eq!(copy.name, "Farm (copy)");
+        assert_eq!(copy.steps, first.steps);
+        assert_eq!(store.load().unwrap().recordings.len(), 2);
+        assert!(store.duplicate("nope", "X", 6).is_err());
+    }
+
+    /// A proporção da janela de origem (importação do TinyTask) é guardada,
+    /// passa para a cópia e não aparece no JSON de gravação escrita à mão.
+    #[test]
+    fn the_source_window_aspect_is_kept_copied_and_optional() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let plain = store.upsert(recording("Hand made"), 1).unwrap();
+        assert_eq!(plain.source_aspect, None);
+        let mut imported = recording("Imported");
+        imported.source_aspect = Some(1.7778);
+        let saved = store.upsert(imported, 2).unwrap();
+        assert_eq!(saved.source_aspect, Some(1.7778));
+        let copy = store.duplicate(&saved.id, "Imported (copy)", 3).unwrap();
+        assert_eq!(copy.source_aspect, Some(1.7778));
+
+        let raw: serde_json::Value = serde_json::from_slice(&fs::read(dir.file()).unwrap()).unwrap();
+        assert!(raw["recordings"][0].get("sourceAspect").is_none());
+        assert_eq!(raw["recordings"][1]["sourceAspect"], 1.7778);
+    }
+
+    #[test]
+    fn an_impossible_source_aspect_is_dropped_not_refused() {
+        for bad in [0.0, -1.0, 50.0, f64::NAN, f64::INFINITY] {
+            let mut r = recording("A");
+            r.source_aspect = Some(bad);
+            assert_eq!(normalize_recording(r).unwrap().source_aspect, None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn deleting_a_recording_clears_whoever_used_it() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let a = store.upsert(recording("A"), 1).unwrap();
+        let b = store.upsert(recording("B"), 2).unwrap();
+        let own = |id: &str| AccountRecordingChoice::Recording { id: id.to_string() };
+        for slot in RecordingSlot::ALL {
+            store.set_default(slot, Some(a.id.clone())).unwrap();
+            store.set_for_account(slot, 11, own(&a.id)).unwrap();
+            store.set_for_account(slot, 22, own(&b.id)).unwrap();
+            store.set_for_account(slot, 33, AccountRecordingChoice::None).unwrap();
+        }
+
+        assert!(store.delete(&a.id).unwrap());
+        let file = store.load().unwrap();
+        for slot in RecordingSlot::ALL {
+            let choices = file.slot(slot);
+            assert_eq!(choices.default_id, None, "{slot:?}");
+            assert_eq!(choices.accounts.get(&11), None, "{slot:?}: volta a herdar");
+            assert_eq!(choices.accounts.get(&22), Some(&Some(b.id.clone())), "{slot:?}");
+            assert_eq!(choices.accounts.get(&33), Some(&None), "{slot:?}: o None escolhido fica");
+        }
+        assert!(!store.delete(&a.id).unwrap(), "apagar de novo não acha nada");
+    }
+
+    #[test]
+    fn assigning_a_recording_that_does_not_exist_is_refused() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let ghost = AccountRecordingChoice::Recording { id: "ghost".into() };
+        for slot in RecordingSlot::ALL {
+            assert!(store.set_default(slot, Some("ghost".into())).is_err());
+            assert!(store.set_for_account(slot, 1, ghost.clone()).is_err());
+            store.set_for_account(slot, 1, AccountRecordingChoice::Inherit).unwrap();
+            store.set_for_account(slot, 1, AccountRecordingChoice::None).unwrap();
+        }
+    }
+
+    #[test]
+    fn every_write_keeps_the_previous_file_in_a_bak() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        store.upsert(recording("A"), 1).unwrap();
+        assert!(!store.backup_file_path().exists());
+        let before = fs::read(dir.file()).unwrap();
+        store.upsert(recording("B"), 2).unwrap();
+        assert_eq!(fs::read(store.backup_file_path()).unwrap(), before);
+        assert!(
+            !sibling(&dir.file(), ".tmp").exists(),
+            "o temporário da troca atômica não fica para trás"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_file_is_never_overwritten() {
+        let dir = TempDir::new();
+        fs::write(dir.file(), b"{ broken").unwrap();
+        let store = RecordingStore::new(dir.file());
+        assert!(store.load().is_err());
+        let err = store.upsert(recording("A"), 1).unwrap_err();
+        assert!(err.contains("refusing to overwrite"), "{err}");
+        assert!(store.set_default(RecordingSlot::AntiAfk, None).is_err());
+        assert_eq!(fs::read(dir.file()).unwrap(), b"{ broken");
+    }
+
+    #[test]
+    fn the_store_reads_the_disk_every_time_so_a_restored_file_counts_at_once() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        store.upsert(recording("Old"), 1).unwrap();
+        let restored = RecordingsFile {
+            recordings: vec![Recording {
+                id: "rec-9".into(),
+                name: "Restored".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        fs::write(dir.file(), serde_json::to_vec(&restored).unwrap()).unwrap();
+        assert_eq!(store.load().unwrap().recordings[0].name, "Restored");
+    }
+
+    #[test]
+    fn the_library_has_a_ceiling() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let file = RecordingsFile {
+            recordings: (0..MAX_RECORDINGS)
+                .map(|n| Recording {
+                    id: format!("r{n}"),
+                    name: format!("R{n}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        fs::write(dir.file(), serde_json::to_vec(&file).unwrap()).unwrap();
+        assert!(store.upsert(recording("One more"), 1).is_err());
+    }
+
+    /// O arquivo da versão 1, como o app gravava até 11/10/2026: uma escolha só,
+    /// usada pelos dois gatilhos.
+    const V1_FILE: &str = r#"{
+      "version": 1,
+      "recordings": [
+        { "id": "walk", "name": "Walk to the spot", "steps": [{ "type": "key", "key": "W" }] },
+        { "id": "jump", "name": "Jump", "steps": [{ "type": "key", "key": "Space" }] }
+      ],
+      "defaultId": "walk",
+      "accountIds": { "11": "jump", "22": "walk" }
+    }"#;
+
+    /// Migração (pedido do dono: nada muda para quem já usava): a global antiga
+    /// vira a global das **duas** vagas, e a própria de cada conta vira a
+    /// própria nas duas.
+    #[test]
+    fn a_version_1_file_becomes_the_same_choice_in_both_slots() {
+        let dir = TempDir::new();
+        fs::write(dir.file(), V1_FILE).unwrap();
+        let store = RecordingStore::new(dir.file());
+        let file = store.load().unwrap();
+        assert_eq!(file.version, 2);
+        for slot in RecordingSlot::ALL {
+            let choices = file.slot(slot);
+            assert_eq!(choices.default_id.as_deref(), Some("walk"), "{slot:?}");
+            assert_eq!(choices.accounts.get(&11), Some(&Some("jump".to_string())), "{slot:?}");
+            assert_eq!(choices.accounts.get(&22), Some(&Some("walk".to_string())), "{slot:?}");
+            assert_eq!(choices.accounts.len(), 2, "{slot:?}");
+            // E cada conta toca o mesmo que antes, nos dois gatilhos.
+            assert_eq!(recording_for_account(&file, slot, 11).map(|r| r.id.as_str()), Some("jump"));
+            assert_eq!(recording_for_account(&file, slot, 33).map(|r| r.id.as_str()), Some("walk"));
+        }
+    }
+
+    /// Ler não muda o disco; a primeira gravação escreve a versão 2 (sem os
+    /// campos antigos) e deixa o arquivo da versão 1 inteiro no `.bak`.
+    #[test]
+    fn the_first_write_after_the_migration_keeps_the_version_1_file_in_the_bak() {
+        let dir = TempDir::new();
+        fs::write(dir.file(), V1_FILE).unwrap();
+        let store = RecordingStore::new(dir.file());
+        store.load().unwrap();
+        assert_eq!(fs::read_to_string(dir.file()).unwrap(), V1_FILE, "ler não regrava");
+
+        store
+            .set_for_account(RecordingSlot::AntiAfk, 22, AccountRecordingChoice::None)
+            .unwrap();
+        assert_eq!(fs::read_to_string(store.backup_file_path()).unwrap(), V1_FILE);
+        let raw: serde_json::Value = serde_json::from_slice(&fs::read(dir.file()).unwrap()).unwrap();
+        assert_eq!(raw["version"], 2);
+        assert!(raw.get("defaultId").is_none() && raw.get("accountIds").is_none());
+        assert_eq!(raw["afterReconnect"]["defaultId"], "walk");
+        assert_eq!(raw["afterReconnect"]["accounts"]["22"], "walk");
+        assert_eq!(raw["antiAfk"]["accounts"]["22"], serde_json::Value::Null);
+        // E o arquivo novo, lido de volta, continua igual (não migra de novo).
+        let file = store.load().unwrap();
+        assert_eq!(file.after_reconnect.accounts.get(&22), Some(&Some("walk".to_string())));
+        assert_eq!(file.anti_afk.accounts.get(&22), Some(&None));
+    }
+
+    /// Arquivo sem `version` (escrito à mão, ou de antes do campo) com as
+    /// escolhas antigas também é migrado; um backup da versão 1 restaurado em
+    /// cima vale na hora, migrado.
+    #[test]
+    fn a_file_without_version_or_a_restored_version_1_backup_is_migrated() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        fs::write(
+            dir.file(),
+            r#"{"recordings":[{"id":"a","name":"A"}],"defaultId":"a","accountIds":{"5":"a"}}"#,
+        )
+        .unwrap();
+        let file = store.load().unwrap();
+        assert_eq!(file.anti_afk.default_id.as_deref(), Some("a"));
+        assert_eq!(file.after_reconnect.accounts.get(&5), Some(&Some("a".to_string())));
+
+        // Um arquivo da versão 2 com sobras dos campos antigos não migra de novo.
+        fs::write(
+            dir.file(),
+            r#"{"version":2,"recordings":[{"id":"a","name":"A"}],"defaultId":"a","antiAfk":{"defaultId":null}}"#,
+        )
+        .unwrap();
+        let file = store.load().unwrap();
+        assert_eq!(file.anti_afk.default_id, None);
+        assert_eq!(file.after_reconnect.default_id, None);
+
+        fs::write(dir.file(), V1_FILE).unwrap();
+        assert_eq!(store.load().unwrap().after_reconnect.default_id.as_deref(), Some("walk"));
+    }
+
+    /// As duas vagas são independentes: mudar uma não mexe na outra.
+    #[test]
+    fn the_two_slots_are_set_independently() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let walk = store.upsert(recording("Walk"), 1).unwrap();
+        let farm = store.upsert(recording("Farm"), 2).unwrap();
+        store.set_default(RecordingSlot::AfterReconnect, Some(walk.id.clone())).unwrap();
+        store.set_default(RecordingSlot::AntiAfk, Some(farm.id.clone())).unwrap();
+        store
+            .set_for_account(
+                RecordingSlot::AntiAfk,
+                11,
+                AccountRecordingChoice::Recording { id: walk.id.clone() },
+            )
+            .unwrap();
+        store
+            .set_for_account(RecordingSlot::AfterReconnect, 22, AccountRecordingChoice::None)
+            .unwrap();
+        let file = store.load().unwrap();
+        let id_of = |slot, uid| recording_for_account(&file, slot, uid).map(|r| r.id.clone());
+        assert_eq!(id_of(RecordingSlot::AfterReconnect, 11), Some(walk.id.clone()));
+        assert_eq!(id_of(RecordingSlot::AntiAfk, 11), Some(walk.id.clone()));
+        assert_eq!(id_of(RecordingSlot::AfterReconnect, 22), None, "None escolhido vence a global");
+        assert_eq!(id_of(RecordingSlot::AntiAfk, 22), Some(farm.id.clone()));
+        assert_eq!(id_of(RecordingSlot::AntiAfk, 33), Some(farm.id.clone()));
+
+        // "Use global" tira só a escolha daquela vaga.
+        store
+            .set_for_account(RecordingSlot::AntiAfk, 11, AccountRecordingChoice::Inherit)
+            .unwrap();
+        let file = store.load().unwrap();
+        assert_eq!(file.anti_afk.accounts.get(&11), None);
+        assert_eq!(file.after_reconnect.accounts.get(&22), Some(&None));
+    }
+}
+
+#[cfg(test)]
+mod recordings_validation_tests {
+    use super::*;
+
+    #[test]
+    fn the_key_list_starts_with_the_afk_keys_and_leaves_out_the_dangerous_ones() {
+        let names = recording_key_names();
+        assert_eq!(
+            &names[..14],
+            &["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5"]
+        );
+        for outside in [
+            "Enter", "Tab", "Escape", "Esc", "F4", "F9", "Alt", "Ctrl", "LWin", "Backspace",
+            "Delete", "/", "`", "", " ", "0x20",
+        ] {
+            assert!(recording_key(outside).is_none(), "tecla fora da lista: {outside:?}");
+        }
+        // Todas as letras e números estão na lista, cada um uma vez.
+        for c in ('A'..='Z').chain('0'..='9') {
+            let name = c.to_string();
+            assert_eq!(names.iter().filter(|n| **n == name).count(), 1, "{name}");
+        }
+    }
+
+    #[test]
+    fn arrows_are_extended_keys_and_letters_are_not() {
+        assert_eq!(recording_key("Up"), Some((0x26, true)));
+        assert_eq!(recording_key("left"), Some((0x25, true)));
+        assert_eq!(recording_key("W"), Some((0x57, false)));
+        assert_eq!(recording_key("shift"), Some((0xA0, false)));
+    }
+
+    #[test]
+    fn a_recording_needs_a_name_and_keys_from_the_list() {
+        let ok = Recording {
+            name: "  Path  ".into(),
+            ..Default::default()
+        };
+        assert_eq!(normalize_recording(ok).unwrap().name, "Path");
+        assert!(normalize_recording(Recording::default()).is_err());
+        let bad_key = Recording {
+            name: "X".into(),
+            steps: vec![RecordingStep::Key {
+                key: "Enter".into(),
+                hold_ms: 40,
+            }],
+            ..Default::default()
+        };
+        assert!(normalize_recording(bad_key).unwrap_err().contains("Enter"));
+        let long_name = Recording {
+            name: "x".repeat(MAX_RECORDING_NAME_CHARS + 1),
+            ..Default::default()
+        };
+        assert!(normalize_recording(long_name).is_err());
+    }
+
+    #[test]
+    fn times_and_points_are_clamped_into_their_limits() {
+        assert_eq!(
+            normalize_step(RecordingStep::Key {
+                key: "e".into(),
+                hold_ms: 0
+            })
+            .unwrap(),
+            RecordingStep::Key {
+                key: "E".into(),
+                hold_ms: MIN_HOLD_MS
+            }
+        );
+        assert_eq!(
+            normalize_step(RecordingStep::Key {
+                key: "E".into(),
+                hold_ms: 999_999
+            })
+            .unwrap(),
+            RecordingStep::Key {
+                key: "E".into(),
+                hold_ms: MAX_HOLD_MS
+            }
+        );
+        assert_eq!(
+            normalize_step(RecordingStep::Wait { ms: u64::MAX }).unwrap(),
+            RecordingStep::Wait { ms: MAX_WAIT_MS }
+        );
+        assert_eq!(
+            normalize_step(RecordingStep::Click {
+                x_pct: -5.0,
+                y_pct: f64::NAN
+            })
+            .unwrap(),
+            RecordingStep::Click {
+                x_pct: 0.0,
+                y_pct: 50.0
+            }
+        );
+    }
+
+    #[test]
+    fn a_recording_has_a_ceiling_of_steps_and_of_time() {
+        let too_many = Recording {
+            name: "X".into(),
+            steps: vec![RecordingStep::Wait { ms: 1 }; MAX_RECORDING_STEPS + 1],
+            ..Default::default()
+        };
+        assert!(normalize_recording(too_many).is_err());
+        let too_long = Recording {
+            name: "X".into(),
+            steps: vec![RecordingStep::Wait { ms: MAX_WAIT_MS }, RecordingStep::Wait { ms: 1 }],
+            ..Default::default()
+        };
+        assert!(normalize_recording(too_long).unwrap_err().contains("10 minutes"));
+    }
+
+    #[test]
+    fn the_duration_counts_waits_holds_and_clicks() {
+        let steps = vec![
+            RecordingStep::Key {
+                key: "W".into(),
+                hold_ms: 300,
+            },
+            RecordingStep::Wait { ms: 200 },
+            RecordingStep::Click {
+                x_pct: 1.0,
+                y_pct: 1.0,
+            },
+            RecordingStep::KeyDown { key: "A".into() },
+            RecordingStep::KeyUp { key: "A".into() },
+        ];
+        assert_eq!(recording_duration_ms(&steps), 300 + 200 + CLICK_ESTIMATE_MS);
+    }
+
+    fn file_with(ids: &[&str], default: Option<&str>, own: &[(i64, Option<&str>)]) -> RecordingsFile {
+        RecordingsFile {
+            recordings: ids
+                .iter()
+                .map(|id| Recording {
+                    id: (*id).into(),
+                    name: (*id).into(),
+                    ..Default::default()
+                })
+                .collect(),
+            anti_afk: SlotChoices {
+                default_id: default.map(str::to_string),
+                accounts: own.iter().map(|(u, id)| (*u, id.map(str::to_string))).collect(),
+            },
+            ..Default::default()
+        }
+    }
+
+    const ANTI_AFK: RecordingSlot = RecordingSlot::AntiAfk;
+
+    #[test]
+    fn the_account_recording_wins_over_the_global_one() {
+        let file = file_with(&["all", "mine"], Some("all"), &[(11, Some("mine")), (33, None)]);
+        assert_eq!(recording_for_account(&file, ANTI_AFK, 11).map(|r| r.id.as_str()), Some("mine"));
+        assert_eq!(recording_for_account(&file, ANTI_AFK, 22).map(|r| r.id.as_str()), Some("all"));
+        // "None" para a conta vence a global.
+        assert!(recording_for_account(&file, ANTI_AFK, 33).is_none());
+        // A outra vaga não tem nada escolhido.
+        assert!(recording_for_account(&file, RecordingSlot::AfterReconnect, 11).is_none());
+    }
+
+    #[test]
+    fn without_any_choice_an_account_has_no_recording() {
+        let file = file_with(&["a"], None, &[]);
+        assert!(recording_for_account(&file, ANTI_AFK, 11).is_none());
+        // Escolha que aponta para gravação apagada (arquivo editado à mão) cai
+        // na global.
+        let stale = file_with(&["all"], Some("all"), &[(11, Some("gone"))]);
+        assert_eq!(recording_for_account(&stale, ANTI_AFK, 11).map(|r| r.id.as_str()), Some("all"));
+    }
+}

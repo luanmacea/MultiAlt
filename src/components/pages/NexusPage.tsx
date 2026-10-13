@@ -542,7 +542,7 @@ function ControlPanel({
   const game = useGameIdentity(placeInput, null);
   return (
     <div className="flex h-full">
-      <div className="w-[260px] border-r border-zinc-800/60 flex flex-col shrink-0">
+      <div className="w-[260px] 2xl:w-[320px] border-r border-zinc-800/60 flex flex-col shrink-0">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800/40">
           <input
             type="checkbox"
