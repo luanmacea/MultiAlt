@@ -65,6 +65,7 @@ include!("commands/keep_awake.rs");
 include!("commands/quick_login.rs");
 include!("commands/memory_ceiling.rs");
 include!("commands/shake_stop.rs");
+include!("commands/follow_user.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -557,6 +558,9 @@ pub fn run() {
             send_friend_request,
             make_selected_friends,
             get_friend_link_state,
+            resolve_follow_target,
+            follow_user_with_accounts,
+            get_follow_user_state,
             avatar_free_catalog,
             avatar_list_saved,
             avatar_save,

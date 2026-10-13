@@ -253,7 +253,7 @@ Defaults criados mas sem aba na UI: `PreferredRunner=sober`, `CustomLaunchComman
 | Seção | Origem |
 |---|---|
 | `[Prompts]` | Criada vazia por `apply_defaults`. |
-| `[Friends]` `RequestDelayMs` | Lida por `make_selected_friends` (fallback 2500 ms). |
+| `[Friends]` `RequestDelayMs` | Lida por `make_selected_friends` e `follow_user_with_accounts` (fallback 2500 ms). |
 | `[Script.<id>]` | Configurações de cada script do usuário (ver [scripts.md](scripts.md)). |
 
 ## Regras de negócio

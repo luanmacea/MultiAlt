@@ -2609,5 +2609,20 @@
   "Waiting in the launch queue": "Waiting in the launch queue",
   "Show Robux": "Show Robux",
   "Show the account's Robux balance in its side panel. Hidden names hide it too.": "Show the account's Robux balance in its side panel. Hidden names hide it too.",
-  "Major update": "Major update"
+  "Major update": "Major update",
+  "{{count}} account(s) will follow {{name}} (ID {{id}}). Continue?": "{{count}} account(s) will follow {{name}} (ID {{id}}). Continue?",
+  "{{name}} was in the selection and was skipped: an account can't follow itself.": "{{name}} was in the selection and was skipped: an account can't follow itself.",
+  "Already following": "Already following",
+  "An account can't follow itself.": "An account can't follow itself.",
+  "Follow {{name}}: {{ok}} followed, {{already}} already following, {{fail}} failed": "Follow {{name}}: {{ok}} followed, {{already}} already following, {{fail}} failed",
+  "Follow a user ({{count}})": "Follow a user ({{count}})",
+  "Followed": "Followed",
+  "Following {{done}}/{{total}}": "Following {{done}}/{{total}}",
+  "Following...": "Following...",
+  "No account matches.": "No account matches.",
+  "Or pick an account": "Or pick an account",
+  "Select at least one account other than the one being followed.": "Select at least one account other than the one being followed.",
+  "The account doesn't need to be in MultiAlt.": "The account doesn't need to be in MultiAlt.",
+  "Username, user ID or profile link": "Username, user ID or profile link",
+  "Who should the selected accounts follow?": "Who should the selected accounts follow?"
 }

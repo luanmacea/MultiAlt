@@ -2084,6 +2084,80 @@ const SCENARIOS: Record<string, () => void> = {
     });
   },
 
+  /**
+   * "Follow a user": o alvo digitado é procurado, as contas seguem uma a uma
+   * e o backend publica o retrato completo — uma já seguia, a última falha.
+   * O nome "ghost" não existe, para ver a mensagem de usuário não encontrado.
+   */
+  "follow-user"() {
+    let estado = {
+      active: false,
+      processed: 0,
+      total: 0,
+      accounts: [] as { userId: number; state: string; error: string | null }[],
+      targetUserId: null as number | null,
+      targetName: null as string | null,
+    };
+
+    function publica(mudanca: Partial<typeof estado>) {
+      estado = { ...estado, ...mudanca };
+      estado.processed = estado.accounts.filter((a) =>
+        ["followed", "already", "failed"].includes(a.state)
+      ).length;
+      harnessEmit("follow-user-state", estado);
+    }
+
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_follow_user_state") return estado;
+      if (cmd === "resolve_follow_target") {
+        const query = String(args.query ?? "").trim().replace(/^@/, "");
+        if (query.toLowerCase() === "ghost") throw "User 'ghost' not found";
+        const id = /^\d+$/.test(query) ? Number(query) : 424242;
+        return { id, name: /^\d+$/.test(query) ? "numbered_user" : query, displayName: "Target Person" };
+      }
+      if (cmd === "follow_user_with_accounts") {
+        const target = Number(args.targetUserId);
+        const ids = (args.userIds as number[]).filter((id) => id !== target);
+        publica({
+          active: true,
+          total: ids.length,
+          targetUserId: target,
+          targetName: String(args.targetName ?? ""),
+          accounts: ids.map((userId) => ({ userId, state: "pending", error: null })),
+        });
+        return new Promise((resolve) => {
+          ids.forEach((userId, index) => {
+            setTimeout(() => {
+              const last = index === ids.length - 1 && ids.length > 1;
+              const state = last ? "failed" : index === 1 ? "already" : "followed";
+              publica({
+                accounts: estado.accounts.map((a) =>
+                  a.userId === userId
+                    ? { ...a, state, error: last ? "Failed to follow (status 429): Too many requests" : null }
+                    : a.userId === ids[index + 1]
+                      ? { ...a, state: "processing" }
+                      : a
+                ),
+              });
+            }, 600 * (index + 1));
+          });
+          setTimeout(() => {
+            publica({ active: false });
+            const count = (s: string) => estado.accounts.filter((a) => a.state === s).length;
+            resolve({
+              total: ids.length,
+              followed: count("followed"),
+              alreadyFollowing: count("already"),
+              failed: count("failed"),
+              skippedTarget: ids.length !== (args.userIds as number[]).length,
+            });
+          }, 600 * (ids.length + 1));
+        });
+      }
+      return baseHandler(cmd, args);
+    });
+  },
+
   /** Fila de launch e contas em jogo (Painel de Sessão). */
   "launch-queue"() {
     setInvokeHandler((cmd, args) => {

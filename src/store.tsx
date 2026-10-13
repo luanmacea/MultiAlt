@@ -18,6 +18,7 @@ import type {
   ParsedGroup,
   PlatformCapabilities,
   FriendLinkState,
+  FollowUserState,
   LaunchOutcome,
   LaunchQueuePayload,
   ModerationStatus,
@@ -548,6 +549,8 @@ export interface StoreValue {
    * mesma coisa em vez de cada um manter o seu `useState`.
    */
   friendLinkState: FriendLinkState | null;
+  /** Lote "Follow a user" em andamento (evento `follow-user-state`). */
+  followUserState: FollowUserState | null;
   refreshLaunchQueue: () => Promise<void>;
   /** Tira UMA conta da fila. Nunca fecha um cliente já aberto. */
   cancelAccountLaunch: (userId: number) => Promise<boolean>;
@@ -1032,6 +1035,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const closePresetsDialog = useCallback(() => setPresetsDialog(null), []);
   const [launchQueue, setLaunchQueue] = useState<LaunchQueuePayload | null>(null);
   const [friendLinkState, setFriendLinkState] = useState<FriendLinkState | null>(null);
+  const [followUserState, setFollowUserState] = useState<FollowUserState | null>(null);
   const [autoReconnect, setAutoReconnect] = useState<AutoReconnectEntry[]>([]);
   // Retrato anterior, para avisar só na mudança (desistiu, parou, reconectou).
   const autoReconnectRef = useRef<AutoReconnectEntry[]>([]);
@@ -3250,6 +3254,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .then((fn) => (disposed ? fn() : unsubs.push(fn)))
       .catch(() => {});
 
+    // Follow a user: mesmo par.
+    invoke<FollowUserState>("get_follow_user_state")
+      .then((payload) => {
+        if (!disposed) setFollowUserState(payload ?? null);
+      })
+      .catch(() => {});
+    listen<FollowUserState>("follow-user-state", (e) => {
+      setFollowUserState(e.payload ?? null);
+    })
+      .then((fn) => (disposed ? fn() : unsubs.push(fn)))
+      .catch(() => {});
+
     // Reconexão automática (commands/reconnect.rs): mesmo par. Avisa quando
     // uma conta desiste, para de vez ou volta ao jogo depois de relançada.
     // Só aceita a lista de verdade: um `[]` no lugar do objeto tem `.entries`
@@ -3732,6 +3748,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     killAllRobloxProcesses,
     launchQueue,
     friendLinkState,
+    followUserState,
     refreshLaunchQueue,
     cancelAccountLaunch,
     stopLaunchQueue,

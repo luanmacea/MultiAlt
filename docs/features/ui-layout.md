@@ -151,6 +151,7 @@ Aparece com ≥ 1 conta selecionada:
 | Refresh Cookies | `refresh_cookie` em série, 2 s entre contas |
 | Copy cookies | copia cookies (um por linha) |
 | Make Friends | `make_selected_friends` modo `mesh` ou `star`; confirma acima de 30 pedidos; progresso via `friend-link-state`, com uma entrada **por conta** no Painel de Sessão (aguardando/processando/amizade feita/erro) e o contador "X / Y contas processadas" |
+| Follow a user | `resolve_follow_target` (alvo digitado: nome, ID ou link) + confirmação, ou uma conta escolhida na lista; `follow_user_with_accounts` uma conta por vez, pulando quem já segue; progresso via `follow-user-state` no Painel de Sessão (aguardando/processando/seguiu/já seguia/erro) — ver [accounts.md](accounts.md#seguir-um-usuário-follow_userrs) |
 | Move to Group / New group | `moveToGroup` |
 | Restart launched clients | só contas lançadas pelo app |
 | Auto Rejoin | abre diálogo ou adiciona contas ao Auto Rejoin ativo |

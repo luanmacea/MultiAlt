@@ -112,6 +112,11 @@ export const SUITES: Record<string, TestSuite> = {
       "account_helpers_tests",
       "account_path_tests",
       "account_api_tests",
+      // Actions › Follow a user (commands/follow_user.rs, api/roblox/follow.rs).
+      "follow_user_tests",
+      "follow_user_batch_tests",
+      "follow_http_tests",
+      "follow_parse_tests",
       "read_only_retry_tests",
       "account_api_http_tests",
       "cookie_rotation_command_tests",

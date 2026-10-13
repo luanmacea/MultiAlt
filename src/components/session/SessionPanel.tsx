@@ -45,6 +45,7 @@ import type {
   ClientHealth,
   CurrentSession,
   FriendLinkAccountState,
+  FollowUserAccountState,
   LaunchQueueEntry,
   LaunchQueueState,
   UnidentifiedClient,
@@ -109,6 +110,32 @@ function friendStateLabel(state: FriendLinkAccountState, t: Translate): string {
       return t("Processing");
     case "done":
       return t("Linked");
+    case "failed":
+      return t("Failed");
+    default:
+      return state;
+  }
+}
+
+/** Estados de uma conta no "Follow a user" — cores iguais às do Make Friends. */
+const FOLLOW_STATE_STYLES: Record<FollowUserAccountState, { dot: string; text: string }> = {
+  pending: FRIEND_STATE_STYLES.pending,
+  processing: FRIEND_STATE_STYLES.processing,
+  followed: FRIEND_STATE_STYLES.done,
+  already: { dot: "bg-emerald-500/60", text: "theme-muted" },
+  failed: FRIEND_STATE_STYLES.failed,
+};
+
+function followStateLabel(state: FollowUserAccountState, t: Translate): string {
+  switch (state) {
+    case "pending":
+      return t("Waiting");
+    case "processing":
+      return t("Processing");
+    case "followed":
+      return t("Followed");
+    case "already":
+      return t("Already following");
     case "failed":
       return t("Failed");
     default:
@@ -267,6 +294,9 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   // roubaria altura de um painel que já tem teto de 45% na aba Console.
   const friendLink = store.friendLinkState;
   const showFriendLink = !!friendLink && friendLink.total > 0;
+  // "Follow a user": mesma regra — só depois de um lote.
+  const followRun = store.followUserState;
+  const showFollow = !!followRun && followRun.total > 0;
 
   // Contas com cliente rodando agora, na ordem da lista de contas (estável
   // entre polls). IDs sem conta correspondente ainda aparecem, pelo ID.
@@ -1008,6 +1038,56 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                   <span className={`shrink-0 ${style.text}`}>
                     {friendStateLabel(entry.state, t)}
                   </span>
+                  {entry.error && (
+                    <span className="text-red-400 truncate" title={entry.error}>
+                      {entry.error}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* ── Follow a user ──────────────────────────────────────────────── */}
+      {showFollow && followRun && (
+        <section data-testid="follow-user-panel" className="rounded-lg border theme-border bg-[var(--panel-soft)]">
+          <header className="flex items-center justify-between gap-2 px-3 py-2 border-b theme-border">
+            <div className="flex items-baseline gap-2 min-w-0">
+              <h2 className="text-[12px] font-semibold text-[var(--panel-fg)] flex items-center gap-1.5 shrink-0">
+                <UserCheck size={13} strokeWidth={1.5} aria-hidden="true" />
+                {t("Follow")}
+              </h2>
+              <span className="text-[12px] text-[var(--panel-fg)] truncate">
+                {followRun.targetUserId !== null &&
+                store.accounts.some((a) => a.UserID === followRun.targetUserId)
+                  ? nameFor(followRun.targetUserId)
+                  : followRun.targetName
+                    ? `@${followRun.targetName}`
+                    : followRun.targetUserId ?? ""}
+              </span>
+            </div>
+            <span className="text-[12px] theme-muted shrink-0">
+              {t("{{done}} / {{total}} accounts processed", {
+                done: followRun.processed,
+                total: followRun.total,
+              })}
+            </span>
+          </header>
+
+          <ul className={`${contained ? "max-h-48 overflow-y-auto " : ""}py-1`}>
+            {followRun.accounts.map((entry) => {
+              const style = FOLLOW_STATE_STYLES[entry.state] ?? FOLLOW_STATE_STYLES.pending;
+              return (
+                <li
+                  key={entry.userId}
+                  data-testid={`follow-user-${entry.userId}`}
+                  className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
+                >
+                  <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                  <span className="text-[var(--panel-fg)] truncate max-w-[40%]">{nameFor(entry.userId)}</span>
+                  <span className={`shrink-0 ${style.text}`}>{followStateLabel(entry.state, t)}</span>
                   {entry.error && (
                     <span className="text-red-400 truncate" title={entry.error}>
                       {entry.error}

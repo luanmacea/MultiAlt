@@ -594,6 +594,28 @@ export interface FriendLinkState {
   mainUserId: number | null;
 }
 
+/**
+ * Lote "Follow a user" (Actions): várias contas seguem um mesmo usuário, que
+ * não precisa estar no app. Mesmo desenho do Make Friends: o backend emite
+ * `follow-user-state` com o retrato completo a cada mudança.
+ */
+export type FollowUserAccountState = "pending" | "processing" | "followed" | "already" | "failed";
+
+export interface FollowUserAccountEntry {
+  userId: number;
+  state: FollowUserAccountState;
+  error: string | null;
+}
+
+export interface FollowUserState {
+  active: boolean;
+  processed: number;
+  total: number;
+  accounts: FollowUserAccountEntry[];
+  targetUserId: number | null;
+  targetName: string | null;
+}
+
 // ── Escolha de servidor ──────────────────────────────────────────────────────
 
 /**

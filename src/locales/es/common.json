@@ -2609,5 +2609,20 @@
   "Waiting in the launch queue": "Esperando en la cola de inicio",
   "Show Robux": "Mostrar Robux",
   "Show the account's Robux balance in its side panel. Hidden names hide it too.": "Muestra el saldo de Robux de la cuenta en su panel lateral. Con los nombres ocultos, también se oculta.",
-  "Major update": "Gran actualización"
+  "Major update": "Gran actualización",
+  "{{count}} account(s) will follow {{name}} (ID {{id}}). Continue?": "{{count}} cuenta(s) van a seguir a {{name}} (ID {{id}}). ¿Continuar?",
+  "{{name}} was in the selection and was skipped: an account can't follow itself.": "{{name}} estaba en la selección y quedó fuera: una cuenta no puede seguirse a sí misma.",
+  "Already following": "Ya lo seguía",
+  "An account can't follow itself.": "Una cuenta no puede seguirse a sí misma.",
+  "Follow {{name}}: {{ok}} followed, {{already}} already following, {{fail}} failed": "Seguir a {{name}}: {{ok}} lo siguieron, {{already}} ya lo seguían, {{fail}} fallidas",
+  "Follow a user ({{count}})": "Seguir a un usuario ({{count}})",
+  "Followed": "Siguió",
+  "Following {{done}}/{{total}}": "Siguiendo {{done}}/{{total}}",
+  "Following...": "Siguiendo...",
+  "No account matches.": "Ninguna cuenta coincide.",
+  "Or pick an account": "O elige una cuenta",
+  "Select at least one account other than the one being followed.": "Selecciona al menos una cuenta distinta de la que se va a seguir.",
+  "The account doesn't need to be in MultiAlt.": "La cuenta no necesita estar en MultiAlt.",
+  "Username, user ID or profile link": "Nombre, ID o enlace del perfil",
+  "Who should the selected accounts follow?": "¿A quién van a seguir las cuentas seleccionadas?"
 }

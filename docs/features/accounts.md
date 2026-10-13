@@ -289,6 +289,7 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 - **Ações** pedidas na conta (pedido de amizade avulso, bloqueios, privacidade, avatar, grupo, compra, troca de senha/e-mail/display name, PIN, quick login) passam por `run_with_session_retry`.
 - **Cookie novo do Roblox é gravado nos dois caminhos.** Se a resposta de uma chamada traz `Set-Cookie: .ROBLOSECURITY=…` novo, `read_without_refresh` e `run_with_session_retry` gravam-no na conta (só se ela ainda tiver o cookie enviado) — ver [authentication.md](authentication.md#cookie-novo-devolvido-numa-resposta-qualquer--apicookie_rotation).
 - `make_selected_friends` nunca renova a sessão.
+- `follow_user_with_accounts` também não (ver "Seguir um usuário" logo abaixo).
 - `avatar_apply_batch` ([commands/avatars.rs](../../src-tauri/src/commands/avatars.rs)) também nunca renova: lê o cookie uma vez com `get_cookie`, como o `make_selected_friends` — cookie vencido só falha aquela conta (ver [avatars.md](avatars.md)).
 
 | Comando | O que faz |
@@ -296,6 +297,7 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 | `get_robux` | Saldo de Robux. |
 | `get_user_info`, `lookup_user` | Info pública / busca por username (sem cookie). |
 | `send_friend_request`, `make_selected_friends` | Amizade (individual / em lote). |
+| `resolve_follow_target`, `follow_user_with_accounts`, `get_follow_user_state` | Seguir um usuário com várias contas (ver abaixo). |
 | `block_user`, `unblock_user`, `get_blocked_users`, `unblock_all_users` | Bloqueios. |
 | `set_follow_privacy`, `get/set_private_server_invite_privacy` | Privacidade. |
 | `set_avatar`, `get_outfits`, `get_outfit_details` | Avatar/outfits (copiar avatar de outro usuário). |
@@ -307,6 +309,17 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 | `quick_login_enter_code`, `quick_login_validate_code` | Aprovar login por código de 6 dígitos. |
 | `check_pin`, `unlock_pin` | PIN da conta (4 dígitos). |
 | `get_place_details`, `get_servers`, `get_universe_places`, `get_asset_*` | Usam cookie **se** `userId` for passado; sem retry. |
+
+### Seguir um usuário ([follow_user.rs](../../src-tauri/src/commands/follow_user.rs))
+
+`Actions › Follow a user` faz as contas selecionadas **seguirem** um usuário — o "Follow" de rede social do perfil (número de seguidores), não o "seguir no jogo" do launch. Pedido de usuário em 13/10/2026.
+
+- **Alvo digitado ou escolhido.** O campo aceita nome (`@` opcional), ID ou link do perfil (`roblox.com/users/<id>/...`); `resolve_follow_target` confere no Roblox quem é (sem cookie) e a UI confirma mostrando apelido, nome e ID antes de disparar. O alvo **não precisa estar no MultiAlt**. A lista "Or pick an account" abaixo do campo segue uma conta do app com um clique, sem confirmação, e filtra pelo que foi digitado.
+- **Só dígitos é ID primeiro.** Sem usuário com aquele ID (404), tenta como nome — nomes só com dígitos existem. Link de perfil é sempre ID.
+- **O alvo nunca segue a si mesmo:** se estiver na seleção, sai do lote (`plan_followers`) e a UI avisa.
+- **Uma conta por vez**, com o mesmo intervalo do Make Friends (`Friends.RequestDelayMs`, o campo aparece nos dois submenus). Quem já seguia (`/v1/user/following-exists`) é pulado sem pedido de escrita e sem esperar o intervalo. Leitura "já segue?" que falha não impede o follow.
+- **Nunca renova sessão** (`get_cookie` + CSRF por conta, como o `make_selected_friends`): cookie vencido falha só aquela conta, com "(invalid session — log the account in again)". 403 com `rblx-challenge-id` é captcha e a mensagem diz isso.
+- **Um lote por vez** (`FOLLOW_RUNNING`). Progresso no evento `follow-user-state` (retrato completo, uma entrada por conta: aguardando / processando / seguiu / já seguia / erro), mostrado no Painel de Sessão e no botão Actions.
 
 ## Configurações relacionadas
 
@@ -323,7 +336,7 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 | `General.HideUsernames`, `HiddenNameLetters`, `ShowAvatarsWhenHidden` | `false` / `0` | Mascaramento de nomes. |
 | `General.ShowRobux` | `false` | Mostra o saldo de Robux no painel da conta (`get_robux`, leitura sem renovar a sessão); com os nomes escondidos, o saldo aparece como `****`. Substituiu o `HideRobuxWhenHidden` em 12/10/2026: o saldo tinha saído do painel em julho e a opção não escondia mais nada. |
 | `General.ShowPresence`, `PresenceUpdateRate` | `true`, `5` | Presença na lista. |
-| `Friends.RequestDelayMs` | (sem default no INI → 2500) | Intervalo entre pedidos de amizade, em ms. Editável no submenu Make Friends (em segundos). |
+| `Friends.RequestDelayMs` | (sem default no INI → 2500) | Intervalo entre pedidos de amizade e entre as contas do "Follow a user", em ms. Editável nos submenus Make Friends e Follow a user (em segundos). |
 | `Login.PersistentProfile`, `Login.StealthMode` | `true`, `true` | Comportamento do navegador de login. |
 
 ## Armadilhas / cuidados

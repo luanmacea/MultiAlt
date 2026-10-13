@@ -21,3 +21,4 @@ include!("roblox/avatar_catalog.rs");
 include!("roblox/groups.rs");
 include!("roblox/moderation.rs");
 include!("roblox/session_check.rs");
+include!("roblox/follow.rs");

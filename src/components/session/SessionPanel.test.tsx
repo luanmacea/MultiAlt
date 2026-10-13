@@ -28,6 +28,7 @@ import type {
   ClosedClient,
   CurrentSession,
   FriendLinkState,
+  FollowUserState,
   LaunchQueueEntry,
   LaunchQueuePayload,
   LaunchQueueState,
@@ -768,6 +769,54 @@ describe("SessionPanel — Make Friends", () => {
       hiddenNameLetters: 2,
     });
     expect(within(screen.getByTestId("friend-link-2")).getByText("Br********")).toBeInTheDocument();
+  });
+});
+
+/** "Follow a user": o lote aparece aqui conta por conta, como o Make Friends. */
+describe("SessionPanel — Follow a user", () => {
+  function followRun(overrides: Partial<FollowUserState> = {}): FollowUserState {
+    return {
+      active: true,
+      processed: 2,
+      total: 3,
+      targetUserId: 9999,
+      targetName: "starplayer",
+      accounts: [
+        { userId: 1, state: "followed", error: null },
+        { userId: 2, state: "already", error: null },
+        { userId: 3, state: "failed", error: "status 429" },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("não aparece antes do primeiro lote", () => {
+    renderPanel({ followUserState: followRun({ total: 0, accounts: [] }) });
+    expect(screen.queryByTestId("follow-user-panel")).not.toBeInTheDocument();
+  });
+
+  it("diz quem está sendo seguido, o progresso e o estado de cada conta", () => {
+    renderPanel({ followUserState: followRun() });
+
+    const painel = within(screen.getByTestId("follow-user-panel"));
+    expect(painel.getByText("@starplayer")).toBeInTheDocument();
+    expect(painel.getByText("2 / 3 accounts processed")).toBeInTheDocument();
+    expect(within(screen.getByTestId("follow-user-1")).getByText("Followed")).toBeInTheDocument();
+    expect(within(screen.getByTestId("follow-user-2")).getByText("Already following")).toBeInTheDocument();
+    const falhou = within(screen.getByTestId("follow-user-3"));
+    expect(falhou.getByText("Failed")).toBeInTheDocument();
+    expect(falhou.getByText("status 429")).toBeInTheDocument();
+  });
+
+  it("alvo que é conta do app usa o nome mascarado", () => {
+    renderPanel({
+      followUserState: followRun({ targetUserId: 2, targetName: "bravo" }),
+      hideUsernames: true,
+      hiddenNameLetters: 2,
+    });
+    const painel = within(screen.getByTestId("follow-user-panel"));
+    expect(painel.queryByText("@bravo")).not.toBeInTheDocument();
+    expect(painel.getAllByText("Br********").length).toBeGreaterThan(0);
   });
 });
 
