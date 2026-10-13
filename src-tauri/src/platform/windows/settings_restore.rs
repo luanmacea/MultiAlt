@@ -114,6 +114,40 @@ fn settings_keys(
     out
 }
 
+/// O texto de dentro de `<tag name="…">texto</tag>`, sem espaços sobrando.
+fn element_text(element: &str) -> String {
+    let inner = match (element.find('>'), element.rfind('<')) {
+        (Some(open), Some(close)) if close > open => &element[open + 1..close],
+        _ => element,
+    };
+    inner.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Dois elementos da mesma propriedade guardam o mesmo valor? Pelo número,
+/// não pelo texto: o Roblox regrava o arquivo inteiro ao fechar, no formato
+/// dele (`0.300000` vira `0.300000012`, `1.000000` vira `1`).
+fn same_value(a: &str, b: &str) -> bool {
+    let (a, b) = (element_text(a), element_text(b));
+    match (a.parse::<f64>(), b.parse::<f64>()) {
+        (Ok(x), Ok(y)) => (x - y).abs() <= 1e-4 * x.abs().max(1.0),
+        _ => a == b,
+    }
+}
+
+/// A propriedade ainda tem o valor que o app pôs (então volta à do usuário)?
+/// A janela (`WINDOW_PROPS`) é sempre do app enquanto estiver anotada: o
+/// Roblox a regrava com o tamanho real ao fechar, e a grade do app mexe nela.
+fn still_the_apps(name: &str, now: Option<&String>, written: Option<&String>) -> bool {
+    if WINDOW_PROPS.contains(&name) {
+        return true;
+    }
+    match (now, written) {
+        (Some(now), Some(written)) => same_value(now, written),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 impl RestoreJournal {
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
@@ -197,7 +231,7 @@ impl RestoreJournal {
                 let mut props = xml[start..end].to_string();
                 let mut changed = false;
                 for (name, key) in &file.keys {
-                    if now.get(name) == key.written.as_ref() {
+                    if still_the_apps(name, now.get(name), key.written.as_ref()) {
                         restore_property(&mut props, name, key.original.as_deref());
                         changed = true;
                     }
@@ -384,7 +418,42 @@ fn settings_restore_dir() -> PathBuf {
 }
 
 pub fn record_roblox_settings_change(snapshot: RobloxSettingsSnapshot) {
+    LAST_SETTINGS_RECORD.store(unix_now_secs(), std::sync::atomic::Ordering::SeqCst);
     record_roblox_settings_change_in(&settings_restore_dir(), snapshot);
+}
+
+/// Quando o launch escreveu nos arquivos pela última vez (segundos Unix).
+static LAST_SETTINGS_RECORD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Folga depois da última escrita do launch: o patch é o último passo antes
+/// do spawn, mas o processo do cliente leva uns segundos para aparecer, e
+/// devolver nesse meio deixaria o cliente novo sem a otimização.
+pub const RESTORE_WATCH_GRACE_SECS: u64 = 60;
+
+fn unix_now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Segundos desde a última escrita do launch (`u64::MAX` = nenhuma nesta
+/// execução do app).
+pub fn secs_since_last_settings_record() -> u64 {
+    match LAST_SETTINGS_RECORD.load(std::sync::atomic::Ordering::SeqCst) {
+        0 => u64::MAX,
+        at => unix_now_secs().saturating_sub(at),
+    }
+}
+
+/// Com o app aberto: é hora de devolver? Só com a opção ligada, algo anotado,
+/// **nenhum** Roblox rodando (nem o aberto pelo site: ele regravaria os valores
+/// que tem na memória ao fechar) e a folga do último launch vencida.
+///
+/// Antes a devolução só acontecia ao fechar o app: quem fechava o jogo e
+/// abria pelo site com o MultiAlt aberto ficava com a otimização (13/10/2026).
+pub fn restore_watch_due(enabled: bool, pending: bool, roblox_running: bool, secs_since_record: u64) -> bool {
+    enabled && pending && !roblox_running && secs_since_record >= RESTORE_WATCH_GRACE_SECS
 }
 
 pub fn has_pending_roblox_settings_restore() -> bool {

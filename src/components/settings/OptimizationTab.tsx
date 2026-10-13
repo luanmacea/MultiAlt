@@ -704,15 +704,15 @@ export function OptimizationTab({ s }: { s: UseSettingsReturn }) {
         </div>
         {isWindows ? (
           // Ideia 21: uma chave só, para todos os perfis. O backend anota o
-          // valor de antes da primeira mudança e devolve ao fechar o app
-          // (platform/windows/settings_restore.rs).
+          // valor de antes da primeira mudança e devolve quando nenhum Roblox
+          // está aberto (platform/windows/settings_restore.rs).
           <>
             <Divider />
             <Toggle
               checked={s.getBool("General", "RestoreRobloxSettingsOnExit")}
               onChange={(v) => s.setBool("General", "RestoreRobloxSettingsOnExit", v)}
-              label="Restore Roblox settings when MultiAlt closes"
-              description="Puts back your own FPS, volume, graphics, window and FastFlags when MultiAlt closes and no client it opened is still running, so the game you open from the website is not left with them."
+              label="Restore Roblox settings when no game is open"
+              description="Puts back your own FPS, volume, graphics, window and FastFlags as soon as no Roblox is open, after you close the game or MultiAlt, so the game you open from the website is not left with them."
             />
           </>
         ) : null}
