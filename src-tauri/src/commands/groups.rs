@@ -218,7 +218,7 @@ impl GroupJoiner for ApiJoiner<'_> {
 }
 
 /// A página do grupo aberta no navegador da conta, vista pelo fluxo (a real é
-/// `chromium::commands::GroupJoinBrowser`; nos testes, um dublê).
+/// `chromium::commands::AccountPageBrowser`; nos testes, um dublê).
 trait JoinPage: Send {
     fn click_join(&mut self) -> PageFuture<'_, Result<bool, String>>;
     fn show(&mut self) -> PageFuture<'_, ()>;
@@ -226,18 +226,18 @@ trait JoinPage: Send {
     fn close(self: Box<Self>) -> PageFuture<'static, ()>;
 }
 
-impl JoinPage for crate::chromium::commands::GroupJoinBrowser {
+impl JoinPage for crate::chromium::commands::AccountPageBrowser {
     fn click_join(&mut self) -> PageFuture<'_, Result<bool, String>> {
-        Box::pin(crate::chromium::commands::GroupJoinBrowser::click_join(self))
+        Box::pin(crate::chromium::commands::AccountPageBrowser::click_join(self))
     }
     fn show(&mut self) -> PageFuture<'_, ()> {
-        Box::pin(crate::chromium::commands::GroupJoinBrowser::show(self))
+        Box::pin(crate::chromium::commands::AccountPageBrowser::show(self))
     }
     fn is_closed(&mut self) -> bool {
-        crate::chromium::commands::GroupJoinBrowser::is_closed(self)
+        crate::chromium::commands::AccountPageBrowser::is_closed(self)
     }
     fn close(self: Box<Self>) -> PageFuture<'static, ()> {
-        Box::pin(crate::chromium::commands::GroupJoinBrowser::close(*self))
+        Box::pin(crate::chromium::commands::AccountPageBrowser::close(*self))
     }
 }
 
@@ -376,7 +376,7 @@ impl GroupJoiner for BrowserJoiner<'_> {
             };
             let membership = || api::roblox::group_membership(&cookie, user_id, group.id);
             let open = async {
-                crate::chromium::commands::GroupJoinBrowser::open(self.app, user_id, &cookie, group.id)
+                crate::chromium::commands::AccountPageBrowser::open(self.app, user_id, &cookie, group.id)
                     .await
                     .map(|page| Box::new(page) as Box<dyn JoinPage>)
             };
