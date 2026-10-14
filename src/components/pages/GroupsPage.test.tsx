@@ -322,6 +322,45 @@ describe("GroupsPage — accounts and join", () => {
   });
 
   /**
+   * Entrada pelo navegador da conta (13/10/2026): enquanto a janela espera a
+   * pessoa, a linha diz para terminar lá, sem os botões (a janela já está
+   * aberta); se ninguém terminar, "Not finished" com Try again.
+   */
+  it("tells to finish in the browser while the window waits, and offers Try again when nobody did", async () => {
+    const final: GroupJoinSnapshot = {
+      ...IDLE,
+      groupId: 501,
+      groupName: "Builders Club",
+      total: 2,
+      done: 2,
+      accounts: [
+        { userId: 11, status: "browser", reason: null },
+        {
+          userId: 22,
+          status: "challenge",
+          reason: "Roblox asked for something in the browser and it wasn't finished",
+          challengeType: "browser",
+        },
+      ],
+    };
+    wire({ groups_join_batch: final });
+    renderPage({ selectedAccounts: ACCOUNTS.slice(0, 2) });
+    await search("builders");
+    await userEvent.click(await screen.findByRole("button", { name: /Builders Club/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Join group" }));
+
+    const row = (id: number) => screen.getByTestId(`group-join-row-${id}`);
+    await waitFor(() => expect(within(row(11)).getByText("Finish in the browser")).toBeInTheDocument());
+    expect(within(row(11)).getByText("Roblox is asking for something in this account's browser window")).toBeInTheDocument();
+    expect(within(row(11)).queryByRole("button", { name: /Open in browser|Try again|Check again/ })).not.toBeInTheDocument();
+
+    expect(within(row(22)).getByText("Not finished")).toBeInTheDocument();
+    expect(within(row(22)).getByText("Press Try again: the window opens again for you to finish.")).toBeInTheDocument();
+    expect(within(row(22)).queryByText(/^type:/)).not.toBeInTheDocument();
+    expect(within(row(22)).getByRole("button", { name: "Try again for bravo" })).toBeInTheDocument();
+  });
+
+  /**
    * O dono viu "Needs captcha" em conta que só tinha o aviso de termos de uso:
    * desafio que não é captcha diz "confirmar alguma coisa" e mostra o tipo.
    */

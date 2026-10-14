@@ -315,17 +315,16 @@ pub async fn get_group(cookie: Option<&str>, group_id: i64) -> Result<GroupSumma
     serde_json::from_str::<GroupSummary>(&body).map_err(|e| format!("Failed to parse the group: {}", e))
 }
 
-/// Entra no grupo com a conta. Uma chamada só (mais o csrf): nada de refresh
-/// de sessão, nada de repetir sozinho, nada de resolver desafio.
+/// Entra no grupo com a conta pela API, com o que o Roblox respondeu (status,
+/// código e mensagem) para o diagnóstico. Uma chamada só (mais o csrf): nada de
+/// refresh de sessão, nada de repetir sozinho, nada de resolver desafio.
+///
+/// Desde 13/10/2026 é só o plano B da entrada (quando o navegador da conta não
+/// abre): medido com contas de teste, o Roblox responde a ela com o
+/// quebra-cabeça `rostile`, que só o site mostra. Ver commands/groups.rs.
 ///
 /// `requires_approval` vem dos detalhes do grupo (`!publicEntryAllowed`): o
 /// Roblox responde 200 também quando a entrada vira pedido.
-pub async fn join_group_outcome(security_token: &str, group_id: i64, requires_approval: bool) -> GroupJoinOutcome {
-    join_group_attempt(security_token, group_id, requires_approval).await.outcome
-}
-
-/// Igual a `join_group_outcome`, com o que o Roblox respondeu (status, código
-/// e mensagem) para o diagnóstico.
 pub async fn join_group_attempt(security_token: &str, group_id: i64, requires_approval: bool) -> GroupJoinAttempt {
     let csrf = match crate::api::auth::get_csrf_token(security_token).await {
         Ok(token) => token,
@@ -380,24 +379,6 @@ pub async fn join_group_attempt(security_token: &str, group_id: i64, requires_ap
         }
     };
     GroupJoinAttempt { outcome, http_status: Some(code), error_code, error_message }
-}
-
-/// Entrada simples (usada pelo painel de uma conta): só diz se deu certo.
-/// Pedido pendente e "já é membro" contam como sucesso — a conta está (ou
-/// estará) lá.
-pub async fn join_group(security_token: &str, group_id: i64) -> Result<(), String> {
-    match join_group_outcome(security_token, group_id, false).await {
-        GroupJoinOutcome::Joined | GroupJoinOutcome::Pending | GroupJoinOutcome::AlreadyMember => Ok(()),
-        GroupJoinOutcome::ChallengeRequired { challenge_type } if challenge_type == "captcha" => Err(
-            "Failed to join group: Roblox asked for a captcha. Open the account in the browser and join there"
-                .to_string(),
-        ),
-        GroupJoinOutcome::ChallengeRequired { challenge_type } => Err(format!(
-            "Failed to join group: Roblox asked this account to confirm something ({}). Open it in the browser and accept what Roblox shows",
-            challenge_type
-        )),
-        GroupJoinOutcome::Failed(message) => Err(format!("Failed to join group: {}", message)),
-    }
 }
 
 /// A conta já está no grupo? Primeiro a lista pública de grupos da conta; se
@@ -507,7 +488,7 @@ mod group_join_http_tests {
     async fn a_2xx_on_an_open_group_is_joined() {
         mount_csrf("grp-join-ok", "csrf-grp-join-ok").await;
         mount_join("grp-join-ok", 880_001, ResponseTemplate::new(200).set_body_json(serde_json::json!({}))).await;
-        assert_eq!(join_group_outcome("grp-join-ok", 880_001, false).await, GroupJoinOutcome::Joined);
+        assert_eq!(join_group_attempt("grp-join-ok", 880_001, false).await.outcome, GroupJoinOutcome::Joined);
     }
 
     #[tokio::test]
@@ -515,7 +496,7 @@ mod group_join_http_tests {
         mount_csrf("grp-join-approval", "csrf-grp-join-approval").await;
         mount_join("grp-join-approval", 880_002, ResponseTemplate::new(200)).await;
         assert_eq!(
-            join_group_outcome("grp-join-approval", 880_002, true).await,
+            join_group_attempt("grp-join-approval", 880_002, true).await.outcome,
             GroupJoinOutcome::Pending
         );
     }
@@ -530,7 +511,7 @@ mod group_join_http_tests {
         )
         .await;
         assert_eq!(
-            join_group_outcome("grp-join-requested", 880_003, false).await,
+            join_group_attempt("grp-join-requested", 880_003, false).await.outcome,
             GroupJoinOutcome::Pending
         );
     }
@@ -545,7 +526,7 @@ mod group_join_http_tests {
         )
         .await;
         assert_eq!(
-            join_group_outcome("grp-join-member", 880_004, false).await,
+            join_group_attempt("grp-join-member", 880_004, false).await.outcome,
             GroupJoinOutcome::AlreadyMember
         );
     }
@@ -562,7 +543,7 @@ mod group_join_http_tests {
         )
         .await;
         assert_eq!(
-            join_group_outcome("grp-join-challenge", 880_005, false).await,
+            join_group_attempt("grp-join-challenge", 880_005, false).await.outcome,
             GroupJoinOutcome::ChallengeRequired { challenge_type: "captcha".to_string() }
         );
     }
@@ -608,7 +589,7 @@ mod group_join_http_tests {
         )
         .await;
         assert_eq!(
-            join_group_outcome("grp-join-notype", 880_012, false).await,
+            join_group_attempt("grp-join-notype", 880_012, false).await.outcome,
             GroupJoinOutcome::ChallengeRequired { challenge_type: "unknown".to_string() }
         );
     }
@@ -662,7 +643,7 @@ mod group_join_http_tests {
         mount_csrf("grp-join-plain403", "csrf-grp-join-plain403").await;
         mount_join("grp-join-plain403", 880_007, ResponseTemplate::new(403)).await;
         assert_eq!(
-            join_group_outcome("grp-join-plain403", 880_007, false).await,
+            join_group_attempt("grp-join-plain403", 880_007, false).await.outcome,
             GroupJoinOutcome::Failed("status 403".to_string())
         );
 
@@ -674,33 +655,9 @@ mod group_join_http_tests {
         )
         .await;
         assert_eq!(
-            join_group_outcome("grp-join-409", 880_008, false).await,
+            join_group_attempt("grp-join-409", 880_008, false).await.outcome,
             GroupJoinOutcome::Failed("Something else.".to_string())
         );
-    }
-
-    #[tokio::test]
-    async fn the_simple_join_treats_pending_and_member_as_success() {
-        mount_csrf("grp-simple-member", "csrf-grp-simple-member").await;
-        mount_join(
-            "grp-simple-member",
-            880_009,
-            ResponseTemplate::new(409).set_body_json(error_body(8, "member")),
-        )
-        .await;
-        assert!(join_group("grp-simple-member", 880_009).await.is_ok());
-
-        mount_csrf("grp-simple-challenge", "csrf-grp-simple-challenge").await;
-        mount_join(
-            "grp-simple-challenge",
-            880_010,
-            ResponseTemplate::new(403).insert_header("rblx-challenge-id", "x"),
-        )
-        .await;
-        assert!(join_group("grp-simple-challenge", 880_010)
-            .await
-            .unwrap_err()
-            .contains("confirm something (unknown)"));
     }
 
     /// Os populares: detalhes de cada id, quem falha fica de fora, maior

@@ -245,11 +245,15 @@ export function GroupsPage({ active, onLeave }: { active: boolean; onLeave: () =
     if (finished && snapshot.accounts.length > 0) {
       const count = (status: GroupJoinStatus) => snapshot.accounts.filter((a) => a.status === status).length;
       storeRef.current.addToast(
-        tRef.current("Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation", {
-          joined: count("joined") + count("alreadyMember"),
-          pending: count("pending"),
-          confirm: count("challenge"),
-        })
+        tRef.current(
+          "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need you, {{failed}} failed",
+          {
+            joined: count("joined") + count("alreadyMember"),
+            pending: count("pending"),
+            confirm: count("challenge") + count("notMember"),
+            failed: count("failed"),
+          }
+        )
       );
     }
   }, []);

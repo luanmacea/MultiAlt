@@ -319,6 +319,8 @@ export const SUITES: Record<string, TestSuite> = {
       "group_join_http_tests",
       "group_membership_http_tests",
       "group_join_batch_tests",
+      // Entrada pelo navegador da conta (13/10/2026), com página de mentira.
+      "group_browser_join_tests",
       "social_presence_extra_tests",
       "chromium_commands_tests",
     ],

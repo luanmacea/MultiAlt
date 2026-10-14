@@ -286,7 +286,7 @@ Cópia **da pasta inteira** — vault e `.key` juntos, como no pen drive do modo
 Nem todo comando com cookie renova a sessão — e a diferença é de propósito (ver [authentication.md](authentication.md#regras-de-negócio)):
 
 - **Leituras** usam `read_without_refresh` (pegam o cookie e chamam a API direto; cookie vencido vira erro na tela): `get_robux`, `check_pin`, `get_blocked_users`, `get_private_server_invite_privacy`, `get_csrf_token`, `get_auth_ticket` e `resolve_join_link`, travadas por `read_only_retry_tests`. `get_account_game_location` e `get_presence` também não renovam.
-- **Ações** pedidas na conta (pedido de amizade avulso, bloqueios, privacidade, avatar, grupo, compra, troca de senha/e-mail/display name, PIN, quick login) passam por `run_with_session_retry`.
+- **Ações** pedidas na conta (pedido de amizade avulso, bloqueios, privacidade, avatar, compra, troca de senha/e-mail/display name, PIN, quick login) passam por `run_with_session_retry`. Entrar em grupo não: `join_group` vai pelo navegador da conta e nunca renova (ver [groups.md](groups.md)).
 - **Cookie novo do Roblox é gravado nos dois caminhos.** Se a resposta de uma chamada traz `Set-Cookie: .ROBLOSECURITY=…` novo, `read_without_refresh` e `run_with_session_retry` gravam-no na conta (só se ela ainda tiver o cookie enviado) — ver [authentication.md](authentication.md#cookie-novo-devolvido-numa-resposta-qualquer--apicookie_rotation).
 - `make_selected_friends` nunca renova a sessão.
 - `follow_user_with_accounts` também não (ver "Seguir um usuário" logo abaixo).
@@ -302,7 +302,7 @@ Nem todo comando com cookie renova a sessão — e a diferença é de propósito
 | `set_follow_privacy`, `get/set_private_server_invite_privacy` | Privacidade. |
 | `set_avatar`, `get_outfits`, `get_outfit_details` | Avatar/outfits (copiar avatar de outro usuário). |
 | `avatar_free_catalog`, `avatar_list_saved`, `avatar_save`, `avatar_delete`, `avatar_apply_batch`, `avatar_cancel_batch`, `get_avatar_batch_state`, `invalidate_avatar_headshots` | Avatares grátis: catálogo oficial gratuito, avatares salvos e o lote que os distribui entre contas — ver [avatars.md](avatars.md). |
-| `join_group` | Entrar em grupo Roblox. |
+| `join_group` | Entrar em grupo Roblox pelo navegador da conta, sem renovar sessão (ver [groups.md](groups.md)). |
 | `purchase_product` | Compra com preço e vendedor esperados. |
 | `change_password` | Troca senha; se a resposta trouxer novo cookie, persiste. |
 | `change_email`, `set_display_name` | Conta. |

@@ -121,7 +121,7 @@ mod social_presence_extra_tests {
             .mount(server)
             .await;
 
-        assert!(join_group("group-ok", 1234).await.is_ok());
+        assert_eq!(join_group_attempt("group-ok", 1234, false).await.outcome, GroupJoinOutcome::Joined);
     }
 
     #[tokio::test]
@@ -137,8 +137,8 @@ mod social_presence_extra_tests {
             .await;
 
         assert_eq!(
-            join_group("group-bad", 1235).await.unwrap_err(),
-            "Failed to join group: group is locked"
+            join_group_attempt("group-bad", 1235, false).await.outcome,
+            GroupJoinOutcome::Failed("group is locked".to_string())
         );
     }
 
