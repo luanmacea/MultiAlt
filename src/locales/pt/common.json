@@ -2014,7 +2014,7 @@
   "Handing saved looks out to many accounts comes with the complete edition.": "Distribuir os visuais salvos para várias contas vem com a edição completa.",
   "The complete edition is not available right now. Try again later.": "A edição completa não está disponível agora. Tente de novo mais tarde.",
   "The update downloads the complete installer from this project's GitHub releases. Your accounts and settings are kept.": "A atualização baixa o instalador completo das releases do GitHub deste projeto. Suas contas e configurações continuam.",
-  "Accounts join one at a time, with a short pause. If Roblox asks an account to confirm something, that account is skipped: open it in the browser, accept what Roblox shows, then press Try again.": "As contas entram uma por vez, com uma pausa curta. Se o Roblox pedir uma confirmação para uma conta, ela é pulada: abra-a no navegador, aceite o que o Roblox mostrar e aperte Tentar de novo.",
+  "Accounts join one at a time through their own browser, minimized. If Roblox asks for something (a puzzle, a confirmation), that window shows up: finish it there and MultiAlt moves on by itself.": "As contas entram uma por vez pelo navegador de cada uma, minimizado. Se o Roblox pedir algo (um quebra-cabeça, uma confirmação), a janela aparece: termine lá e o MultiAlt segue sozinho.",
   "Click Join group. Accounts join one at a time. If Roblox asks an account to confirm something, use Open in browser on it, accept what Roblox shows, then Try again.": "Clique em Entrar no grupo. As contas entram uma por vez. Se o Roblox pedir uma confirmação para uma conta, use Abrir no navegador nela, aceite o que o Roblox mostrar e depois Tentar de novo.",
   "Find a Roblox group and put your accounts in it, one at a time. If Roblox asks an account to confirm something (a captcha, new terms), you do it yourself in that account's browser.": "Ache um grupo do Roblox e coloque suas contas nele, uma por vez. Se o Roblox pedir uma confirmação para uma conta (captcha, termos novos), você faz isso no navegador da própria conta.",
   "Loading popular groups...": "Carregando grupos populares...",
@@ -2032,7 +2032,7 @@
   "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.": "Digite o nome de um grupo, ou cole o link ou o ID. A busca roda sozinha enquanto você digita. Com o campo vazio, aparecem grupos populares.",
   "Type at least 2 characters to search.": "Digite pelo menos 2 caracteres para buscar.",
   "type: {{type}}": "tipo: {{type}}",
-  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Entrada no grupo concluída: {{joined}} entraram, {{pending}} pendentes, {{confirm}} precisam de confirmação",
+  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need you, {{failed}} failed": "Entrada no grupo terminou: {{joined}} entraram, {{pending}} pendentes, {{confirm}} precisam de você, {{failed}} falharam",
   "Closed without leaving the game": "Fechou sem sair do jogo",
   "Disconnected: idle for too long": "Caiu: ficou parada tempo demais",
   "Disconnected: lost connection": "Caiu: perdeu a conexão",
@@ -2624,5 +2624,13 @@
   "Select at least one account other than the one being followed.": "Selecione pelo menos uma conta além da que vai ser seguida.",
   "The account doesn't need to be in MultiAlt.": "A conta não precisa estar no MultiAlt.",
   "Username, user ID or profile link": "Nome, ID ou link do perfil",
-  "Who should the selected accounts follow?": "Quem as contas selecionadas vão seguir?"
+  "Who should the selected accounts follow?": "Quem as contas selecionadas vão seguir?",
+  "Already in group {{groupId}}": "Já está no grupo {{groupId}}",
+  "Finish in the browser": "Termine no navegador",
+  "Finish it there (a puzzle, a confirmation). MultiAlt notices when the account joins and moves on.": "Termine lá (um quebra-cabeça, uma confirmação). O MultiAlt percebe quando a conta entra e segue.",
+  "Join request sent to group {{groupId}}": "Pedido de entrada enviado ao grupo {{groupId}}",
+  "Press Try again: the window opens again for you to finish.": "Clique em Tentar de novo: a janela abre de novo para você terminar.",
+  "Roblox asked for something in the browser and it wasn't finished": "O Roblox pediu algo no navegador e não foi terminado",
+  "Roblox is asking for something in this account's browser window": "O Roblox está pedindo algo na janela do navegador desta conta",
+  "Not finished": "Não terminado"
 }

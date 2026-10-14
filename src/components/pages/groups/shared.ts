@@ -23,6 +23,8 @@ export interface GroupSearchPage {
 export type GroupJoinStatus =
   | "waiting"
   | "joining"
+  /** O Roblox pediu algo na janela da conta: a pessoa termina lá. */
+  | "browser"
   | "joined"
   | "pending"
   | "alreadyMember"
@@ -71,6 +73,7 @@ export const IDLE_GROUP_JOIN: GroupJoinSnapshot = {
 export const STATUS_META: Record<GroupJoinStatus, { label: string; tone: string }> = {
   waiting: { label: "Waiting", tone: "theme-border bg-[var(--panel-soft)] theme-muted" },
   joining: { label: "Joining...", tone: "border-sky-500/30 bg-sky-500/15 text-sky-300" },
+  browser: { label: "Finish in the browser", tone: "border-amber-500/30 bg-amber-500/15 text-amber-300" },
   joined: { label: "Joined", tone: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300" },
   pending: { label: "Pending approval", tone: "border-violet-500/30 bg-violet-500/15 text-violet-300" },
   alreadyMember: { label: "Already a member", tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300/90" },
@@ -80,6 +83,14 @@ export const STATUS_META: Record<GroupJoinStatus, { label: string; tone: string 
   notMember: { label: "Not a member yet", tone: "border-amber-500/30 bg-amber-500/10 text-amber-300/90" },
 };
 
+/**
+ * O Roblox pediu algo na janela do navegador da conta e ninguém terminou
+ * (`challengeType: "browser"`, da entrada pelo navegador).
+ */
+export function isBrowserLeftover(result: Pick<GroupJoinAccountResult, "status" | "challengeType"> | undefined): boolean {
+  return result?.status === "challenge" && result.challengeType === "browser";
+}
+
 /** Desafio que é captcha mesmo (o resto é "confirmar alguma coisa"). */
 export function isCaptcha(result: Pick<GroupJoinAccountResult, "challengeType"> | undefined): boolean {
   return (result?.challengeType ?? "").toLowerCase() === "captcha";
@@ -88,12 +99,14 @@ export function isCaptcha(result: Pick<GroupJoinAccountResult, "challengeType"> 
 /** Rótulo (chave de tradução) do selo: o desafio diz "captcha" só se for. */
 export function statusLabel(result: GroupJoinAccountResult): string {
   if (result.status === "challenge" && isCaptcha(result)) return "Needs captcha";
+  if (isBrowserLeftover(result)) return "Not finished";
   return STATUS_META[result.status]?.label ?? result.status;
 }
 
 /**
  * Estados em que a conta ainda não entrou e a pessoa tem o que fazer: abrir o
- * navegador dela, tentar de novo ou conferir.
+ * navegador dela, tentar de novo ou conferir. `browser` fica de fora: a janela
+ * já está aberta e o app confere sozinho.
  */
 export function needsAction(status: GroupJoinStatus | undefined): boolean {
   return status === "challenge" || status === "failed" || status === "notMember";

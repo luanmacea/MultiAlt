@@ -87,9 +87,17 @@ export function SingleSelectSidebar() {
       store.addToast(tr("Invalid group ID"));
       return;
     }
+    // A entrada é pelo navegador da conta (minimizado; aparece se o Roblox
+    // pedir algo) — a mesma da página Groups.
     try {
-      await invoke("join_group", { userId: account.UserID, groupId });
-      store.addToast(tr("Joined group {{groupId}}", { groupId }));
+      const status = await invoke<string>("join_group", { userId: account.UserID, groupId });
+      store.addToast(
+        status === "pending"
+          ? tr("Join request sent to group {{groupId}}", { groupId })
+          : status === "alreadyMember"
+            ? tr("Already in group {{groupId}}", { groupId })
+            : tr("Joined group {{groupId}}", { groupId })
+      );
     } catch (e) {
       store.addToast(tr("Join group failed: {{error}}", { error: String(e) }));
     }

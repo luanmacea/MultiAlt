@@ -180,6 +180,243 @@ async fn join_one_account(
     }
 }
 
+// ---- Como cada conta entra ---------------------------------------------------
+
+type JoinFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = JoinRowUpdate> + Send + 'a>>;
+type PageFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+/// Como uma conta entra no grupo. O lote não sabe se é pelo navegador (o
+/// caminho real) ou pela API (plano B, e os testes). `needs_you` avisa o lote
+/// que a janela apareceu e a pessoa tem algo a fazer nela.
+trait GroupJoiner: Sync {
+    fn join<'a>(
+        &'a self,
+        user_id: i64,
+        group: &'a api::roblox::GroupSummary,
+        cancel: &'a std::sync::atomic::AtomicBool,
+        needs_you: &'a tokio::sync::mpsc::UnboundedSender<()>,
+    ) -> JoinFuture<'a>;
+}
+
+/// Entrada pela API (`POST groups/v1/groups/<id>/users`). Desde 13/10/2026 é
+/// só o plano B, quando o navegador não abre: medido com contas de teste, o
+/// Roblox responde a ela com um quebra-cabeça (`rostile`) que só o site mostra.
+struct ApiJoiner<'c> {
+    cookie_of: &'c (dyn Fn(i64) -> Result<String, String> + Sync),
+}
+
+impl GroupJoiner for ApiJoiner<'_> {
+    fn join<'a>(
+        &'a self,
+        user_id: i64,
+        group: &'a api::roblox::GroupSummary,
+        _cancel: &'a std::sync::atomic::AtomicBool,
+        _needs_you: &'a tokio::sync::mpsc::UnboundedSender<()>,
+    ) -> JoinFuture<'a> {
+        Box::pin(join_one_account(user_id, group, self.cookie_of))
+    }
+}
+
+/// A página do grupo aberta no navegador da conta, vista pelo fluxo (a real é
+/// `chromium::commands::GroupJoinBrowser`; nos testes, um dublê).
+trait JoinPage: Send {
+    fn click_join(&mut self) -> PageFuture<'_, Result<bool, String>>;
+    fn show(&mut self) -> PageFuture<'_, ()>;
+    fn is_closed(&mut self) -> bool;
+    fn close(self: Box<Self>) -> PageFuture<'static, ()>;
+}
+
+impl JoinPage for crate::chromium::commands::GroupJoinBrowser {
+    fn click_join(&mut self) -> PageFuture<'_, Result<bool, String>> {
+        Box::pin(crate::chromium::commands::GroupJoinBrowser::click_join(self))
+    }
+    fn show(&mut self) -> PageFuture<'_, ()> {
+        Box::pin(crate::chromium::commands::GroupJoinBrowser::show(self))
+    }
+    fn is_closed(&mut self) -> bool {
+        crate::chromium::commands::GroupJoinBrowser::is_closed(self)
+    }
+    fn close(self: Box<Self>) -> PageFuture<'static, ()> {
+        Box::pin(crate::chromium::commands::GroupJoinBrowser::close(*self))
+    }
+}
+
+/// Tempos da entrada pelo navegador.
+#[derive(Debug, Clone, Copy)]
+struct BrowserJoinTimings {
+    /// Intervalo entre duas conferências de participação.
+    poll: Duration,
+    /// Depois do clique, quanto esperar minimizado antes de mostrar a janela
+    /// (o Roblox pediu algo — quebra-cabeça, confirmação).
+    quiet: Duration,
+    /// Quanto esperar a pessoa terminar na janela antes de desistir da conta.
+    total: Duration,
+}
+
+const BROWSER_JOIN_TIMINGS: BrowserJoinTimings = BrowserJoinTimings {
+    poll: Duration::from_secs(2),
+    quiet: Duration::from_secs(12),
+    total: Duration::from_secs(180),
+};
+
+fn browser_row(status: &'static str, reason: Option<&str>) -> JoinRowUpdate {
+    JoinRowUpdate {
+        status,
+        reason: reason.map(str::to_string),
+        challenge_type: (status == "challenge").then(|| "browser".to_string()),
+        detail: None,
+    }
+}
+
+/// A entrada de uma conta pelo navegador dela:
+///
+/// 1. já é membro (ou tem pedido pendente)? Então nem abre janela;
+/// 2. abre a página do grupo minimizada e clica em "Join Community";
+/// 3. confere a participação pela API a cada `poll`. Entrou → fecha a janela;
+/// 4. não entrou em `quiet` → mostra a janela e avisa (`needs_you`): o Roblox
+///    pediu algo que só a pessoa faz. Nunca resolve nada sozinho;
+/// 5. `total` sem entrar, ou a pessoa fechou a janela → a conta fica marcada e
+///    o lote segue.
+///
+/// `Err` = o navegador nem abriu (quem chama cai para a API).
+async fn browser_join_flow<M, MF, O>(
+    membership: M,
+    open: O,
+    timings: BrowserJoinTimings,
+    cancel: &std::sync::atomic::AtomicBool,
+    needs_you: &tokio::sync::mpsc::UnboundedSender<()>,
+) -> Result<JoinRowUpdate, String>
+where
+    M: Fn() -> MF,
+    MF: std::future::Future<Output = Result<api::roblox::GroupMembership, String>>,
+    O: std::future::Future<Output = Result<Box<dyn JoinPage>, String>>,
+{
+    use api::roblox::GroupMembership;
+    match membership().await {
+        Ok(GroupMembership::Member) => return Ok(browser_row("alreadyMember", None)),
+        Ok(GroupMembership::Pending) => return Ok(browser_row("pending", None)),
+        _ => {}
+    }
+
+    let mut page = open.await?;
+    let clicked = match page.click_join().await {
+        Ok(clicked) => clicked,
+        Err(e) => {
+            page.close().await;
+            return Ok(JoinRowUpdate::failed(e));
+        }
+    };
+    let mut shown = false;
+    if !clicked {
+        // Sem botão: ou já entrou, ou a página pede algo antes (termos,
+        // verificação). A pessoa vê a janela desde já.
+        page.show().await;
+        let _ = needs_you.send(());
+        shown = true;
+    }
+
+    let started = std::time::Instant::now();
+    loop {
+        if cancellable_pause(timings.poll, cancel).await {
+            page.close().await;
+            return Ok(browser_row("cancelled", None));
+        }
+        match membership().await {
+            Ok(GroupMembership::Member) => {
+                page.close().await;
+                return Ok(browser_row("joined", None));
+            }
+            Ok(GroupMembership::Pending) => {
+                page.close().await;
+                return Ok(browser_row("pending", None));
+            }
+            _ => {}
+        }
+        if page.is_closed() {
+            return Ok(browser_row(
+                "notMember",
+                Some("The browser window was closed before the account joined"),
+            ));
+        }
+        let elapsed = started.elapsed();
+        if !shown && elapsed >= timings.quiet {
+            page.show().await;
+            let _ = needs_you.send(());
+            shown = true;
+        }
+        if elapsed >= timings.total {
+            page.close().await;
+            return Ok(browser_row(
+                "challenge",
+                Some("Roblox asked for something in the browser and it wasn't finished"),
+            ));
+        }
+    }
+}
+
+/// O caminho real: navegador da conta; se ele não abrir, a API.
+struct BrowserJoiner<'a> {
+    app: &'a tauri::AppHandle,
+    store: &'a AccountStore,
+}
+
+impl GroupJoiner for BrowserJoiner<'_> {
+    fn join<'a>(
+        &'a self,
+        user_id: i64,
+        group: &'a api::roblox::GroupSummary,
+        cancel: &'a std::sync::atomic::AtomicBool,
+        needs_you: &'a tokio::sync::mpsc::UnboundedSender<()>,
+    ) -> JoinFuture<'a> {
+        Box::pin(async move {
+            let cookie = match get_cookie(self.store, user_id) {
+                Ok(cookie) if !cookie.trim().is_empty() => cookie,
+                Ok(_) => return JoinRowUpdate::failed("Account has no cookie".to_string()),
+                Err(e) => return JoinRowUpdate::failed(e),
+            };
+            let membership = || api::roblox::group_membership(&cookie, user_id, group.id);
+            let open = async {
+                crate::chromium::commands::GroupJoinBrowser::open(self.app, user_id, &cookie, group.id)
+                    .await
+                    .map(|page| Box::new(page) as Box<dyn JoinPage>)
+            };
+            match browser_join_flow(membership, open, BROWSER_JOIN_TIMINGS, cancel, needs_you).await {
+                Ok(update) => {
+                    eprintln!("[groups] browser join user={} group={} status={}", user_id, group.id, update.status);
+                    update
+                }
+                Err(e) => {
+                    eprintln!("[groups] browser unavailable user={} group={}: {}", user_id, group.id, e);
+                    let cookie_of = |_: i64| Ok(cookie.clone());
+                    let mut update = join_one_account(user_id, group, &cookie_of).await;
+                    if update.status == "challenge" || update.status == "failed" {
+                        update.reason = Some(format!("Could not open the browser: {}", e));
+                    }
+                    update
+                }
+            }
+        })
+    }
+}
+
+/// Uma conta, do jeito do `joiner`, avisando quando a janela pede a pessoa.
+async fn drive_join(
+    joiner: &dyn GroupJoiner,
+    user_id: i64,
+    group: &api::roblox::GroupSummary,
+    cancel: &std::sync::atomic::AtomicBool,
+    mut on_needs_you: impl FnMut(),
+) -> JoinRowUpdate {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let mut join = joiner.join(user_id, group, cancel, &tx);
+    loop {
+        tokio::select! {
+            update = &mut join => return update,
+            Some(()) = rx.recv() => on_needs_you(),
+        }
+    }
+}
+
 fn membership_status(membership: api::roblox::GroupMembership) -> &'static str {
     match membership {
         api::roblox::GroupMembership::Member => "joined",
@@ -197,15 +434,16 @@ fn mark_remaining_cancelled(snapshot: &mut GroupJoinSnapshot, from: usize) {
 }
 
 /// O lote em si, sem Tauri: entra com cada conta, na ordem, uma por vez.
-/// Um captcha marca a conta como `challenge` e o lote segue para a próxima —
-/// nunca tenta resolver.
+/// Conta que esbarra num pedido do Roblox fica `browser` (a janela apareceu)
+/// enquanto a pessoa resolve, e `challenge` se não resolver — o lote nunca
+/// tenta resolver nada sozinho.
 #[allow(clippy::too_many_arguments)]
 async fn run_group_join(
     user_ids: &[i64],
     group: &api::roblox::GroupSummary,
     pacing: JoinPacing,
     cancel: &std::sync::atomic::AtomicBool,
-    cookie_of: &(dyn Fn(i64) -> Result<String, String> + Sync),
+    joiner: &dyn GroupJoiner,
     next_u64: &mut (dyn FnMut() -> u64 + Send),
     publish: &mut (dyn FnMut(&GroupJoinSnapshot) + Send),
 ) -> GroupJoinSnapshot {
@@ -234,7 +472,12 @@ async fn run_group_join(
         snapshot.current_user_id = Some(user_id);
         publish(&snapshot);
 
-        join_one_account(user_id, group, cookie_of).await.apply(&mut snapshot.accounts[index]);
+        let update = drive_join(joiner, user_id, group, cancel, || {
+            snapshot.accounts[index].status = "browser".to_string();
+            publish(&snapshot);
+        })
+        .await;
+        update.apply(&mut snapshot.accounts[index]);
         snapshot.done = index + 1;
         snapshot.current_user_id = None;
         publish(&snapshot);
@@ -254,7 +497,8 @@ async fn retry_group_join_account(
     snapshot: &mut GroupJoinSnapshot,
     user_id: i64,
     group: &api::roblox::GroupSummary,
-    cookie_of: &(dyn Fn(i64) -> Result<String, String> + Sync),
+    cancel: &std::sync::atomic::AtomicBool,
+    joiner: &dyn GroupJoiner,
     publish: &mut (dyn FnMut(&GroupJoinSnapshot) + Send),
 ) {
     if snapshot.group_id != Some(group.id) {
@@ -282,7 +526,12 @@ async fn retry_group_join_account(
     snapshot.current_user_id = Some(user_id);
     publish(snapshot);
 
-    join_one_account(user_id, group, cookie_of).await.apply(&mut snapshot.accounts[index]);
+    let update = drive_join(joiner, user_id, group, cancel, || {
+        snapshot.accounts[index].status = "browser".to_string();
+        publish(snapshot);
+    })
+    .await;
+    update.apply(&mut snapshot.accounts[index]);
     snapshot.current_user_id = None;
     publish(snapshot);
 }
@@ -439,15 +688,14 @@ async fn groups_join_batch(
         return Err("This group is locked and does not accept new members".to_string());
     }
 
-    let store = account_store.inner();
-    let cookie_of = |user_id: i64| get_cookie(store, user_id);
+    let joiner = BrowserJoiner { app: &app, store: account_store.inner() };
     let mut publish = |snapshot: &GroupJoinSnapshot| publish_group_join(&app, snapshot);
     Ok(run_group_join(
         &user_ids,
         &group,
         JOIN_PACING,
         &GROUP_JOIN_CANCEL,
-        &cookie_of,
+        &joiner,
         &mut os_random_u64,
         &mut publish,
     )
@@ -477,12 +725,52 @@ async fn groups_join_retry(
         return Err("This group is locked and does not accept new members".to_string());
     }
 
-    let store = account_store.inner();
-    let cookie_of = |user_id: i64| get_cookie(store, user_id);
+    GROUP_JOIN_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+    let joiner = BrowserJoiner { app: &app, store: account_store.inner() };
     let mut snapshot = GROUP_JOIN.lock().map(|s| s.clone()).unwrap_or_default();
     let mut publish = |snapshot: &GroupJoinSnapshot| publish_group_join(&app, snapshot);
-    retry_group_join_account(&mut snapshot, user_id, &group, &cookie_of, &mut publish).await;
+    retry_group_join_account(&mut snapshot, user_id, &group, &GROUP_JOIN_CANCEL, &joiner, &mut publish).await;
     Ok(snapshot)
+}
+
+/// "Join Group" do painel de uma conta: a mesma entrada da página Groups (pelo
+/// navegador da conta), para uma conta só. Devolve `"joined"`, `"pending"` ou
+/// `"alreadyMember"`; o resto é erro com o motivo.
+///
+/// Até 13/10/2026 este comando passava por `run_with_session_retry`: um 401
+/// renovava a sessão, o que desloga a conta de todas as sessões (CLAUDE.md).
+#[tauri::command]
+async fn join_group(
+    app: tauri::AppHandle,
+    account_store: tauri::State<'_, AccountStore>,
+    user_id: i64,
+    group_id: i64,
+) -> Result<String, String> {
+    if group_id <= 0 {
+        return Err("Invalid group ID".to_string());
+    }
+    let _running = try_begin_group_join()?;
+    GROUP_JOIN_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+    let group = api::roblox::get_group(None, group_id)
+        .await
+        .map_err(|e| format!("Could not read the group: {}", e))?;
+    if group.is_locked {
+        return Err("This group is locked and does not accept new members".to_string());
+    }
+    let joiner = BrowserJoiner { app: &app, store: account_store.inner() };
+    let update = drive_join(&joiner, user_id, &group, &GROUP_JOIN_CANCEL, || {}).await;
+    single_join_result(update)
+}
+
+/// O que o "Join Group" do painel devolve para uma linha do lote.
+fn single_join_result(update: JoinRowUpdate) -> Result<String, String> {
+    match update.status {
+        "joined" | "pending" | "alreadyMember" => Ok(update.status.to_string()),
+        "challenge" => Err(update
+            .reason
+            .unwrap_or_else(|| "Roblox asked for something that wasn't finished in the browser".to_string())),
+        _ => Err(update.reason.unwrap_or_else(|| format!("Could not join ({})", update.status))),
+    }
 }
 
 /// Quantos detalhes de grupo os "Grupos populares" pedem ao mesmo tempo.

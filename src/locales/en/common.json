@@ -2014,7 +2014,7 @@
   "Handing saved looks out to many accounts comes with the complete edition.": "Handing saved looks out to many accounts comes with the complete edition.",
   "The complete edition is not available right now. Try again later.": "The complete edition is not available right now. Try again later.",
   "The update downloads the complete installer from this project's GitHub releases. Your accounts and settings are kept.": "The update downloads the complete installer from this project's GitHub releases. Your accounts and settings are kept.",
-  "Accounts join one at a time, with a short pause. If Roblox asks an account to confirm something, that account is skipped: open it in the browser, accept what Roblox shows, then press Try again.": "Accounts join one at a time, with a short pause. If Roblox asks an account to confirm something, that account is skipped: open it in the browser, accept what Roblox shows, then press Try again.",
+  "Accounts join one at a time through their own browser, minimized. If Roblox asks for something (a puzzle, a confirmation), that window shows up: finish it there and MultiAlt moves on by itself.": "Accounts join one at a time through their own browser, minimized. If Roblox asks for something (a puzzle, a confirmation), that window shows up: finish it there and MultiAlt moves on by itself.",
   "Click Join group. Accounts join one at a time. If Roblox asks an account to confirm something, use Open in browser on it, accept what Roblox shows, then Try again.": "Click Join group. Accounts join one at a time. If Roblox asks an account to confirm something, use Open in browser on it, accept what Roblox shows, then Try again.",
   "Find a Roblox group and put your accounts in it, one at a time. If Roblox asks an account to confirm something (a captcha, new terms), you do it yourself in that account's browser.": "Find a Roblox group and put your accounts in it, one at a time. If Roblox asks an account to confirm something (a captcha, new terms), you do it yourself in that account's browser.",
   "Loading popular groups...": "Loading popular groups...",
@@ -2032,7 +2032,7 @@
   "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.": "Type a group name, or paste its link or ID. The search runs by itself as you type. With the field empty, you see popular groups.",
   "Type at least 2 characters to search.": "Type at least 2 characters to search.",
   "type: {{type}}": "type: {{type}}",
-  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation": "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need a confirmation",
+  "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need you, {{failed}} failed": "Group join finished: {{joined}} joined, {{pending}} pending, {{confirm}} need you, {{failed}} failed",
   "Closed without leaving the game": "Closed without leaving the game",
   "Disconnected: idle for too long": "Disconnected: idle for too long",
   "Disconnected: lost connection": "Disconnected: lost connection",
@@ -2624,5 +2624,13 @@
   "Select at least one account other than the one being followed.": "Select at least one account other than the one being followed.",
   "The account doesn't need to be in MultiAlt.": "The account doesn't need to be in MultiAlt.",
   "Username, user ID or profile link": "Username, user ID or profile link",
-  "Who should the selected accounts follow?": "Who should the selected accounts follow?"
+  "Who should the selected accounts follow?": "Who should the selected accounts follow?",
+  "Already in group {{groupId}}": "Already in group {{groupId}}",
+  "Finish in the browser": "Finish in the browser",
+  "Finish it there (a puzzle, a confirmation). MultiAlt notices when the account joins and moves on.": "Finish it there (a puzzle, a confirmation). MultiAlt notices when the account joins and moves on.",
+  "Join request sent to group {{groupId}}": "Join request sent to group {{groupId}}",
+  "Press Try again: the window opens again for you to finish.": "Press Try again: the window opens again for you to finish.",
+  "Roblox asked for something in the browser and it wasn't finished": "Roblox asked for something in the browser and it wasn't finished",
+  "Roblox is asking for something in this account's browser window": "Roblox is asking for something in this account's browser window",
+  "Not finished": "Not finished"
 }

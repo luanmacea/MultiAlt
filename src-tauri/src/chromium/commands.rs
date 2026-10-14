@@ -192,6 +192,122 @@ pub async fn open_account_browser(
     Ok(())
 }
 
+/// O botão "Join Community" da página do grupo. Pela classe, não pelo texto: o
+/// texto segue o idioma da conta no Roblox. Conferido em 13/10/2026 (a página
+/// tem dois, o do topo e o da versão estreita; os dois entram).
+const GROUP_JOIN_BUTTON_SELECTOR: &str = ".actions-btn-container .actions-btn";
+
+/// Clica no botão de entrar, se houver. `true` = clicou.
+fn group_join_click_script() -> String {
+    format!(
+        "(() => {{ const b = document.querySelector({:?}); if (!b) return false; b.click(); return true; }})()",
+        GROUP_JOIN_BUTTON_SELECTOR
+    )
+}
+
+/// O navegador da conta aberto para entrar num grupo **pelo site**.
+///
+/// Por que o site e não a API: medido em 13/10/2026 com contas de teste, o
+/// `POST groups/v1/groups/<id>/users` feito pelo app recebe sempre um desafio
+/// (`rblx-challenge-type: rostile`, quebra-cabeça visível), enquanto o clique
+/// em "Join Community" no navegador da mesma conta entra na hora. O app não
+/// resolve desafio nenhum: ele só clica no botão do site, como a pessoa faria;
+/// se o Roblox mostrar um quebra-cabeça, a janela aparece para a pessoa.
+///
+/// A janela nasce **minimizada** (a entrada funciona assim — medido) e só
+/// aparece com `show`. Diferente do "Open in browser", aqui a porta de debug
+/// (só na loopback) fica aberta enquanto a entrada dura: é ela que deixa clicar
+/// no botão e fechar a janela no fim.
+pub(crate) struct GroupJoinBrowser {
+    child: std::process::Child,
+    cdp: CdpClient,
+    window_id: Option<i64>,
+}
+
+impl GroupJoinBrowser {
+    pub(crate) async fn open(app: &AppHandle, user_id: i64, raw_token: &str, group_id: i64) -> Result<Self, String> {
+        let token = normalize_security_token(raw_token);
+        if token.is_empty() {
+            return Err("Account has no .ROBLOSECURITY token".into());
+        }
+        let settings = app.state::<SettingsStore>();
+        let stealth = settings.get_bool("Login", "StealthMode");
+        let (binary, _) = resolve_browser_binary(app, Some(&manual_binary_path(&settings))).await?;
+        let profile = ChromiumManager::account_profile(app, user_id)?;
+        // Mesmo perfil do "Open in browser": a janela antiga dessa conta sai
+        // antes (dois Chromium no mesmo perfil brigam pelo lock).
+        app.state::<ChromiumManager>().kill(user_id);
+
+        let (child, port) = spawn_chrome(&binary, &profile, "about:blank", true, stealth).await?;
+        let Some(port) = port else {
+            kill_untracked(child);
+            return Err("Could not attach to the browser".into());
+        };
+        let cdp = match CdpClient::connect(port).await {
+            Ok(cdp) => cdp,
+            Err(e) => {
+                kill_untracked(child);
+                return Err(e);
+            }
+        };
+        let mut browser = Self { child, cdp, window_id: None };
+        if let Ok(window) = browser.cdp.send("Browser.getWindowForTarget", serde_json::json!({})).await {
+            browser.window_id = window.get("windowId").and_then(|v| v.as_i64());
+        }
+        browser.set_window_state("minimized").await;
+        if let Err(e) = plant_account_cookie(&mut browser.cdp, &token, stealth).await {
+            browser.close().await;
+            return Err(e);
+        }
+        if let Err(e) = browser.cdp.navigate(&account_browser_start_url(Some(group_id))).await {
+            browser.close().await;
+            return Err(e);
+        }
+        Ok(browser)
+    }
+
+    async fn set_window_state(&mut self, state: &str) {
+        if let Some(id) = self.window_id {
+            let _ = self
+                .cdp
+                .send(
+                    "Browser.setWindowBounds",
+                    serde_json::json!({ "windowId": id, "bounds": { "windowState": state } }),
+                )
+                .await;
+        }
+    }
+
+    /// Espera o botão de entrar e clica. `Ok(false)` = o botão não apareceu
+    /// (a conta já está no grupo, ou a página não carregou).
+    pub(crate) async fn click_join(&mut self) -> Result<bool, String> {
+        // ~20 s: a página do grupo é pesada e a janela está minimizada.
+        if !self.cdp.wait_for_selector(GROUP_JOIN_BUTTON_SELECTOR, 66).await {
+            return Ok(false);
+        }
+        Ok(self.cdp.eval(&group_join_click_script()).await? == serde_json::Value::Bool(true))
+    }
+
+    /// Mostra a janela: o Roblox pediu algo que só a pessoa resolve.
+    pub(crate) async fn show(&mut self) {
+        self.set_window_state("normal").await;
+        let _ = self.cdp.send("Page.bringToFront", serde_json::json!({})).await;
+    }
+
+    /// A pessoa fechou a janela?
+    pub(crate) fn is_closed(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(Some(_)))
+    }
+
+    pub(crate) async fn close(mut self) {
+        let _ = self.cdp.close_browser().await;
+        if !wait_for_exit(&mut self.child, BROWSER_EXIT_TIMEOUT).await {
+            let _ = self.child.kill();
+        }
+        let _ = self.child.wait();
+    }
+}
+
 /// Grava o cookie da conta no perfil, com validade, para que ele sobreviva ao
 /// restart entre a fase 1 e a fase 2.
 async fn plant_account_cookie(
