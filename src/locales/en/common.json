@@ -1552,7 +1552,6 @@
   "Online-join warning disabled": "Online-join warning disabled",
   "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.": "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.",
   "Browse Roblox games. Click a game to see its servers, or use Join Game to launch directly.": "Browse Roblox games. Click a game to see its servers, or use Join Game to launch directly.",
-  "Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly.": "Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly.",
   "{{jobId}} — click to copy": "{{jobId}} — click to copy",
   "Private server link or VIP code": "Private server link or VIP code",
   "Name for this server (optional)": "Name for this server (optional)",
@@ -2632,5 +2631,11 @@
   "Press Try again: the window opens again for you to finish.": "Press Try again: the window opens again for you to finish.",
   "Roblox asked for something in the browser and it wasn't finished": "Roblox asked for something in the browser and it wasn't finished",
   "Roblox is asking for something in this account's browser window": "Roblox is asking for something in this account's browser window",
-  "Not finished": "Not finished"
+  "Not finished": "Not finished",
+  "From each account's Continue list on Roblox: games played from anywhere, not just MultiAlt.": "From each account's Continue list on Roblox: games played from anywhere, not just MultiAlt.",
+  "Games opened by MultiAlt and, below, the games each selected account played recently on Roblox. Click a game to see its servers, or use Join Game to launch directly.": "Games opened by MultiAlt and, below, the games each selected account played recently on Roblox. Click a game to see its servers, or use Join Game to launch directly.",
+  "No recent games on Roblox for this account.": "No recent games on Roblox for this account.",
+  "Opened by MultiAlt": "Opened by MultiAlt",
+  "Reading each account's recent games...": "Reading each account's recent games...",
+  "Recently played by each account": "Recently played by each account"
 }

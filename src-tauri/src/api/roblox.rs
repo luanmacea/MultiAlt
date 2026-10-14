@@ -22,3 +22,4 @@ include!("roblox/groups.rs");
 include!("roblox/moderation.rs");
 include!("roblox/session_check.rs");
 include!("roblox/follow.rs");
+include!("roblox/recent_games.rs");
