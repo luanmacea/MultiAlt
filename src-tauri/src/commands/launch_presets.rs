@@ -261,6 +261,7 @@ async fn run_launch_preset(app: &tauri::AppHandle, preset: &LaunchPreset) -> Res
         preset.job_id.clone(),
         String::new(),
         Some(false),
+        None,
     )
     .await?;
     #[cfg(not(target_os = "windows"))]
@@ -273,6 +274,7 @@ async fn run_launch_preset(app: &tauri::AppHandle, preset: &LaunchPreset) -> Res
         preset.job_id.clone(),
         String::new(),
         Some(false),
+        None,
     )
     .await?;
     if outcome.appended {

@@ -7,6 +7,7 @@ import { NEUTRAL_ACTION, PRIMARY_ACTION } from "../../afk-mode/ModeStatusBar";
 import { GroupIcon, VerifiedBadge } from "./GroupResults";
 import {
   STATUS_META,
+  isBrowserLeftover,
   isCaptcha,
   needsAction,
   statusLabel,
@@ -20,7 +21,9 @@ const CARD = "theme-surface rounded-xl border theme-border p-3";
 /**
  * Quem entra no grupo escolhido, e o andamento de cada conta. A lista de
  * marcar é a mesma das abas do Modo AFK (Selecionar todas / Limpar); o selo de
- * cada linha vem do lote. Clicar em qualquer lugar da caixa da conta marca ou
+ * cada linha vem do lote. A entrada é pelo navegador da própria conta,
+ * minimizado; se o Roblox pedir algo, a janela aparece e a linha diz "Termine no
+ * navegador" até a conta entrar. Clicar em qualquer lugar da caixa da conta marca ou
  * desmarca (os botões de dentro só fazem a ação deles). Conta que não entrou
  * (desafio, falha, "ainda não é membro") ganha "Abrir no navegador" (o
  * navegador dela na página do grupo), "Tentar de novo" (a entrada de novo, só
@@ -159,6 +162,7 @@ export function GroupJoinCard({
             const isRetrying = retrying.has(account.UserID);
             const challenge = result?.status === "challenge";
             const captcha = challenge && isCaptcha(result);
+            const leftover = isBrowserLeftover(result);
             const diagnostic = [result?.detail, challenge ? result?.reason : null].filter(Boolean).join(" · ");
             return (
               <li
@@ -196,12 +200,33 @@ export function GroupJoinCard({
                   </button>
                   {meta && result ? (
                     <span className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[11px] ${meta.tone}`}>
-                      {result.status === "joining" ? <Loader2 size={10} className="animate-spin" aria-hidden="true" /> : null}
+                      {result.status === "joining" || result.status === "browser" ? (
+                        <Loader2 size={10} className="animate-spin" aria-hidden="true" />
+                      ) : null}
                       {t(statusLabel(result))}
                     </span>
                   ) : null}
                 </div>
-                {challenge ? (
+                {result?.status === "browser" ? (
+                  <div className="px-2 pb-1.5 pl-8 space-y-0.5">
+                    <div className="text-[11.5px] text-amber-200">
+                      {t("Roblox is asking for something in this account's browser window")}
+                    </div>
+                    <div className="text-[11px] theme-muted leading-4">
+                      {t("Finish it there (a puzzle, a confirmation). MultiAlt notices when the account joins and moves on.")}
+                    </div>
+                  </div>
+                ) : null}
+                {leftover ? (
+                  <div className="px-2 pb-1.5 pl-8 space-y-0.5">
+                    <div className="text-[11.5px] text-amber-200">
+                      {t("Roblox asked for something in the browser and it wasn't finished")}
+                    </div>
+                    <div className="text-[11px] theme-muted leading-4">
+                      {t("Press Try again: the window opens again for you to finish.")}
+                    </div>
+                  </div>
+                ) : challenge ? (
                   <div className="px-2 pb-1.5 pl-8 space-y-0.5">
                     <div className="text-[11.5px] text-amber-200">
                       {captcha ? t("Roblox asked for a captcha") : t("Roblox asked this account to confirm something")}
@@ -219,7 +244,7 @@ export function GroupJoinCard({
                 {result?.status === "failed" && result.reason ? (
                   <div className="px-2 pb-1.5 pl-8 text-[11px] text-red-300/90 break-words">{result.reason}</div>
                 ) : null}
-                {diagnostic && (challenge || result?.status === "failed") ? (
+                {diagnostic && !leftover && (challenge || result?.status === "failed") ? (
                   <div className="px-2 pb-1.5 pl-8 text-[11px] theme-muted opacity-80 break-words" title={diagnostic}>
                     {diagnostic}
                   </div>
@@ -309,7 +334,7 @@ export function GroupJoinCard({
           )}
           <span className="flex-1 min-w-[200px] text-[11px] theme-muted leading-4">
             {t(
-              "Accounts join one at a time, with a short pause. If Roblox asks an account to confirm something, that account is skipped: open it in the browser, accept what Roblox shows, then press Try again."
+              "Accounts join one at a time through their own browser, minimized. If Roblox asks for something (a puzzle, a confirmation), that window shows up: finish it there and MultiAlt moves on by itself."
             )}
           </span>
         </div>

@@ -51,6 +51,11 @@ impl SettingsStore {
                 Some("Multi-launch: start the next account as soon as the previous one is in the game (never before AccountJoinDelay's 8 s floor, at most 20 s)"),
             ),
             ("DisableAgingAlert", "false", None),
+            (
+                "JoinFriendsByFollowing",
+                "true",
+                Some("Friends/Follow tabs: join by following the player (RequestFollowUser), like the old RAM, instead of asking for the exact server; helps avoid CAPTCHA"),
+            ),
             ("HideUsernames", "false", None),
             ("WrapLongNames", "false", None),
             (
@@ -358,6 +363,9 @@ impl SettingsStore {
             // gera "arvore_k3p9z". Vazio mantem o nome de palavras de sempre.
             // Nao vale para o BloxGen, cujo nome vem pronto do provedor.
             ("SignupUsernamePrefix", ""),
+            // O criador de contas clica em "Cadastrar-se" sozinho; o CAPTCHA,
+            // se aparecer, continua sendo da pessoa (14/10/2026).
+            ("SignupAutoSubmit", "true"),
         ];
 
         let generator = ini.section("Generator");

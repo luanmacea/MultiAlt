@@ -390,6 +390,17 @@ struct LaunchRequest {
     link_code: String,
     /// Sortear um servidor público por conta (`shuffleJob`).
     shuffle_job: bool,
+    /// Entrar **seguindo** este usuário (`RequestFollowUser`), como o Roblox
+    /// Account Manager antigo fazia ao "entrar pelo amigo": o Roblox põe a
+    /// conta no servidor do amigo. `place_id` continua sendo o jogo dele (fila,
+    /// reconexão e Rejoin usam o jogo de verdade); só o link de entrada usa o
+    /// usuário. Ver docs/features/friends.md ("Entrar seguindo o amigo").
+    follow_user_id: Option<i64>,
+}
+
+/// O usuário a seguir, se o pedido for "entrar seguindo" (id válido).
+fn follow_target(request: &LaunchRequest) -> Option<i64> {
+    request.follow_user_id.filter(|id| *id > 0)
 }
 
 /// Uma conta da fila, do jeito que o frontend lê (`LaunchQueueEntry`).
@@ -1159,6 +1170,7 @@ async fn launch_roblox(
         join_vip,
         link_code: link_code.clone(),
         shuffle_job: shuffle_job_requested(shuffle_job),
+        follow_user_id: None,
     };
     let sequence = match launch_queue_admit(&app, &[user_id], &request).await? {
         Admitted::Appended(added) => return Ok(LaunchOutcome::appended(added)),
@@ -1551,6 +1563,7 @@ async fn launch_roblox(
         join_vip,
         link_code: link_code.clone(),
         shuffle_job: shuffle_job_requested(shuffle_job),
+        follow_user_id: None,
     };
     let sequence = match launch_queue_admit(&app, &[user_id], &request).await? {
         Admitted::Appended(added) => return Ok(LaunchOutcome::appended(added)),
@@ -1775,6 +1788,8 @@ async fn launch_multiple(
     // Opcional para aceitar chamadas que não mandam o campo (Tauri trata a
     // chave ausente como `None`); `None` = não sortear.
     shuffle_job: Option<bool>,
+    // "Entrar seguindo o amigo": `None` = entrada normal no place/job.
+    follow_user_id: Option<i64>,
 ) -> Result<LaunchOutcome, String> {
     use platform::windows;
 
@@ -1789,8 +1804,8 @@ async fn launch_multiple(
     // dela e o laço de quem a abriu o lança — a reserva cobre a fila inteira,
     // antes de qualquer launch e antes de mexer no tracker, então um lote que
     // entra no fim não apaga o cancelamento (`Close All Roblox`) de quem roda.
-    // Multi launch não tem `follow_user` nem VIP por parâmetro: o VIP chega
-    // como `vip:<código>` no Job ID.
+    // Multi launch não tem VIP por parâmetro: o VIP chega como `vip:<código>`
+    // no Job ID. "Seguir" vem por `follow_user_id`.
     let request = LaunchRequest {
         place_id,
         job_id,
@@ -1799,6 +1814,7 @@ async fn launch_multiple(
         join_vip: false,
         link_code: String::new(),
         shuffle_job: shuffle_job_requested(shuffle_job),
+        follow_user_id,
     };
     let sequence = match launch_queue_admit(&app, &user_ids, &request).await? {
         Admitted::Appended(added) => return Ok(LaunchOutcome::appended(added)),
@@ -1993,7 +2009,8 @@ async fn run_launch_queue_windows(
         let acct_place = request.place_id;
         let acct_job = request.job_id.clone();
         let launch_data = request.launch_data.clone();
-        let follow_user = request.follow_user;
+        let follow_to = follow_target(&request);
+        let follow_user = request.follow_user || follow_to.is_some();
         let acct_version_override = account
             .and_then(|a| a.fields.get("RobloxVersion").cloned())
             .filter(|v| !v.trim().is_empty());
@@ -2227,7 +2244,7 @@ async fn run_launch_queue_windows(
             windows::launch_old_join_from(
                 &acct_client_dir,
                 &ticket,
-                private_join.place_id,
+                follow_to.unwrap_or(private_join.place_id),
                 &resolved_launch.job_id,
                 &launch_data,
                 follow_user,
@@ -2239,7 +2256,7 @@ async fn run_launch_queue_windows(
         } else {
             let url = windows::build_launch_url(
                 &ticket,
-                private_join.place_id,
+                follow_to.unwrap_or(private_join.place_id),
                 &resolved_launch.job_id,
                 &browser_tracker_id,
                 &launch_data,
@@ -2353,6 +2370,7 @@ async fn launch_multiple(
     // Opcional para aceitar chamadas que não mandam o campo (Tauri trata a
     // chave ausente como `None`); `None` = não sortear.
     shuffle_job: Option<bool>,
+    follow_user_id: Option<i64>,
 ) -> Result<LaunchOutcome, String> {
     #[cfg(target_os = "macos")]
     {
@@ -2371,6 +2389,7 @@ async fn launch_multiple(
             join_vip: false,
             link_code: String::new(),
             shuffle_job: shuffle_job_requested(shuffle_job),
+            follow_user_id,
         };
         let sequence = match launch_queue_admit(&app, &user_ids, &request).await? {
             Admitted::Appended(added) => return Ok(LaunchOutcome::appended(added)),
@@ -2479,7 +2498,8 @@ async fn run_launch_queue_macos(
         // (per-account saved-game overrides removed — see the Windows path).
         let acct_place = request.place_id;
         let acct_job = request.job_id.clone();
-        let follow_user = request.follow_user;
+        let follow_to = follow_target(&request);
+        let follow_user = request.follow_user || follow_to.is_some();
 
         let _ = app.emit(
             "launch-progress",
@@ -2585,7 +2605,7 @@ async fn run_launch_queue_macos(
         let launch_result = if use_old_join {
             macos::launch_old_join(
                 &ticket,
-                private_join.place_id,
+                follow_to.unwrap_or(private_join.place_id),
                 &resolved_launch.job_id,
                 &request.launch_data,
                 follow_user,
@@ -2597,7 +2617,7 @@ async fn run_launch_queue_macos(
         } else {
             let url = macos::build_launch_url(
                 &ticket,
-                private_join.place_id,
+                follow_to.unwrap_or(private_join.place_id),
                 &resolved_launch.job_id,
                 &browser_tracker_id,
                 &request.launch_data,
