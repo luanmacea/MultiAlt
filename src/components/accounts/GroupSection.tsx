@@ -2,6 +2,7 @@ import { Check, ChevronDown, ChevronRight, ChevronUp, GripVertical } from "lucid
 import { useStore } from "../../store";
 import type { ParsedGroup } from "../../types";
 import { AccountRow } from "./AccountRow";
+import { useAccountListView } from "./accountListView";
 import { useTr } from "../../i18n/text";
 
 export function GroupSection({
@@ -18,6 +19,8 @@ export function GroupSection({
   const t = useTr();
   const store = useStore();
   const showHeader = group.key !== "__all__" && store.showGroups && (store.theme?.show_headers ?? true);
+  const [listView] = useAccountListView();
+  const cards = listView === "cards";
 
   function handleDragOver(e: React.DragEvent) {
     e.preventDefault();
@@ -198,9 +201,16 @@ export function GroupSection({
         onDragOver={!showHeader ? handleDragOver : undefined}
         onDrop={!showHeader ? handleDrop : undefined}
       >
-        {group.accounts.map((account) => (
-          <AccountRow key={account.UserID} account={account} />
-        ))}
+        {cards ? (
+          // Visão em cards: a grade ganha colunas com a largura da janela.
+          <div className="grid gap-2 px-3 py-2 [grid-template-columns:repeat(auto-fill,minmax(168px,1fr))]">
+            {group.accounts.map((account) => (
+              <AccountRow key={account.UserID} account={account} variant="card" />
+            ))}
+          </div>
+        ) : (
+          group.accounts.map((account) => <AccountRow key={account.UserID} account={account} />)
+        )}
       </div>
     </div>
   );

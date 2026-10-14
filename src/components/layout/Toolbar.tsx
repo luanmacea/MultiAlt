@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { useStore } from "../../store";
 import { usePrompt } from "../../hooks/usePrompt";
+import { useAccountListView } from "../accounts/accountListView";
 import { Tooltip } from "../ui/Tooltip";
 import { tr, useTr } from "../../i18n/text";
 import { quickAddAccount } from "../../utils/quickAdd";
 import { ENABLE_ACCOUNT_GENERATOR } from "../../featureFlags";
 import { TourButton } from "../tour/TourButton";
 import { useAttentionCount } from "../../hooks/useAccountLiveState";
-import { AlertTriangle, Search, X, SquareX, SquareCheckBig, PanelRight, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus, Bookmark, Smartphone } from "lucide-react";
+import { AlertTriangle, Search, X, SquareX, SquareCheckBig, PanelRight, LayoutGrid, List, Plus, ChevronDown, Globe, KeyRound, File, FileText, Sparkles, Package, UserPlus, Bookmark, Smartphone } from "lucide-react";
 
 /**
  * Barra de cima da página de contas: filtro, selecionar tudo, nomes, painel
@@ -54,6 +55,10 @@ export function Toolbar() {
   const namesTooltip = store.hideUsernames
     ? t("Show the usernames in the list again")
     : t("Mask the usernames in the list (for screenshots)");
+
+  const [listView, setListView] = useAccountListView();
+  const listViewLabel =
+    listView === "cards" ? t("Show the accounts as a list") : t("Show the accounts as cards");
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -208,6 +213,24 @@ export function Toolbar() {
             }`}
           >
             {store.hideUsernames ? t("Names hidden") : t("Names shown")}
+          </button>
+        </Tooltip>
+
+        {/* Lista em linhas ou em cards (accounts/accountListView.ts). */}
+        <Tooltip content={listViewLabel} side="bottom">
+          <button
+            onClick={() => setListView(listView === "cards" ? "list" : "cards")}
+            aria-label={listViewLabel}
+            data-testid="toolbar-list-view"
+            className={`p-1.5 rounded-lg border transition-colors ${
+              listView === "cards" ? activeToggleStyle : "theme-btn-ghost"
+            }`}
+          >
+            {listView === "cards" ? (
+              <List size={16} strokeWidth={1.5} />
+            ) : (
+              <LayoutGrid size={16} strokeWidth={1.5} />
+            )}
           </button>
         </Tooltip>
 

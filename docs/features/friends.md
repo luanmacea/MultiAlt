@@ -26,6 +26,8 @@ Mostrar os amigos **online** de cada conta selecionada e, com um clique num amig
 
 ### Carga progressiva e cache da aba
 
+- **Fileiras de amigos** (pedido do dono, 14/10/2026), como o "Friends" do site do Roblox: cada conta é uma fileira ([CardRail.tsx](../../src/components/ui/CardRail.tsx)) com a foto grande do amigo (miniatura 150x150), o nome, o jogo e "Join". A lista em linha cheia deixava a tela larga vazia. Amigo que não dá para seguir continua aparecendo, esmaecido, com o motivo no lugar do jogo.
+
 - **Uma conta por vez na tela.** Enquanto a rodada corre, a aba mostra todas as contas da seleção, **na ordem da seleção** (a mesma do retorno final), não na ordem em que as respostas chegam (`upsertAccountFriends`). Conta que ainda não voltou aparece como pendente (`friends-pending-<id>`: cabeçalho com spinner e *Loading friends...*). Evento com outro `requestId` (sobra de uma rodada anterior) é ignorado; evento sem `requestId` só atualiza a contagem.
 - **Voltar à aba mostra o que ela tinha.** A última lista de cada seleção fica num cache de memória da sessão (`friendsCache`, ver `utils/sessionCache.ts`), assim como as miniaturas dos amigos. Ao voltar (trocando de aba ou saindo e entrando na Choose Game), a lista aparece no primeiro desenho e a consulta roda por trás: cada conta mostra um spinner no cabeçalho (`friends-updating-<id>`) até a resposta nova dela chegar e tomar o lugar.
 - **Voltar no meio de uma rodada não abre outra.** A rodada em curso fica registrada por seleção (`runningLoads`); a aba que monta de novo se junta a ela em vez de chamar o backend outra vez — duas rodadas juntas dobrariam as chamadas à API de amigos.

@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 
 import { GroupSection } from "./GroupSection";
 import { AccountChip } from "./AccountChip";
-import { groupAccounts, makeAccount, setStore } from "../../test-utils/renderWithStore";
+import { defaultSettings, groupAccounts, makeAccount, setStore } from "../../test-utils/renderWithStore";
 import type { StoreValue } from "../../store";
 
 const ACCOUNTS = [
@@ -51,6 +51,28 @@ describe("GroupSection", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
     expect(screen.getByText("ann")).toBeInTheDocument();
     expect(screen.getByText("bob")).toBeInTheDocument();
+  });
+
+  /**
+   * Visão em cards (General.AccountListView=cards, pedido do dono em
+   * 14/10/2026): a mesma conta, com o mesmo clique de seleção e o mesmo
+   * `data-account-row` que a seleção por caixa procura.
+   */
+  it("draws the accounts as cards when the list view is cards, and a click still selects", async () => {
+    const settings = defaultSettings();
+    const { store } = renderGroup({ settings: { ...settings, General: { ...settings.General, AccountListView: "cards" } } });
+    const cards = document.querySelectorAll("[data-account-row='true']");
+    expect(cards).toHaveLength(2);
+    expect(cards[0].className).toContain("rounded-xl");
+    await userEvent.click(screen.getByText("ann"));
+    expect(store.handleSelect).toHaveBeenCalledWith(11, expect.anything());
+  });
+
+  it("keeps the rows when the list view was never set", () => {
+    renderGroup();
+    const rows = document.querySelectorAll("[data-account-row='true']");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].className).not.toContain("rounded-xl");
   });
 
   it("toggles the group when the header is clicked", async () => {

@@ -464,7 +464,7 @@ describe("Former General controls", () => {
     try {
       renderGeneral();
       expect(
-        await screen.findByText("Automatic follows the screen: smaller on small screens, larger in big windows")
+        await screen.findByText("Automatic follows the screen: smaller on small screens, larger in big windows. Or type any size from 80% to 200%.")
       ).toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "Interface size" }));
       await userEvent.click(await screen.findByText("90%"));
@@ -473,6 +473,24 @@ describe("Former General controls", () => {
     } finally {
       window.removeEventListener("ram-ui-scale", onAnnounce);
     }
+  });
+
+  it("offers sizes up to 200% for very large monitors", async () => {
+    renderGeneral();
+    await userEvent.click(await screen.findByRole("button", { name: "Interface size" }));
+    await userEvent.click(await screen.findByText("150%"));
+    await expectSaved("General", "InterfaceScale", "150");
+  });
+
+  it("saves a custom interface size, never below 80%", async () => {
+    renderGeneral();
+    const input = await screen.findByRole("textbox", { name: "Custom interface size (%)" });
+    await userEvent.clear(input);
+    await userEvent.type(input, "137{Enter}");
+    await expectSaved("General", "InterfaceScale", "137");
+    await userEvent.clear(input);
+    await userEvent.type(input, "50{Enter}");
+    await expectSaved("General", "InterfaceScale", "80");
   });
 
   it("shows Automatic when the interface size was never set", async () => {

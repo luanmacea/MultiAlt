@@ -6,6 +6,8 @@ import { useConfirm } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { GameRowActions, browseServersIcon, favoriteIcon, joinGameIcon } from "./GamesTab";
 import { GameContextMenu } from "./GameContextMenu";
+import { GameCard } from "./GameCard";
+import { CardRail } from "../ui/CardRail";
 
 export interface RecentGamesListProps {
   userId: number | null;
@@ -28,6 +30,12 @@ export interface RecentGamesListProps {
    * põe os recentes de cada conta embaixo, e a rolagem é da aba inteira).
    */
   fill?: boolean;
+  /**
+   * `rail` = fileira lateral de cards com o título "Opened by MultiAlt" (aba
+   * Recentes da Escolher jogo, pedido do dono em 14/10/2026); `list` = linhas
+   * (Server List e o popover, onde a largura é pouca).
+   */
+  layout?: "list" | "rail";
 }
 
 export function RecentGamesList({
@@ -40,6 +48,7 @@ export function RecentGamesList({
   onBotting,
   onScripts,
   fill = true,
+  layout = "list",
 }: RecentGamesListProps) {
   const t = useTr();
   const confirm = useConfirm();
@@ -112,6 +121,125 @@ export function RecentGamesList({
     return t("just now");
   }
 
+  const actionsFor = (game: RecentGame) => [
+    ...(onBrowseServers
+      ? [
+          {
+            key: "servers",
+            label: t("Browse servers"),
+            icon: browseServersIcon,
+            onClick: () => onBrowseServers(game.placeId),
+          },
+        ]
+      : []),
+    ...(onAddFavorite
+      ? [
+          {
+            key: "favorite",
+            label: t("Favorite"),
+            icon: favoriteIcon,
+            onClick: () =>
+              onAddFavorite({
+                placeId: game.placeId,
+                name: game.name,
+                playerCount: 0,
+                likeRatio: null,
+                iconUrl: game.iconUrl,
+              }),
+          },
+        ]
+      : []),
+    {
+      key: "join",
+      label: t("Join Game"),
+      icon: joinGameIcon,
+      onClick: () =>
+        onJoinGame ? onJoinGame(game.placeId) : onSelect(game.placeId, game.name, game.iconUrl),
+    },
+  ];
+
+  const contextMenuEl = contextMenu && (
+    <GameContextMenu
+      x={contextMenu.x}
+      y={contextMenu.y}
+      game={{
+        placeId: contextMenu.game.placeId,
+        name: contextMenu.game.name,
+        playerCount: 0,
+        likeRatio: null,
+        iconUrl: contextMenu.game.iconUrl,
+      }}
+      onClose={() => setContextMenu(null)}
+      onJoin={() =>
+        onJoinGame
+          ? onJoinGame(contextMenu.game.placeId)
+          : onSelect(contextMenu.game.placeId, contextMenu.game.name, contextMenu.game.iconUrl)
+      }
+      onFavorite={() =>
+        onAddFavorite?.({
+          placeId: contextMenu.game.placeId,
+          name: contextMenu.game.name,
+          playerCount: 0,
+          likeRatio: null,
+          iconUrl: contextMenu.game.iconUrl,
+        })
+      }
+      onCopyPlaceId={() => {
+        navigator.clipboard.writeText(String(contextMenu.game.placeId));
+      }}
+      onBrowseServers={onBrowseServers ? () => onBrowseServers(contextMenu.game.placeId) : undefined}
+      onBotting={onBotting ? () => onBotting(contextMenu.game.placeId) : undefined}
+      onScripts={onScripts ? () => onScripts(contextMenu.game.placeId) : undefined}
+    />
+  );
+
+  if (layout === "rail") {
+    return (
+      <>
+      <CardRail
+        as="div"
+        testId="recent-games-rail"
+        title={t("Opened by MultiAlt")}
+        meta={t("{{count}} of {{max}} max", { count: games.length, max: maxRecent })}
+        actions={
+          games.length > 0 ? (
+            <button
+              onClick={() => {
+                void handleClear();
+              }}
+              className="text-[11px] text-zinc-600 hover:text-red-400 transition-colors px-1"
+            >
+              {t("Clear all")}
+            </button>
+          ) : null
+        }
+      >
+        {games.length === 0 ? (
+          <div className="py-2 text-[12px] text-zinc-600">{t("No recent games")}</div>
+        ) : (
+          games.map((game) => (
+            <GameCard
+              key={game.placeId}
+              testId={`recent-game-${game.placeId}`}
+              placeId={game.placeId}
+              name={game.name}
+              iconUrl={game.iconUrl}
+              subtitle={formatTime(game.lastPlayed)}
+              onOpen={() => onSelect(game.placeId, game.name, game.iconUrl)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, game });
+              }}
+              actions={actionsFor(game)}
+            />
+          ))
+        )}
+      </CardRail>
+      {contextMenuEl}
+      </>
+    );
+  }
+
   if (games.length === 0 && !fill) {
     return <div className="px-1 py-2 text-[11px] text-zinc-600">{t("No recent games")}</div>;
   }
@@ -180,88 +308,13 @@ export function RecentGamesList({
               </div>
               <span className="text-[11px] text-zinc-600 shrink-0">{formatTime(game.lastPlayed)}</span>
               {/* Mesmas ações da aba Games: aqui a lista só sabia lançar. */}
-              <GameRowActions
-                placeId={game.placeId}
-                actions={[
-                  ...(onBrowseServers
-                    ? [
-                        {
-                          key: "servers",
-                          label: t("Browse servers"),
-                          icon: browseServersIcon,
-                          onClick: () => onBrowseServers(game.placeId),
-                        },
-                      ]
-                    : []),
-                  ...(onAddFavorite
-                    ? [
-                        {
-                          key: "favorite",
-                          label: t("Favorite"),
-                          icon: favoriteIcon,
-                          onClick: () =>
-                            onAddFavorite({
-                              placeId: game.placeId,
-                              name: game.name,
-                              playerCount: 0,
-                              likeRatio: null,
-                              iconUrl: game.iconUrl,
-                            }),
-                        },
-                      ]
-                    : []),
-                  {
-                    key: "join",
-                    label: t("Join Game"),
-                    icon: joinGameIcon,
-                    onClick: () =>
-                      onJoinGame
-                        ? onJoinGame(game.placeId)
-                        : onSelect(game.placeId, game.name, game.iconUrl),
-                  },
-                ]}
-              />
+              <GameRowActions placeId={game.placeId} actions={actionsFor(game)} />
             </div>
           ))}
         </div>
       </div>
 
-      {contextMenu && (
-        <GameContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          game={{
-            placeId: contextMenu.game.placeId,
-            name: contextMenu.game.name,
-            playerCount: 0,
-            likeRatio: null,
-            iconUrl: contextMenu.game.iconUrl,
-          }}
-          onClose={() => setContextMenu(null)}
-          onJoin={() =>
-            onJoinGame
-              ? onJoinGame(contextMenu.game.placeId)
-              : onSelect(contextMenu.game.placeId, contextMenu.game.name, contextMenu.game.iconUrl)
-          }
-          onFavorite={() =>
-            onAddFavorite?.({
-              placeId: contextMenu.game.placeId,
-              name: contextMenu.game.name,
-              playerCount: 0,
-              likeRatio: null,
-              iconUrl: contextMenu.game.iconUrl,
-            })
-          }
-          onCopyPlaceId={() => {
-            navigator.clipboard.writeText(String(contextMenu.game.placeId));
-          }}
-          onBrowseServers={
-            onBrowseServers ? () => onBrowseServers(contextMenu.game.placeId) : undefined
-          }
-          onBotting={onBotting ? () => onBotting(contextMenu.game.placeId) : undefined}
-          onScripts={onScripts ? () => onScripts(contextMenu.game.placeId) : undefined}
-        />
-      )}
+      {contextMenuEl}
     </div>
   );
 }

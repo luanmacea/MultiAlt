@@ -9,7 +9,8 @@ import { Select } from "../ui/Select";
 import i18n, { LANGUAGE_OPTIONS, normalizeLanguage } from "../../i18n";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
-import { normalizeUiScaleSetting } from "../../uiScale";
+import { UI_SCALE_FIXED_MAX, UI_SCALE_FIXED_MIN, UI_SCALE_SETTINGS, clampUiScalePercent, normalizeUiScaleSetting } from "../../uiScale";
+import { NumericInput } from "../ui/NumericInput";
 import { announceUiScale, useAppliedUiScale } from "../../hooks/useUiScale";
 import { ActionCard, isWindowsUserAgent } from "./settingsParts";
 
@@ -29,6 +30,15 @@ export function AppTab({ s }: { s: UseSettingsReturn }) {
     uiScaleSetting === "auto" && appliedUiScale !== null
       ? t("Automatic ({{percent}}%)", { percent: Math.round(appliedUiScale * 100) })
       : "Automatic";
+  // O campo personalizado mostra o valor em vigor (no automático, o que ele escolheu).
+  const customPercent =
+    uiScaleSetting !== "auto" ? Number(uiScaleSetting) : Math.round((appliedUiScale ?? 1) * 100);
+  const saveUiScale = (value: string) => {
+    const next = normalizeUiScaleSetting(value);
+    if (next === uiScaleSetting) return;
+    s.set("General", "InterfaceScale", next);
+    announceUiScale(next);
+  };
 
   return (
     <div className="space-y-0">
@@ -51,7 +61,7 @@ export function AppTab({ s }: { s: UseSettingsReturn }) {
         <div className="min-w-0">
           <div className="text-[13px] text-zinc-300">{t("Interface size")}</div>
           <div className="mt-0.5 text-[12px] text-zinc-500">
-            {t("Automatic follows the screen: smaller on small screens, larger in big windows")}
+            {t("Automatic follows the screen: smaller on small screens, larger in big windows. Or type any size from 80% to 200%.")}
           </div>
         </div>
         <div className="ml-auto min-w-[180px]">
@@ -60,16 +70,26 @@ export function AppTab({ s }: { s: UseSettingsReturn }) {
             value={uiScaleSetting}
             options={[
               { value: "auto", label: autoScaleLabel },
-              { value: "110", label: "110%" },
-              { value: "100", label: "100%" },
-              { value: "90", label: "90%" },
-              { value: "80", label: "80%" },
+              ...UI_SCALE_SETTINGS.filter((v) => v !== "auto").map((v) => ({ value: v, label: `${v}%` })),
+              // Valor personalizado (digitado no campo ao lado) também aparece.
+              ...(uiScaleSetting !== "auto" && !(UI_SCALE_SETTINGS as readonly string[]).includes(uiScaleSetting)
+                ? [{ value: uiScaleSetting, label: `${uiScaleSetting}%` }]
+                : []),
             ]}
-            onChange={(value) => {
-              const next = normalizeUiScaleSetting(value);
-              s.set("General", "InterfaceScale", next);
-              announceUiScale(next);
-            }}
+            onChange={(value) => saveUiScale(value)}
+          />
+        </div>
+        {/* Personalizado: monitor muito grande pede valores fora da lista. */}
+        <div className="w-[76px] shrink-0" title={t("Custom interface size (%)")}>
+          <NumericInput
+            ariaLabel="Custom interface size (%)"
+            value={customPercent}
+            onChange={() => {}}
+            onCommit={(value) => saveUiScale(String(clampUiScalePercent(value)))}
+            min={UI_SCALE_FIXED_MIN}
+            max={UI_SCALE_FIXED_MAX}
+            integer
+            className="sidebar-input w-full text-right tabular-nums"
           />
         </div>
       </div>

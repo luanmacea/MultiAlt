@@ -1872,6 +1872,16 @@ const SCENARIOS: Record<string, () => void> = {
           index === 1
             ? []
             : [
+                ...Array.from({ length: index === 0 ? 9 : 0 }, (_, i) => ({
+                  userId: 9000 + i,
+                  name: `buddy${i}`,
+                  displayName: `Buddy ${i}`,
+                  presenceType: 2,
+                  lastLocation: ["Jailbreak", "Blox Fruits", "Pet Simulator 99! [BLOOD MOON]", "Conquer The World WW2"][i % 4],
+                  placeId: 606849621,
+                  rootPlaceId: 606849621,
+                  gameId: `job-buddy-${i}`,
+                })),
                 {
                   userId: 7000 + index,
                   name: `friend${index}`,
@@ -1913,6 +1923,47 @@ const SCENARIOS: Record<string, () => void> = {
    * minimizar/fechar está por cima do texto. O cenário só entrega os dados que o
    * backend entregaria.
    */
+  /**
+   * Aba Recentes da Escolher jogo com os jogos de cada conta. Cada leitura de
+   * conta demora um tempo diferente (a 2ª é a mais lenta e a 3ª falha), como
+   * na rede: quem tem que mostrar cada conta assim que ela volta, na ordem da
+   * seleção, é a UI. Selecione 3+ contas, abra Escolher jogo > Recentes.
+   */
+  "recent-games-accounts"() {
+    const NAMES = [
+      "Tower Incremental", "Racket Rivals", "Turbo Soccer", "PORTALS", "ROB IT", "Total Conquest",
+      "Sniper Arena", "RIVALS", "Scam Together", "Saber Arena", "LONGSHOT", "Huss Valley",
+    ];
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_recent_games_for_accounts") {
+        const ids = ((args.userIds as number[]) || []).filter((id) => id > 0);
+        const userId = ids[0] ?? 0;
+        const delay = userId % 3 === 2 ? 2600 : 500 + (userId % 4) * 300;
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve(
+                ids.map((id) =>
+                  id % 3 === 0
+                    ? { userId: id, games: [], error: "Failed to read recent games (status 401)" }
+                    : {
+                        userId: id,
+                        error: null,
+                        games: NAMES.slice(0, 6 + (id % 5)).map((name, i) => {
+                          const placeId = 100_000 + id * 100 + i;
+                          return { placeId, universeId: placeId, name, iconUrl: iconForGame(placeId, name) };
+                        }),
+                      }
+                )
+              ),
+            delay
+          )
+        );
+      }
+      return baseHandler(cmd, args);
+    });
+  },
+
   "vault-key-warning-locked"() {
     setInvokeHandler((cmd, args) => {
       switch (cmd) {

@@ -78,6 +78,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `WaitForGameJoin` | `true` | "Start the next account once the previous one is in the game". Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
 | `DisableAgingAlert` | `false` | Esconde indicador de conta sem uso há 20+ dias. |
 | `HideUsernames` | `false` | Mascara nomes na lista. |
+| `AccountListView` | — (`list`) | Lista de contas em linhas (`list`) ou em grade de cards (`cards`); botão de grade/lista na toolbar. Ver [ui-layout.md](ui-layout.md#lista-de-contas). |
 | `HiddenNameLetters` | — (0) | Letras visíveis quando nomes estão ocultos. |
 | `WrapLongNames` | `false` | Ligado, o alias/username quebra em mais de uma linha na linha da conta em vez de truncar (o alias vai até 240 caracteres). |
 | `ShowAvatarsWhenHidden` | — (false) | Comportamento com nomes ocultos. |
@@ -114,7 +115,7 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `ThemeWindowsNavbar` | `true` | Barra de título do Windows segue o tema. |
 | `ThemeWindowsNavbarAutoEnabledV1` | `true` | Marcador de migração (força `ThemeWindowsNavbar=true` uma vez). |
 | `RestrictedBackgroundStyle` | `warp` | Fundo animado da tela de senha: `bubbles`, `warp`, `warpLegacy`, `waves`. |
-| `InterfaceScale` | — (`auto`) | Tamanho da interface (zoom nativo do WebView): `auto` cresce com a janela grande (100–200%, ex.: 170% num 4K maximizado) e encolhe em monitor pequeno (80–100%); a opção mostra o valor de agora ("Automatic (170%)"). Ou fixo `110`/`100`/`90`/`80`, que vence o automático. Vale na hora, sem sair da página. Ver [ui-layout.md](ui-layout.md#tamanho-da-interface). |
+| `InterfaceScale` | — (`auto`) | Tamanho da interface (zoom nativo do WebView): `auto` cresce com a janela grande (100–200%, ex.: 170% num 4K maximizado) e encolhe em monitor pequeno (80–100%); a opção mostra o valor de agora ("Automatic (170%)"). Ou fixo, qualquer inteiro de `80` a `200` (a lista tem 80–200%, o campo ao lado aceita o valor exato), que vence o automático. Vale na hora, sem sair da página. Ver [ui-layout.md](ui-layout.md#tamanho-da-interface). |
 | `BottingEnabled` | `false` | Habilita ferramentas de Auto Rejoin. |
 | `BottingUseSharedClientProfile` | `true` | Os perfis Main/Alt (`BottingPlayer*`/`BottingBot*`) herdam o Normal. |
 | `BottingAutoShareLaunchFields` | `true` | **Ignorada desde 03/10/2026**: o Auto Rejoin não tem mais os campos Place/Job/Data para sincronizar com a sidebar (o servidor é onde as contas estão ou um jogo dos Favoritos). Saiu da aba Miscellaneous; a chave fica no INI sem efeito. |

@@ -7,6 +7,7 @@ import { accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useTr } from "../../i18n/text";
 import { SessionCache } from "../../utils/sessionCache";
 import { JoinByFollowingToggle, useJoinByFollowing } from "./JoinByFollowingToggle";
+import { CardRail } from "../ui/CardRail";
 import type {
   AccountFriends,
   FriendsOnlineProgress,
@@ -203,7 +204,8 @@ export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabPr
     try {
       const results = await invoke<ThumbnailData[]>("batched_get_avatar_headshots", {
         userIds: missing,
-        size: "48x48",
+        // A foto é grande no card (76px): 48x48 ficava borrada.
+        size: "150x150",
       });
       for (const result of results || []) {
         if (result.imageUrl) friendAvatarCache.set(String(result.targetId), result.imageUrl);
@@ -351,10 +353,10 @@ export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabPr
   /** Foto da CONTA do usuário (respeita o mascaramento). */
   function accountAvatar(userId: number) {
     return !hideAccountAvatar(store) && store.avatarUrls.get(userId) ? (
-      <img src={store.avatarUrls.get(userId)} alt="" className="w-5 h-5 rounded-full" />
+      <img src={store.avatarUrls.get(userId)} alt="" className="w-6 h-6 rounded-full shrink-0" />
     ) : (
-      <div className="w-5 h-5 rounded-full bg-[var(--panel-muted)] flex items-center justify-center">
-        <User size={10} strokeWidth={1.5} className="theme-muted" />
+      <div className="w-6 h-6 rounded-full bg-[var(--panel-muted)] flex items-center justify-center shrink-0">
+        <User size={12} strokeWidth={1.5} className="theme-muted" />
       </div>
     );
   }
@@ -412,66 +414,66 @@ export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabPr
         </div>
       )}
 
-      {/* ── Um bloco por conta selecionada ─────────────────────────────── */}
-      <div className="flex flex-col gap-3">
+      {/* ── Uma fileira por conta selecionada, como o "Friends" do site do
+          Roblox (pedido do dono, 14/10/2026): a lista em linha cheia deixava
+          a tela larga vazia. Cada conta aparece quando a leitura dela volta. */}
+      <div className="flex flex-col gap-5">
         {slots.map((slot) =>
           slot.kind === "pending" ? (
-            // Conta que ainda não voltou: o cabeçalho já aparece, com um
-            // indicador discreto no lugar da contagem.
-            <section
+            // Conta que ainda não voltou: o cabeçalho já aparece, com lugares
+            // vazios do tamanho dos amigos.
+            <CardRail
               key={slot.userId}
-              data-testid={`friends-pending-${slot.userId}`}
-              aria-busy="true"
-              className="rounded-lg border theme-border bg-[var(--panel-soft)]"
-            >
-              <header className="flex items-center gap-2 px-3 py-2">
-                {accountAvatar(slot.userId)}
-                <h4 className="text-[12px] font-semibold text-[var(--panel-fg)] truncate">
-                  {accountName(slot.userId)}
-                </h4>
-                <span className="ml-auto shrink-0 flex items-center gap-1.5 text-[12px] theme-muted">
+              testId={`friends-pending-${slot.userId}`}
+              ariaBusy
+              leading={accountAvatar(slot.userId)}
+              title={accountName(slot.userId)}
+              meta={
+                <>
                   <Loader2 size={11} className="animate-spin" />
                   {t("Loading friends...")}
-                </span>
-              </header>
-            </section>
+                </>
+              }
+            >
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="w-[112px] shrink-0 flex flex-col items-center gap-2 p-2" aria-hidden="true">
+                  <div className="w-[76px] h-[76px] rounded-full bg-[var(--panel-soft)] animate-pulse" />
+                  <div className="h-3 w-3/4 rounded bg-[var(--panel-soft)] animate-pulse" />
+                </div>
+              ))}
+            </CardRail>
           ) : (
-          <section
-            key={slot.row.userId}
-            data-testid={`friends-group-${slot.row.userId}`}
-            aria-busy={slot.updating || undefined}
-            className="rounded-lg border theme-border bg-[var(--panel-soft)]"
-          >
-            <header className="flex items-center gap-2 px-3 py-2 border-b theme-border">
-              {accountAvatar(slot.row.userId)}
-              <h4 className="text-[12px] font-semibold text-[var(--panel-fg)] truncate">
-                {accountName(slot.row.userId)}
-              </h4>
-              <span className="ml-auto shrink-0 flex items-center gap-1.5 text-[12px] theme-muted">
-                {slot.updating && (
-                  // A lista é a da última consulta; a nova desta conta ainda
-                  // não voltou.
-                  <Loader2
-                    size={11}
-                    className="animate-spin"
-                    data-testid={`friends-updating-${slot.row.userId}`}
-                    aria-label={t("Updating...")}
-                  />
-                )}
-                {t("{{count}} online", { count: slot.row.friends.length })}
-              </span>
-            </header>
-
-            {slot.row.error ? (
-              <div className="flex items-start gap-2 px-3 py-2.5 text-[12px] text-red-400">
-                <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
-                <span className="break-words">{slot.row.error}</span>
-              </div>
-            ) : slot.row.friends.length === 0 ? (
-              <p className="px-3 py-2.5 text-[12px] theme-muted">{t("No friends online")}</p>
-            ) : (
-              <ul className="py-1">
-                {slot.row.friends.map((friend) => {
+            <CardRail
+              key={slot.row.userId}
+              testId={`friends-group-${slot.row.userId}`}
+              ariaBusy={slot.updating}
+              leading={accountAvatar(slot.row.userId)}
+              title={accountName(slot.row.userId)}
+              meta={
+                <>
+                  {slot.updating && (
+                    // A lista é a da última consulta; a nova desta conta ainda
+                    // não voltou.
+                    <Loader2
+                      size={11}
+                      className="animate-spin"
+                      data-testid={`friends-updating-${slot.row.userId}`}
+                      aria-label={t("Updating...")}
+                    />
+                  )}
+                  {t("{{count}} online", { count: slot.row.friends.length })}
+                </>
+              }
+            >
+              {slot.row.error ? (
+                <div className="flex items-start gap-2 py-2 text-[12px] text-red-400">
+                  <AlertTriangle size={13} strokeWidth={1.5} className="shrink-0 mt-[2px]" />
+                  <span className="break-words">{slot.row.error}</span>
+                </div>
+              ) : slot.row.friends.length === 0 ? (
+                <p className="py-2 text-[12px] theme-muted">{t("No friends online")}</p>
+              ) : (
+                slot.row.friends.map((friend) => {
                   const target = friendTarget(friend, t);
                   const label = friend.displayName || friend.name;
                   const avatar = friendAvatarCache.get(String(friend.userId));
@@ -479,18 +481,23 @@ export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabPr
 
                   const inner = (
                     <>
-                      {avatar ? (
-                        <img src={avatar} alt="" className="w-7 h-7 rounded-full shrink-0" />
-                      ) : (
-                        <div className="w-7 h-7 rounded-full bg-[var(--panel-muted)] flex items-center justify-center shrink-0">
-                          <User size={12} strokeWidth={1.5} className="theme-muted" />
-                        </div>
-                      )}
-                      <span className="min-w-0 flex flex-col items-start">
-                        <span className="text-[12px] text-[var(--panel-fg)] truncate max-w-[220px]">
-                          {label}
-                        </span>
-                        <span className="text-[11px] theme-muted truncate max-w-[220px]">
+                      <span className="relative shrink-0">
+                        {avatar ? (
+                          <img src={avatar} alt="" className="w-[76px] h-[76px] rounded-full bg-[var(--panel-muted)]" />
+                        ) : (
+                          <span className="w-[76px] h-[76px] rounded-full bg-[var(--panel-muted)] flex items-center justify-center">
+                            <User size={26} strokeWidth={1.25} className="theme-muted" />
+                          </span>
+                        )}
+                        {friend.presenceType === 2 && (
+                          <span className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-emerald-500 border-2 border-[var(--panel-bg)] flex items-center justify-center">
+                            <Gamepad2 size={12} strokeWidth={2} className="text-white" />
+                          </span>
+                        )}
+                      </span>
+                      <span className="w-full min-w-0 flex flex-col items-center text-center">
+                        <span className="w-full text-[13px] font-medium text-[var(--panel-fg)] truncate">{label}</span>
+                        <span className="w-full text-[11px] theme-muted leading-snug line-clamp-2 break-words">
                           {target.joinable ? friend.lastLocation || t("In Game") : target.reason}
                         </span>
                       </span>
@@ -498,38 +505,36 @@ export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabPr
                   );
 
                   return (
-                    <li
+                    <div
                       key={friend.userId}
                       data-testid={`friend-${slot.row.userId}-${friend.userId}`}
-                      className="px-1.5"
+                      className="w-[112px] shrink-0"
                     >
                       {target.joinable ? (
                         <button
                           onClick={() => void handleJoinFriend(friend, target)}
                           disabled={joining !== null || userIds.length === 0}
-                          className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left hover:bg-[var(--accent-soft)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          className="w-full h-full flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-[var(--accent-soft)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                           title={t("Send every selected account into {{name}}'s server", { name: label })}
                         >
                           {inner}
-                          <span className="ml-auto shrink-0 text-[11px] text-[var(--accent-color)]">
+                          <span className="text-[11px] font-medium text-[var(--accent-color)]">
                             {busy ? t("Joining...") : t("Join")}
                           </span>
                         </button>
                       ) : (
                         <div
-                          className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md opacity-50 cursor-not-allowed"
+                          className="w-full h-full flex flex-col items-center gap-1.5 p-2 rounded-xl opacity-50 cursor-not-allowed"
                           title={target.reason}
                         >
                           {inner}
-                          <span className="ml-auto shrink-0 text-[11px] theme-muted">{target.reason}</span>
                         </div>
                       )}
-                    </li>
+                    </div>
                   );
-                })}
-              </ul>
-            )}
-          </section>
+                })
+              )}
+            </CardRail>
           )
         )}
       </div>

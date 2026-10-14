@@ -8,9 +8,30 @@
  * `docs/features/ui-layout.md#tamanho-da-interface`.
  */
 
-/** Opções gravadas no INI: `auto` ou a porcentagem fixa. */
-export const UI_SCALE_SETTINGS = ["auto", "110", "100", "90", "80"] as const;
-export type UiScaleSetting = (typeof UI_SCALE_SETTINGS)[number];
+/**
+ * Opções da lista em Settings: `auto` ou a porcentagem fixa. Até 14/10/2026 o
+ * teto era 110% e o monitor muito grande do dono sobrava vazio; hoje a lista
+ * vai a 200% e o campo "personalizado" aceita qualquer inteiro de 80 a 200.
+ */
+export const UI_SCALE_SETTINGS = [
+  "auto",
+  "200",
+  "175",
+  "150",
+  "140",
+  "130",
+  "125",
+  "120",
+  "110",
+  "100",
+  "90",
+  "80",
+] as const;
+/** Limites do valor fixo (porcentagem inteira). */
+export const UI_SCALE_FIXED_MIN = 80;
+export const UI_SCALE_FIXED_MAX = 200;
+/** `auto` ou a porcentagem fixa, inteira, entre 80 e 200 (`"137"`). */
+export type UiScaleSetting = "auto" | `${number}`;
 
 /** Monitor lógico a partir do qual a interface fica em 100% no automático (abaixo, encolhe). */
 export const UI_SCALE_REFERENCE = { width: 1440, height: 800 } as const;
@@ -26,7 +47,15 @@ export interface LogicalSize {
 
 export function normalizeUiScaleSetting(raw: string | null | undefined): UiScaleSetting {
   const value = (raw ?? "").trim().toLowerCase();
-  return (UI_SCALE_SETTINGS as readonly string[]).includes(value) ? (value as UiScaleSetting) : "auto";
+  if (!/^\d{2,3}$/.test(value)) return "auto";
+  const percent = Number(value);
+  return percent >= UI_SCALE_FIXED_MIN && percent <= UI_SCALE_FIXED_MAX ? (String(percent) as UiScaleSetting) : "auto";
+}
+
+/** Valor digitado no campo personalizado, preso entre 80 e 200 e inteiro. */
+export function clampUiScalePercent(percent: number): number {
+  if (!Number.isFinite(percent)) return 100;
+  return Math.min(UI_SCALE_FIXED_MAX, Math.max(UI_SCALE_FIXED_MIN, Math.round(percent)));
 }
 
 /**

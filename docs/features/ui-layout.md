@@ -127,6 +127,7 @@ O botão da toolbar existe para gravar ou compartilhar a tela sem expor as conta
 - **Arrastar** pela alça (ícone de grip à esquerda da linha, não a linha inteira — o corpo da linha é usado pela seleção por retângulo) para outro grupo move as contas selecionadas para esse grupo; soltar sobre outra linha reordena (`reorder_accounts`). `onDragEnd` na alça limpa `dragState`, então um arrasto cancelado (Esc / soltar fora) não deixa estado velho que um drop posterior de texto de cookie usaria.
 - **Soltar texto** na lista: extrai todos os cookies `_|WARNING:-DO-NOT-SHARE-THIS...|<token>` e adiciona cada um.
 - Cada linha mostra avatar (48×48, `batched_get_avatar_headshots`), nome/alias, tempo desde `LastUse`, pontos de status e botão "Join".
+- **Lista ou cards** (`General.AccountListView`, `list` padrão; pedido do dono em 14/10/2026 — no monitor grande a linha cheia deixava quase toda a largura vazia): o botão de grade/lista na toolbar, ao lado de "Names shown" ([accountListView.ts](../../src/components/accounts/accountListView.ts)), troca para uma grade de cards por grupo (`AccountRow variant="card"`): foto de 72px, nome maior, estado ao vivo e último uso. Mesmos cliques, menu, seleção por retângulo (`data-account-row`), arrasto pela alça e setas de ordem (← →, no hover).
 - **Estado ao vivo** ([AccountLiveSegment.tsx](../../src/components/accounts/AccountLiveSegment.tsx), crítica de design P0 de 11/10/2026 — com 7 clientes abertos a linha só tinha a bolinha laranja e "now"): conta com cliente aberto, entrando ou reconectando ganha, à direita do nome, a palavra do estado com a cor/ícone da Session (Jogando verde, Entrando na cor de destaque, Reconectando e Não respondendo âmbar, Caiu vermelho, "Ainda fora de um jogo" apagado) e o jogo (`useGameIdentity`; sem nome, o Place ID). Caiu sem jogo conhecido (a queda fecha a sessão): o motivo da queda no lugar do jogo. Em jogo, também o tempo em jogo. Tudo no tooltip.
   - **Mesmas fontes e prioridade da Session:** `accountLiveState` ([utils/accountLiveState.ts](../../src/utils/accountLiveState.ts)) usa o `runningStatus` de [sessionGroups.ts](../../src/utils/sessionGroups.ts) sobre `launchedByProgram`, `clientHealth`, `autoReconnect` (`activeReconnectIds`, o mesmo da Session), a fila de launch (`launching`) e a sessão de agora. A sessão (`get_current_sessions`) é lida **uma vez para a lista** pelo `AccountLiveStateProvider` ([hooks/useAccountLiveState.tsx](../../src/hooks/useAccountLiveState.tsx)), e só com algum cliente aberto no Windows.
   - Conta parada (ou cliente aberto sem informação, fora do Windows): nada novo — a linha fica como era.
@@ -165,9 +166,9 @@ Substitui a lista de contas; fecha com Esc ou "voltar". Mostra as contas selecio
 
 | Aba | Faz |
 |---|---|
-| Favorites | favoritos com VIPs; clicar lança todas as contas selecionadas (público ou VIP). |
-| Games | busca de jogos; clicar lança todas as selecionadas. |
-| Recent | jogos recentes. |
+| Favorites | favoritos com VIPs, em grade de cards; clicar abre a gaveta (linha inteira, abaixo do card) com Join Game e os VIPs. |
+| Games | busca de jogos, em grade de cards; clicar lança todas as selecionadas. |
+| Recent | fileiras de cards: "Abertos pelo MultiAlt" e uma por conta (ver [server-list.md](server-list.md#recentes-de-cada-conta-choose-game-desde-14102026)). |
 | Follow | Campo de join link ([join-links.md](join-links.md)) e o card "Follow a Player": `lookup_user` + `get_presence` resolvem o servidor do alvo **uma vez** e `launchAll` manda todas as contas selecionadas para lá (`launch_multiple` com várias contas, com o piso anti-captcha). Alvo fora de jogo (`presence < 2`) vira toast e nada é lançado; em jogo mas com o servidor escondido pela privacidade, pede confirmação para cair num servidor público do mesmo jogo. (Isto já foi um laço de `launch_roblox` com `followUser: true` e 3 s entre contas, que furava o piso de 8 s.) Atalhos para Server List, Utilities, Auto Rejoin e Scripts. |
 
 **Console e Windows saíram da Choose Game em 11/10/2026** (pedido do dono): viraram a página **Console** da barra lateral — o log e, no topo, o cartão da grade de janelas (ver [Barra lateral e páginas](#barra-lateral-e-páginas)). As listas da sessão moram só na página **Session**. A Choose Game ficou só com as formas de escolher o jogo.
@@ -269,7 +270,9 @@ Em monitor de notebook (1920x1080 a 150% no Windows → monitor lógico de 1280x
 | Opção (INI) | Zoom |
 |---|---|
 | `auto` (padrão, também chave ausente ou valor desconhecido) | pela **janela** (cresce) e pelo **monitor** (encolhe), ver abaixo |
-| `110` / `100` / `90` / `80` | fixo, ignora janela e monitor |
+| `200` / `175` / `150` / `140` / `130` / `125` / `120` / `110` / `100` / `90` / `80` (lista) ou **qualquer inteiro de 80 a 200** (campo personalizado ao lado) | fixo, ignora janela e monitor |
+
+Até 14/10/2026 o teto fixo era 110% e o monitor muito grande do dono sobrava vazio; hoje a lista vai a 200% e o campo ao lado da lista aceita o valor exato (`clampUiScalePercent`: abaixo de 80 vira 80, acima de 200 vira 200; só grava ao confirmar, com Enter ou saindo do campo, para o zoom não pular a cada dígito).
 
 Quem nunca mexeu fica no automático; quem escolheu um tamanho fixo continua com ele — nada é migrado. Na lista, a opção mostra o zoom que o automático escolheu agora (**"Automatic (170%)"**; `useAppliedUiScale` em [useUiScale.ts](../../src/hooks/useUiScale.ts), publicado a cada `setZoom` bem-sucedido). Com um valor fixo salvo, a opção aparece só como "Automatic".
 
@@ -342,7 +345,8 @@ São **dois canais com papéis diferentes**, e nenhuma mensagem vai nos dois:
 | `General.MinimizeToTray` | Botão fechar da TitleBar esconde na bandeja. |
 | `General.ThemeWindowsNavbar` | Barra nativa segue o tema. |
 | `General.RestrictedBackgroundStyle` | Fundo da tela de senha. |
-| `General.InterfaceScale` | Tamanho da interface: `auto` (padrão; cresce com a janela grande, encolhe em monitor pequeno) ou `110`/`100`/`90`/`80` (ver "Tamanho da interface"). |
+| `General.InterfaceScale` | Tamanho da interface: `auto` (padrão; cresce com a janela grande, encolhe em monitor pequeno) ou um inteiro fixo de `80` a `200` (ver "Tamanho da interface"). |
+| `General.AccountListView` | `list` (padrão) ou `cards`: a lista de contas em linhas ou em grade de cards (botão na toolbar). |
 | `General.GridGap`, `GridMonitors` | Arranjo em grade (cartão Window grid da página Console). |
 | `General.AutoArrangeGrid` | Grade automática no launch (cartão Window grid da página Console e Settings > Optimization). |
 | `General.FirstRunWalkthroughState` | Exibição do walkthrough inicial. |

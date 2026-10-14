@@ -775,9 +775,6 @@ export function ChooseGameScreen() {
             {/* Em cima, os jogos abertos pelo MultiAlt (a lista de sempre);
                 embaixo, os recentes de cada conta no Roblox, como a aba Amigos. */}
             <section data-testid="recent-opened-by-app">
-              <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                {t("Opened by MultiAlt")}
-              </div>
               <RecentTab
                 onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
                 onJoinGame={handleJoinGame}
@@ -788,6 +785,7 @@ export function ChooseGameScreen() {
                 onBotting={handleBottingForGame}
                 onScripts={handleScriptsForGame}
                 fill={false}
+                layout="rail"
               />
             </section>
             <AccountRecentGames
