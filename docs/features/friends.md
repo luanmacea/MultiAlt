@@ -47,6 +47,17 @@ Mostrar os amigos **online** de cada conta selecionada e, com um clique num amig
 - **Nomes de amigos nunca são mascarados.** São terceiros e o usuário precisa reconhecê-los; `hideUsernames` vale só para os nomes das contas do próprio usuário.
 - O servidor do amigo é resolvido **uma vez** e todas as contas vão para aquele `jobId` — não há uma resolução por conta.
 
+### Entrar seguindo o amigo
+
+Desde 14/10/2026 o "Join" da aba **Amigos** e o "Follow" da aba **Seguir** entram **seguindo** o jogador (`RequestFollowUser&userId=<amigo>` no PlaceLauncher, `follow_user_id` em `launch_multiple`), como o Roblox Account Manager antigo fazia. Antes o MultiAlt lia o servidor do amigo pela presença e pedia **o servidor exato** (`RequestGameJob` + Job ID).
+
+- **Por quê:** um usuário relatou (ticket, 14/10/2026) CAPTCHA em toda entrada das alts no MultiAlt, inclusive "entrando pelo amigo", enquanto no RAM antigo entrar pelo amigo funcionava sem nada. A comparação dos dois launches (link, browserTrackerId, ticket, locale, canal) só achou essa diferença de peso: o antigo segue o usuário e o Roblox escolhe o servidor; o MultiAlt pedia o servidor exato. Que o pedido do servidor exato atraia mais CAPTCHA é **dedução** a partir do relato, não algo que o código prove.
+- **Toggle:** `General.JoinFriendsByFollowing` (padrão **ligado**), caixa "Join by following the player (helps avoid CAPTCHA)" nas duas abas ([JoinByFollowingToggle.tsx](../../src/components/friends/JoinByFollowingToggle.tsx)). Desligado, volta ao pedido do servidor exato.
+- **O jogo continua sendo o do amigo:** `place_id` do pedido é o place dele (fila, reconexão e Rejoin usam o jogo de verdade); só o link de entrada usa o usuário (`follow_target` em [launch.rs](../../src-tauri/src/commands/launch.rs)). Seguindo, a preferência de servidor e o sorteio não entram (quem escolhe é o Roblox).
+- **Sempre pelo lote** (`launch_multiple`), mesmo com uma conta: o "seguir" só existe nele.
+- **Aba Seguir:** seguindo, o servidor escondido não impede (o Roblox acha o jogador); só presença **offline** para sem abrir nada. No modo antigo, servidor escondido pergunta antes de cair num público.
+- A privacidade do jogador ("quem pode entrar em mim") vale: se ela não deixar, o Roblox recusa a entrada, como no RAM antigo.
+
 ## Configurações relacionadas
 
 - `hideUsernames` / letras de prévia — mascaramento dos nomes **das contas** (não dos amigos).

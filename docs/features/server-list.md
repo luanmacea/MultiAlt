@@ -64,6 +64,16 @@ A aba Games guarda a última lista e a busca que a produziu num cache de memóri
 4. Persistência como os favoritos ([Onde as listas moram](#onde-as-listas-moram)), sempre por lê-muda-grava (`updateRecentGames`): a completação de nome/ícone da `RecentGamesList` gravava no fim a lista lida no começo, e apagava o jogo que um launch registrasse enquanto a rede respondia.
 5. Na linha (e no menu de contexto), **clicar no card abre os servidores** do jogo e **"Join Game" entra** com as contas selecionadas — as mesmas ações da aba Games, nas duas telas (Choose Game e Server List). Até 27/09/2026 o "Join Game" dos Recentes chamava o mesmo `onSelect` do card e só abria os servidores, embora a dica da aba prometesse entrar direto. No popover de escolha de jogo (`RecentGamesPopover`, sem `onJoinGame`), "Join Game" continua sendo escolher.
 
+#### Recentes de cada conta (Choose Game, desde 14/10/2026)
+
+Na aba Recentes da Choose Game, a lista acima vira a seção **"Abertos pelo MultiAlt"** (`RecentGamesList` com `fill={false}`: ocupa só a altura dela e a aba inteira rola), e embaixo vem **"Jogados recentemente por cada conta"** ([AccountRecentGames.tsx](../../src/components/server-list/AccountRecentGames.tsx)), uma seção por conta escolhida — como a aba Amigos mostra os amigos de cada conta. Pedido do dono.
+
+- **De onde vem:** o "Continuar" da página inicial do Roblox — `POST apis/discovery-api/omni-recommendation` com `{"pageType":"Home","sessionId":<uuid>}` e o cookie da conta; a faixa com `topicId` **100000003** (o `topic` vem traduzido: "Continue", "Continuar"…). Cada item é um **universo**; `GET games/v1/games?universeIds=` dá nome e `rootPlaceId` (sem cookie, um pedido para todas as contas) e o lote de imagens (`GameIcon`, 150x150) dá o ícone. Medido em 13/10/2026 com contas de teste. São jogos em que a conta entrou **de qualquer lugar** (app, site, celular).
+- **Comando:** `get_recent_games_for_accounts(userIds)` ([commands/recent_games.rs](../../src-tauri/src/commands/recent_games.rs)) — uma conta por vez, 250 ms entre elas, até 10 jogos por conta, na ordem do Roblox. **Só leitura, sem refresh de sessão**: cookie vencido vira o erro **daquela conta**, na seção dela.
+- A tela guarda o resultado por **1 minuto** na sessão (trocar de aba e voltar não pede de novo); o botão de atualizar pede na hora.
+- As linhas têm as ações da lista de cima: clicar abre os servidores, e os botões são servidores, favoritar e "Join Game".
+- Testes: `recent_games_parse_tests`, `recent_games_http_tests`, `recent_games_command_tests` (Rust) e `AccountRecentGames.test.tsx`, na suíte `friends`.
+
 #### Servidores recentes (Job IDs)
 
 Ao lado dos jogos recentes, a aba Recent do Server List mostra os **servidores** em que as contas entraram — voltar ao mesmo servidor exigia ter copiado o Job ID antes.

@@ -72,6 +72,11 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
    * teto de 14 vem de 20 (limite do Roblox) − 1 underscore − 5 sorteados.
    */
   const [usernamePrefix, setUsernamePrefix] = useState("");
+  /**
+   * `Generator.SignupAutoSubmit`: o app clica em "Cadastrar-se" sozinho (pedido
+   * do dono, 14/10/2026). Ligado por padrão; o CAPTCHA continua da pessoa.
+   */
+  const [autoSubmit, setAutoSubmit] = useState(true);
   const [status, setStatus] = useState<SignupStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
@@ -87,7 +92,9 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
   useEffect(() => {
     invoke<Record<string, Record<string, string>>>("get_all_settings")
       .then((all) => {
-        if (mounted.current) setUsernamePrefix(all?.Generator?.SignupUsernamePrefix ?? "");
+        if (!mounted.current) return;
+        setUsernamePrefix(all?.Generator?.SignupUsernamePrefix ?? "");
+        setAutoSubmit(all?.Generator?.SignupAutoSubmit !== "false");
       })
       .catch(() => {});
   }, []);
@@ -124,6 +131,15 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
         key: "SignupUsernamePrefix",
         value,
       });
+    } catch (e) {
+      store.addToast(String(e));
+    }
+  }
+
+  async function changeAutoSubmit(value: boolean) {
+    setAutoSubmit(value);
+    try {
+      await invoke("update_setting", { section: "Generator", key: "SignupAutoSubmit", value: value ? "true" : "false" });
     } catch (e) {
       store.addToast(String(e));
     }
@@ -179,10 +195,26 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
           {t("Free — the app fills Roblox's signup form; you solve the CAPTCHA")}
         </p>
         <p className="mt-1 text-[12px] theme-muted">
-          {t(
-            "The app fills in username, password, birthday (18+) and gender. You solve the CAPTCHA and press Create Account — the app saves each account and moves on to the next."
-          )}
+          {autoSubmit
+            ? t(
+                "The app fills in username, password, birthday (18+) and gender and presses Create Account. If Roblox shows a CAPTCHA, you solve it — the app saves each account and moves on to the next."
+              )
+            : t(
+                "The app fills in username, password, birthday (18+) and gender. You solve the CAPTCHA and press Create Account — the app saves each account and moves on to the next."
+              )}
         </p>
+
+        <label className="mt-2 flex items-center gap-2 text-[12px] text-[var(--panel-fg)] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={autoSubmit}
+            disabled={running}
+            onChange={(e) => void changeAutoSubmit(e.target.checked)}
+            className="accent-[var(--accent-color)]"
+          />
+          {t("Press Create Account by itself")}
+          <span className="theme-muted">{t("(the CAPTCHA stays with you)")}</span>
+        </label>
 
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
@@ -264,7 +296,9 @@ export function SignupPanel({ onOpenLoginSettings }: SignupPanelProps = {}) {
           {status.phase === "waiting-user" && (
             <p className="mt-2 flex items-center gap-1.5 text-[12px] text-amber-300">
               <ShieldCheck size={12} strokeWidth={1.5} />
-              {t("Solve the CAPTCHA in the browser window and press Create Account.")}
+              {autoSubmit
+                ? t("The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window.")
+                : t("Solve the CAPTCHA in the browser window and press Create Account.")}
             </p>
           )}
 

@@ -85,7 +85,7 @@ Nesta ordem: as ferramentas `Server List`, `Utilities`, `Browser`, `Join Group`;
 
 `Clear` · `Account` (abre o painel) · `Actions ▾` · **`Choose Game`**.
 
-`Actions` reúne: `Refresh Cookies`, `Copy All Cookies`, `Make Friends` (modo *mesh* = todos com todos, *star* = todos com uma, com o **intervalo entre pedidos** em segundos no próprio submenu), `Move to Group`, `Restart Launched`, `Open Auto Rejoin`, `Add to Auto Rejoin`, `Close All Roblox`, `Remove`.
+`Actions` reúne: `Refresh Cookies`, `Copy All Cookies`, `Make Friends` (modo *mesh* = todos com todos, *star* = todos com uma, com o **intervalo entre pedidos** em segundos no próprio submenu), `Follow a user` (as contas selecionadas seguem um usuário digitado por nome, ID ou link do perfil — não precisa estar no app — ou escolhido na lista de contas), `Move to Group`, `Restart Launched`, `Open Auto Rejoin`, `Add to Auto Rejoin`, `Close All Roblox`, `Remove`.
 
 O andamento do Make Friends aparece na página **Session** da barra lateral: uma linha por conta com aguardando / processando / amizade feita / erro, e o contador "X / Y contas processadas".
 

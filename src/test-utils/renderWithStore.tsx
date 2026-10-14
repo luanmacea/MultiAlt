@@ -242,6 +242,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     killAllRobloxProcesses: vi.fn(async () => {}),
     launchQueue: null,
     friendLinkState: null,
+    followUserState: null,
     refreshLaunchQueue: vi.fn(async () => {}),
     cancelAccountLaunch: vi.fn(async () => true),
     stopLaunchQueue: vi.fn(async () => 0),

@@ -65,6 +65,8 @@ include!("commands/keep_awake.rs");
 include!("commands/quick_login.rs");
 include!("commands/memory_ceiling.rs");
 include!("commands/shake_stop.rs");
+include!("commands/follow_user.rs");
+include!("commands/recent_games.rs");
 
 /// O que o app desfaz do Multi Roblox quando fecha.
 #[derive(Debug, PartialEq, Eq)]
@@ -129,22 +131,24 @@ enum SettingsOnExit {
     Nothing,
     /// Devolve os valores do usuário.
     Restore,
-    /// Um cliente que o app abriu ainda roda: ele relê e regrava esses
-    /// arquivos. A anotação fica para o próximo fechar. Nenhum cliente é
+    /// Um cliente do Roblox ainda roda — inclusive o aberto pelo site: ao
+    /// fechar ele regrava esses arquivos com o que tem na memória, desfazendo a
+    /// devolução. A anotação fica para a próxima vez que o app abrir e nenhum
+    /// Roblox estiver rodando (`start_settings_restore_loop`). Nenhum cliente é
     /// fechado por isso.
     WaitForClients,
     /// A opção foi desligada: esquece o anotado (sem mexer nos arquivos).
     Discard,
 }
 
-fn settings_on_exit_plan(enabled: bool, pending: bool, app_clients_running: bool) -> SettingsOnExit {
+fn settings_on_exit_plan(enabled: bool, pending: bool, roblox_running: bool) -> SettingsOnExit {
     if !pending {
         return SettingsOnExit::Nothing;
     }
     if !enabled {
         return SettingsOnExit::Discard;
     }
-    if app_clients_running {
+    if roblox_running {
         return SettingsOnExit::WaitForClients;
     }
     SettingsOnExit::Restore
@@ -162,6 +166,17 @@ mod settings_on_exit_tests {
     #[test]
     fn a_client_the_app_opened_still_running_postpones_and_closes_nothing() {
         assert_eq!(settings_on_exit_plan(true, true, true), SettingsOnExit::WaitForClients);
+    }
+
+    /// Antes só contavam os clientes que o app abriu: com um jogo aberto pelo
+    /// site, a devolução rodava por baixo dele e, quando ele fechava, regravava
+    /// os valores otimizados que tinha na memória (13/10/2026). Quem chama
+    /// passa "algum Roblox rodando", seja de quem for.
+    #[test]
+    fn a_client_opened_from_the_website_also_postpones() {
+        let roblox_running = roblox_running_for_settings(&[4242]);
+        assert_eq!(settings_on_exit_plan(true, true, roblox_running), SettingsOnExit::WaitForClients);
+        assert!(!roblox_running_for_settings(&[]));
     }
 
     #[test]
@@ -196,18 +211,53 @@ fn restore_roblox_settings_on_exit(app: &AppHandle<Wry>) {
         .state::<SettingsStore>()
         .get_bool("General", "RestoreRobloxSettingsOnExit");
     let pending = windows::has_pending_roblox_settings_restore();
-    let alive: std::collections::HashSet<u32> = windows::get_roblox_pids().into_iter().collect();
-    let app_clients_running = windows::tracker()
-        .get_all()
-        .iter()
-        .any(|process| !process.adopted && alive.contains(&process.pid));
-    match settings_on_exit_plan(enabled, pending, app_clients_running) {
+    let roblox_running = roblox_running_for_settings(&windows::get_roblox_pids());
+    match settings_on_exit_plan(enabled, pending, roblox_running) {
         SettingsOnExit::Nothing | SettingsOnExit::WaitForClients => {}
         SettingsOnExit::Restore => {
             windows::restore_roblox_settings();
         }
         SettingsOnExit::Discard => windows::discard_roblox_settings_restore(),
     }
+}
+
+/// Algum cliente do Roblox aberto, de quem for (app, site, sessão anterior do
+/// app): qualquer um deles regrava os arquivos ao fechar.
+fn roblox_running_for_settings(roblox_pids: &[u32]) -> bool {
+    !roblox_pids.is_empty()
+}
+
+/// Com o app aberto: devolve as configurações assim que nenhum Roblox estiver
+/// rodando (ver `restore_watch_due`). Cobre também o que ficou anotado de uma
+/// execução anterior (app fechado com jogo aberto, ou derrubado). Desligada a
+/// opção, o laço só lê o INI e volta.
+#[cfg(target_os = "windows")]
+fn start_settings_restore_loop(app: AppHandle<Wry>) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let handle = app.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                use platform::windows;
+                let enabled = handle
+                    .state::<SettingsStore>()
+                    .get_bool("General", "RestoreRobloxSettingsOnExit");
+                if !enabled || !windows::has_pending_roblox_settings_restore() {
+                    return;
+                }
+                let roblox_running = roblox_running_for_settings(&windows::get_roblox_pids());
+                if windows::restore_watch_due(
+                    enabled,
+                    true,
+                    roblox_running,
+                    windows::secs_since_last_settings_record(),
+                ) {
+                    windows::restore_roblox_settings();
+                }
+            })
+            .await;
+        }
+    });
 }
 
 #[cfg(target_os = "windows")]
@@ -413,6 +463,9 @@ pub fn run() {
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
             start_focus_follow_loop(app.handle().clone());
+            // Devolver as configurações do Roblox sem esperar o app fechar.
+            #[cfg(target_os = "windows")]
+            start_settings_restore_loop(app.handle().clone());
 
             let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -557,6 +610,10 @@ pub fn run() {
             send_friend_request,
             make_selected_friends,
             get_friend_link_state,
+            resolve_follow_target,
+            follow_user_with_accounts,
+            get_follow_user_state,
+            get_recent_games_for_accounts,
             avatar_free_catalog,
             avatar_list_saved,
             avatar_save,

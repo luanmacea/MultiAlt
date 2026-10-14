@@ -230,8 +230,9 @@ pub fn generate_identity(seed: u64, current_year: i32, username_prefix: &str) ->
 /// - o Roblox serve **duas** versões do cadastro: uma com a senha na mesma tela
 ///   e outra que pede a senha depois do "Continue". Como o script roda em laço,
 ///   a segunda tela é preenchida sozinha quando aparece;
-/// - **nada aqui clica em "Criar conta"**. O envio é do usuário, depois do
-///   CAPTCHA.
+/// - **nada aqui clica em "Criar conta"**: o envio é o
+///   [`signup_submit_script`], separado, que a sessão só roda com o formulário
+///   completo e a opção ligada.
 pub fn signup_prepare_script(identity: &SignupIdentity) -> String {
     let day = serde_json::to_string(&identity.day).unwrap_or_default();
     let month = serde_json::to_string(&identity.month).unwrap_or_default();
@@ -292,6 +293,39 @@ pub fn missing_fields(script_result: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// O que o clique em "Cadastrar-se" encontrou.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmitResult {
+    Clicked,
+    /// Uma verificação (CAPTCHA) está na tela: é da pessoa, nada é clicado.
+    Challenge,
+    /// Botão ausente ou desabilitado (o formulário ainda não está válido).
+    NotReady,
+}
+
+/// Clica em **"Cadastrar-se"** (`#signup-button`, id conferido em 14/10/2026 —
+/// não muda com o idioma; o Roblox o deixa desabilitado até o formulário ser
+/// válido). Antes de clicar, olha se há uma verificação na tela (um `iframe`
+/// visível, ou algo com "challenge"/"captcha" no id ou na classe): com ela, não
+/// clica — o CAPTCHA é da pessoa, e clicar de novo no meio dele o reiniciaria.
+///
+/// Pedido do dono (14/10/2026): o app clica em "Cadastrar-se" sozinho; se o
+/// Roblox pedir CAPTCHA, a pessoa resolve. Até então o envio era sempre dela.
+pub fn signup_submit_script() -> String {
+    "(function(){var b=document.querySelector('#signup-button')||document.querySelector('button.signup-submit-button');if(!b)return 'missing';var busy=Array.prototype.some.call(document.querySelectorAll('iframe,[id*=\"challenge\" i],[class*=\"challenge\" i],[id*=\"captcha\" i],[class*=\"captcha\" i]'),function(e){var r=e.getBoundingClientRect();return r.width>40&&r.height>40;});if(busy)return 'challenge';if(b.disabled)return 'disabled';b.click();return 'clicked';})()"
+        .to_string()
+}
+
+/// Lê o que [`signup_submit_script`] devolveu. Resposta inesperada = nada
+/// feito.
+pub fn submit_result(value: &serde_json::Value) -> SubmitResult {
+    match value.as_str() {
+        Some("clicked") => SubmitResult::Clicked,
+        Some("challenge") => SubmitResult::Challenge,
+        _ => SubmitResult::NotReady,
+    }
 }
 
 /// O formulário de cadastro está na tela?
@@ -499,6 +533,31 @@ mod signup_script_tests {
         assert!(!script.contains(".submit()"), "script: {}", script);
         // O único clique é o do botão de gênero.
         assert_eq!(script.matches(".click()").count(), 1);
+    }
+
+    /// "Cadastrar-se" sozinho (pedido do dono, 14/10/2026): o script clica só
+    /// no botão do cadastro, pelo id (não muda com o idioma), e **nunca** com
+    /// uma verificação na tela — o CAPTCHA é da pessoa, e clicar de novo no meio
+    /// dele o reiniciaria.
+    #[test]
+    fn the_submit_script_clicks_only_the_signup_button_and_never_over_a_challenge() {
+        let script = signup_submit_script();
+        assert!(script.contains("#signup-button"));
+        assert_eq!(script.matches(".click()").count(), 1);
+        assert!(!script.contains(".submit()"));
+        let challenge_at = script.find("'challenge'").expect("challenge check");
+        let click_at = script.find(".click()").unwrap();
+        assert!(challenge_at < click_at, "the challenge check comes before the click");
+        assert!(script.contains("disabled"));
+        assert!(script.contains("iframe"));
+    }
+
+    #[test]
+    fn the_submit_result_is_read_tolerantly() {
+        assert_eq!(submit_result(&serde_json::json!("clicked")), SubmitResult::Clicked);
+        assert_eq!(submit_result(&serde_json::json!("challenge")), SubmitResult::Challenge);
+        assert_eq!(submit_result(&serde_json::json!("disabled")), SubmitResult::NotReady);
+        assert_eq!(submit_result(&serde_json::json!(null)), SubmitResult::NotReady);
     }
 
     /// A data entra como literal JSON, e nome/senha **não entram no script** —

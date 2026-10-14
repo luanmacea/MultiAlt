@@ -8,6 +8,8 @@ import { useEscapeStack } from "../hooks/useEscapeStack";
 import { FavoritesTab } from "./server-list/FavoritesTab";
 import { GamesTab } from "./server-list/GamesTab";
 import { RecentTab } from "./server-list/RecentTab";
+import { JoinByFollowingToggle, useJoinByFollowing } from "./friends/JoinByFollowingToggle";
+import { AccountRecentGames } from "./server-list/AccountRecentGames";
 import { loadFavorites, recordRecentGame, updateFavorites } from "./server-list/types";
 import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
@@ -27,7 +29,7 @@ import { TourButton } from "./tour/TourButton";
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow";
 
 /** Extra launch parameters for targets that were already resolved (join links). */
-type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode">;
+type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode" | "followUserId">;
 
 /** Result of a launch attempt, so callers can surface the failure inline. */
 type LaunchResult = { ok: boolean; error?: string };
@@ -89,8 +91,9 @@ function useLauncher() {
   ): Promise<LaunchResult> {
     if (!(await confirmJoinOnline(userIds))) return { ok: false };
 
-    // A preferência só entra quando o usuário não escolheu servidor.
-    if (!jobId.trim() && !extras?.joinVip) {
+    // A preferência só entra quando o usuário não escolheu servidor (e não
+    // quando se segue alguém: aí quem escolhe o servidor é o Roblox).
+    if (!jobId.trim() && !extras?.joinVip && !extras?.followUserId) {
       const preferred = await resolvePreferredJob(userIds, placeId);
       if (preferred.cancelled) return { ok: false };
       jobId = preferred.jobId;
@@ -108,7 +111,8 @@ function useLauncher() {
     // manual re-launch from the field hits the same private server.
     store.setJobId(extras?.joinVip && extras.linkCode ? `vip:${extras.linkCode}` : jobId);
     try {
-      if (userIds.length === 1) {
+      // "Seguir" só existe no lote (`launch_multiple`), que aceita uma conta.
+      if (userIds.length === 1 && !extras?.followUserId) {
         const attempt = await store.joinServer(userIds[0], target);
         if (attempt !== "started") {
           // O store já avisou (recusa) ou já pôs a faixa de erro (falha): aqui só
@@ -302,6 +306,7 @@ function FollowTab({
   const store = useStore();
   const confirm = useConfirm();
   const launchAll = useLauncher();
+  const [joinByFollowing] = useJoinByFollowing();
   const [followUser, setFollowUser] = useState("");
   const [launching, setLaunching] = useState(false);
 
@@ -330,6 +335,24 @@ function FollowTab({
       // Sem Job ID entra-se num servidor público do jogo, e aí é o raiz: um
       // sub-place de teleporte pode não aceitar entrada direta.
       const placeId = jobId ? (serverPlace ?? rootPlace) : (rootPlace ?? serverPlace);
+
+      if (joinByFollowing) {
+        // Seguindo (como o RAM antigo): o Roblox acha o servidor do jogador,
+        // mesmo com ele escondido. Só não adianta com ele offline.
+        if (presenceType === 0) {
+          store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
+          return;
+        }
+        const followed = await launchAll(userIds, rootPlace ?? serverPlace ?? 0, "", onLaunchStarted, {
+          followUserId: user.id,
+        });
+        if (followed.ok) {
+          store.addToast(
+            tr("Following {{name}} with {{count}} account(s)...", { name: followUser, count: userIds.length })
+          );
+        }
+        return;
+      }
 
       if (presenceType < 2 || !placeId) {
         store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
@@ -401,6 +424,8 @@ function FollowTab({
             {launching ? t("Launching...") : t("Follow")}
           </button>
         </div>
+
+        <JoinByFollowingToggle className="mb-3" />
 
         <div className="text-[12px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed">
           ℹ️ {t("If the player is not in a game, nothing opens. If their server is hidden, you'll be asked before joining a public server of the same game. The player's profile must be public.")}
@@ -573,7 +598,7 @@ export function ChooseGameScreen() {
     {
       id: "recent",
       label: t("Recent"),
-      hint: t("Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly."),
+      hint: t("Games opened by MultiAlt and, below, the games each selected account played recently on Roblox. Click a game to see its servers, or use Join Game to launch directly."),
     },
     {
       id: "servers",
@@ -746,16 +771,31 @@ export function ChooseGameScreen() {
           </div>
         )}
         {activeTab === "recent" && (
-          <div className="h-full overflow-y-auto px-4 pt-3 pb-4">
-            <RecentTab
+          <div className="h-full overflow-y-auto px-4 pt-3 pb-4 space-y-6">
+            {/* Em cima, os jogos abertos pelo MultiAlt (a lista de sempre);
+                embaixo, os recentes de cada conta no Roblox, como a aba Amigos. */}
+            <section data-testid="recent-opened-by-app">
+              <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                {t("Opened by MultiAlt")}
+              </div>
+              <RecentTab
+                onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
+                onJoinGame={handleJoinGame}
+                maxRecent={maxRecent}
+                userId={userIds[0] ?? null}
+                onBrowseServers={handleBrowseServers}
+                onAddFavorite={handleAddFavorite}
+                onBotting={handleBottingForGame}
+                onScripts={handleScriptsForGame}
+                fill={false}
+              />
+            </section>
+            <AccountRecentGames
+              userIds={userIds}
               onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
               onJoinGame={handleJoinGame}
-              maxRecent={maxRecent}
-              userId={userIds[0] ?? null}
               onBrowseServers={handleBrowseServers}
               onAddFavorite={handleAddFavorite}
-              onBotting={handleBottingForGame}
-              onScripts={handleScriptsForGame}
             />
           </div>
         )}

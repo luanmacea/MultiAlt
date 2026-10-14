@@ -212,6 +212,15 @@ describe("DetailSidebar", () => {
     await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Joined group 7654321"));
   });
 
+  it("says when the group only took a join request", async () => {
+    promptAnswers.prompt = "7654321";
+    setInvokeHandler((cmd) => (cmd === "join_group" ? "pending" : cmd === "versions_list_installed" ? [] : undefined));
+    const store = renderSidebar();
+    await userEvent.click(screen.getByRole("button", { name: "Join Group" }));
+
+    await waitFor(() => expect(store.addToast).toHaveBeenCalledWith("Join request sent to group 7654321"));
+  });
+
   it("rejects a non-numeric group id", async () => {
     promptAnswers.prompt = "not-a-group";
     const store = renderSidebar();

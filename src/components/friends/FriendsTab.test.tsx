@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 vi.mock("@tauri-apps/api/event", async () => (await import("../../test-utils/tauriMocks")).tauriEventMock());
 
 import { FriendsTab } from "./FriendsTab";
-import { makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
+import { defaultSettings, makeAccount, renderWithStore } from "../../test-utils/renderWithStore";
 import {
   emitTauriEvent,
   invokeMock,
@@ -50,7 +50,8 @@ const launchAll = vi.fn(
     _userIds: number[],
     _placeId: number,
     _jobId?: string,
-    _onStarted?: () => void
+    _onStarted?: () => void,
+    _extras?: { followUserId?: number }
   ): Promise<{ ok: boolean; error?: string }> => ({ ok: true })
 );
 
@@ -197,10 +198,51 @@ describe("FriendsTab — joinable vs. not joinable", () => {
   });
 });
 
+/** Modo "servidor exato" (toggle "Join by following" desligado). */
+const EXACT_SERVER: Partial<StoreValue> = {
+  settings: { ...defaultSettings(), General: { ...defaultSettings().General, JoinFriendsByFollowing: "false" } },
+};
+
+/**
+ * Padrão desde 14/10/2026: entrar **seguindo** o amigo, como o RAM antigo — o
+ * jeito que não esbarrava no CAPTCHA no relato de um usuário.
+ */
+describe("FriendsTab — join by following (default)", () => {
+  it("follows the friend with every selected account, without a server ID", async () => {
+    setFriends([group(1001, [friend({ userId: 7001 })]), group(1002, [])]);
+    renderTab();
+
+    await userEvent.click(within(await screen.findByTestId("friend-1001-7001")).getByRole("button"));
+
+    await waitFor(() => expect(launchAll).toHaveBeenCalledTimes(1));
+    expect(launchAll).toHaveBeenCalledWith([1001, 1002], 189707, "", undefined, { followUserId: 7001 });
+  });
+
+  it("shows the toggle explaining that following helps avoid CAPTCHA", async () => {
+    setFriends([group(1001, [])]);
+    renderTab([ACCOUNT_A]);
+    const toggle = await screen.findByRole("checkbox", { name: /Join by following the player \(helps avoid CAPTCHA\)/ });
+    expect(toggle).toBeChecked();
+    expect(screen.getByText(/can make Roblox show alts a CAPTCHA/)).toBeInTheDocument();
+  });
+
+  it("turning it off is saved", async () => {
+    setInvokeMap({ get_online_friends_for_accounts: [group(1001, [])], batched_get_avatar_headshots: [], update_setting: null });
+    renderTab([ACCOUNT_A]);
+    await userEvent.click(await screen.findByRole("checkbox", { name: /Join by following/ }));
+    await waitFor(() =>
+      expect(callsFor("update_setting")).toContainEqual([
+        "update_setting",
+        { section: "General", key: "JoinFriendsByFollowing", value: "false" },
+      ])
+    );
+  });
+});
+
 describe("FriendsTab — joining", () => {
   it("sends every selected account to the friend's server in a single launch call", async () => {
     setFriends([group(1001, [friend({ userId: 7001 })]), group(1002, [])]);
-    renderTab();
+    renderTab(undefined, EXACT_SERVER);
 
     await userEvent.click(within(await screen.findByTestId("friend-1001-7001")).getByRole("button"));
 
@@ -219,7 +261,7 @@ describe("FriendsTab — joining", () => {
    */
   it("joins the place the friend's server is in, not the root place", async () => {
     setFriends([group(1001, [friend({ userId: 7001, placeId: 111, rootPlaceId: 999, gameId: "job-b" })])]);
-    renderTab([ACCOUNT_A]);
+    renderTab([ACCOUNT_A], EXACT_SERVER);
 
     await userEvent.click(within(await screen.findByTestId("friend-1001-7001")).getByRole("button"));
 
@@ -228,7 +270,7 @@ describe("FriendsTab — joining", () => {
 
   it("falls back to rootPlaceId when placeId is missing", async () => {
     setFriends([group(1001, [friend({ userId: 7001, placeId: null, rootPlaceId: 999, gameId: "job-c" })])]);
-    renderTab([ACCOUNT_A]);
+    renderTab([ACCOUNT_A], EXACT_SERVER);
 
     await userEvent.click(within(await screen.findByTestId("friend-1001-7001")).getByRole("button"));
 

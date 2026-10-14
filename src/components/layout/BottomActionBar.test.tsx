@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
@@ -535,6 +535,137 @@ describe("BottomActionBar — friend linking", () => {
     release({ pairsTotal: 2, alreadyFriends: 0, verifiedOk: 2, failed: 0 });
     await waitFor(() => expect(screen.getByRole("button", { name: /^Actions/ })).toBeInTheDocument());
   });
+});
+
+/**
+ * "Follow a user": as contas selecionadas seguem um alvo digitado (que não
+ * precisa estar no app) ou escolhido na lista de contas.
+ */
+describe("BottomActionBar — follow a user", () => {
+  const FOLLOW_RESULT = { total: 2, followed: 2, alreadyFollowing: 0, failed: 0, skippedTarget: false };
+
+  async function openFollow(selected = [A, B], overrides: Partial<StoreValue> = {}) {
+    const store = renderBar(selected, overrides);
+    await openActions();
+    await userEvent.click(screen.getByRole("button", { name: /Follow a user/ }));
+    return store;
+  }
+
+  function routeFollow(resolved: unknown) {
+    setInvokeHandler((cmd) => {
+      if (cmd === "resolve_follow_target") {
+        if (resolved instanceof Error) throw resolved.message;
+        return resolved;
+      }
+      if (cmd === "follow_user_with_accounts") return FOLLOW_RESULT;
+      return undefined;
+    });
+  }
+
+  it("is offered even with a single account selected", async () => {
+    renderBar([A]);
+    await openActions();
+    expect(screen.getByRole("button", { name: "Follow a user (1)" })).toBeInTheDocument();
+  });
+
+  it("looks up a typed name, confirms who it is and follows with the whole selection", async () => {
+    routeFollow({ id: 9999, name: "starplayer", displayName: "Star" });
+    promptAnswers.confirm = true;
+    const store = await openFollow();
+    await userEvent.type(screen.getByPlaceholderText("Username, user ID or profile link"), "starplayer{Enter}");
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("follow_user_with_accounts", {
+        userIds: [1, 2],
+        targetUserId: 9999,
+        targetName: "starplayer",
+        delayMs: 2500,
+      })
+    );
+    expect(invokeMock).toHaveBeenCalledWith("resolve_follow_target", { query: "starplayer" });
+    expect(confirmMock.mock.calls[0][0]).toContain("Star (@starplayer)");
+    expect(confirmMock.mock.calls[0][0]).toContain("9999");
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(expect.stringContaining("2 followed"))
+    );
+  });
+
+  /**
+   * Visto no harness: o mesmo Enter que dispara a busca chegava ao botão
+   * "Confirm" (que abre com foco) e aceitava a confirmação sem o usuário ler.
+   */
+  it("swallows the Enter that submits, so it cannot accept the confirmation too", async () => {
+    routeFollow({ id: 9999, name: "starplayer", displayName: "starplayer" });
+    await openFollow();
+    const input = screen.getByPlaceholderText("Username, user ID or profile link");
+    await userEvent.type(input, "starplayer");
+    // `fireEvent` devolve `false` quando o handler chamou `preventDefault`.
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+    expect(fireEvent.keyDown(input, { key: "a" })).toBe(true);
+  });
+
+  it("does not follow when the confirmation is declined", async () => {
+    routeFollow({ id: 9999, name: "starplayer", displayName: "starplayer" });
+    promptAnswers.confirm = false;
+    await openFollow();
+    await userEvent.type(screen.getByPlaceholderText("Username, user ID or profile link"), "starplayer");
+    await userEvent.click(screen.getByRole("button", { name: "Follow" }));
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    expect(invokeMock).not.toHaveBeenCalledWith("follow_user_with_accounts", expect.anything());
+  });
+
+  it("says when the typed user does not exist and follows nobody", async () => {
+    routeFollow(new Error("User 'ghost' not found"));
+    const store = await openFollow();
+    await userEvent.type(screen.getByPlaceholderText("Username, user ID or profile link"), "ghost{Enter}");
+
+    await waitFor(() =>
+      expect(store.addToast).toHaveBeenCalledWith(expect.stringContaining("not found"))
+    );
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(invokeMock).not.toHaveBeenCalledWith("follow_user_with_accounts", expect.anything());
+  });
+
+  it("counts only the accounts that will follow when the target is in the selection", async () => {
+    routeFollow({ id: 2, name: "bob", displayName: "bob" });
+    promptAnswers.confirm = true;
+    await openFollow();
+    await userEvent.type(screen.getByPlaceholderText("Username, user ID or profile link"), "2{Enter}");
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
+    expect(confirmMock.mock.calls[0][0]).toMatch(/^1 account\(s\)/);
+  });
+
+  it("follows an account picked from the list, without asking", async () => {
+    routeFollow(null);
+    await openFollow();
+    await userEvent.click(screen.getByRole("button", { name: /👤 cid/ }));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "follow_user_with_accounts",
+        expect.objectContaining({ userIds: [1, 2], targetUserId: 3, targetName: "cid" })
+      )
+    );
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(invokeMock).not.toHaveBeenCalledWith("resolve_follow_target", expect.anything());
+  });
+
+  it("filters the account list by what was typed", async () => {
+    await openFollow();
+    await userEvent.type(screen.getByPlaceholderText("Username, user ID or profile link"), "ci");
+    const menu = screen.getByTestId("follow-menu");
+    expect(menu).toHaveTextContent("cid");
+    expect(menu).not.toHaveTextContent("ann");
+  });
+
+  it("does not let the only selected account follow itself", async () => {
+    await openFollow([A]);
+    expect(screen.getByRole("button", { name: /👤 ann/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /👤 bob/ })).toBeEnabled();
+  });
+
 });
 
 describe("BottomActionBar — Botting Mode discovery", () => {

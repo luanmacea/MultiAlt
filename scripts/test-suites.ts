@@ -112,6 +112,12 @@ export const SUITES: Record<string, TestSuite> = {
       "account_helpers_tests",
       "account_path_tests",
       "account_api_tests",
+      // Actions › Follow a user (commands/follow_user.rs, api/roblox/follow.rs).
+      "follow_user_tests",
+      "follow_user_batch_tests",
+      "follow_browser_tests",
+      "follow_http_tests",
+      "follow_parse_tests",
       "read_only_retry_tests",
       "account_api_http_tests",
       "cookie_rotation_command_tests",
@@ -314,6 +320,9 @@ export const SUITES: Record<string, TestSuite> = {
       "group_join_http_tests",
       "group_membership_http_tests",
       "group_join_batch_tests",
+      // Entrada pelo navegador da conta (13/10/2026), com página de mentira.
+      "group_browser_join_tests",
+      "group_read_for_join_tests",
       "social_presence_extra_tests",
       "chromium_commands_tests",
     ],
@@ -363,8 +372,12 @@ export const SUITES: Record<string, TestSuite> = {
       "friends_online_http_tests",
       "presence_cookie_tests",
       "online_friends_batch_tests",
+      // Recentes por conta (o "Continuar" do Roblox), na aba Recentes.
+      "recent_games_parse_tests",
+      "recent_games_http_tests",
+      "recent_games_command_tests",
     ],
-    front: ["src/components/friends"],
+    front: ["src/components/friends", "src/components/server-list/AccountRecentGames.test.tsx"],
   },
   servers: {
     description: "Escolha de servidor (aleatório/vazio/cheio), região e navegador de servidores",

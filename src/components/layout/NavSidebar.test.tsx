@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/taur
 
 /** O Help está atrás de `ENABLE_HELP_BUTTON` (desligado); os testes ligam quando precisam. */
 const helpFlag = vi.hoisted(() => ({ on: false }));
-/** Grupos está atrás de `ENABLE_GROUPS` (desligado até sair da branch feature/groups). */
+/** Grupos está atrás de `ENABLE_GROUPS` (ligado desde 13/10/2026); os testes escolhem. */
 const groupsFlag = vi.hoisted(() => ({ on: false }));
 vi.mock("../../featureFlags", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../featureFlags")>();

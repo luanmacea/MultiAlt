@@ -23,6 +23,11 @@ export interface RecentGamesListProps {
   /** Abre o Auto Rejoin / os Scripts **com este jogo**. */
   onBotting?: (placeId: number) => void;
   onScripts?: (placeId: number) => void;
+  /**
+   * `false` = a lista ocupa só a altura dela (a aba Recentes da Escolher jogo
+   * põe os recentes de cada conta embaixo, e a rolagem é da aba inteira).
+   */
+  fill?: boolean;
 }
 
 export function RecentGamesList({
@@ -34,6 +39,7 @@ export function RecentGamesList({
   onAddFavorite,
   onBotting,
   onScripts,
+  fill = true,
 }: RecentGamesListProps) {
   const t = useTr();
   const confirm = useConfirm();
@@ -106,6 +112,10 @@ export function RecentGamesList({
     return t("just now");
   }
 
+  if (games.length === 0 && !fill) {
+    return <div className="px-1 py-2 text-[11px] text-zinc-600">{t("No recent games")}</div>;
+  }
+
   if (games.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full py-8">
@@ -119,7 +129,7 @@ export function RecentGamesList({
   }
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className={fill ? "flex flex-col h-full min-h-0" : "flex flex-col"}>
       <div className="flex items-center justify-between px-1 pb-2">
         <span className="text-[11px] text-zinc-600">{t("{{count}} of {{max}} max", { count: games.length, max: maxRecent })}</span>
         <button
@@ -131,7 +141,7 @@ export function RecentGamesList({
           {t("Clear all")}
         </button>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className={fill ? "flex-1 min-h-0 overflow-y-auto" : undefined}>
         <div className="flex flex-col gap-1 px-1">
           {games.map((game) => (
             <div

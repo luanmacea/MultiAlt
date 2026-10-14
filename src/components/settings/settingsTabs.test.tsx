@@ -1077,7 +1077,7 @@ describe("OptimizationTab", () => {
   it("offers giving the Roblox settings back on close, off by default, and saves it", async () => {
     renderOptimization({});
     const toggle = await screen.findByRole("switch", {
-      name: /Restore Roblox settings when MultiAlt closes/,
+      name: /Restore Roblox settings when no game is open/,
     });
     expect(toggle).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText(/the game you open from the website/)).toBeInTheDocument();
@@ -1090,7 +1090,7 @@ describe("OptimizationTab", () => {
     renderOptimization({}, "macos");
     await screen.findByText("Override Window Size");
     expect(
-      screen.queryByRole("switch", { name: /Restore Roblox settings when MultiAlt closes/ })
+      screen.queryByRole("switch", { name: /Restore Roblox settings when no game is open/ })
     ).not.toBeInTheDocument();
   });
 

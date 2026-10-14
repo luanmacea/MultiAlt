@@ -10,7 +10,7 @@ vi.mock("../hooks/usePrompt", async () => (await import("../test-utils/promptMoc
 
 import { ChooseGameScreen } from "./ChooseGameScreen";
 import { saveRecentGames } from "./server-list/types";
-import { makeAccount, setStore } from "../test-utils/renderWithStore";
+import { defaultSettings, makeAccount, setStore } from "../test-utils/renderWithStore";
 import { emitTauriEvent, invokeMock, resetTauriMocks, setInvokeHandler } from "../test-utils/tauriMocks";
 import { promptAnswers, resetPromptMocks } from "../test-utils/promptMocks";
 import type { JoinTarget } from "../types";
@@ -36,11 +36,22 @@ const ACCOUNT_A = makeAccount({ UserID: 1001, Username: "alpha" });
 const ACCOUNT_B = makeAccount({ UserID: 1002, Username: "bravo" });
 
 /** Renders the screen with `selected` accounts and opens the Follow tab. */
-async function renderFollowTab(selected = [ACCOUNT_A, ACCOUNT_B]): Promise<StoreValue> {
+/** As configurações padrão do teste com o toggle "Join by following" escolhido. */
+function withJoinByFollowing(on: boolean) {
+  const settings = defaultSettings();
+  return { ...settings, General: { ...settings.General, JoinFriendsByFollowing: on ? "true" : "false" } };
+}
+
+/**
+ * A aba Seguir. `byFollowing` = o toggle "Join by following" (padrão ligado
+ * desde 14/10/2026); os testes do pedido do servidor exato o desligam.
+ */
+async function renderFollowTab(selected = [ACCOUNT_A, ACCOUNT_B], byFollowing = false): Promise<StoreValue> {
   const store = setStore({
     accounts: [ACCOUNT_A, ACCOUNT_B],
     selectedIds: new Set(selected.map((a) => a.UserID)),
     selectedAccounts: selected,
+    settings: withJoinByFollowing(byFollowing),
   });
   render(<ChooseGameScreen />);
   await userEvent.click(screen.getByRole("button", { name: "Follow" }));
@@ -277,6 +288,43 @@ describe("ChooseGameScreen — JoinLinkSection", () => {
     cleanup();
     await renderFollowTab([ACCOUNT_A]);
     expect(screen.getAllByText("1 account").length).toBeGreaterThan(0);
+  });
+});
+
+describe("ChooseGameScreen — FollowTab, join by following", () => {
+  it("follows the player with every account, without a server ID, even for one account", async () => {
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return [{ userPresenceType: 2, placeId: 111, rootPlaceId: 606849621, gameId: "job-x" }];
+      return undefined;
+    });
+    const store = await renderFollowTab([ACCOUNT_A], true);
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    const buttons = screen.getAllByRole("button", { name: "Follow" });
+    await userEvent.click(buttons[buttons.length - 1]);
+
+    await waitFor(() => expect(store.launchMultiple).toHaveBeenCalledTimes(1));
+    expect(store.launchMultiple).toHaveBeenCalledWith([ACCOUNT_A.UserID], expect.objectContaining({ followUserId: 42, jobId: "" }));
+    expect(store.joinServer).not.toHaveBeenCalled();
+  });
+
+  it("still follows when the player's server is hidden, and stops only when offline", async () => {
+    let presenceType = 1;
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return [{ userPresenceType: presenceType, placeId: null, rootPlaceId: null, gameId: null }];
+      return undefined;
+    });
+    const store = await renderFollowTab([ACCOUNT_A, ACCOUNT_B], true);
+    await userEvent.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    const buttons = screen.getAllByRole("button", { name: "Follow" });
+    await userEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(store.launchMultiple).toHaveBeenCalledTimes(1));
+
+    presenceType = 0;
+    await userEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(store.addToast).toHaveBeenCalledWith(expect.stringContaining("is not in a game")));
+    expect(store.launchMultiple).toHaveBeenCalledTimes(1);
   });
 });
 

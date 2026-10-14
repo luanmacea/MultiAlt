@@ -1228,10 +1228,11 @@ interface HarnessGroupJoin {
  * página com cursor e depois uma segunda; um número ou link devolve um grupo.
  * O lote espelha o backend — uma conta por vez, o retrato inteiro em
  * `groups-join-state` a cada passo, `groups_join_batch` só responde no fim — e
- * o resultado de cada conta é fixo pela posição: a 1ª entra, a 2ª esbarra no
- * captcha, a 3ª já é membro, a 4ª fica pendente, a 5ª falha (limite de
- * grupos), a 6ª esbarra num desafio que **não** é captcha (`proofofwork`, o
- * caso dos termos de uso que o dono viu), as demais entram. A conferência
+ * o resultado de cada conta é fixo pela posição: a 1ª entra, a 2ª passa uns
+ * segundos em "Termine no navegador" (a janela pediu a pessoa) e entra, a 3ª já
+ * é membro, a 4ª fica pendente, a 5ª falha (limite de grupos), a 6ª fica "Não
+ * terminado" (ninguém terminou na janela), a 7ª esbarra no captcha da API (o
+ * plano B, quando o navegador não abre), as demais entram. A conferência
  * devolve "notMember" na primeira vez e "joined" depois, como se a pessoa
  * tivesse entrado pelo navegador; o "Tentar de novo" devolve "joined". Com o
  * campo vazio, `groups_popular` entrega os populares em 700 ms
@@ -1258,13 +1259,7 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
   const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const OUTCOMES: HarnessGroupJoin["accounts"][number][] = [
     { userId: 0, status: "joined", reason: null },
-    {
-      userId: 0,
-      status: "challenge",
-      reason: "Challenge is required to authorize the request",
-      challengeType: "captcha",
-      detail: "HTTP 403 · challenge captcha · code 0",
-    },
+    { userId: 0, status: "joined", reason: null },
     { userId: 0, status: "alreadyMember", reason: null },
     { userId: 0, status: "pending", reason: null },
     {
@@ -1276,9 +1271,15 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
     {
       userId: 0,
       status: "challenge",
-      reason: "Challenge is required to authorize the request",
-      challengeType: "proofofwork",
-      detail: "HTTP 403 · challenge proofofwork · code 0",
+      reason: "Roblox asked for something in the browser and it wasn't finished",
+      challengeType: "browser",
+    },
+    {
+      userId: 0,
+      status: "challenge",
+      reason: "Could not open the browser: Could not start browser",
+      challengeType: "captcha",
+      detail: "HTTP 403 · challenge captcha · code 0",
     },
   ];
 
@@ -1385,6 +1386,10 @@ function groupsHandler(fallback: InvokeHandler): InvokeHandler {
               accounts: batch.accounts.map((row) => (row.userId === userId ? { ...row, status: "joining" } : row)),
             });
             await wait(1200);
+            if (index === 1) {
+              publish({ accounts: batch.accounts.map((row) => (row.userId === userId ? { ...row, status: "browser" } : row)) });
+              await wait(2500);
+            }
             const outcome = OUTCOMES[index] ?? OUTCOMES[0];
             publish({
               done: index + 1,
@@ -2084,6 +2089,80 @@ const SCENARIOS: Record<string, () => void> = {
     });
   },
 
+  /**
+   * "Follow a user": o alvo digitado é procurado, as contas seguem uma a uma
+   * e o backend publica o retrato completo — uma já seguia, a última falha.
+   * O nome "ghost" não existe, para ver a mensagem de usuário não encontrado.
+   */
+  "follow-user"() {
+    let estado = {
+      active: false,
+      processed: 0,
+      total: 0,
+      accounts: [] as { userId: number; state: string; error: string | null }[],
+      targetUserId: null as number | null,
+      targetName: null as string | null,
+    };
+
+    function publica(mudanca: Partial<typeof estado>) {
+      estado = { ...estado, ...mudanca };
+      estado.processed = estado.accounts.filter((a) =>
+        ["followed", "already", "failed"].includes(a.state)
+      ).length;
+      harnessEmit("follow-user-state", estado);
+    }
+
+    setInvokeHandler((cmd, args) => {
+      if (cmd === "get_follow_user_state") return estado;
+      if (cmd === "resolve_follow_target") {
+        const query = String(args.query ?? "").trim().replace(/^@/, "");
+        if (query.toLowerCase() === "ghost") throw "User 'ghost' not found";
+        const id = /^\d+$/.test(query) ? Number(query) : 424242;
+        return { id, name: /^\d+$/.test(query) ? "numbered_user" : query, displayName: "Target Person" };
+      }
+      if (cmd === "follow_user_with_accounts") {
+        const target = Number(args.targetUserId);
+        const ids = (args.userIds as number[]).filter((id) => id !== target);
+        publica({
+          active: true,
+          total: ids.length,
+          targetUserId: target,
+          targetName: String(args.targetName ?? ""),
+          accounts: ids.map((userId) => ({ userId, state: "pending", error: null })),
+        });
+        return new Promise((resolve) => {
+          ids.forEach((userId, index) => {
+            setTimeout(() => {
+              const last = index === ids.length - 1 && ids.length > 1;
+              const state = last ? "failed" : index === 1 ? "already" : "followed";
+              publica({
+                accounts: estado.accounts.map((a) =>
+                  a.userId === userId
+                    ? { ...a, state, error: last ? "Failed to follow (status 429): Too many requests" : null }
+                    : a.userId === ids[index + 1]
+                      ? { ...a, state: "processing" }
+                      : a
+                ),
+              });
+            }, 600 * (index + 1));
+          });
+          setTimeout(() => {
+            publica({ active: false });
+            const count = (s: string) => estado.accounts.filter((a) => a.state === s).length;
+            resolve({
+              total: ids.length,
+              followed: count("followed"),
+              alreadyFollowing: count("already"),
+              failed: count("failed"),
+              skippedTarget: ids.length !== (args.userIds as number[]).length,
+            });
+          }, 600 * (ids.length + 1));
+        });
+      }
+      return baseHandler(cmd, args);
+    });
+  },
+
   /** Fila de launch e contas em jogo (Painel de Sessão). */
   "launch-queue"() {
     setInvokeHandler((cmd, args) => {
@@ -2615,8 +2694,9 @@ const SCENARIOS: Record<string, () => void> = {
   /**
    * Página Groups: grupos populares com o campo vazio, busca "pet" (duas
    * páginas, uma com um grupo trancado), link/id colado, e um lote em que a 2ª
-   * conta esbarra no captcha, a 3ª já é membro, a 4ª fica pendente, a 5ª falha
-   * e a 6ª esbarra num desafio que não é captcha. Use `&accounts=6`. (O
+   * conta passa por "Termine no navegador" e entra, a 3ª já é membro, a 4ª fica
+   * pendente, a 5ª falha, a 6ª fica "Não terminado" e a 7ª esbarra no captcha
+   * da API (plano B). Use `&accounts=7`. (O
    * cenário `groups` é outro: os grupos da lista de contas.)
    */
   "roblox-groups"() {

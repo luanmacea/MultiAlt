@@ -203,13 +203,44 @@ describe("SignupPanel — identidade gerada", () => {
     expect(screen.getByText("07/Mar/2001")).toBeInTheDocument();
   });
 
-  it("avisa que o CAPTCHA é com o usuário", async () => {
+  /** Desde 14/10/2026 o app clica em "Cadastrar-se" sozinho; o CAPTCHA é da pessoa. */
+  it("avisa que o app clica em Criar conta e que o CAPTCHA é com o usuário", async () => {
     setInvokeMap({
       get_signup_status: status({ active: true, total: 1, phase: "waiting-user", identity: identity() }),
+      get_all_settings: {},
     });
     renderWithStore(<SignupPanel />);
 
-    expect(await screen.findByText(/Solve the CAPTCHA in the browser window/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/presses Create Account by itself\. If Roblox shows a CAPTCHA, solve it/i)
+    ).toBeInTheDocument();
+  });
+
+  it("com a opção desligada, pede para a pessoa clicar em Criar conta", async () => {
+    setInvokeMap({
+      get_signup_status: status({ active: true, total: 1, phase: "waiting-user", identity: identity() }),
+      get_all_settings: { Generator: { SignupAutoSubmit: "false" } },
+    });
+    renderWithStore(<SignupPanel />);
+
+    expect(await screen.findByText(/Solve the CAPTCHA in the browser window and press Create Account/i)).toBeInTheDocument();
+  });
+
+  it("clicar em Criar conta sozinho vem ligado e desligar fica salvo", async () => {
+    const user = userEvent.setup();
+    setInvokeMap({ get_signup_status: status(), get_all_settings: {}, update_setting: null });
+    renderWithStore(<SignupPanel />);
+
+    const opcao = await screen.findByRole("checkbox", { name: /Press Create Account by itself/ });
+    expect(opcao).toBeChecked();
+    await user.click(opcao);
+    await waitFor(() =>
+      expect(callsFor("update_setting")).toContainEqual([
+        "update_setting",
+        { section: "Generator", key: "SignupAutoSubmit", value: "false" },
+      ])
+    );
+    expect(opcao).not.toBeChecked();
   });
 
   it("copia usuário e senha", async () => {

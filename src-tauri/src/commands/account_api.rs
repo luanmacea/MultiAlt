@@ -1262,18 +1262,6 @@ async fn parse_private_server_link_code(
     .await
 }
 
-#[tauri::command]
-async fn join_group(
-    state: tauri::State<'_, AccountStore>,
-    user_id: i64,
-    group_id: i64,
-) -> Result<(), String> {
-    run_with_session_retry(state.inner(), user_id, |cookie| async move {
-        api::roblox::join_group(&cookie, group_id).await
-    })
-    .await
-}
-
 /// Escolhe o cookie de "quem está olhando" para uma chamada de presença sem
 /// `viewer_user_id` explícito: prefere uma conta válida com cookie não vazio e
 /// cai para qualquer conta com cookie não vazio se nenhuma válida sobrar.

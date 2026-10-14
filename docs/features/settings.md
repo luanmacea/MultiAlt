@@ -71,7 +71,8 @@ Todos os valores são strings; booleanos são `"true"`/`"false"` (qualquer outra
 | `UpdaterFeatureChannel` | a edição que está rodando (`standard` na padrão, `nexus-ws` na completa) | Canal de features do updater. Gravado no INI, nunca é reposto por uma versão nova; o botão "Get the complete edition" da página Avatars grava `nexus-ws` ([avatars.md](avatars.md#trocar-para-a-edição-completa-pelo-app)). |
 | `AccountJoinDelay` | `8` | Segundos entre contas no multi-launch. |
 | `AsyncJoin` | `false` | "Launch one account at a time": espera o sinal `next_account` (teto de 120 s) depois de cada conta. Nada na tela manda o sinal, então na prática são 2 minutos entre contas — é o que a descrição diz. Ligado, `AccountJoinDelay` e `WaitForGameJoin` ficam desabilitados com a dica de que voltam a valer ao desligá-lo. |
-| `RestoreRobloxSettingsOnExit` | `false` | "Restore Roblox settings when MultiAlt closes" (Settings › Optimization): devolve ao fechar o app o FPS, volume, gráficos, janela e FastFlags que o launch gravou nos arquivos do Roblox, quando nenhum cliente aberto pelo app está rodando. Cópia dos arquivos originais em `RobloxSettingsBackup/`. Só Windows. Ver [performance.md](performance.md#devolver-as-configurações-do-roblox-ao-fechar-generalrestorerobloxsettingsonexit). |
+| `JoinFriendsByFollowing` | `true` | Abas **Amigos** e **Seguir** da Escolher jogo: entrar **seguindo** o jogador (`RequestFollowUser`, como o RAM antigo), em vez de pedir o servidor exato pelo Job ID. Caixa "Join by following the player (helps avoid CAPTCHA)" nas duas abas. Ver [friends.md](friends.md#entrar-seguindo-o-amigo). |
+| `RestoreRobloxSettingsOnExit` | `false` | "Restore Roblox settings when no game is open" (Settings › Optimization): devolve o FPS, volume, gráficos, janela e FastFlags que o launch gravou nos arquivos do Roblox assim que nenhum Roblox estiver aberto — com o app aberto ou ao fechá-lo. Cópia dos arquivos originais em `RobloxSettingsBackup/`. Só Windows. Ver [performance.md](performance.md#devolver-as-configurações-do-roblox-ao-fechar-generalrestorerobloxsettingsonexit). |
 | `KeepPcAwake` | `true` | Não deixa o Windows dormir (a tela pode apagar) enquanto o Modo AFK, o Auto Rejoin ou a reconexão automática roda; solta ao parar tudo e ao fechar o app. Só Windows. Ver [afk-mode.md](afk-mode.md#pc-acordado). |
 | `AutoReconnect` | `false` | Padrão de todas as contas para a [reconexão automática](watcher.md#reconexão-automática): reabre no mesmo jogo o cliente que o app abriu quando ele cai. O campo `AutoReconnect` da conta (chave na lista "In game" da página Session) vence. Também muda no cartão "Keep accounts in game" da página Session. Só Windows. |
 | `WaitForGameJoin` | `true` | "Start the next account once the previous one is in the game". Multi-launch no Windows: passa para a próxima conta quando o log diz que a anterior entrou no jogo (nunca antes de 8 s, no máximo 20 s ou o delay, se maior); sem log achado, vale o `AccountJoinDelay`. Ver [multi-launch.md](multi-launch.md). |
@@ -239,6 +240,7 @@ A biblioteca de gravações e qual vale para cada conta em cada vaga (global e p
 | `Generator.TargetGroup` | `BloxGen` | Grupo onde contas geradas são colocadas. |
 | `Generator.MaxAccounts` | `0` | Parar após N contas (0 = sem limite). |
 | `Generator.MaxConsecutiveFailures` | `3` | Para após N falhas seguidas. |
+| `Generator.SignupAutoSubmit` | `true` | O criador de contas (formulário do Roblox) clica em "Cadastrar-se" sozinho; o CAPTCHA continua sendo do usuário. Desligado = o usuário clica. Caixa "Press Create Account by itself" no painel. Ver [account-creation.md](account-creation.md). |
 | `Generator.SignupUsernamePrefix` | `""` | Prefixo do nome das contas criadas pelo **formulário do Roblox**: `arvore` gera `arvore_k3p9z`. Vazio = nome de palavras. Não vale para o BloxGen, cujo nome vem do provedor. Ver [account-creation.md](account-creation.md). |
 | `BloxGen.Endpoint` | `https://core.bloxgen.net` | URL da API. |
 | `BloxGen.ApiKey` | `""` | Chave (em texto no INI). |
@@ -253,7 +255,7 @@ Defaults criados mas sem aba na UI: `PreferredRunner=sober`, `CustomLaunchComman
 | Seção | Origem |
 |---|---|
 | `[Prompts]` | Criada vazia por `apply_defaults`. |
-| `[Friends]` `RequestDelayMs` | Lida por `make_selected_friends` (fallback 2500 ms). |
+| `[Friends]` `RequestDelayMs` | Lida por `make_selected_friends` e `follow_user_with_accounts` (fallback 2500 ms). |
 | `[Script.<id>]` | Configurações de cada script do usuário (ver [scripts.md](scripts.md)). |
 
 ## Regras de negócio
