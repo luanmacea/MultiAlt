@@ -83,6 +83,12 @@ fn managed_xml_props() -> impl Iterator<Item = &'static str> {
         .copied()
 }
 
+/// Propriedades que o app **não** escreve, mas que a grade de janelas dele
+/// muda: o Roblox grava ao fechar onde a janela estava. Entram na anotação de
+/// qualquer launch que mexeu no XML, com o valor de antes, e sempre voltam
+/// (teste real de 14/10/2026: a posição ficava no monitor da grade).
+const RESTORE_ONLY_XML_PROPS: &[&str] = &["StartScreenPosition"];
+
 /// Propriedade → texto, como o arquivo está agora.
 fn settings_keys(
     kind: SettingsFileKind,
@@ -96,7 +102,7 @@ fn settings_keys(
         SettingsFileKind::Xml => {
             if let Some((start, end)) = find_user_game_settings_properties_range(content) {
                 let props = &content[start..end];
-                for name in managed_xml_props() {
+                for name in managed_xml_props().chain(RESTORE_ONLY_XML_PROPS.iter().copied()) {
                     if let Some(element) = property_element(props, name) {
                         out.insert(name.to_string(), element);
                     }
@@ -138,7 +144,7 @@ fn same_value(a: &str, b: &str) -> bool {
 /// A janela (`WINDOW_PROPS`) é sempre do app enquanto estiver anotada: o
 /// Roblox a regrava com o tamanho real ao fechar, e a grade do app mexe nela.
 fn still_the_apps(name: &str, now: Option<&String>, written: Option<&String>) -> bool {
-    if WINDOW_PROPS.contains(&name) {
+    if WINDOW_PROPS.contains(&name) || RESTORE_ONLY_XML_PROPS.contains(&name) {
         return true;
     }
     match (now, written) {
@@ -197,6 +203,16 @@ impl RestoreJournal {
             // O app pôs de volta o valor do usuário: não há o que devolver.
             if entry.written == entry.original {
                 file.keys.remove(&name);
+            }
+        }
+        if kind == SettingsFileKind::Xml && !file.keys.is_empty() {
+            for name in RESTORE_ONLY_XML_PROPS {
+                if let Some(value) = old.get(*name) {
+                    file.keys.entry(name.to_string()).or_insert_with(|| RestoreKey {
+                        original: Some(value.clone()),
+                        written: Some(value.clone()),
+                    });
+                }
             }
         }
         if file.keys.is_empty() && file.existed {
