@@ -1963,7 +1963,6 @@
   "Suggest an idea": "Sugerir una idea",
   "Something you would like MultiAlt to do.": "Algo que te gustaría que MultiAlt hiciera.",
   "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.": "Abre un formulario en la página del proyecto en GitHub, en tu navegador. Para enviarlo necesitas una cuenta gratuita de GitHub. La app no envía nada por su cuenta, y nada de tus cuentas va incluido.",
-  "Automatic follows the screen: smaller on small screens, larger in big windows": "El automático sigue la pantalla: más pequeña en pantallas chicas, más grande en ventanas grandes",
   "Automatic ({{percent}}%)": "Automática ({{percent}}%)",
   "Interface size": "Tamaño de la interfaz",
   "{{members}} members": "{{members}} miembros",
@@ -2643,5 +2642,11 @@
   "The app fills in username, password, birthday (18+) and gender and presses Create Account. If Roblox shows a CAPTCHA, you solve it — the app saves each account and moves on to the next.": "La app completa nombre, contraseña, cumpleaños (18+) y género y pulsa Crear cuenta. Si Roblox muestra un CAPTCHA, lo resuelves tú — la app guarda cada cuenta y pasa a la siguiente.",
   "The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window.": "La app pulsa Crear cuenta sola. Si Roblox muestra un CAPTCHA, resuélvelo en la ventana del navegador.",
   "Join by following the player (helps avoid CAPTCHA)": "Entrar siguiendo al jugador (ayuda a evitar el CAPTCHA)",
-  "Joins the way the old Roblox Account Manager did: Roblox puts the account in the player's server by itself. Asking for the exact server can make Roblox show alts a CAPTCHA. Turn it off to ask for the exact server.": "Entra como lo hacía el Roblox Account Manager antiguo: el propio Roblox pone la cuenta en el servidor del jugador. Pedir el servidor exacto puede hacer que Roblox muestre CAPTCHA a las alts. Desactívalo para pedir el servidor exacto."
+  "Joins the way the old Roblox Account Manager did: Roblox puts the account in the player's server by itself. Asking for the exact server can make Roblox show alts a CAPTCHA. Turn it off to ask for the exact server.": "Entra como lo hacía el Roblox Account Manager antiguo: el propio Roblox pone la cuenta en el servidor del jugador. Pedir el servidor exacto puede hacer que Roblox muestre CAPTCHA a las alts. Desactívalo para pedir el servidor exacto.",
+  "Automatic follows the screen: smaller on small screens, larger in big windows. Or type any size from 80% to 200%.": "El automático sigue la pantalla: más pequeña en pantallas chicas, más grande en ventanas grandes. O escribe cualquier tamaño de 80% a 200%.",
+  "Custom interface size (%)": "Tamaño personalizado de la interfaz (%)",
+  "Scroll left": "Desplazar a la izquierda",
+  "Scroll right": "Desplazar a la derecha",
+  "Show the accounts as a list": "Mostrar las cuentas en lista",
+  "Show the accounts as cards": "Mostrar las cuentas en tarjetas"
 }

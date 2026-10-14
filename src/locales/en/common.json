@@ -1963,7 +1963,6 @@
   "Suggest an idea": "Suggest an idea",
   "Something you would like MultiAlt to do.": "Something you would like MultiAlt to do.",
   "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.": "Opens a form on this project's GitHub page in your browser. You need a free GitHub account to send it. The app sends nothing on its own, and nothing about your accounts goes along.",
-  "Automatic follows the screen: smaller on small screens, larger in big windows": "Automatic follows the screen: smaller on small screens, larger in big windows",
   "Automatic ({{percent}}%)": "Automatic ({{percent}}%)",
   "Interface size": "Interface size",
   "{{members}} members": "{{members}} members",
@@ -2643,5 +2642,11 @@
   "The app fills in username, password, birthday (18+) and gender and presses Create Account. If Roblox shows a CAPTCHA, you solve it — the app saves each account and moves on to the next.": "The app fills in username, password, birthday (18+) and gender and presses Create Account. If Roblox shows a CAPTCHA, you solve it — the app saves each account and moves on to the next.",
   "The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window.": "The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window.",
   "Join by following the player (helps avoid CAPTCHA)": "Join by following the player (helps avoid CAPTCHA)",
-  "Joins the way the old Roblox Account Manager did: Roblox puts the account in the player's server by itself. Asking for the exact server can make Roblox show alts a CAPTCHA. Turn it off to ask for the exact server.": "Joins the way the old Roblox Account Manager did: Roblox puts the account in the player's server by itself. Asking for the exact server can make Roblox show alts a CAPTCHA. Turn it off to ask for the exact server."
+  "Joins the way the old Roblox Account Manager did: Roblox puts the account in the player's server by itself. Asking for the exact server can make Roblox show alts a CAPTCHA. Turn it off to ask for the exact server.": "Joins the way the old Roblox Account Manager did: Roblox puts the account in the player's server by itself. Asking for the exact server can make Roblox show alts a CAPTCHA. Turn it off to ask for the exact server.",
+  "Automatic follows the screen: smaller on small screens, larger in big windows. Or type any size from 80% to 200%.": "Automatic follows the screen: smaller on small screens, larger in big windows. Or type any size from 80% to 200%.",
+  "Custom interface size (%)": "Custom interface size (%)",
+  "Scroll left": "Scroll left",
+  "Scroll right": "Scroll right",
+  "Show the accounts as a list": "Show the accounts as a list",
+  "Show the accounts as cards": "Show the accounts as cards"
 }
