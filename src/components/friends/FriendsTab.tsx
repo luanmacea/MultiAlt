@@ -6,6 +6,7 @@ import { useStore } from "../../store";
 import { accountLabel, hideAccountAvatar } from "../../utils/accountName";
 import { useTr } from "../../i18n/text";
 import { SessionCache } from "../../utils/sessionCache";
+import { JoinByFollowingToggle, useJoinByFollowing } from "./JoinByFollowingToggle";
 import type {
   AccountFriends,
   FriendsOnlineProgress,
@@ -113,7 +114,8 @@ export type LaunchAllFn = (
   userIds: number[],
   placeId: number,
   jobId?: string,
-  onStarted?: () => void
+  onStarted?: () => void,
+  extras?: { followUserId?: number }
 ) => Promise<{ ok: boolean; error?: string }>;
 
 /** Um amigo ou é entrável (com alvo resolvido) ou tem um motivo para não ser. */
@@ -156,6 +158,7 @@ export interface FriendsTabProps {
 export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabProps) {
   const t = useTr();
   const store = useStore();
+  const [joinByFollowing] = useJoinByFollowing();
 
   // A seleção muda de identidade a cada render da Choose Game; a chave é o que
   // realmente define "outra seleção".
@@ -304,8 +307,14 @@ export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabPr
     setJoining(friend.userId);
     try {
       // Um alvo só, resolvido uma vez: TODAS as contas selecionadas entram no
-      // mesmo servidor pelo caminho normal de launch em lote.
-      await launchAll(userIdsRef.current, target.placeId, target.jobId, onLaunchStarted);
+      // mesmo servidor pelo caminho normal de launch em lote. Com "seguir"
+      // (padrão), o Roblox põe as contas no servidor do amigo — o jeito do RAM
+      // antigo, que não esbarrava no CAPTCHA (ver JoinByFollowingToggle).
+      if (joinByFollowing) {
+        await launchAll(userIdsRef.current, target.placeId, "", onLaunchStarted, { followUserId: friend.userId });
+      } else {
+        await launchAll(userIdsRef.current, target.placeId, target.jobId, onLaunchStarted);
+      }
     } finally {
       setJoining(null);
     }
@@ -380,6 +389,8 @@ export function FriendsTab({ userIds, launchAll, onLaunchStarted }: FriendsTabPr
           {t("Reload")}
         </button>
       </div>
+
+      <JoinByFollowingToggle className="mb-4" />
 
       {error && (
         <div

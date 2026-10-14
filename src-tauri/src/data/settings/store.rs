@@ -51,6 +51,11 @@ impl SettingsStore {
                 Some("Multi-launch: start the next account as soon as the previous one is in the game (never before AccountJoinDelay's 8 s floor, at most 20 s)"),
             ),
             ("DisableAgingAlert", "false", None),
+            (
+                "JoinFriendsByFollowing",
+                "true",
+                Some("Friends/Follow tabs: join by following the player (RequestFollowUser), like the old RAM, instead of asking for the exact server; helps avoid CAPTCHA"),
+            ),
             ("HideUsernames", "false", None),
             ("WrapLongNames", "false", None),
             (
@@ -609,6 +614,7 @@ mod settings_store_tests {
                 ("AccountJoinDelay", "8"),
                 ("AsyncJoin", "false"),
                 ("WaitForGameJoin", "true"),
+                ("JoinFriendsByFollowing", "true"),
                 ("DisableAgingAlert", "false"),
                 ("HideUsernames", "false"),
                 ("WrapLongNames", "false"),

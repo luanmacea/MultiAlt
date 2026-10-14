@@ -8,6 +8,7 @@ import { useEscapeStack } from "../hooks/useEscapeStack";
 import { FavoritesTab } from "./server-list/FavoritesTab";
 import { GamesTab } from "./server-list/GamesTab";
 import { RecentTab } from "./server-list/RecentTab";
+import { JoinByFollowingToggle, useJoinByFollowing } from "./friends/JoinByFollowingToggle";
 import { AccountRecentGames } from "./server-list/AccountRecentGames";
 import { loadFavorites, recordRecentGame, updateFavorites } from "./server-list/types";
 import type { GameEntry } from "./server-list/types";
@@ -28,7 +29,7 @@ import { TourButton } from "./tour/TourButton";
 type TabId = "favorites" | "games" | "recent" | "servers" | "friends" | "follow";
 
 /** Extra launch parameters for targets that were already resolved (join links). */
-type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode">;
+type LaunchExtras = Pick<LaunchTarget, "launchData" | "joinVip" | "linkCode" | "followUserId">;
 
 /** Result of a launch attempt, so callers can surface the failure inline. */
 type LaunchResult = { ok: boolean; error?: string };
@@ -90,8 +91,9 @@ function useLauncher() {
   ): Promise<LaunchResult> {
     if (!(await confirmJoinOnline(userIds))) return { ok: false };
 
-    // A preferência só entra quando o usuário não escolheu servidor.
-    if (!jobId.trim() && !extras?.joinVip) {
+    // A preferência só entra quando o usuário não escolheu servidor (e não
+    // quando se segue alguém: aí quem escolhe o servidor é o Roblox).
+    if (!jobId.trim() && !extras?.joinVip && !extras?.followUserId) {
       const preferred = await resolvePreferredJob(userIds, placeId);
       if (preferred.cancelled) return { ok: false };
       jobId = preferred.jobId;
@@ -109,7 +111,8 @@ function useLauncher() {
     // manual re-launch from the field hits the same private server.
     store.setJobId(extras?.joinVip && extras.linkCode ? `vip:${extras.linkCode}` : jobId);
     try {
-      if (userIds.length === 1) {
+      // "Seguir" só existe no lote (`launch_multiple`), que aceita uma conta.
+      if (userIds.length === 1 && !extras?.followUserId) {
         const attempt = await store.joinServer(userIds[0], target);
         if (attempt !== "started") {
           // O store já avisou (recusa) ou já pôs a faixa de erro (falha): aqui só
@@ -303,6 +306,7 @@ function FollowTab({
   const store = useStore();
   const confirm = useConfirm();
   const launchAll = useLauncher();
+  const [joinByFollowing] = useJoinByFollowing();
   const [followUser, setFollowUser] = useState("");
   const [launching, setLaunching] = useState(false);
 
@@ -331,6 +335,24 @@ function FollowTab({
       // Sem Job ID entra-se num servidor público do jogo, e aí é o raiz: um
       // sub-place de teleporte pode não aceitar entrada direta.
       const placeId = jobId ? (serverPlace ?? rootPlace) : (rootPlace ?? serverPlace);
+
+      if (joinByFollowing) {
+        // Seguindo (como o RAM antigo): o Roblox acha o servidor do jogador,
+        // mesmo com ele escondido. Só não adianta com ele offline.
+        if (presenceType === 0) {
+          store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
+          return;
+        }
+        const followed = await launchAll(userIds, rootPlace ?? serverPlace ?? 0, "", onLaunchStarted, {
+          followUserId: user.id,
+        });
+        if (followed.ok) {
+          store.addToast(
+            tr("Following {{name}} with {{count}} account(s)...", { name: followUser, count: userIds.length })
+          );
+        }
+        return;
+      }
 
       if (presenceType < 2 || !placeId) {
         store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
@@ -402,6 +424,8 @@ function FollowTab({
             {launching ? t("Launching...") : t("Follow")}
           </button>
         </div>
+
+        <JoinByFollowingToggle className="mb-3" />
 
         <div className="text-[12px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed">
           ℹ️ {t("If the player is not in a game, nothing opens. If their server is hidden, you'll be asked before joining a public server of the same game. The player's profile must be public.")}

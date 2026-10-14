@@ -1007,6 +1007,7 @@ describe("launchMultiple", () => {
       jobId: "job-1",
       launchData: "data",
       shuffleJob: false,
+      followUserId: null,
     });
   });
 

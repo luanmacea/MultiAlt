@@ -410,6 +410,12 @@ export interface LaunchTarget {
   joinVip?: boolean;
   /** VIP/private server code (link code or access code) used with `joinVip`. */
   linkCode?: string;
+  /**
+   * "Join by following": the accounts follow this user (`RequestFollowUser`),
+   * like the old Roblox Account Manager, instead of asking for the exact
+   * server. `placeId` stays the user's game. Only `launchMultiple` sends it.
+   */
+  followUserId?: number;
 }
 
 export interface StoreValue {
@@ -1951,14 +1957,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // the Job ID field — a single launch accepts both, so this must too.
       const explicitCode = target?.joinVip ? (target.linkCode || "").trim() : "";
       const vipCode = explicitCode || parsePrivateServerCode(rawJobId);
+      const followUserId = target?.followUserId && target.followUserId > 0 ? target.followUserId : null;
       const outcome = await invoke<LaunchOutcome | null>("launch_multiple", {
         userIds,
         placeId: pid,
-        jobId: vipCode ? `vip:${vipCode}` : rawJobId,
+        // Seguindo, o Roblox escolhe o servidor do amigo: nenhum Job ID vai.
+        jobId: followUserId ? "" : vipCode ? `vip:${vipCode}` : rawJobId,
         launchData: target?.launchData ?? launchData,
         // Cada conta sorteia o próprio servidor público (o backend ignora o
-        // shuffle quando há Job ID ou VIP).
+        // shuffle quando há Job ID, VIP ou "seguir").
         shuffleJob: shuffleJobId,
+        followUserId,
       });
       await loadAccounts();
       void recordRecentGame(pid, userIds[0], parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
