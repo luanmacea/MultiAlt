@@ -5,7 +5,7 @@
 Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas, no mesmo diálogo — cada uma com a sua entrada no menu **Add** (*Create Accounts* e *Account Generator*), que abre o diálogo já na aba certa:
 
 1. **Comprar de um provedor** (BloxGen) — a conta vem pronta por API;
-2. **Criar no navegador** — o app abre a página de cadastro do Roblox, preenche tudo, e **o usuário resolve o CAPTCHA e confirma**.
+2. **Criar no navegador** — o app abre a página de cadastro do Roblox, preenche tudo e **clica em "Cadastrar-se" sozinho**; se o Roblox mostrar um CAPTCHA, **o usuário resolve** (desde 14/10/2026; antes o clique final também era do usuário).
 
 > **O gerador pago (BloxGen) está escondido desde 03/10/2026** atrás de `ENABLE_ACCOUNT_GENERATOR` ([featureFlags.ts](../../src/featureFlags.ts), desligado por padrão): o dono acha que o serviço parou de funcionar e ninguém deve gastar crédito tentando. Sem a flag somem a entrada *Account Generator* do menu **Add** (Toolbar e AddAccountDialog), a aba paga do diálogo Contas novas — que abre direto na criação grátis, sem seletor de abas — e a seção *Account Generator* das Settings. O código fica todo (comandos Rust, `GeneratorTab`, painel do diálogo, API de scripts `start_generator`). Exceção: com um gerador pago **rodando** (ligado pela API de scripts), o diálogo mostra o painel para dar para parar. Para religar: compile com `VITE_ENABLE_ACCOUNT_GENERATOR=true` ou troque o padrão na flag. Testes: `accountGeneratorHidden.test.tsx` (desligado); os do gerador ligam a flag com `vi.mock`.
 
@@ -36,7 +36,13 @@ Conseguir contas novas em série sem digitar cadastro por cadastro. Duas formas,
 
 ## Regras de negócio
 
-- **O app nunca clica em "Criar conta"** — há teste de regressão para isso. O envio é do usuário, depois do CAPTCHA.
+- **"Cadastrar-se" sozinho** (pedido do dono, 14/10/2026; `Generator.SignupAutoSubmit`, ligado por padrão, com a caixa "Press Create Account by itself" no painel). Até então o app **nunca** clicava em "Criar conta" e o envio era do usuário. O clique é o `signup_submit_script` ([signup.rs](../../src-tauri/src/chromium/signup.rs)), separado do script de preenchimento (que continua sem clicar em envio — teste `the_script_never_submits_the_form`):
+  - clica **só** no `#signup-button` (id conferido em 14/10/2026; não muda com o idioma), e só quando ele está habilitado — o Roblox o desabilita até o formulário ser válido;
+  - só com o formulário completo (nenhum campo faltando no último preenchimento);
+  - **nunca com uma verificação na tela**: `iframe` visível (> 40 px) ou algo com "challenge"/"captcha" no id/classe → não clica. O CAPTCHA é da pessoa, e clicar de novo no meio dele o reiniciaria (teste `the_submit_script_clicks_only_the_signup_button_and_never_over_a_challenge`);
+  - depois de um clique, só clica de novo passados **20 s** (`RESUBMIT_AFTER`, `should_submit`): a pessoa fechou a verificação ou o Roblox não reagiu.
+  - O app **não resolve, burla nem esconde** o CAPTCHA: depois que a pessoa o resolve, o Roblox conclui o cadastro sozinho, e o app percebe pelo cookie, como sempre.
+  - Conferido na página real (sem enviar): com o formulário vazio o script responde `disabled`, e nenhum `iframe` da página é tomado por verificação. **Não houve teste de criação de verdade** — criar conta é ação que o assistente não faz; o dono testa.
 - **Os campos de texto são digitados pelo CDP** (`Input.insertText`), não escritos por `value`. O React de alguns componentes ignora um valor escrito por fora — era o que fazia o nome de usuário chegar vazio enquanto a senha, no mesmo formulário, era preenchida.
 - **O preenchimento roda em laço** enquanto se espera o usuário (a cada ~2 s, idempotente). É o que cobre campo que remonta e, principalmente, a **segunda versão** do cadastro que o Roblox serve por experimento: nela a senha só é pedida depois do "Continue", e o laço preenche essa tela sozinho quando ela aparece.
 - **Conta salva aparece na lista na hora**: o evento `generator-account-added` recarrega a lista principal, então parar a sessão no meio não esconde o que já foi criado.

@@ -2637,5 +2637,9 @@
   "No recent games on Roblox for this account.": "No recent games on Roblox for this account.",
   "Opened by MultiAlt": "Opened by MultiAlt",
   "Reading each account's recent games...": "Reading each account's recent games...",
-  "Recently played by each account": "Recently played by each account"
+  "Recently played by each account": "Recently played by each account",
+  "(the CAPTCHA stays with you)": "(the CAPTCHA stays with you)",
+  "Press Create Account by itself": "Press Create Account by itself",
+  "The app fills in username, password, birthday (18+) and gender and presses Create Account. If Roblox shows a CAPTCHA, you solve it — the app saves each account and moves on to the next.": "The app fills in username, password, birthday (18+) and gender and presses Create Account. If Roblox shows a CAPTCHA, you solve it — the app saves each account and moves on to the next.",
+  "The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window.": "The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window."
 }

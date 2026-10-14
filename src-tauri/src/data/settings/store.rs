@@ -358,6 +358,9 @@ impl SettingsStore {
             // gera "arvore_k3p9z". Vazio mantem o nome de palavras de sempre.
             // Nao vale para o BloxGen, cujo nome vem pronto do provedor.
             ("SignupUsernamePrefix", ""),
+            // O criador de contas clica em "Cadastrar-se" sozinho; o CAPTCHA,
+            // se aparecer, continua sendo da pessoa (14/10/2026).
+            ("SignupAutoSubmit", "true"),
         ];
 
         let generator = ini.section("Generator");
@@ -836,6 +839,7 @@ mod settings_store_tests {
                 ("TargetGroup", "BloxGen"),
                 ("MaxAccounts", "0"),
                 ("MaxConsecutiveFailures", "3"),
+                ("SignupAutoSubmit", "true"),
             ],
         );
 

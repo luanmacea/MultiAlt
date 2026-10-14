@@ -26,9 +26,21 @@ use super::cdp::{spawn_chrome, CdpClient};
 use super::download::resolve_browser_binary;
 use super::manager::{ChromiumManager, LOGIN_KEY};
 use super::signup::{
-    generate_identity, marked_field_selector, missing_fields, signup_prepare_script, SeededRng,
-    SignupIdentity, ROBLOX_SIGNUP_URL, SIGNUP_FORM_SELECTOR,
+    generate_identity, marked_field_selector, missing_fields, signup_prepare_script, signup_submit_script,
+    submit_result, SeededRng, SignupIdentity, SubmitResult, ROBLOX_SIGNUP_URL, SIGNUP_FORM_SELECTOR,
 };
+
+/// Depois de clicar em "Cadastrar-se", quanto esperar antes de poder clicar de
+/// novo (a pessoa fechou a verificação, ou o Roblox não reagiu). Nunca em
+/// sequência: clicar no meio de um CAPTCHA o reiniciaria.
+const RESUBMIT_AFTER: Duration = Duration::from_secs(20);
+
+/// Clica em "Cadastrar-se" agora? Só com a opção ligada
+/// (`Generator.SignupAutoSubmit`), o formulário completo e, se já clicou,
+/// passado `RESUBMIT_AFTER`.
+fn should_submit(auto_submit: bool, form_complete: bool, since_last_click: Option<Duration>) -> bool {
+    auto_submit && form_complete && since_last_click.is_none_or(|elapsed| elapsed >= RESUBMIT_AFTER)
+}
 
 /// Quanto tempo esperamos o usuário concluir **um** cadastro (CAPTCHA
 /// incluído) antes de desistir daquela conta.
@@ -214,8 +226,10 @@ async fn wait_for_signup(
     chromium: &ChromiumManager,
     stop: &AtomicBool,
     identity: &SignupIdentity,
+    auto_submit: bool,
 ) -> Result<String, String> {
     let attempts = (CAPTCHA_WAIT.as_millis() / POLL_INTERVAL.as_millis()) as u32;
+    let mut last_click: Option<std::time::Instant> = None;
     for tick in 0..attempts {
         if stop.load(Ordering::Relaxed) {
             return Err("cancelled".to_string());
@@ -232,7 +246,17 @@ async fn wait_for_signup(
         // segunda tela (a que pede a senha depois do "Continue") é preenchida
         // assim que aparece.
         if tick % REPAIR_EVERY_TICKS == 0 {
-            let _ = fill_signup_form(cdp, identity).await;
+            let missing = fill_signup_form(cdp, identity).await;
+            // "Cadastrar-se" sozinho: o formulário completo, nenhuma
+            // verificação na tela. Se o Roblox mostrar o CAPTCHA, a pessoa
+            // resolve e o cadastro termina sem outro clique.
+            if should_submit(auto_submit, missing.is_empty(), last_click.map(|at| at.elapsed())) {
+                if let Ok(result) = cdp.eval(&signup_submit_script()).await {
+                    if submit_result(&result) == SubmitResult::Clicked {
+                        last_click = Some(std::time::Instant::now());
+                    }
+                }
+            }
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
@@ -292,6 +316,8 @@ pub async fn start_signup_session(
     chromium.close_login_session();
 
     let stealth = settings.get_bool("Login", "StealthMode");
+    // Clicar em "Cadastrar-se" sozinho (padrão ligado desde 14/10/2026).
+    let auto_submit = settings.get_bool("Generator", "SignupAutoSubmit");
     // Padrão de nome escolhido pelo usuário: "arvore" gera "arvore_k3p9z".
     // Vazio mantém o nome de palavras de sempre.
     let username_prefix =
@@ -378,7 +404,7 @@ pub async fn start_signup_session(
                 };
             });
 
-            match wait_for_signup(&mut cdp, &chromium, &stop, &identity).await {
+            match wait_for_signup(&mut cdp, &chromium, &stop, &identity, auto_submit).await {
                 Ok(cookie) => {
                     update(&app_task, |s| s.phase = "saving".to_string());
                     match save_account(&accounts, cookie, &identity).await {
@@ -428,6 +454,22 @@ pub async fn start_signup_session(
 #[cfg(test)]
 mod signup_session_tests {
     use super::*;
+
+    #[test]
+    fn it_submits_once_the_form_is_complete_and_only_if_the_option_is_on() {
+        assert!(should_submit(true, true, None));
+        assert!(!should_submit(false, true, None), "option off: the person presses Create Account");
+        assert!(!should_submit(true, false, None), "a field is still empty");
+    }
+
+    /// Depois de um clique, só clica de novo bem depois (a pessoa fechou a
+    /// verificação, ou o Roblox não reagiu) — nunca em sequência.
+    #[test]
+    fn a_second_click_waits() {
+        assert!(!should_submit(true, true, Some(Duration::from_secs(5))));
+        assert!(!should_submit(true, true, Some(RESUBMIT_AFTER - Duration::from_millis(1))));
+        assert!(should_submit(true, true, Some(RESUBMIT_AFTER)));
+    }
 
     /// Duas contas do mesmo lote não podem receber a mesma semente, nem quando
     /// o relógio devolve o mesmo instante.

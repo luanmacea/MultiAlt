@@ -239,6 +239,7 @@ A biblioteca de gravações e qual vale para cada conta em cada vaga (global e p
 | `Generator.TargetGroup` | `BloxGen` | Grupo onde contas geradas são colocadas. |
 | `Generator.MaxAccounts` | `0` | Parar após N contas (0 = sem limite). |
 | `Generator.MaxConsecutiveFailures` | `3` | Para após N falhas seguidas. |
+| `Generator.SignupAutoSubmit` | `true` | O criador de contas (formulário do Roblox) clica em "Cadastrar-se" sozinho; o CAPTCHA continua sendo do usuário. Desligado = o usuário clica. Caixa "Press Create Account by itself" no painel. Ver [account-creation.md](account-creation.md). |
 | `Generator.SignupUsernamePrefix` | `""` | Prefixo do nome das contas criadas pelo **formulário do Roblox**: `arvore` gera `arvore_k3p9z`. Vazio = nome de palavras. Não vale para o BloxGen, cujo nome vem do provedor. Ver [account-creation.md](account-creation.md). |
 | `BloxGen.Endpoint` | `https://core.bloxgen.net` | URL da API. |
 | `BloxGen.ApiKey` | `""` | Chave (em texto no INI). |
