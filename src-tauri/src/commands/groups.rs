@@ -387,8 +387,9 @@ impl GroupJoiner for BrowserJoiner<'_> {
                 }
                 Err(e) => {
                     eprintln!("[groups] browser unavailable user={} group={}: {}", user_id, group.id, e);
-                    let cookie_of = |_: i64| Ok(cookie.clone());
-                    let mut update = join_one_account(user_id, group, &cookie_of).await;
+                    let cookie_of = |_: i64| -> Result<String, String> { Ok(cookie.clone()) };
+                    let mut update =
+                        ApiJoiner { cookie_of: &cookie_of }.join(user_id, group, cancel, needs_you).await;
                     if update.status == "challenge" || update.status == "failed" {
                         update.reason = Some(format!("Could not open the browser: {}", e));
                     }
