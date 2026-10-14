@@ -231,8 +231,12 @@ Roblox estiver aberto — com o app aberto ou ao fechá-lo.
   `0.300000012`), e a comparação por texto tomava isso como "o jogador mudou" e
   deixava o valor otimizado. A **janela** (`Fullscreen`, `StartMaximized`,
   `StartScreenSize`) sempre volta enquanto estiver anotada: o Roblox a regrava
-  com o tamanho real, que a grade do app mudou. Arquivo que o app criou e
-  ficou vazio é apagado.
+  com o tamanho real, que a grade do app mudou. A **posição** da janela
+  (`StartScreenPosition`) o app nunca escreve, mas a grade a muda e o Roblox a
+  grava ao fechar: ela entra na anotação de todo launch que mexeu no XML, com o
+  valor de antes, e volta junto (`RESTORE_ONLY_XML_PROPS`; achado no teste real
+  de 14/10/2026 — o jogo aberto pelo site abria no monitor da grade). Arquivo
+  que o app criou e ficou vazio é apagado.
 - **Desligar a opção** esquece a anotação no próximo fechar, sem mexer nos
   arquivos. Ligada depois, só conta o que mudar dali em diante.
 - **Convive com o registro das exceções** (`ClientOverrideLedger.json`, o que

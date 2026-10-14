@@ -83,6 +83,12 @@ fn managed_xml_props() -> impl Iterator<Item = &'static str> {
         .copied()
 }
 
+/// Propriedades que o app **não** escreve, mas que a grade de janelas dele
+/// muda: o Roblox grava ao fechar onde a janela estava. Entram na anotação de
+/// qualquer launch que mexeu no XML, com o valor de antes, e sempre voltam
+/// (teste real de 14/10/2026: a posição ficava no monitor da grade).
+const RESTORE_ONLY_XML_PROPS: &[&str] = &["StartScreenPosition"];
+
 /// Propriedade → texto, como o arquivo está agora.
 fn settings_keys(
     kind: SettingsFileKind,
@@ -96,7 +102,7 @@ fn settings_keys(
         SettingsFileKind::Xml => {
             if let Some((start, end)) = find_user_game_settings_properties_range(content) {
                 let props = &content[start..end];
-                for name in managed_xml_props() {
+                for name in managed_xml_props().chain(RESTORE_ONLY_XML_PROPS.iter().copied()) {
                     if let Some(element) = property_element(props, name) {
                         out.insert(name.to_string(), element);
                     }
@@ -138,7 +144,7 @@ fn same_value(a: &str, b: &str) -> bool {
 /// A janela (`WINDOW_PROPS`) é sempre do app enquanto estiver anotada: o
 /// Roblox a regrava com o tamanho real ao fechar, e a grade do app mexe nela.
 fn still_the_apps(name: &str, now: Option<&String>, written: Option<&String>) -> bool {
-    if WINDOW_PROPS.contains(&name) {
+    if WINDOW_PROPS.contains(&name) || RESTORE_ONLY_XML_PROPS.contains(&name) {
         return true;
     }
     match (now, written) {
@@ -197,6 +203,16 @@ impl RestoreJournal {
             // O app pôs de volta o valor do usuário: não há o que devolver.
             if entry.written == entry.original {
                 file.keys.remove(&name);
+            }
+        }
+        if kind == SettingsFileKind::Xml && !file.keys.is_empty() {
+            for name in RESTORE_ONLY_XML_PROPS {
+                if let Some(value) = old.get(*name) {
+                    file.keys.entry(name.to_string()).or_insert_with(|| RestoreKey {
+                        original: Some(value.clone()),
+                        written: Some(value.clone()),
+                    });
+                }
             }
         }
         if file.keys.is_empty() && file.existed {
@@ -550,6 +566,27 @@ mod win_settings_restore_tests {
             journal.restore_action("s.xml", Some(&size_roblox)),
             RestoreAction::Write(size_user.to_string())
         );
+    }
+
+    /// Teste real de 14/10/2026: o app nunca escreve `StartScreenPosition`,
+    /// mas a grade dele mexe nas janelas, e o Roblox guarda ao fechar onde a
+    /// janela estava (X=-1704, o monitor da esquerda). O jogo aberto pelo site
+    /// abria lá. A posição de antes do launch volta junto com o resto.
+    #[test]
+    fn the_window_position_roblox_saved_after_the_grid_goes_back_too() {
+        let user = "<roblox><Item class=\"UserGameSettings\"><Properties>\n\t\t\t<int name=\"FramerateCap\">240</int>\n\t\t\t<Vector2 name=\"StartScreenPosition\">\n\t\t\t\t<X>0</X>\n\t\t\t\t<Y>0</Y>\n\t\t\t</Vector2>\n</Properties></Item></roblox>";
+        let launched = user.replace(">240<", ">60<");
+        let mut journal = RestoreJournal::default();
+        journal.record("g.xml", SettingsFileKind::Xml, Some(user), Some(&launched), None);
+        let closed = launched.replace("<X>0</X>", "<X>-1704</X>").replace("<Y>0</Y>", "<Y>20</Y>");
+        assert_eq!(journal.restore_action("g.xml", Some(&closed)), RestoreAction::Write(user.to_string()));
+    }
+
+    #[test]
+    fn a_launch_that_changes_nothing_records_no_position() {
+        let mut journal = RestoreJournal::default();
+        journal.record("g.xml", SettingsFileKind::Xml, Some(XML_USER), Some(XML_USER), None);
+        assert!(journal.is_empty());
     }
 
     #[test]
