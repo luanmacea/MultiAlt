@@ -2641,5 +2641,7 @@
   "(the CAPTCHA stays with you)": "(o CAPTCHA continua com você)",
   "Press Create Account by itself": "Clicar em Criar conta sozinho",
   "The app fills in username, password, birthday (18+) and gender and presses Create Account. If Roblox shows a CAPTCHA, you solve it — the app saves each account and moves on to the next.": "O app preenche nome, senha, aniversário (18+) e gênero e clica em Criar conta. Se o Roblox mostrar um CAPTCHA, você resolve — o app guarda cada conta e passa para a próxima.",
-  "The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window.": "O app clica em Criar conta sozinho. Se o Roblox mostrar um CAPTCHA, resolva na janela do navegador."
+  "The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window.": "O app clica em Criar conta sozinho. Se o Roblox mostrar um CAPTCHA, resolva na janela do navegador.",
+  "Join by following the player (helps avoid CAPTCHA)": "Entrar seguindo o jogador (ajuda a evitar o CAPTCHA)",
+  "Joins the way the old Roblox Account Manager did: Roblox puts the account in the player's server by itself. Asking for the exact server can make Roblox show alts a CAPTCHA. Turn it off to ask for the exact server.": "Entra do jeito do Roblox Account Manager antigo: o próprio Roblox põe a conta no servidor do jogador. Pedir o servidor exato pode fazer o Roblox mostrar CAPTCHA para as alts. Desligue para pedir o servidor exato."
 }
