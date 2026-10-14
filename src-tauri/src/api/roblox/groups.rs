@@ -168,20 +168,87 @@ pub const POPULAR_GROUP_IDS: [i64; 24] = [
     2726951,    // Car Crushers Community
 ];
 
-/// Detalhes de vários grupos, `concurrency` por vez, sem cookie. Quem falhar
-/// fica de fora (o resto aparece); a ordem é a dos membros, maior primeiro.
+/// Nome, descrição e selo de vários grupos num pedido só (`/v2/groups`, até
+/// 100 ids). Não traz membros nem a regra de entrada: `member_count` fica 0 e
+/// `public_entry_allowed` fica `true` (o que a maioria é) até a busca completar.
+pub async fn get_groups_light(group_ids: &[i64]) -> Result<Vec<GroupSummary>, String> {
+    if group_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let client = http_client::client();
+    let ids = group_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+    let url = format!("{}/v2/groups", endpoints::host("groups"));
+    let response = send_with_retry(|| client.get(&url).query(&[("groupIds", ids.as_str())])).await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("Failed to read the groups (status {})", status.as_u16()));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse the groups: {}", e))?;
+    Ok(body["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| serde_json::from_value::<GroupSummary>(item.clone()).ok())
+        .map(|mut group| {
+            group.public_entry_allowed = true;
+            group
+        })
+        .collect())
+}
+
+/// Membros e regra de entrada pela **busca** do próprio nome (cota de 300 por
+/// minuto), pegando o resultado com o mesmo id. Não achou = fica como veio.
+async fn complete_by_search(cookie: Option<&str>, group: GroupSummary) -> GroupSummary {
+    match search_groups(cookie, &group.name, None).await {
+        Ok(page) => match page.groups.into_iter().find(|found| found.id == group.id) {
+            Some(found) => GroupSummary {
+                description: if found.description.is_empty() { group.description } else { found.description },
+                has_verified_badge: group.has_verified_badge || found.has_verified_badge,
+                ..found
+            },
+            None => group,
+        },
+        Err(_) => group,
+    }
+}
+
+/// Um grupo pelo id. Primeiro os detalhes completos (`/v1/groups/<id>`); se o
+/// Roblox recusar — essa leitura aceita só **7 por minuto** por IP
+/// (`x-ratelimit-limit: 7;w=60`, conferido em 14/10/2026) —, o lote mais a
+/// busca. Nesse caminho `is_locked` não é conhecido (fica `false`).
+pub async fn get_group_resilient(cookie: Option<&str>, group_id: i64) -> Result<GroupSummary, String> {
+    match get_group(cookie, group_id).await {
+        Ok(group) => Ok(group),
+        Err(first) => {
+            let light = get_groups_light(&[group_id])
+                .await
+                .ok()
+                .and_then(|groups| groups.into_iter().find(|g| g.id == group_id))
+                .ok_or(first)?;
+            Ok(complete_by_search(cookie, light).await)
+        }
+    }
+}
+
+/// Os "Grupos populares": um pedido em lote para os nomes e a busca de cada
+/// nome para membros e regra de entrada, `concurrency` por vez, sem cookie.
+/// Quem falhar fica de fora; a ordem é a dos membros, maior primeiro.
 ///
-/// Por que não o `/v2/groups?groupIds=` em lote: ele não traz `memberCount`
-/// nem `publicEntryAllowed` (conferido em 08/10/2026), e a tela precisa dos
-/// dois.
+/// Até 14/10/2026 eram 24 leituras de `/v1/groups/<id>`, que aceita 7 por
+/// minuto: abrir a página gastava a cota e a busca e a entrada logo depois
+/// levavam 429 (achado no teste real). O `/v2/groups` em lote não traz
+/// `memberCount` nem `publicEntryAllowed`; a busca traz os dois.
 pub async fn get_groups_by_members(group_ids: &[i64], concurrency: usize) -> Vec<GroupSummary> {
     use futures_util::stream::{self, StreamExt};
     let mut seen = std::collections::HashSet::new();
     let ids: Vec<i64> = group_ids.iter().copied().filter(|id| *id > 0 && seen.insert(*id)).collect();
-    let mut groups: Vec<GroupSummary> = stream::iter(ids)
-        .map(|id| async move { get_group(None, id).await.ok() })
+    let light = get_groups_light(&ids).await.unwrap_or_default();
+    let mut groups: Vec<GroupSummary> = stream::iter(light)
+        .map(|group| complete_by_search(None, group))
         .buffer_unordered(concurrency.max(1))
-        .filter_map(|group| async move { group })
         .collect()
         .await;
     groups.sort_by(|a, b| b.member_count.cmp(&a.member_count).then_with(|| a.id.cmp(&b.id)));

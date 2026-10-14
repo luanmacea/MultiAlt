@@ -609,7 +609,7 @@ where
 /// plano B, tivesse achado o grupo.
 async fn read_group_for_join(store: &AccountStore, group_id: i64) -> Result<api::roblox::GroupSummary, String> {
     let group = read_with_viewer_fallback(store, |cookie| async move {
-        api::roblox::get_group(cookie.as_deref(), group_id).await
+        api::roblox::get_group_resilient(cookie.as_deref(), group_id).await
     })
     .await
     .map_err(|e| format!("Could not read the group: {}", e))?;
@@ -628,7 +628,7 @@ async fn groups_search(
 ) -> Result<api::roblox::GroupSearchPage, String> {
     if let Some(group_id) = api::roblox::parse_group_reference(&query) {
         let group = read_with_viewer_fallback(state.inner(), |cookie| async move {
-            api::roblox::get_group(cookie.as_deref(), group_id).await
+            api::roblox::get_group_resilient(cookie.as_deref(), group_id).await
         })
         .await?;
         return Ok(api::roblox::GroupSearchPage { groups: vec![group], next_cursor: None });
