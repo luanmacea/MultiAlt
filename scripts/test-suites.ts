@@ -370,8 +370,12 @@ export const SUITES: Record<string, TestSuite> = {
       "friends_online_http_tests",
       "presence_cookie_tests",
       "online_friends_batch_tests",
+      // Recentes por conta (o "Continuar" do Roblox), na aba Recentes.
+      "recent_games_parse_tests",
+      "recent_games_http_tests",
+      "recent_games_command_tests",
     ],
-    front: ["src/components/friends"],
+    front: ["src/components/friends", "src/components/server-list/AccountRecentGames.test.tsx"],
   },
   servers: {
     description: "Escolha de servidor (aleatório/vazio/cheio), região e navegador de servidores",

@@ -8,6 +8,7 @@ import { useEscapeStack } from "../hooks/useEscapeStack";
 import { FavoritesTab } from "./server-list/FavoritesTab";
 import { GamesTab } from "./server-list/GamesTab";
 import { RecentTab } from "./server-list/RecentTab";
+import { AccountRecentGames } from "./server-list/AccountRecentGames";
 import { loadFavorites, recordRecentGame, updateFavorites } from "./server-list/types";
 import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
@@ -573,7 +574,7 @@ export function ChooseGameScreen() {
     {
       id: "recent",
       label: t("Recent"),
-      hint: t("Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly."),
+      hint: t("Games opened by MultiAlt and, below, the games each selected account played recently on Roblox. Click a game to see its servers, or use Join Game to launch directly."),
     },
     {
       id: "servers",
@@ -746,16 +747,31 @@ export function ChooseGameScreen() {
           </div>
         )}
         {activeTab === "recent" && (
-          <div className="h-full overflow-y-auto px-4 pt-3 pb-4">
-            <RecentTab
+          <div className="h-full overflow-y-auto px-4 pt-3 pb-4 space-y-6">
+            {/* Em cima, os jogos abertos pelo MultiAlt (a lista de sempre);
+                embaixo, os recentes de cada conta no Roblox, como a aba Amigos. */}
+            <section data-testid="recent-opened-by-app">
+              <div className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                {t("Opened by MultiAlt")}
+              </div>
+              <RecentTab
+                onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
+                onJoinGame={handleJoinGame}
+                maxRecent={maxRecent}
+                userId={userIds[0] ?? null}
+                onBrowseServers={handleBrowseServers}
+                onAddFavorite={handleAddFavorite}
+                onBotting={handleBottingForGame}
+                onScripts={handleScriptsForGame}
+                fill={false}
+              />
+            </section>
+            <AccountRecentGames
+              userIds={userIds}
               onSelectGame={(placeId, name, iconUrl) => handleSelectGame(placeId, name, iconUrl)}
               onJoinGame={handleJoinGame}
-              maxRecent={maxRecent}
-              userId={userIds[0] ?? null}
               onBrowseServers={handleBrowseServers}
               onAddFavorite={handleAddFavorite}
-              onBotting={handleBottingForGame}
-              onScripts={handleScriptsForGame}
             />
           </div>
         )}

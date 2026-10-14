@@ -23,6 +23,8 @@ export interface RecentTabProps {
    */
   onSelectJob?: (placeId: number | null, raw: string) => void;
   maxRecentJobs?: number;
+  /** Ver `RecentGamesList.fill`. */
+  fill?: boolean;
 }
 
 export function RecentTab({
@@ -36,6 +38,7 @@ export function RecentTab({
   onScripts,
   onSelectJob,
   maxRecentJobs = 12,
+  fill = true,
 }: RecentTabProps) {
   const t = useTr();
   const games = (
@@ -48,6 +51,7 @@ export function RecentTab({
       onAddFavorite={onAddFavorite}
       onBotting={onBotting}
       onScripts={onScripts}
+      fill={fill}
     />
   );
 

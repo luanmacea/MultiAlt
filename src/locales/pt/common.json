@@ -1552,7 +1552,6 @@
   "Online-join warning disabled": "Aviso de entrar com conta online desativado",
   "Close every Roblox process on this computer? This includes clients you opened outside this app, not just the accounts selected here.": "Fechar todos os processos do Roblox deste computador? Isso inclui clientes que você abriu fora deste app, não só as contas selecionadas aqui.",
   "Browse Roblox games. Click a game to see its servers, or use Join Game to launch directly.": "Navegue pelos jogos do Roblox. Clique em um jogo para ver os servidores dele, ou use Entrar no jogo para lançar direto.",
-  "Games you've joined recently across all accounts. Click a game to see its servers, or use Join Game to launch directly.": "Jogos em que você entrou recentemente, de todas as contas. Clique em um jogo para ver os servidores dele, ou use Entrar no jogo para lançar direto.",
   "{{jobId}} — click to copy": "{{jobId}} — clique para copiar",
   "Private server link or VIP code": "Link de servidor privado ou código VIP",
   "Name for this server (optional)": "Nome para este servidor (opcional)",
@@ -2632,5 +2631,11 @@
   "Press Try again: the window opens again for you to finish.": "Clique em Tentar de novo: a janela abre de novo para você terminar.",
   "Roblox asked for something in the browser and it wasn't finished": "O Roblox pediu algo no navegador e não foi terminado",
   "Roblox is asking for something in this account's browser window": "O Roblox está pedindo algo na janela do navegador desta conta",
-  "Not finished": "Não terminado"
+  "Not finished": "Não terminado",
+  "From each account's Continue list on Roblox: games played from anywhere, not just MultiAlt.": "Do \"Continuar\" de cada conta no Roblox: jogos jogados de qualquer lugar, não só pelo MultiAlt.",
+  "Games opened by MultiAlt and, below, the games each selected account played recently on Roblox. Click a game to see its servers, or use Join Game to launch directly.": "Jogos abertos pelo MultiAlt e, embaixo, os jogos que cada conta escolhida jogou recentemente no Roblox. Clique em um jogo para ver os servidores dele, ou use Entrar no jogo para lançar direto.",
+  "No recent games on Roblox for this account.": "Nenhum jogo recente no Roblox para esta conta.",
+  "Opened by MultiAlt": "Abertos pelo MultiAlt",
+  "Reading each account's recent games...": "Lendo os jogos recentes de cada conta...",
+  "Recently played by each account": "Jogados recentemente por cada conta"
 }
