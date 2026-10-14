@@ -111,7 +111,8 @@ fn plan_followers(user_ids: Vec<i64>, target_user_id: i64) -> (Vec<i64>, bool) {
 #[serde(rename_all = "camelCase")]
 struct FollowAccount {
     user_id: i64,
-    /// `pending` | `processing` | `followed` | `already` | `failed`
+    /// `pending` | `processing` | `browser` (a janela pediu a pessoa) |
+    /// `followed` | `already` | `failed`
     state: String,
     error: Option<String>,
 }
@@ -204,8 +205,11 @@ struct FollowResult {
     skipped_target: bool,
 }
 
-/// Uma conta segue o alvo. Leitura "já segue?" com falha não impede o follow:
-/// na dúvida, segue (seguir de novo não duplica nada no Roblox).
+/// Uma conta segue o alvo **pela API** (`POST friends/v1/users/<id>/follow`).
+/// Desde 14/10/2026 é só o plano B (navegador não abriu) e o caminho dos
+/// testes: no teste real, as contas levaram "verification (captcha)" (403) por
+/// ela, e o clique em "Seguir" no perfil, no navegador da conta, seguiu na hora.
+/// Leitura "já segue?" com falha não impede o follow: na dúvida, segue.
 async fn follow_one(store: &AccountStore, user_id: i64, target_user_id: i64) -> Result<bool, String> {
     let cookie = get_cookie(store, user_id)?;
     let csrf = api::auth::get_csrf_token(&cookie).await.map_err(session_hint)?;
@@ -216,6 +220,174 @@ async fn follow_one(store: &AccountStore, user_id: i64, target_user_id: i64) -> 
         .await
         .map_err(session_hint)?;
     Ok(true)
+}
+
+type FollowFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, String>> + Send + 'a>>;
+
+/// Como uma conta segue o alvo (`Ok(true)` = seguiu, `Ok(false)` = já seguia).
+/// `needs_you` avisa que a janela apareceu e a pessoa tem algo a fazer nela.
+trait Follower: Sync {
+    fn follow<'a>(
+        &'a self,
+        user_id: i64,
+        target_user_id: i64,
+        needs_you: &'a tokio::sync::mpsc::UnboundedSender<()>,
+    ) -> FollowFuture<'a>;
+}
+
+/// Pela API (plano B e testes).
+struct ApiFollower<'a> {
+    store: &'a AccountStore,
+}
+
+impl Follower for ApiFollower<'_> {
+    fn follow<'a>(
+        &'a self,
+        user_id: i64,
+        target_user_id: i64,
+        _needs_you: &'a tokio::sync::mpsc::UnboundedSender<()>,
+    ) -> FollowFuture<'a> {
+        Box::pin(follow_one(self.store, user_id, target_user_id))
+    }
+}
+
+/// O perfil do alvo aberto no navegador da conta, visto pelo fluxo (o real é
+/// `AccountPageBrowser`; nos testes, um dublê).
+trait FollowPage: Send {
+    fn click_follow(&mut self) -> PageFuture<'_, Result<bool, String>>;
+    fn show(&mut self) -> PageFuture<'_, ()>;
+    fn is_closed(&mut self) -> bool;
+    fn close(self: Box<Self>) -> PageFuture<'static, ()>;
+}
+
+impl FollowPage for crate::chromium::commands::AccountPageBrowser {
+    fn click_follow(&mut self) -> PageFuture<'_, Result<bool, String>> {
+        Box::pin(crate::chromium::commands::AccountPageBrowser::click_follow(self))
+    }
+    fn show(&mut self) -> PageFuture<'_, ()> {
+        Box::pin(crate::chromium::commands::AccountPageBrowser::show(self))
+    }
+    fn is_closed(&mut self) -> bool {
+        crate::chromium::commands::AccountPageBrowser::is_closed(self)
+    }
+    fn close(self: Box<Self>) -> PageFuture<'static, ()> {
+        Box::pin(crate::chromium::commands::AccountPageBrowser::close(*self))
+    }
+}
+
+/// Seguir pelo navegador da conta, como a entrada nos grupos
+/// (`browser_join_flow`, mesmos tempos):
+///
+/// 1. já segue? Então nem abre janela;
+/// 2. abre o perfil minimizado, abre o menu e clica em "Seguir";
+/// 3. confere a cada `poll`; seguiu → fecha a janela;
+/// 4. não seguiu em `quiet` (ou não achou o "Seguir") → a janela aparece e o
+///    lote é avisado: o Roblox pediu algo, a pessoa termina lá;
+/// 5. `total` sem seguir, ou a janela fechada → erro só daquela conta.
+///
+/// `Err` = o navegador nem abriu (quem chama cai para a API).
+async fn browser_follow_flow<C, CF, O>(
+    is_following: C,
+    open: O,
+    timings: BrowserJoinTimings,
+    needs_you: &tokio::sync::mpsc::UnboundedSender<()>,
+) -> Result<Result<bool, String>, String>
+where
+    C: Fn() -> CF,
+    CF: std::future::Future<Output = Result<bool, String>>,
+    O: std::future::Future<Output = Result<Box<dyn FollowPage>, String>>,
+{
+    if let Ok(true) = is_following().await {
+        return Ok(Ok(false));
+    }
+    let mut page = open.await?;
+    let clicked = match page.click_follow().await {
+        Ok(clicked) => clicked,
+        Err(e) => {
+            page.close().await;
+            return Ok(Err(e));
+        }
+    };
+    let mut shown = false;
+    if !clicked {
+        page.show().await;
+        let _ = needs_you.send(());
+        shown = true;
+    }
+    let started = std::time::Instant::now();
+    loop {
+        tokio::time::sleep(timings.poll).await;
+        if let Ok(true) = is_following().await {
+            page.close().await;
+            return Ok(Ok(true));
+        }
+        if page.is_closed() {
+            return Ok(Err("The browser window was closed before the account followed".to_string()));
+        }
+        let elapsed = started.elapsed();
+        if !shown && elapsed >= timings.quiet {
+            page.show().await;
+            let _ = needs_you.send(());
+            shown = true;
+        }
+        if elapsed >= timings.total {
+            page.close().await;
+            return Ok(Err("Roblox asked for something in the browser and it wasn't finished".to_string()));
+        }
+    }
+}
+
+/// O caminho real: o perfil no navegador da conta; se ele não abrir, a API.
+struct BrowserFollower<'a> {
+    app: &'a tauri::AppHandle,
+    store: &'a AccountStore,
+}
+
+impl Follower for BrowserFollower<'_> {
+    fn follow<'a>(
+        &'a self,
+        user_id: i64,
+        target_user_id: i64,
+        needs_you: &'a tokio::sync::mpsc::UnboundedSender<()>,
+    ) -> FollowFuture<'a> {
+        Box::pin(async move {
+            let cookie = get_cookie(self.store, user_id)?;
+            let csrf = api::auth::get_csrf_token(&cookie).await.map_err(session_hint)?;
+            let is_following = || api::roblox::is_following_with_csrf(&cookie, &csrf, target_user_id);
+            let open = async {
+                crate::chromium::commands::AccountPageBrowser::open_profile(self.app, user_id, &cookie, target_user_id)
+                    .await
+                    .map(|page| Box::new(page) as Box<dyn FollowPage>)
+            };
+            match browser_follow_flow(is_following, open, BROWSER_JOIN_TIMINGS, needs_you).await {
+                Ok(result) => result,
+                Err(e) => {
+                    eprintln!("[follow] browser unavailable user={} target={}: {}", user_id, target_user_id, e);
+                    ApiFollower { store: self.store }
+                        .follow(user_id, target_user_id, needs_you)
+                        .await
+                        .map_err(|api| format!("Could not open the browser ({}); {}", e, api))
+                }
+            }
+        })
+    }
+}
+
+/// Uma conta, do jeito do `follower`, avisando quando a janela pede a pessoa.
+async fn drive_follow(
+    follower: &dyn Follower,
+    user_id: i64,
+    target_user_id: i64,
+    mut on_needs_you: impl FnMut(),
+) -> Result<bool, String> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    let mut follow = follower.follow(user_id, target_user_id, &tx);
+    loop {
+        tokio::select! {
+            result = &mut follow => return result,
+            Some(()) = rx.recv() => on_needs_you(),
+        }
+    }
 }
 
 /// Sessão vencida não é "consertada" com refresh (derrubaria os clientes da
@@ -231,7 +403,7 @@ fn session_hint(err: String) -> String {
 /// O lote em si, sem `AppHandle` — os testes chamam direto. `publish` recebe
 /// o estado a cada mudança.
 async fn run_follow_batch(
-    store: &AccountStore,
+    follower: &dyn Follower,
     ids: &[i64],
     target_user_id: i64,
     target_name: Option<String>,
@@ -245,7 +417,12 @@ async fn run_follow_batch(
     for (idx, &uid) in ids.iter().enumerate() {
         run.set(uid, "processing", None);
         publish(&run);
-        let sent = match follow_one(store, uid, target_user_id).await {
+        let result = drive_follow(follower, uid, target_user_id, || {
+            run.set(uid, "browser", None);
+            publish(&run);
+        })
+        .await;
+        let sent = match result {
             Ok(true) => {
                 run.set(uid, "followed", None);
                 true
@@ -297,7 +474,8 @@ async fn follow_user_with_accounts(
         delay_ms,
         settings.get_int("Friends", "RequestDelayMs"),
     ));
-    let run = run_follow_batch(state.inner(), &ids, target_user_id, target_name, delay, |run| {
+    let follower = BrowserFollower { app: &app, store: state.inner() };
+    let run = run_follow_batch(&follower, &ids, target_user_id, target_name, delay, |run| {
         let snapshot = run.snapshot();
         if let Ok(mut current) = FOLLOW_STATE.lock() {
             *current = snapshot.clone();
@@ -468,7 +646,7 @@ mod follow_user_batch_tests {
 
         let mut published = 0;
         let run = run_follow_batch(
-            &store,
+            &ApiFollower { store: &store },
             &[7701, 7702, 7703],
             7700,
             Some("target".into()),
@@ -489,7 +667,161 @@ mod follow_user_batch_tests {
     #[tokio::test]
     async fn an_account_missing_from_the_store_fails_alone() {
         let store = temp_store("missing");
-        let run = run_follow_batch(&store, &[1234], 7700, None, std::time::Duration::ZERO, |_| {}).await;
+        let run = run_follow_batch(&ApiFollower { store: &store }, &[1234], 7700, None, std::time::Duration::ZERO, |_| {}).await;
         assert_eq!(run.count("failed"), 1);
+    }
+}
+
+/// Seguir pelo navegador (`browser_follow_flow`) e o estado `browser` do lote,
+/// com página e conferência de mentira — nada de Chromium nem Roblox.
+#[cfg(test)]
+mod follow_browser_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct Log {
+        clicks: usize,
+        shown: usize,
+        closed: bool,
+    }
+
+    struct FakeProfile {
+        log: Arc<Mutex<Log>>,
+        has_follow: bool,
+        closed_by_user: bool,
+    }
+
+    impl FollowPage for FakeProfile {
+        fn click_follow(&mut self) -> PageFuture<'_, Result<bool, String>> {
+            self.log.lock().unwrap().clicks += 1;
+            let has = self.has_follow;
+            Box::pin(async move { Ok(has) })
+        }
+        fn show(&mut self) -> PageFuture<'_, ()> {
+            self.log.lock().unwrap().shown += 1;
+            Box::pin(async {})
+        }
+        fn is_closed(&mut self) -> bool {
+            self.closed_by_user
+        }
+        fn close(self: Box<Self>) -> PageFuture<'static, ()> {
+            self.log.lock().unwrap().closed = true;
+            Box::pin(async {})
+        }
+    }
+
+    const FAST: BrowserJoinTimings = BrowserJoinTimings {
+        poll: Duration::from_millis(1),
+        quiet: Duration::from_millis(30),
+        total: Duration::from_millis(120),
+    };
+
+    type Check = std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, String>> + Send>>;
+
+    /// "Já segue?" que muda com o tempo: cada leitura tira a próxima resposta
+    /// (a última se repete).
+    fn answers(list: Vec<bool>) -> impl Fn() -> Check {
+        let list = Arc::new(Mutex::new(list));
+        move || {
+            let list = list.clone();
+            Box::pin(async move {
+                let mut list = list.lock().unwrap();
+                Ok(if list.len() > 1 { list.remove(0) } else { list[0] })
+            })
+        }
+    }
+
+    fn page(log: &Arc<Mutex<Log>>, has_follow: bool, closed_by_user: bool) -> Result<Box<dyn FollowPage>, String> {
+        Ok(Box::new(FakeProfile { log: log.clone(), has_follow, closed_by_user }))
+    }
+
+    async fn run(list: Vec<bool>, open: Result<Box<dyn FollowPage>, String>) -> (Result<Result<bool, String>, String>, usize) {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let result = browser_follow_flow(answers(list), async { open }, FAST, &tx).await;
+        let mut told = 0;
+        while rx.try_recv().is_ok() {
+            told += 1;
+        }
+        (result, told)
+    }
+
+    #[tokio::test]
+    async fn an_account_that_already_follows_never_opens_a_window() {
+        let log = Arc::new(Mutex::new(Log::default()));
+        let (result, _) = run(vec![true], page(&log, true, false)).await;
+        assert_eq!(result, Ok(Ok(false)));
+        assert_eq!(log.lock().unwrap().clicks, 0);
+    }
+
+    /// O caso medido em 14/10/2026: clica em "Seguir", passa a seguir, a
+    /// janela fecha sem aparecer.
+    #[tokio::test]
+    async fn the_click_follows_and_the_window_closes_without_showing() {
+        let log = Arc::new(Mutex::new(Log::default()));
+        let (result, told) = run(vec![false, false, true], page(&log, true, false)).await;
+        assert_eq!(result, Ok(Ok(true)));
+        let log = log.lock().unwrap();
+        assert_eq!((log.clicks, log.shown, log.closed), (1, 0, true));
+        assert_eq!(told, 0);
+    }
+
+    #[tokio::test]
+    async fn without_the_follow_item_the_window_shows_for_the_person() {
+        let log = Arc::new(Mutex::new(Log::default()));
+        let (result, told) = run(vec![false, true], page(&log, false, false)).await;
+        assert_eq!(result, Ok(Ok(true)));
+        assert_eq!(log.lock().unwrap().shown, 1);
+        assert_eq!(told, 1);
+    }
+
+    #[tokio::test]
+    async fn nobody_finishing_fails_only_that_account_and_closes_the_window() {
+        let log = Arc::new(Mutex::new(Log::default()));
+        let (result, told) = run(vec![false], page(&log, true, false)).await;
+        assert!(matches!(result, Ok(Err(ref e)) if e.contains("wasn't finished")));
+        assert!(log.lock().unwrap().closed);
+        assert_eq!(told, 1);
+    }
+
+    #[tokio::test]
+    async fn a_closed_window_is_reported() {
+        let log = Arc::new(Mutex::new(Log::default()));
+        let (result, _) = run(vec![false], page(&log, true, true)).await;
+        assert!(matches!(result, Ok(Err(ref e)) if e.contains("closed")));
+    }
+
+    #[tokio::test]
+    async fn a_browser_that_does_not_open_goes_back_to_the_caller() {
+        let (result, _) = run(vec![false], Err("no chromium".into())).await;
+        assert_eq!(result, Err("no chromium".to_string()));
+    }
+
+    struct AskingFollower;
+
+    impl Follower for AskingFollower {
+        fn follow<'a>(
+            &'a self,
+            _user_id: i64,
+            _target_user_id: i64,
+            needs_you: &'a tokio::sync::mpsc::UnboundedSender<()>,
+        ) -> FollowFuture<'a> {
+            Box::pin(async move {
+                let _ = needs_you.send(());
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                Ok(true)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn the_batch_shows_browser_while_the_window_waits_for_the_person() {
+        let mut states: Vec<String> = Vec::new();
+        let run = run_follow_batch(&AskingFollower, &[5], 9, None, Duration::ZERO, |run| {
+            states.push(run.snapshot().accounts[0].state.clone())
+        })
+        .await;
+        assert_eq!(states, vec!["pending", "processing", "browser", "followed", "followed"]);
+        assert_eq!(run.snapshot().processed, 1);
     }
 }

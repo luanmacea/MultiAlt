@@ -121,6 +121,7 @@ function friendStateLabel(state: FriendLinkAccountState, t: Translate): string {
 const FOLLOW_STATE_STYLES: Record<FollowUserAccountState, { dot: string; text: string }> = {
   pending: FRIEND_STATE_STYLES.pending,
   processing: FRIEND_STATE_STYLES.processing,
+  browser: { dot: "bg-amber-400 animate-pulse", text: "text-amber-300" },
   followed: FRIEND_STATE_STYLES.done,
   already: { dot: "bg-emerald-500/60", text: "theme-muted" },
   failed: FRIEND_STATE_STYLES.failed,
@@ -132,6 +133,8 @@ function followStateLabel(state: FollowUserAccountState, t: Translate): string {
       return t("Waiting");
     case "processing":
       return t("Processing");
+    case "browser":
+      return t("Finish in the browser");
     case "followed":
       return t("Followed");
     case "already":

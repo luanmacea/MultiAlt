@@ -808,6 +808,18 @@ describe("SessionPanel — Follow a user", () => {
     expect(falhou.getByText("status 429")).toBeInTheDocument();
   });
 
+  /** Seguir é pelo navegador da conta desde 14/10/2026: a janela pede a pessoa. */
+  it("diz para terminar no navegador quando a janela pede a pessoa", () => {
+    renderPanel({
+      followUserState: followRun({
+        accounts: [{ userId: 1, state: "browser", error: null }],
+        total: 1,
+        processed: 0,
+      }),
+    });
+    expect(within(screen.getByTestId("follow-user-1")).getByText("Finish in the browser")).toBeInTheDocument();
+  });
+
   it("alvo que é conta do app usa o nome mascarado", () => {
     renderPanel({
       followUserState: followRun({ targetUserId: 2, targetName: "bravo" }),
