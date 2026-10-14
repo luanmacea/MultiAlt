@@ -602,6 +602,23 @@ where
     }
 }
 
+/// Os detalhes do grupo antes de uma entrada (trancado?), com o mesmo plano B
+/// da busca: sem cookie primeiro e, se o Roblox recusar, com o cookie de uma
+/// conta. No teste real de 14/10/2026 a leitura anônima voltou 429 e o lote
+/// parava antes de começar ("Could not read the group"), embora a busca, com o
+/// plano B, tivesse achado o grupo.
+async fn read_group_for_join(store: &AccountStore, group_id: i64) -> Result<api::roblox::GroupSummary, String> {
+    let group = read_with_viewer_fallback(store, |cookie| async move {
+        api::roblox::get_group(cookie.as_deref(), group_id).await
+    })
+    .await
+    .map_err(|e| format!("Could not read the group: {}", e))?;
+    if group.is_locked {
+        return Err("This group is locked and does not accept new members".to_string());
+    }
+    Ok(group)
+}
+
 /// Busca por palavra, ou um grupo só quando a pessoa colou link/id.
 #[tauri::command]
 async fn groups_search(
@@ -680,14 +697,8 @@ async fn groups_join_batch(
     if group_id <= 0 {
         return Err("Pick a group first".to_string());
     }
-    // Detalhes de novo: o grupo pode ter mudado entre a busca e o clique, e é
-    // daqui que sai o "pendente" de quem pede aprovação.
-    let group = api::roblox::get_group(None, group_id)
-        .await
-        .map_err(|e| format!("Could not read the group: {}", e))?;
-    if group.is_locked {
-        return Err("This group is locked and does not accept new members".to_string());
-    }
+    // Detalhes de novo: o grupo pode ter mudado entre a busca e o clique.
+    let group = read_group_for_join(account_store.inner(), group_id).await?;
 
     let joiner = BrowserJoiner { app: &app, store: account_store.inner() };
     let mut publish = |snapshot: &GroupJoinSnapshot| publish_group_join(&app, snapshot);
@@ -719,12 +730,7 @@ async fn groups_join_retry(
     if group_id <= 0 {
         return Err("Pick a group first".to_string());
     }
-    let group = api::roblox::get_group(None, group_id)
-        .await
-        .map_err(|e| format!("Could not read the group: {}", e))?;
-    if group.is_locked {
-        return Err("This group is locked and does not accept new members".to_string());
-    }
+    let group = read_group_for_join(account_store.inner(), group_id).await?;
 
     GROUP_JOIN_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
     let joiner = BrowserJoiner { app: &app, store: account_store.inner() };
@@ -752,12 +758,7 @@ async fn join_group(
     }
     let _running = try_begin_group_join()?;
     GROUP_JOIN_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
-    let group = api::roblox::get_group(None, group_id)
-        .await
-        .map_err(|e| format!("Could not read the group: {}", e))?;
-    if group.is_locked {
-        return Err("This group is locked and does not accept new members".to_string());
-    }
+    let group = read_group_for_join(account_store.inner(), group_id).await?;
     let joiner = BrowserJoiner { app: &app, store: account_store.inner() };
     let update = drive_join(&joiner, user_id, &group, &GROUP_JOIN_CANCEL, || {}).await;
     single_join_result(update)
