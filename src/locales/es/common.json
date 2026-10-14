@@ -2637,5 +2637,9 @@
   "No recent games on Roblox for this account.": "No hay juegos recientes en Roblox para esta cuenta.",
   "Opened by MultiAlt": "Abiertos por MultiAlt",
   "Reading each account's recent games...": "Leyendo los juegos recientes de cada cuenta...",
-  "Recently played by each account": "Jugados recientemente por cada cuenta"
+  "Recently played by each account": "Jugados recientemente por cada cuenta",
+  "(the CAPTCHA stays with you)": "(el CAPTCHA sigue siendo tuyo)",
+  "Press Create Account by itself": "Pulsar Crear cuenta solo",
+  "The app fills in username, password, birthday (18+) and gender and presses Create Account. If Roblox shows a CAPTCHA, you solve it — the app saves each account and moves on to the next.": "La app completa nombre, contraseña, cumpleaños (18+) y género y pulsa Crear cuenta. Si Roblox muestra un CAPTCHA, lo resuelves tú — la app guarda cada cuenta y pasa a la siguiente.",
+  "The app presses Create Account by itself. If Roblox shows a CAPTCHA, solve it in the browser window.": "La app pulsa Crear cuenta sola. Si Roblox muestra un CAPTCHA, resuélvelo en la ventana del navegador."
 }
