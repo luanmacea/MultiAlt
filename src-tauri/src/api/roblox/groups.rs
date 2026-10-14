@@ -168,20 +168,87 @@ pub const POPULAR_GROUP_IDS: [i64; 24] = [
     2726951,    // Car Crushers Community
 ];
 
-/// Detalhes de vários grupos, `concurrency` por vez, sem cookie. Quem falhar
-/// fica de fora (o resto aparece); a ordem é a dos membros, maior primeiro.
+/// Nome, descrição e selo de vários grupos num pedido só (`/v2/groups`, até
+/// 100 ids). Não traz membros nem a regra de entrada: `member_count` fica 0 e
+/// `public_entry_allowed` fica `true` (o que a maioria é) até a busca completar.
+pub async fn get_groups_light(group_ids: &[i64]) -> Result<Vec<GroupSummary>, String> {
+    if group_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let client = http_client::client();
+    let ids = group_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+    let url = format!("{}/v2/groups", endpoints::host("groups"));
+    let response = send_with_retry(|| client.get(&url).query(&[("groupIds", ids.as_str())])).await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("Failed to read the groups (status {})", status.as_u16()));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse the groups: {}", e))?;
+    Ok(body["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| serde_json::from_value::<GroupSummary>(item.clone()).ok())
+        .map(|mut group| {
+            group.public_entry_allowed = true;
+            group
+        })
+        .collect())
+}
+
+/// Membros e regra de entrada pela **busca** do próprio nome (cota de 300 por
+/// minuto), pegando o resultado com o mesmo id. Não achou = fica como veio.
+async fn complete_by_search(cookie: Option<&str>, group: GroupSummary) -> GroupSummary {
+    match search_groups(cookie, &group.name, None).await {
+        Ok(page) => match page.groups.into_iter().find(|found| found.id == group.id) {
+            Some(found) => GroupSummary {
+                description: if found.description.is_empty() { group.description } else { found.description },
+                has_verified_badge: group.has_verified_badge || found.has_verified_badge,
+                ..found
+            },
+            None => group,
+        },
+        Err(_) => group,
+    }
+}
+
+/// Um grupo pelo id. Primeiro os detalhes completos (`/v1/groups/<id>`); se o
+/// Roblox recusar — essa leitura aceita só **7 por minuto** por IP
+/// (`x-ratelimit-limit: 7;w=60`, conferido em 14/10/2026) —, o lote mais a
+/// busca. Nesse caminho `is_locked` não é conhecido (fica `false`).
+pub async fn get_group_resilient(cookie: Option<&str>, group_id: i64) -> Result<GroupSummary, String> {
+    match get_group(cookie, group_id).await {
+        Ok(group) => Ok(group),
+        Err(first) => {
+            let light = get_groups_light(&[group_id])
+                .await
+                .ok()
+                .and_then(|groups| groups.into_iter().find(|g| g.id == group_id))
+                .ok_or(first)?;
+            Ok(complete_by_search(cookie, light).await)
+        }
+    }
+}
+
+/// Os "Grupos populares": um pedido em lote para os nomes e a busca de cada
+/// nome para membros e regra de entrada, `concurrency` por vez, sem cookie.
+/// Quem falhar fica de fora; a ordem é a dos membros, maior primeiro.
 ///
-/// Por que não o `/v2/groups?groupIds=` em lote: ele não traz `memberCount`
-/// nem `publicEntryAllowed` (conferido em 08/10/2026), e a tela precisa dos
-/// dois.
+/// Até 14/10/2026 eram 24 leituras de `/v1/groups/<id>`, que aceita 7 por
+/// minuto: abrir a página gastava a cota e a busca e a entrada logo depois
+/// levavam 429 (achado no teste real). O `/v2/groups` em lote não traz
+/// `memberCount` nem `publicEntryAllowed`; a busca traz os dois.
 pub async fn get_groups_by_members(group_ids: &[i64], concurrency: usize) -> Vec<GroupSummary> {
     use futures_util::stream::{self, StreamExt};
     let mut seen = std::collections::HashSet::new();
     let ids: Vec<i64> = group_ids.iter().copied().filter(|id| *id > 0 && seen.insert(*id)).collect();
-    let mut groups: Vec<GroupSummary> = stream::iter(ids)
-        .map(|id| async move { get_group(None, id).await.ok() })
+    let light = get_groups_light(&ids).await.unwrap_or_default();
+    let mut groups: Vec<GroupSummary> = stream::iter(light)
+        .map(|group| complete_by_search(None, group))
         .buffer_unordered(concurrency.max(1))
-        .filter_map(|group| async move { group })
         .collect()
         .await;
     groups.sort_by(|a, b| b.member_count.cmp(&a.member_count).then_with(|| a.id.cmp(&b.id)));
@@ -468,7 +535,7 @@ mod group_reference_tests {
 mod group_join_http_tests {
     use super::*;
     use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server, mount_csrf};
-    use wiremock::matchers::{header, method, path, query_param};
+    use wiremock::matchers::{header, method, path, path_regex, query_param};
     use wiremock::{Mock, ResponseTemplate};
 
     async fn mount_join(token: &str, group_id: i64, response: ResponseTemplate) {
@@ -664,19 +731,39 @@ mod group_join_http_tests {
     /// primeiro, sem repetir.
     #[tokio::test]
     async fn popular_groups_are_sorted_by_members_and_skip_failures() {
-        for (id, members) in [(880_201_i64, 50_i64), (880_202, 900), (880_203, 300)] {
+        // Um pedido em lote (nomes); membros e regra de entrada pela busca de
+        // cada nome. O `/v1/groups/{id}` (7 por minuto) nunca é chamado: abrir a
+        // página gastava a cota inteira e a busca e a entrada levavam 429.
+        Mock::given(method("GET"))
+            .and(path(mock_path("groups", "/v2/groups")))
+            .and(query_param("groupIds", "880201,880204,880202,880203"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    { "id": 880201, "name": "pop-g880201", "hasVerifiedBadge": true },
+                    { "id": 880202, "name": "pop-g880202", "hasVerifiedBadge": true },
+                    { "id": 880203, "name": "pop-g880203", "hasVerifiedBadge": true }
+                ]
+            })))
+            .mount(mock_server().await)
+            .await;
+        for (id, members, open) in [(880_201_i64, 50_i64, true), (880_202, 900, false), (880_203, 300, true)] {
             Mock::given(method("GET"))
-                .and(path(mock_path("groups", &format!("/v1/groups/{id}"))))
+                .and(path(mock_path("groups", "/v1/groups/search")))
+                .and(query_param("keyword", format!("pop-g{id}")))
                 .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                    "id": id, "name": format!("G{id}"), "memberCount": members,
-                    "publicEntryAllowed": true, "hasVerifiedBadge": true
+                    "data": [
+                        { "id": 1, "name": "someone else", "memberCount": 99999, "publicEntryAllowed": true },
+                        { "id": id, "name": format!("pop-g{id}"), "memberCount": members,
+                          "publicEntryAllowed": open, "hasVerifiedBadge": true }
+                    ]
                 })))
                 .mount(mock_server().await)
                 .await;
         }
         Mock::given(method("GET"))
-            .and(path(mock_path("groups", "/v1/groups/880204")))
-            .respond_with(ResponseTemplate::new(400).set_body_json(error_body(1, "Group is invalid or does not exist.")))
+            .and(path_regex(r".*/v1/groups/88020[1-4]$"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
             .mount(mock_server().await)
             .await;
 
@@ -684,6 +771,39 @@ mod group_join_http_tests {
         let ids: Vec<i64> = groups.iter().map(|g| g.id).collect();
         assert_eq!(ids, vec![880_202, 880_203, 880_201]);
         assert!(groups.iter().all(|g| g.has_verified_badge));
+        assert!(!groups[0].public_entry_allowed, "the entry rule comes from the search");
+        assert_eq!(groups[0].member_count, 900);
+    }
+
+    /// Teste real de 14/10/2026: `/v1/groups/{id}` em 429 (cota de 7 por
+    /// minuto). O grupo colado por ID ainda aparece, pelo lote + busca.
+    #[tokio::test]
+    async fn a_group_by_id_still_loads_when_the_detail_read_is_rate_limited() {
+        Mock::given(method("GET"))
+            .and(path(mock_path("groups", "/v1/groups/880301")))
+            .respond_with(ResponseTemplate::new(429))
+            .mount(mock_server().await)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("groups", "/v2/groups")))
+            .and(query_param("groupIds", "880301"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": 880301, "name": "limited-group", "hasVerifiedBadge": false }]
+            })))
+            .mount(mock_server().await)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(mock_path("groups", "/v1/groups/search")))
+            .and(query_param("keyword", "limited-group"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": 880301, "name": "limited-group", "memberCount": 42, "publicEntryAllowed": true }]
+            })))
+            .mount(mock_server().await)
+            .await;
+
+        let group = get_group_resilient(None, 880_301).await.unwrap();
+        assert_eq!((group.id, group.member_count, group.public_entry_allowed), (880_301, 42, true));
+        assert_eq!(group.name, "limited-group");
     }
 
     #[test]
