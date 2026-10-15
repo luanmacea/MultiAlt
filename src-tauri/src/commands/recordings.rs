@@ -540,11 +540,34 @@ fn recording_after_join_tick_for(app: &tauri::AppHandle, trigger: &AfterJoinTrig
 
 // ── tocar agora ────────────────────────────────────────────────────────────
 
-/// O "parar" da reprodução avulsa (Tocar agora e depois da reconexão). O
-/// Modo AFK tem o dele, o da sessão.
+/// O "parar" da reprodução avulsa (Tocar agora, depois do launch e depois da
+/// reconexão). O Modo AFK tem o dele, o da sessão.
 static RECORDING_PLAYBACK_STOP: AtomicBool = AtomicBool::new(false);
 /// Quantas reproduções avulsas estão rodando (ou esperando a vez).
 static RECORDING_PLAYBACKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Sobe a cada "parar" (o botão Parar e o chacoalhar). Um launch ou uma
+/// reconexão em lote arma uma conta de cada vez, e cada uma vira a sua
+/// reprodução, que fica na fila do `AFK_CYCLE_LOCK`; sem esta geração, a que
+/// pegasse a vez depois de um "parar" zerava a bandeira e tocava mesmo assim.
+/// Cada reprodução guarda a geração ao entrar na fila e, ao pegar a vez, não
+/// toca se ela mudou.
+static RECORDING_PLAYBACK_STOP_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// Pede o "parar" da reprodução avulsa: liga a bandeira **e** sobe a geração,
+/// para que toda reprodução já na fila — não só a que está tocando — aborte ao
+/// pegar a vez. Usado pelo botão Parar e pela parada de emergência do
+/// chacoalhar.
+fn request_playback_stop(flag: &AtomicBool, generation: &AtomicU64) {
+    flag.store(true, Ordering::SeqCst);
+    generation.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Uma reprodução que pegou a vez no lock deve tocar? Não, se um "parar" veio
+/// depois de ela entrar na fila (a geração mudou) — mesmo que o "parar" tenha
+/// sido durante **outra** reprodução da mesma leva.
+fn recording_playback_should_play(stop_gen_at_queue: u64, stop_gen_now: u64) -> bool {
+    stop_gen_at_queue == stop_gen_now
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -567,21 +590,41 @@ async fn run_recording_playback(
     targets: Vec<i64>,
 ) -> Vec<(i64, Option<AfkSendError>)> {
     RECORDING_PLAYBACKS.fetch_add(1, Ordering::SeqCst);
+    // A geração do "parar" no momento em que esta reprodução entra na fila. Se
+    // ela subir até esta pegar a vez, um "parar" veio enquanto ela esperava (o
+    // botão Parar ou o chacoalhar, mesmo durante outra reprodução da leva): esta
+    // não toca.
+    let stop_gen_at_queue = RECORDING_PLAYBACK_STOP_GEN.load(Ordering::SeqCst);
     let _ = app.emit("recording-playback", current_recording_playback());
     // Chacoalhar o mouse para a reprodução (`Afk.ShakeToStop`, desligada por
     // padrão): commands/shake_stop.rs.
     ensure_shake_watch(app);
     let result = {
         let _guard = AFK_CYCLE_LOCK.lock().await;
-        // A vez chegou: um "parar" de antes não vale para esta.
-        RECORDING_PLAYBACK_STOP.store(false, Ordering::SeqCst);
-        let action = AfkCycleAction::Recording(plans);
-        let cycle_targets = targets.clone();
-        tokio::task::spawn_blocking(move || {
-            run_afk_cycle_blocking(&action, &cycle_targets, &RECORDING_PLAYBACK_STOP)
-        })
-        .await
-        .unwrap_or_else(|e| Err(format!("Recording playback failed: {e}")))
+        if !recording_playback_should_play(
+            stop_gen_at_queue,
+            RECORDING_PLAYBACK_STOP_GEN.load(Ordering::SeqCst),
+        ) {
+            // Pararam enquanto esta esperava a vez: ela não toca (as contas saem
+            // como "stopped"). A bandeira **não** é zerada — a próxima da fila
+            // também tem de ver o "parar".
+            Ok(targets
+                .iter()
+                .map(|uid| (*uid, Some(AfkSendError::Stopped)))
+                .collect())
+        } else {
+            // A vez chegou sem "parar" pendente: zera a bandeira para o ciclo
+            // começar limpo (um "parar" de uma leva antiga já não vale — a
+            // geração desta reprodução é a de agora).
+            RECORDING_PLAYBACK_STOP.store(false, Ordering::SeqCst);
+            let action = AfkCycleAction::Recording(plans);
+            let cycle_targets = targets.clone();
+            tokio::task::spawn_blocking(move || {
+                run_afk_cycle_blocking(&action, &cycle_targets, &RECORDING_PLAYBACK_STOP)
+            })
+            .await
+            .unwrap_or_else(|e| Err(format!("Recording playback failed: {e}")))
+        }
     };
     RECORDING_PLAYBACKS.fetch_sub(1, Ordering::SeqCst);
     let _ = app.emit("recording-playback", current_recording_playback());
@@ -692,7 +735,7 @@ async fn play_recording_now(
 /// Tecla apertada é solta; nenhum cliente é fechado.
 #[tauri::command]
 fn stop_recording_playback() {
-    RECORDING_PLAYBACK_STOP.store(true, Ordering::SeqCst);
+    request_playback_stop(&RECORDING_PLAYBACK_STOP, &RECORDING_PLAYBACK_STOP_GEN);
 }
 
 #[tauri::command]
@@ -934,6 +977,51 @@ mod recordings_playback_tests {
             key: name.into(),
             hold_ms,
         }
+    }
+
+    #[test]
+    fn a_playback_plays_only_when_no_stop_came_while_it_waited() {
+        // Entrou na fila na geração 4 e pegou a vez na mesma geração: toca.
+        assert!(recording_playback_should_play(4, 4));
+        // Um "parar" subiu a geração enquanto ela esperava a vez (durante outra
+        // reprodução da leva): não toca.
+        assert!(!recording_playback_should_play(4, 5));
+        // Parada de uma leva antiga deixou a geração em 5; a reprodução nova
+        // entrou na fila já em 5 e pegou a vez sem parada nova: toca.
+        assert!(recording_playback_should_play(5, 5));
+    }
+
+    #[test]
+    fn requesting_a_stop_raises_the_flag_and_bumps_the_generation() {
+        let flag = AtomicBool::new(false);
+        let generation = AtomicU64::new(10);
+        request_playback_stop(&flag, &generation);
+        assert!(flag.load(Ordering::SeqCst));
+        // Cada "parar" é uma geração nova, então uma reprodução que entrou na
+        // fila entre duas paradas vê a diferença.
+        assert_eq!(generation.load(Ordering::SeqCst), 11);
+        request_playback_stop(&flag, &generation);
+        assert_eq!(generation.load(Ordering::SeqCst), 12);
+    }
+
+    /// O bug: um launch (ou uma reconexão) em lote arma várias contas, cada uma
+    /// vira a sua reprodução na fila do `AFK_CYCLE_LOCK`. O usuário para durante
+    /// a #1; as #2 e #3 não podem tocar. Antes, cada uma zerava a bandeira ao
+    /// pegar a vez e tocava mesmo assim. Modela a fila com a geração do "parar".
+    #[test]
+    fn a_stop_during_the_first_keeps_the_queued_playbacks_from_playing() {
+        let flag = AtomicBool::new(false);
+        let generation = AtomicU64::new(0);
+        // As três entram na fila na mesma geração.
+        let queued: Vec<u64> = (0..3).map(|_| generation.load(Ordering::SeqCst)).collect();
+        // #1 pega a vez sem parada pendente: toca (e zeraria a bandeira).
+        assert!(recording_playback_should_play(queued[0], generation.load(Ordering::SeqCst)));
+        flag.store(false, Ordering::SeqCst);
+        // O usuário para durante a #1 (o botão Parar ou o chacoalhar).
+        request_playback_stop(&flag, &generation);
+        // #2 e #3 pegam a vez depois: não tocam.
+        assert!(!recording_playback_should_play(queued[1], generation.load(Ordering::SeqCst)));
+        assert!(!recording_playback_should_play(queued[2], generation.load(Ordering::SeqCst)));
     }
 
     #[test]

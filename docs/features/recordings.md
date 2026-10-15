@@ -327,8 +327,14 @@ contas visitadas.
 contas marcadas (ou, sem `recordingId`, a de cada conta na vaga `slot`; sem
 vaga, a do anti-AFK). Só alcança cliente que
 o app abriu (é o tracker que liga conta a janela). **Stop playing**
-(`stop_recording_playback`) para na hora; um "parar" de antes não vale para a
-reprodução seguinte (o flag é zerado quando ela ganha a vez no lock).
+(`stop_recording_playback`) para na hora. Um launch ou uma reconexão em lote
+arma uma conta de cada vez, e cada uma vira a sua reprodução na fila do
+`AFK_CYCLE_LOCK`: o "parar" (e o chacoalhar) sobe uma **geração**
+(`RECORDING_PLAYBACK_STOP_GEN`), e toda reprodução já na fila — não só a que
+está tocando — vê a geração mudar ao pegar a vez e **não toca** (`stopped`).
+Um "parar" de uma leva **anterior** não vale para a reprodução seguinte: ela
+entra na fila já na geração de agora, e a bandeira é zerada quando ela ganha a
+vez no lock.
 
 ### Modo AFK
 
