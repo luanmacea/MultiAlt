@@ -48,6 +48,9 @@ pub fn external_host(name: &str) -> String {
         (Some(base), _) => format!("{}/{}", base, name),
         (None, "ipwhois") => "https://ipwho.is".to_string(),
         (None, "ipapi") => "http://ip-api.com".to_string(),
+        // Webhook do Discord (api/discord_webhook.rs): o envio vai sempre
+        // para cá, nunca para o host que o usuário colou.
+        (None, "discord") => "https://discord.com".to_string(),
         (None, other) => panic!("unknown external host: {}", other),
     }
 }
