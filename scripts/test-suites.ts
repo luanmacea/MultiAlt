@@ -109,6 +109,9 @@ export const SUITES: Record<string, TestSuite> = {
     description: "Store de contas, criptografia, modelo e comandos de conta",
     rust: [
       "account_store_tests",
+      // Export protegido por senha (ideia 38, Settings › Backups).
+      "account_export_tests",
+      "account_export_command_tests",
       "account_helpers_tests",
       "account_path_tests",
       "account_api_tests",

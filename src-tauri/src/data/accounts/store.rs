@@ -1519,7 +1519,47 @@ impl AccountStore {
             skipped,
         })
     }
+
+    /// As contas cifradas com uma senha escolhida **agora** (ideia 38).
+    ///
+    /// Existe porque o backup sem Pass Lock não protege nem viaja: o zip leva o
+    /// `AccountData.key`, cujo embrulho `device` é só o hash de
+    /// `COMPUTERNAME|USERNAME`, e o DPAPI não abre em outro PC. Este arquivo
+    /// depende só da senha.
+    ///
+    /// **Nada de formato novo:** o JSON é o mesmo que `save_locked` grava, e a
+    /// cifra é a mesma do vault (`crypto::encrypt` com `sha512(senha.trim())`,
+    /// Argon2i + XSalsa20-Poly1305, `RAM_HEADER`). É exatamente o que
+    /// `decode_accounts_for_import` abre quando o usuário digita a senha, então o
+    /// import que já existe ("Import AccountData.json") lê o arquivo em qualquer
+    /// instalação. Não grava nada no vault nem mexe na sessão.
+    pub fn export_with_password(&self, password: &str) -> Result<Vec<u8>, String> {
+        let password = password.trim();
+        if password.chars().count() < MIN_EXPORT_PASSWORD_CHARS {
+            return Err(format!(
+                "The export password must be at least {MIN_EXPORT_PASSWORD_CHARS} characters"
+            ));
+        }
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Account file could not be loaded; there is nothing reliable to export.".to_string(),
+            );
+        }
+        // Snapshot e lock solto **antes** do Argon2: derivar a chave com o lock de
+        // contas seguro travaria toda gravação (Auto Rejoin, launch) enquanto isso.
+        let accounts = self.get_all()?;
+        if accounts.is_empty() {
+            return Err("There are no accounts to export.".to_string());
+        }
+        let json = serde_json::to_string_pretty(&accounts)
+            .map_err(|e| format!("Failed to serialize accounts: {}", e))?;
+        crypto::encrypt(&json, &crypto::hash_password(password))
+            .map_err(|e| format!("Failed to encrypt the export: {}", e))
+    }
 }
+
+/// Mínimo da senha do export protegido — o mesmo do Pass Lock.
+pub const MIN_EXPORT_PASSWORD_CHARS: usize = 8;
 
 #[cfg(test)]
 mod tests {
@@ -4339,5 +4379,142 @@ mod app_lock_verify_tests {
     fn without_an_app_password_there_is_nothing_to_verify() {
         let t = temp("no-password");
         assert!(t.0.verify_password("anything").is_err());
+    }
+}
+
+/// Export protegido por senha (ideia 38): o arquivo tem que abrir pelo import
+/// que já existe, em **outra** instalação, só com a senha.
+#[cfg(test)]
+mod account_export_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// Uma pasta por instalação simulada: o vault, o `.key` e o `.json.bak`
+    /// ficam lado a lado e somem juntos.
+    struct Install {
+        dir: PathBuf,
+        store: AccountStore,
+    }
+
+    impl Drop for Install {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    impl std::ops::Deref for Install {
+        type Target = AccountStore;
+        fn deref(&self) -> &AccountStore {
+            &self.store
+        }
+    }
+
+    /// Instalação nova, aberta como no boot: sem senha, cifrada pela chave
+    /// **deste** aparelho (um `.key` próprio, sorteado aqui).
+    fn install(tag: &str) -> Install {
+        crypto::init();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("ram-export-{tag}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        let store = AccountStore::new(dir.join("AccountData.json"));
+        store.load().expect("abrir vault novo");
+        Install { dir, store }
+    }
+
+    fn sample(store: &AccountStore) {
+        let mut main = Account::new("COOKIE-1".to_string(), "Main".to_string(), 1);
+        main.alias = "Principal".to_string();
+        main.group = "01 Mains".to_string();
+        main.password = "pw-1".to_string();
+        main.fields.insert("RobloxVersion".to_string(), "version-abc".to_string());
+        store.add(main).unwrap();
+        store
+            .add(Account::new("COOKIE-2".to_string(), "Alt".to_string(), 2))
+            .unwrap();
+    }
+
+    fn as_json(accounts: &[Account]) -> String {
+        serde_json::to_string(accounts).unwrap()
+    }
+
+    #[test]
+    fn an_export_opens_on_another_install_with_its_password_only() {
+        let source = install("source");
+        sample(&source);
+
+        let exported = source.export_with_password("  viaja-comigo  ").expect("exportar");
+        assert!(crypto::is_encrypted(&exported), "o arquivo sai cifrado");
+        assert!(
+            !String::from_utf8_lossy(&exported).contains("COOKIE-1"),
+            "nenhum cookie em texto no arquivo"
+        );
+
+        // Outra instalação: chave de aparelho diferente, sem o `.key` da origem.
+        let target = install("target");
+        assert_eq!(
+            target.import_old_account_data(&exported, None).unwrap_err(),
+            IMPORT_PASSWORD_REQUIRED,
+            "sem senha a UI tem que pedir a senha"
+        );
+        assert_eq!(
+            target
+                .import_old_account_data(&exported, Some("senha-errada"))
+                .unwrap_err(),
+            "Import password is incorrect"
+        );
+        assert!(target.get_all().unwrap().is_empty(), "senha errada não importa nada");
+
+        // Mesmo trim do unlock/import.
+        let summary = target
+            .import_old_account_data(&exported, Some("viaja-comigo"))
+            .expect("importar com a senha");
+        assert_eq!(summary.added, 2);
+        assert_eq!(
+            as_json(&target.get_all().unwrap()),
+            as_json(&source.get_all().unwrap()),
+            "as contas chegam inteiras: cookie, senha, alias, grupo, campos e ordem"
+        );
+    }
+
+    #[test]
+    fn the_export_never_touches_the_vault_or_its_session() {
+        let source = install("untouched");
+        sample(&source);
+        let vault_before = fs::read(&source.file_path).unwrap();
+
+        source.export_with_password("viaja-comigo").expect("exportar");
+
+        assert_eq!(fs::read(&source.file_path).unwrap(), vault_before, "o vault não foi regravado");
+        assert!(!source.has_user_password().unwrap(), "a senha do export não vira senha do app");
+    }
+
+    #[test]
+    fn a_short_password_or_nothing_to_export_is_refused() {
+        let empty = install("empty");
+        assert!(empty
+            .export_with_password("1234567")
+            .unwrap_err()
+            .contains("at least 8"));
+        // Espaço em volta não conta para o mínimo (mesmo trim do Pass Lock).
+        assert!(empty
+            .export_with_password("   1234567   ")
+            .unwrap_err()
+            .contains("at least 8"));
+        assert_eq!(
+            empty.export_with_password("12345678").unwrap_err(),
+            "There are no accounts to export."
+        );
+    }
+
+    #[test]
+    fn an_unreadable_vault_is_not_exported() {
+        let broken = install("broken");
+        sample(&broken);
+        fs::write(&broken.file_path, b"corrupt").unwrap();
+        assert!(broken.load().is_err());
+        assert!(broken.export_with_password("12345678").is_err());
     }
 }

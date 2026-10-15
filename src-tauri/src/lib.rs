@@ -566,6 +566,7 @@ pub fn run() {
             data::accounts::verify_app_password,
             data::accounts::reorder_accounts,
             data::accounts::import_old_account_data,
+            data::accounts::export_accounts_with_password,
             data::scripts::get_scripts,
             data::scripts::save_script,
             data::scripts::delete_script,

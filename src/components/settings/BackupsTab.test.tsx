@@ -447,3 +447,77 @@ describe("BackupsTab — deleting", () => {
     expect(screen.getByText("Old one")).toBeInTheDocument();
   });
 });
+
+/**
+ * Ideia 38: sem Pass Lock o zip de backup leva a chave junto (quem tem o zip tem
+ * as contas) e não abre em outro PC. O export com senha resolve os dois.
+ */
+describe("BackupsTab — export accounts with a password", () => {
+  const PATH =
+    "C:/Users/tester/AppData/Local/Roblox Account Manager/exports/AccountData-export-20261015-090507.json";
+
+  async function openForm() {
+    renderDialog();
+    await screen.findByText(INFO.dir);
+    await userEvent.click(screen.getByRole("button", { name: "Export accounts with a password" }));
+  }
+
+  function exportCalls() {
+    return invokeMock.mock.calls.filter(([cmd]) => cmd === "export_accounts_with_password");
+  }
+
+  it("says what the password does before asking for it", async () => {
+    await openForm();
+    expect(
+      screen.getByText("Opens on any PC with this password. Without it, nobody can read the file.")
+    ).toBeInTheDocument();
+  });
+
+  it("refuses a password shorter than 8 characters without calling the backend", async () => {
+    await openForm();
+    await userEvent.type(screen.getByLabelText("Export password"), "short");
+    await userEvent.type(screen.getByLabelText("Confirm password"), "short");
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("at least 8 characters");
+    expect(exportCalls()).toHaveLength(0);
+  });
+
+  it("refuses when the confirmation does not match", async () => {
+    await openForm();
+    await userEvent.type(screen.getByLabelText("Export password"), "long-enough-1");
+    await userEvent.type(screen.getByLabelText("Confirm password"), "long-enough-2");
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("The passwords do not match");
+    expect(exportCalls()).toHaveLength(0);
+  });
+
+  it("exports with the password and shows where the file went", async () => {
+    backend({ export_accounts_with_password: PATH });
+    await openForm();
+    await userEvent.type(screen.getByLabelText("Export password"), "long-enough-1");
+    await userEvent.type(screen.getByLabelText("Confirm password"), "long-enough-1");
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    expect(invokeMock).toHaveBeenCalledWith("export_accounts_with_password", {
+      password: "long-enough-1",
+    });
+    expect(await screen.findByText(PATH)).toBeInTheDocument();
+    // A senha não fica nos campos depois do export.
+    expect(screen.queryByLabelText("Export password")).not.toBeInTheDocument();
+  });
+
+  it("shows the backend error and keeps the form open", async () => {
+    backend({
+      export_accounts_with_password: () => {
+        throw "There are no accounts to export.";
+      },
+    });
+    await openForm();
+    await userEvent.type(screen.getByLabelText("Export password"), "long-enough-1");
+    await userEvent.type(screen.getByLabelText("Confirm password"), "long-enough-1");
+    await userEvent.click(screen.getByRole("button", { name: "Export" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("There are no accounts to export.");
+    expect(screen.getByLabelText("Export password")).toBeInTheDocument();
+  });
+});

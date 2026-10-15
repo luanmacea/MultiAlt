@@ -2664,5 +2664,16 @@
   "Private servers": "Private servers",
   "Reload private servers": "Reload private servers",
   "Roblox did not send a join code for this server": "Roblox did not send a join code for this server",
-  "The private servers each selected account can access in this game.": "The private servers each selected account can access in this game."
+  "The private servers each selected account can access in this game.": "The private servers each selected account can access in this game.",
+  "Accounts exported": "Accounts exported",
+  "Confirm password": "Confirm password",
+  "Export accounts with a password": "Export accounts with a password",
+  "Export password": "Export password",
+  "Opens on any PC with this password. Without it, nobody can read the file.": "Opens on any PC with this password. Without it, nobody can read the file.",
+  "Saved to:": "Saved to:",
+  "Take your accounts to another PC": "Take your accounts to another PC",
+  "The password must be at least {{n}} characters.": "The password must be at least {{n}} characters.",
+  "The passwords do not match.": "The passwords do not match.",
+  "This password cannot be recovered. Keep it somewhere safe, apart from the file.": "This password cannot be recovered. Keep it somewhere safe, apart from the file.",
+  "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.": "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password."
 }

@@ -317,6 +317,60 @@ pub fn import_old_account_data(
     state.import_old_account_data(&file_data, password.as_deref())
 }
 
+/// Nome do arquivo do export protegido. Começa com `AccountData` e termina em
+/// `.json` de propósito: é o que o "Import AccountData.json" aceita
+/// (`isAccountDataFileName` no [ImportDialog.tsx]).
+fn account_export_file_name(now: chrono::DateTime<chrono::Local>) -> String {
+    format!("AccountData-export-{}.json", now.format("%Y%m%d-%H%M%S"))
+}
+
+/// "Export accounts with a password" (ideia 38): grava as contas cifradas com a
+/// senha escolhida agora em `<pasta de dados>/exports/` e abre o Explorer com o
+/// arquivo selecionado — o mesmo caminho do export do histórico; o app não tem
+/// diálogo de salvar. Devolve o caminho.
+///
+/// `async` para o Argon2 (128 MiB) não rodar na thread da janela.
+#[tauri::command(async)]
+pub fn export_accounts_with_password(
+    state: tauri::State<'_, AccountStore>,
+    password: String,
+) -> Result<String, String> {
+    let data = state.export_with_password(&password)?;
+    let dir = crate::data::settings::get_runtime_data_dir().join("exports");
+    fs::create_dir_all(&dir).map_err(|e| format!("Could not create the exports folder: {e}"))?;
+    let path = dir.join(account_export_file_name(chrono::Local::now()));
+    fs::write(&path, &data).map_err(|e| format!("Could not save the file: {e}"))?;
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn();
+    }
+    Ok(path.display().to_string())
+}
+
+#[cfg(test)]
+mod account_export_command_tests {
+    use super::*;
+
+    /// O import recusa qualquer arquivo cujo nome não comece com `AccountData`;
+    /// um export que ele não aceitasse seria um arquivo que ninguém abre.
+    #[test]
+    fn the_export_file_name_is_one_the_import_accepts() {
+        let now = chrono::TimeZone::with_ymd_and_hms(&chrono::Local, 2026, 10, 15, 9, 5, 7).unwrap();
+        let name = account_export_file_name(now);
+        assert_eq!(name, "AccountData-export-20261015-090507.json");
+        assert!(name.to_lowercase().starts_with("accountdata"));
+        assert!(name.ends_with(".json"));
+    }
+
+    #[test]
+    fn the_export_command_is_registered() {
+        let lib = include_str!("../../lib.rs");
+        assert!(lib.contains("data::accounts::export_accounts_with_password"));
+    }
+}
+
 #[cfg(test)]
 mod vault_key_warning_event_tests {
     /// **A2 do checkup.** O canal do store (`watch_key_warning`) não vale nada se

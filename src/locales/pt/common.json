@@ -2664,5 +2664,16 @@
   "Private servers": "Servidores privados",
   "Reload private servers": "Recarregar servidores privados",
   "Roblox did not send a join code for this server": "O Roblox não mandou o código de entrada deste servidor",
-  "The private servers each selected account can access in this game.": "Os servidores privados que cada conta selecionada pode acessar neste jogo."
+  "The private servers each selected account can access in this game.": "Os servidores privados que cada conta selecionada pode acessar neste jogo.",
+  "Accounts exported": "Contas exportadas",
+  "Confirm password": "Confirmar senha",
+  "Export accounts with a password": "Exportar contas com senha",
+  "Export password": "Senha do arquivo",
+  "Opens on any PC with this password. Without it, nobody can read the file.": "Abre em qualquer PC com esta senha. Sem ela, ninguém consegue ler o arquivo.",
+  "Saved to:": "Salvo em:",
+  "Take your accounts to another PC": "Levar as contas para outro PC",
+  "The password must be at least {{n}} characters.": "A senha precisa ter pelo menos {{n}} caracteres.",
+  "The passwords do not match.": "As senhas não conferem.",
+  "This password cannot be recovered. Keep it somewhere safe, apart from the file.": "Esta senha não pode ser recuperada. Guarde-a num lugar seguro, separada do arquivo.",
+  "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.": "Para trazer as contas de volta, use Importar contas › Importar dados do app antigo e digite a senha."
 }
