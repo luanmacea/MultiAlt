@@ -1497,6 +1497,11 @@ async fn launch_roblox_windows(
             browser_tracker_id.clone(),
             resolved_version_id.clone(),
         );
+        // Gravação "After launch" (commands/recordings.rs): todo launch arma,
+        // menos o relançamento da reconexão, que arma a vaga dele.
+        if launch_arms_after_launch(allow_session_refresh) {
+            arm_recording_after_launch(user_id, chrono::Utc::now().timestamp_millis());
+        }
         if let Some(version_id) = resolved_version_id.as_deref() {
             if let Some((channel, hash)) = version_id.split_once(':') {
                 versions.touch_launched(channel, hash);
@@ -2307,6 +2312,8 @@ async fn run_launch_queue_windows(
                 },
             );
             tracker.track_with_version(uid, pid, browser_tracker_id, acct_version_id.clone());
+            // Gravação "After launch" (commands/recordings.rs): lote e preset.
+            arm_recording_after_launch(uid, chrono::Utc::now().timestamp_millis());
             if let Some(version_id) = acct_version_id.as_deref() {
                 if let Some((channel, hash)) = version_id.split_once(':') {
                     versions.touch_launched(channel, hash);

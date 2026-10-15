@@ -163,6 +163,8 @@ async fn handle_launch_account(
             crate::wait_for_new_roblox_pid(&pids_before, std::time::Duration::from_secs(12)).await
         {
             tracker.track(account.user_id, pid, browser_tracker_id);
+            // Gravação "After launch" (commands/recordings.rs).
+            crate::arm_recording_after_launch(account.user_id, chrono::Utc::now().timestamp_millis());
             crate::apply_windows_post_launch_profile(
                 None,
                 state.settings,
@@ -319,6 +321,8 @@ async fn handle_follow_user(
             crate::wait_for_new_roblox_pid(&pids_before, std::time::Duration::from_secs(12)).await
         {
             tracker.track(account.user_id, pid, browser_tracker_id);
+            // Gravação "After launch" (commands/recordings.rs).
+            crate::arm_recording_after_launch(account.user_id, chrono::Utc::now().timestamp_millis());
             crate::apply_windows_post_launch_profile(
                 None,
                 state.settings,

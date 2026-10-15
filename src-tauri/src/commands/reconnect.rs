@@ -959,7 +959,7 @@ pub(crate) fn reconnect_is_guarding() -> bool {
 pub(crate) fn reconnect_after_health_tick(app: &tauri::AppHandle, notices: &[HealthNotice]) {
     // Antes das saídas cedo abaixo: a gravação espera a conta ficar no jogo
     // mesmo depois de a reconexão já ter dado a conta por reconectada.
-    recording_after_reconnect_tick(app);
+    recording_after_join_tick(app);
     let tracked = platform::windows::tracker().get_all();
     let has_work = with_reconnect_book(|book| !book.entries.is_empty())
         || notices.iter().any(|n| matches!(n, HealthNotice::Dropped { .. }));
