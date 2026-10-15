@@ -1012,7 +1012,7 @@ pub(crate) fn reconnect_after_health_tick(app: &tauri::AppHandle, notices: &[Hea
                     out.push(n);
                 }
             }
-            HealthNotice::NotResponding { .. } => {}
+            HealthNotice::NotResponding { .. } | HealthNotice::WrongAccount { .. } => {}
         }
     }
 

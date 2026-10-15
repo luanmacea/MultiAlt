@@ -797,6 +797,7 @@ mod watcher_tests {
             window_title: None,
             not_responding: false,
             in_game: !dropped,
+            wrong_account_user_id: None,
             destination: None,
             exited: false,
         }

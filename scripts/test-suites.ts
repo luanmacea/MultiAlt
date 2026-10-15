@@ -178,6 +178,10 @@ export const SUITES: Record<string, TestSuite> = {
       "client_log_session_tests",
       "client_health_monitor_tests",
       "client_window_title_tests",
+      // Cliente que entrou como outra conta (userid do log ≠ conta lançada).
+      "client_wrong_account_tests",
+      // Linhas do log compartilhadas com os clientes do site (roblox_log.rs).
+      "roblox_log_line_tests",
       // Reconexão automática da conta que caiu (commands/reconnect.rs).
       "auto_reconnect_tests",
       "auto_reconnect_target_tests",

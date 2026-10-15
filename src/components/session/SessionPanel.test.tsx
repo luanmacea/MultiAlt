@@ -990,6 +990,28 @@ describe("SessionPanel — quedas lidas do log", () => {
       clientHealth: new Map([[1, health(null)]]),
     });
     expect(screen.queryByTestId("client-health-note")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("client-wrong-account-note")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-wrong-account")).not.toBeInTheDocument();
+  });
+
+  it("warns at the top and on the row when a client opened as a different account, and keeps its buttons", () => {
+    renderPanel({
+      launchedByProgram: new Set([1, 2]),
+      clientHealth: new Map([
+        [1, health(null)],
+        [2, { ...health(null), inGame: true, wrongAccountUserId: 98765 }],
+      ]),
+    });
+    const banner = screen.getByTestId("session-wrong-account");
+    expect(banner).toHaveAttribute("role", "alert");
+    expect(banner).toHaveTextContent("Bravo Alt opened as a different Roblox account (user 98765).");
+    const row = screen.getByTestId("session-running-2");
+    expect(within(row).getByTestId("client-wrong-account-note")).toHaveTextContent(
+      "Opened as a different Roblox account (user 98765)"
+    );
+    // Só aviso: a linha da conta certa não ganha nada, e nenhum cliente é fechado.
+    expect(within(screen.getByTestId("session-running-1")).queryByTestId("client-wrong-account-note")).toBeNull();
+    expect(callsFor("cmd_kill_roblox")).toHaveLength(0);
   });
 
   it("a website client also shows its drop (display only, it keeps the same buttons)", () => {

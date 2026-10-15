@@ -4440,6 +4440,7 @@ mod launch_command_tests {
                 window_title: Some("Main — Roblox".into()),
                 not_responding: true,
                 in_game: false,
+                wrong_account_user_id: None,
                 destination: Some(JoinedDestination {
                     place_id: 1,
                     job_id: Some("job".into()),
@@ -4542,6 +4543,7 @@ mod launch_join_wait_tests {
             window_title: None,
             not_responding: false,
             in_game,
+            wrong_account_user_id: None,
             destination: None,
             exited,
         }

@@ -2343,12 +2343,13 @@ const SCENARIOS: Record<string, () => void> = {
       pid: 8200 + i,
       adopted: i === 3,
       drop: null as Drop | null,
+      wrongAccountUserId: null as number | null,
     }));
     // Com `&accounts=9` (ou mais), da 7ª à 9ª conta jogam sem cair: é onde se
     // vê a sessão de agora inteira (jogo, servidor, tempo em jogo). A 6ª fica
     // de fora (o cliente fechou e a reconexão desistiu, abaixo).
     accounts.slice(6, 9).forEach((a, i) => {
-      rows.push({ userId: a.UserID, pid: 8300 + i, adopted: false, drop: null });
+      rows.push({ userId: a.UserID, pid: 8300 + i, adopted: false, drop: null, wrongAccountUserId: null });
     });
     // Sessão de agora (`get_current_sessions`): onde e desde quando, como o
     // observador do histórico guarda. Nome comprido para ver o corte; um place
@@ -2416,6 +2417,20 @@ const SCENARIOS: Record<string, () => void> = {
       });
       harnessEmit("session-history-changed", { userIds: [rows[0].userId] });
     }, 15_000);
+    // A 7ª (com `&accounts=7` ou mais) entrou como outra conta do Roblox: o
+    // log mostrou outro `userid` (commands/client_health.rs). O backend manda
+    // o evento uma vez — com a fila parada, se havia uma — e o dado segue no
+    // polling; o cliente continua aberto.
+    setTimeout(() => {
+      const row = rows[5];
+      if (!row) return;
+      row.wrongAccountUserId = 98765432;
+      harnessEmit("roblox-client-wrong-account", {
+        userId: row.userId,
+        loggedUserId: row.wrongAccountUserId,
+        queueStopped: false,
+      });
+    }, 5_000);
     // A 5ª trava: a janela fica "Não respondendo" (o backend só avisa depois
     // de 30 s; aqui chega em 6 s para não esperar).
     let hungUserId: number | null = null;
@@ -2570,6 +2585,7 @@ const SCENARIOS: Record<string, () => void> = {
             windowTitle: `${row.userId} — Roblox`,
             notResponding: row.userId === hungUserId,
             inGame: !row.drop,
+            wrongAccountUserId: row.wrongAccountUserId,
           },
         }));
       }

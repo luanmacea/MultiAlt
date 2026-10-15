@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clientHealthLabel } from "./clientHealth";
+import { clientHealthLabel, wrongAccountLabel, wrongAccountToast } from "./clientHealth";
 import type { ClientDrop } from "../types";
 import ptCommon from "../locales/pt/common.json";
 
@@ -71,5 +71,27 @@ describe("clientHealthLabel", () => {
       label: "The server shut down",
       tone: "drop",
     });
+  });
+});
+
+describe("wrong account", () => {
+  it("names the account the client opened as", () => {
+    expect(wrongAccountLabel({ pid: 1, logFound: true, drop: null, wrongAccountUserId: 4242 }, t)).toBe(
+      "Opened as a different Roblox account (user 4242)"
+    );
+    expect(wrongAccountLabel({ pid: 1, logFound: true, drop: null, wrongAccountUserId: null }, t)).toBeNull();
+    expect(wrongAccountLabel({ pid: 1, logFound: true, drop: null }, t)).toBeNull();
+    expect(wrongAccountLabel(undefined, t)).toBeNull();
+  });
+
+  it("is not a drop: the drop label stays as it was", () => {
+    expect(clientHealthLabel({ pid: 1, logFound: true, drop: null, wrongAccountUserId: 4242 }, t)).toBeNull();
+  });
+
+  it("mentions the launch queue only when it was paused", () => {
+    expect(wrongAccountToast("Alt 3", 4242, true, t)).toBe(
+      "Alt 3 opened as a different Roblox account (user 4242). The launch queue was paused."
+    );
+    expect(wrongAccountToast("Alt 3", 4242, false, t)).toBe("Alt 3 opened as a different Roblox account (user 4242).");
   });
 });

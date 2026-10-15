@@ -137,7 +137,7 @@ import { isLaunchAlreadyActiveError, launchErrorText } from "./utils/robloxError
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import { accountLabel, maskAccountName } from "./utils/accountName";
-import { clientHealthLabel } from "./utils/clientHealth";
+import { clientHealthLabel, wrongAccountToast } from "./utils/clientHealth";
 import { autoReconnectLabel } from "./utils/autoReconnect";
 import {
   EMPTY_AWAY_DIGEST,
@@ -3086,6 +3086,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const acct = accountsRef.current.find((a) => a.UserID === userId);
         const name = accountLabel(acct, nameMaskingRef.current, userId);
         addToast(tr("{{name}} in Roblox — {{status}}", { name, status: status.label }), "warn");
+      }),
+      // O cliente que o app abriu entrou como outra conta (commands/client_health.rs):
+      // o backend já parou a fila (só quem esperava a vez) e não fechou nada.
+      listen<{ userId: number; loggedUserId: number; queueStopped: boolean }>("roblox-client-wrong-account", (e) => {
+        const { userId, loggedUserId, queueStopped } = e.payload;
+        void refreshRunningRef.current();
+        const acct = accountsRef.current.find((a) => a.UserID === userId);
+        const name = accountLabel(acct, nameMaskingRef.current, userId);
+        addToast(wrongAccountToast(name, loggedUserId, queueStopped === true, tr), "warn");
       }),
       // Presets (ideia 13). O resultado de quem clicou já aparece onde o clique
       // foi; o que vem do horário precisa de um toast, porque ninguém clicou.
