@@ -8,9 +8,11 @@
 //! (`http://127.0.0.1:PORT/auth/...`) so two subdomains can never collide on
 //! the same path while sharing a single process-wide server.
 //!
-//! Hosts that are not `<sub>.roblox.com` (the `clientsettingscdn`, `setup-aws`
-//! and `ro.blox.com` CDNs used by the versions installer) are deliberately not
-//! covered here and stay hardcoded at their call sites.
+//! The clientsettings lookup of the launch (`clientsettingscdn` and its origin
+//! `clientsettings`) goes through [`host`] too. Hosts that are not
+//! `<sub>.roblox.com` (the `setup-aws.rbxcdn.com` and `ro.blox.com` CDNs used
+//! by the versions installer) are deliberately not covered here and stay
+//! hardcoded at their call sites.
 
 use std::sync::OnceLock;
 
