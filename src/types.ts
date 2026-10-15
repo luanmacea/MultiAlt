@@ -519,6 +519,12 @@ export interface ClientHealth {
   notResponding?: boolean;
   /** O log diz que a conta está num jogo agora (entrou, sem queda nem saída). */
   inGame?: boolean;
+  /**
+   * O cliente que o app abriu entrou no jogo como **outra** conta do Roblox (o
+   * `userid` do log). O cliente continua aberto; `null`/ausente = a conta certa
+   * ou o log ainda não disse.
+   */
+  wrongAccountUserId?: number | null;
 }
 
 /**

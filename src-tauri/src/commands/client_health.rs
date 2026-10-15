@@ -52,6 +52,9 @@ pub enum ClientLogEvent {
         message: Option<String>,
     },
     ServerShutdown { code: u32 },
+    /// `[FLog::GameJoinLoadTime] ... userid:<conta>`: com que conta o cliente
+    /// entrou no jogo (ver `roblox_log::game_join_user_id`).
+    JoinedAs { user_id: i64 },
 }
 
 /// Texto depois de `marker`, se houver.
@@ -137,6 +140,9 @@ fn kick_message(line: &str) -> Option<Option<String>> {
 /// Classifica uma linha do log do cliente. Puro: nada aqui guarda a linha
 /// (ela pode trazer ticket, IP e Job ID).
 pub fn classify_log_line(line: &str) -> Option<ClientLogEvent> {
+    if let Some(user_id) = crate::roblox_log::game_join_user_id(line) {
+        return Some(ClientLogEvent::JoinedAs { user_id });
+    }
     if let Some(rest) = text_after(line, "! Joining game '") {
         let end = rest.find('\'')?;
         let job = &rest[..end];
@@ -222,6 +228,8 @@ pub struct ClientLogSession {
     place_id: Option<i64>,
     job_id: Option<String>,
     destination: Option<JoinedDestination>,
+    /// A conta com que o cliente entrou no jogo, pelo log (a última vista).
+    logged_user_id: Option<i64>,
 }
 
 impl ClientLogSession {
@@ -243,6 +251,7 @@ impl ClientLogSession {
                     });
                 }
             }
+            ClientLogEvent::JoinedAs { user_id } => self.logged_user_id = Some(*user_id),
             ClientLogEvent::TeleportStarted => self.last_teleport_ms = Some(now_ms),
             ClientLogEvent::LeftVoluntarily => self.left = true,
             ClientLogEvent::Disconnected { code, reason } => self.note_drop(ClientDrop {
@@ -318,6 +327,11 @@ impl ClientLogSession {
         self.joined && !self.left && self.drop.is_none() && self.pending.is_none()
     }
 
+    /// A conta com que o cliente entrou no jogo, se o log já disse.
+    pub fn logged_user_id(&self) -> Option<i64> {
+        self.logged_user_id
+    }
+
     /// Onde a conta entrou por último, se o log disse.
     pub fn destination(&self) -> Option<&JoinedDestination> {
         self.destination.as_ref()
@@ -347,6 +361,20 @@ fn complete_line_bytes(bytes: &[u8], max: u64) -> usize {
         None if bytes.len() as u64 >= max => bytes.len(),
         None => 0,
     }
+}
+
+/// O cliente que o app abriu para `expected_user_id` entrou no jogo como
+/// **outra** conta? Devolve a conta que o log mostrou (`userid:` da linha
+/// `[FLog::GameJoinLoadTime]`). Acontece quando o Roblox reaproveita a sessão
+/// de outra conta (cookie trocado, login feito à mão no cliente). Cliente
+/// adotado do site nunca conta: ele foi reconhecido justamente por essa linha,
+/// e a identificação manual é decisão da pessoa. Nada aqui fecha o cliente —
+/// ele pode ser a conta principal de quem usa o app.
+pub fn wrong_account(expected_user_id: i64, logged_user_id: Option<i64>, adopted: bool) -> Option<i64> {
+    if adopted || expected_user_id <= 0 {
+        return None;
+    }
+    logged_user_id.filter(|logged| *logged != expected_user_id)
 }
 
 /// Um cliente que o app acompanha, como o tracker diz.
@@ -469,6 +497,8 @@ struct ClientHealthEntry {
     applied_title: Option<String>,
     hung: HungWatch,
     not_responding: bool,
+    /// A conta que o log mostrou, quando é outra (ver `wrong_account`).
+    wrong_account: Option<i64>,
 }
 
 impl ClientHealthEntry {
@@ -486,6 +516,7 @@ impl ClientHealthEntry {
             applied_title: None,
             hung: HungWatch::default(),
             not_responding: false,
+            wrong_account: None,
         }
     }
 
@@ -508,6 +539,9 @@ pub struct ClientHealthView {
     pub not_responding: bool,
     /// Está num jogo agora (o log disse que entrou, e não caiu nem saiu).
     pub in_game: bool,
+    /// O cliente entrou como outra conta do Roblox (a do log). Só clientes que
+    /// o app abriu; o cliente continua aberto.
+    pub wrong_account_user_id: Option<i64>,
     /// Onde entrou por último — só para a reconexão, não vai para a tela.
     #[serde(skip)]
     pub destination: Option<JoinedDestination>,
@@ -567,6 +601,8 @@ pub enum HealthNotice {
     Recovered { user_id: i64 },
     /// A janela ficou (ou deixou de ficar) "Não respondendo" por 30 s.
     NotResponding { user_id: i64, not_responding: bool },
+    /// O cliente aberto para `user_id` entrou como `logged_user_id`.
+    WrongAccount { user_id: i64, logged_user_id: i64 },
 }
 
 #[derive(Debug, Default)]
@@ -659,6 +695,16 @@ impl ClientHealthMonitor {
                 }
             }
             entry.session.settle(now_ms);
+
+            // Entrou como outra conta: avisa uma vez (por conta vista no log).
+            let wrong = wrong_account(client.user_id, entry.session.logged_user_id(), entry.adopted);
+            if let Some(logged_user_id) = wrong.filter(|_| wrong != entry.wrong_account) {
+                notices.push(HealthNotice::WrongAccount {
+                    user_id: client.user_id,
+                    logged_user_id,
+                });
+            }
+            entry.wrong_account = wrong;
 
             let window = alive
                 .contains(&entry.pid)
@@ -770,6 +816,7 @@ impl ClientHealthMonitor {
                         window_title: entry.applied_title.clone(),
                         not_responding: entry.not_responding,
                         in_game: !entry.exit_seen && entry.session.in_game(),
+                        wrong_account_user_id: entry.wrong_account,
                         destination: entry.session.destination().cloned(),
                         exited: entry.exit_seen,
                     },
@@ -791,6 +838,16 @@ pub(crate) fn client_health_of(user_id: i64, pid: u32) -> Option<ClientHealthVie
         .get(&user_id)
         .filter(|view| view.pid == pid)
         .cloned()
+}
+
+/// Linha do Console para o cliente que entrou como outra conta.
+fn wrong_account_console_line(logged_user_id: i64, queue_stopped: bool) -> String {
+    let base = format!("Entrou como outra conta do Roblox (usuário {logged_user_id})");
+    if queue_stopped {
+        format!("{base}. A fila de launch foi pausada")
+    } else {
+        base
+    }
 }
 
 /// Linha do Console (português, como as do Watcher) para uma queda.
@@ -965,6 +1022,30 @@ fn emit_health_notice(app: &tauri::AppHandle, notice: &HealthNotice) {
                 "Voltou a responder"
             };
             emit_launch_log(app, *user_id, if *not_responding { "warn" } else { "info" }, "client", String::from(line));
+        }
+        HealthNotice::WrongAccount {
+            user_id,
+            logged_user_id,
+        } => {
+            // Para o resto da fila (como o Stop da Sessão): quem ainda espera a
+            // vez é cancelado, ninguém é fechado — nem este cliente, que pode
+            // ser a conta principal da pessoa.
+            let queue_stopped = launch_queue_cancel_all_queued(app) > 0;
+            let _ = app.emit(
+                "roblox-client-wrong-account",
+                serde_json::json!({
+                    "userId": user_id,
+                    "loggedUserId": logged_user_id,
+                    "queueStopped": queue_stopped,
+                }),
+            );
+            emit_launch_log(
+                app,
+                *user_id,
+                "warn",
+                "client",
+                wrong_account_console_line(*logged_user_id, queue_stopped),
+            );
         }
         HealthNotice::Recovered { user_id } => {
             let _ = app.emit(

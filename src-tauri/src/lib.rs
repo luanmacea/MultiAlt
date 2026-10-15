@@ -6,6 +6,7 @@ mod data;
 #[cfg(feature = "nexus")]
 mod nexus;
 mod platform;
+mod roblox_log;
 #[cfg(target_os = "windows")]
 mod webview_recovery;
 
