@@ -406,6 +406,40 @@ impl LaunchPresetStore {
         Ok(preset)
     }
 
+    /// Faz os presets de **grupo** que apontam para `from` passarem a `to`.
+    ///
+    /// Chamado quando o usuário renomeia (ou junta) um grupo de contas: sem isto
+    /// o preset guarda o nome antigo e o launch dele falha depois com
+    /// "Group \"...\" has no accounts.", mesmo com as contas ali — elas só estão
+    /// num grupo com outro nome. Junção (o `to` já existe como grupo) é o mesmo
+    /// caminho: o preset passa a resolver pelas contas do grupo de destino.
+    /// Compara o texto literal, como `resolve_preset_accounts` agrupa. Grava só
+    /// se algum preset mudou; devolve quantos.
+    pub fn rename_group(&self, from: &str, to: &str) -> Result<usize, String> {
+        if from == to {
+            return Ok(0);
+        }
+        let _guard = self.lock.lock().map_err(|e| e.to_string())?;
+        let Some(mut file) = self.read_from_disk().map_err(|e| {
+            format!("{e}; refusing to overwrite it. Fix or restore {LAUNCH_PRESETS_FILE_NAME} and restart.")
+        })?
+        else {
+            return Ok(0);
+        };
+        let mut changed = 0usize;
+        for preset in file.presets.iter_mut() {
+            if preset.group.as_deref() == Some(from) {
+                preset.group = Some(to.to_string());
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            return Ok(0);
+        }
+        self.write(&file, true)?;
+        Ok(changed)
+    }
+
     /// Apaga pelo id. `Ok(false)` se não existia.
     pub fn delete(&self, id: &str) -> Result<bool, String> {
         let _guard = self.lock.lock().map_err(|e| e.to_string())?;
@@ -547,6 +581,55 @@ mod launch_preset_store_tests {
         };
         fs::write(dir.file(), serde_json::to_vec(&restored).unwrap()).unwrap();
         assert_eq!(store.list().unwrap()[0].name, "From backup");
+    }
+
+    fn group_preset(name: &str, group: &str) -> LaunchPreset {
+        LaunchPreset {
+            name: name.into(),
+            group: Some(group.into()),
+            user_ids: vec![],
+            place_id: 920587237,
+            ..Default::default()
+        }
+    }
+
+    /// Fix 2: renomear um grupo faz os presets de grupo seguirem o nome novo
+    /// (senão o launch do preset falha com "Group ... has no accounts").
+    #[test]
+    fn renaming_a_group_points_its_group_presets_at_the_new_name() {
+        let dir = TempDir::new();
+        let store = LaunchPresetStore::new(dir.file());
+        store.upsert(group_preset("Night", "Alts"), 1).unwrap();
+        // Preset de contas fixas: não tem grupo, não pode ser tocado.
+        store.upsert(preset("Fixed"), 2).unwrap();
+
+        assert_eq!(store.rename_group("Alts", "Mains").unwrap(), 1);
+        let all = store.list().unwrap();
+        assert_eq!(
+            all.iter().find(|p| p.name == "Night").unwrap().group.as_deref(),
+            Some("Mains")
+        );
+        assert_eq!(all.iter().find(|p| p.name == "Fixed").unwrap().group, None);
+        // Grupo que nenhum preset usa: nada muda, nada é gravado.
+        assert_eq!(store.rename_group("Ghost", "X").unwrap(), 0);
+    }
+
+    /// Fix 2: juntar grupos (o destino já existe) aponta os presets do grupo que
+    /// some para o grupo de destino.
+    #[test]
+    fn merging_a_group_points_its_presets_at_the_target_group() {
+        let dir = TempDir::new();
+        let store = LaunchPresetStore::new(dir.file());
+        store.upsert(group_preset("A", "Alts"), 1).unwrap();
+        store.upsert(group_preset("B", "Mains"), 2).unwrap();
+
+        assert_eq!(store.rename_group("Alts", "Mains").unwrap(), 1);
+        let all = store.list().unwrap();
+        assert_eq!(
+            all.iter().filter(|p| p.group.as_deref() == Some("Mains")).count(),
+            2,
+            "os dois presets agora resolvem pelo grupo de destino"
+        );
     }
 }
 

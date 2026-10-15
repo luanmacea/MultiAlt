@@ -86,7 +86,13 @@ cada um tem agora).
 - **A cada launch** (botão, horário ou bandeja) as contas saem do grupo naquele instante, na
   ordem da lista de contas (`resolve_preset_accounts`, até 200). Quem entrou no grupo depois
   vai; quem saiu, não. Conta sem grupo é do "Default", como na lista.
-- **Grupo renomeado ou esvaziado:** o launch falha com `Group "X" has no accounts.` (Console,
+- **Grupo renomeado ou juntado:** renomear um grupo (lápis do cabeçalho ou menu de contexto),
+  ou juntá-lo a outro, **atualiza o `group` dos presets daquele grupo** para o nome novo
+  (`LaunchPresetStore::rename_group`, chamado por `rename_group` em
+  [data/accounts/commands.rs](../../src-tauri/src/data/accounts/commands.rs)). Sem isso o preset
+  guardava o nome antigo e o launch falhava com `Group "X" has no accounts.` mesmo com as contas
+  ali. Falhar ao gravar os presets não desfaz o rename das contas — vira log.
+- **Grupo esvaziado (sem renomear):** o launch falha com `Group "X" has no accounts.` (Console,
   toast do horário/bandeja). A linha do preset já avisa antes ("Group X has no accounts") e o
   Launch fica desabilitado; o editor mantém o grupo antigo no seletor com "(0)" e não salva
   ("That group has no accounts.").
