@@ -40,6 +40,8 @@ export const SUITES: Record<string, TestSuite> = {
       "channel_follow_tests",
       "channel_build_pairing_tests",
       "channel_repair_tests",
+      "production_build_fallback_tests",
+      "build_download_retry_tests",
       "client_dir_tests",
       "browser_tracker_tests",
       "client_settings_file_path_tests",
@@ -262,6 +264,7 @@ export const SUITES: Record<string, TestSuite> = {
     description: "Catálogo e instalação de versões do Roblox",
     rust: [
       "win_versions_tests",
+      "build_download_retry_tests",
       "versions_catalog_tests",
       "versions_command_tests",
       "versions_atomic_tests",
