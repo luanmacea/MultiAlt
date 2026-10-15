@@ -23,6 +23,75 @@ open source que **valem a pena** trazer para o MultiAlt. Gerado pela skill
 5. Qualquer coisa que entre no binário (API nativa nova, COM, dependência) exige
    build + `bun run scan --release` (ver `CLAUDE.md`).
 
+## Situação de cada ideia (atualizado em 14/10/2026)
+
+**Leia isto antes de propor uma ideia nova:** o que já saiu, o que foi
+descartado (e por quê) e o que ainda está aberto. Uma passada nova do
+`/competitor-scout` só deve trazer ideia que **não** esteja aqui como feita
+ou descartada — ou trazer um motivo novo para rever um descarte. Ordem de
+trabalho e pacotes: [plano-ideias.md](plano-ideias.md).
+
+### Feitas
+
+| # | Ideia | Saiu em | Observação |
+|---|---|---|---|
+| 1 | Queda detectada pelo log, com motivo | 1.3.0 | Motivo na Session e no resumo "While you were away" |
+| 2 | Reconexão automática | 1.3.0 | Mesmo jogo e mesmo servidor privado; por conta ou para todas |
+| 3 | Reservar o `ROBLOX_singletonEvent` (teleporte) | 2.0.0 | **Experimental, desligada.** O método antigo continua o padrão; falta teste do dono teleportando com 2+ contas |
+| 4 | Cliente travado ("Não respondendo") | 1.3.0 | Aviso depois de ~30 s; fechar é opção |
+| 6 | Histórico de sessões e tempo de jogo | 2.0.0 | Painel da conta |
+| 7 | Gravar o cookie novo que o Roblox devolve | 1.2.0 | |
+| 8 | Moderação da conta antes do launch | 1.2.0 | Conta moderada também pode ser adicionada |
+| 9 | Verificar todas as contas de uma vez | 1.2.0 | |
+| 10 | Mensagem clara quando o Roblox pede verificação | 1.2.0 | |
+| 12 | Adicionar conta por Quick Login | 2.0.0 | |
+| 13 | Presets de launch e agendamento | 2.0.0 | |
+| 14 | Fila que espera o cliente entrar no jogo | 1.3.0 | Desde a 2.0.0 a fila também aceita lotes novos no fim |
+| 16 | Diagnóstico "o launch não faz nada" | 2.0.0 | Settings › Launch |
+| 18 | Otimização que segue o foco | 2.0.0 | **Mudou:** a versão que desacelerava as janelas de fundo (prioridade baixa, EcoQoS, timer grosso) fazia o jogo atrasar e a conta "teleportar" para os outros jogadores. Hoje o fundo roda normal e só devolve memória ("Free memory from the windows you're not using") — ver [performance.md](features/performance.md) |
+| 19 | Nome da conta no título da janela | 1.3.0 | "conta — Roblox" |
+| 20 | Volume ao vivo por cliente (fundo mudo) | 2.0.0 | Nas duas edições (feature `live-audio`) |
+| 21 | Devolver as configurações do Roblox ao fechar | 2.0.0 | Desligada por padrão |
+| 22 | Grade de janelas menor e sem moldura | 2.0.0 | Controles da grade na página Console |
+| 23 | Manter o PC acordado | 1.3.0 | |
+| 25 | Adiar o AFK com janela em tela cheia | 2.0.0 | Ligada por padrão |
+| 26 | Cookie copiado fora do histórico do Win+V | 1.2.0 | |
+| 27 | Trancar o app por inatividade | 2.0.0 | Desligada por padrão |
+| 28 | "Reportar problema" com log anonimizado | 2.0.0 | Resumo anônimo no "Send feedback" |
+
+Além do catálogo, a 2.0.0 trouxe o que não veio de concorrente: página
+Session agrupada por jogo/servidor, estado ao vivo na lista de contas,
+"Closed" com "Rejoin", resumo "While you were away", gravações (importar do
+TinyTask), parada de emergência por chacoalhar o mouse, teto de memória por
+cliente, configurações divididas em seções e tamanho automático para tela
+grande.
+
+### Descartadas (com o motivo)
+
+| # / pedido | Motivo |
+|---|---|
+| 15 — conferir a assinatura do `RobloxPlayerBeta.exe` | Ganho pequeno (as builds já vêm do CDN oficial, baixadas pelo app) e exige API nativa nova (`WinVerifyTrust`), risco de antivírus na edição padrão. Se voltar, só na edição completa |
+| 17 — configurações em três camadas (global → jogo → conta) | Complica a tela mais do que ajuda; não vale agora |
+| Adiar o AFK enquanto o usuário mexe no PC / forçar o foco | Dependem de `GetLastInputInfo`/`AttachThreadInput`, proibidos de propósito (`afk_input_safety_tests`). O foco depois do ciclo foi resolvido sem eles (1.2.1, issue #23) |
+| Gravar macros ao vivo dentro do app | Abandonado pelo dono em 11/10/2026: o TinyTask já grava, e o app **importa** o `.rec` |
+| Executor / injetor de scripts no Roblox (pedido no Discord, 12/10/2026) | Viola as regras do Roblox, contorna o anti-cheat e acaba com o "0 alertas" de antivírus. Quem usa executor próprio já tem o **Nexus** (edição completa) |
+| Seguir em massa para inflar seguidores (issue #27, 13/10/2026) | Inflar seguidores é contra as regras do Roblox, o "seguir" automatizado esbarra em captcha (que o app não contorna) e expõe o projeto. Um "Seguir" de **uma conta por vez**, como no site, foi oferecido como alternativa |
+| Portátil (`.exe` solto) e setup NSIS | Saem de 1/75 no VirusTotal; a release publica só o MSI (`PUBLISH_PORTABLE: "false"`) |
+
+### Ainda abertas
+
+| # | Ideia | Situação |
+|---|---|---|
+| 5 | Aviso no Discord por webhook (conta caiu) | Manda dados para fora do PC: só se o dono quiser, desligado por padrão |
+| 11 | Launch com o tracker do aparelho | Só **medir** se o cliente trava como um autor relatou; nada mudou |
+| 24 | AFK com teclas em par que se anulam | Bom, sem urgência |
+| 29 | Catálogo e download de versões mais robusto | Baixa prioridade: só importa para quem usa versão customizada |
+| 30 | Multi-instância de verdade no Mac | Depende de alguém testar num Mac |
+| — | Região dos servidores em lote pelo RoValra | Host de terceiro: só desligado por padrão, se o dono quiser |
+| — | Seguir quem escondeu o servidor (follow temporário) | Mexe no perfil social da conta; decisão do dono. (O "entrar seguindo o jogador" das abas Friends/Follow, de 13/10/2026, é outra coisa: é o jeito do RAM antigo de entrar no servidor de um amigo) |
+| — | `LOCALAPPDATA` próprio por conta | Investigar antes: muda onde o cliente procura as builds |
+| — | Página Groups (entrar num grupo em lote) | Código pronto, escondida (`ENABLE_GROUPS`) desde 08/10/2026: o navegador automatizado não mostra o botão de entrar |
+
 ## Resumo — o que fazer primeiro
 
 O buraco mais repetido: **6 de 48 projetos detectam a queda da conta pelo log do
