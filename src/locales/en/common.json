@@ -2689,5 +2689,8 @@
   "{{name}} opened as a different Roblox account (user {{id}}).": "{{name}} opened as a different Roblox account (user {{id}}).",
   "{{name}} opened as a different Roblox account (user {{id}}). The launch queue was paused.": "{{name}} opened as a different Roblox account (user {{id}}). The launch queue was paused.",
   "Opened as a different Roblox account (user {{id}})": "Opened as a different Roblox account (user {{id}})",
-  "The client stays open. Check which account is logged in to it.": "The client stays open. Check which account is logged in to it."
+  "The client stays open. Check which account is logged in to it.": "The client stays open. Check which account is logged in to it.",
+  "server up for {{count}} d": "server up for {{count}} d",
+  "server up for {{count}} h": "server up for {{count}} h",
+  "server up for {{count}} min": "server up for {{count}} min"
 }
