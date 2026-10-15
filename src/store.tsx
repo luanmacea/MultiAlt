@@ -225,7 +225,23 @@ export interface Toast {
   id: number;
   message: string;
   tone: ToastTone;
+  /** Botão no próprio toast (hoje só o "Undo" da remoção de contas). */
+  action?: ToastAction;
 }
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
+export interface ToastOptions {
+  action?: ToastAction;
+  /** Quanto o toast fica na tela; o padrão é 2,5 s. */
+  durationMs?: number;
+}
+
+/** Quanto tempo o "Undo" da remoção fica oferecido. */
+export const UNDO_REMOVE_TOAST_MS = 10_000;
 
 export interface BottingAccountStatus {
   userId: number;
@@ -429,6 +445,8 @@ export interface StoreValue {
    */
   addAccountByCookie: (cookie: string, password?: string) => Promise<void>;
   removeAccounts: (userIds: number[]) => Promise<void>;
+  /** Devolve o último lote removido (o "Undo" do toast). Só em memória. */
+  undoRemoveAccounts: () => Promise<void>;
   updateAccount: (account: Account) => Promise<void>;
 
   selectedIds: Set<number>;
@@ -668,7 +686,8 @@ export interface StoreValue {
   reorderGroups: (draggedKey: string, targetKey: string) => Promise<void>;
 
   toasts: Toast[];
-  addToast: (msg: string, tone?: ToastTone) => void;
+  addToast: (msg: string, tone?: ToastTone, options?: ToastOptions) => void;
+  dismissToast: (id: number) => void;
   actionStatus: ActionStatusState | null;
   modal: { title: string; content: string } | null;
   showModal: (title: string, content: string) => void;
@@ -1323,7 +1342,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * O tom é deduzido de `msg` (não do texto localizado) porque o catálogo
    * garante que a tradução preserva o marcador — ver `src/i18n/locales.test.ts`.
    */
-  const addToast = useCallback((msg: string, tone?: ToastTone) => {
+  const addToast = useCallback((msg: string, tone?: ToastTone, options?: ToastOptions) => {
     // `msg` is usually an i18n key, but some call sites pass an already-localized string (interpolated).
     const localized = i18n.exists(msg) ? tr(msg) : msg;
     const id = ++toastIdRef.current;
@@ -1331,10 +1350,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // sabe o tom da sua mensagem passa explicito e vence o texto. Sem isso,
     // "Aviso de copia de credencial desligado" — que e confirmacao de ajuste —
     // saia pintado de ambar so por conter a palavra "aviso".
-    setToasts((prev) => [...prev, { id, message: localized, tone: tone ?? toneFromMessage(msg) }]);
+    const toast: Toast = { id, message: localized, tone: tone ?? toneFromMessage(msg) };
+    if (options?.action) toast.action = options.action;
+    setToasts((prev) => [...prev, toast]);
     // Remover por `id`, não por posição: dois toasts com vidas sobrepostas
     // fariam o `slice(1)` derrubar o vizinho errado.
-    setTimeout(() => setToasts((prev) => prev.filter((toast) => toast.id !== id)), 2500);
+    setTimeout(
+      () => setToasts((prev) => prev.filter((item) => item.id !== id)),
+      options?.durationMs ?? 2500
+    );
+  }, []);
+
+  /** Tira um toast da fila antes da hora (o clique no botão dele). */
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
   function clearLaunchTimeout() {
@@ -1522,18 +1551,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Remove o lote numa chamada só (`remove_accounts`): o backend guarda o lote
+   * em memória e o toast oferece "Undo" por `UNDO_REMOVE_TOAST_MS`. Antes era um
+   * `remove_account` por conta e a remoção só voltava restaurando um backup
+   * inteiro.
+   */
   async function removeAccounts(userIds: number[]) {
     try {
-      for (const id of userIds) {
-        await invoke("remove_account", { userId: id });
-      }
+      const removed = await invoke<number>("remove_accounts", { userIds });
       setSelectedIds((prev) => {
         const next = new Set(prev);
         userIds.forEach((id) => next.delete(id));
         return next;
       });
       await loadAccounts();
-      addToast(tr("Removed {{count}} account(s)", { count: userIds.length }));
+      const count = typeof removed === "number" ? removed : userIds.length;
+      addToast(tr("Removed {{count}} account(s)", { count }), undefined, {
+        durationMs: UNDO_REMOVE_TOAST_MS,
+        action: { label: tr("Undo"), run: () => void undoRemoveAccounts() },
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function undoRemoveAccounts() {
+    try {
+      const restored = await invoke<number>("undo_remove_accounts");
+      await loadAccounts();
+      if (typeof restored === "number" && restored > 0) {
+        addToast(tr("Restored {{count}} account(s)", { count: restored }), "success");
+      } else {
+        // Lote já desfeito, contas re-adicionadas, ou o app reiniciou (o lote
+        // vive só em memória).
+        addToast(tr("Nothing to undo"), "info");
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -3681,6 +3734,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     saveAccounts,
     addAccountByCookie,
     removeAccounts,
+    undoRemoveAccounts,
     updateAccount,
     selectedIds,
     selectedAccount,
@@ -3809,6 +3863,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setGroupDragState,
     toasts,
     addToast,
+    dismissToast,
     actionStatus,
     modal,
     showModal,

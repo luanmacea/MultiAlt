@@ -554,6 +554,8 @@ pub fn run() {
             data::accounts::save_accounts,
             data::accounts::add_account,
             data::accounts::remove_account,
+            data::accounts::remove_accounts,
+            data::accounts::undo_remove_accounts,
             data::accounts::update_account,
             data::accounts::unlock_accounts,
             data::accounts::try_remembered_unlock,

@@ -203,6 +203,13 @@ pub struct AccountStore {
     /// Ler o slot quando a UI pede não basta: gravador de fundo — Auto Rejoin a
     /// cada ciclo, Watcher, servidor HTTP — muda o aviso sem a UI pedir nada.
     key_warning_watchers: Mutex<Vec<std::sync::mpsc::Sender<Option<VaultKeyWarning>>>>,
+    /// O último lote removido por `remove_many`, cada conta com a posição que
+    /// tinha na lista — é o que o "Undo" do toast devolve (`undo_remove`).
+    ///
+    /// **Só em memória**, de propósito: gravar em disco seria guardar cookies que
+    /// o usuário mandou apagar. Fechar o app esquece; reler o arquivo também
+    /// (`mark_memory_fresh`). Ordem de lock: `accounts` → `last_removed`.
+    last_removed: Mutex<Option<Vec<(usize, Account)>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,6 +233,7 @@ impl AccountStore {
             write_block: Mutex::new(None),
             key_warning: Mutex::new(None),
             key_warning_watchers: Mutex::new(Vec::new()),
+            last_removed: Mutex::new(None),
         }
     }
 
@@ -752,6 +760,11 @@ impl AccountStore {
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
         self.allow_writes_after_reload();
+        // A lista em memória é outra agora (unlock, backup restaurado): enxertar
+        // nela um lote removido da lista de antes misturaria as duas.
+        if let Ok(mut batch) = self.last_removed.lock() {
+            *batch = None;
+        }
     }
 
     /// Regrava um vault em texto puro como vault cifrado.
@@ -1287,6 +1300,67 @@ impl AccountStore {
         }
 
         Ok(removed)
+    }
+
+    /// Remove várias contas numa gravação só e guarda o lote para o "Undo"
+    /// (`undo_remove`). O lote anterior é substituído. Devolve quantas saíram.
+    ///
+    /// A lista nova só entra na memória **depois** de gravada: se a gravação
+    /// falha, nada sai e o lote anterior continua desfazível.
+    pub fn remove_many(&self, user_ids: &[i64]) -> Result<usize, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let wanted: HashSet<i64> = user_ids.iter().copied().collect();
+        let mut removed: Vec<(usize, Account)> = Vec::new();
+        let mut kept: Vec<Account> = Vec::with_capacity(accounts.len());
+        for (index, account) in accounts.iter().enumerate() {
+            if wanted.contains(&account.user_id) {
+                removed.push((index, account.clone()));
+            } else {
+                kept.push(account.clone());
+            }
+        }
+        if removed.is_empty() {
+            return Ok(0);
+        }
+
+        self.save_locked(&kept)?;
+        *accounts = kept;
+        let count = removed.len();
+        *self.last_removed.lock().map_err(|e| e.to_string())? = Some(removed);
+        Ok(count)
+    }
+
+    /// Devolve o último lote de `remove_many` às posições que as contas tinham,
+    /// com tudo (cookie, senha, grupo, campos). Conta que voltou à lista nesse
+    /// meio-tempo (adicionada de novo) é pulada: a de agora vale mais que a
+    /// cópia velha. Funciona uma vez; devolve quantas voltaram.
+    pub fn undo_remove(&self) -> Result<usize, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut slot = self.last_removed.lock().map_err(|e| e.to_string())?;
+        let Some(batch) = slot.as_ref() else {
+            return Ok(0);
+        };
+
+        let mut next = accounts.clone();
+        let mut restored = 0usize;
+        // Em ordem crescente de posição: cada inserção recria a lista de antes
+        // até aquele ponto, então a posição seguinte continua certa.
+        for (index, account) in batch {
+            if next.iter().any(|a| a.user_id == account.user_id) {
+                continue;
+            }
+            let at = (*index).min(next.len());
+            next.insert(at, account.clone());
+            restored += 1;
+        }
+
+        if restored > 0 {
+            // `?` antes de limpar: gravação recusada mantém o lote para tentar de novo.
+            self.save_locked(&next)?;
+            *accounts = next;
+        }
+        *slot = None;
+        Ok(restored)
     }
 
     pub fn update(&self, account: Account) -> Result<bool, String> {
@@ -4379,6 +4453,153 @@ mod app_lock_verify_tests {
     fn without_an_app_password_there_is_nothing_to_verify() {
         let t = temp("no-password");
         assert!(t.0.verify_password("anything").is_err());
+    }
+}
+
+/// Desfazer a remoção: o último lote removido fica **só em memória** e volta
+/// para as posições de antes.
+#[cfg(test)]
+mod account_undo_remove_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct Temp(AccountStore);
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let path = self.0.file_path.clone();
+            for extra in ["json.tmp", "json.bak", "key", "key.tmp", "key.probe"] {
+                let _ = fs::remove_file(path.with_extension(extra));
+            }
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    impl std::ops::Deref for Temp {
+        type Target = AccountStore;
+        fn deref(&self) -> &AccountStore {
+            &self.0
+        }
+    }
+
+    /// Sem `load()`: grava JSON puro (o caminho degradado), o que basta aqui e
+    /// poupa um Argon2 por teste.
+    fn store_with(tag: &str, ids: &[i64]) -> Temp {
+        crypto::init();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let store = AccountStore::new(std::env::temp_dir().join(format!("ram-undo-{tag}-{nanos}.json")));
+        for id in ids {
+            let mut account = Account::new(format!("COOKIE-{id}"), format!("user{id}"), *id);
+            account.group = format!("G{}", id % 2);
+            account.alias = format!("alias {id}");
+            store.add(account).unwrap();
+        }
+        Temp(store)
+    }
+
+    fn ids(store: &AccountStore) -> Vec<i64> {
+        store.get_all().unwrap().iter().map(|a| a.user_id).collect()
+    }
+
+    /// Lê o JSON direto (sem `load()`, que migraria o arquivo para cifrado).
+    fn ids_on_disk(store: &AccountStore) -> Vec<i64> {
+        let data = fs::read(&store.file_path).unwrap();
+        AccountStore::parse_accounts_json(&data)
+            .unwrap()
+            .iter()
+            .map(|a| a.user_id)
+            .collect()
+    }
+
+    #[test]
+    fn a_batch_removal_saves_once_and_reports_how_many_went() {
+        let s = store_with("batch", &[1, 2, 3, 4, 5]);
+        assert_eq!(s.remove_many(&[2, 4, 99]).unwrap(), 2, "id desconhecido não conta");
+        assert_eq!(ids(&s), vec![1, 3, 5]);
+        assert_eq!(ids_on_disk(&s), vec![1, 3, 5]);
+    }
+
+    #[test]
+    fn undo_puts_every_account_back_at_its_old_position_with_all_its_fields() {
+        let s = store_with("restore", &[1, 2, 3, 4, 5]);
+        let before = serde_json::to_string(&s.get_all().unwrap()).unwrap();
+
+        s.remove_many(&[1, 3, 5]).unwrap();
+        assert_eq!(ids(&s), vec![2, 4]);
+
+        assert_eq!(s.undo_remove().unwrap(), 3);
+        assert_eq!(
+            serde_json::to_string(&s.get_all().unwrap()).unwrap(),
+            before,
+            "mesma ordem, cookie, grupo e alias"
+        );
+        assert_eq!(ids_on_disk(&s), vec![1, 2, 3, 4, 5], "e foi para o disco");
+    }
+
+    #[test]
+    fn undo_skips_an_account_that_was_added_again_meanwhile() {
+        let s = store_with("readded", &[1, 2, 3]);
+        s.remove_many(&[1, 2]).unwrap();
+        // A conta 2 voltou por outro caminho (cookie novo) antes do Undo.
+        s.add(Account::new("NEW-COOKIE".to_string(), "user2".to_string(), 2))
+            .unwrap();
+
+        assert_eq!(s.undo_remove().unwrap(), 1, "só a conta 1 volta");
+        assert_eq!(ids(&s), vec![1, 3, 2]);
+        let two = s.get_all().unwrap().into_iter().find(|a| a.user_id == 2).unwrap();
+        assert_eq!(two.security_token, "NEW-COOKIE", "a re-adicionada não é trocada pela velha");
+    }
+
+    #[test]
+    fn undo_works_once_and_a_new_removal_replaces_the_batch() {
+        let s = store_with("replace", &[1, 2, 3]);
+        s.remove_many(&[1]).unwrap();
+        s.remove_many(&[2]).unwrap();
+
+        assert_eq!(s.undo_remove().unwrap(), 1, "só o último lote volta");
+        assert_eq!(ids(&s), vec![2, 3]);
+        assert_eq!(s.undo_remove().unwrap(), 0, "depois de desfeito não há o que desfazer");
+        assert_eq!(ids(&s), vec![2, 3]);
+    }
+
+    #[test]
+    fn nothing_removed_means_nothing_to_undo() {
+        let s = store_with("empty", &[1]);
+        assert_eq!(s.undo_remove().unwrap(), 0);
+        assert_eq!(s.remove_many(&[42]).unwrap(), 0);
+        assert_eq!(ids(&s), vec![1]);
+    }
+
+    /// Reler o arquivo (desbloquear, restaurar backup) troca a lista em memória;
+    /// um lote de antes disso não pode ser enxertado na lista nova.
+    #[test]
+    fn reloading_the_file_forgets_the_removed_batch() {
+        let s = store_with("reload", &[1, 2]);
+        s.remove_many(&[1]).unwrap();
+        s.load().unwrap();
+        assert_eq!(s.undo_remove().unwrap(), 0);
+        assert_eq!(ids(&s), vec![2]);
+    }
+
+    /// Se a gravação falhar, a lista em memória fica como estava (memória =
+    /// arquivo) e o lote continua lá para tentar de novo.
+    #[test]
+    fn a_failed_save_changes_nothing_and_keeps_the_batch() {
+        let s = store_with("locked", &[1, 2, 3]);
+        s.remove_many(&[2]).unwrap();
+        s.lock_writes_until_restart("test");
+
+        assert!(s.undo_remove().is_err());
+        assert_eq!(ids(&s), vec![1, 3]);
+        assert!(s.remove_many(&[1]).is_err());
+        assert_eq!(ids(&s), vec![1, 3], "remoção recusada não tira da memória");
+
+        s.allow_writes_after_reload();
+        assert_eq!(s.undo_remove().unwrap(), 1, "o lote de antes continua desfazível");
+        assert_eq!(ids(&s), vec![1, 2, 3]);
     }
 }
 

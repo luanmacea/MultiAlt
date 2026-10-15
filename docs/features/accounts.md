@@ -16,7 +16,7 @@ Armazenar e gerenciar as contas Roblox (alts) do usuário: sessão (cookie), met
 | Comandos de API por conta | [commands/account_api.rs](../../src-tauri/src/commands/account_api.rs), [commands/account_helpers.rs](../../src-tauri/src/commands/account_helpers.rs) |
 | Grupo `moderadas` | [commands/launch_shared.rs](../../src-tauri/src/commands/launch_shared.rs) (`MODERATED_GROUP`, `is_moderated_error`, `mark_account_moderated`) |
 | Login por navegador / user:pass | [chromium/commands.rs](../../src-tauri/src/chromium/commands.rs) |
-| Estado e ações no frontend | [store.tsx](../../src/store.tsx) (`loadAccounts`, `addAccountByCookie`, `removeAccounts`, `updateAccount`, `moveToGroup`, `reorderAccounts`, `unlock`, `applyEncryptionMethod`) |
+| Estado e ações no frontend | [store.tsx](../../src/store.tsx) (`loadAccounts`, `addAccountByCookie`, `removeAccounts`, `undoRemoveAccounts`, `updateAccount`, `moveToGroup`, `reorderAccounts`, `unlock`, `applyEncryptionMethod`) |
 | Tipo TS | [types.ts](../../src/types.ts) (`Account`, `parseGroupName`, `getFreshnessColor`) |
 | Telas de senha/criptografia | [PasswordScreen.tsx](../../src/components/layout/PasswordScreen.tsx), [EncryptionSetupScreen.tsx](../../src/components/layout/EncryptionSetupScreen.tsx), [PrivacyTab.tsx](../../src/components/settings/PrivacyTab.tsx) |
 | Adicionar/importar | [Toolbar.tsx](../../src/components/layout/Toolbar.tsx), [ImportDialog.tsx](../../src/components/dialogs/ImportDialog.tsx), [AccountList.tsx](../../src/components/accounts/AccountList.tsx) (drag & drop) |
@@ -129,7 +129,9 @@ Settings › Backups › "Export accounts with a password" → `export_accounts_
 
 ### Remover, editar, reordenar, agrupar
 
-- `remove_account(userId)` — a UI (barra inferior) exige digitar `REMOVE` para confirmar remoção em lote.
+- `remove_accounts(userIds)` — o que a UI usa (menu de contexto com confirmação; barra inferior exigindo digitar `REMOVE`). Remove o lote numa gravação só (`AccountStore::remove_many`) e guarda o lote **em memória**, cada conta com a posição que tinha e tudo dela (cookie, senha, grupo, campos). A lista nova só entra na memória depois de gravada: gravação recusada não tira nada.
+- **Desfazer:** o toast "Removed N account(s)" fica 10 s (`UNDO_REMOVE_TOAST_MS`) com o botão **Undo** → `undo_remove_accounts` (`AccountStore::undo_remove`) devolve o lote às posições de antes e grava. Regras: só o **último** lote (uma remoção nova substitui o anterior); funciona uma vez; conta que voltou à lista nesse meio-tempo (adicionada de novo) é **pulada** — a de agora vale mais que a cópia velha; reler o arquivo (unlock, backup restaurado) esquece o lote; gravação recusada (ex.: trava de restauração) mantém o lote para tentar de novo. **Só em memória, de propósito:** gravar o lote em disco seria guardar cookies que o usuário mandou apagar — fechar o app esquece, e aí a volta é só por backup. O toast suporta ação genérica (`addToast(msg, tone, { action, durationMs })`; o botão some ao ser clicado). Testes: `account_undo_remove_tests`, `store.test.ts` e `App.test.tsx`.
+- `remove_account(userId)` — uma conta, sem undo; continua para scripts (`ram.invoke("remove_account")`) e compatibilidade, e não mexe no lote do undo.
 - `update_account(account)` substitui a conta com o mesmo `UserID` (retorna `false` se não existir), **exceto credenciais**: `SecurityToken` e `Password` são sempre copiados do registro salvo no store. O snapshot do frontend fica velho quando o backend rotaciona o cookie (refresh de sessão, `SetField` do web server…), e editar alias/grupo a partir dele não pode regravar o cookie invalidado.
 - `reorder_accounts(userIds)` — usado por drag & drop e "Sort Alphabetically" (ordena por `Alias || Username` dentro do grupo).
 - `moveToGroup` no frontend = `update_account` para cada conta com o novo `Group`.

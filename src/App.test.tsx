@@ -285,6 +285,25 @@ describe("App — error banner, toasts and the generic modal", () => {
     expect(screen.getByText("Added roboduck")).toBeInTheDocument();
   });
 
+  /** O "Undo" da remoção de contas mora no próprio toast. */
+  it("offers a toast's action as a button and dismisses the toast when it is used", async () => {
+    const run = vi.fn();
+    const store = renderApp({
+      toasts: [{ id: 7, message: "Removed 2 account(s)", tone: "info", action: { label: "Undo", run } }],
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(store.dismissToast).toHaveBeenCalledWith(7);
+  });
+
+  it("draws no button for a toast without an action", () => {
+    renderApp({ toasts: [{ id: 1, message: "Accounts saved", tone: "success" }] });
+    const toast = screen.getByText("Accounts saved").closest("div") as HTMLElement;
+    expect(toast.querySelector("button")).toBeNull();
+  });
+
   /**
    * Toda a fila saía com `theme-panel theme-border` e mais nada, então "Launch
    * failed" e "Accounts saved" eram visualmente a mesma coisa. A cor vem do

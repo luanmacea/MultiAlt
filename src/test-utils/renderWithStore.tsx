@@ -157,6 +157,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     saveAccounts: vi.fn(async () => {}),
     addAccountByCookie: vi.fn(async () => {}),
     removeAccounts: vi.fn(async () => {}),
+    undoRemoveAccounts: vi.fn(async () => {}),
     updateAccount: vi.fn(async () => {}),
 
     selectedIds,
@@ -293,6 +294,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
 
     toasts: [],
     addToast: vi.fn(),
+    dismissToast: vi.fn(),
     actionStatus: null,
     modal: null,
     showModal: vi.fn(),

@@ -1434,9 +1434,73 @@ describe("account mutations", () => {
       await result.current.removeAccounts([1]);
     });
 
-    expect(lastArgs("remove_account")).toEqual({ userId: 1 });
+    expect(lastArgs("remove_accounts")).toEqual({ userIds: [1] });
+    expect(invokeCalls("remove_account")).toHaveLength(0);
     expect([...result.current.selectedIds]).toEqual([2]);
     expect(result.current.accounts.map((a) => a.UserID)).toEqual([2]);
+  });
+
+  /**
+   * Remover era definitivo (só voltava restaurando um backup inteiro). O lote
+   * vai numa chamada só e o toast oferece "Undo", que pede o lote de volta.
+   */
+  it("removes a batch in one call and offers Undo on the toast", async () => {
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
+    results.set("remove_accounts", 2);
+    const { result } = await renderStore();
+
+    accountsData = [account({ UserID: 2 })];
+    await act(async () => {
+      await result.current.removeAccounts([1, 3]);
+    });
+
+    expect(invokeCalls("remove_accounts")).toHaveLength(1);
+    expect(lastArgs("remove_accounts")).toEqual({ userIds: [1, 3] });
+    const toast = result.current.toasts.find((item) => item.message.includes("Removed 2 account"));
+    expect(toast?.action?.label).toBe("Undo");
+
+    results.set("undo_remove_accounts", 2);
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
+    await act(async () => {
+      toast?.action?.run();
+    });
+
+    await waitFor(() => expect(invokeCalls("undo_remove_accounts")).toHaveLength(1));
+    await waitFor(() => expect(result.current.accounts.map((a) => a.UserID)).toEqual([1, 2, 3]));
+    expect(result.current.toasts.map((item) => item.message).join(" ")).toContain(
+      "Restored 2 account(s)"
+    );
+  });
+
+  it("keeps the Undo toast for 10 seconds instead of the usual 2.5", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        await result.current.removeAccounts([1]);
+      });
+      const hasUndo = () => result.current.toasts.some((item) => item.action?.label === "Undo");
+      expect(hasUndo()).toBe(true);
+      act(() => vi.advanceTimersByTime(5000));
+      expect(hasUndo()).toBe(true);
+      act(() => vi.advanceTimersByTime(5500));
+      expect(hasUndo()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says so when there is nothing left to undo", async () => {
+    accountsData = [account({ UserID: 1 })];
+    results.set("undo_remove_accounts", 0);
+    const { result } = await renderStore();
+
+    await act(async () => {
+      await result.current.undoRemoveAccounts();
+    });
+
+    expect(result.current.toasts.map((item) => item.message).join(" ")).toContain("Nothing to undo");
   });
 
   it("updates an account in place", async () => {

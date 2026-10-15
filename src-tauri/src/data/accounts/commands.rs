@@ -32,6 +32,23 @@ pub fn remove_account(state: tauri::State<'_, AccountStore>, user_id: i64) -> Re
     state.remove(user_id)
 }
 
+/// Remove um lote numa gravação só e guarda-o para o "Undo" do toast. O
+/// `remove_account` (uma conta) continua para scripts e compatibilidade, e não
+/// mexe no lote.
+#[tauri::command]
+pub fn remove_accounts(
+    state: tauri::State<'_, AccountStore>,
+    user_ids: Vec<i64>,
+) -> Result<usize, String> {
+    state.remove_many(&user_ids)
+}
+
+/// Desfaz o último `remove_accounts` (só em memória: fechar o app esquece).
+#[tauri::command]
+pub fn undo_remove_accounts(state: tauri::State<'_, AccountStore>) -> Result<usize, String> {
+    state.undo_remove()
+}
+
 #[tauri::command]
 pub fn update_account(
     state: tauri::State<'_, AccountStore>,
@@ -368,6 +385,18 @@ mod account_export_command_tests {
     fn the_export_command_is_registered() {
         let lib = include_str!("../../lib.rs");
         assert!(lib.contains("data::accounts::export_accounts_with_password"));
+    }
+}
+
+#[cfg(test)]
+mod account_remove_command_tests {
+    /// O "Undo" do toast depende dos dois comandos estarem na ponte.
+    #[test]
+    fn the_batch_remove_and_undo_commands_are_registered() {
+        let lib = include_str!("../../lib.rs");
+        assert!(lib.contains("data::accounts::remove_accounts,"));
+        assert!(lib.contains("data::accounts::undo_remove_accounts,"));
+        assert!(lib.contains("data::accounts::remove_account,"), "o comando antigo continua");
     }
 }
 

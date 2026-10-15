@@ -112,6 +112,9 @@ export const SUITES: Record<string, TestSuite> = {
       // Export protegido por senha (ideia 38, Settings › Backups).
       "account_export_tests",
       "account_export_command_tests",
+      // Desfazer a remoção de contas (toast "Undo").
+      "account_undo_remove_tests",
+      "account_remove_command_tests",
       "account_helpers_tests",
       "account_path_tests",
       "account_api_tests",
