@@ -98,6 +98,7 @@ pub struct RenameGroupResult {
 pub fn rename_group(
     state: tauri::State<'_, AccountStore>,
     settings: tauri::State<'_, crate::data::settings::SettingsStore>,
+    presets: tauri::State<'_, crate::data::launch_presets::LaunchPresetStore>,
     from: String,
     to: String,
 ) -> Result<RenameGroupResult, String> {
@@ -113,6 +114,12 @@ pub fn rename_group(
                 Ok(()) => group_order = Some(next),
                 Err(e) => eprintln!("Não foi possível gravar a ordem dos grupos: {}", e),
             }
+        }
+        // Presets de grupo seguem o nome novo: sem isto o preset guarda o nome
+        // antigo e o launch dele falha com "Group ... has no accounts". Falhar
+        // aqui não desfaz o rename das contas (que é o principal), só vira log.
+        if let Err(e) = presets.rename_group(&from, &to) {
+            eprintln!("Não foi possível atualizar os presets do grupo renomeado: {}", e);
         }
     }
     Ok(RenameGroupResult {

@@ -401,6 +401,40 @@ impl LaunchPresetStore {
         Ok(preset)
     }
 
+    /// Faz os presets de **grupo** que apontam para `from` passarem a `to`.
+    ///
+    /// Chamado quando o usuário renomeia (ou junta) um grupo de contas: sem isto
+    /// o preset guarda o nome antigo e o launch dele falha depois com
+    /// "Group \"...\" has no accounts.", mesmo com as contas ali — elas só estão
+    /// num grupo com outro nome. Junção (o `to` já existe como grupo) é o mesmo
+    /// caminho: o preset passa a resolver pelas contas do grupo de destino.
+    /// Compara o texto literal, como `resolve_preset_accounts` agrupa. Grava só
+    /// se algum preset mudou; devolve quantos.
+    pub fn rename_group(&self, from: &str, to: &str) -> Result<usize, String> {
+        if from == to {
+            return Ok(0);
+        }
+        let _guard = self.lock.lock().map_err(|e| e.to_string())?;
+        let Some(mut file) = self.read_from_disk().map_err(|e| {
+            format!("{e}; refusing to overwrite it. Fix or restore {LAUNCH_PRESETS_FILE_NAME} and restart.")
+        })?
+        else {
+            return Ok(0);
+        };
+        let mut changed = 0usize;
+        for preset in file.presets.iter_mut() {
+            if preset.group.as_deref() == Some(from) {
+                preset.group = Some(to.to_string());
+                changed += 1;
+            }
+        }
+        if changed == 0 {
+            return Ok(0);
+        }
+        self.write(&file, true)?;
+        Ok(changed)
+    }
+
     /// Apaga pelo id. `Ok(false)` se não existia.
     pub fn delete(&self, id: &str) -> Result<bool, String> {
         let _guard = self.lock.lock().map_err(|e| e.to_string())?;
