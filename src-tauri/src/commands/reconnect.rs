@@ -814,6 +814,8 @@ static RECONNECT_LAST_VIEWS: std::sync::LazyLock<std::sync::Mutex<Vec<ReconnectE
     std::sync::LazyLock::new(|| std::sync::Mutex::new(Vec::new()));
 
 fn publish_reconnect(app: &tauri::AppHandle, notices: &[ReconnectNotice]) {
+    // Aviso no Discord: reconectou / desistiu (desligado por padrão; só fila).
+    webhook_after_reconnect(app, notices);
     for notice in notices {
         // A conta relançada toca a gravação dela quando ficar o tempo
         // configurado no jogo (commands/recordings.rs).

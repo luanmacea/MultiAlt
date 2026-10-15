@@ -159,7 +159,7 @@ servidor) já foram corrigidos na `develop` em 14/10/2026 ([detalhes](#bugs-do-m
 
 ### 5. Aviso no Discord por webhook
 - **Prioridade:** média.
-- **Situação no MultiAlt:** novo.
+- **Situação no MultiAlt:** feito em 15/10/2026 — ver [features/webhook.md](features/webhook.md).
 - **O que faz:** quando uma conta cai/volta, manda mensagem para um webhook **que o próprio usuário cola**, com o motivo da queda.
 - **Onde ver:** [`wokdsoul/XRM`](https://github.com/wokdsoul/XRM) — `src/Services/WebhookService.cs`; [`NotVeen/RoPilot`](https://github.com/NotVeen/RoPilot) — `src/WebhookManager.cpp`; [`KIKISQQ/Roblox-Vault`](https://github.com/KIKISQQ/Roblox-Vault) — `Services/DiscordService.cs`.
 - **Segurança:** desligado por padrão; a chamada sai do backend; a mensagem leva só alias e motivo — **nunca** cookie, senha ou Job ID de servidor privado. Validar que a URL é `discord.com/api/webhooks/…`.

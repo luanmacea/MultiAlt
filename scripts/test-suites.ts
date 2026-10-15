@@ -427,6 +427,17 @@ export const SUITES: Record<string, TestSuite> = {
     ],
     front: ["src/components/servers", "src/components/server-list"],
   },
+  webhook: {
+    description: "Avisos no Discord por webhook: URL, filtro de eventos, lote/limite, mensagem com nomes ocultos, envio mockado",
+    rust: [
+      "discord_webhook_url_tests",
+      "discord_webhook_message_tests",
+      "discord_webhook_queue_tests",
+      "discord_webhook_http_tests",
+      "webhook_glue_tests",
+    ],
+    front: ["src/components/settings/NotificationsTab.test.tsx", "src/utils/discordWebhook.test.ts"],
+  },
   settings: {
     description: "RAMSettings.ini, defaults, temas e presets",
     rust: [

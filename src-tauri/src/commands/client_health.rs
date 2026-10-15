@@ -1175,6 +1175,8 @@ pub(crate) fn start_client_health_monitor(app: tauri::AppHandle) {
             }
             // Região do servidor de cada cliente (Sessão), pelo IP do log.
             server_regions_after_health_tick();
+            // Aviso no Discord (desligado por padrão; só põe na fila).
+            webhook_after_health_tick(&app, &notices);
             // Reconexão automática da conta que caiu (commands/reconnect.rs).
             reconnect_after_health_tick(&app, &notices);
             // Conta cujo cliente fechou no meio do jogo (commands/closed_clients.rs).

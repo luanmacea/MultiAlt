@@ -483,6 +483,25 @@ impl SettingsStore {
             }
         }
 
+        // Avisos no Discord (docs/features/webhook.md): **desligado** por
+        // padrão — os avisos saem do PC. `Url` e `Mention` nascem vazias (e
+        // por isso não chegam ao arquivo). Nome da conta mascarado por padrão.
+        let webhook_defaults: &[(&str, &str)] = &[
+            ("Enabled", "false"),
+            ("NotifyDropped", "true"),
+            ("NotifyReconnected", "false"),
+            ("NotifyReconnectFailed", "true"),
+            ("NotifyNotResponding", "true"),
+            ("NotifyLaunchFailed", "false"),
+            ("HideNames", "true"),
+        ];
+        let webhook = ini.section("Webhook");
+        for (key, value) in webhook_defaults {
+            if !webhook.exists(key) {
+                webhook.set(key, value, None);
+            }
+        }
+
         ini.section("Prompts");
 
         drop(ini);
@@ -846,6 +865,20 @@ mod settings_store_tests {
 
         push(
             &mut out,
+            "Webhook",
+            &[
+                ("Enabled", "false"),
+                ("NotifyDropped", "true"),
+                ("NotifyReconnected", "false"),
+                ("NotifyReconnectFailed", "true"),
+                ("NotifyNotResponding", "true"),
+                ("NotifyLaunchFailed", "false"),
+                ("HideNames", "true"),
+            ],
+        );
+
+        push(
+            &mut out,
             "Generator",
             &[
                 ("Provider", "bloxgen"),
@@ -909,6 +942,8 @@ mod settings_store_tests {
         ("BloxGen", "ApiKey"),
         ("Linux", "CustomLaunchCommand"),
         ("Linux", "CustomLogDir"),
+        ("Webhook", "Url"),
+        ("Webhook", "Mention"),
     ];
 
     // ---- defaults --------------------------------------------------------------

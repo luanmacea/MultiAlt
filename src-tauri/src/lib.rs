@@ -42,6 +42,7 @@ include!("commands/generators.rs");
 include!("commands/launch.rs");
 include!("commands/launch_presets.rs");
 include!("commands/tray.rs");
+include!("commands/webhook.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
@@ -462,6 +463,9 @@ pub fn run() {
             // Horários dos presets de launch: só com o app aberto, sem
             // recuperar o que passou — ver commands/launch_presets.rs.
             start_preset_scheduler(app.handle().clone());
+            // Avisos no Discord (desligados por padrão): a fila que manda —
+            // ver commands/webhook.rs.
+            start_webhook_dispatcher(app.handle().clone());
             // Otimização que segue o foco: o laço só age com a opção ligada.
             #[cfg(target_os = "windows")]
             start_focus_follow_loop(app.handle().clone());
@@ -680,6 +684,7 @@ pub fn run() {
             delete_launch_preset,
             launch_preset,
             close_preset_clients,
+            send_test_webhook,
             get_session_history,
             get_current_sessions,
             save_history_export,

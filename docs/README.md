@@ -45,7 +45,8 @@ Cada documento de funcionalidade segue a mesma estrutura: **Objetivo**, **Onde f
 ### Launch e automação
 - [features/launch.md](features/launch.md) — lançamento de uma conta.
 - [features/multi-launch.md](features/multi-launch.md) — lançamento de várias contas / multi-Roblox.
-- [features/presets.md](features/presets.md) — presets de launch (contas → jogo/servidor num clique) e horário de abrir/fechar, que fecha só o que o preset abriu.
+- [features/presets.md](features/presets.md) — presets de launch (contas → jogo/servidor num clique, ou todas as contas de um grupo), horário de abrir/fechar que fecha só o que o preset abriu, e o submenu da bandeja.
+- [features/webhook.md](features/webhook.md) — avisos no Discord por webhook (desligado por padrão): queda, reconexão, janela travada, launch que falhou; nomes mascarados, fila com lote e limite do Discord.
 - [features/external-clients.md](features/external-clients.md) — clientes abertos pelo site (ou antes de o app abrir) reconhecidos pelo log do Roblox; identificação manual.
 - [features/botting.md](features/botting.md) — Auto Rejoin (auto-rejoin cíclico) e a tela do **Modo AFK**, que junta Auto Rejoin e cliques AFK em abas.
 - [features/afk-mode.md](features/afk-mode.md) — AFK mode: envio periódico de uma tecla para a janela de cada conta, sem rejoin.

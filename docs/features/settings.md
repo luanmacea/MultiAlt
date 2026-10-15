@@ -36,6 +36,7 @@ A página abre em **Launch**. Outra tela abre uma seção com `store.openSetting
 |---|---|---|
 | Launch | sempre | Cartão "Launch does nothing?" (abre a checagem, [support.md](support.md)); **Several accounts at once**: `General.EnableMultiRbx`, `ReserveSingletonEvent` (Windows), `AutoCloseRobloxForMultiRbx` (vinha de Misc); **Time between accounts**: `AsyncJoin`, `AccountJoinDelay`, `WaitForGameJoin` (Windows); **Before each launch**: `CheckModerationBeforeLaunch`, `WarnOnOnlineJoin`, `AutoCloseLastProcess` e `ShuffleJobId` (os dois vinham de Misc) |
 | Keep in game | sempre | `General.BottingEnabled` (Auto Rejoin) + linha "Auto Rejoin options" com botão **Open AFK Mode**; "Reconnect accounts that drop" **sem interruptor** — mostra se o padrão `General.AutoReconnect` está ligado e tem o botão **Change it on the Session page** (Windows); `General.KeepPcAwake`, `Afk.ShakeToStop` (Windows) |
+| Notifications | sempre | Avisos no Discord por webhook (`Webhook.*`, desligado por padrão), com o botão **Send test message** — ver [webhook.md](webhook.md) |
 | Accounts | sempre | **Account list**: `ShowPresence`, `PresenceUpdateRate` (vinha de Misc), `WrapLongNames`, `DisableAgingAlert`, `DisableImages`, `AutoCookieRefresh`; **Login browser**: `Login.PersistentProfile`, `Login.StealthMode`, `Login.ManualBinaryPath` e o cartão do navegador embutido |
 | Privacy & security | sempre | **Hidden names**: `HiddenNameLetters`, `ShowAvatarsWhenHidden`, `ShowAccountNameOnWindow` (Windows); **Account file**: botão "Change Encryption Method" (vinha de Misc), `WarnOnCopyCredential`; **Password screen**: `LockOnInactivity`, `LockAfterMinutes`, "Stay signed in on this computer" (os três vinham de Misc), `RestrictedBackgroundStyle` |
 | Updates | sempre | `CheckForUpdates`, `UpdaterReleaseChannel`, `UpdaterFeatureChannel` e o cartão "Manual Update Check" |
@@ -233,6 +234,22 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 
 A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas; a terceira vaga (After launch) trouxe `AfterLaunch` e `AfterLaunchDelaySeconds`.
 | `WaitForFullscreen` | `true` | "Wait while a fullscreen window is in front": com um vídeo ou outro jogo em tela cheia na frente, o ciclo espera em vez de tirar o foco, até 5 min além da hora da conta. Só `"false"` desliga. |
+
+### `[Webhook]` — detalhes em [webhook.md](webhook.md)
+
+Seção Settings › **Notifications**. Avisos no Discord, **desligados** por padrão (os avisos saem do PC).
+
+| Chave | Default | Significado |
+|---|---|---|
+| `Enabled` | `false` | "Send notifications to Discord": liga o envio. |
+| `Url` | `""` | URL do webhook. Só grava vazio ou `https://discord.com/api/webhooks/<id>/<token>` (também `discordapp.com`, `ptb.`, `canary.`, `/api/v10/`) — a tela confere e o `update_setting` recusa o resto. **Fica em texto puro** no INI (é um segredo: quem tem posta no canal); nunca vai para log nem mensagem de erro. |
+| `Mention` | `""` | "Text before each message (optional)", até 100 caracteres (ex.: `@everyone`, `<@&id do cargo>`). É a única parte da mensagem que pode mencionar alguém. |
+| `NotifyDropped` | `true` | Conta caiu / cliente fechou sem sair do jogo (com o motivo). |
+| `NotifyReconnectFailed` | `true` | A reconexão automática desistiu (ou parou por ban, sessão expirada, sem destino). |
+| `NotifyNotResponding` | `true` | A janela ficou "Não respondendo" por 30 s. |
+| `NotifyReconnected` | `false` | A reconexão automática devolveu a conta ao jogo. |
+| `NotifyLaunchFailed` | `false` | O launch de uma conta falhou (auth ticket ou abrir o cliente). |
+| `HideNames` | `true` | "Hide account names in messages": nome mascarado como no "Names hidden" (usa `General.HiddenNameLetters`). Desligado, vai Alias ou Username. |
 
 ### `[Generator]` / `[BloxGen]`
 
