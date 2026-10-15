@@ -915,6 +915,37 @@ async fn get_servers(
     .await
 }
 
+/// Os servidores privados deste place que **a conta** pode acessar (uma página),
+/// lidos com o cookie dela — a seção "Private servers" da aba Servers.
+///
+/// **Sem `run_with_session_retry`**: é leitura, e o refresh chama
+/// `signoutfromallsessionsandreauthenticate`, que derrubaria as sessões abertas
+/// da conta. Cookie vencido vira o erro desta conta, e só dela.
+#[tauri::command]
+async fn get_private_servers(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+    place_id: i64,
+    cursor: Option<String>,
+) -> Result<api::roblox::PrivateServersResponse, String> {
+    get_private_servers_inner(state.inner(), user_id, place_id, cursor).await
+}
+
+async fn get_private_servers_inner(
+    state: &AccountStore,
+    user_id: i64,
+    place_id: i64,
+    cursor: Option<String>,
+) -> Result<api::roblox::PrivateServersResponse, String> {
+    if place_id <= 0 {
+        return Err("Enter a valid Place ID".to_string());
+    }
+    read_without_refresh(state, user_id, |cookie| async move {
+        api::roblox::get_private_servers(place_id, cursor.as_deref(), &cookie).await
+    })
+    .await
+}
+
 /// A lista de servidores **na ordem da preferência**, já sem os que não cabem
 /// o lote.
 ///

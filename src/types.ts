@@ -664,6 +664,25 @@ export interface AccountAccess {
   error: string | null;
 }
 
+/** Um servidor privado que a conta pode acessar (`get_private_servers`). */
+export interface PrivateServer {
+  /** Job ID — nulo quando não há ninguém dentro. */
+  id: string | null;
+  name: string | null;
+  vipServerId: number | null;
+  /** O que o launch usa (`vip:<accessCode>`). */
+  accessCode: string | null;
+  maxPlayers: number;
+  playing: number;
+  owner: { id: number; name?: string | null; displayName?: string | null } | null;
+}
+
+/** Uma página de `get_private_servers`. */
+export interface PrivateServersPage {
+  data: PrivateServer[];
+  nextPageCursor: string | null;
+}
+
 /** Progresso do evento `server-region-progress`. */
 export interface ServerRegionProgress {
   done: number;

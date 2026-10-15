@@ -2655,5 +2655,14 @@
   "Stopped waiting for {{name}}: not in a game after {{hours}} h.": "Parei de esperar {{name}}: fora de jogo depois de {{hours}} h.",
   "Wait until they're in a game": "Esperar até entrar num jogo",
   "Watching {{name}}… (checks every {{seconds}} s)": "Esperando {{name}}… (consulta a cada {{seconds}} s)",
-  "With “Join by following” off, their server must also be visible.": "Com “Entrar seguindo” desligado, o servidor dele também precisa estar visível."
+  "With “Join by following” off, their server must also be visible.": "Com “Entrar seguindo” desligado, o servidor dele também precisa estar visível.",
+  "by {{owner}}": "de {{owner}}",
+  "Enter a Place ID to see private servers.": "Digite um Place ID para ver os servidores privados.",
+  "Join with {{count}}": "Entrar com {{count}}",
+  "Joins with the {{count}} selected account(s) that can access this server": "Entra com a(s) {{count}} conta(s) selecionada(s) que têm acesso a este servidor",
+  "No private servers for this account in this game": "Nenhum servidor privado desta conta neste jogo",
+  "Private servers": "Servidores privados",
+  "Reload private servers": "Recarregar servidores privados",
+  "Roblox did not send a join code for this server": "O Roblox não mandou o código de entrada deste servidor",
+  "The private servers each selected account can access in this game.": "Os servidores privados que cada conta selecionada pode acessar neste jogo."
 }
