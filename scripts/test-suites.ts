@@ -142,6 +142,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/dialogs/AddAccountDialog.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
       "src/components/dialogs/ImportDialog.test.tsx",
+      // Fields da conta: grava ao sair do campo e ao fechar, não só com Enter.
+      "src/components/dialogs/AccountFieldsDialog.test.tsx",
       "src/components/layout/VaultKeyBanner.test.tsx",
       // Cópia de credencial pelo backend (ideia 26).
       "src/components/menus/ContextMenu.test.tsx",
