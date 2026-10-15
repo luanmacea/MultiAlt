@@ -12,6 +12,7 @@ import {
   type ClicksController,
   type ClicksTabOptions,
 } from "./clicks/useClicksController";
+import { afkKeyLabel } from "./clicks/afkKeyLabels";
 
 export { formatAfkElapsed };
 
@@ -219,7 +220,7 @@ function SettingsCard({ ctl }: { ctl: ClicksController }) {
             <span className="text-[12px] theme-muted w-32 shrink-0">{t("Key to send")}</span>
             <Select
               value={ctl.effectiveKey}
-              options={ctl.store.afkKeys.map((k) => ({ value: k, label: k }))}
+              options={ctl.store.afkKeys.map((k) => ({ value: k, label: afkKeyLabel(k) }))}
               disabled={configDisabled}
               ariaLabel="Key to send"
               onChange={ctl.setKey}

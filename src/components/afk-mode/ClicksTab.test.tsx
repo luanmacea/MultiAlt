@@ -120,6 +120,47 @@ describe("ClicksTab — só as teclas da lista", () => {
 });
 
 /**
+ * Pares de setas que se anulam (ideia 24): o backend entrega `Right+Left` e
+ * `Up+Down` no fim da lista, e a tela diz o que cada um faz em vez de mostrar o
+ * nome cru.
+ */
+describe("ClicksTab — pares de setas que se anulam", () => {
+  const WITH_PAIRS = [...KEYS, "Right+Left", "Up+Down"];
+
+  it("oferece os pares com uma frase que diz o que fazem", async () => {
+    renderDialog({ afkKeys: WITH_PAIRS });
+    await userEvent.click(screen.getByLabelText("Key to send"));
+    expect(screen.getByRole("button", { name: "→ then ← (turns the camera and back)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "↑ then ↓ (a step forward and back)" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Right+Left" })).not.toBeInTheDocument();
+  });
+
+  it("escolher um par grava o nome do par no INI e libera o start", async () => {
+    const { store } = renderDialog({ afkKeys: WITH_PAIRS });
+    await userEvent.click(screen.getByLabelText("Key to send"));
+    await userEvent.click(screen.getByRole("button", { name: "→ then ← (turns the camera and back)" }));
+    expect(store.updateSetting).toHaveBeenCalledWith("Afk", "Key", "Right+Left");
+
+    await userEvent.click(screen.getByRole("button", { name: ACCOUNTS[0].Username }));
+    await userEvent.click(screen.getByRole("button", { name: /Start AFK Mode/i }));
+    expect(store.startAfkMode).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "Right+Left", mode: "key" })
+    );
+  });
+
+  it("em pt, o par aparece traduzido", async () => {
+    await i18n.changeLanguage("pt");
+    try {
+      renderDialog({ afkKeys: WITH_PAIRS, afkStatus: makeAfkStatus({ key: "Right+Left" }) });
+      await userEvent.click(screen.getByLabelText("Tecla a enviar"));
+      expect(screen.getByRole("button", { name: "→ e depois ← (gira a câmera e volta)" })).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
+});
+
+/**
  * Sem tecla escolhida o modo não liga: inventar uma tecla padrão mexeria no
  * personagem sem o usuário ter pedido.
  */

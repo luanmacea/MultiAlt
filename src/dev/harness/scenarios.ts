@@ -392,7 +392,11 @@ function emitRealPlaceScan(
 // ─── AFK mode ────────────────────────────────────────────────────────────────
 
 /** A lista fechada de `AFK_KEYS` (`commands/afk.rs`), na ordem em que o backend a entrega. */
-const AFK_KEYS = ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5"];
+const AFK_KEYS = [
+  "Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5",
+  // Os pares de setas que se anulam (`AFK_KEY_PAIRS`).
+  "Right+Left", "Up+Down",
+];
 
 /** `AfkSendError::message()`, por código. A tela escolhe a frase pelo código. */
 const AFK_SEND_ERRORS = {

@@ -2692,5 +2692,7 @@
   "The client stays open. Check which account is logged in to it.": "O cliente continua aberto. Confira qual conta está logada nele.",
   "server up for {{count}} d": "servidor no ar há {{count}} d",
   "server up for {{count}} h": "servidor no ar há {{count}} h",
-  "server up for {{count}} min": "servidor no ar há {{count}} min"
+  "server up for {{count}} min": "servidor no ar há {{count}} min",
+  "→ then ← (turns the camera and back)": "→ e depois ← (gira a câmera e volta)",
+  "↑ then ↓ (a step forward and back)": "↑ e depois ↓ (um passo para frente e para trás)"
 }

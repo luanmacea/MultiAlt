@@ -41,13 +41,47 @@ const AFK_KEYS: &[(&str, u16)] = &[
     ("5", 0x35),
 ];
 
-/// Os nomes da lista fechada, na ordem em que a tela os oferece.
+/// Pares de setas que **se anulam** (ideia 24, 15/10/2026): a primeira tecla é
+/// tocada e logo depois a segunda, do mesmo tamanho — conta como atividade, e o
+/// personagem termina onde começou. `(virtual key, estendida)` de cada toque:
+/// as setas são teclas estendidas, como nas Gravações.
+///
+/// - `Right+Left`: no controle padrão do Roblox, ← e → giram a câmera — um
+///   fio para a direita e o mesmo de volta; o personagem não anda.
+/// - `Up+Down`: ↑ e ↓ andam — um passo curto para frente e o mesmo para trás
+///   (pode sobrar um fio de diferença com a inércia do personagem).
+const AFK_KEY_PAIRS: &[(&str, [(u16, bool); 2])] = &[
+    ("Right+Left", [(0x27, true), (0x25, true)]),
+    ("Up+Down", [(0x26, true), (0x28, true)]),
+];
+
+/// Os nomes da lista fechada, na ordem em que a tela os oferece: as teclas
+/// simples e, no fim, os pares.
 fn afk_key_names() -> Vec<String> {
-    AFK_KEYS.iter().map(|(name, _)| (*name).to_string()).collect()
+    AFK_KEYS
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(AFK_KEY_PAIRS.iter().map(|(name, _)| *name))
+        .map(str::to_string)
+        .collect()
 }
 
-/// Virtual key de uma tecla da lista. `None` para qualquer outro nome — é este
-/// `None` que impede tecla de fora de chegar ao `SendInput`.
+/// Os toques que uma tecla da lista manda, em ordem — `(virtual key,
+/// estendida)`: um só para tecla simples, dois para um par. `None` para
+/// qualquer nome fora da lista: é este `None` que impede tecla de fora de
+/// chegar ao `SendInput`.
+fn afk_key_taps(key: &str) -> Option<Vec<(u16, bool)>> {
+    if let Some(vk) = afk_virtual_key(key) {
+        return Some(vec![(vk, false)]);
+    }
+    AFK_KEY_PAIRS
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(key))
+        .map(|(_, taps)| taps.to_vec())
+}
+
+/// Virtual key de uma tecla **simples** da lista. `None` para qualquer outro
+/// nome (os pares passam por `afk_key_taps`).
 fn afk_virtual_key(key: &str) -> Option<u16> {
     AFK_KEYS
         .iter()
@@ -347,7 +381,7 @@ enum AfkCycleAction {
 /// usuário pedir. O modo clique não usa tecla.
 fn validate_afk_start(mode: AfkMode, key: &str, user_ids: &[i64]) -> Result<(), String> {
     // O modo gravação também não usa tecla: quem toca é a gravação de cada conta.
-    if mode == AfkMode::Key && afk_virtual_key(key).is_none() {
+    if mode == AfkMode::Key && afk_key_taps(key).is_none() {
         return Err("Choose one of the AFK mode keys before starting".into());
     }
     if user_ids.is_empty() {
@@ -1026,7 +1060,7 @@ fn run_afk_cycle_blocking(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     if let AfkCycleAction::Key(key) = action {
-        if afk_virtual_key(key).is_none() {
+        if afk_key_taps(key).is_none() {
             return Err(format!("Key not allowed in AFK mode: {}", key));
         }
     }
@@ -1567,19 +1601,67 @@ mod afk_command_tests {
     fn every_allowed_key_maps_to_a_virtual_key() {
         for name in afk_key_names() {
             assert!(
-                afk_virtual_key(&name).is_some(),
+                afk_key_taps(&name).is_some_and(|taps| !taps.is_empty()),
                 "a tecla oferecida na tela tem de ter virtual key: {name}"
             );
         }
-        assert_eq!(afk_key_names().len(), AFK_KEYS.len());
+        assert_eq!(afk_key_names().len(), AFK_KEYS.len() + AFK_KEY_PAIRS.len());
     }
 
     #[test]
     fn the_allowed_list_is_exactly_the_one_the_feature_documents() {
         assert_eq!(
             afk_key_names(),
-            vec!["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5"]
+            vec![
+                "Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5",
+                "Right+Left", "Up+Down",
+            ]
         );
+    }
+
+    // ── pares de setas que se anulam (ideia 24) ─────────────────────────────
+
+    /// → e depois ←: a câmera gira um fio e volta. Setas são teclas estendidas.
+    #[test]
+    fn right_then_left_is_two_extended_taps_that_cancel_out() {
+        assert_eq!(afk_key_taps("Right+Left"), Some(vec![(0x27, true), (0x25, true)]));
+        assert_eq!(afk_key_taps("Up+Down"), Some(vec![(0x26, true), (0x28, true)]));
+        assert_eq!(afk_key_taps("right+left"), afk_key_taps("Right+Left"));
+    }
+
+    #[test]
+    fn every_pair_is_an_arrow_and_its_opposite() {
+        const LEFT: u16 = 0x25;
+        const UP: u16 = 0x26;
+        const RIGHT: u16 = 0x27;
+        const DOWN: u16 = 0x28;
+        let opposite = |vk: u16| match vk {
+            LEFT => Some(RIGHT),
+            RIGHT => Some(LEFT),
+            UP => Some(DOWN),
+            DOWN => Some(UP),
+            _ => None,
+        };
+        for (name, [(first, first_ext), (second, second_ext)]) in AFK_KEY_PAIRS {
+            assert_eq!(opposite(*first), Some(*second), "{name} não se anula");
+            assert!(*first_ext && *second_ext, "{name}: setas são estendidas");
+        }
+    }
+
+    #[test]
+    fn a_single_key_is_one_tap_and_a_lone_arrow_is_not_allowed() {
+        assert_eq!(afk_key_taps("Space"), Some(vec![(0x20, false)]));
+        // Seta sozinha mexeria a câmera (ou o personagem) sem voltar.
+        for outside in ["Right", "Left", "Up", "Down", "Left+Right", "Down+Up", "Right+", "+Left"] {
+            assert_eq!(afk_key_taps(outside), None, "{outside:?}");
+        }
+    }
+
+    #[test]
+    fn an_arrow_pair_starts_the_key_mode() {
+        assert!(validate_afk_start(AfkMode::Key, "Right+Left", &[1]).is_ok());
+        assert!(validate_afk_start(AfkMode::Key, "Up+Down", &[1]).is_ok());
+        assert!(validate_afk_start(AfkMode::Key, "Right", &[1]).is_err());
     }
 
     #[test]
@@ -2585,7 +2667,7 @@ mod afk_input_safety_tests {
     //    nome é o do **módulo**, não o do fragmento: um `windowing.rs` que
     //    lesse entrada faria do `windows` inteiro um leitor, e é `windows::` que
     //    o `commands/afk.rs` escreve;
-    // 7. confere que só o módulo de entrada chama `SendInput`/`send_key`/
+    // 7. confere que só o módulo de entrada chama `SendInput`/`send_key[_flags]`/
     //    `send_mouse`, para o caminho único até o `SendInput` continuar
     //    único amanhã.
     use std::collections::{HashMap, HashSet};
@@ -3019,6 +3101,7 @@ mod afk_input_safety_tests {
             .filter(|(_, body)| {
                 body.contains("SendInput(")
                     || body.contains("send_key(")
+                    || body.contains("send_key_flags(")
                     || body.contains("send_mouse(")
             })
             .map(|(path, _)| path)

@@ -2692,5 +2692,7 @@
   "The client stays open. Check which account is logged in to it.": "The client stays open. Check which account is logged in to it.",
   "server up for {{count}} d": "server up for {{count}} d",
   "server up for {{count}} h": "server up for {{count}} h",
-  "server up for {{count}} min": "server up for {{count}} min"
+  "server up for {{count}} min": "server up for {{count}} min",
+  "→ then ← (turns the camera and back)": "→ then ← (turns the camera and back)",
+  "↑ then ↓ (a step forward and back)": "↑ then ↓ (a step forward and back)"
 }

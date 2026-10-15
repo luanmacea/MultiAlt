@@ -8,8 +8,8 @@
 // devolver o foco depois (o ciclo mora em `commands/afk.rs`).
 //
 // Este módulo só **envia**, e por portas estreitas:
-// - `tap_afk_key` recebe **nome** de tecla e o resolve pela lista fechada
-//   (`send_key` é privado): não existe chamador com virtual key cru;
+// - `tap_afk_key` recebe **nome** de tecla (ou par de setas) e o resolve pela
+//   lista fechada (`send_key_flags` é privado): não existe chamador com virtual key cru;
 // - `click_afk_point` recebe janela + **porcentagem** e clica com o botão
 //   esquerdo dentro da área interna dela (`send_mouse` é privado): não existe
 //   chamador com coordenada de tela crua. O cursor volta para onde estava;
@@ -41,17 +41,24 @@ const KEY_UP_ATTEMPTS: u32 = 3;
 /// Respiro entre duas tentativas de soltar a tecla.
 const KEY_UP_RETRY_MS: u64 = 15;
 
-/// `(virtual key, scan code)` de uma tecla da lista fechada do AFK mode, ou
-/// `None` para qualquer outro nome.
+/// `(virtual key, scan code, estendida)` de cada toque de uma tecla da lista
+/// fechada do AFK mode — um para tecla simples, dois para um par de setas
+/// (`AFK_KEY_PAIRS`) —, ou `None` para qualquer outro nome.
 ///
 /// A lista fica no raiz do crate (`commands/afk.rs`) porque a tela também a
 /// consulta; aqui só se acrescenta o scan code, que depende do layout de teclado
 /// ativo. `MapVirtualKeyW` **traduz** um código de tecla pelo layout: não lê
 /// tecla pressionada nem estado de teclado.
-fn vk_and_scan(key: &str) -> Option<(u16, u16)> {
-    let vk = crate::afk_virtual_key(key)?;
-    let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
-    Some((vk, scan))
+fn afk_taps_with_scan(key: &str) -> Option<Vec<(u16, u16, bool)>> {
+    let taps = crate::afk_key_taps(key)?;
+    Some(
+        taps.into_iter()
+            .map(|(vk, extended)| {
+                let scan = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC) } as u16;
+                (vk, scan, extended)
+            })
+            .collect(),
+    )
 }
 
 /// A janela ainda existe? O cliente pode ter fechado entre um ciclo e o
@@ -64,15 +71,11 @@ pub fn window_exists(hwnd: HWND) -> bool {
 }
 
 /// Um evento de tecla para a janela em primeiro plano: `up = false` pressiona,
-/// `up = true` solta. Devolve `false` quando o Windows recusou o envio.
+/// `up = true` solta; `extended` marca tecla estendida (as setas). Devolve
+/// `false` quando o Windows recusou o envio.
 ///
 /// Privado: quem chama passa **nome** de tecla por `tap_afk_key` ou
 /// `press_recording_key`, nunca um virtual key cru.
-fn send_key(vk: u16, scan: u16, up: bool) -> bool {
-    send_key_flags(vk, scan, up, false)
-}
-
-/// `send_key` com a marca de tecla estendida (as setas da lista das gravações).
 fn send_key_flags(vk: u16, scan: u16, up: bool, extended: bool) -> bool {
     let mut flags = if up { KEYEVENTF_KEYUP } else { 0 };
     if extended {
@@ -93,34 +96,47 @@ fn send_key_flags(vk: u16, scan: u16, up: bool, extended: bool) -> bool {
     unsafe { SendInput(1, &input, std::mem::size_of::<INPUT>() as i32) == 1 }
 }
 
+/// Respiro entre os dois toques de um par de setas: o jogo lê a primeira
+/// tecla solta antes de a segunda descer.
+const AFK_PAIR_GAP_MS: u64 = 40;
+
 /// Um toque na tecla `key` (da lista fechada) na janela que está em primeiro
-/// plano: pressiona, espera `hold_ms` e solta.
+/// plano: pressiona, espera `hold_ms` e solta. Um par de setas (`Right+Left`,
+/// `Up+Down`) é a primeira tocada assim e, depois de um respiro, a segunda, do
+/// mesmo tamanho — para o personagem terminar onde começou.
 ///
 /// O "solta" é tentado até três vezes: se ele falhar, a tecla fica logicamente
-/// pressionada dentro do cliente e o personagem sai andando.
+/// pressionada dentro do cliente e o personagem sai andando. Se o Windows
+/// recusa um toque, o par para ali: a segunda tecla sozinha deixaria a câmera
+/// (ou o personagem) fora do lugar.
 pub fn tap_afk_key(key: &str, hold_ms: u64) -> Result<(), String> {
-    let (vk, scan) =
-        vk_and_scan(key).ok_or_else(|| format!("Key not allowed in AFK mode: {}", key))?;
+    let taps =
+        afk_taps_with_scan(key).ok_or_else(|| format!("Key not allowed in AFK mode: {}", key))?;
 
-    let down = send_key(vk, scan, false);
-    std::thread::sleep(std::time::Duration::from_millis(hold_ms));
-
-    let mut up = false;
-    for attempt in 0..KEY_UP_ATTEMPTS {
-        if send_key(vk, scan, true) {
-            up = true;
-            break;
+    for (index, (vk, scan, extended)) in taps.into_iter().enumerate() {
+        if index > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(AFK_PAIR_GAP_MS));
         }
-        if attempt + 1 < KEY_UP_ATTEMPTS {
-            std::thread::sleep(std::time::Duration::from_millis(KEY_UP_RETRY_MS));
-        }
-    }
+        let down = send_key_flags(vk, scan, false, extended);
+        std::thread::sleep(std::time::Duration::from_millis(hold_ms));
 
-    if !down {
-        return Err("Windows refused the synthetic key".into());
-    }
-    if !up {
-        return Err("Windows refused to release the key".into());
+        let mut up = false;
+        for attempt in 0..KEY_UP_ATTEMPTS {
+            if send_key_flags(vk, scan, true, extended) {
+                up = true;
+                break;
+            }
+            if attempt + 1 < KEY_UP_ATTEMPTS {
+                std::thread::sleep(std::time::Duration::from_millis(KEY_UP_RETRY_MS));
+            }
+        }
+
+        if !down {
+            return Err("Windows refused the synthetic key".into());
+        }
+        if !up {
+            return Err("Windows refused to release the key".into());
+        }
     }
     Ok(())
 }
@@ -346,26 +362,43 @@ fn click_point_with_plan(
 mod win_input_tests {
     use super::*;
 
-    // Nada aqui envia entrada: `send_key`/`tap_afk_key` e `send_mouse`/
+    // Nada aqui envia entrada: `send_key_flags`/`tap_afk_key` e `send_mouse`/
     // `click_afk_point` só são chamados com janela nula, que é recusada antes de
-    // qualquer envio. `vk_and_scan` só traduz um código de tecla pelo layout
+    // qualquer envio. `afk_taps_with_scan` só traduz um código de tecla pelo layout
     // ativo.
 
     #[test]
     fn a_listed_key_gets_a_virtual_key_and_a_scan_code() {
-        let (vk, scan) = vk_and_scan("Space").expect("Space está na lista");
+        let taps = afk_taps_with_scan("Space").expect("Space está na lista");
+        assert_eq!(taps.len(), 1);
+        let (vk, scan, extended) = taps[0];
         assert_eq!(vk, 0x20);
         assert_ne!(scan, 0, "o layout tem de dar um scan code para o espaço");
+        assert!(!extended);
 
-        let (vk_w, _) = vk_and_scan("w").expect("o nome não é sensível a caixa");
-        assert_eq!(vk_w, 0x57);
+        let taps_w = afk_taps_with_scan("w").expect("o nome não é sensível a caixa");
+        assert_eq!(taps_w[0].0, 0x57);
+    }
+
+    /// O par manda as duas setas, nessa ordem, como teclas estendidas (sem a
+    /// marca, o Windows as trata como as do teclado numérico).
+    #[test]
+    fn an_arrow_pair_is_two_extended_taps_in_order() {
+        let taps = afk_taps_with_scan("Right+Left").expect("o par está na lista");
+        let codes: Vec<(u16, bool)> = taps.iter().map(|(vk, _, ext)| (*vk, *ext)).collect();
+        assert_eq!(codes, vec![(0x27, true), (0x25, true)]);
+        assert!(taps.iter().all(|(_, scan, _)| *scan != 0));
+
+        let up_down = afk_taps_with_scan("up+down").expect("sem caixa");
+        let codes: Vec<u16> = up_down.iter().map(|(vk, _, _)| *vk).collect();
+        assert_eq!(codes, vec![0x26, 0x28]);
     }
 
     #[test]
     fn a_key_outside_the_list_has_no_codes() {
-        for outside in ["Enter", "F4", "Tab", "LWin", "", "Z"] {
+        for outside in ["Enter", "F4", "Tab", "LWin", "", "Z", "Right", "Left", "Left+Right"] {
             assert!(
-                vk_and_scan(outside).is_none(),
+                afk_taps_with_scan(outside).is_none(),
                 "tecla fora da lista foi traduzida: {outside:?}"
             );
         }
