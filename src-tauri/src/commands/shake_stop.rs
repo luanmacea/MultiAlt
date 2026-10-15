@@ -215,17 +215,21 @@ struct EmergencyStopPayload {
 }
 
 /// Liga as bandeiras dos botões Parar: a da sessão do Modo AFK (quando há) e a
-/// da reprodução avulsa. Não fecha nada, não espera nada.
+/// da reprodução avulsa. A reprodução avulsa passa pelo `request_playback_stop`,
+/// que também sobe a geração do "parar" — assim uma reprodução já na fila (um
+/// launch ou uma reconexão em lote arma várias) aborta ao pegar a vez, não só a
+/// que toca. Não fecha nada, não espera nada.
 fn apply_emergency_stop(
     afk_stop: Option<&std::sync::atomic::AtomicBool>,
     playback_stop: &std::sync::atomic::AtomicBool,
+    playback_stop_gen: &std::sync::atomic::AtomicU64,
     playbacks_running: usize,
 ) -> EmergencyStopPayload {
     use std::sync::atomic::Ordering;
     if let Some(flag) = afk_stop {
         flag.store(true, Ordering::SeqCst);
     }
-    playback_stop.store(true, Ordering::SeqCst);
+    request_playback_stop(playback_stop, playback_stop_gen);
     EmergencyStopPayload {
         reason: "shake".to_string(),
         afk: afk_stop.is_some(),
@@ -315,6 +319,7 @@ fn trigger_emergency_stop(app: &tauri::AppHandle) {
     let payload = apply_emergency_stop(
         afk_stop.as_deref(),
         &RECORDING_PLAYBACK_STOP,
+        &RECORDING_PLAYBACK_STOP_GEN,
         RECORDING_PLAYBACKS.load(Ordering::SeqCst),
     );
     emit_session_log(
