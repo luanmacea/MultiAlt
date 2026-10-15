@@ -183,6 +183,15 @@ pub(crate) fn webhook_after_health_tick(app: &tauri::AppHandle, notices: &[Healt
                 Some("the window has not responded for 30 s".to_string()),
                 webhook_place_of(*user_id),
             ),
+            // O cliente nunca é fechado (pode ser a conta principal); o aviso
+            // leva só que entrou em outra conta, sem o id dela.
+            HealthNotice::WrongAccount { user_id, .. } => notify_webhook(
+                app,
+                WebhookEventKind::WrongAccount,
+                *user_id,
+                Some("the client opened logged into a different Roblox account".to_string()),
+                webhook_place_of(*user_id),
+            ),
             _ => {}
         }
     }

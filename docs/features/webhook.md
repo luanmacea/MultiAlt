@@ -48,6 +48,7 @@ interruptor.
 | Auto-reconnect gave up | `NotifyReconnectFailed` | ligado | `ReconnectNotice::GaveUp` e `Stopped` por ban, sessão expirada ou sem destino. Fechado pela pessoa, conta em outro lugar ou aberta pelo site **não** é falha |
 | A client stopped responding | `NotifyNotResponding` | ligado | `HealthNotice::NotResponding { true }` (30 s travada) |
 | An account reconnected | `NotifyReconnected` | desligado | `ReconnectNotice::Reconnected` |
+| An account opened as a different Roblox account | `NotifyWrongAccount` | ligado | O cliente lançado para uma conta entrou logado em outra (`HealthNotice::WrongAccount`, ver client health). A fila foi parada e o cliente fica aberto. Vai sem o id da outra conta |
 | A launch failed | `NotifyLaunchFailed` | desligado | Falha no auth ticket / ao abrir o cliente (launch de uma conta e fila). Vai **só a etapa**, nunca o texto do erro (pode ter URL de launch, ticket ou código de VIP) |
 
 "Conta aberta como outra conta do Roblox" ficou de fora: o evento ainda não existe no backend.

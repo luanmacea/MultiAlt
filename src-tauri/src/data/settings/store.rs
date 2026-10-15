@@ -493,6 +493,7 @@ impl SettingsStore {
             ("NotifyReconnectFailed", "true"),
             ("NotifyNotResponding", "true"),
             ("NotifyLaunchFailed", "false"),
+            ("NotifyWrongAccount", "true"),
             ("HideNames", "true"),
         ];
         let webhook = ini.section("Webhook");
@@ -873,6 +874,7 @@ mod settings_store_tests {
                 ("NotifyReconnectFailed", "true"),
                 ("NotifyNotResponding", "true"),
                 ("NotifyLaunchFailed", "false"),
+                ("NotifyWrongAccount", "true"),
                 ("HideNames", "true"),
             ],
         );

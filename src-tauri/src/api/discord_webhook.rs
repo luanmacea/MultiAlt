@@ -157,6 +157,9 @@ pub enum WebhookEventKind {
     NotResponding,
     /// O launch de uma conta falhou.
     LaunchFailed,
+    /// O cliente lançado para uma conta entrou logado em outra conta do
+    /// Roblox (client_health, `roblox-client-wrong-account`).
+    WrongAccount,
 }
 
 impl WebhookEventKind {
@@ -167,6 +170,7 @@ impl WebhookEventKind {
             Self::ReconnectFailed => "Reconnect failed",
             Self::NotResponding => "Not responding",
             Self::LaunchFailed => "Launch failed",
+            Self::WrongAccount => "Opened as another account",
         }
     }
 
@@ -176,7 +180,7 @@ impl WebhookEventKind {
             Self::Reconnected => 0,
             Self::NotResponding => 1,
             Self::LaunchFailed => 2,
-            Self::Dropped | Self::ReconnectFailed => 3,
+            Self::Dropped | Self::ReconnectFailed | Self::WrongAccount => 3,
         }
     }
 }
@@ -202,6 +206,7 @@ pub struct WebhookConfig {
     pub reconnect_failed: bool,
     pub not_responding: bool,
     pub launch_failed: bool,
+    pub wrong_account: bool,
     pub mention: String,
     pub hide_names: bool,
 }
@@ -223,6 +228,7 @@ impl WebhookConfig {
             reconnect_failed: flag("NotifyReconnectFailed", true),
             not_responding: flag("NotifyNotResponding", true),
             launch_failed: flag("NotifyLaunchFailed", false),
+            wrong_account: flag("NotifyWrongAccount", true),
             mention: get("Mention")
                 .unwrap_or_default()
                 .trim()
@@ -244,6 +250,7 @@ impl WebhookConfig {
             WebhookEventKind::ReconnectFailed => self.reconnect_failed,
             WebhookEventKind::NotResponding => self.not_responding,
             WebhookEventKind::LaunchFailed => self.launch_failed,
+            WebhookEventKind::WrongAccount => self.wrong_account,
         }
     }
 }
@@ -575,6 +582,7 @@ mod discord_webhook_message_tests {
         assert!(on.wants(WebhookEventKind::ReconnectFailed));
         assert!(on.wants(WebhookEventKind::NotResponding));
         assert!(!on.wants(WebhookEventKind::LaunchFailed));
+        assert!(on.wants(WebhookEventKind::WrongAccount));
 
         let custom = settings(&[
             ("Enabled", "true"),
@@ -582,10 +590,12 @@ mod discord_webhook_message_tests {
             ("NotifyDropped", "false"),
             ("NotifyReconnected", "true"),
             ("NotifyLaunchFailed", "true"),
+            ("NotifyWrongAccount", "false"),
         ]);
         assert!(!custom.wants(WebhookEventKind::Dropped));
         assert!(custom.wants(WebhookEventKind::Reconnected));
         assert!(custom.wants(WebhookEventKind::LaunchFailed));
+        assert!(!custom.wants(WebhookEventKind::WrongAccount));
     }
 
     #[test]

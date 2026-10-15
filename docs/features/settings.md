@@ -248,6 +248,7 @@ Seção Settings › **Notifications**. Avisos no Discord, **desligados** por pa
 | `NotifyReconnectFailed` | `true` | A reconexão automática desistiu (ou parou por ban, sessão expirada, sem destino). |
 | `NotifyNotResponding` | `true` | A janela ficou "Não respondendo" por 30 s. |
 | `NotifyReconnected` | `false` | A reconexão automática devolveu a conta ao jogo. |
+| `NotifyWrongAccount` | `true` | O cliente de uma conta entrou logado em outra conta do Roblox (a fila para; o cliente fica aberto). |
 | `NotifyLaunchFailed` | `false` | O launch de uma conta falhou (auth ticket ou abrir o cliente). |
 | `HideNames` | `true` | "Hide account names in messages": nome mascarado como no "Names hidden" (usa `General.HiddenNameLetters`). Desligado, vai Alias ou Username. |
 
