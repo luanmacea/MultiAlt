@@ -2705,5 +2705,14 @@
   "Plays after a launch and after an automatic reconnect": "Plays after a launch and after an automatic reconnect",
   "Seconds in the game before playing after a launch": "Seconds in the game before playing after a launch",
   "Three separate choices: one plays after an automatic reconnect (to put the character in place), one after the app launches the account, and one on every AFK mode turn.": "Three separate choices: one plays after an automatic reconnect (to put the character in place), one after the app launches the account, and one on every AFK mode turn.",
-  "Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead.": "Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead."
+  "Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead.": "Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead.",
+  "Every account in a group": "Every account in a group",
+  "Group {{name}}": "Group {{name}}",
+  "Group {{name}} has no accounts": "Group {{name}} has no accounts",
+  "These accounts": "These accounts",
+  "Whoever is in the group at launch time goes, in the account list's order. Accounts that join or leave later are picked up next time.": "Whoever is in the group at launch time goes, in the account list's order. Accounts that join or leave later are picked up next time.",
+  "Group": "Group",
+  "Pick a group.": "Pick a group.",
+  "That group has no accounts.": "That group has no accounts.",
+  "The group name is too long.": "The group name is too long."
 }

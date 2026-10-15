@@ -16,7 +16,7 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
 | Comandos, o que cada execução abriu (`PRESET_RUNS`), fechar, agendador | [commands/launch_presets.rs](../../src-tauri/src/commands/launch_presets.rs) |
 | Caminho do arquivo e `DATA_FILES` | [data/settings/paths.rs](../../src-tauri/src/data/settings/paths.rs) |
 | Tela (lista + editor) | [components/presets/PresetsDialog.tsx](../../src/components/presets/PresetsDialog.tsx) |
-| Regras puras da tela (destino a partir dos favoritos, rascunho, "Hoje 08:00") | [utils/presets.ts](../../src/utils/presets.ts) |
+| Regras puras da tela (destino a partir dos favoritos, rascunho, "Hoje 08:00", contas do preset de grupo — `presetAccountIds`) | [utils/presets.ts](../../src/utils/presets.ts) |
 | Entradas | botão **Presets** da [Toolbar](../../src/components/layout/Toolbar.tsx) (lista de contas) e **Save as preset** no cabeçalho da [Choose Game](../../src/components/ChooseGameScreen.tsx) |
 | Estado / launch pela tela | [store.tsx](../../src/store.tsx): `presetsDialog`, `openPresetsDialog`, `launchPreset`, ouvinte `launch-preset` |
 
@@ -47,7 +47,8 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
      pergunta antes de descartar ("Discard the changes to this preset?").
 4. **Launch:** botão **Launch** da linha → aviso de conta online (`useJoinOnlineWarning`) →
    `store.launchPreset` → `launch_preset(id)` → `run_launch_preset`:
-   1. só as contas do preset que ainda existem no app;
+   1. as contas da execução (`resolve_preset_accounts`): as do preset que ainda existem no app,
+      ou — preset de grupo — quem está no grupo **agora** (ver abaixo);
    2. retrato do tracker (conta → PID) **antes**;
    3. `launch_multiple(...)` — a **mesma** fila de sempre, chamada pela porta pública dela, sem
       mudança: reserva de sequência ("um launch por vez"), piso anti-captcha, guarda de versão,
@@ -66,6 +67,28 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
 6. **Resultado:** linha no Console (`step: "preset"`, sem conta) e evento `launch-preset`
    (`presetId`, `name`, `action`, `scheduled`, `ok`, `count`, `error`). O que veio do horário
    vira toast (ninguém clicou).
+
+## Preset de grupo (ideia 42)
+
+No editor, a seção Accounts tem duas opções: **These accounts** (a lista fixa de sempre) e
+**Every account in a group** (um seletor com os grupos da lista de contas e quantas contas
+cada um tem agora).
+
+- O preset de grupo guarda `group` (texto **literal** do `Account.group`, com o prefixo de
+  ordem — `10 Alts` — como a lista agrupa) e `userIds` vazio: o backend descarta a lista fixa
+  ao salvar (`normalize_preset`). A tela também, mas a lista continua no rascunho enquanto o
+  editor está aberto, para voltar a "These accounts" sem perder a escolha.
+- **A cada launch** (botão, horário ou bandeja) as contas saem do grupo naquele instante, na
+  ordem da lista de contas (`resolve_preset_accounts`, até 200). Quem entrou no grupo depois
+  vai; quem saiu, não. Conta sem grupo é do "Default", como na lista.
+- **Grupo renomeado ou esvaziado:** o launch falha com `Group "X" has no accounts.` (Console,
+  toast do horário/bandeja). A linha do preset já avisa antes ("Group X has no accounts") e o
+  Launch fica desabilitado; o editor mantém o grupo antigo no seletor com "(0)" e não salva
+  ("That group has no accounts.").
+- **Fechar não muda:** `PRESET_RUNS` anota as contas resolvidas naquela execução e o PID que
+  cada uma ganhou. Conta que sai do grupo depois continua com o cliente que o preset abriu
+  (é dele); conta que entra no grupo depois não é tocada até o próximo launch do preset.
+- Presets antigos (sem `group`) carregam iguais; os de contas fixas gravam **sem** a chave.
 
 ## Agendamento
 
@@ -116,7 +139,10 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
   "vipName": null, "arrangeGrid": true,
   "schedule": { "openEnabled": true, "openAt": "08:00", "days": [0,1,2,3,4],
                 "closeEnabled": true, "closeAt": "18:00" },
-  "createdAt": 1760000000000 } ] }
+  "createdAt": 1760000000000 },
+  { "id": "preset-1760000000001", "name": "Alts", "userIds": [], "group": "10 Alts",
+    "placeId": 6516141723, "jobId": "", "arrangeGrid": false, "schedule": null,
+    "createdAt": 1760000000001 } ] }
 ```
 
 - Gravação atômica (`.tmp` + troca) e a versão anterior em `RAMLaunchPresets.json.bak`.

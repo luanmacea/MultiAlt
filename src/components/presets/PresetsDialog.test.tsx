@@ -21,6 +21,12 @@ const ACCOUNTS = [
   makeAccount({ UserID: 3, Username: "charlie_alt" }),
 ];
 
+const GROUPED = [
+  makeAccount({ UserID: 1, Username: "alpha_main", Group: "Main" }),
+  makeAccount({ UserID: 2, Username: "bravo_alt", Group: "Alts" }),
+  makeAccount({ UserID: 3, Username: "charlie_alt", Group: "Alts" }),
+];
+
 function view(overrides: Partial<LaunchPresetView> = {}): LaunchPresetView {
   return {
     id: "preset-1",
@@ -119,6 +125,22 @@ describe("PresetsDialog — lista", () => {
     const row = await screen.findByTestId("preset-row");
     expect(within(row).getByText(/1 account · Adopt Me!/)).toBeInTheDocument();
     expect(within(row).getByText(/no longer in the app/)).toBeInTheDocument();
+  });
+
+  it("a group preset counts whoever is in the group now and flags an emptied group", async () => {
+    setInvokeMap({
+      get_launch_presets: [view({ id: "g1", userIds: [], group: "Alts" }), view({ id: "g2", name: "Gone", userIds: [], group: "Old" })],
+    });
+    const { store } = renderWithStore(<PresetsDialog />, { accounts: GROUPED, presetsDialog: { draft: null } });
+    const [alts, gone] = await screen.findAllByTestId("preset-row");
+    expect(within(alts).getByText(/Group Alts · 2 accounts · Adopt Me!/)).toBeInTheDocument();
+    expect(within(alts).queryByText(/no longer in the app/)).not.toBeInTheDocument();
+
+    expect(within(gone).getByText("Group Old has no accounts")).toBeInTheDocument();
+    expect(within(gone).getByRole("button", { name: /Launch/ })).toBeDisabled();
+
+    await userEvent.click(within(alts).getByRole("button", { name: /Launch/ }));
+    await waitFor(() => expect(store.launchPreset).toHaveBeenCalledWith(expect.objectContaining({ id: "g1" })));
   });
 
   it("shows the next scheduled run", async () => {
@@ -280,6 +302,49 @@ describe("PresetsDialog — editor", () => {
     expect(screen.queryByText(/\/60$/)).not.toBeInTheDocument();
     await userEvent.type(name, "x".repeat(50));
     expect(screen.getByText("55/60")).toBeInTheDocument();
+  });
+
+  it("a preset can follow a group instead of a fixed list, and saves no fixed accounts", async () => {
+    setInvokeMap({ get_launch_presets: [], save_launch_preset: (args: unknown) => (args as { preset: unknown }).preset });
+    renderWithStore(<PresetsDialog />, {
+      accounts: GROUPED,
+      presetsDialog: { draft: newPresetDraft([1], 42) },
+    });
+    await userEvent.type(await screen.findByLabelText("Name"), "Alts farm");
+    await userEvent.click(screen.getByRole("radio", { name: "Every account in a group" }));
+    // O primeiro grupo em ordem alfabética ("Alts") vem escolhido, com 2 contas.
+    expect(screen.getByText("Accounts (2)")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "alpha_main" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(callsFor("save_launch_preset")).toHaveLength(1));
+    const preset = (callsFor("save_launch_preset")[0][1] as { preset: Record<string, unknown> }).preset;
+    expect(preset).toMatchObject({ name: "Alts farm", group: "Alts", userIds: [], placeId: 42 });
+  });
+
+  it("switching back to fixed accounts keeps the list and saves no group", async () => {
+    setInvokeMap({ get_launch_presets: [], save_launch_preset: (args: unknown) => (args as { preset: unknown }).preset });
+    renderWithStore(<PresetsDialog />, {
+      accounts: GROUPED,
+      presetsDialog: { draft: { ...newPresetDraft([1], 42), name: "X", group: "Alts" } },
+    });
+    await userEvent.click(await screen.findByRole("radio", { name: "These accounts" }));
+    expect(screen.getByRole("checkbox", { name: "alpha_main" })).toBeChecked();
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(callsFor("save_launch_preset")).toHaveLength(1));
+    const preset = (callsFor("save_launch_preset")[0][1] as { preset: Record<string, unknown> }).preset;
+    expect(preset).toMatchObject({ userIds: [1], group: null });
+  });
+
+  it("a group preset whose group is gone cannot be saved and says so", async () => {
+    setInvokeMap({ get_launch_presets: [], save_launch_preset: true });
+    renderWithStore(<PresetsDialog />, {
+      accounts: GROUPED,
+      presetsDialog: { draft: { ...view({ userIds: [], group: "Renamed" }) } },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("That group has no accounts.");
+    expect(callsFor("save_launch_preset")).toHaveLength(0);
   });
 
   it("with names hidden the account list does not show the real names", async () => {

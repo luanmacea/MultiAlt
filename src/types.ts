@@ -954,7 +954,13 @@ export interface LaunchPreset {
   /** Vazio num preset novo: o backend gera. */
   id: string;
   name: string;
+  /** Contas fixas. Vazio num preset de grupo. */
   userIds: number[];
+  /**
+   * Grupo de contas (ideia 42): com ele, as contas saem do grupo a cada launch
+   * (quem está nele agora, na ordem da lista). Ausente/nulo = contas fixas.
+   */
+  group?: string | null;
   placeId: number;
   /** Vazio = servidor público; Job ID; ou `vip:<código>` de um VIP dos favoritos. */
   jobId: string;

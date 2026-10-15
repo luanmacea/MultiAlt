@@ -2705,5 +2705,14 @@
   "Plays after a launch and after an automatic reconnect": "Toca depois de iniciar e depois de uma reconexão automática",
   "Seconds in the game before playing after a launch": "Segundos no jogo antes de tocar depois de iniciar",
   "Three separate choices: one plays after an automatic reconnect (to put the character in place), one after the app launches the account, and one on every AFK mode turn.": "Três escolhas separadas: uma toca depois de uma reconexão automática (para posicionar o personagem), uma depois de o app abrir a conta e uma a cada vez do Modo AFK.",
-  "Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead.": "Vale toda vez que o app abre contas — uma conta, um lote, um preset ou o Auto Rejoin. Quando a reconexão automática abre o cliente de novo, quem toca é a gravação de Depois da reconexão automática."
+  "Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead.": "Vale toda vez que o app abre contas — uma conta, um lote, um preset ou o Auto Rejoin. Quando a reconexão automática abre o cliente de novo, quem toca é a gravação de Depois da reconexão automática.",
+  "Every account in a group": "Todas as contas de um grupo",
+  "Group {{name}}": "Grupo {{name}}",
+  "Group {{name}} has no accounts": "O grupo {{name}} não tem contas",
+  "These accounts": "Estas contas",
+  "Whoever is in the group at launch time goes, in the account list's order. Accounts that join or leave later are picked up next time.": "Vai quem estiver no grupo na hora de iniciar, na ordem da lista de contas. Conta que entrar ou sair depois vale a partir da próxima vez.",
+  "Group": "Grupo",
+  "Pick a group.": "Escolha um grupo.",
+  "That group has no accounts.": "Esse grupo não tem contas.",
+  "The group name is too long.": "O nome do grupo é longo demais."
 }

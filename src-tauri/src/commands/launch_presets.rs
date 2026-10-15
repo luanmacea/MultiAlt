@@ -14,7 +14,7 @@
 //   estava fechado (ou o PC dormindo) na hora, aquela vez não acontece.
 
 use data::launch_presets::{
-    due_actions, next_close_after, next_open_after, LaunchPreset, PresetAction,
+    due_actions, next_close_after, next_open_after, resolve_preset_accounts, LaunchPreset, PresetAction,
 };
 
 /// De quanto em quanto tempo o agendador olha o relógio.
@@ -238,16 +238,15 @@ fn arrange_after_preset(app: &tauri::AppHandle) {
 
 /// Abre o preset pela fila normal e anota quais clientes ele abriu.
 async fn run_launch_preset(app: &tauri::AppHandle, preset: &LaunchPreset) -> Result<usize, String> {
-    let known: HashSet<i64> = app
-        .state::<AccountStore>()
-        .get_all()?
-        .into_iter()
-        .map(|a| a.user_id)
+    // Contas fixas que ainda existem, ou quem está no grupo agora (ideia 42).
+    // Só essas entram na execução — e "fechar" só mexe no que ela abriu.
+    let accounts = app.state::<AccountStore>().get_all()?;
+    // Grupo vazio = "Default", como a lista agrupa (`a.Group || "Default"`).
+    let roster: Vec<(i64, &str)> = accounts
+        .iter()
+        .map(|a| (a.user_id, if a.group.is_empty() { "Default" } else { a.group.as_str() }))
         .collect();
-    let user_ids: Vec<i64> = preset.user_ids.iter().copied().filter(|id| known.contains(id)).collect();
-    if user_ids.is_empty() {
-        return Err("None of this preset's accounts are in the app anymore.".into());
-    }
+    let user_ids = resolve_preset_accounts(preset, &roster)?;
 
     let before = preset_tracked_clients();
     #[cfg(target_os = "windows")]
@@ -464,6 +463,21 @@ mod launch_preset_run_tests {
     fn a_website_client_is_never_the_runs() {
         let after = vec![(1, 100, true)];
         assert!(clients_opened_by_run(&[], &after, &[1]).is_empty());
+    }
+
+    #[test]
+    fn a_group_run_owns_only_the_clients_of_the_members_it_resolved() {
+        // Preset do grupo "Alts": no launch, o grupo tinha 1 e 3. A conta 2
+        // (outro grupo) abriu ao mesmo tempo por outro caminho — não é dele.
+        let preset = LaunchPreset { group: Some("Alts".into()), place_id: 1, ..Default::default() };
+        let roster = [(1, "Alts"), (2, "Main"), (3, "Alts")];
+        let resolved = resolve_preset_accounts(&preset, &roster).unwrap();
+        let after = vec![(1, 101, false), (2, 201, false), (3, 301, false)];
+        let run = clients_opened_by_run(&[], &after, &resolved);
+        assert_eq!(run, vec![client(1, 101), client(3, 301)]);
+        // Depois a conta 3 sai do grupo: o cliente que a execução abriu
+        // continua sendo dela; nenhum outro entra.
+        assert_eq!(preset_clients_still_open(&run, &after), vec![client(1, 101), client(3, 301)]);
     }
 
     #[test]
