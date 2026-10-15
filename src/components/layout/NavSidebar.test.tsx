@@ -309,12 +309,12 @@ describe("NavSidebar — GitHub star", () => {
     expect(invokeMock).toHaveBeenCalledWith("open_repo_url");
   });
 
-  it("does not ask on the first days of use", () => {
+  it("asks right away, on the first time the app is opened", async () => {
     renderNav();
-    expect(screen.queryByTestId("star-prompt")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("star-prompt")).toHaveTextContent("Enjoying MultiAlt?");
   });
 
-  it("asks after three days of use, and starring ends it for good", async () => {
+  it("starring ends it for good", async () => {
     localStorage.setItem("ram_star_prompt", READY);
     renderNav();
     const card = await screen.findByTestId("star-prompt");

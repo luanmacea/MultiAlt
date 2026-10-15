@@ -3,8 +3,9 @@
  * source e grátis, e a estrela ajuda a continuar tendo update.
  *
  * Regra para não virar chateação:
- * - só aparece depois de o app ter sido usado em `STAR_PROMPT_MIN_DAYS` dias
- *   diferentes (quem abriu uma vez para testar não vê nada);
+ * - aparece já na primeira abertura (pedido do dono, 15/10/2026: "faz aparecer
+ *   de cara"; antes esperava 3 dias de uso). O mínimo de dias continua
+ *   configurável em `STAR_PROMPT_MIN_DAYS`;
  * - "Agora não" adia `STAR_PROMPT_SNOOZE_DAYS` dias;
  * - "Dar estrela" ou o × encerram para sempre.
  *
@@ -13,7 +14,7 @@
  * `localStorage` (bloqueado, modo privado) o cartão simplesmente não aparece.
  */
 export const STAR_PROMPT_KEY = "ram_star_prompt";
-export const STAR_PROMPT_MIN_DAYS = 3;
+export const STAR_PROMPT_MIN_DAYS = 1;
 export const STAR_PROMPT_SNOOZE_DAYS = 14;
 
 const DAY_MS = 24 * 60 * 60 * 1000;

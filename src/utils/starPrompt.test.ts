@@ -14,15 +14,14 @@ const NOW = new Date(2026, 9, 15, 12).getTime();
 const DAY = 24 * 60 * 60 * 1000;
 
 describe("star prompt", () => {
-  it("stays hidden until the app was used on three different days", () => {
-    let state = parseStarPrompt(null);
-    state = recordUseDay(state, "2026-10-13");
-    state = recordUseDay(state, "2026-10-13");
-    state = recordUseDay(state, "2026-10-14");
-    expect(shouldShowStarPrompt(state, NOW)).toBe(false);
-    state = recordUseDay(state, "2026-10-15");
+  /** Pedido do dono (15/10/2026): aparece de cara, já na primeira abertura. */
+  it("shows on the very first day the app is opened", () => {
+    const fresh = parseStarPrompt(null);
+    expect(shouldShowStarPrompt(fresh, NOW)).toBe(false);
+    const state = recordUseDay(fresh, "2026-10-15");
     expect(state.days).toHaveLength(STAR_PROMPT_MIN_DAYS);
     expect(shouldShowStarPrompt(state, NOW)).toBe(true);
+    expect(recordUseDay(state, "2026-10-16")).toBe(state);
   });
 
   it("'Not now' hides it for two weeks, then it comes back", () => {
