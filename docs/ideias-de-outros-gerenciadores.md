@@ -109,8 +109,8 @@ o que mais pesa:
 | 40 | [Download da build com reserva e novas tentativas](#40-download-da-build-motivo-novo-para-a-ideia-29) | média |
 | 38 | [Exportar contas com senha própria](#38-exportar-as-contas-com-uma-senha-própria) | média |
 
-E um bug confirmado no nosso código: a janela de campos da conta perde o que foi
-digitado ao fechar sem Enter ([detalhes](#bugs-do-multialt-achados-nesta-passada)).
+Os dois bugs do MultiAlt achados nesta passada (campos da conta e região do
+servidor) já foram corrigidos na `develop` em 14/10/2026 ([detalhes](#bugs-do-multialt-achados-nesta-passada)).
 
 ---
 
@@ -512,7 +512,7 @@ no nosso código.
 - Discord Rich Presence — os bootstrappers têm, mas com várias contas mostraria uma só; daria pelo pipe `discord-ipc-N`, sem dependência nativa.
 
 ### Bugs do MultiAlt achados nesta passada
-- **Campos da conta perdem o que foi digitado** — conferido. `AccountFieldsDialog.tsx` só salva com Enter na caixa do valor ou ao remover um campo; trocar só a chave, criar campo com "+" ou fechar pelo X, pelo Esc ou pelo fundo descarta tudo sem aviso. O fork [`iamstrix`](https://github.com/iamstrix/iamstrix-Roblox-Account-Manager) corrigiu o mesmo defeito no RAM original (`Classes/Field.cs`, `Forms/AccountFields.cs`: salva ao sair da caixa e ao fechar).
+- **Campos da conta perdem o que foi digitado** — conferido e **corrigido** na `develop` em 14/10/2026 (salva ao sair da caixa e ao fechar, só se mudou; teste em `AccountFieldsDialog.test.tsx`). Era assim: `AccountFieldsDialog.tsx` só salva com Enter na caixa do valor ou ao remover um campo; trocar só a chave, criar campo com "+" ou fechar pelo X, pelo Esc ou pelo fundo descarta tudo sem aviso. O fork [`iamstrix`](https://github.com/iamstrix/iamstrix-Roblox-Account-Manager) corrigiu o mesmo defeito no RAM original (`Classes/Field.cs`, `Forms/AccountFields.cs`: salva ao sair da caixa e ao fechar).
 - **Região do servidor pelo IP interno** — confirmado pelos logs reais e corrigido em 14/10/2026: ver ideia 36.
 
 ## Para decisão do dono
