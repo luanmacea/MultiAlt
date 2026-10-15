@@ -23,7 +23,7 @@ open source que **valem a pena** trazer para o MultiAlt. Gerado pela skill
 5. Qualquer coisa que entre no binário (API nativa nova, COM, dependência) exige
    build + `bun run scan --release` (ver `CLAUDE.md`).
 
-## Situação de cada ideia (atualizado em 14/10/2026)
+## Situação de cada ideia (atualizado em 15/10/2026)
 
 **Leia isto antes de propor uma ideia nova:** o que já saiu, o que foi
 descartado (e por quê) e o que ainda está aberto. Uma passada nova do
@@ -58,6 +58,19 @@ trabalho e pacotes: [plano-ideias.md](plano-ideias.md).
 | 26 | Cookie copiado fora do histórico do Win+V | 1.2.0 | |
 | 27 | Trancar o app por inatividade | 2.0.0 | Desligada por padrão |
 | 28 | "Reportar problema" com log anonimizado | 2.0.0 | Resumo anônimo no "Send feedback" |
+| 5 | Aviso no Discord por webhook | `develop` (15/10) | Desligado por padrão; o usuário escolhe cada evento (caiu, reconexão desistiu, não responde, reconectou, launch falhou, abriu em outra conta). Ver [webhook.md](features/webhook.md) |
+| 24 | AFK com teclas em par que se anulam | `develop` (15/10) | → ← e ↑ ↓ |
+| 29 / 40 | Download da build sem cair no instalador | `develop` (15/10) | **Era bug:** uma consulta de versão lenta logo depois de abrir o app levava o launch ao handler `roblox-player:` mesmo com a build no disco. Hoje: host de reserva, novas tentativas, última build gravada em disco, 4 tentativas por pacote |
+| 33 | Não lançar com outro cliente segurando o `ROBLOX_singletonEvent` | `develop` (15/10) | **Era bug:** o launch seguia e o cliente antigo fechava. Hoje confere de novo depois de fechar e pula o launch com o motivo |
+| 35 | Conferir que o cliente entrou na conta certa | `develop` (15/10) | Pelo `userid` do log; avisa e para a fila, nunca fecha o cliente. `challengedByGcs` ficou de fora (nunca visto num log real) |
+| 36 | Região e tempo no ar do servidor na Session | `develop` (15/10) | Pelas linhas `UDMUX Address` e `Server Prefix` do log, sem chamada ao Roblox |
+| 38 | Exportar as contas com senha própria | `develop` (15/10) | Settings › Backups; abre em qualquer PC pelo import que já existia |
+| 42 | Preset que aponta para um grupo | `develop` (15/10) | O grupo é resolvido a cada launch. Server hop ficou de fora; reinício a cada N horas já existia no Auto Rejoin |
+| 44 | AFK devolve cada janela como estava | `develop` (15/10) | Re-minimiza sem ativar outra janela e devolve a ordem das janelas. O foco do usuário já voltava antes; isto tira as piscadas no meio do ciclo |
+| 46 | Esconder os nomes no título da janela do Roblox | 1.3.0 | Já tinha saído junto com a ideia 19 (`hiding_names_swaps_the_title_for_the_masked_one`); estava aberta por engano |
+| 48 | Esperar o jogador ficar disponível e entrar | `develop` (15/10) | Aba Follow: confere a cada 30 s, recua em erro/429, desiste em 2 h |
+| 50 | Servidores privados da conta na aba Servers | `develop` (15/10) | `games/v1/games/{place}/private-servers`, entra pelo caminho de VIP que já existia |
+| 52 | Pequenas: preset pela bandeja, gravação depois de qualquer launch, desfazer remoção de contas, renomear grupo | `develop` (15/10) | |
 
 Além do catálogo, a 2.0.0 trouxe o que não veio de concorrente: página
 Session agrupada por jogo/servidor, estado ao vivo na lista de contas,
@@ -77,21 +90,33 @@ grande.
 | Executor / injetor de scripts no Roblox (pedido no Discord, 12/10/2026) | Viola as regras do Roblox, contorna o anti-cheat e acaba com o "0 alertas" de antivírus. Quem usa executor próprio já tem o **Nexus** (edição completa) |
 | Seguir em massa para inflar seguidores (issue #27, 13/10/2026) | Inflar seguidores é contra as regras do Roblox, o "seguir" automatizado esbarra em captcha (que o app não contorna) e expõe o projeto. Um "Seguir" de **uma conta por vez**, como no site, foi oferecido como alternativa |
 | Portátil (`.exe` solto) e setup NSIS | Saem de 1/75 no VirusTotal; a release publica só o MSI (`PUBLISH_PORTABLE: "false"`) |
+| 31 — "o Roblox fechou porque outra janela abriu" | **Interpretação errada** (avaliação de 15/10/2026 nos logs reais 0.743 do dono): `EventWaitResultUpdate` aparece em **todo** fechamento normal e `mutex result is 0X000001` não apareceu em nenhum dos 15 logs. Marcaria toda saída como erro; e a saída de propósito já não dispara a reconexão (`Tearing down`/`leaveUGCGameInternal`) |
+| 39 — versão velha não grava por cima | Risco pequeno no nosso formato (contas com campos livres, settings em INI). Só reavaliar se um JSON tipado ganhar campo importante |
+| 45 — miniaturas ao vivo e posição em fração do monitor | Miniatura DWM não desenha dentro do WebView e congela com o cliente minimizado; a fração resolve mais que o problema. O que sobra de útil: descartar posição salva que caiu fora da tela |
+| 49 — identidade do aparelho por conta | **Leitura errada do concorrente** (a conta nova não recebe cópia limpa) e só funciona com nenhum cliente aberto; briga com a trava do `RobloxCookies.dat` (correção do 773) |
+| `LOCALAPPDATA` por conta | Sem prova de que o cliente respeite; quebraria detecção de queda, Session e isolamento |
+| Seguir temporário para entrar em servidor escondido | Uma janela de CAPTCHA por conta e o outro jogador vê o follow. O "entrar seguindo" das abas Friends/Follow é outra coisa |
+| Da 52: Ctrl+K, ícone com o avatar, código curto de 8 letras, voltar ao servidor privado, Discord Rich Presence | Pouco valor para quem deixa alts em AFK; o ícone do Froststrap nem é o avatar; o código curto não é do Roblox (só acha em jogo pequeno); o "voltar ao privado" do original fecha todos os clientes |
 
 ### Ainda abertas
 
+Avaliadas em 15/10/2026 (código dos concorrentes lido, nosso código e os logs
+reais do dono conferidos). Nenhuma é bug; todas dependem de um teste ou de uma
+decisão do dono.
+
 | # | Ideia | Situação |
 |---|---|---|
-| 5 | Aviso no Discord por webhook (conta caiu) | Manda dados para fora do PC: só se o dono quiser, desligado por padrão |
-| 11 | Launch com o tracker do aparelho | Só **medir** se o cliente trava como um autor relatou; nada mudou |
-| 24 | AFK com teclas em par que se anulam | Bom, sem urgência |
-| 29 | Catálogo e download de versões mais robusto | **Subiu para média em 14/10:** uma falha de rede no download leva o launch ao handler `roblox-player:` — ver [ideia 40](#40-download-da-build-motivo-novo-para-a-ideia-29) |
-| 30 | Multi-instância de verdade no Mac | Depende de alguém testar num Mac |
-| — | Região dos servidores em lote pelo RoValra | Host de terceiro: só desligado por padrão, se o dono quiser |
-| — | Seguir quem escondeu o servidor (follow temporário) | Mexe no perfil social da conta; decisão do dono. (O "entrar seguindo o jogador" das abas Friends/Follow, de 13/10/2026, é outra coisa: é o jeito do RAM antigo de entrar no servidor de um amigo) |
-| — | `LOCALAPPDATA` próprio por conta | Investigar antes: muda onde o cliente procura as builds |
-| 31–52 | Ideias da segunda passada | Todas abertas — ver [seção I](#i-segunda-passada-14102026) e o resumo abaixo |
-| — | Página Groups (entrar num grupo em lote) | Código pronto, escondida (`ENABLE_GROUPS`) desde 08/10/2026: o navegador automatizado não mostra o botão de entrar |
+| 11 | Formato da URL de launch / tracker do aparelho | **Medir:** um concorrente usa `RequestGameJob` com `joinAttemptId` em `www.roblox.com`; o nosso formato antigo é o que dá CAPTCHA. Testar com 2 contas se o novo reduz o CAPTCHA |
+| 32 | Reserva do `ROBLOX_singletonEvent` como padrão | **Teste do dono:** o "parou em outubro" dos concorrentes é de outro método (segurar o Event), não do nosso. Os logs de 15/10 têm 4 clientes rodando bem com a reserva (um por 52 min, com teleporte). Falta 2–3 contas num jogo que teleporta |
+| 34 | Fila que espera memória livre | Como aviso antes do lote + "lançar mesmo assim", pelo commit medido de cada cliente. Usa `GlobalMemoryStatusEx` (import novo: build + scan) |
+| 43 | Notificação do Windows quando a conta cai | Testar antes se o plugin pesa no antivírus, ou se o `Notification` do WebView2 resolve sem plugin |
+| 47 | Idade e voz da conta | A faixa etária já é lida e não aparece; a verificação de idade é instável até no concorrente |
+| 30 / 51 | Multi-instância e cookies no Mac | Depende de alguém testar num Mac |
+| 37, 41 | Janela de erro do Roblox; avisos de diagnóstico | Baixa prioridade; ver a janela real antes |
+| — | Região em lote pelo RoValra | Host de terceiro, desligado por padrão; só se as consultas por servidor derem CAPTCHA/429 |
+| — | Renovar o cookie por auth ticket | Testar com conta de teste se não derruba as sessões abertas |
+| — | Servidor privado grátis por conta | Endpoint de **compra** (`expectedPrice: 0`); só se o dono quiser |
+| — | Do 42 e da 52: server hop do grupo, pausar a fila, importar do evanovar, preset por atalho (`--preset`) | Talvez, sem urgência |
 
 ## Resumo — o que fazer primeiro (segunda passada, 14/10/2026)
 
@@ -410,7 +435,7 @@ no nosso código.
 - **Situação no MultiAlt:** variação melhor dos backups. Conferido: sem Pass Lock o backup leva o `AccountData.key` dentro do zip — quem tem o zip tem as contas.
 - **O que faz:** exporta um arquivo cifrado com uma senha escolhida na hora, que abre em qualquer PC. Com senha, dá para oferecer backup automático para uma pasta (a do OneDrive/Drive do usuário), com retenção.
 - **Onde ver:** [`Gugas19/Roblox-Account-Manager`](https://github.com/Gugas19/Roblox-Account-Manager) — `src/commands/backup.rs` (`export_accounts`), GPL-3.0 (fork do RAM que virou Tauri/Rust); [`TheFadGhost/roblox-account-manager-pro-public`](https://github.com/TheFadGhost/roblox-account-manager-pro-public) — `Services/CryptoService.cs` (`EncryptPortableJson`), MIT; backup em pasta: [`minhhoang0122/bloxkeep`](https://github.com/minhhoang0122/bloxkeep) — `Backup.cs`.
-- **Segurança:** com o sodiumoxide que já está no binário (sem dependência nova). Backup em pasta de nuvem **só** com senha.
+- **Segurança:** com o argon2 + `crypto_secretbox` que já estão no binário (sem dependência nova; o sodiumoxide saiu por causa do antivírus). Backup em pasta de nuvem **só** com senha.
 
 ### 39. Versão mais velha do app nunca grava por cima dos dados
 - **Prioridade:** média — protege quem volta de versão (MSI antigo, rollback).
