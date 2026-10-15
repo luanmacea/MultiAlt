@@ -15,7 +15,14 @@ import type { GameEntry } from "./server-list/types";
 import { FriendsTab } from "./friends/FriendsTab";
 import { ServersTab } from "./servers/ServersTab";
 import { tr, useTr } from "../i18n/text";
-import { ArrowLeft, User, Link2, AlertTriangle, X, Bookmark } from "lucide-react";
+import { ArrowLeft, User, Link2, AlertTriangle, X, Bookmark, Eye, Hourglass } from "lucide-react";
+import {
+  cancelWaitForPlayer,
+  startWaitForPlayer,
+  useWaitForPlayerHost,
+  useWaitWatch,
+} from "./follow/waitForPlayerWatch";
+import { WAIT_POLL_INTERVAL_MS } from "../utils/waitForPlayer";
 import { newPresetDraft } from "../utils/presets";
 import type { LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
@@ -309,6 +316,9 @@ function FollowTab({
   const [joinByFollowing] = useJoinByFollowing();
   const [followUser, setFollowUser] = useState("");
   const [launching, setLaunching] = useState(false);
+  /** Jogador que não deu para seguir agora: oferece esperar por ele. */
+  const [waitOffer, setWaitOffer] = useState<{ userId: number; name: string } | null>(null);
+  const watch = useWaitWatch();
 
   /**
    * Resolve o servidor do alvo UMA vez e manda todas as contas selecionadas
@@ -321,8 +331,10 @@ function FollowTab({
   async function handleFollow() {
     if (!followUser.trim()) return;
     setLaunching(true);
+    setWaitOffer(null);
     try {
       const user = await invoke<{ id: number }>("lookup_user", { username: followUser.trim() });
+      const offerWait = () => setWaitOffer({ userId: user.id, name: followUser.trim() });
       const presence = await invoke<FollowPresence[]>("get_presence", { userIds: [user.id] });
       const entry = presence?.[0];
       const presenceType = entry?.userPresenceType ?? entry?.user_presence_type ?? 0;
@@ -341,6 +353,7 @@ function FollowTab({
         // mesmo com ele escondido. Só não adianta com ele offline.
         if (presenceType === 0) {
           store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
+          offerWait();
           return;
         }
         const followed = await launchAll(userIds, rootPlace ?? serverPlace ?? 0, "", onLaunchStarted, {
@@ -356,6 +369,7 @@ function FollowTab({
 
       if (presenceType < 2 || !placeId) {
         store.addToast(tr("{{name}} is not in a game right now.", { name: followUser }));
+        offerWait();
         return;
       }
       if (!jobId) {
@@ -366,7 +380,11 @@ function FollowTab({
             name: followUser,
           })
         );
-        if (!ok) return;
+        if (!ok) {
+          // Recusou o servidor público: pode esperar o servidor dele aparecer.
+          offerWait();
+          return;
+        }
       }
 
       const result = await launchAll(userIds, placeId, jobId, onLaunchStarted);
@@ -425,6 +443,69 @@ function FollowTab({
           </button>
         </div>
 
+        {watch ? (
+          <div
+            data-testid="follow-wait-status"
+            className="flex items-start gap-2 text-[12px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-3 leading-relaxed"
+          >
+            <Eye size={13} strokeWidth={1.5} className="shrink-0 mt-[3px] theme-accent" />
+            <div className="min-w-0 flex-1">
+              <div>
+                {watch.phase === "launching"
+                  ? t("{{name}} is in a game. Launching...", { name: watch.name })
+                  : t("Watching {{name}}… (checks every {{seconds}} s)", {
+                      name: watch.name,
+                      seconds: Math.round(WAIT_POLL_INTERVAL_MS / 1000),
+                    })}
+              </div>
+              {watch.lastError && watch.phase === "watching" && (
+                <div className="text-[11px] text-amber-400 break-words">
+                  {t("Last check failed: {{error}}. Next check at {{time}}.", {
+                    error: watch.lastError,
+                    time: new Date(watch.nextCheckAt).toLocaleTimeString(),
+                  })}
+                </div>
+              )}
+            </div>
+            {watch.phase === "watching" && (
+              <button
+                onClick={cancelWaitForPlayer}
+                className="shrink-0 text-[12px] px-2.5 py-1 rounded-md theme-btn-ghost border theme-border transition-colors"
+              >
+                {t("Cancel")}
+              </button>
+            )}
+          </div>
+        ) : (
+          waitOffer && (
+            <div
+              data-testid="follow-wait-offer"
+              className="flex items-start gap-2 text-[12px] text-[var(--panel-fg)] bg-[var(--panel-soft)] border theme-border rounded-lg px-3 py-2 mb-3 leading-relaxed"
+            >
+              <Hourglass size={13} strokeWidth={1.5} className="shrink-0 mt-[3px] theme-muted" />
+              <div className="min-w-0 flex-1">
+                <div>{t("{{name}} is not in a game you can join yet.", { name: waitOffer.name })}</div>
+                {!joinByFollowing && (
+                  <div className="text-[11px] theme-muted">
+                    {t("With “Join by following” off, their server must also be visible.")}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  startWaitForPlayer({ targetUserId: waitOffer.userId, name: waitOffer.name, userIds });
+                  setWaitOffer(null);
+                }}
+                disabled={userIds.length === 0}
+                style={{ width: "auto" }}
+                className="sidebar-btn theme-btn shrink-0 px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {t("Wait until they're in a game")}
+              </button>
+            </div>
+          )
+        )}
+
         <JoinByFollowingToggle className="mb-3" />
 
         <div className="text-[12px] theme-muted bg-[var(--panel-soft)] rounded-lg px-3 py-2 leading-relaxed">
@@ -468,6 +549,7 @@ export function ChooseGameScreen() {
   const store = useStore();
   const prompt = usePrompt();
   const launchAll = useLauncher();
+  const [joinByFollowing] = useJoinByFollowing();
   const [activeTab, setActiveTab] = useState<TabId>("favorites");
 
   const accounts = store.selectedAccounts;
@@ -495,6 +577,32 @@ export function ChooseGameScreen() {
     store.setChooseGameOpen(false);
     store.setActivePage("accounts");
   };
+
+  /**
+   * A espera da aba Seguir ("Wait until they're in a game") vive enquanto esta
+   * tela vive: trocar de aba não a para, fechar a Choose Game para. O launch é
+   * o mesmo `launchAll` do Follow — seguindo o jogador ou no servidor exato,
+   * conforme o toggle no momento em que ele entra.
+   */
+  useWaitForPlayerHost({
+    byFollowing: () => joinByFollowing,
+    notify: store.addToast,
+    launch: async (watch, join) => {
+      const result = await launchAll(
+        watch.userIds,
+        join.placeId,
+        join.jobId,
+        backToAccounts,
+        join.follow ? { followUserId: watch.targetUserId } : undefined
+      );
+      if (result.ok) {
+        store.addToast(
+          tr("Following {{name}} with {{count}} account(s)...", { name: watch.name, count: watch.userIds.length })
+        );
+      }
+      return result.ok;
+    },
+  });
 
   /**
    * Clique no card, nas abas Games/Recent.

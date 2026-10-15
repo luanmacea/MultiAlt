@@ -379,7 +379,13 @@ export const SUITES: Record<string, TestSuite> = {
       "recent_games_http_tests",
       "recent_games_command_tests",
     ],
-    front: ["src/components/friends", "src/components/server-list/AccountRecentGames.test.tsx"],
+    front: [
+      "src/components/friends",
+      "src/components/server-list/AccountRecentGames.test.tsx",
+      // "Wait until they're in a game" da aba Seguir: política e laço.
+      "src/utils/waitForPlayer.test.ts",
+      "src/components/follow",
+    ],
   },
   servers: {
     description: "Escolha de servidor (aleatório/vazio/cheio), região e navegador de servidores",

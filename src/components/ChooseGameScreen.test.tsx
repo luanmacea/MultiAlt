@@ -328,6 +328,108 @@ describe("ChooseGameScreen — FollowTab, join by following", () => {
   });
 });
 
+/**
+ * "Wait until they're in a game": jogador fora de jogo vira uma espera que
+ * consulta a presença a cada 30 s e lança as contas uma vez quando dá.
+ */
+describe("ChooseGameScreen — FollowTab, wait for the player", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function presenceCalls() {
+    return invokeMock.mock.calls.filter((call) => call[0] === "get_presence").length;
+  }
+
+  async function followOffline(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByPlaceholderText("e.g. Builderman"), "Builderman");
+    const buttons = screen.getAllByRole("button", { name: "Follow" });
+    await user.click(buttons[buttons.length - 1]);
+    return await screen.findByRole("button", { name: "Wait until they're in a game" });
+  }
+
+  it("offers to wait, keeps watching across tabs and stops on Cancel", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return [{ userId: 42, userPresenceType: 0 }];
+      return undefined;
+    });
+    const store = setStore({
+      accounts: [ACCOUNT_A, ACCOUNT_B],
+      selectedIds: new Set([1001, 1002]),
+      selectedAccounts: [ACCOUNT_A, ACCOUNT_B],
+      settings: withJoinByFollowing(true),
+    });
+    render(<ChooseGameScreen />);
+    await user.click(screen.getByRole("button", { name: "Follow" }));
+
+    await user.click(await followOffline(user));
+    expect(screen.getByTestId("follow-wait-status")).toHaveTextContent("Watching Builderman… (checks every 30 s)");
+
+    // Trocar de aba não para a espera.
+    await user.click(screen.getByRole("button", { name: "Favorites" }));
+    const before = presenceCalls();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(presenceCalls()).toBe(before + 1);
+    await user.click(screen.getByRole("button", { name: "Follow" }));
+    expect(screen.getByTestId("follow-wait-status")).toBeInTheDocument();
+
+    await user.click(within(screen.getByTestId("follow-wait-status")).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("follow-wait-status")).toBeNull();
+    const afterCancel = presenceCalls();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(presenceCalls()).toBe(afterCancel);
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+  });
+
+  it("launches every selected account once when the player joins a game, then stops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    let type = 0;
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return [{ userId: 42, userPresenceType: type, rootPlaceId: 606849621, placeId: 111, gameId: null }];
+      return undefined;
+    });
+    const store = await renderFollowTab([ACCOUNT_A, ACCOUNT_B], true);
+
+    await user.click(await followOffline(user));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(store.launchMultiple).not.toHaveBeenCalled();
+
+    type = 2;
+    await vi.advanceTimersByTimeAsync(30_000);
+    await waitFor(() => expect(store.launchMultiple).toHaveBeenCalledTimes(1));
+    expect(store.launchMultiple).toHaveBeenCalledWith(
+      [1001, 1002],
+      expect.objectContaining({ placeId: "606849621", jobId: "", followUserId: 42 })
+    );
+
+    const calls = presenceCalls();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(presenceCalls()).toBe(calls);
+    expect(store.launchMultiple).toHaveBeenCalledTimes(1);
+  });
+
+  it("closing Choose Game stops the wait", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    setInvokeHandler((cmd) => {
+      if (cmd === "lookup_user") return { id: 42 };
+      if (cmd === "get_presence") return [{ userId: 42, userPresenceType: 0 }];
+      return undefined;
+    });
+    await renderFollowTab([ACCOUNT_A], true);
+    await user.click(await followOffline(user));
+    cleanup();
+    const calls = presenceCalls();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(presenceCalls()).toBe(calls);
+  });
+});
+
 describe("ChooseGameScreen — FollowTab", () => {
   /** O botão "Follow" do formulário (o primeiro com esse nome é a aba). */
   function followButton(): HTMLButtonElement {

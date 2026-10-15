@@ -60,6 +60,18 @@ Desde 14/10/2026 o "Join" da aba **Amigos** e o "Follow" da aba **Seguir** entra
 - **Aba Seguir:** seguindo, o servidor escondido não impede (o Roblox acha o jogador); só presença **offline** para sem abrir nada. No modo antigo, servidor escondido pergunta antes de cair num público.
 - A privacidade do jogador ("quem pode entrar em mim") vale: se ela não deixar, o Roblox recusa a entrada, como no RAM antigo.
 
+### Esperar o jogador entrar num jogo (aba Seguir, desde 15/10/2026)
+
+Quando o Follow não consegue entrar (jogador offline; com o toggle desligado, também fora de jogo ou com o servidor escondido e o "entrar num público" recusado), além do aviso de sempre aparece **"Wait until they're in a game"**. Clicado, a tela passa a mostrar *Watching <nome>… (checks every 30 s)* com **Cancel**, e lança as contas selecionadas **assim que** o jogador estiver entrável.
+
+- **Quando conta como entrável** ([utils/waitForPlayer.ts](../../src/utils/waitForPlayer.ts), `evaluateWaitPresence`): seguindo, basta `userPresenceType == 2` (em jogo) — online no site ou no Studio não serve, seguir daria em nada; sem seguir, em jogo **e** com Job ID e place visíveis (place do servidor, como no Follow). O toggle é lido na hora de cada consulta.
+- **Ritmo** (constantes no mesmo arquivo): uma consulta a cada `WAIT_POLL_INTERVAL_MS` (30 s), a primeira só depois do primeiro intervalo; erro dobra a espera (60 s, 120 s…) até `WAIT_ERROR_BACKOFF_MAX_MS` (5 min); 429 sem `Retry-After` vai direto aos 5 min; com `Retry-After` espera o que o Roblox pediu se for mais. Desiste sozinha em `WAIT_MAX_DURATION_MS` (2 h), com aviso.
+- **`Retry-After`:** o `get_presence_as` põe a espera no erro do 429 (`Failed to get presence (status 429, retry after 90 s)`), e a política lê o número (`parseRetryAfterMs`).
+- **Presença:** o mesmo comando `get_presence` do Follow — sem `run_with_session_retry`, sem refresh de sessão.
+- **Onde vive:** num módulo ([components/follow/waitForPlayerWatch.ts](../../src/components/follow/waitForPlayerWatch.ts)), não no estado da aba — trocar de aba dentro da Choose Game não para a espera. A Choose Game a sustenta (`useWaitForPlayerHost`: fornece o launch) e, ao fechar, a cancela. Uma espera por vez (começar outra troca a anterior).
+- **Um launch só, e para:** quando o jogador fica entrável, a espera lança pelo `launchAll` de sempre (`launch_multiple`, seguindo ou no servidor exato, com o aviso de conta online) e termina, dê certo ou não.
+- Testes: `waitForPlayer.test.ts` (política), `waitForPlayerWatch.test.ts` (laço com timers falsos) e os de `ChooseGameScreen.test.tsx` (começar, cancelar, trocar de aba, lançar uma vez); `social_presence_extra_tests` (Rust, `Retry-After`).
+
 ## Configurações relacionadas
 
 - `hideUsernames` / letras de prévia — mascaramento dos nomes **das contas** (não dos amigos).
