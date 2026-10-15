@@ -32,6 +32,15 @@ pub fn remove_account(state: tauri::State<'_, AccountStore>, user_id: i64) -> Re
     state.remove(user_id)
 }
 
+/// O que a remoção em lote devolve: o id do lote (o toast leva-o para o Undo
+/// desfazer **esse** lote) e quantas contas saíram.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveBatchResult {
+    pub batch_id: u64,
+    pub count: usize,
+}
+
 /// Remove um lote numa gravação só e guarda-o para o "Undo" do toast. O
 /// `remove_account` (uma conta) continua para scripts e compatibilidade, e não
 /// mexe no lote.
@@ -39,14 +48,20 @@ pub fn remove_account(state: tauri::State<'_, AccountStore>, user_id: i64) -> Re
 pub fn remove_accounts(
     state: tauri::State<'_, AccountStore>,
     user_ids: Vec<i64>,
-) -> Result<usize, String> {
-    state.remove_many(&user_ids)
+) -> Result<RemoveBatchResult, String> {
+    let (batch_id, count) = state.remove_many(&user_ids)?;
+    Ok(RemoveBatchResult { batch_id, count })
 }
 
-/// Desfaz o último `remove_accounts` (só em memória: fechar o app esquece).
+/// Desfaz o lote `batch_id` de `remove_accounts` (só em memória: fechar o app
+/// esquece). Lote já substituído por uma remoção mais nova (toast antigo) é
+/// recusado com erro, em vez de desfazer o lote errado.
 #[tauri::command]
-pub fn undo_remove_accounts(state: tauri::State<'_, AccountStore>) -> Result<usize, String> {
-    state.undo_remove()
+pub fn undo_remove_accounts(
+    state: tauri::State<'_, AccountStore>,
+    batch_id: u64,
+) -> Result<usize, String> {
+    state.undo_remove(batch_id)
 }
 
 /// `General.GroupOrder` depois de renomear `from` para `to`, ou `None` quando

@@ -1446,7 +1446,7 @@ describe("account mutations", () => {
    */
   it("removes a batch in one call and offers Undo on the toast", async () => {
     accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
-    results.set("remove_accounts", 2);
+    results.set("remove_accounts", { batchId: 7, count: 2 });
     const { result } = await renderStore();
 
     accountsData = [account({ UserID: 2 })];
@@ -1466,10 +1466,51 @@ describe("account mutations", () => {
     });
 
     await waitFor(() => expect(invokeCalls("undo_remove_accounts")).toHaveLength(1));
+    // O Undo leva o id do **seu** lote, para não desfazer uma remoção mais nova.
+    expect(lastArgs("undo_remove_accounts")).toEqual({ batchId: 7 });
     await waitFor(() => expect(result.current.accounts.map((a) => a.UserID)).toEqual([1, 2, 3]));
     expect(result.current.toasts.map((item) => item.message).join(" ")).toContain(
       "Restored 2 account(s)"
     );
+  });
+
+  /**
+   * Fix 1: dois lotes removidos em 10 s. O Undo do primeiro toast não pode
+   * desfazer o segundo lote — o backend recusa pelo id, e a tela avisa "expirou"
+   * em vez de restaurar. E iniciar a segunda remoção já tira o Undo da primeira
+   * da tela, para o botão não enganar.
+   */
+  it("expires an older Undo instead of undoing a newer removal", async () => {
+    accountsData = [account({ UserID: 1 }), account({ UserID: 2 }), account({ UserID: 3 })];
+    results.set("remove_accounts", { batchId: 1, count: 1 });
+    const { result } = await renderStore();
+
+    accountsData = [account({ UserID: 2 }), account({ UserID: 3 })];
+    await act(async () => {
+      await result.current.removeAccounts([1]);
+    });
+    const firstUndo = result.current.toasts.find((t) => t.action?.label === "Undo");
+    expect(firstUndo).toBeTruthy();
+
+    // Segunda remoção dentro dos 10 s: troca o lote guardado e some com o Undo antigo.
+    results.set("remove_accounts", { batchId: 2, count: 1 });
+    accountsData = [account({ UserID: 3 })];
+    await act(async () => {
+      await result.current.removeAccounts([2]);
+    });
+    const undoToasts = result.current.toasts.filter((t) => t.action?.label === "Undo");
+    expect(undoToasts).toHaveLength(1);
+    expect(result.current.toasts).not.toContain(firstUndo);
+
+    // Clicar no Undo antigo (lote 1): o backend recusa, nada é restaurado.
+    failures.set("undo_remove_accounts", "This removal can no longer be undone.");
+    await act(async () => {
+      firstUndo?.action?.run();
+    });
+    await waitFor(() => expect(invokeCalls("undo_remove_accounts")).toHaveLength(1));
+    expect(lastArgs("undo_remove_accounts")).toEqual({ batchId: 1 });
+    expect(result.current.toasts.map((t) => t.message).join(" ")).toContain("This undo expired");
+    expect(result.current.accounts.map((a) => a.UserID)).toEqual([3]);
   });
 
   it("keeps the Undo toast for 10 seconds instead of the usual 2.5", async () => {
@@ -1497,7 +1538,7 @@ describe("account mutations", () => {
     const { result } = await renderStore();
 
     await act(async () => {
-      await result.current.undoRemoveAccounts();
+      await result.current.undoRemoveAccounts(5);
     });
 
     expect(result.current.toasts.map((item) => item.message).join(" ")).toContain("Nothing to undo");
