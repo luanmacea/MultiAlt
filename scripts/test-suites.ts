@@ -350,7 +350,12 @@ export const SUITES: Record<string, TestSuite> = {
       "social_presence_extra_tests",
       "chromium_commands_tests",
     ],
-    front: ["src/components/pages/GroupsPage.test.tsx", "src/components/layout/NavSidebar.test.tsx"],
+    front: [
+      "src/components/pages/GroupsPage.test.tsx",
+      "src/components/layout/NavSidebar.test.tsx",
+      // Pedido de estrela no GitHub (rodapé da barra lateral).
+      "src/utils/starPrompt.test.ts",
+    ],
   },
   webserver: {
     description: "Servidor HTTP local: rotas, senha e bloqueio anti-CSRF",

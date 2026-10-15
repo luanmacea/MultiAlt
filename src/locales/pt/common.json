@@ -2739,5 +2739,12 @@
   "Paste the webhook URL first.": "Cole a URL do webhook primeiro.",
   "Discord asked to slow down. Try again in a few seconds.": "O Discord pediu para ir mais devagar. Tente de novo em alguns segundos.",
   "An account opened as a different Roblox account": "Uma conta abriu logada em outra conta do Roblox",
-  "The launch queue is paused and the client is left open.": "A fila de launch é pausada e o cliente fica aberto."
+  "The launch queue is paused and the client is left open.": "A fila de launch é pausada e o cliente fica aberto.",
+  "Don't show again": "Não mostrar de novo",
+  "Enjoying MultiAlt?": "Curtindo o MultiAlt?",
+  "Give a star": "Dar uma estrela",
+  "It's free and open source. A star on GitHub helps the project keep getting updates.": "Ele é grátis e de código aberto. Uma estrela no GitHub ajuda o projeto a continuar recebendo atualizações.",
+  "MultiAlt is free and open source. If an update helped you, a star on GitHub helps keep them coming.": "O MultiAlt é grátis e de código aberto. Se uma atualização te ajudou, uma estrela no GitHub ajuda a manter as próximas vindo.",
+  "Not now": "Agora não",
+  "Star on GitHub": "Estrela no GitHub"
 }

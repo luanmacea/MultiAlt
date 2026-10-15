@@ -293,3 +293,60 @@ describe("NavSidebar — collapse", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send feedback" }));
     expect(screen.getByRole("dialog", { name: "Send feedback" })).toBeInTheDocument();
   });});
+
+/**
+ * Estrela no GitHub (pedido do dono, 15/10/2026): botão fixo no rodapé e um
+ * cartão que só pede depois de uns dias de uso, com "Agora não" e "nunca mais".
+ */
+describe("NavSidebar — GitHub star", () => {
+  const READY = JSON.stringify({ days: ["2026-10-01", "2026-10-02", "2026-10-03"] });
+
+  beforeEach(() => invokeMock.mockClear());
+
+  it("always has a Star on GitHub button that opens the repository", async () => {
+    renderNav();
+    await userEvent.click(screen.getByRole("button", { name: "Star on GitHub" }));
+    expect(invokeMock).toHaveBeenCalledWith("open_repo_url");
+  });
+
+  it("does not ask on the first days of use", () => {
+    renderNav();
+    expect(screen.queryByTestId("star-prompt")).not.toBeInTheDocument();
+  });
+
+  it("asks after three days of use, and starring ends it for good", async () => {
+    localStorage.setItem("ram_star_prompt", READY);
+    renderNav();
+    const card = await screen.findByTestId("star-prompt");
+    await userEvent.click(within(card).getByRole("button", { name: "Give a star" }));
+    expect(invokeMock).toHaveBeenCalledWith("open_repo_url");
+    expect(screen.queryByTestId("star-prompt")).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("ram_star_prompt")!).done).toBe(true);
+  });
+
+  it("'Not now' hides it and remembers when to ask again", async () => {
+    localStorage.setItem("ram_star_prompt", READY);
+    renderNav();
+    await userEvent.click(within(await screen.findByTestId("star-prompt")).getByRole("button", { name: "Not now" }));
+    expect(screen.queryByTestId("star-prompt")).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("ram_star_prompt")!).snoozeUntil).toBeGreaterThan(Date.now());
+    expect(invokeMock).not.toHaveBeenCalledWith("open_repo_url");
+  });
+
+  it("the X dismisses it for good without opening anything", async () => {
+    localStorage.setItem("ram_star_prompt", READY);
+    renderNav();
+    await userEvent.click(within(await screen.findByTestId("star-prompt")).getByRole("button", { name: "Don't show again" }));
+    expect(screen.queryByTestId("star-prompt")).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("ram_star_prompt")!).done).toBe(true);
+    expect(invokeMock).not.toHaveBeenCalledWith("open_repo_url");
+  });
+
+  it("is not shown with the sidebar collapsed (only the star button stays)", () => {
+    localStorage.setItem("ram_star_prompt", READY);
+    localStorage.setItem(NAV_COLLAPSED_KEY, "1");
+    renderNav();
+    expect(screen.queryByTestId("star-prompt")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Star on GitHub" })).toBeInTheDocument();
+  });
+});
