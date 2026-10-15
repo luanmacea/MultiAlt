@@ -2675,5 +2675,8 @@
   "The password must be at least {{n}} characters.": "The password must be at least {{n}} characters.",
   "The passwords do not match.": "The passwords do not match.",
   "This password cannot be recovered. Keep it somewhere safe, apart from the file.": "This password cannot be recovered. Keep it somewhere safe, apart from the file.",
-  "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.": "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password."
+  "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.": "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.",
+  "Nothing to undo": "Nothing to undo",
+  "Restored {{count}} account(s)": "Restored {{count}} account(s)",
+  "Undo": "Undo"
 }

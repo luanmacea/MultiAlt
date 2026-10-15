@@ -297,6 +297,20 @@ function AppContent() {
             >
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${TONE_STYLES[toast.tone].dot}`} />
               <span>{toast.message}</span>
+              {/* Ação do próprio toast ("Undo" da remoção): some ao clicar, para
+                  não ser clicada duas vezes. */}
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    store.dismissToast(toast.id);
+                    toast.action?.run();
+                  }}
+                  className="ml-1 rounded px-1.5 py-0.5 font-semibold text-[var(--accent-color)] hover:bg-[var(--accent-soft)] transition-colors"
+                >
+                  {toast.action.label}
+                </button>
+              )}
             </div>
           ))}
         </div>

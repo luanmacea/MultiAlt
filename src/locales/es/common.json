@@ -2675,5 +2675,8 @@
   "The password must be at least {{n}} characters.": "La contraseña debe tener al menos {{n}} caracteres.",
   "The passwords do not match.": "Las contraseñas no coinciden.",
   "This password cannot be recovered. Keep it somewhere safe, apart from the file.": "Esta contraseña no se puede recuperar. Guárdala en un lugar seguro, separada del archivo.",
-  "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.": "Para recuperar las cuentas, usa Importar cuentas › Importar datos de la app antigua y escribe la contraseña."
+  "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.": "Para recuperar las cuentas, usa Importar cuentas › Importar datos de la app antigua y escribe la contraseña.",
+  "Nothing to undo": "Nada que deshacer",
+  "Restored {{count}} account(s)": "{{count}} cuenta(s) restaurada(s)",
+  "Undo": "Deshacer"
 }

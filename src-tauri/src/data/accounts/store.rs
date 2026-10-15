@@ -203,6 +203,13 @@ pub struct AccountStore {
     /// Ler o slot quando a UI pede não basta: gravador de fundo — Auto Rejoin a
     /// cada ciclo, Watcher, servidor HTTP — muda o aviso sem a UI pedir nada.
     key_warning_watchers: Mutex<Vec<std::sync::mpsc::Sender<Option<VaultKeyWarning>>>>,
+    /// O último lote removido por `remove_many`, cada conta com a posição que
+    /// tinha na lista — é o que o "Undo" do toast devolve (`undo_remove`).
+    ///
+    /// **Só em memória**, de propósito: gravar em disco seria guardar cookies que
+    /// o usuário mandou apagar. Fechar o app esquece; reler o arquivo também
+    /// (`mark_memory_fresh`). Ordem de lock: `accounts` → `last_removed`.
+    last_removed: Mutex<Option<Vec<(usize, Account)>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,6 +233,7 @@ impl AccountStore {
             write_block: Mutex::new(None),
             key_warning: Mutex::new(None),
             key_warning_watchers: Mutex::new(Vec::new()),
+            last_removed: Mutex::new(None),
         }
     }
 
@@ -752,6 +760,11 @@ impl AccountStore {
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
         self.allow_writes_after_reload();
+        // A lista em memória é outra agora (unlock, backup restaurado): enxertar
+        // nela um lote removido da lista de antes misturaria as duas.
+        if let Ok(mut batch) = self.last_removed.lock() {
+            *batch = None;
+        }
     }
 
     /// Regrava um vault em texto puro como vault cifrado.
@@ -1287,6 +1300,67 @@ impl AccountStore {
         }
 
         Ok(removed)
+    }
+
+    /// Remove várias contas numa gravação só e guarda o lote para o "Undo"
+    /// (`undo_remove`). O lote anterior é substituído. Devolve quantas saíram.
+    ///
+    /// A lista nova só entra na memória **depois** de gravada: se a gravação
+    /// falha, nada sai e o lote anterior continua desfazível.
+    pub fn remove_many(&self, user_ids: &[i64]) -> Result<usize, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let wanted: HashSet<i64> = user_ids.iter().copied().collect();
+        let mut removed: Vec<(usize, Account)> = Vec::new();
+        let mut kept: Vec<Account> = Vec::with_capacity(accounts.len());
+        for (index, account) in accounts.iter().enumerate() {
+            if wanted.contains(&account.user_id) {
+                removed.push((index, account.clone()));
+            } else {
+                kept.push(account.clone());
+            }
+        }
+        if removed.is_empty() {
+            return Ok(0);
+        }
+
+        self.save_locked(&kept)?;
+        *accounts = kept;
+        let count = removed.len();
+        *self.last_removed.lock().map_err(|e| e.to_string())? = Some(removed);
+        Ok(count)
+    }
+
+    /// Devolve o último lote de `remove_many` às posições que as contas tinham,
+    /// com tudo (cookie, senha, grupo, campos). Conta que voltou à lista nesse
+    /// meio-tempo (adicionada de novo) é pulada: a de agora vale mais que a
+    /// cópia velha. Funciona uma vez; devolve quantas voltaram.
+    pub fn undo_remove(&self) -> Result<usize, String> {
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut slot = self.last_removed.lock().map_err(|e| e.to_string())?;
+        let Some(batch) = slot.as_ref() else {
+            return Ok(0);
+        };
+
+        let mut next = accounts.clone();
+        let mut restored = 0usize;
+        // Em ordem crescente de posição: cada inserção recria a lista de antes
+        // até aquele ponto, então a posição seguinte continua certa.
+        for (index, account) in batch {
+            if next.iter().any(|a| a.user_id == account.user_id) {
+                continue;
+            }
+            let at = (*index).min(next.len());
+            next.insert(at, account.clone());
+            restored += 1;
+        }
+
+        if restored > 0 {
+            // `?` antes de limpar: gravação recusada mantém o lote para tentar de novo.
+            self.save_locked(&next)?;
+            *accounts = next;
+        }
+        *slot = None;
+        Ok(restored)
     }
 
     pub fn update(&self, account: Account) -> Result<bool, String> {
