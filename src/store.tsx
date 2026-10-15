@@ -156,6 +156,7 @@ import {
   getUpdaterSkipVersionKey,
 } from "./updaterChannels";
 import { addRecentJob, recordRecentGame } from "./components/server-list/types";
+import { presetAccountIds } from "./utils/presets";
 
 interface PresenceEntry {
   userId?: number;
@@ -1987,15 +1988,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * mesmo retorno visual do lote e os recentes.
    */
   async function launchPreset(preset: LaunchPresetView): Promise<LaunchAttempt> {
-    const total = preset.userIds.length;
+    // Preset de grupo: quem está no grupo agora (o backend resolve igual).
+    const userIds = presetAccountIds(preset, accountsRef.current);
+    const total = userIds.length;
     clearLaunchTimeout();
-    setLaunchProgress({ mode: "multi", current: 0, total, userId: preset.userIds[0] ?? null });
+    setLaunchProgress({ mode: "multi", current: 0, total, userId: userIds[0] ?? null });
     const launchingLine = tr("Launching {{count}} accounts...", { count: total });
     setActionStatusMessage(launchingLine, "info", 5000);
     try {
       await invoke<number>("launch_preset", { id: preset.id });
       await loadAccounts();
-      void recordRecentGame(preset.placeId, preset.userIds[0] ?? null, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
+      void recordRecentGame(preset.placeId, userIds[0] ?? null, parseInt(settings?.General?.MaxRecentGames || "8") || 8).catch(() => {});
       setPresetsRevision((n) => n + 1);
       return "started";
     } catch (e) {

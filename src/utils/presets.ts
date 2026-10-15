@@ -20,6 +20,7 @@ export function newPresetDraft(userIds: number[], placeId = 0, jobId = ""): Laun
     id: "",
     name: "",
     userIds: [...new Set(userIds)],
+    group: null,
     placeId,
     jobId: jobId.trim(),
     gameName: null,
@@ -72,6 +73,27 @@ export function matchingTarget(options: PresetTargetOption[], placeId: number, j
   return options.find((o) => o.placeId === placeId && o.jobId === jobId.trim()) ?? null;
 }
 
+/** O mínimo de uma conta que as regras de preset precisam. */
+export interface PresetAccountRef {
+  UserID: number;
+  Group: string;
+}
+
+/**
+ * As contas que o próximo launch do preset abre — a mesma regra do
+ * `resolve_preset_accounts` do backend: preset de grupo = quem está no grupo
+ * agora, na ordem da lista (grupo vazio na conta conta como "Default", como a
+ * lista agrupa); contas fixas = as dele que ainda existem no app.
+ */
+export function presetAccountIds(preset: LaunchPreset, accounts: PresetAccountRef[]): number[] {
+  if (preset.group) {
+    const group = preset.group;
+    return [...new Set(accounts.filter((a) => (a.Group || "Default") === group).map((a) => a.UserID))];
+  }
+  const known = new Set(accounts.map((a) => a.UserID));
+  return [...new Set(preset.userIds.filter((id) => known.has(id)))];
+}
+
 /** O campo do editor em que o problema aparece. */
 export type PresetField = "name" | "accounts" | "game" | "schedule";
 
@@ -90,11 +112,17 @@ export function isPresetTime(text: string): boolean {
  */
 export function presetFieldProblem(
   preset: LaunchPreset,
-  context: { placeText?: string; knownUserIds?: Iterable<number> } = {}
+  context: { placeText?: string; knownUserIds?: Iterable<number>; accounts?: PresetAccountRef[] } = {}
 ): { field: PresetField; message: string } | null {
   if (!preset.name.trim()) return { field: "name", message: "Give the preset a name." };
-  if (preset.userIds.length === 0) return { field: "accounts", message: "Pick at least one account." };
-  if (context.knownUserIds) {
+  if (preset.group != null) {
+    if (!preset.group.trim()) return { field: "accounts", message: "Pick a group." };
+    if (context.accounts && presetAccountIds(preset, context.accounts).length === 0) {
+      return { field: "accounts", message: "That group has no accounts." };
+    }
+  } else if (preset.userIds.length === 0) {
+    return { field: "accounts", message: "Pick at least one account." };
+  } else if (context.knownUserIds) {
     const known = new Set(context.knownUserIds);
     if (!preset.userIds.some((id) => known.has(id))) {
       return { field: "accounts", message: "None of this preset's accounts are in the app anymore." };

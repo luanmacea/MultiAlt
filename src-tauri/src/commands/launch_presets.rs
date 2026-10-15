@@ -14,7 +14,7 @@
 //   estava fechado (ou o PC dormindo) na hora, aquela vez não acontece.
 
 use data::launch_presets::{
-    due_actions, next_close_after, next_open_after, LaunchPreset, PresetAction,
+    due_actions, next_close_after, next_open_after, resolve_preset_accounts, LaunchPreset, PresetAction,
 };
 
 /// De quanto em quanto tempo o agendador olha o relógio.
@@ -238,16 +238,15 @@ fn arrange_after_preset(app: &tauri::AppHandle) {
 
 /// Abre o preset pela fila normal e anota quais clientes ele abriu.
 async fn run_launch_preset(app: &tauri::AppHandle, preset: &LaunchPreset) -> Result<usize, String> {
-    let known: HashSet<i64> = app
-        .state::<AccountStore>()
-        .get_all()?
-        .into_iter()
-        .map(|a| a.user_id)
+    // Contas fixas que ainda existem, ou quem está no grupo agora (ideia 42).
+    // Só essas entram na execução — e "fechar" só mexe no que ela abriu.
+    let accounts = app.state::<AccountStore>().get_all()?;
+    // Grupo vazio = "Default", como a lista agrupa (`a.Group || "Default"`).
+    let roster: Vec<(i64, &str)> = accounts
+        .iter()
+        .map(|a| (a.user_id, if a.group.is_empty() { "Default" } else { a.group.as_str() }))
         .collect();
-    let user_ids: Vec<i64> = preset.user_ids.iter().copied().filter(|id| known.contains(id)).collect();
-    if user_ids.is_empty() {
-        return Err("None of this preset's accounts are in the app anymore.".into());
-    }
+    let user_ids = resolve_preset_accounts(preset, &roster)?;
 
     let before = preset_tracked_clients();
     #[cfg(target_os = "windows")]

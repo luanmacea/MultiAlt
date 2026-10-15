@@ -2705,5 +2705,14 @@
   "Plays after a launch and after an automatic reconnect": "Se reproduce tras iniciar y tras una reconexión automática",
   "Seconds in the game before playing after a launch": "Segundos en el juego antes de reproducir tras iniciar",
   "Three separate choices: one plays after an automatic reconnect (to put the character in place), one after the app launches the account, and one on every AFK mode turn.": "Tres elecciones separadas: una se reproduce tras una reconexión automática (para posicionar al personaje), otra después de que la app abra la cuenta y otra en cada turno del Modo AFK.",
-  "Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead.": "Cuenta cada vez que la app abre cuentas — una cuenta, un lote, un preset o el Auto Rejoin. Cuando la reconexión automática abre el cliente de nuevo, se reproduce la grabación de Tras la reconexión automática."
+  "Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead.": "Cuenta cada vez que la app abre cuentas — una cuenta, un lote, un preset o el Auto Rejoin. Cuando la reconexión automática abre el cliente de nuevo, se reproduce la grabación de Tras la reconexión automática.",
+  "Every account in a group": "Todas las cuentas de un grupo",
+  "Group {{name}}": "Grupo {{name}}",
+  "Group {{name}} has no accounts": "El grupo {{name}} no tiene cuentas",
+  "These accounts": "Estas cuentas",
+  "Whoever is in the group at launch time goes, in the account list's order. Accounts that join or leave later are picked up next time.": "Va quien esté en el grupo al momento de iniciar, en el orden de la lista de cuentas. Las cuentas que entren o salgan después cuentan a partir de la próxima vez.",
+  "Group": "Grupo",
+  "Pick a group.": "Elige un grupo.",
+  "That group has no accounts.": "Ese grupo no tiene cuentas.",
+  "The group name is too long.": "El nombre del grupo es demasiado largo."
 }
