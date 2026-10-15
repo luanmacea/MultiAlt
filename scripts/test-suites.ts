@@ -240,12 +240,13 @@ export const SUITES: Record<string, TestSuite> = {
     ],
   },
   recordings: {
-    description: "Gravações: biblioteca, passos, qual vale para cada conta, reprodução e o gatilho depois da reconexão",
+    description: "Gravações: biblioteca, passos, qual vale para cada conta, reprodução e os gatilhos depois da reconexão e depois do launch",
     rust: [
       "recordings_store_tests",
       "recordings_validation_tests",
       "recordings_playback_tests",
       "recordings_after_reconnect_tests",
+      "recordings_after_launch_tests",
       "recordings_afk_mode_tests",
       // Importar do TinyTask (.rec): leitura do arquivo e conversão em passos.
       "tinytask_import_tests",

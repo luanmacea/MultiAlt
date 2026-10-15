@@ -373,6 +373,8 @@ describe("SessionPage — order and stats", () => {
       )
     ).toBeInTheDocument();
     expect(card).toHaveTextContent("On anti-AFK: Farm loop, every 2 min 30 s in AFK mode.");
+    // A vaga depois do launch (ideia 52) nasce desligada.
+    expect(card).toHaveTextContent("After launch: off.");
     expect(card).toHaveTextContent("1 account(s) with their own choice.");
     await userEvent.click(within(card).getByRole("button", { name: "Open Recordings" }));
     expect(store.openAfkMode).toHaveBeenCalledWith({ tab: "recordings" });

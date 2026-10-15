@@ -3,13 +3,15 @@ import { formatAfkIntervalSeconds, type RecordingTriggers } from "./triggers";
 
 /**
  * Uma linha por vaga: "After auto-reconnect" (quanto tempo depois de voltar ao
- * jogo, e a gravação global dela) e "On anti-AFK" (de quanto em quanto tempo no
+ * jogo, e a gravação global dela), "After launch" (o mesmo, depois de um launch
+ * do app) e "On anti-AFK" (de quanto em quanto tempo no
  * Modo AFK, e a global dela). A mesma frase na aba Recordings e no resumo da
  * página Session.
  */
 export function RecordingTriggerLines({ triggers, className = "" }: { triggers: RecordingTriggers; className?: string }) {
   const t = useTr();
   const reconnectName = triggers.globalNames.afterReconnect;
+  const launchName = triggers.globalNames.afterLaunch;
   const afkName = triggers.globalNames.antiAfk;
   const interval = formatAfkIntervalSeconds(triggers.intervalSeconds);
   return (
@@ -24,6 +26,18 @@ export function RecordingTriggerLines({ triggers, className = "" }: { triggers: 
               })
             : t("After auto-reconnect: once, {{seconds}} s after the account is back in the game; no global recording.", {
                 seconds: triggers.delaySeconds,
+              })}
+      </li>
+      <li>
+        {!triggers.afterLaunch
+          ? t("After launch: off.")
+          : launchName
+            ? t("After launch: {{name}}, once, {{seconds}} s after the account gets into the game.", {
+                name: launchName,
+                seconds: triggers.launchDelaySeconds,
+              })
+            : t("After launch: once, {{seconds}} s after the account gets into the game; no global recording.", {
+                seconds: triggers.launchDelaySeconds,
               })}
       </li>
       <li>

@@ -147,6 +147,17 @@ export function RecordingsTab() {
       setDelayS(clampInt(parsedDelay, MIN_AFTER_RECONNECT_S, MAX_AFTER_RECONNECT_S, 30));
     }
   }, [parsedDelay]);
+  // Depois de um launch (ideia 52): a mesma espera, com a chave dela.
+  const afterLaunch = settingsRec.AfterLaunch === "true";
+  const parsedLaunchDelay = Number.parseInt(settingsRec.AfterLaunchDelaySeconds ?? "", 10);
+  const [launchDelayS, setLaunchDelayS] = useState(() =>
+    clampInt(parsedLaunchDelay, MIN_AFTER_RECONNECT_S, MAX_AFTER_RECONNECT_S, 30)
+  );
+  useEffect(() => {
+    if (Number.isFinite(parsedLaunchDelay)) {
+      setLaunchDelayS(clampInt(parsedLaunchDelay, MIN_AFTER_RECONNECT_S, MAX_AFTER_RECONNECT_S, 30));
+    }
+  }, [parsedLaunchDelay]);
 
   function accountName(userId: number): string {
     const account = store.accounts.find((a) => a.UserID === userId);
@@ -738,6 +749,34 @@ export function RecordingsTab() {
                 </div>
                 <div className="text-[11px] theme-muted leading-4">
                   {t("After a reconnect, only the account that came back plays, and only once.")}
+                </div>
+              </div>
+              <div className="space-y-2 border-t theme-border pt-3" role="group" aria-labelledby="recordings-when-launch">
+                <div id="recordings-when-launch" className="text-[11px] font-semibold uppercase tracking-wide theme-muted">
+                  {slotLabel(t, "afterLaunch")}
+                </div>
+                <ToggleRow
+                  label="Play after a launch"
+                  checked={afterLaunch}
+                  onChange={(v) => persist("AfterLaunch", v ? "true" : "false")}
+                />
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] theme-muted flex-1">{t("Once the account has been in the game for")}</span>
+                  <NumericInput
+                    value={launchDelayS}
+                    min={MIN_AFTER_RECONNECT_S}
+                    max={MAX_AFTER_RECONNECT_S}
+                    integer
+                    ariaLabel={t("Seconds in the game before playing after a launch")}
+                    onChange={setLaunchDelayS}
+                    onCommit={(v) => persist("AfterLaunchDelaySeconds", String(v))}
+                    containerClassName="relative w-20"
+                    className="sidebar-input text-xs w-full"
+                  />
+                  <span className="text-[12px] theme-muted">s</span>
+                </div>
+                <div className="text-[11px] theme-muted leading-4">
+                  {t("Every launch by the app counts — one account, a batch, a preset or Auto Rejoin. When the automatic reconnect opens the client again, the After auto-reconnect recording plays instead.")}
                 </div>
               </div>
               <div className="space-y-2 border-t theme-border pt-3" role="group" aria-labelledby="recordings-when-afk">

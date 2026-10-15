@@ -16,7 +16,14 @@ type Translate = ReturnType<typeof useTr>;
 
 /** O nome de cada vaga na tela (as colunas, nesta ordem). */
 export function slotLabel(t: Translate, slot: RecordingSlot): string {
-  return slot === "afterReconnect" ? t("After auto-reconnect") : t("On anti-AFK");
+  switch (slot) {
+    case "afterReconnect":
+      return t("After auto-reconnect");
+    case "afterLaunch":
+      return t("After launch");
+    case "antiAfk":
+      return t("On anti-AFK");
+  }
 }
 
 /** Valor do `<select>` de uma conta: herdar, nenhuma ou `rec:<id>`. */
@@ -86,7 +93,7 @@ export function RecordingSlots({
   const t = useTr();
   const recordings: Recording[] = payload?.recordings ?? [];
   const ROW =
-    "grid grid-cols-1 gap-x-2 gap-y-1 @md/slots:grid-cols-[minmax(5.5rem,7.5rem)_minmax(0,1fr)_minmax(0,1fr)] @md/slots:items-center";
+    "grid grid-cols-1 gap-x-2 gap-y-1 @xl/slots:grid-cols-[minmax(5.5rem,7.5rem)_repeat(3,minmax(0,1fr))] @xl/slots:items-center";
 
   return (
     <section
@@ -99,18 +106,18 @@ export function RecordingSlots({
           {t("Which recording plays")}
         </h2>
         <p className="mt-0.5 text-[11px] leading-4 theme-muted">
-          {t("Two separate choices: one plays after an automatic reconnect (to put the character in place), the other on every AFK mode turn.")}
+          {t("Three separate choices: one plays after an automatic reconnect (to put the character in place), one after the app launches the account, and one on every AFK mode turn.")}
         </p>
       </div>
 
       {recordings.length === 0 ? (
         <div className="rounded-lg border border-dashed theme-border px-3 py-3 text-[11px] leading-4 theme-muted">
-          {t("Create or import a recording first. Then choose here which one plays after an automatic reconnect and which one on anti-AFK.")}
+          {t("Create or import a recording first. Then choose here which one plays after an automatic reconnect, after a launch and on anti-AFK.")}
         </div>
       ) : (
         <>
-          {/* Cabeçalho das colunas: só com espaço para as três colunas. */}
-          <div className={`${ROW} hidden @md/slots:grid`} aria-hidden="true">
+          {/* Cabeçalho das colunas: só com espaço para as colunas lado a lado. */}
+          <div className={`${ROW} hidden @xl/slots:grid`} aria-hidden="true">
             <span />
             {RECORDING_SLOTS.map((slot) => (
               <span key={slot} className="text-[11px] font-semibold uppercase tracking-wide theme-muted">
@@ -142,7 +149,7 @@ export function RecordingSlots({
               {t("Accounts with a client open by this app show up here, each with its own choice.")}
             </div>
           ) : (
-            <ul className="space-y-1.5 @md/slots:space-y-1" aria-label={t("Accounts")}>
+            <ul className="space-y-1.5 @xl/slots:space-y-1" aria-label={t("Accounts")}>
               {accounts.map((account) => (
                 <li key={account.userId} className={`${ROW} px-2`} data-testid={`recording-slots-${account.userId}`}>
                   <div className="flex min-w-0 items-center gap-1.5">
@@ -202,7 +209,7 @@ function GlobalCell({
   const [value, pick] = usePendingValue(saved);
   return (
     <label className="flex min-w-0 items-center gap-2">
-      <span className="w-32 shrink-0 text-[11px] theme-muted @md/slots:hidden">{slotLabel(t, slot)}</span>
+      <span className="w-32 shrink-0 text-[11px] theme-muted @xl/slots:hidden">{slotLabel(t, slot)}</span>
       <select
         value={value}
         onChange={(e) => {
@@ -256,7 +263,7 @@ function SlotCell({
         : recordings.find((r) => r.id === current.id)?.name ?? "";
   return (
     <div className="flex min-w-0 items-center gap-1">
-      <span className="w-32 shrink-0 text-[11px] theme-muted @md/slots:hidden" aria-hidden="true">
+      <span className="w-32 shrink-0 text-[11px] theme-muted @xl/slots:hidden" aria-hidden="true">
         {label}
       </span>
       <select

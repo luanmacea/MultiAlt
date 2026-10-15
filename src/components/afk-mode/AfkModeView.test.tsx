@@ -126,6 +126,24 @@ describe("AfkModeView — as duas abas", () => {
     );
   });
 
+  it("o cartão das gravações também diz quando toca depois de um launch", () => {
+    const only = defaultSettings();
+    (only as Record<string, Record<string, string>>).Recordings = { AfterLaunch: "true" };
+    base({ settings: only });
+    render(<AfkModeView variant="page" />);
+    expect(screen.getByRole("tab", { name: /Recordings/ })).toHaveTextContent("Plays after a launch");
+
+    cleanup();
+    const all = defaultSettings();
+    all.Afk = { Mode: "recording", IntervalMinutes: "2", IntervalSeconds: "30" };
+    (all as Record<string, Record<string, string>>).Recordings = { AfterReconnect: "true", AfterLaunch: "true" };
+    base({ settings: all });
+    render(<AfkModeView variant="page" />);
+    expect(screen.getByRole("tab", { name: /Recordings/ })).toHaveTextContent(
+      "Every 2 min 30 s in AFK mode, and after a launch or a reconnect"
+    );
+  });
+
   it("a página não tem botão de fechar; o modal tem", async () => {
     base();
     render(<AfkModeView variant="page" />);

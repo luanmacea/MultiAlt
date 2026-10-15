@@ -357,38 +357,132 @@ fn clamp_after_reconnect_delay_seconds(seconds: i64) -> i64 {
 static RECORDING_AFTER_RECONNECT: LazyLock<Mutex<AfterReconnectBook>> =
     LazyLock::new(|| Mutex::new(AfterReconnectBook::default()));
 
-fn with_after_reconnect_book<R>(f: impl FnOnce(&mut AfterReconnectBook) -> R) -> R {
-    let mut book = match RECORDING_AFTER_RECONNECT.lock() {
+/// As contas que um launch do app acabou de abrir (ideia 52): a mesma espera
+/// da reconexão — ficar o tempo configurado no jogo —, numa vaga própria.
+static RECORDING_AFTER_LAUNCH: LazyLock<Mutex<AfterReconnectBook>> =
+    LazyLock::new(|| Mutex::new(AfterReconnectBook::default()));
+
+fn with_book<R>(
+    book: &'static LazyLock<Mutex<AfterReconnectBook>>,
+    f: impl FnOnce(&mut AfterReconnectBook) -> R,
+) -> R {
+    let mut book = match book.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
     f(&mut book)
 }
 
+fn with_after_reconnect_book<R>(f: impl FnOnce(&mut AfterReconnectBook) -> R) -> R {
+    with_book(&RECORDING_AFTER_RECONNECT, f)
+}
+
+fn with_after_launch_book<R>(f: impl FnOnce(&mut AfterReconnectBook) -> R) -> R {
+    with_book(&RECORDING_AFTER_LAUNCH, f)
+}
+
+impl AfterReconnectBook {
+    /// Tira a conta da espera (a reconexão tomou conta dela).
+    fn forget(&mut self, user_id: i64) {
+        self.entries.remove(&user_id);
+    }
+}
+
+/// Arma os dois gatilhos sem tocar duas vezes no mesmo cliente: a reconexão
+/// relança pelo mesmo launch de sempre, mas o que vale para a conta que ela
+/// devolveu é a vaga "After auto-reconnect" — então ela **tira** a conta da
+/// espera do "After launch" (o cliente velho caiu; o novo é da reconexão).
+fn arm_after_reconnect_in(
+    after_reconnect: &mut AfterReconnectBook,
+    after_launch: &mut AfterReconnectBook,
+    user_id: i64,
+    now_ms: i64,
+) {
+    after_launch.forget(user_id);
+    after_reconnect.arm(user_id, now_ms);
+}
+
 /// A reconexão relançou a conta (`ReconnectNotice::Relaunched`): a gravação
 /// dela toca quando ela ficar o tempo configurado no jogo.
 pub(crate) fn arm_recording_after_reconnect(user_id: i64, now_ms: i64) {
-    with_after_reconnect_book(|book| book.arm(user_id, now_ms));
+    with_after_launch_book(|after_launch| {
+        with_after_reconnect_book(|after_reconnect| {
+            arm_after_reconnect_in(after_reconnect, after_launch, user_id, now_ms)
+        })
+    });
 }
 
-/// Uma passada (a cada 2 s, com a da reconexão): toca a gravação de quem já
-/// ficou o tempo no jogo.
+/// Um launch do app abriu o cliente da conta (launch normal, lote, preset,
+/// Auto Rejoin, web server): a gravação dela na vaga "After launch" toca
+/// quando ela ficar o tempo configurado no jogo — com `Recordings.AfterLaunch`
+/// ligado e uma gravação escolhida. O relançamento da **reconexão** não passa
+/// por aqui (`launch_arms_after_launch`): a vaga dele é a "After auto-reconnect".
+pub(crate) fn arm_recording_after_launch(user_id: i64, now_ms: i64) {
+    with_after_launch_book(|book| book.arm(user_id, now_ms));
+}
+
+/// O launch de `launch_roblox_windows` arma o "After launch"? Todo launch
+/// arma, menos o da reconexão automática — o único chamador que não deixa
+/// renovar a sessão (ninguém está olhando) e que arma a vaga dele próprio no
+/// `Relaunched`. Sem isto a conta reconectada tocaria as duas gravações.
+fn launch_arms_after_launch(allow_session_refresh: bool) -> bool {
+    allow_session_refresh
+}
+
+/// Um dos dois gatilhos "depois de entrar no jogo", com o que muda entre eles.
 #[cfg(target_os = "windows")]
-pub(crate) fn recording_after_reconnect_tick(app: &tauri::AppHandle) {
-    if with_after_reconnect_book(|book| book.is_empty()) {
+struct AfterJoinTrigger {
+    book: &'static LazyLock<Mutex<AfterReconnectBook>>,
+    slot: RecordingSlot,
+    enabled_key: &'static str,
+    delay_key: &'static str,
+    /// "depois da reconexão" / "depois do launch", para as linhas do Console.
+    when: &'static str,
+}
+
+#[cfg(target_os = "windows")]
+const AFTER_RECONNECT_TRIGGER: AfterJoinTrigger = AfterJoinTrigger {
+    book: &RECORDING_AFTER_RECONNECT,
+    slot: RecordingSlot::AfterReconnect,
+    enabled_key: "AfterReconnect",
+    delay_key: "AfterReconnectDelaySeconds",
+    when: "depois da reconexão",
+};
+
+#[cfg(target_os = "windows")]
+const AFTER_LAUNCH_TRIGGER: AfterJoinTrigger = AfterJoinTrigger {
+    book: &RECORDING_AFTER_LAUNCH,
+    slot: RecordingSlot::AfterLaunch,
+    enabled_key: "AfterLaunch",
+    delay_key: "AfterLaunchDelaySeconds",
+    when: "depois do launch",
+};
+
+/// Uma passada (a cada 2 s, com a da reconexão): toca a gravação de quem já
+/// ficou o tempo no jogo — depois da reconexão e depois de um launch.
+#[cfg(target_os = "windows")]
+pub(crate) fn recording_after_join_tick(app: &tauri::AppHandle) {
+    for trigger in [&AFTER_RECONNECT_TRIGGER, &AFTER_LAUNCH_TRIGGER] {
+        recording_after_join_tick_for(app, trigger);
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn recording_after_join_tick_for(app: &tauri::AppHandle, trigger: &AfterJoinTrigger) {
+    if with_book(trigger.book, |book| book.is_empty()) {
         return;
     }
     let settings = app.state::<SettingsStore>();
-    let enabled = settings.get_bool("Recordings", "AfterReconnect");
+    let enabled = settings.get_bool("Recordings", trigger.enabled_key);
     let delay_s = clamp_after_reconnect_delay_seconds(
         settings
-            .get_int("Recordings", "AfterReconnectDelaySeconds")
+            .get_int("Recordings", trigger.delay_key)
             .map(|v| v as i64)
             .unwrap_or(30),
     );
     let tracked = platform::windows::tracker().get_all();
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let due = with_after_reconnect_book(|book| {
+    let due = with_book(trigger.book, |book| {
         book.tick(now_ms, enabled, delay_s * 1_000, |user_id| {
             let process = tracked.iter().find(|p| p.user_id == user_id);
             AfterReconnectObservation {
@@ -408,22 +502,22 @@ pub(crate) fn recording_after_reconnect_tick(app: &tauri::AppHandle) {
         .load()
         .unwrap_or_default();
     for user_id in due {
-        // A vaga "After auto-reconnect" (posicionar o personagem), não a do
-        // Modo AFK.
-        let plans = recording_plans_for(&file, RecordingSlot::AfterReconnect, &[user_id]);
+        // A vaga do gatilho (posicionar o personagem), não a do Modo AFK.
+        let plans = recording_plans_for(&file, trigger.slot, &[user_id]);
         if plans.is_empty() {
             emit_launch_log(
                 app,
                 user_id,
                 "info",
                 "recording",
-                "Voltou ao jogo, mas a conta não tem gravação para depois da reconexão",
+                format!("Entrou no jogo, mas a conta não tem gravação para {}", trigger.when),
             );
             continue;
         }
-        let name = recording_for_account(&file, RecordingSlot::AfterReconnect, user_id)
+        let name = recording_for_account(&file, trigger.slot, user_id)
             .map(|r| r.name.clone())
             .unwrap_or_default();
+        let when = trigger.when;
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             emit_launch_log(
@@ -431,7 +525,7 @@ pub(crate) fn recording_after_reconnect_tick(app: &tauri::AppHandle) {
                 user_id,
                 "info",
                 "recording",
-                format!("Tocando a gravação \"{name}\" depois da reconexão"),
+                format!("Tocando a gravação \"{name}\" {when}"),
             );
             let outcome = run_recording_playback(&app, plans, vec![user_id]).await;
             let (level, line) = match outcome.first().map(|(_, e)| e.clone()) {
@@ -630,13 +724,14 @@ fn recording_slot_payload(choices: SlotChoices) -> RecordingSlotPayload {
     }
 }
 
-/// O que a tela recebe: a biblioteca, as escolhas das duas vagas e a lista de
+/// O que a tela recebe: a biblioteca, as escolhas das três vagas e a lista de
 /// teclas.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RecordingsPayload {
     recordings: Vec<Recording>,
     after_reconnect: RecordingSlotPayload,
+    after_launch: RecordingSlotPayload,
     anti_afk: RecordingSlotPayload,
     keys: Vec<String>,
 }
@@ -645,6 +740,7 @@ fn recordings_payload(file: RecordingsFile) -> RecordingsPayload {
     RecordingsPayload {
         recordings: file.recordings,
         after_reconnect: recording_slot_payload(file.after_reconnect),
+        after_launch: recording_slot_payload(file.after_launch),
         anti_afk: recording_slot_payload(file.anti_afk),
         keys: data::recordings::recording_key_names(),
     }
@@ -1089,6 +1185,8 @@ mod recordings_playback_tests {
         let json = serde_json::to_value(&payload).unwrap();
         assert_eq!(json["antiAfk"]["accounts"]["44"], serde_json::Value::Null);
         assert_eq!(json["afterReconnect"]["accounts"]["22"], "all");
+        // A vaga "After launch" vai junto, vazia quando nada foi escolhido.
+        assert_eq!(json["afterLaunch"]["defaultId"], serde_json::Value::Null);
         assert_eq!(&payload.keys[..2], &["Space".to_string(), "W".to_string()]);
     }
 
@@ -1216,6 +1314,105 @@ mod recordings_after_reconnect_tests {
         assert_eq!(clamp_after_reconnect_delay_seconds(0), 5);
         assert_eq!(clamp_after_reconnect_delay_seconds(-1), 5);
         assert_eq!(clamp_after_reconnect_delay_seconds(99_999), 3_600);
+    }
+}
+
+#[cfg(test)]
+mod recordings_after_launch_tests {
+    use super::*;
+
+    fn in_game(pid: u32) -> AfterReconnectObservation {
+        AfterReconnectObservation {
+            tracked_pid: Some(pid),
+            adopted: false,
+            in_game: true,
+        }
+    }
+
+    /// O trecho de `source` que começa em `start` e vai até o próximo item do
+    /// arquivo. (Sem chave fechando dentro de texto: este arquivo é varrido
+    /// pelo `afk_input_safety_tests`, que conta chaves.)
+    fn function_body<'a>(source: &'a str, start: &str) -> &'a str {
+        let from = source.find(start).unwrap_or_else(|| panic!("{start} sumiu"));
+        let body = &source[from..];
+        let rest = &body[1..];
+        let end = ["\nfn ", "\nasync fn ", "\n#[", "\npub", "\nconst ", "\nstatic "]
+            .iter()
+            .filter_map(|marker| rest.find(marker))
+            .min()
+            .unwrap_or(rest.len());
+        &body[..end + 1]
+    }
+
+    /// Depois de um launch, a conta toca a gravação da vaga "After launch"
+    /// quando fica o tempo no jogo — a mesma espera da reconexão.
+    #[test]
+    fn a_launched_account_plays_after_the_delay_in_game_once() {
+        let mut book = AfterReconnectBook::default();
+        book.arm(11, 0);
+        assert!(book.tick(1_000, true, 30_000, |_| in_game(9)).is_empty());
+        assert_eq!(book.tick(31_000, true, 30_000, |_| in_game(9)), vec![11]);
+        assert!(book.is_empty(), "uma vez só");
+    }
+
+    /// Desligado (o padrão): ninguém toca, e quem estava esperando é esquecido.
+    #[test]
+    fn with_the_option_off_nothing_plays() {
+        let mut book = AfterReconnectBook::default();
+        book.arm(11, 0);
+        assert!(book.tick(100_000, false, 5_000, |_| in_game(9)).is_empty());
+        assert!(book.is_empty());
+    }
+
+    /// A reconexão relança pelo launch de sempre: a conta reconectada toca só a
+    /// gravação da vaga dela, nunca as duas.
+    #[test]
+    fn a_reconnect_takes_the_account_out_of_the_after_launch_wait() {
+        let mut after_reconnect = AfterReconnectBook::default();
+        let mut after_launch = AfterReconnectBook::default();
+        after_launch.arm(11, 0);
+        after_launch.arm(22, 0);
+        arm_after_reconnect_in(&mut after_reconnect, &mut after_launch, 11, 5_000);
+        assert!(!after_reconnect.is_empty());
+        // A 11 sai da espera do "After launch"; a 22 continua.
+        let fired = after_launch.tick(100_000, true, 1, |_| in_game(9));
+        assert!(fired.is_empty(), "primeira passada só marca a entrada");
+        assert_eq!(after_launch.tick(100_001, true, 1, |_| in_game(9)), vec![22]);
+    }
+
+    #[test]
+    fn every_launch_arms_except_the_reconnect_relaunch() {
+        assert!(launch_arms_after_launch(true));
+        assert!(!launch_arms_after_launch(false));
+    }
+
+    /// Os pontos em que um launch do app passa a rastrear o cliente armam o
+    /// "After launch": o launch de uma conta (com a guarda da reconexão), o lote
+    /// e os presets (a fila) e o Auto Rejoin.
+    #[test]
+    fn every_launch_path_arms_the_after_launch_recording() {
+        let launch = include_str!("launch.rs");
+        let single = function_body(launch, "async fn launch_roblox_windows(");
+        assert!(single.contains("if launch_arms_after_launch(allow_session_refresh)"));
+        assert!(single.contains("arm_recording_after_launch(user_id"));
+        let queue = function_body(launch, "async fn run_launch_queue_windows(");
+        assert!(queue.contains("arm_recording_after_launch(uid"));
+        let botting = include_str!("botting.rs");
+        assert!(botting.contains("arm_recording_after_launch(user_id"));
+        // A reconexão chama o launch de uma conta sem deixar renovar a sessão:
+        // é isso que a guarda reconhece.
+        let reconnect = function_body(include_str!("reconnect.rs"), "async fn run_reconnect_attempt(");
+        let call = &reconnect[reconnect.find("launch_roblox_windows(").expect("launch")..];
+        let call = &call[..call.find(".await").expect("fim da chamada")];
+        assert!(call.trim_end().trim_end_matches(')').trim_end().trim_end_matches(',').ends_with("false"));
+    }
+
+    #[test]
+    fn the_after_launch_slot_parses_from_the_screen() {
+        assert_eq!(
+            serde_json::from_str::<RecordingSlot>(r#""afterLaunch""#).unwrap(),
+            RecordingSlot::AfterLaunch
+        );
     }
 }
 

@@ -228,8 +228,10 @@ Com `General.BottingUseSharedClientProfile=true`, Main e Alt usam o perfil Norma
 |---|---|---|
 | `AfterReconnect` | `false` | Toca a gravação da conta na vaga After auto-reconnect quando a reconexão automática a devolve ao jogo (uma vez, só nela). |
 | `AfterReconnectDelaySeconds` | `30` | Quanto tempo a conta fica no jogo antes de a gravação tocar (5–3600 s). |
+| `AfterLaunch` | `false` | "Play after a launch": toca a gravação da conta na vaga After launch depois de **qualquer** launch do app (uma conta, lote, preset, Auto Rejoin, web server), uma vez, quando ela fica o tempo no jogo. O relançamento da reconexão automática não conta (toca a vaga dela). Ver [recordings.md](recordings.md#depois-do-launch). |
+| `AfterLaunchDelaySeconds` | `30` | Quanto tempo a conta fica no jogo, depois do launch, antes de a gravação tocar (5–3600 s). |
 
-A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas.
+A biblioteca de gravações e qual vale para cada conta em cada vaga (global e por conta) ficam em `RAMRecordings.json`, não no INI. Nenhuma chave do INI mudou com as duas vagas; a terceira vaga (After launch) trouxe `AfterLaunch` e `AfterLaunchDelaySeconds`.
 | `WaitForFullscreen` | `true` | "Wait while a fullscreen window is in front": com um vídeo ou outro jogo em tela cheia na frente, o ciclo espera em vez de tirar o foco, até 5 min além da hora da conta. Só `"false"` desliga. |
 
 ### `[Generator]` / `[BloxGen]`

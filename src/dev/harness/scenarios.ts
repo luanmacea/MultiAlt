@@ -82,9 +82,11 @@ let harnessGameLists: Record<string, unknown[]> | null = null;
 type HarnessSlot = { defaultId: string | null; accounts: Record<string, string | null> };
 
 /** O `RAMRecordings.json` do harness, em memória (começa vazio; o cenário `recordings` enche). */
-const harnessRecordings: Record<string, unknown> & { afterReconnect: HarnessSlot; antiAfk: HarnessSlot } = {
+type HarnessSlotName = "afterReconnect" | "afterLaunch" | "antiAfk";
+const harnessRecordings: Record<string, unknown> & Record<HarnessSlotName, HarnessSlot> = {
   recordings: [],
   afterReconnect: { defaultId: null, accounts: {} },
+  afterLaunch: { defaultId: null, accounts: {} },
   antiAfk: { defaultId: null, accounts: {} },
   keys: ["Space", "W", "A", "S", "D", "E", "F", "R", "Q", "1", "2", "3", "4", "5", "Shift", "Up", "Down", "Left", "Right"],
 };
@@ -167,7 +169,7 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "delete_recording": {
       const list = harnessRecordings.recordings as { id: string }[];
       harnessRecordings.recordings = list.filter((r) => r.id !== args?.id);
-      for (const slot of ["afterReconnect", "antiAfk"] as const) {
+      for (const slot of ["afterReconnect", "afterLaunch", "antiAfk"] as const) {
         const choices = harnessRecordings[slot];
         harnessRecordings[slot] = {
           defaultId: choices.defaultId === args?.id ? null : choices.defaultId,
@@ -178,7 +180,7 @@ const baseHandler: InvokeHandler = (cmd, args) => {
       return true;
     }
     case "set_default_recording": {
-      const slot = args?.slot as "afterReconnect" | "antiAfk";
+      const slot = args?.slot as HarnessSlotName;
       harnessRecordings[slot] = { ...harnessRecordings[slot], defaultId: (args?.id as string | null) ?? null };
       harnessEmit("recordings-changed", null);
       return null;
@@ -186,7 +188,7 @@ const baseHandler: InvokeHandler = (cmd, args) => {
     case "set_account_recording": {
       // O mesmo contrato do backend: herdar tira a conta do mapa, "none" grava
       // `null`, a própria grava o id.
-      const slot = args?.slot as "afterReconnect" | "antiAfk";
+      const slot = args?.slot as HarnessSlotName;
       const choice = args?.choice as { kind: "inherit" | "none" | "recording"; id?: string };
       const accounts = { ...harnessRecordings[slot].accounts };
       const key = String(args?.userId);
@@ -2711,7 +2713,12 @@ const SCENARIOS: Record<string, () => void> = {
       ClickX: "50",
       ClickY: "50",
     };
-    settings.Recordings = { AfterReconnect: "true", AfterReconnectDelaySeconds: "45" };
+    settings.Recordings = {
+      AfterReconnect: "true",
+      AfterReconnectDelaySeconds: "45",
+      AfterLaunch: "true",
+      AfterLaunchDelaySeconds: "20",
+    };
     settings.General = { ...settings.General, EnableMultiRbx: "true", BottingEnabled: "true" };
     if (params.get("recs") !== "0") {
       const now = Date.now();
@@ -2757,6 +2764,11 @@ const SCENARIOS: Record<string, () => void> = {
       harnessRecordings.afterReconnect = {
         defaultId: "rec-walk",
         accounts: overrides ? { [id(3)]: null } : {},
+      };
+      // Depois do launch: a mesma "Walk to the spot" só para a 4ª conta.
+      harnessRecordings.afterLaunch = {
+        defaultId: null,
+        accounts: overrides ? { [id(4)]: "rec-walk" } : {},
       };
       harnessRecordings.antiAfk = {
         defaultId: "rec-jump",

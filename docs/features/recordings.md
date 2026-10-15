@@ -19,11 +19,14 @@ da reconexão). Os passos são escritos à mão no editor.
 Pedido do dono (11/10/2026): até então uma gravação era escolhida uma vez por
 conta e tocava nos dois gatilhos. Mas a de depois da reconexão serve para
 **posicionar o personagem**, e a do anti-AFK faz **uma ação em outro lugar** —
-são gravações diferentes. Agora há duas **vagas** (`RecordingSlot`):
+são gravações diferentes. Agora há duas **vagas** (`RecordingSlot`) — e, desde
+15/10/2026, uma terceira, **After launch** (ideia 52), que toca depois de
+qualquer launch do app:
 
 | Vaga | Na tela (en / pt / es) | Quem toca |
 |---|---|---|
 | `afterReconnect` | "After auto-reconnect" / "Depois da reconexão automática" / "Tras la reconexión automática" | a [reconexão automática](#depois-da-reconexão), uma vez |
+| `afterLaunch` | "After launch" / "Depois de iniciar" / "Tras iniciar" | [qualquer launch do app](#depois-do-launch), uma vez (ideia 52, 15/10/2026) |
 | `antiAfk` | "On anti-AFK" / "No anti-AFK" / "En el anti-AFK" | o [Modo AFK](#modo-afk) no modo gravação, a cada intervalo |
 
 Cada vaga tem uma gravação **global**, que toda conta herda, e cada conta pode
@@ -44,10 +47,11 @@ app não precisa ler teclado nem mouse. O editor continua para revisar e ajustar
 | Arquivo | Papel |
 |---|---|
 | [data/recordings.rs](../../src-tauri/src/data/recordings.rs) | Modelo (`Recording`, `RecordingStep`, `RecordingsFile`, as vagas `RecordingSlot`/`SlotChoices`/`AccountRecordingChoice`), lista fechada de teclas (`RECORDING_KEYS`), validação (`normalize_recording`), estimativa de duração, qual gravação vale para a conta numa vaga (`recording_for_account`), a migração da versão 1 (`migrate_recordings_file`) e o store `RAMRecordings.json` |
-| [commands/recordings.rs](../../src-tauri/src/commands/recordings.rs) | Comandos da tela, a reprodução (`play_recording_with`, `play_recording_in_window`), o "Tocar agora" e o gatilho depois da reconexão (`AfterReconnectBook`) |
+| [commands/recordings.rs](../../src-tauri/src/commands/recordings.rs) | Comandos da tela, a reprodução (`play_recording_with`, `play_recording_in_window`), o "Tocar agora" e os gatilhos depois da reconexão e depois do launch (`AfterReconnectBook`, `recording_after_join_tick`, `arm_recording_after_launch`) |
 | [commands/afk.rs](../../src-tauri/src/commands/afk.rs) | O ciclo que toca (`run_afk_cycle_blocking`, ação `AfkCycleAction::Recording`), o modo `recording` do Modo AFK e os códigos `noRecording`/`focusLost`/`stopped` |
 | [platform/windows/input.rs](../../src-tauri/src/platform/windows/input.rs) | As portas novas: `press_recording_key` (tecla da lista das gravações) e `click_recording_point` (a receita do clique do AFK, com o clique de foco opcional) |
-| [commands/reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | Arma o gatilho no `Relaunched` e chama a passada dele a cada 2 s |
+| [commands/reconnect.rs](../../src-tauri/src/commands/reconnect.rs) | Arma o gatilho no `Relaunched` e chama a passada dos dois gatilhos a cada 2 s |
+| [commands/launch.rs](../../src-tauri/src/commands/launch.rs), [commands/botting.rs](../../src-tauri/src/commands/botting.rs) | Armam o "After launch" quando o launch passa a rastrear o cliente |
 | [RecordingsTab.tsx](../../src/components/afk-mode/RecordingsTab.tsx), [recordings/useRecordings.ts](../../src/components/afk-mode/recordings/useRecordings.ts) | A aba **Recordings** do Modo AFK |
 | [recordings/RecordingSlots.tsx](../../src/components/afk-mode/recordings/RecordingSlots.tsx) | A área "Which recording plays": a global de cada vaga e a escolha de cada conta |
 | [data/tinytask.rs](../../src-tauri/src/data/tinytask.rs) | Importar do TinyTask: leitura do `.rec` (`parse_tinytask`) e conversão em passos (`convert_tinytask_events`), puras; os comandos `import_tinytask_recording`, `recording_window_area` e `play_recording_draft` moram em commands/recordings.rs |
@@ -176,9 +180,12 @@ restauração e na migração de pasta):
       ] }
   ],
   "afterReconnect": { "defaultId": "rec-1760000000000", "accounts": { "123456": null } },
+  "afterLaunch": { "defaultId": null, "accounts": {} },
   "antiAfk": { "defaultId": null, "accounts": { "123456": "rec-1760000000000" } }
 }
 ```
+
+A vaga `afterLaunch` entrou depois (15/10/2026) como campo novo com padrão seguro, sem subir a versão: arquivo sem ela é lido com a vaga vazia, e a migração da versão 1 a deixa vazia (a versão 1 não tinha esse gatilho).
 
 Em cada vaga, `accounts` leva o user id à escolha da conta: o id da própria ou
 `null` = nenhuma para ela. Conta fora do mapa herda o `defaultId`.
@@ -200,7 +207,7 @@ antigos) — as gravações continuam lá.
   nada em memória (restaurar um backup vale na hora).
 - O tempo é guardado como **espera explícita entre passos** (e não como instante
   de cada evento): sobrevive a cortar, reordenar e editar à mão.
-- Apagar uma gravação a tira das duas vagas: deixa de ser a global, e a conta
+- Apagar uma gravação a tira de todas as vagas: deixa de ser a global, e a conta
   que a tinha como própria volta a herdar a global ("None" escolhido fica).
   Escolha que aponta para gravação inexistente (arquivo editado à mão) cai na
   global.
@@ -353,8 +360,35 @@ reconexão, antes das saídas cedo):
 - sem gravação para a conta nessa vaga: só a linha no Console ("…não tem
   gravação para depois da reconexão").
 
-Console (`step: "recording"`): "Tocando a gravação …", "Gravação … tocada" ou
-"… não tocada: motivo".
+### Depois do launch
+
+Ideia 52 (15/10/2026): a mesma espera da reconexão, depois de **qualquer**
+launch do app. `Recordings.AfterLaunch` (padrão desligado) e
+`Recordings.AfterLaunchDelaySeconds` (padrão 30, 5–3600), e a gravação da
+conta na vaga **After launch** — sem gravação escolhida, nada toca.
+
+- **Onde arma** (`arm_recording_after_launch`, no ponto em que o launch passa a
+  rastrear o cliente): `launch_roblox_windows` (uma conta), `run_launch_queue_windows`
+  (lote e presets), o relançamento do Auto Rejoin (`botting.rs`) e os launches do
+  web server.
+- **Sem tocar duas vezes:** a reconexão relança pelo mesmo `launch_roblox_windows`,
+  mas é o único chamador que não deixa renovar a sessão — `launch_arms_after_launch`
+  usa isso para não armar o After launch nele. E quando a reconexão arma a vaga
+  dela (`arm_recording_after_reconnect`), tira a conta da espera do After launch
+  (`arm_after_reconnect_in`): a conta reconectada toca só a gravação de depois da
+  reconexão.
+- O resto é igual à reconexão (mesmo `AfterReconnectBook`, em outra instância):
+  só depois do tempo no jogo (log do cliente), uma vez, sair do jogo recomeça a
+  contagem, cliente do site nunca, desiste em 15 min, desligar a opção esquece
+  todo mundo. A passada das duas é `recording_after_join_tick`, a cada 2 s.
+- Na tela: a coluna **After launch** em "Which recording plays" (ao lado da de
+  depois da reconexão; com o espaço estreito, cada conta vira um bloco) e o grupo
+  **After launch** em "When it plays" ("Play after a launch" e o tempo no jogo).
+  O resumo da Session e o cartão da aba ganham a linha/frase do After launch.
+
+Console (`step: "recording"`): "Tocando a gravação … depois da reconexão" /
+"… depois do launch", "Gravação … tocada" ou "… não tocada: motivo"; sem
+gravação na vaga, "Entrou no jogo, mas a conta não tem gravação para …".
 
 ## Regras de negócio
 
@@ -472,6 +506,13 @@ Suíte `recordings` (`bun run t recordings`):
 - `recordings_after_reconnect_tests` — só depois do tempo no jogo, só a conta que
   reconectou, uma vez; sair do jogo recomeça; cliente novo recomeça; opção
   desligada esquece; cliente do site nunca; desiste em 15 min; limites do tempo.
+- `recordings_after_launch_tests` — depois do launch toca uma vez depois do tempo
+  no jogo; desligado não toca; a reconexão tira a conta da espera do After launch
+  (nunca as duas gravações); todo launch arma menos o relançamento da reconexão;
+  os pontos de launch (uma conta, fila/preset, Auto Rejoin) armam; a vaga
+  `afterLaunch` vinda da tela. Em `recordings_store_tests`: a vaga nova
+  independente e vazia por padrão (também depois da migração da versão 1) e
+  arquivo da versão 2 sem ela.
 - `recordings_afk_mode_tests` — modo `recording` no Modo AFK, liga sem tecla,
   clique sem o de foco é um clique só (e o AFK continua com dois).
 - `win_input_tests` — códigos das teclas das gravações, tecla fora da lista nunca

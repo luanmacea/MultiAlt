@@ -51,15 +51,22 @@ export function AfkModeView({
   const page = variant === "page";
   // O cartão da aba Recordings diz quando a gravação toca, sem abrir a aba.
   const triggers = recordingTriggers(null, store.settings);
-  const recordingsHint =
-    triggers.afkRepeats && triggers.afterReconnect
-      ? t("Every {{interval}} in AFK mode, and after a reconnect", {
-          interval: formatAfkIntervalSeconds(triggers.intervalSeconds),
-        })
-      : triggers.afkRepeats
-        ? t("Every {{interval}} in AFK mode", { interval: formatAfkIntervalSeconds(triggers.intervalSeconds) })
-        : triggers.afterReconnect
-          ? t("Plays after an automatic reconnect")
+  const interval = formatAfkIntervalSeconds(triggers.intervalSeconds);
+  const afterBoth = triggers.afterLaunch && triggers.afterReconnect;
+  const recordingsHint = triggers.afkRepeats
+    ? afterBoth
+      ? t("Every {{interval}} in AFK mode, and after a launch or a reconnect", { interval })
+      : triggers.afterReconnect
+        ? t("Every {{interval}} in AFK mode, and after a reconnect", { interval })
+        : triggers.afterLaunch
+          ? t("Every {{interval}} in AFK mode, and after a launch", { interval })
+          : t("Every {{interval}} in AFK mode", { interval })
+    : afterBoth
+      ? t("Plays after a launch and after an automatic reconnect")
+      : triggers.afterReconnect
+        ? t("Plays after an automatic reconnect")
+        : triggers.afterLaunch
+          ? t("Plays after a launch")
           : t("Sequences of keys, clicks and waits played on each window");
 
   const tabs: {

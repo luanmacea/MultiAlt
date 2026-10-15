@@ -388,6 +388,51 @@ describe("RecordingsTab — qual gravação toca, por vaga", () => {
     expect(calls("set_default_recording")[0][1]).toEqual({ slot: "antiAfk", id: "rec-1" });
   });
 
+  /**
+   * Ideia 52: uma gravação depois de **qualquer** launch do app, numa vaga
+   * própria ao lado da "After auto-reconnect". Desligada por padrão.
+   */
+  it("a vaga After launch tem a global e a escolha de cada conta", async () => {
+    renderTab();
+    await openRecording();
+    await userEvent.selectOptions(screen.getByLabelText("Global recording: After launch"), "rec-1");
+    expect(calls("set_default_recording")[0][1]).toEqual({ slot: "afterLaunch", id: "rec-1" });
+    await userEvent.selectOptions(screen.getByLabelText("After launch for bravo"), "none");
+    expect(calls("set_account_recording")[0][1]).toEqual({ slot: "afterLaunch", userId: 22, choice: { kind: "none" } });
+  });
+
+  it("payload sem a vaga nova (dublê antigo) mostra a vaga vazia", async () => {
+    payload = library();
+    delete (payload as Partial<RecordingsPayload>).afterLaunch;
+    renderTab();
+    await openRecording();
+    expect((screen.getByLabelText("Global recording: After launch") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByLabelText("After launch for alpha")).toHaveAttribute("data-own", "false");
+  });
+
+  it("tocar depois do launch nasce desligado e grava no INI, com o tempo no jogo", async () => {
+    const settings = defaultSettings() as Record<string, Record<string, string>>;
+    settings.Recordings = { AfterLaunch: "false", AfterLaunchDelaySeconds: "20" };
+    const { store } = renderTab({ settings: settings as never });
+    await openRecording();
+    const toggle = screen.getByRole("button", { name: "Play after a launch" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByLabelText("Seconds in the game before playing after a launch")).toHaveValue("20");
+    await userEvent.click(toggle);
+    expect(store.updateSetting).toHaveBeenCalledWith("Recordings", "AfterLaunch", "true");
+    // A reconexão continua com a chave dela.
+    expect(store.updateSetting).not.toHaveBeenCalledWith("Recordings", "AfterReconnect", expect.anything());
+  });
+
+  it("a gravação aberta diz para quem toca também depois do launch", async () => {
+    payload = library({ afterLaunch: { defaultId: "rec-1", accounts: {} } });
+    renderTab();
+    await openRecording();
+    expect(screen.getByTestId("recording-use")).toHaveTextContent(
+      "After launch: global, for every account without its own choice."
+    );
+  });
+
   it("gravação que nenhuma vaga usa diz isso", async () => {
     renderTab();
     await openRecording();

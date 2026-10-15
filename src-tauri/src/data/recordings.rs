@@ -191,12 +191,20 @@ fn legacy_file_version() -> u32 {
 pub enum RecordingSlot {
     /// "After auto-reconnect" — `Recordings.AfterReconnect`.
     AfterReconnect,
+    /// "After launch" — `Recordings.AfterLaunch` (ideia 52, 15/10/2026): toca
+    /// depois de **qualquer** launch do app — normal, preset, Auto Rejoin —,
+    /// menos o da reconexão automática, que tem a vaga dela.
+    AfterLaunch,
     /// "On anti-AFK" — o Modo AFK no modo `recording`.
     AntiAfk,
 }
 
 impl RecordingSlot {
-    pub const ALL: [RecordingSlot; 2] = [RecordingSlot::AfterReconnect, RecordingSlot::AntiAfk];
+    pub const ALL: [RecordingSlot; 3] = [
+        RecordingSlot::AfterReconnect,
+        RecordingSlot::AfterLaunch,
+        RecordingSlot::AntiAfk,
+    ];
 }
 
 /// Quem toca o quê numa vaga.
@@ -241,6 +249,11 @@ pub struct RecordingsFile {
     /// Depois da reconexão automática.
     #[serde(default)]
     pub after_reconnect: SlotChoices,
+    /// Depois de um launch (ideia 52). Campo novo com padrão seguro (nada
+    /// escolhido = nada toca): entrou sem subir a versão do arquivo, e a
+    /// migração da versão 1 o deixa vazio — a versão 1 não tinha esse gatilho.
+    #[serde(default)]
+    pub after_launch: SlotChoices,
     /// No Modo AFK (anti-AFK).
     #[serde(default)]
     pub anti_afk: SlotChoices,
@@ -258,6 +271,7 @@ impl Default for RecordingsFile {
             version: RECORDINGS_FILE_VERSION,
             recordings: Vec::new(),
             after_reconnect: SlotChoices::default(),
+            after_launch: SlotChoices::default(),
             anti_afk: SlotChoices::default(),
             legacy_default_id: None,
             legacy_account_ids: HashMap::new(),
@@ -269,6 +283,7 @@ impl RecordingsFile {
     pub fn slot(&self, slot: RecordingSlot) -> &SlotChoices {
         match slot {
             RecordingSlot::AfterReconnect => &self.after_reconnect,
+            RecordingSlot::AfterLaunch => &self.after_launch,
             RecordingSlot::AntiAfk => &self.anti_afk,
         }
     }
@@ -276,6 +291,7 @@ impl RecordingsFile {
     pub fn slot_mut(&mut self, slot: RecordingSlot) -> &mut SlotChoices {
         match slot {
             RecordingSlot::AfterReconnect => &mut self.after_reconnect,
+            RecordingSlot::AfterLaunch => &mut self.after_launch,
             RecordingSlot::AntiAfk => &mut self.anti_afk,
         }
     }
@@ -571,7 +587,7 @@ impl RecordingStore {
         if file.recordings.len() == before {
             return Ok(false);
         }
-        // Nas duas vagas: a global some e a conta que a tinha como própria
+        // Em todas as vagas: a global some e a conta que a tinha como própria
         // volta a herdar a global ("None" escolhido fica).
         for slot in RecordingSlot::ALL {
             let choices = file.slot_mut(slot);
@@ -914,7 +930,10 @@ mod recordings_store_tests {
         let store = RecordingStore::new(dir.file());
         let file = store.load().unwrap();
         assert_eq!(file.version, 2);
-        for slot in RecordingSlot::ALL {
+        // A versão 1 só tinha os dois gatilhos de antes; "After launch" nasce
+        // vazio (nada toca até a pessoa escolher).
+        assert_eq!(file.after_launch, SlotChoices::default());
+        for slot in [RecordingSlot::AfterReconnect, RecordingSlot::AntiAfk] {
             let choices = file.slot(slot);
             assert_eq!(choices.default_id.as_deref(), Some("walk"), "{slot:?}");
             assert_eq!(choices.accounts.get(&11), Some(&Some("jump".to_string())), "{slot:?}");
@@ -1016,6 +1035,50 @@ mod recordings_store_tests {
         let file = store.load().unwrap();
         assert_eq!(file.anti_afk.accounts.get(&11), None);
         assert_eq!(file.after_reconnect.accounts.get(&22), Some(&None));
+    }
+
+    /// A vaga "After launch" (ideia 52) é a terceira, independente das outras
+    /// duas, e nasce vazia: sem escolha, nada toca depois de um launch.
+    #[test]
+    fn the_after_launch_slot_is_set_on_its_own_and_starts_empty() {
+        let dir = TempDir::new();
+        let store = RecordingStore::new(dir.file());
+        let walk = store.upsert(recording("Walk"), 1).unwrap();
+        let farm = store.upsert(recording("Farm"), 2).unwrap();
+        store.set_default(RecordingSlot::AfterReconnect, Some(walk.id.clone())).unwrap();
+        assert!(recording_for_account(&store.load().unwrap(), RecordingSlot::AfterLaunch, 11).is_none());
+
+        store.set_default(RecordingSlot::AfterLaunch, Some(farm.id.clone())).unwrap();
+        store
+            .set_for_account(RecordingSlot::AfterLaunch, 22, AccountRecordingChoice::None)
+            .unwrap();
+        let file = store.load().unwrap();
+        let id_of = |slot, uid| recording_for_account(&file, slot, uid).map(|r| r.id.clone());
+        assert_eq!(id_of(RecordingSlot::AfterLaunch, 11), Some(farm.id.clone()));
+        assert_eq!(id_of(RecordingSlot::AfterLaunch, 22), None);
+        assert_eq!(id_of(RecordingSlot::AfterReconnect, 22), Some(walk.id.clone()));
+        assert_eq!(id_of(RecordingSlot::AntiAfk, 11), None);
+
+        // No JSON, em camelCase; apagar a gravação a tira desta vaga também.
+        let raw: serde_json::Value = serde_json::from_str(&fs::read_to_string(dir.file()).unwrap()).unwrap();
+        assert_eq!(raw["afterLaunch"]["defaultId"], farm.id.as_str());
+        store.delete(&farm.id).unwrap();
+        assert_eq!(store.load().unwrap().after_launch.default_id, None);
+    }
+
+    /// Arquivo de antes da vaga nova (versão 2 sem `afterLaunch`) é lido com a
+    /// vaga vazia — campo novo com padrão seguro, sem subir a versão.
+    #[test]
+    fn a_version_2_file_without_the_after_launch_slot_still_loads() {
+        let dir = TempDir::new();
+        fs::write(
+            dir.file(),
+            r#"{ "version": 2, "recordings": [], "afterReconnect": { "defaultId": null, "accounts": {} },
+                "antiAfk": { "defaultId": null, "accounts": {} } }"#,
+        )
+        .unwrap();
+        let file = RecordingStore::new(dir.file()).load().unwrap();
+        assert_eq!(file.after_launch, SlotChoices::default());
     }
 }
 

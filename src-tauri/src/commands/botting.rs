@@ -411,6 +411,9 @@ async fn launch_account_for_cycle(
         browser_tracker_id,
         botting_tracked_version(use_old_join, resolved_version_id.clone()),
     );
+    // Gravação "After launch" (commands/recordings.rs): cada relançamento do
+    // Auto Rejoin também é um launch.
+    arm_recording_after_launch(user_id, chrono::Utc::now().timestamp_millis());
     {
         let settings_state = app.state::<SettingsStore>();
         apply_windows_post_launch_profile(Some(app), settings_state.inner(), launch_profile, pid)
