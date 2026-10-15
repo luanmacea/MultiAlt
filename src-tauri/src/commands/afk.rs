@@ -41,13 +41,47 @@ const AFK_KEYS: &[(&str, u16)] = &[
     ("5", 0x35),
 ];
 
-/// Os nomes da lista fechada, na ordem em que a tela os oferece.
+/// Pares de setas que **se anulam** (ideia 24, 15/10/2026): a primeira tecla é
+/// tocada e logo depois a segunda, do mesmo tamanho — conta como atividade, e o
+/// personagem termina onde começou. `(virtual key, estendida)` de cada toque:
+/// as setas são teclas estendidas, como nas Gravações.
+///
+/// - `Right+Left`: no controle padrão do Roblox, ← e → giram a câmera — um
+///   fio para a direita e o mesmo de volta; o personagem não anda.
+/// - `Up+Down`: ↑ e ↓ andam — um passo curto para frente e o mesmo para trás
+///   (pode sobrar um fio de diferença com a inércia do personagem).
+const AFK_KEY_PAIRS: &[(&str, [(u16, bool); 2])] = &[
+    ("Right+Left", [(0x27, true), (0x25, true)]),
+    ("Up+Down", [(0x26, true), (0x28, true)]),
+];
+
+/// Os nomes da lista fechada, na ordem em que a tela os oferece: as teclas
+/// simples e, no fim, os pares.
 fn afk_key_names() -> Vec<String> {
-    AFK_KEYS.iter().map(|(name, _)| (*name).to_string()).collect()
+    AFK_KEYS
+        .iter()
+        .map(|(name, _)| *name)
+        .chain(AFK_KEY_PAIRS.iter().map(|(name, _)| *name))
+        .map(str::to_string)
+        .collect()
 }
 
-/// Virtual key de uma tecla da lista. `None` para qualquer outro nome — é este
-/// `None` que impede tecla de fora de chegar ao `SendInput`.
+/// Os toques que uma tecla da lista manda, em ordem — `(virtual key,
+/// estendida)`: um só para tecla simples, dois para um par. `None` para
+/// qualquer nome fora da lista: é este `None` que impede tecla de fora de
+/// chegar ao `SendInput`.
+fn afk_key_taps(key: &str) -> Option<Vec<(u16, bool)>> {
+    if let Some(vk) = afk_virtual_key(key) {
+        return Some(vec![(vk, false)]);
+    }
+    AFK_KEY_PAIRS
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(key))
+        .map(|(_, taps)| taps.to_vec())
+}
+
+/// Virtual key de uma tecla **simples** da lista. `None` para qualquer outro
+/// nome (os pares passam por `afk_key_taps`).
 fn afk_virtual_key(key: &str) -> Option<u16> {
     AFK_KEYS
         .iter()
@@ -347,7 +381,7 @@ enum AfkCycleAction {
 /// usuário pedir. O modo clique não usa tecla.
 fn validate_afk_start(mode: AfkMode, key: &str, user_ids: &[i64]) -> Result<(), String> {
     // O modo gravação também não usa tecla: quem toca é a gravação de cada conta.
-    if mode == AfkMode::Key && afk_virtual_key(key).is_none() {
+    if mode == AfkMode::Key && afk_key_taps(key).is_none() {
         return Err("Choose one of the AFK mode keys before starting".into());
     }
     if user_ids.is_empty() {
@@ -1026,7 +1060,7 @@ fn run_afk_cycle_blocking(
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     if let AfkCycleAction::Key(key) = action {
-        if afk_virtual_key(key).is_none() {
+        if afk_key_taps(key).is_none() {
             return Err(format!("Key not allowed in AFK mode: {}", key));
         }
     }
