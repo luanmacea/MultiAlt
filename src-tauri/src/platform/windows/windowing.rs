@@ -1,9 +1,9 @@
 use windows_sys::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AdjustWindowRectEx, GetWindowLongW, IsZoomed, SetWindowLongW, SetWindowPos, GWL_EXSTYLE,
-    GWL_STYLE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
-    SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, WS_CAPTION,
-    WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME,
+    AdjustWindowRectEx, GetWindow, GetWindowLongW, IsZoomed, SetWindowLongW, SetWindowPos,
+    GWL_EXSTYLE, GWL_STYLE, GW_HWNDPREV, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOOWNERZORDER, SWP_NOSENDCHANGING, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWMINNOACTIVE,
+    SW_SHOWNOACTIVATE, WS_CAPTION, WS_EX_TOPMOST, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME,
 };
 
 struct EnumWindowData {
@@ -269,6 +269,96 @@ pub fn bring_forward_for_cycle(hwnd: HWND) -> bool {
 pub fn give_focus_back_after_cycle(target: HWND, cycle_windows: &[HWND]) -> GiveBack {
     let cycle: Vec<isize> = cycle_windows.iter().map(|h| *h as isize).collect();
     give_focus_back_with(&RealDesktop, target as isize, &cycle)
+}
+
+// ── devolver a janela da conta ao lugar (ideia 44) ──────────────────────────
+//
+// Trazer a janela para frente a tira de onde ela estava: a minimizada fica na
+// tela, e a que estava aberta atrás de outras janelas fica por cima delas. O
+// ciclo do AFK mode anota antes onde cada uma estava e, no fim, depois de
+// devolver o foco, põe cada uma de volta **sem ativar janela nenhuma**.
+
+/// O `ShowWindow` que devolve à barra de tarefas a janela que o ciclo
+/// desminimizou. `SW_MINIMIZE` não serve: com a janela do Roblox em primeiro
+/// plano, ele faz o Windows **ativar a próxima janela** da pilha — às vezes
+/// outro Roblox —, e as janelas piscavam umas por cima das outras.
+/// `SW_SHOWMINNOACTIVE` minimiza sem ativar ninguém, e a janela lembra se
+/// estava maximizada.
+const QUIET_MINIMIZE: i32 = SW_SHOWMINNOACTIVE;
+
+/// Os flags do `SetWindowPos` que devolve a janela à profundidade de antes:
+/// só a ordem muda — nem ativa, nem move, nem redimensiona.
+const PUT_BACK_SWP_FLAGS: u32 = SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE;
+
+/// Teto da caminhada pela pilha de janelas em `window_above` (nunca chega
+/// perto disso; é só para não depender de a pilha não mudar no meio).
+const WINDOW_ABOVE_MAX_STEPS: usize = 1_024;
+
+/// Uma janela da pilha acima de outra, como `window_above` a enxerga.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ZNeighbor {
+    hwnd: isize,
+    visible: bool,
+    minimized: bool,
+    topmost: bool,
+}
+
+/// A janela de referência para devolver uma janela à profundidade de antes: a
+/// primeira acima dela que **aparece na tela** (visível e não minimizada).
+/// Janela "sempre no topo" não serve — pôr outra janela embaixo dela a faria
+/// sempre no topo também (a mesma armadilha que o Nudge Nest anota) —, e aí a
+/// resposta é `0`: a janela já estava no topo das janelas comuns.
+fn pick_window_above(chain: impl IntoIterator<Item = ZNeighbor>) -> isize {
+    for neighbor in chain {
+        if !neighbor.visible || neighbor.minimized {
+            continue;
+        }
+        return if neighbor.topmost { 0 } else { neighbor.hwnd };
+    }
+    0
+}
+
+/// A janela logo acima de `hwnd` (ver `pick_window_above`), ou nula quando ela
+/// está no topo. Só lê a ordem das janelas.
+pub fn window_above(hwnd: HWND) -> HWND {
+    if hwnd.is_null() {
+        return std::ptr::null_mut();
+    }
+    let chain = std::iter::successors(Some(hwnd), |current| {
+        let previous = unsafe { GetWindow(*current, GW_HWNDPREV) };
+        (!previous.is_null()).then_some(previous)
+    })
+    .skip(1)
+    .take(WINDOW_ABOVE_MAX_STEPS)
+    .map(|candidate| ZNeighbor {
+        hwnd: candidate as isize,
+        visible: unsafe { IsWindowVisible(candidate) } != 0,
+        minimized: window_is_minimized(candidate),
+        topmost: (unsafe { GetWindowLongW(candidate, GWL_EXSTYLE) } as u32 & WS_EX_TOPMOST) != 0,
+    });
+    pick_window_above(chain) as HWND
+}
+
+/// Devolve à barra de tarefas, sem ativar janela nenhuma, a janela que o ciclo
+/// desminimizou. Diz se ela ficou minimizada.
+pub fn minimize_window_quietly(hwnd: HWND) -> bool {
+    if !window_exists(hwnd) {
+        return false;
+    }
+    unsafe {
+        // O retorno do `ShowWindow` é "estava visível", não "deu certo".
+        let _ = ShowWindow(hwnd, QUIET_MINIMIZE);
+    }
+    window_is_minimized(hwnd)
+}
+
+/// Põe `hwnd` logo abaixo de `above` na pilha, sem ativar, mover nem
+/// redimensionar nada.
+pub fn put_window_below(hwnd: HWND, above: HWND) -> bool {
+    if !window_exists(hwnd) || !window_exists(above) {
+        return false;
+    }
+    unsafe { SetWindowPos(hwnd, above, 0, 0, 0, 0, PUT_BACK_SWP_FLAGS) != 0 }
 }
 
 fn wait_for_process_exit(pid: u32, timeout: Duration) -> bool {
@@ -2200,6 +2290,66 @@ mod win_focus_tests {
     fn giving_the_focus_back_never_changes_the_window_state() {
         assert_eq!(show_command_before_focus(FocusPurpose::GiveBack, false), None);
         assert_eq!(show_command_before_focus(FocusPurpose::GiveBack, true), None);
+    }
+
+    // ── devolver a janela da conta ao lugar (ideia 44) ──────────────────────
+
+    /// `SW_MINIMIZE` na janela em primeiro plano faz o Windows ativar a próxima
+    /// da pilha (outro Roblox, às vezes): era o piscar entre janelas.
+    #[test]
+    fn the_window_goes_back_to_the_taskbar_without_activating_another() {
+        assert_eq!(QUIET_MINIMIZE, SW_SHOWMINNOACTIVE);
+        assert_ne!(QUIET_MINIMIZE, SW_MINIMIZE);
+    }
+
+    #[test]
+    fn putting_a_window_back_in_depth_never_activates_moves_or_resizes_it() {
+        assert_ne!(PUT_BACK_SWP_FLAGS & SWP_NOACTIVATE, 0);
+        assert_ne!(PUT_BACK_SWP_FLAGS & SWP_NOMOVE, 0);
+        assert_ne!(PUT_BACK_SWP_FLAGS & SWP_NOSIZE, 0);
+        // A ordem é justamente o que muda.
+        assert_eq!(PUT_BACK_SWP_FLAGS & SWP_NOZORDER, 0);
+    }
+
+    fn neighbor(hwnd: isize, visible: bool, minimized: bool, topmost: bool) -> ZNeighbor {
+        ZNeighbor {
+            hwnd,
+            visible,
+            minimized,
+            topmost,
+        }
+    }
+
+    #[test]
+    fn the_window_above_is_the_first_one_that_shows_on_screen() {
+        let chain = [
+            neighbor(1, false, false, false),
+            neighbor(2, true, true, false),
+            neighbor(3, true, false, false),
+            neighbor(4, true, false, false),
+        ];
+        assert_eq!(pick_window_above(chain), 3);
+    }
+
+    /// Embaixo de uma janela "sempre no topo", a janela da conta viraria
+    /// "sempre no topo" também.
+    #[test]
+    fn an_always_on_top_window_is_never_the_reference() {
+        let chain = [neighbor(1, true, false, true), neighbor(2, true, false, false)];
+        assert_eq!(pick_window_above(chain), 0);
+    }
+
+    #[test]
+    fn a_window_at_the_top_has_nothing_above_it() {
+        assert_eq!(pick_window_above([]), 0);
+        assert_eq!(pick_window_above([neighbor(1, false, false, false)]), 0);
+        assert_eq!(window_above(std::ptr::null_mut()), std::ptr::null_mut());
+    }
+
+    #[test]
+    fn a_null_window_is_never_put_back() {
+        assert!(!minimize_window_quietly(std::ptr::null_mut()));
+        assert!(!put_window_below(std::ptr::null_mut(), std::ptr::null_mut()));
     }
 
     // ── devolver o foco depois do ciclo (issue #23) ─────────────────────────

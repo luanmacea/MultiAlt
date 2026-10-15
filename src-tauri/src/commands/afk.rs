@@ -538,13 +538,73 @@ fn afk_window_is_ready(focus_requested: bool, foreground: isize, target: isize) 
     focus_requested && target != 0 && foreground == target
 }
 
-/// A janela volta a ser minimizada? Trazer para frente desminimiza (o
+/// Como a janela de uma conta volta ao lugar depois do ciclo (ideia 44).
+///
+/// Trazer para frente tira a janela de onde estava: desminimiza (o
 /// `focus_window` faz `SW_RESTORE` em janela minimizada — e só nela: maximizada
-/// continua maximizada); quem trabalha com os clientes minimizados
-/// não pediu para vê-los na tela. Só vale para janela que o ciclo mexeu, e só se
-/// o usuário a tinha minimizado.
-fn afk_should_reminimize(was_minimized: bool, focus_attempted: bool) -> bool {
-    was_minimized && focus_attempted
+/// continua maximizada) e põe por cima de tudo a que estava atrás de outras
+/// janelas. Quem trabalha com os clientes minimizados, ou cobertos, não pediu
+/// para vê-los na tela.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfkPutBack {
+    /// Estava minimizada: volta à barra de tarefas sem ativar ninguém.
+    Minimize,
+    /// Estava aberta atrás da janela `0`: volta para debaixo dela.
+    Below(isize),
+    /// Estava no topo (ou não há referência): fica onde o ciclo deixou.
+    Leave,
+}
+
+/// O que fazer com a janela `target`, a partir do que ela era **antes** do
+/// ciclo: minimizada ou não, e a janela logo acima dela (`0` = nenhuma, ou uma
+/// "sempre no topo"; ver `window_above`).
+fn afk_put_back_plan(was_minimized: bool, above: isize, target: isize) -> AfkPutBack {
+    if was_minimized {
+        AfkPutBack::Minimize
+    } else if above != 0 && above != target {
+        AfkPutBack::Below(above)
+    } else {
+        AfkPutBack::Leave
+    }
+}
+
+/// Em que ordem devolver as janelas. Uma janela que volta para debaixo de
+/// **outra janela do ciclo** espera essa outra voltar primeiro — senão ela é
+/// posta debaixo de uma janela que ainda vai mudar de lugar, e a pilha não fica
+/// como era. As minimizadas vão por último (saem da pilha visível de qualquer
+/// jeito); quem fica onde está não entra na lista.
+fn afk_put_back_order(plans: &[(isize, AfkPutBack)]) -> Vec<usize> {
+    let mut order = Vec::with_capacity(plans.len());
+    let mut done = vec![false; plans.len()];
+    let restacks: Vec<usize> = (0..plans.len())
+        .filter(|&i| matches!(plans[i].1, AfkPutBack::Below(_)))
+        .collect();
+    loop {
+        let mut progressed = false;
+        for &i in &restacks {
+            if done[i] {
+                continue;
+            }
+            let AfkPutBack::Below(above) = plans[i].1 else {
+                continue;
+            };
+            let waits_for_another = restacks
+                .iter()
+                .any(|&j| j != i && !done[j] && plans[j].0 == above);
+            if !waits_for_another {
+                done[i] = true;
+                order.push(i);
+                progressed = true;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+    // Ciclo impossível numa pilha de verdade; se vier, ninguém fica de fora.
+    order.extend(restacks.iter().copied().filter(|&i| !done[i]));
+    order.extend((0..plans.len()).filter(|&i| plans[i].1 == AfkPutBack::Minimize));
+    order
 }
 
 /// As contas de um envio manual: **interseção** com quem está no AFK mode, na
@@ -977,18 +1037,36 @@ fn run_afk_cycle_blocking(
     let alive: HashSet<u32> = windows::get_roblox_pids().into_iter().collect();
     let tracker = windows::tracker();
 
+    let window_of = |user_id: i64| {
+        tracker
+            .get_pid(user_id)
+            .filter(|pid| alive.contains(pid))
+            .and_then(windows::find_main_window)
+            .filter(|hwnd| windows::window_exists(*hwnd))
+    };
+    // Onde cada janela estava **antes** de o ciclo mexer em qualquer uma
+    // (ideia 44): minimizada ou não, e qual janela estava logo acima. Lido de
+    // todas antes da primeira vir para frente — depois disso a pilha já mudou.
+    let before: HashMap<isize, (bool, isize)> = targets
+        .iter()
+        .filter_map(|&user_id| window_of(user_id))
+        .map(|hwnd| {
+            let minimized = windows::window_is_minimized(hwnd);
+            let above = if minimized { 0 } else { windows::window_above(hwnd) as isize };
+            (hwnd as isize, (minimized, above))
+        })
+        .collect();
+
     let mut focus_taken = false;
     // Janelas que o ciclo trouxe para frente: se no fim a da frente não é
     // nenhuma delas, foi o usuário que escolheu outra (issue #23).
     let mut cycle_windows = Vec::new();
+    // Como cada janela que o ciclo trouxe volta ao lugar, no fim.
+    let mut put_back: Vec<(isize, AfkPutBack)> = Vec::new();
     let mut outcome: Vec<(i64, Option<AfkSendError>)> = Vec::new();
 
     for &user_id in targets {
-        let hwnd = tracker
-            .get_pid(user_id)
-            .filter(|pid| alive.contains(pid))
-            .and_then(windows::find_main_window)
-            .filter(|hwnd| windows::window_exists(*hwnd));
+        let hwnd = window_of(user_id);
 
         match afk_cycle_step(stop_flag.load(Ordering::Relaxed), hwnd.is_some()) {
             AfkCycleStep::Abort => break,
@@ -1008,9 +1086,16 @@ fn run_afk_cycle_blocking(
                         continue;
                     }
                 }
-                // Quem trabalha com os clientes minimizados não pediu para
-                // vê-los: o estado é devolvido depois do envio.
-                let was_minimized = windows::window_is_minimized(hwnd);
+                // Quem trabalha com os clientes minimizados (ou cobertos) não
+                // pediu para vê-los: a janela volta ao lugar no fim do ciclo.
+                let (was_minimized, above) = before
+                    .get(&(hwnd as isize))
+                    .copied()
+                    .unwrap_or_else(|| (windows::window_is_minimized(hwnd), 0));
+                let plan = afk_put_back_plan(was_minimized, above, hwnd as isize);
+                if !put_back.iter().any(|(h, _)| *h == hwnd as isize) {
+                    put_back.push((hwnd as isize, plan));
+                }
                 // Recusado (o usuário mexeu em outra janela), tenta de novo
                 // depois de um movimento de mouse de zero pixel — ver
                 // `bring_forward_for_cycle`.
@@ -1048,9 +1133,6 @@ fn run_afk_cycle_blocking(
                     }
                 };
 
-                if afk_should_reminimize(was_minimized, true) {
-                    windows::minimize_window(hwnd);
-                }
                 outcome.push((user_id, result));
                 std::thread::sleep(std::time::Duration::from_millis(AFK_BETWEEN_WINDOWS_MS));
             }
@@ -1067,6 +1149,25 @@ fn run_afk_cycle_blocking(
         let back = windows::give_focus_back_after_cycle(previous_foreground, &cycle_windows);
         if back == windows::GiveBack::Denied {
             eprintln!("[afk] o Windows recusou devolver o foco à janela anterior");
+        }
+    }
+
+    // Só depois de o foco voltar: minimizar a janela do Roblox enquanto ela é a
+    // da frente fazia o Windows ativar a próxima da pilha (o piscar entre
+    // janelas). Nada aqui ativa janela — vale também para ciclo parado no meio.
+    for index in afk_put_back_order(&put_back) {
+        let (hwnd, plan) = put_back[index];
+        match plan {
+            AfkPutBack::Minimize => {
+                windows::minimize_window_quietly(hwnd as windows_sys::Win32::Foundation::HWND);
+            }
+            AfkPutBack::Below(above) => {
+                windows::put_window_below(
+                    hwnd as windows_sys::Win32::Foundation::HWND,
+                    above as windows_sys::Win32::Foundation::HWND,
+                );
+            }
+            AfkPutBack::Leave => {}
         }
     }
 
@@ -1813,15 +1914,88 @@ mod afk_command_tests {
 
     #[test]
     fn a_window_the_user_had_minimized_goes_back_to_minimized() {
-        assert!(afk_should_reminimize(true, true));
+        assert_eq!(afk_put_back_plan(true, 0, 10), AfkPutBack::Minimize);
+        // Minimizada não tem "janela acima" que valha: volta para a barra.
+        assert_eq!(afk_put_back_plan(true, 7, 10), AfkPutBack::Minimize);
+    }
+
+    // ── a janela volta ao lugar (ideia 44) ──────────────────────────────────
+
+    #[test]
+    fn a_covered_window_goes_back_under_the_window_that_covered_it() {
+        assert_eq!(afk_put_back_plan(false, 7, 10), AfkPutBack::Below(7));
     }
 
     #[test]
-    fn a_window_that_was_not_minimized_is_left_alone() {
-        assert!(!afk_should_reminimize(false, true));
-        // Ciclo que não chegou a mexer na janela não minimiza nada.
-        assert!(!afk_should_reminimize(true, false));
-        assert!(!afk_should_reminimize(false, false));
+    fn a_window_that_was_on_top_is_left_where_it_is() {
+        assert_eq!(afk_put_back_plan(false, 0, 10), AfkPutBack::Leave);
+        // Referência que é a própria janela não é referência.
+        assert_eq!(afk_put_back_plan(false, 10, 10), AfkPutBack::Leave);
+    }
+
+    /// Pilha antes: U (usuário) > A > B > C. O ciclo traz A, B e C; depois o
+    /// foco volta a U. Para a pilha ficar como era, A volta para debaixo de U
+    /// **antes** de B ir para debaixo de A, e B antes de C.
+    #[test]
+    fn windows_go_back_top_down_when_one_was_under_another_of_the_cycle() {
+        const U: isize = 1;
+        const A: isize = 2;
+        const B: isize = 3;
+        const C: isize = 4;
+        let plans = [
+            (C, AfkPutBack::Below(B)),
+            (B, AfkPutBack::Below(A)),
+            (A, AfkPutBack::Below(U)),
+        ];
+        let order: Vec<isize> = afk_put_back_order(&plans).into_iter().map(|i| plans[i].0).collect();
+        assert_eq!(order, vec![A, B, C]);
+    }
+
+    #[test]
+    fn minimized_windows_go_back_last_and_untouched_windows_are_left_out() {
+        let plans = [
+            (5, AfkPutBack::Minimize),
+            (6, AfkPutBack::Leave),
+            (7, AfkPutBack::Below(1)),
+        ];
+        assert_eq!(afk_put_back_order(&plans), vec![2, 0]);
+        assert_eq!(afk_put_back_order(&[]), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn a_loop_in_the_references_still_puts_every_window_back() {
+        // Impossível numa pilha de verdade; nenhuma janela pode ficar de fora.
+        let plans = [(1, AfkPutBack::Below(2)), (2, AfkPutBack::Below(1))];
+        let mut order = afk_put_back_order(&plans);
+        order.sort_unstable();
+        assert_eq!(order, vec![0, 1]);
+    }
+
+    /// `SW_MINIMIZE` (o `minimize_window`) na janela da frente ativa a próxima
+    /// da pilha: o ciclo devolve as janelas **depois** de devolver o foco, e
+    /// pelo caminho que não ativa ninguém.
+    #[test]
+    fn the_cycle_puts_windows_back_after_the_focus_and_without_activating() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/afk.rs"),
+        )
+        .expect("commands/afk.rs tem de existir");
+        let body = super::afk_input_safety_tests::production_only(&source);
+        let cycle = &body[body.find("fn run_afk_cycle_blocking(").expect("o ciclo sumiu")..];
+        // Até a função seguinte: fechar chave dentro de um texto confundiria a
+        // contagem de chaves do `production_only`.
+        let cycle = &cycle[..cycle.find("fn afk_cycle_action(").expect("fim do ciclo")];
+        assert!(!cycle.contains("windows::minimize_window("), "minimize_window ativa outra janela");
+        let give_back = cycle
+            .find("windows::give_focus_back_after_cycle(")
+            .expect("o ciclo devolve o foco");
+        let minimize = cycle.find("windows::minimize_window_quietly(").expect("re-minimiza");
+        let restack = cycle.find("windows::put_window_below(").expect("devolve a profundidade");
+        assert!(give_back < minimize && give_back < restack, "as janelas voltam depois do foco");
+        // A pilha é lida antes de a primeira janela vir para frente.
+        let snapshot = cycle.find("windows::window_above(").expect("lê a janela acima");
+        let bring = cycle.find("windows::bring_forward_for_cycle(").expect("traz a janela");
+        assert!(snapshot < bring);
     }
 
     // ── quanto tempo o foco fica fora ───────────────────────────────────────
