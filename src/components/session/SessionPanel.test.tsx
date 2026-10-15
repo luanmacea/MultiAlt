@@ -1673,6 +1673,31 @@ describe("SessionPanel — sessão atual", () => {
     expect(within(screen.getByTestId("session-running-2")).getByTestId("session-time-2")).toHaveTextContent("1h 05m");
   });
 
+  it("shows each server's region and how long it has been up, from the client log", async () => {
+    const health = (server: ClientHealth["server"]): ClientHealth => ({
+      pid: 1,
+      logFound: true,
+      drop: null,
+      inGame: true,
+      server,
+    });
+    renderRunning([current(1), current(2, { privateServer: true, jobId: "vip-2" }), current(3, { jobId: "job-3" })], {
+      clientHealth: new Map([
+        [1, health({ region: "Miami, US", startedAtMs: Date.now() - 3 * 60 * MIN - 5 * MIN })],
+        // Região ainda sendo descoberta: só o tempo no ar.
+        [2, health({ region: null, startedAtMs: Date.now() - 25 * MIN })],
+        // O log ainda não disse nada do servidor.
+        [3, health(null)],
+      ]),
+    });
+    const publicServer = within(await screen.findByTestId("session-server-job-1"));
+    expect(publicServer.getByTestId("session-server-info")).toHaveTextContent("Miami, US · server up for 3 h");
+    expect(within(screen.getByTestId("session-server-vip-2")).getByTestId("session-server-info")).toHaveTextContent(
+      "server up for 25 min"
+    );
+    expect(within(screen.getByTestId("session-server-job-3")).queryByTestId("session-server-info")).toBeNull();
+  });
+
   it("falls back to the Place ID while the game name is unknown, with the full name in a tooltip", async () => {
     renderRunning([current(1, { placeId: 123456 })]);
     const group = within(await screen.findByTestId("session-game-123456"));

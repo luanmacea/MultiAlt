@@ -525,6 +525,18 @@ export interface ClientHealth {
    * ou o log ainda não disse.
    */
   wrongAccountUserId?: number | null;
+  /**
+   * O servidor em que está, pelo log: região (já formatada por
+   * `General.ServerRegionFormat`, `null` enquanto não se sabe) e quando o
+   * servidor subiu (`Server Prefix`). Ausente/`null` = o log não disse.
+   */
+  server?: ClientServer | null;
+}
+
+/** O servidor de um cliente (`ClientServerView`, commands/client_health.rs). */
+export interface ClientServer {
+  region: string | null;
+  startedAtMs: number | null;
 }
 
 /**

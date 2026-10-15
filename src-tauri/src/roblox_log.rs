@@ -12,6 +12,8 @@
 // ```text
 // ... [FLog::Output] ! Joining game '<job>' place <place> at 10.x.x.x
 // ... [FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:<place>, ..., userid:<conta>,
+// ... [FLog::Network] UDMUX Address = 128.116.x.33, Port = 54148 | RCC Server Address = 10.x.x.x, Port = 54148
+// ... [FLog::Output] Server Prefix: 0.743.0.7431129_20261014T203500Z_RCC_b25e4
 // ```
 
 /// Marcador da linha que diz com que conta o cliente entrou no jogo.
@@ -46,6 +48,50 @@ pub fn game_join_place_id(line: &str) -> Option<i64> {
     digits_after(line, "placeid:")
 }
 
+/// O endereço do proxy UDMUX do servidor em que o cliente entrou:
+/// `UDMUX Address = 128.116.21.33, Port = ...`. É o IP **público** do
+/// datacenter (o `RCC Server Address`, e o `at 10.x` do `Joining game`, são
+/// internos). Só devolve um IP que se lê como IP — quem decide se ele é
+/// público é quem vai geolocalizá-lo.
+pub fn udmux_address(line: &str) -> Option<String> {
+    const MARKER: &str = "UDMUX Address = ";
+    let start = line.find(MARKER)? + MARKER.len();
+    let rest = &line[start..];
+    let end = rest
+        .find(|c: char| c == ',' || c == '|' || c.is_whitespace())
+        .unwrap_or(rest.len());
+    let address = rest[..end].trim();
+    address
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .map(|_| address.to_string())
+}
+
+/// Quando o servidor subiu, em ms Unix, pela linha
+/// `Server Prefix: 0.743.0.7431129_20261014T203500Z_RCC_b25e4` — o carimbo
+/// `AAAAMMDDTHHMMSSZ` (UTC) é o início do processo do servidor. Linha fora do
+/// formato devolve `None` (nunca entra em pânico).
+pub fn server_started_at_ms(line: &str) -> Option<i64> {
+    const MARKER: &str = "Server Prefix: ";
+    let start = line.find(MARKER)? + MARKER.len();
+    let prefix = line[start..].split_whitespace().next()?;
+    prefix.split('_').find_map(|part| {
+        // `20261014T203500Z`: 8 dígitos, T, 6 dígitos, Z.
+        let bytes = part.as_bytes();
+        let shaped = bytes.len() == 16
+            && bytes[8] == b'T'
+            && bytes[15] == b'Z'
+            && bytes[..8].iter().all(u8::is_ascii_digit)
+            && bytes[9..15].iter().all(u8::is_ascii_digit);
+        if !shaped {
+            return None;
+        }
+        chrono::NaiveDateTime::parse_from_str(part, "%Y%m%dT%H%M%SZ")
+            .ok()
+            .map(|dt| dt.and_utc().timestamp_millis())
+    })
+}
+
 #[cfg(test)]
 mod roblox_log_line_tests {
     use super::*;
@@ -78,5 +124,59 @@ mod roblox_log_line_tests {
             game_join_user_id(&line("[FLog::GameJoinLoadTime] Report game_join_loadtime: placeid:1, userid:0, ")),
             None
         );
+    }
+
+    #[test]
+    fn the_udmux_line_gives_the_public_address() {
+        let l = line(
+            "[FLog::Network] UDMUX Address = 128.116.21.33, Port = 54148 | RCC Server Address = 10.0.0.1, Port = 54148",
+        );
+        assert_eq!(udmux_address(&l).as_deref(), Some("128.116.21.33"));
+    }
+
+    #[test]
+    fn a_malformed_udmux_line_gives_nothing() {
+        for body in [
+            "[FLog::Network] UDMUX Address = , Port = 54148",
+            "[FLog::Network] UDMUX Address = not-an-ip, Port = 1",
+            "[FLog::Network] UDMUX Address = 128.116.21",
+            "[FLog::Network] RCC Server Address = 10.0.0.1, Port = 54148",
+            "[FLog::Network] UDMUX Address =",
+        ] {
+            assert_eq!(udmux_address(&line(body)), None, "{body}");
+        }
+        // Sem nada depois do IP (linha cortada) ainda serve.
+        assert_eq!(
+            udmux_address("UDMUX Address = 128.116.30.33").as_deref(),
+            Some("128.116.30.33")
+        );
+    }
+
+    #[test]
+    fn the_server_prefix_gives_when_the_server_started() {
+        let l = line("[FLog::Output] Server Prefix: 0.743.0.7431129_20261014T235657Z_RCC_79c67");
+        let expected = chrono::NaiveDate::from_ymd_opt(2026, 10, 14)
+            .unwrap()
+            .and_hms_opt(23, 56, 57)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
+        assert_eq!(server_started_at_ms(&l), Some(expected));
+    }
+
+    #[test]
+    fn a_malformed_server_prefix_gives_nothing() {
+        for body in [
+            "[FLog::Output] Server Prefix: ",
+            "[FLog::Output] Server Prefix: 0.743.0.7431129_RCC_79c67",
+            "[FLog::Output] Server Prefix: 0.743.0.7431129_20261399T999999Z_RCC_79c67",
+            "[FLog::Output] Server Prefix: 0.743.0.7431129_2026101XT235657Z_RCC_79c67",
+            "[FLog::Output] Server Prefix: 0.743.0.7431129_20261014T235657_RCC_79c67",
+            "[FLog::Output] Server Prefix: ééééééééééééééééé",
+            "[FLog::Output] Server Prefix:",
+            "[FLog::Output] Joining game",
+        ] {
+            assert_eq!(server_started_at_ms(&line(body)), None, "{body}");
+        }
     }
 }

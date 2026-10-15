@@ -798,6 +798,7 @@ mod watcher_tests {
             not_responding: false,
             in_game: !dropped,
             wrong_account_user_id: None,
+            server: None,
             destination: None,
             exited: false,
         }

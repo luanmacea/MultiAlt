@@ -272,7 +272,7 @@ pub async fn lookup_ip_region(ip: &str) -> IpRegion {
 /// O IP serve para geolocalizar? Faixa privada, CGNAT, loopback, link-local,
 /// documentação e afins não dizem onde o servidor está — e mandar `10.x` para
 /// um serviço externo só devolve "faixa reservada" ou a cidade de outra rede.
-fn is_public_ip(ip: &str) -> bool {
+pub fn is_public_ip(ip: &str) -> bool {
     match ip.trim().parse::<std::net::IpAddr>() {
         Ok(std::net::IpAddr::V4(v4)) => {
             let [a, b, c, _] = v4.octets();

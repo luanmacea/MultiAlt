@@ -2314,7 +2314,8 @@ const SCENARIOS: Record<string, () => void> = {
    * memória o que a chave e o lote gravam.
    *
    * Sessão de agora de cada linha do "Em jogo" (`get_current_sessions`): jogo,
-   * servidor público/privado (a 4ª, do site, sem tipo) e tempo em jogo. Quem
+   * servidor público/privado (a 4ª, do site, sem tipo) e tempo em jogo. Cada
+   * servidor traz a região e há quanto tempo está no ar (`health.server`). Quem
    * cai perde a sessão, e a 1ª ganha uma nova ao voltar (com
    * `session-history-changed`, como o backend). Com `&accounts=9`, três contas
    * a mais jogam sem cair — uma num jogo de nome comprido, outra num place sem
@@ -2570,6 +2571,18 @@ const SCENARIOS: Record<string, () => void> = {
       const trimmed = base > limitMb || index === 5;
       return { memoryMb, limitMb, over: memoryMb > limitMb, trimmedAtMs: trimmed ? started : null };
     };
+    // Servidor de cada cliente, como o monitor tira do log (`UDMUX Address` →
+    // região pela geolocalização com cache; `Server Prefix` → quando subiu).
+    // O servidor dividido do Jailbreak está em Miami há 3 h; o privado da 2ª
+    // ainda não tem região (consulta em andamento), só o tempo no ar; o resto
+    // é de São Paulo. Quem caiu não tem sessão, então o grupo não aparece.
+    const serverOf = (userId: number) => {
+      const session = sessionOf.get(userId);
+      if (!session) return null;
+      if (session.jobId === SHARED_JAILBREAK_JOB) return { region: "Miami, US", startedAtMs: started - 3 * 3_600_000 };
+      if (session.privateServer) return { region: null, startedAtMs: started - 25 * 60_000 };
+      return { region: "São Paulo, BR", startedAtMs: started - 52 * 3_600_000 };
+    };
     setInvokeHandler((cmd, args) => {
       if (cmd === "get_running_instances") {
         return rows.map((row, index) => ({
@@ -2586,6 +2599,7 @@ const SCENARIOS: Record<string, () => void> = {
             notResponding: row.userId === hungUserId,
             inGame: !row.drop,
             wrongAccountUserId: row.wrongAccountUserId,
+            server: serverOf(row.userId),
           },
         }));
       }

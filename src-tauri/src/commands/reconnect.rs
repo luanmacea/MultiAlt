@@ -1737,6 +1737,7 @@ mod auto_reconnect_target_tests {
         JoinedDestination {
             place_id,
             job_id: job.map(String::from),
+            ..JoinedDestination::default()
         }
     }
 

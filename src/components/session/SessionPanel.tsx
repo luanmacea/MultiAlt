@@ -658,6 +658,10 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
   // com quem não tem cliente aberto (fechou, desistiu). Antes as duas listas
   // repetiam as mesmas contas e empurravam o "Em jogo" para baixo.
   const runningSet = new Set(runningIds);
+  // Região e tempo no ar do servidor (log do cliente): as contas do grupo estão
+  // no mesmo servidor, então vale a primeira que já sabe.
+  const serverInfoOf = (ids: number[]) =>
+    ids.map((id) => store.clientHealth?.get(id)?.server).find((info) => info != null) ?? null;
   const wrongAccountIds = runningIds.filter((id) => store.clientHealth?.get(id)?.wrongAccountUserId != null);
   const reconnectInRow = new Map(
     reconnecting.filter((entry) => runningSet.has(entry.userId)).map((entry) => [entry.userId, entry] as const)
@@ -856,7 +860,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
           {health?.wrongAccountUserId != null && <WrongAccountNote health={health} />}
           {(health?.drop || health?.notResponding) && <ClientHealthNote health={health} wrap />}
           {reconnectInRow.has(userId) && renderReconnectLine(reconnectInRow.get(userId)!)}
-          {session && context === "full" && <CurrentSessionLine session={session} />}
+          {session && context === "full" && <CurrentSessionLine session={session} server={health?.server} />}
         </span>
         <span className="flex items-center gap-1 shrink-0">
           {memoryChoice && (
@@ -1354,6 +1358,7 @@ export function SessionPanel({ className = "", showStats = false, contained = tr
                             selection={selectionOf(server.userIds)}
                             onSelect={() => toggleGroup(server.userIds)}
                             selectable={game.servers.length > 1}
+                            info={serverInfoOf(server.userIds)}
                           />
                           <ul className={rowGrid}>{server.userIds.map((id) => renderRow(id, "game"))}</ul>
                         </div>

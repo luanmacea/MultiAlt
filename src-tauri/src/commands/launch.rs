@@ -4441,9 +4441,11 @@ mod launch_command_tests {
                 not_responding: true,
                 in_game: false,
                 wrong_account_user_id: None,
+                server: None,
                 destination: Some(JoinedDestination {
                     place_id: 1,
                     job_id: Some("job".into()),
+                    ..JoinedDestination::default()
                 }),
                 exited: false,
             }),
@@ -4544,6 +4546,7 @@ mod launch_join_wait_tests {
             not_responding: false,
             in_game,
             wrong_account_user_id: None,
+            server: None,
             destination: None,
             exited,
         }

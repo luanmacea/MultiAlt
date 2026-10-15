@@ -85,6 +85,8 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/session/SessionPanel.test.tsx",
       // "Em jogo" agrupado por jogo e servidor.
       "src/utils/sessionGroups.test.ts",
+      // Região e tempo no ar do servidor (log do cliente).
+      "src/utils/serverUptime.test.ts",
       // Estado ao vivo na lista de contas e o chip "precisam de atenção".
       "src/utils/accountLiveState.test.ts",
       "src/components/accounts/AccountLiveState.test.tsx",
@@ -180,6 +182,8 @@ export const SUITES: Record<string, TestSuite> = {
       "client_window_title_tests",
       // Cliente que entrou como outra conta (userid do log ≠ conta lançada).
       "client_wrong_account_tests",
+      // Região e tempo no ar do servidor de cada cliente (Sessão).
+      "client_server_region_tests",
       // Linhas do log compartilhadas com os clientes do site (roblox_log.rs).
       "roblox_log_line_tests",
       // Reconexão automática da conta que caiu (commands/reconnect.rs).
@@ -411,6 +415,8 @@ export const SUITES: Record<string, TestSuite> = {
       "server_region_format_tests",
       "server_region_payload_tests",
       "server_region_http_tests",
+      "client_server_region_tests",
+      "roblox_log_line_tests",
       "server_scan_budget_tests",
       "server_scan_dedupe_tests",
       // Seção "Private servers" da aba Servers (private-servers da conta).
