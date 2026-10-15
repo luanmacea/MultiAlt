@@ -24,6 +24,17 @@ interface OldAccountImportSummary {
   skipped: number;
 }
 
+/**
+ * O import aceita o `AccountData.json` e o export protegido por senha
+ * (`AccountData-export-AAAAMMDD-HHMMSS.json`, Settings › Backups). Antes só o
+ * nome exato passava, e o export — que é o arquivo feito para isto — seria
+ * recusado sem nem tentar a senha.
+ */
+export function isAccountDataFileName(name: string): boolean {
+  const lower = name.trim().toLowerCase();
+  return lower.startsWith("accountdata") && lower.endsWith(".json");
+}
+
 export function ImportDialog({
   open,
   onClose,
@@ -194,7 +205,7 @@ export function ImportDialog({
   }
 
   async function importOldAccountData(file: File) {
-    if (file.name.toLowerCase() !== "accountdata.json") {
+    if (!isAccountDataFileName(file.name)) {
       setResults([{ text: t("Please select AccountData.json"), ok: false }]);
       return;
     }

@@ -262,3 +262,35 @@ pub fn import_old_account_data(
 ) -> Result<OldAccountImportSummary, String> {
     state.import_old_account_data(&file_data, password.as_deref())
 }
+
+/// Nome do arquivo do export protegido. Começa com `AccountData` e termina em
+/// `.json` de propósito: é o que o "Import AccountData.json" aceita
+/// (`isAccountDataFileName` no [ImportDialog.tsx]).
+fn account_export_file_name(now: chrono::DateTime<chrono::Local>) -> String {
+    format!("AccountData-export-{}.json", now.format("%Y%m%d-%H%M%S"))
+}
+
+/// "Export accounts with a password" (ideia 38): grava as contas cifradas com a
+/// senha escolhida agora em `<pasta de dados>/exports/` e abre o Explorer com o
+/// arquivo selecionado — o mesmo caminho do export do histórico; o app não tem
+/// diálogo de salvar. Devolve o caminho.
+///
+/// `async` para o Argon2 (128 MiB) não rodar na thread da janela.
+#[tauri::command(async)]
+pub fn export_accounts_with_password(
+    state: tauri::State<'_, AccountStore>,
+    password: String,
+) -> Result<String, String> {
+    let data = state.export_with_password(&password)?;
+    let dir = crate::data::settings::get_runtime_data_dir().join("exports");
+    fs::create_dir_all(&dir).map_err(|e| format!("Could not create the exports folder: {e}"))?;
+    let path = dir.join(account_export_file_name(chrono::Local::now()));
+    fs::write(&path, &data).map_err(|e| format!("Could not save the file: {e}"))?;
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .spawn();
+    }
+    Ok(path.display().to_string())
+}

@@ -1519,4 +1519,44 @@ impl AccountStore {
             skipped,
         })
     }
+
+    /// As contas cifradas com uma senha escolhida **agora** (ideia 38).
+    ///
+    /// Existe porque o backup sem Pass Lock não protege nem viaja: o zip leva o
+    /// `AccountData.key`, cujo embrulho `device` é só o hash de
+    /// `COMPUTERNAME|USERNAME`, e o DPAPI não abre em outro PC. Este arquivo
+    /// depende só da senha.
+    ///
+    /// **Nada de formato novo:** o JSON é o mesmo que `save_locked` grava, e a
+    /// cifra é a mesma do vault (`crypto::encrypt` com `sha512(senha.trim())`,
+    /// Argon2i + XSalsa20-Poly1305, `RAM_HEADER`). É exatamente o que
+    /// `decode_accounts_for_import` abre quando o usuário digita a senha, então o
+    /// import que já existe ("Import AccountData.json") lê o arquivo em qualquer
+    /// instalação. Não grava nada no vault nem mexe na sessão.
+    pub fn export_with_password(&self, password: &str) -> Result<Vec<u8>, String> {
+        let password = password.trim();
+        if password.chars().count() < MIN_EXPORT_PASSWORD_CHARS {
+            return Err(format!(
+                "The export password must be at least {MIN_EXPORT_PASSWORD_CHARS} characters"
+            ));
+        }
+        if self.load_failed.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(
+                "Account file could not be loaded; there is nothing reliable to export.".to_string(),
+            );
+        }
+        // Snapshot e lock solto **antes** do Argon2: derivar a chave com o lock de
+        // contas seguro travaria toda gravação (Auto Rejoin, launch) enquanto isso.
+        let accounts = self.get_all()?;
+        if accounts.is_empty() {
+            return Err("There are no accounts to export.".to_string());
+        }
+        let json = serde_json::to_string_pretty(&accounts)
+            .map_err(|e| format!("Failed to serialize accounts: {}", e))?;
+        crypto::encrypt(&json, &crypto::hash_password(password))
+            .map_err(|e| format!("Failed to encrypt the export: {}", e))
+    }
 }
+
+/// Mínimo da senha do export protegido — o mesmo do Pass Lock.
+pub const MIN_EXPORT_PASSWORD_CHARS: usize = 8;

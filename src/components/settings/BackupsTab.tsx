@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, Archive, FolderOpen, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { AlertTriangle, Archive, FolderOpen, KeyRound, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useConfirm, usePrompt } from "../../hooks/usePrompt";
 import { useTr } from "../../i18n/text";
 import { useStore } from "../../store";
@@ -31,6 +31,151 @@ function absoluteDate(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleString();
+}
+
+/** Mínimo da senha do export — o mesmo do Pass Lock e do backend. */
+const MIN_EXPORT_PASSWORD_CHARS = 8;
+
+/**
+ * "Export accounts with a password" (ideia 38). Sem Pass Lock o zip de backup
+ * leva a chave do aparelho junto — quem tem o zip tem as contas — e não abre
+ * em outro PC. Este arquivo depende só da senha escolhida aqui, e volta pelo
+ * import de sempre (Import › Import Old Account Data). O backend grava em
+ * `exports/` e abre o Explorer no arquivo: o app não tem diálogo de salvar.
+ */
+function ExportAccountsCard() {
+  const t = useTr();
+  const store = useStore();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [savedTo, setSavedTo] = useState<string | null>(null);
+
+  function close() {
+    setOpen(false);
+    setPassword("");
+    setConfirmation("");
+    setProblem(null);
+  }
+
+  async function handleExport(e: React.FormEvent) {
+    e.preventDefault();
+    // Mesmo trim do backend (e do Pass Lock): espaço em volta não conta.
+    if (password.trim().length < MIN_EXPORT_PASSWORD_CHARS) {
+      setProblem(t("The password must be at least {{n}} characters.", { n: MIN_EXPORT_PASSWORD_CHARS }));
+      return;
+    }
+    if (password !== confirmation) {
+      setProblem(t("The passwords do not match."));
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    try {
+      const path = await invoke<string>("export_accounts_with_password", { password });
+      setSavedTo(path ?? "");
+      close();
+      store.addToast(t("Accounts exported"), "success");
+    } catch (err) {
+      setProblem(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field =
+    "w-full rounded-lg border border-zinc-700/70 bg-zinc-900/60 px-2.5 py-1.5 text-[12.5px] text-zinc-200 outline-none focus:border-sky-600/70";
+
+  return (
+    <div className="rounded-xl border border-zinc-800/70 bg-zinc-900/35 px-4 py-3.5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] text-zinc-200 font-medium">{t("Take your accounts to another PC")}</div>
+          <p className="mt-1 text-[12px] text-zinc-400">
+            {t("Opens on any PC with this password. Without it, nobody can read the file.")}
+          </p>
+          <p className="mt-0.5 text-[12px] text-zinc-500">
+            {t("To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.")}
+          </p>
+        </div>
+        {!open && (
+          <button
+            type="button"
+            onClick={() => {
+              setSavedTo(null);
+              setOpen(true);
+            }}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-700/70 bg-zinc-800 px-3 py-1.5 text-[12px] font-medium text-zinc-200 transition-colors hover:bg-zinc-700 shrink-0"
+          >
+            <KeyRound size={13} strokeWidth={1.6} />
+            {t("Export accounts with a password")}
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <form onSubmit={(e) => void handleExport(e)} className="mt-3 space-y-2">
+          <label className="block">
+            <span className="block text-[12px] text-zinc-400 mb-1">{t("Export password")}</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={field}
+              autoFocus
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[12px] text-zinc-400 mb-1">{t("Confirm password")}</span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              className={field}
+            />
+          </label>
+          <div className="text-[12px] text-zinc-500">
+            {t("This password cannot be recovered. Keep it somewhere safe, apart from the file.")}
+          </div>
+          {problem && (
+            <div
+              role="alert"
+              className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 text-[12px] text-rose-300"
+            >
+              {problem}
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={close}
+              className="rounded-lg px-3 py-1.5 text-[12px] font-medium text-zinc-400 hover:text-zinc-200"
+            >
+              {t("Cancel")}
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-lg border border-sky-700/50 bg-sky-900/30 px-3 py-1.5 text-[12px] font-medium text-sky-200 transition-colors hover:bg-sky-900/50 disabled:opacity-60"
+            >
+              {busy ? t("Exporting...") : t("Export")}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {savedTo && (
+        <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-[12px] text-emerald-200">
+          <div>{t("Saved to:")}</div>
+          <div className="font-mono break-all">{savedTo}</div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -250,6 +395,8 @@ export function BackupsTab({ active }: { active: boolean }) {
           </div>
         )}
       </div>
+
+      <ExportAccountsCard />
 
       {error && (
         <div
