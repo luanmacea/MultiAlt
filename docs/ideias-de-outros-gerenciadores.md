@@ -4,7 +4,7 @@ Catálogo de funcionalidades encontradas em outros gerenciadores de contas Roblo
 open source que **valem a pena** trazer para o MultiAlt. Gerado pela skill
 [`/competitor-scout`](../.claude/skills/competitor-scout/SKILL.md).
 
-- **Última passada:** 09/10/2026 — 48 repositórios lidos (de 1 a 881 estrelas).
+- **Passadas:** 09/10/2026 — 48 repositórios (de 1 a 881 estrelas); **14/10/2026** — mais 35 novos, 5 forks do RAM original e 6 da primeira passada que receberam commits (89 no total). Ideias novas da segunda: [seção I](#i-segunda-passada-14102026).
 - **Como foi feito:** cada repositório foi clonado em
   `RAM-repositorios-diversos/` (fora deste repositório) e **só lido** — nada
   deles foi executado, compilado ou instalado. Triagem de segurança e de
@@ -37,7 +37,7 @@ trabalho e pacotes: [plano-ideias.md](plano-ideias.md).
 |---|---|---|---|
 | 1 | Queda detectada pelo log, com motivo | 1.3.0 | Motivo na Session e no resumo "While you were away" |
 | 2 | Reconexão automática | 1.3.0 | Mesmo jogo e mesmo servidor privado; por conta ou para todas |
-| 3 | Reservar o `ROBLOX_singletonEvent` (teleporte) | 2.0.0 | **Experimental, desligada.** O método antigo continua o padrão; falta teste do dono teleportando com 2+ contas |
+| 3 | Reservar o `ROBLOX_singletonEvent` (teleporte) | 2.0.0 | **Experimental, desligada.** O método antigo continua o padrão; falta teste do dono teleportando com 2+ contas. **14/10:** três projetos usam a reserva como padrão e um diz que o método antigo parou nas builds de outubro — ver [ideia 32](#32-motivo-novo-para-ligar-a-reserva-do-roblox_singletonevent-ideia-3) |
 | 4 | Cliente travado ("Não respondendo") | 1.3.0 | Aviso depois de ~30 s; fechar é opção |
 | 6 | Histórico de sessões e tempo de jogo | 2.0.0 | Painel da conta |
 | 7 | Gravar o cookie novo que o Roblox devolve | 1.2.0 | |
@@ -85,30 +85,32 @@ grande.
 | 5 | Aviso no Discord por webhook (conta caiu) | Manda dados para fora do PC: só se o dono quiser, desligado por padrão |
 | 11 | Launch com o tracker do aparelho | Só **medir** se o cliente trava como um autor relatou; nada mudou |
 | 24 | AFK com teclas em par que se anulam | Bom, sem urgência |
-| 29 | Catálogo e download de versões mais robusto | Baixa prioridade: só importa para quem usa versão customizada |
+| 29 | Catálogo e download de versões mais robusto | **Subiu para média em 14/10:** uma falha de rede no download leva o launch ao handler `roblox-player:` — ver [ideia 40](#40-download-da-build-motivo-novo-para-a-ideia-29) |
 | 30 | Multi-instância de verdade no Mac | Depende de alguém testar num Mac |
 | — | Região dos servidores em lote pelo RoValra | Host de terceiro: só desligado por padrão, se o dono quiser |
 | — | Seguir quem escondeu o servidor (follow temporário) | Mexe no perfil social da conta; decisão do dono. (O "entrar seguindo o jogador" das abas Friends/Follow, de 13/10/2026, é outra coisa: é o jeito do RAM antigo de entrar no servidor de um amigo) |
 | — | `LOCALAPPDATA` próprio por conta | Investigar antes: muda onde o cliente procura as builds |
+| 31–52 | Ideias da segunda passada | Todas abertas — ver [seção I](#i-segunda-passada-14102026) e o resumo abaixo |
 | — | Página Groups (entrar num grupo em lote) | Código pronto, escondida (`ENABLE_GROUPS`) desde 08/10/2026: o navegador automatizado não mostra o botão de entrar |
 
-## Resumo — o que fazer primeiro
+## Resumo — o que fazer primeiro (segunda passada, 14/10/2026)
 
-O buraco mais repetido: **6 de 48 projetos detectam a queda da conta pelo log do
-cliente e reconectam sozinhos**. O MultiAlt no Windows só olha o título da
-janela (`watcher.rs:76`, o log só é lido no macOS) e nunca relança — o
-`AutoRelaunch` do Nexus é só gravado (`docs/features/nexus.md:109`).
+Os oito itens do resumo de 09/10 já saíram (1.2.0 a 2.0.0). Da segunda passada,
+o que mais pesa:
 
 | # | Ideia | Prioridade |
 |---|---|---|
-| 1 | [Queda detectada pelo log, com motivo](#1-queda-detectada-pelo-log-do-cliente-com-motivo) | alta |
-| 2 | [Reconexão automática](#2-reconexão-automática-da-conta-que-caiu) | alta |
-| 3 | [Reservar o nome `ROBLOX_singletonEvent` (teleporte)](#3-reservar-o-nome-roblox_singletonevent-teleporte-entre-places) | alta (confirmar) |
-| 7 | [Gravar o cookie novo que o Roblox devolve](#7-gravar-o-cookie-novo-que-o-roblox-devolve) | alta |
-| 8 | [Moderação da conta antes do launch](#8-status-de-moderação-antes-do-launch) | alta |
-| 18 | [Otimização que segue o foco](#18-otimização-que-segue-o-foco) | alta |
-| 24 | [AFK com teclas que se anulam](#24-afk-com-teclas-em-par-que-se-anulam) | alta |
-| 19 | [Nome da conta no título da janela](#19-nome-da-conta-no-título-da-janela-do-roblox) | média-alta |
+| 31 | [Não reconectar quando o Roblox fechou a janela porque outra abriu](#31-o-roblox-fechou-a-janela-porque-outra-abriu-não-reconectar) | alta |
+| 32 | [Motivo novo para ligar a reserva do `ROBLOX_singletonEvent`](#32-motivo-novo-para-ligar-a-reserva-do-roblox_singletonevent-ideia-3) | alta (teste do dono) |
+| 34 | [Fila que espera memória livre no PC](#34-fila-de-launch-que-espera-memória-livre-no-pc) | alta |
+| 35 | [Conferir que o cliente entrou na conta certa](#35-conferir-que-o-cliente-entrou-na-conta-certa) | alta |
+| 36 | [Região do servidor pelo IP interno (provável bug)](#36-região-do-servidor-provável-bug-e-região-na-session) | alta (confirmar) |
+| 33 | [Só fechar o handle de cliente que já subiu](#33-só-fechar-o-handle-de-cliente-que-já-subiu-e-tudo-ou-nada) | média-alta |
+| 40 | [Download da build com reserva e novas tentativas](#40-download-da-build-motivo-novo-para-a-ideia-29) | média |
+| 38 | [Exportar contas com senha própria](#38-exportar-as-contas-com-uma-senha-própria) | média |
+
+E um bug confirmado no nosso código: a janela de campos da conta perde o que foi
+digitado ao fechar sem Enter ([detalhes](#bugs-do-multialt-achados-nesta-passada)).
 
 ---
 
@@ -345,6 +347,174 @@ derruba as outras sessões.
 - **Segurança:** **nunca** alterar/reassinar o app (o `vmmie/MacOS-RobloxAccountManager` faz — risco de ToS).
 - **Extras no Mac:** anti-AFK sem tirar o foco (`CGEventPostToPid`, benkoppe `src/automation.rs`); posicionar janelas pela API de Acessibilidade (intraducine `WindowLayoutController.swift`); FPS por `FramerateCap` no XML, já que a `DFIntTaskSchedulerTargetFps` estaria fora da allowlist — confirmar pelo log.
 
+## I. Segunda passada (14/10/2026)
+
+Achadas em 35 repositórios novos, 5 forks do RAM original com commits próprios
+e 6 repositórios da primeira passada que receberam commits. Cada uma foi
+cruzada com a `develop` de 14/10/2026; onde diz "conferido", a lacuna foi vista
+no nosso código.
+
+### 31. "O Roblox fechou a janela porque outra abriu": não reconectar
+- **Prioridade:** alta — sem isso a reconexão automática (ideia 2) pode entrar num laço em que uma conta derruba a outra.
+- **Situação no MultiAlt:** variação melhor do motivo de queda. Conferido: `client_health.rs` só conhece o `waitForNewPlayerProcess … 0X102` (como ruído, num teste).
+- **O que faz:** reconhece no log `[FLog::WndProcessCheck] … mutex result is 0X000001` e `WindowsAppReloadTelemetry EventWaitResultUpdate`, que é o próprio cliente saindo porque outra instância abriu. Nesse caso não reconecta e avisa que o Multi Roblox pode precisar de ajuste.
+- **Onde ver:** [`minhhoang0122/bloxkeep`](https://github.com/minhhoang0122/bloxkeep) — `RobloxLogWatcher.cs:61-67,300` e `AppController.RobloxUpdates.cs` (`CheckClosedByRoblox`), MIT.
+- **Segurança:** limpo, só leitura de log.
+- **Como faríamos aqui:** nova classe de motivo no classificador do `client_health.rs`, que a reconexão trata como "parar".
+
+### 32. Motivo novo para ligar a reserva do `ROBLOX_singletonEvent` (ideia 3)
+- **Prioridade:** alta — **confirmar** com o teste do dono (2+ contas teleportando, build de outubro).
+- **Situação no MultiAlt:** a ideia 3 saiu na 2.0.0 como experimental e desligada.
+- **O que mudou:** três projetos independentes usam a reserva por Mutex como **método padrão**. O do Bloxkeep diz que o método antigo, pelo Event, parou de funcionar nas builds do Roblox de outubro de 2026, com 5 contas testadas no mesmo jogo. O Toolblox registra no README do helper dele que fechar o Event dentro dos clientes derruba os outros em cascata.
+- **Onde ver:** [`minhhoang0122/bloxkeep`](https://github.com/minhhoang0122/bloxkeep) — `MultiInstance.cs:7-61`, MIT; [`jjtjtyt6644/RobloxAccountManager`](https://github.com/jjtjtyt6644/RobloxAccountManager) — `runtime/singleton.rs`, GPL-3; [`KillianM00/roblox-multi-instance`](https://github.com/KillianM00/roblox-multi-instance) — `MutexHolder.cs:16-25`, MIT (mais fraco que o nosso: falha calado com cliente aberto). Para os casos de borda (o nome já existe como Event, reserva feita pela metade): [`Paryx-games/roblox-manager`](https://github.com/Paryx-games/roblox-manager) — `ram_core/src/process.rs` (`acquire_named_objects`), MIT.
+- **Segurança:** limpo. Nada aqui justifica ligar sem o teste.
+
+### 33. Só fechar o handle de cliente que já subiu, e tudo ou nada
+- **Prioridade:** média-alta.
+- **Situação no MultiAlt:** variação melhor de `platform/windows/singleton.rs`. Conferido: não olha a idade do processo.
+- **O que faz:** só fecha o `ROBLOX_singletonEvent` de clientes com mais de 5 s de vida, porque fechar o de um cliente que ainda está subindo faz ele se fechar. Se algum cliente não pôde ser aberto ou lido, não fecha nenhum. Avisa quando outro programa segura o nome.
+- **Onde ver:** [`S4US/account-manager`](https://github.com/S4US/account-manager) — `MultiInstanceGuard.cs`, MIT.
+- **Segurança:** limpo. O mesmo projeto pede admin por padrão e deixa o arquivo de settings do Roblox somente-leitura: não trazer.
+
+### 34. Fila de launch que espera memória livre no PC
+- **Prioridade:** alta — abrir um cliente que não cabe trava o PC inteiro, não só aquela conta.
+- **Situação no MultiAlt:** novo. Conferido: o teto de memória é **por cliente**; nada olha a RAM livre do PC antes de abrir.
+- **O que faz:** segura o próximo launch quando a RAM livre cai abaixo de max(1 GB, 10%) ou o commit (RAM + paginação) não aguenta mais um cliente (~1,8 GB por cliente, 2 GB reservados ao Windows). A reconexão espera nessa situação **sem gastar tentativa**. Antes de abrir um lote, avisa quantas contas cabem.
+- **Onde ver:** [`S4US/account-manager`](https://github.com/S4US/account-manager) — `InstanceManager.cs:69-99,365-420`, MIT; [`RaresDevLibrary/RDL-AccountManager`](https://github.com/RaresDevLibrary/RDL-AccountManager) — `Manager.cs` (laço de launch, ~93-106), `ResourceMode.cs` (`ResourceUsage.MemoryLow`), `Recovery.cs` (`CanRestart`), MIT; aviso antes do lote: [`minhhoang0122/bloxkeep`](https://github.com/minhhoang0122/bloxkeep) — `AppController.cs:2489`.
+- **Segurança:** `GlobalMemoryStatusEx` já está no `windows-sys`; não é dependência nova.
+- **Como faríamos aqui:** portão na fila de `launch_shared.rs`, com o motivo na Session ("esperando memória").
+
+### 35. Conferir que o cliente entrou na conta certa
+- **Prioridade:** alta — se o cookie trocar de mãos, a fila segue achando que deu certo.
+- **Situação no MultiAlt:** variação melhor da ideia 14. Conferido: o `userid` do log só é lido para os clientes abertos pelo site (`external_clients.rs`).
+- **O que faz:** compara o `userid` de `[FLog::GameJoinLoadTime]` com a conta que lançamos; se não bater, ou se aparecer `challengedByGcs`, pausa a fila e avisa.
+- **Onde ver:** [`evanovar/RobloxAccountManager`](https://github.com/evanovar/RobloxAccountManager) — `src/features/launch_monitor.py` (`confirm_launch`), GPL-3.0.
+- **Segurança:** limpo.
+
+### 36. Região do servidor: provável bug, e região na Session
+- **Prioridade:** alta para o bug (**confirmar** com uma resposta real); média para a parte nova.
+- **Situação no MultiAlt:** `server_regions.rs` (`server_machine_address`) geolocaliza o `joinScript.MachineAddress` cru. Para servidores atrás do UDMUX esse endereço é interno `10.x`: o nosso próprio fixture de log real mostra `10.9.3.162` (`external_clients.rs`), e os testes só usam IP público.
+- **O que faz:** descarta endereço privado e usa o IP público do UDMUX. A parte nova: a Session mostra a região do servidor de cada conta, lida da linha `UDMUX Address` do log, sem nenhuma chamada `join-game-instance`. Junto, dá para mostrar há quanto tempo o servidor está no ar, pela linha `Server Prefix …_<data>_RCC`.
+- **Onde ver:** [`bloxstraplabs/bloxstrap`](https://github.com/bloxstraplabs/bloxstrap) — `ActivityData.cs:43`, `ActivityWatcher.cs:244-260`, MIT; [`AeroUp/Visor`](https://github.com/AeroUp/Visor) — `logwatcher.js`, MIT; uptime: [`Froststrap/Froststrap`](https://github.com/Froststrap/Froststrap) — `ActivityWatcher.cs:23,570-592`, MPL-2.0.
+- **Segurança:** geolocalizar pelo serviço que já usamos (não o `ipinfo.io` do Visor). Nunca geolocalizar IP privado.
+
+### 37. Diálogo de erro do Roblox na partida = launch que falhou
+- **Prioridade:** média.
+- **Situação no MultiAlt:** novo; não olhamos a classe da janela do PID.
+- **O que faz:** se a janela do cliente é um diálogo (`#32770`), a conta fica marcada com o título do erro. Só conta como "aberto" a janela `WINDOWSCLIENT` que responde.
+- **Onde ver:** [`SadinKai/SUNDAY`](https://github.com/SadinKai/SUNDAY) — `src/main/legacy-roblox-isolation-adapter.js:1290-1307`, `src/main/native.js:270-313`, MIT.
+- **Segurança:** limpo. O mesmo projeto fecha handles dentro do cliente: não trazer.
+
+### 38. Exportar as contas com uma senha própria
+- **Prioridade:** média.
+- **Situação no MultiAlt:** variação melhor dos backups. Conferido: sem Pass Lock o backup leva o `AccountData.key` dentro do zip — quem tem o zip tem as contas.
+- **O que faz:** exporta um arquivo cifrado com uma senha escolhida na hora, que abre em qualquer PC. Com senha, dá para oferecer backup automático para uma pasta (a do OneDrive/Drive do usuário), com retenção.
+- **Onde ver:** [`Gugas19/Roblox-Account-Manager`](https://github.com/Gugas19/Roblox-Account-Manager) — `src/commands/backup.rs` (`export_accounts`), GPL-3.0 (fork do RAM que virou Tauri/Rust); [`TheFadGhost/roblox-account-manager-pro-public`](https://github.com/TheFadGhost/roblox-account-manager-pro-public) — `Services/CryptoService.cs` (`EncryptPortableJson`), MIT; backup em pasta: [`minhhoang0122/bloxkeep`](https://github.com/minhhoang0122/bloxkeep) — `Backup.cs`.
+- **Segurança:** com o sodiumoxide que já está no binário (sem dependência nova). Backup em pasta de nuvem **só** com senha.
+
+### 39. Versão mais velha do app nunca grava por cima dos dados
+- **Prioridade:** média — protege quem volta de versão (MSI antigo, rollback).
+- **Situação no MultiAlt:** variação melhor do latch `load_failed`.
+- **O que faz:** cada arquivo de dados guarda a versão do app que o salvou; uma versão mais velha lê, mas não grava.
+- **Onde ver:** [`woogi999/pious-bootstrapper`](https://github.com/woogi999/pious-bootstrapper) — `core/store.rs` (`newer_than_us`), sem licença.
+- **Segurança:** limpo. O mesmo projeto passou a gravar `production` no canal a cada launch — descartado (regra crítica).
+
+### 40. Download da build: motivo novo para a ideia 29
+- **Prioridade:** sobe de baixa para **média**.
+- **Situação no MultiAlt:** a ideia 29 parecia só para quem usa versão customizada. Mas hoje uma falha de rede no download da build leva o `launch_url` ao último recurso do handler `roblox-player:` (regra crítica), e o app usa um host e um CDN só, sem nova tentativa (`launch.rs`, `versions.rs`).
+- **O que faz:** reserva `clientsettings.roblox.com` quando o `clientsettingscdn` falha; escolhe o espelho por `/versionStudio`; até 5 tentativas por pacote; checa espaço em disco; cache por MD5.
+- **Onde ver:** [`bloxstraplabs/bloxstrap`](https://github.com/bloxstraplabs/bloxstrap) — `Deployment.cs:28-182`, `Bootstrapper.cs:1455-1590`, MIT.
+- **Segurança:** o Bloxstrap trata 403 como canal aposentado e regrava o canal — **não** trazer essa parte. Conferir o hash de cada pacote.
+
+### 41. Diagnóstico: bootstrapper no handler, processo na bandeja, instalador
+- **Prioridade:** média (resto da ideia 16).
+- **O que faz:** avisa quando Bloxstrap/Froststrap é o handler do protocolo (eles fecham todos os clientes quando atualizam: `Bootstrapper.cs:957-976,1030`); avisa quando há processo do Roblox na bandeja (`--launch-to-tray`), que pode explicar "o launch não faz nada"; avisa quando o instalador do Roblox assumiu o launch e o jogo vai voltar em outra conta.
+- **Onde ver:** [`bloxstraplabs/bloxstrap`](https://github.com/bloxstraplabs/bloxstrap) (acima); bandeja: [`VladDerK1ng/RobloxKeeper`](https://github.com/VladDerK1ng/RobloxKeeper) — `GhostWatch.cs`; instalador: [`woogi999/pious-bootstrapper`](https://github.com/woogi999/pious-bootstrapper) — `service/launch.rs` (`watch_for_self_update`).
+- **Segurança:** **só avisar**. Nunca matar processo nem reescrever o handler.
+
+### 42. Presets mais vivos: grupo, server hop e reinício programado
+- **Prioridade:** média.
+- **Situação no MultiAlt:** variação melhor dos presets (ideia 13).
+- **O que faz:**
+  - preset que aponta para um **grupo** de contas, resolvido de novo a cada launch;
+  - **server hop** do grupo: muda as contas juntas para outro servidor público com vaga para todas, fechando só os clientes que o app rastreia;
+  - reiniciar cada cliente a cada N horas, um por vez, voltando ao mesmo servidor.
+- **Onde ver:** grupo: [`Paryx-games/roblox-manager`](https://github.com/Paryx-games/roblox-manager) — `ram_ui/src-tauri/src/main.rs` (`launch_launch_preset`), `ram_core/src/account_tags.rs` (`matching_accounts`), MIT. Server hop: [`JeskoMts/Instance-Manager`](https://github.com/JeskoMts/Instance-Manager) — `ViewModels/ShellViewModel.cs` (`ServerHopAsync`, `PickServer`), Apache-2.0. Reinício: [`minhhoang0122/bloxkeep`](https://github.com/minhhoang0122/bloxkeep) — `AppController.Presets.cs` (`RestartDueClients`).
+- **Segurança:** o reinício do Bloxkeep usa `GetLastInputInfo`: essa parte não entra.
+
+### 43. Notificação do Windows quando a conta cai
+- **Prioridade:** média — o aviso que o webhook (ideia 5) daria, sem mandar nada para fora do PC.
+- **Situação no MultiAlt:** novo.
+- **Onde ver:** [`BakedAleska/Toolblox`](https://github.com/BakedAleska/Toolblox) — `src-tauri/src/auto_rejoin.rs:108` (`tauri_plugin_notification`), MIT.
+- **Segurança:** o plugin entra no binário — build + scan da edição padrão antes de adotar.
+
+### 44. AFK que devolve a janela exatamente como estava
+- **Prioridade:** média.
+- **Situação no MultiAlt:** variação melhor de `afk.rs`.
+- **O que faz:** depois do toque, re-minimiza sem ativar outra janela (nós usamos `SW_MINIMIZE`), devolve a janela coberta à mesma profundidade (a nossa fica por cima), desliga a animação de minimizar/restaurar durante o toque e devolve o mouse quando o shift-lock o puxou para o centro. Também confirma a ideia 24 (par seta → / ←); as setas estendidas já existem no `input.rs`, só faltam na lista do AFK.
+- **Onde ver:** [`bloxnest/nudge-nest`](https://github.com/bloxnest/nudge-nest) — `src/Nudger.cs`, `NudgeCheck.cs`, MIT.
+- **Segurança:** o "quando tocar" deles usa `GetLastInputInfo`/`AttachThreadInput`, proibidos no nosso AFK.
+
+### 45. Janelas: posição que sobrevive à troca de monitor, miniaturas ao vivo
+- **Prioridade:** média.
+- **O que faz:** `SaveWindowPositions` grava a posição em **fração do monitor**, com um ID estável do monitor (hoje grava pixels). E uma grade de miniaturas ao vivo das janelas dentro do app, pelo DWM.
+- **Onde ver:** [`Makmatoe/SessionDock`](https://github.com/Makmatoe/SessionDock) — `RobloxWindowLayoutPolicy.cs:42,318`, MIT; miniaturas: [`minhhoang0122/bloxkeep`](https://github.com/minhhoang0122/bloxkeep) — `WindowThumbnails.cs`, [`KillianM00/roblox-multi-instance`](https://github.com/KillianM00/roblox-multi-instance) — `Controls/DwmThumbnailHost.cs`.
+- **Segurança:** miniatura DWM é API nativa nova — build + scan.
+
+### 46. Esconder os nomes também no título da janela do Roblox
+- **Prioridade:** média — com os nomes escondidos no app, o título "conta — Roblox" (ideia 19) ainda pode mostrar a conta numa live ou num print.
+- **Onde ver:** [`minhhoang0122/bloxkeep`](https://github.com/minhhoang0122/bloxkeep) — `AppController.Names.cs`.
+- **Segurança:** limpo.
+
+### 47. Voz, faixa etária e verificação de idade por conta
+- **Prioridade:** média.
+- **Situação no MultiAlt:** novo.
+- **O que faz:** mostra na conta se tem chat de voz, a faixa etária e se a idade é verificada, com filtro na lista.
+- **Onde ver:** [`joe-jns/roblox-account-manager`](https://github.com/joe-jns/roblox-account-manager) — `src/main.js:645-668` (`voice.roblox.com/v1/settings`, `accountinformation.roblox.com/v1/birthdate`, `apis.roblox.com/age-verification-service/v1/age-verification/verified-age`), sem licença.
+- **Segurança:** leitura — `read_without_refresh`, host por `endpoints::host`. O mesmo projeto guarda senha em texto puro: não trazer.
+
+### 48. Esperar um jogador ficar disponível e entrar
+- **Prioridade:** média.
+- **O que faz:** em Follow, se o jogador não está num servidor em que dá para entrar, fica vigiando com espera crescente (respeitando `Retry-After`) e entra quando der.
+- **Onde ver:** [`Makmatoe/SessionDock`](https://github.com/Makmatoe/SessionDock) — `JoinUserWatchPolicy.cs`, MIT.
+- **Segurança:** leitura de presença sem refresh; limite de tempo.
+
+### 49. Identidade do aparelho estável por conta
+- **Prioridade:** média — **investigar**, junto com a aberta "`LOCALAPPDATA` próprio por conta".
+- **Situação no MultiAlt:** variação do isolamento: hoje ele apaga, mas não toca `appStorage.json` nem `rbx-storage.id`.
+- **O que faz:** guarda por conta e troca, **só com nenhum cliente aberto**, `appStorage.json`, `RobloxCookies.dat` e `rbx-storage.id`; conta nova recebe cópia limpa com `AppInstallationId`/`BrowserTrackerId` novos. Tem relação com a ideia 11 (tracker) e com o lock de `appStorage.json` do evanovar (`account_actions.py`, `_lock_roblox_storage_file`).
+- **Onde ver:** [`TrapstarKS/TrapRAM`](https://github.com/TrapstarKS/TrapRAM) — `src/main/profiles.ts`, `src/shared/pure.ts:95-108`, sem licença.
+- **Segurança:** não atrapalhar quem joga pelo site; respeitar "isolamento pula com cliente aberto".
+
+### 50. Servidores privados da conta na aba Servers
+- **Prioridade:** baixa-média.
+- **Situação no MultiAlt:** o backend já busca os servidores privados (`avatar_games.rs`), mas a aba Servers só pede os públicos.
+- **Onde ver:** [`skipnz/Roblox-Account-Manager`](https://github.com/skipnz/Roblox-Account-Manager) — `Forms/ServerList.cs:260-292`, GPL-3.0 (fork do RAM).
+
+### 51. Mac: cookies por identificador do app
+- **Prioridade:** alta se o Mac for prioridade — **confirmar num Mac**.
+- **Situação no MultiAlt:** possível bug. O macOS guarda cookies pelo identificador do app, não pela pasta. Clientes com o mesmo identificador dividem o arquivo de cookie, e no rejoin uma conta entra como a outra. O nosso `platform/macos/launch.rs` abre todos com o mesmo identificador.
+- **Atualiza a ideia 30:** pelo teste deles, o caminho sem reassinar (HOME separado, abrindo o cliente direto) **não** entrega o link do jogo, o que contradiz o intraducine. A correção deles reassina o app, que a ideia 30 proíbe. Decisão do dono depois de um teste. Também deles: atualizar o Roblox antes do lote, porque cópias velhas brigam pelo instalador (`RobloxVersionGate.swift`, `RobloxUpdateDriver.swift`) — sem o passo que fecha o cliente principal.
+- **Onde ver:** [`estevanhernandez-stack-ed/rororo-mac`](https://github.com/estevanhernandez-stack-ed/rororo-mac) — `docs/decisions/0009-per-instance-cookie-isolation.md`, `BundleIDRewriter.swift`, MIT.
+- **Segurança:** o rororo grava no log do sistema o link de launch com o ticket (`MultiInstanceCoordinator.swift:507`) e o põe no zip de diagnóstico — não reproduzir.
+
+### 52. Pequenas (baixa prioridade)
+- Lançar conta ou preset pela **bandeja** (hoje só Show/Quit, `lib.rs:470`) — [`adxm-o/irradiant-account-manager`](https://github.com/adxm-o/irradiant-account-manager).
+- **Pausar/retomar** a fila de launch — [`TheFadGhost/roblox-account-manager-pro-public`](https://github.com/TheFadGhost/roblox-account-manager-pro-public) `Services/PauseController.cs`.
+- Paleta de comandos **Ctrl+K** — [`breud/poob-account-manager`](https://github.com/breud/poob-account-manager) `src/components/ui/CommandPalette.tsx`.
+- **Avatar da conta como ícone da janela** (`WM_SETICON`) — [`Froststrap/Froststrap`](https://github.com/Froststrap/Froststrap) `WindowManipulation.cs:75-155`; **cor da barra de título** por grupo (Windows 11, `DwmSetWindowAttribute` 35/36) — [`thanknoah/Moon-Instance-Controller`](https://github.com/thanknoah/Moon-Instance-Controller).
+- Tocar uma gravação depois de **qualquer** launch, não só da reconexão — [`itsnexoria/rexio`](https://github.com/itsnexoria/rexio) `src/main.js` (`waitForInGameThenRun`).
+- **Importar contas do evanovar** (`saved_accounts.json`) — [`slashznX/roblox-account-manager`](https://github.com/slashznX/roblox-account-manager) `src-tauri/src/importer.rs` (`scan_evanovar`); conferir o formato no próprio evanovar.
+- **Atalho na área de trabalho** que dispara um preset — [`cursed-blip/catstrap`](https://github.com/cursed-blip/catstrap) `Integrations/Quickplay.cs` (código nativo novo: scan).
+- Colar o **código curto** de 8 caracteres do servidor — [`HanazonoArchive/RBX-Server-Manager`](https://github.com/HanazonoArchive/RBX-Server-Manager). (O "scan de baixo ping" dele é só o campo `ping` da API, a média dos jogadores.)
+- Desfazer remoção de contas, renomear grupo, linha de comando — [`Gugas19/Roblox-Account-Manager`](https://github.com/Gugas19/Roblox-Account-Manager).
+- Voltar ao servidor privado quando o jogo leva a conta para um público — [`Galkurta/Auto-Rejoin`](https://github.com/Galkurta/Auto-Rejoin) (lá por presença; aqui seria pelo log).
+- Discord Rich Presence — os bootstrappers têm, mas com várias contas mostraria uma só; daria pelo pipe `discord-ipc-N`, sem dependência nativa.
+
+### Bugs do MultiAlt achados nesta passada
+- **Campos da conta perdem o que foi digitado** — conferido. `AccountFieldsDialog.tsx` só salva com Enter na caixa do valor ou ao remover um campo; trocar só a chave, criar campo com "+" ou fechar pelo X, pelo Esc ou pelo fundo descarta tudo sem aviso. O fork [`iamstrix`](https://github.com/iamstrix/iamstrix-Roblox-Account-Manager) corrigiu o mesmo defeito no RAM original (`Classes/Field.cs`, `Forms/AccountFields.cs`: salva ao sair da caixa e ao fechar).
+- **Região do servidor pelo IP interno** — plausível, falta uma resposta real: ver ideia 36.
+
 ## Para decisão do dono
 
 Ideias boas que esbarram numa regra do projeto ou trazem um host novo. Não
@@ -353,9 +523,11 @@ recomendadas por padrão; viram opção só se ele quiser.
 - **Adiar o AFK enquanto o usuário mexe no PC** (Agzes) e **forçar o foco** (RoPilot): dependem de `GetLastInputInfo`/`AttachThreadInput`, proibidos de propósito no `afk.rs:2004-2029`.
 - **Região dos servidores em lote pelo RoValra** ([`sleaze5`](https://github.com/sleaze5/RobloxAccountManager) `internal/integration/rovalra/client.go`): mais rápido que o `join-game-instance` por servidor, mas é host de terceiro — só desligado por padrão.
 - **Seguir quem escondeu o servidor** com follow temporário e unfollow garantido por diário ([`Paryx-games`](https://github.com/Paryx-games/roblox-manager) `ram_core/src/join_user.rs`, `temporary_join`): mexe no perfil social da conta.
+- **Servidor privado grátis por conta** ([`xspww/Khabarovsk`](https://github.com/xspww/Khabarovsk) `domain/roblox_private_servers.py`, `ensure_owned_private_server`, GPL-3): reusa o servidor privado que a conta tem e, se não houver e o jogo permitir, cria um a preço 0. É um endpoint de **compra** — sempre `expectedPrice: 0`, confirmar com conta de teste, e só com o dono querendo.
+- **Renovar o cookie trocando um auth ticket** (`authentication-ticket/redeem`) em vez do `signoutfromallsessions` ([`TrapstarKS/TrapRAM`](https://github.com/TrapstarKS/TrapRAM) `src/main/roblox.ts:106-128`): mesma ressalva do `v2/session/refresh` da ideia 7 — só depois de provar com conta de teste que não derruba as outras sessões.
 - **`LOCALAPPDATA` próprio por conta** ([`Overdusts`](https://github.com/Overdusts/roblox-multi-instance-launcher) `Core/RobloxLauncher.cs`, `SetupInstanceIsolation`): separaria settings/cookie local/logs de contas que rodam juntas (o isolamento atual não separa), mas muda onde o cliente procura as builds — investigar antes.
 
-## Repositórios analisados (09/10/2026)
+## Repositórios analisados (09/10 e 14/10/2026)
 
 Veredito: **L** legítimo · **S** suspeito · **M** malicioso. Estrelas na data da busca.
 
@@ -409,6 +581,49 @@ Veredito: **L** legítimo · **S** suspeito · **M** malicioso. Estrelas na data
 | [wokdsoul/XRM](https://github.com/wokdsoul/XRM) | 1 | GPL-3.0 | L | 1, 5, 19 |
 | [woogi999/pious-bootstrapper](https://github.com/woogi999/pious-bootstrapper) | 0 | — | L com ressalvas (lê cookies do navegador, ganchos globais) | 1, 12, 21, 29 |
 | [xfwil/roblox-accounts-manager](https://github.com/xfwil/roblox-accounts-manager) | 0 | — | L, inseguro (API local entrega cookies sem senha) | nada |
+| **Segunda passada (14/10/2026)** | | | | |
+| [bloxstraplabs/bloxstrap](https://github.com/bloxstraplabs/bloxstrap) | 3174 | MIT | L (telemetria ligada; mata todos os clientes no update; regrava o canal) | 36, 40, 41 |
+| [Froststrap/Froststrap](https://github.com/Froststrap/Froststrap) | 296 | MPL-2.0 | L (gancho global de teclado; rejoin que mata todos) | 36, 52 |
+| [Campionnn/Roblox-Account-Manager](https://github.com/Campionnn/Roblox-Account-Manager) (fork) | 9 | GPL-3.0 | L (Web API ligada sem senha por padrão) | nada |
+| [cursed-blip/catstrap](https://github.com/cursed-blip/catstrap) | 8 | MIT | L, **arriscado** (asset proxy: edita `hosts`, CA própria no `cacert.pem` do cliente) | 52 |
+| [Galkurta/Auto-Rejoin](https://github.com/Galkurta/Auto-Rejoin) | 4 | — | L descuidado | 52 |
+| [Makmatoe/SessionDock](https://github.com/Makmatoe/SessionDock) | 2 | MIT | L (o mais cuidadoso do lote) | 45, 48 |
+| [S4US/account-manager](https://github.com/S4US/account-manager) | 1 | MIT | L (pede admin; settings do Roblox somente-leitura) | 33, 34 |
+| [jjtjtyt6644/RobloxAccountManager](https://github.com/jjtjtyt6644/RobloxAccountManager) | 1 | GPL-3 | L (atualiza o Roblox pelo instalador) | 32 |
+| [thanknoah/Moon-Instance-Controller](https://github.com/thanknoah/Moon-Instance-Controller) | 1 | — | **S** (código incompleto, lag switch por `netsh`) | 52 |
+| [Gugas19/Roblox-Account-Manager](https://github.com/Gugas19/Roblox-Account-Manager) (fork) | 1 | GPL-3.0 | L (virou Tauri/Rust; launch pelo handler cru) | 38, 52 |
+| [niooii/Roblox-Account-Manager](https://github.com/niooii/Roblox-Account-Manager) (fork) | 1 | GPL-3.0 | L | nada |
+| [iamstrix/iamstrix-Roblox-Account-Manager](https://github.com/iamstrix/iamstrix-Roblox-Account-Manager) (fork) | 1 | GPL-3.0 | L (`nuget.exe` commitado) | bug dos campos |
+| [skipnz/Roblox-Account-Manager](https://github.com/skipnz/Roblox-Account-Manager) (fork) | 0 | GPL-3.0 | L | 50 |
+| [minhhoang0122/bloxkeep](https://github.com/minhhoang0122/bloxkeep) | 0 | MIT | L (o mais parecido com o MultiAlt) | 31, 32, 34, 38, 42, 45, 46 |
+| [RaresDevLibrary/RDL-AccountManager](https://github.com/RaresDevLibrary/RDL-AccountManager) | 0 | MIT | L, limpo | 34 |
+| [TheFadGhost/roblox-account-manager-pro-public](https://github.com/TheFadGhost/roblox-account-manager-pro-public) | 0 | MIT | L | 38, 52 |
+| [SadinKai/SUNDAY](https://github.com/SadinKai/SUNDAY) | 0 | MIT | L (fecha handles dentro do cliente) | 37 |
+| [TrapstarKS/TrapRAM](https://github.com/TrapstarKS/TrapRAM) | 0 | — | L | 49 |
+| [BakedAleska/Toolblox](https://github.com/BakedAleska/Toolblox) | 0 | MIT | L (helper `.exe` com fonte; widgets com acesso total) | 32, 43 |
+| [joe-jns/roblox-account-manager](https://github.com/joe-jns/roblox-account-manager) | 0 | — | L (senhas em texto puro) | 47 |
+| [adxm-o/irradiant-account-manager](https://github.com/adxm-o/irradiant-account-manager) | 0 | MIT/UNLICENSED | L ("Close blockers" mata todos) | 52 |
+| [estevanhernandez-stack-ed/rororo-mac](https://github.com/estevanhernandez-stack-ed/rororo-mac) | 0 | MIT | L (ticket no log do sistema; reassina o app) | 51 |
+| [bloxnest/nudge-nest](https://github.com/bloxnest/nudge-nest) | 0 | MIT | L, sem rede | 44 |
+| [AeroUp/Visor](https://github.com/AeroUp/Visor) | 0 | MIT | L (overlay é janela por cima, não injeta) | 36 |
+| [KillianM00/roblox-multi-instance](https://github.com/KillianM00/roblox-multi-instance) | 0 | MIT | L | 32, 45 |
+| [breud/poob-account-manager](https://github.com/breud/poob-account-manager) | 0 | MIT | L, arriscado (`WriteProcessMemory` para FPS; cookies em texto puro) | 52 |
+| [itsnexoria/rexio](https://github.com/itsnexoria/rexio) | 0 | — | L | 52 |
+| [slashznX/roblox-account-manager](https://github.com/slashznX/roblox-account-manager) | 0 | — | L, invasivo (admin, lê cookies do navegador, "matar todos") | 52 |
+| [geo-daik/Onyxstrap](https://github.com/geo-daik/Onyxstrap) | 0 | MIT | L (telemetria desligada por padrão) | só baixas |
+| [xspww/Khabarovsk](https://github.com/xspww/Khabarovsk) | 0 | GPL-3 | L, feito para farm com executor (fecha todos; pagefile com admin) | decisão do dono |
+| [Rickagon/Roblox-Account-Manager](https://github.com/Rickagon/Roblox-Account-Manager) | 0 | MIT | L, práticas ruins (tarefa agendada, mata clientes sem janela, navegador "stealth") | nada |
+| [Nxxo31/NexoAccManager](https://github.com/Nxxo31/NexoAccManager) | 0 | MIT | L, fraco (captcha pelo NopeCHA; README anuncia o que não existe) | nada |
+| [bhhoang/roblox-account-manager-rs](https://github.com/bhhoang/roblox-account-manager-rs) | 0 | GPL-3.0 | L, imaturo | nada |
+| [iamvferdz/roblox-account-manager](https://github.com/iamvferdz/roblox-account-manager) | 0 | GPL-3.0 | cópia idêntica do ic3w0lf22 | nada |
+| [tatugava/roblox-account-reconnect-scheduler](https://github.com/tatugava/roblox-account-reconnect-scheduler) | 0 | Unlicense | L (firewall + UAC + tarefa agendada) | nada |
+| [HanazonoArchive/RBX-Server-Manager](https://github.com/HanazonoArchive/RBX-Server-Manager) | 0 | — | **S** pela intenção (servidor para dupe; proxies CORS e Supabase do autor) | 52 |
+| [Kntt9/robloxmanager](https://github.com/Kntt9/robloxmanager) | 0 | MIT | **S** (cópia rebatizada, autor anônimo, `.exe` de 17 MB commitado, lê memória do cliente) | nada |
+| [Varatos99/VHRobloxManager](https://github.com/Varatos99/VHRobloxManager) | 0 | — | **S** (estrutura de checker: cookies em massa por proxy) | nada |
+| [TheFadGhost/ghost-tracker-community](https://github.com/TheFadGhost/ghost-tracker-community) | 0 | — | **S** (SaaS de farm com executor, `loadstring` remoto) | nada |
+| [imtusxd/roblox-auto-rejoin](https://github.com/imtusxd/roblox-auto-rejoin) | 0 | — | serve a executor + bot de trade; `handle.exe` commitado | nada |
+| **Atualizados em 14/10** | | | | |
+| JeskoMts/Instance-Manager, Paryx-games/roblox-manager, woogi999/pious-bootstrapper, evanovar/RobloxAccountManager, sleaze5/RobloxAccountManager, tsukiforge/BoneFish | — | Jesko agora Apache-2.0 sem conflito | mesmo veredito; Paryx parou de fechar handles no cliente, evanovar tirou o "Kill all", pious passou a gravar `production` no canal | 32, 35, 39, 41, 42 |
 
 ## Bandeira vermelha (não clonados)
 
@@ -417,6 +632,9 @@ Iscas do nicho. Não abrir, não baixar, não indicar.
 - **Estrelas falsas em lote**, todos `HTML`, 68–70 ★, atualizados no mesmo dia, nomes "...-Forge/-Orbit/2026": `mehrab-6767/SessionX-Orbit`, `kshong/roblox-multi-account-orbit`, `MendAura/roblox-session-forge`, `MAHDI292-sys/rustblox-account-forge`, `ItaloFelixSantos/Roblox-Account-Manager-Python`, `AFKvipproplayer/Roblox-MultiLauncher-Next`, `rajnathyadav6/Fisch-DevOps-Forge`, `donguyenbao/place-sync-hub`, `Jimeshhacker/MultiRoblox-Orchestrator`, `HeisJeremiah1/NeuzBlox-MultiRunner`, `Ferrerodillo/Nexo-Account-Vault`, `0m4rxze/Roblox-Account-Switcher`.
 - **Sem código e com descrição de marketing** ("ultimate", "premium", "pro-tier"): `kich2/Multiroblox-extension-2026` (88 ★), `lifet-dot/Roblox-Extension-Multi-Account-Manager` (76 ★), `toskaman/RBX-Manager-2`, `rapha30/RobloxAccountManagerPlus-*` ("Download …"), e dezenas de repositórios de 0–1 ★ com linguagem vazia.
 - **Abuso explícito:** `katicmartin854-eng/Multi-Toll-To-Hack-Roblox-Accounts`, `zZarby/RChecker` (checker de combolist), `wanz-hub/WANZZ` (bypass de key system).
+- **14/10/2026 — mais estrelas falsas em lote** (`HTML`, 68–70 ★): `rayo0312/Roblox-Assist-Suite`, `kliklim/Voidstrap-Themes-And-Features`, `khadirkumar/vision-roblox-sentinel`, `jlal892/roblox-multiplex-console`, `farhan797648/Roblox-FlagForge-Engine`, `Issotos/Saweria-Roblox-Bridge`, `storehummer12-dotcom/kitstrap-core`, `deku2007530/Faction-Sniper`, `Syahmellow51/Neuz-Strap-Lite`, `SaniFM195/Fishstrap-Roblox-Config-Hub`, `Halimos51/Init-Sequence-Orchestrator`, `Ahsanmughal-byte/Fishstrap-Roblox-Launcher-Flags-Editor`, `Agum52/Goldstrap-Bootstrapper`.
+- **14/10/2026 — nome de produto conhecido com dono aleatório e descrição de SEO** ("Bloxstrap v2.11.4 is the bootstrapper: bloxstrap roblox, bloxstrap fast flags…"): `bloxstrap-project/Bloxstrap`, `Protaminechangeover267/Fishstrap-Roblox`, `Haemoglobinopathyredfox8677/Fishstrap-Roblox`, `historical-soave754/robloxaccountmanager-desktop-app`, `LIxyLGy75LhmG/RobloxAutoClickerOpen`, `DeltaExec-Roblox/DeltaExecRoblox` (executor). O Bloxstrap de verdade é `bloxstraplabs/bloxstrap`.
+- **14/10/2026 — abuso explícito:** `permana83/Roblox-Account-Stealing-Tool`, `Aspectise/Roblox-Mass-Tools`, `LarperOfTheWorld/QuantumStrap` (aimbot/ESP embutidos), cheats "Download … Cheat" (`iNovovonSodelx/*`, `iXebamedVasor/*`), geradores de conta e auto-signup.
 - **Clonado e confirmado como isca:** `Tunneliahover/roblox-account-manager-launcher` (ver tabela).
 
 ## Descartado em todos os projetos (padrões que não entram)
@@ -428,3 +646,4 @@ Iscas do nicho. Não abrir, não baixar, não indicar.
 - Importar cookies do navegador; cookie em texto puro, base64 ou XOR "criptografado"; cookie em log/console; API local sem senha.
 - Macros, ganchos globais de teclado/mouse, trade bot, sniper de username, scraper de grupos, bot de visitas.
 - Sessão RDP por alt (exige admin + RDP Wrapper, que antivírus marcam).
+- **14/10/2026:** proxy de assets que edita o `hosts` e instala uma CA própria no `cacert.pem` do cliente (catstrap); resolver captcha por serviço pago de terceiro (NopeCHA); escrever na memória do cliente para mudar o FPS (poob); "validar senha" pelo endpoint de troca de senha (escrita para responder uma leitura); importar cookies em massa por proxy (padrão de checker); vigia que mata qualquer cliente sem janela, inclusive os de fora.
