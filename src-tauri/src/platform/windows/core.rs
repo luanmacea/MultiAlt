@@ -117,39 +117,127 @@ fn acquire_multi_roblox_mutex() -> Result<bool, String> {
 /// Sem cliente Roblox aberto a etapa nova não custa nada (sai na checagem de
 /// pids) e o comportamento antigo é idêntico.
 pub fn enable_multi_roblox() -> Result<bool, String> {
-    if acquire_multi_roblox_mutex()? {
-        // Um cliente aberto fora do app pode ter publicado o Event mesmo com o
-        // mutex na nossa mão; limpar é barato e não fecha ninguém.
-        let _ = close_roblox_singleton_handles();
-        apply_singleton_reservation();
-        lock_roblox_cookies()?;
-        return Ok(true);
+    match enable_multi_roblox_checked()? {
+        MultiRobloxOutcome::Enabled => Ok(true),
+        MultiRobloxOutcome::Blocked => Ok(false),
+        MultiRobloxOutcome::EventStillHeld { unreachable } => {
+            Err(event_still_held_message(unreachable).to_string())
+        }
     }
+}
 
-    // Mutex ocupado. Antes de desistir (e antes que o chamador caia no último
-    // recurso de matar clientes com `AutoCloseRobloxForMultiRbx`), destrava
-    // pelo Event — ou constata que ele já não existe.
-    let closed_now = close_roblox_singleton_handles();
+/// O que `enable_multi_roblox_checked` concluiu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MultiRobloxOutcome {
+    /// Pode abrir mais um cliente.
+    Enabled,
+    /// O caminho antigo do `Ok(false)`: quem segura o mutex não deu para
+    /// destravar (RAM legado, outra ferramenta, ou cliente sem Event a fechar).
+    Blocked,
+    /// Outro cliente **ainda** segura o `ROBLOX_singletonEvent` depois de
+    /// fechar e reservar. Abrir agora faria esse cliente fechar: o launch não
+    /// segue. `unreachable` = clientes cujo processo nem abriu (admin).
+    EventStillHeld { unreachable: usize },
+}
+
+/// Launch pulado porque outro cliente ainda segura o Event. Em inglês: o
+/// frontend traduz (`launchErrorText` em src/utils/robloxErrors.ts, que lê
+/// estas constantes do fonte no teste).
+pub const MULTI_ROBLOX_EVENT_HELD: &str = "Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.";
+/// O mesmo, quando algum processo do Roblox nem pôde ser aberto — o motivo
+/// mais comum é ele rodar como administrador.
+pub const MULTI_ROBLOX_EVENT_HELD_ADMIN: &str = "Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.";
+
+pub fn event_still_held_message(unreachable: usize) -> &'static str {
+    if unreachable > 0 {
+        MULTI_ROBLOX_EVENT_HELD_ADMIN
+    } else {
+        MULTI_ROBLOX_EVENT_HELD
+    }
+}
+
+/// Como a camada de launch responde ao resultado. `Some` = responder já;
+/// `None` = seguir o caminho antigo do `Ok(false)` (mensagem, ou o último
+/// recurso opt-in `AutoCloseRobloxForMultiRbx`). O Event preso **só** vira
+/// matança com essa opção ligada; desligada, o launch para com a mensagem.
+pub fn held_event_response(
+    outcome: MultiRobloxOutcome,
+    auto_close_conflicts: bool,
+) -> Option<Result<(), String>> {
+    match outcome {
+        MultiRobloxOutcome::Enabled => Some(Ok(())),
+        MultiRobloxOutcome::EventStillHeld { unreachable } if !auto_close_conflicts => {
+            Some(Err(event_still_held_message(unreachable).to_string()))
+        }
+        MultiRobloxOutcome::EventStillHeld { .. } | MultiRobloxOutcome::Blocked => None,
+    }
+}
+
+/// Decisão pura do `enable_multi_roblox_checked`, tomada **depois** de fechar
+/// os Events e aplicar a reserva. `event_blocks` = o nome ainda existe e não é
+/// a nossa reserva (`event_blocks_next_client`).
+///
+/// Com cliente Roblox aberto e o Event ainda preso, não abre — nem com o mutex
+/// na nossa mão (antes o resultado do fechamento era ignorado nesse caminho),
+/// nem tendo fechado *algum* Event (antes "fechei algum" bastava, mesmo com
+/// outro cliente ainda segurando o dele).
+fn multi_roblox_outcome(
+    holds_mutex: bool,
+    closed_now: usize,
+    roblox_running: bool,
+    event_blocks: bool,
+    unreachable: usize,
+) -> MultiRobloxOutcome {
+    if roblox_running && event_blocks {
+        return MultiRobloxOutcome::EventStillHeld { unreachable };
+    }
+    if holds_mutex || can_open_another_client(closed_now, roblox_running, event_blocks) {
+        MultiRobloxOutcome::Enabled
+    } else {
+        MultiRobloxOutcome::Blocked
+    }
+}
+
+/// `enable_multi_roblox` com o motivo da recusa. Nunca fecha cliente: no
+/// máximo fecha handles de Event e cria/fecha a reserva do app.
+pub fn enable_multi_roblox_checked() -> Result<MultiRobloxOutcome, String> {
+    // Um cliente aberto fora do app pode ter publicado o Event mesmo com o
+    // mutex na nossa mão; limpar é barato e não fecha ninguém. Com o mutex
+    // ocupado, é o que destrava antes de o chamador cair no último recurso de
+    // matar clientes (`AutoCloseRobloxForMultiRbx`).
+    let holds_mutex = acquire_multi_roblox_mutex()?;
+    let report = close_roblox_singleton_handles();
     apply_singleton_reservation();
     let roblox_running = !find_roblox_pids_all().is_empty();
-    if !can_open_another_client(
-        closed_now,
+    let event_blocks = event_blocks_next_client(
+        named_event_exists(ROBLOX_SINGLETON_EVENT),
+        singleton_reservation_held(),
+    );
+    let outcome = multi_roblox_outcome(
+        holds_mutex,
+        report.closed,
         roblox_running,
-        event_blocks_next_client(
-            named_event_exists(ROBLOX_SINGLETON_EVENT),
-            singleton_reservation_held(),
-        ),
-    ) {
-        // O Event existe e não deu para fechá-lo, ou quem segura o mutex é
-        // outra coisa (RAM legado, outra ferramenta). Caminho antigo.
-        return Ok(false);
+        event_blocks,
+        report.unreachable,
+    );
+    match outcome {
+        MultiRobloxOutcome::Enabled => {
+            if !holds_mutex {
+                // O mutex pode ter sido liberado nesse meio tempo; se não foi,
+                // seguimos assim mesmo — sem o Event o cliente novo não desiste.
+                let _ = acquire_multi_roblox_mutex()?;
+            }
+            lock_roblox_cookies()?;
+        }
+        MultiRobloxOutcome::EventStillHeld { unreachable } => {
+            eprintln!(
+                "Multi Roblox: {} ainda existe depois do fechamento ({} processo(s) inacessível(is)); launch pulado para não fechar o cliente aberto",
+                ROBLOX_SINGLETON_EVENT, unreachable
+            );
+        }
+        MultiRobloxOutcome::Blocked => {}
     }
-
-    // O mutex pode ter sido liberado nesse meio tempo; se não foi, seguimos
-    // assim mesmo — sem o Event o cliente novo não desiste mais.
-    let _ = acquire_multi_roblox_mutex()?;
-    lock_roblox_cookies()?;
-    Ok(true)
+    Ok(outcome)
 }
 
 /// Com o mutex nas mãos de outro processo: dá para abrir mais um cliente?

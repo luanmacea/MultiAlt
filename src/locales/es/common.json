@@ -2683,5 +2683,7 @@
   "New name for the group:": "Nuevo nombre del grupo:",
   "Rename group": "Renombrar grupo",
   "Rename Group...": "Renombrar grupo...",
-  "Renamed group to {{group}}": "Grupo renombrado a {{group}}"
+  "Renamed group to {{group}}": "Grupo renombrado a {{group}}",
+  "Another Roblox window could not be unlocked (it may be running as administrator). Launching now would close it, so this launch was skipped.": "No se pudo desbloquear otra ventana de Roblox (puede estar ejecutándose como administrador). Abrir ahora la cerraría, así que este inicio se omitió.",
+  "Another Roblox window could not be unlocked. Launching now would close it, so this launch was skipped.": "No se pudo desbloquear otra ventana de Roblox. Abrir ahora la cerraría, así que este inicio se omitió."
 }

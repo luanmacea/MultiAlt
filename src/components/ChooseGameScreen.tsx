@@ -26,7 +26,7 @@ import { WAIT_POLL_INTERVAL_MS } from "../utils/waitForPlayer";
 import { newPresetDraft } from "../utils/presets";
 import type { LaunchTarget } from "../store";
 import type { JoinTarget, PickedServer } from "../types";
-import { isLaunchAlreadyActiveError } from "../utils/robloxErrors";
+import { isLaunchAlreadyActiveError, launchErrorText } from "../utils/robloxErrors";
 import { TourButton } from "./tour/TourButton";
 
 /**
@@ -142,8 +142,8 @@ function useLauncher() {
         // "Launch failed: {{error}}" despejaria o código do backend na tela.
         return { ok: false, error: tr("A launch is already in progress") };
       }
-      store.addToast(tr("Launch failed: {{error}}", { error: String(e) }));
-      return { ok: false, error: String(e) };
+      store.addToast(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }));
+      return { ok: false, error: launchErrorText(e, tr) };
     }
   }
 
