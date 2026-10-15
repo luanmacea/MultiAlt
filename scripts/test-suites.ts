@@ -115,6 +115,9 @@ export const SUITES: Record<string, TestSuite> = {
       // Desfazer a remoção de contas (toast "Undo").
       "account_undo_remove_tests",
       "account_remove_command_tests",
+      // Renomear grupo (menu de contexto e cabeçalho do grupo).
+      "group_rename_tests",
+      "group_order_rename_tests",
       "account_helpers_tests",
       "account_path_tests",
       "account_api_tests",

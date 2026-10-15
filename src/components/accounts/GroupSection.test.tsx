@@ -5,11 +5,13 @@ import userEvent from "@testing-library/user-event";
 
 vi.mock("../../store", async () => (await import("../../test-utils/renderWithStore")).storeModuleMock());
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
+vi.mock("../../hooks/usePrompt", async () => (await import("../../test-utils/promptMocks")).promptModuleMock());
 
 import { GroupSection } from "./GroupSection";
 import { AccountChip } from "./AccountChip";
 import { defaultSettings, groupAccounts, makeAccount, setStore } from "../../test-utils/renderWithStore";
 import type { StoreValue } from "../../store";
+import { confirmMock, promptAnswers, promptMock, resetPromptMocks } from "../../test-utils/promptMocks";
 
 const ACCOUNTS = [
   makeAccount({ UserID: 11, Username: "ann", Group: "Alts" }),
@@ -291,5 +293,28 @@ describe("AccountChip", () => {
     render(<AccountChip account={aliased} onRemove={vi.fn()} />);
     expect(screen.getByText("Carlito")).toBeInTheDocument();
     expect(screen.queryByText("carl")).not.toBeInTheDocument();
+  });
+});
+
+/** Renomear pelo cabeçalho: o mesmo fluxo do menu de contexto, sem abrir o grupo. */
+describe("GroupSection — rename", () => {
+  afterEach(resetPromptMocks);
+
+  it("renames from the pencil without collapsing the group", async () => {
+    promptAnswers.prompt = "Bots";
+    const { store, onToggle } = renderGroup();
+    await userEvent.click(within(header()).getByRole("button", { name: "Rename group" }));
+    expect(promptMock.mock.calls[0][1]).toBe("Alts");
+    await vi.waitFor(() => expect(store.renameGroup).toHaveBeenCalledWith("Alts", "Bots"));
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it("has no pencil on the Default group", () => {
+    const plain = [makeAccount({ UserID: 21, Username: "cy", Group: "" })];
+    const def = groupAccounts(plain)[0];
+    setStore({ accounts: [...ACCOUNTS, ...plain] });
+    render(<GroupSection group={def} collapsed={false} onToggle={vi.fn()} onDrop={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Rename group" })).not.toBeInTheDocument();
   });
 });

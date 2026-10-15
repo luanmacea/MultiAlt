@@ -2678,5 +2678,10 @@
   "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.": "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.",
   "Nothing to undo": "Nothing to undo",
   "Restored {{count}} account(s)": "Restored {{count}} account(s)",
-  "Undo": "Undo"
+  "Undo": "Undo",
+  "A group named \"{{target}}\" already exists. Move the accounts of \"{{group}}\" into it?": "A group named \"{{target}}\" already exists. Move the accounts of \"{{group}}\" into it?",
+  "New name for the group:": "New name for the group:",
+  "Rename group": "Rename group",
+  "Rename Group...": "Rename Group...",
+  "Renamed group to {{group}}": "Renamed group to {{group}}"
 }

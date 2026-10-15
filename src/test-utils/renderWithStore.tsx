@@ -280,6 +280,7 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
     refreshCookie: vi.fn(async () => true),
     moveToGroup: vi.fn(async () => {}),
     sortGroupAlphabetically: vi.fn(),
+    renameGroup: vi.fn(async () => true),
     reorderAccounts: vi.fn(async () => {}),
     joiningAccounts: new Set<number>(),
     launchProgress: null,

@@ -1542,6 +1542,43 @@ describe("account mutations", () => {
     expect(lastArgs("reorder_accounts")).toEqual({ userIds: [2, 1, 3] });
   });
 
+  /**
+   * Renomear grupo: contas e `General.GroupOrder` no backend (um comando só);
+   * o estado colapsado, que mora só na tela, acompanha o nome novo.
+   */
+  it("renames a group through the backend and carries the manual order and collapsed state", async () => {
+    accountsData = [account({ UserID: 1, Group: "Alts" }), account({ UserID: 2, Group: "Farm" })];
+    settingsData = { General: { GroupOrder: '["Farm","Alts"]' } };
+    results.set("rename_group", { renamed: 1, groupOrder: '["Farm","02 Bots"]' });
+    const { result } = await renderStore();
+    act(() => result.current.toggleGroup("Alts"));
+
+    accountsData = [account({ UserID: 1, Group: "02 Bots" }), account({ UserID: 2, Group: "Farm" })];
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.renameGroup("Alts", " 02 Bots ");
+    });
+
+    expect(ok).toBe(true);
+    expect(lastArgs("rename_group")).toEqual({ from: "Alts", to: "02 Bots" });
+    expect(result.current.settings?.General?.GroupOrder).toBe('["Farm","02 Bots"]');
+    expect(result.current.collapsedGroups.has("Alts")).toBe(false);
+    expect(result.current.collapsedGroups.has("02 Bots")).toBe(true);
+    expect(result.current.accounts.map((a) => a.Group)).toEqual(["02 Bots", "Farm"]);
+    expect(result.current.toasts.map((toast) => toast.message).join(" ")).toContain(
+      "Renamed group to Bots"
+    );
+  });
+
+  it("never asks the backend to rename the Default group", async () => {
+    accountsData = [account({ UserID: 1 })];
+    const { result } = await renderStore();
+    await act(async () => {
+      await result.current.renameGroup("Default", "Main");
+    });
+    expect(invokeCalls("rename_group")).toHaveLength(0);
+  });
+
   it("leaves a one-account group untouched", async () => {
     accountsData = [account({ UserID: 1, Group: "G" })];
     const { result } = await renderStore();

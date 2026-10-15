@@ -1454,6 +1454,39 @@ impl AccountStore {
         self.save_locked(&accounts)
     }
 
+    /// Renomeia um grupo: toda conta com `Group == from` passa a `to`, numa
+    /// gravação só. Se `to` já existe, as contas **se juntam** a ele (a tela
+    /// pede confirmação antes). Devolve quantas contas mudaram.
+    ///
+    /// O grupo `Default` não se renomeia: ele é o grupo implícito (vazio no
+    /// arquivo), e "renomeá-lo" seria mover todas as contas sem grupo.
+    pub fn rename_group(&self, from: &str, to: &str) -> Result<usize, String> {
+        let to = to.trim();
+        if to.is_empty() {
+            return Err("Group name cannot be empty".to_string());
+        }
+        if is_default_group_name(from) {
+            return Err("The Default group cannot be renamed".to_string());
+        }
+        if from == to {
+            return Ok(0);
+        }
+
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut next = accounts.clone();
+        let mut renamed = 0usize;
+        for account in next.iter_mut().filter(|a| a.group == from) {
+            account.group = to.to_string();
+            renamed += 1;
+        }
+        if renamed == 0 {
+            return Ok(0);
+        }
+        self.save_locked(&next)?;
+        *accounts = next;
+        Ok(renamed)
+    }
+
     fn decode_plain_or_legacy_accounts(data: &[u8]) -> Result<Vec<Account>, String> {
         if let Ok(accounts) = Self::parse_accounts_json(data) {
             return Ok(accounts);
@@ -1630,6 +1663,12 @@ impl AccountStore {
         crypto::encrypt(&json, &crypto::hash_password(password))
             .map_err(|e| format!("Failed to encrypt the export: {}", e))
     }
+}
+
+/// O grupo implícito: `Default` no modelo, vazio na tela antiga.
+pub fn is_default_group_name(group: &str) -> bool {
+    let group = group.trim();
+    group.is_empty() || group == "Default"
 }
 
 /// Mínimo da senha do export protegido — o mesmo do Pass Lock.
@@ -4453,6 +4492,111 @@ mod app_lock_verify_tests {
     fn without_an_app_password_there_is_nothing_to_verify() {
         let t = temp("no-password");
         assert!(t.0.verify_password("anything").is_err());
+    }
+}
+
+/// Renomear grupo: só as contas daquele grupo mudam, e o `Default` não se
+/// renomeia.
+#[cfg(test)]
+mod group_rename_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct Temp(AccountStore);
+
+    impl Drop for Temp {
+        fn drop(&mut self) {
+            let path = self.0.file_path.clone();
+            let _ = fs::remove_file(path.with_extension("json.tmp"));
+            let _ = fs::remove_file(&path);
+        }
+    }
+
+    impl std::ops::Deref for Temp {
+        type Target = AccountStore;
+        fn deref(&self) -> &AccountStore {
+            &self.0
+        }
+    }
+
+    fn store_with(tag: &str, groups: &[(i64, &str)]) -> Temp {
+        crypto::init();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let store = AccountStore::new(std::env::temp_dir().join(format!("ram-group-{tag}-{nanos}.json")));
+        for (id, group) in groups {
+            let mut account = Account::new(format!("COOKIE-{id}"), format!("user{id}"), *id);
+            account.group = group.to_string();
+            store.add(account).unwrap();
+        }
+        Temp(store)
+    }
+
+    fn groups(store: &AccountStore) -> Vec<(i64, String)> {
+        store
+            .get_all()
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.user_id, a.group))
+            .collect()
+    }
+
+    fn groups_on_disk(store: &AccountStore) -> Vec<(i64, String)> {
+        AccountStore::parse_accounts_json(&fs::read(&store.file_path).unwrap())
+            .unwrap()
+            .into_iter()
+            .map(|a| (a.user_id, a.group))
+            .collect()
+    }
+
+    #[test]
+    fn renaming_moves_only_that_group_and_keeps_the_order() {
+        let s = store_with("rename", &[(1, "Alts"), (2, "Default"), (3, "Alts"), (4, "Farm")]);
+        assert_eq!(s.rename_group("Alts", "  02 Bots  ").unwrap(), 2);
+        let expected = vec![
+            (1, "02 Bots".to_string()),
+            (2, "Default".to_string()),
+            (3, "02 Bots".to_string()),
+            (4, "Farm".to_string()),
+        ];
+        assert_eq!(groups(&s), expected);
+        assert_eq!(groups_on_disk(&s), expected, "gravado");
+    }
+
+    #[test]
+    fn renaming_into_an_existing_group_merges_them() {
+        let s = store_with("merge", &[(1, "Alts"), (2, "Farm")]);
+        assert_eq!(s.rename_group("Alts", "Farm").unwrap(), 1);
+        assert_eq!(groups(&s), vec![(1, "Farm".to_string()), (2, "Farm".to_string())]);
+    }
+
+    #[test]
+    fn the_default_group_and_an_empty_name_are_refused() {
+        let s = store_with("refuse", &[(1, "Default"), (2, "Alts")]);
+        let before = fs::read(&s.file_path).unwrap();
+        assert!(s.rename_group("Default", "Main").unwrap_err().contains("Default"));
+        assert!(s.rename_group("", "Main").unwrap_err().contains("Default"));
+        assert!(s.rename_group("Alts", "   ").unwrap_err().contains("empty"));
+        assert_eq!(fs::read(&s.file_path).unwrap(), before, "nada foi gravado");
+    }
+
+    #[test]
+    fn an_unknown_group_or_the_same_name_changes_nothing() {
+        let s = store_with("noop", &[(1, "Alts")]);
+        let before = fs::read(&s.file_path).unwrap();
+        assert_eq!(s.rename_group("Nope", "Other").unwrap(), 0);
+        assert_eq!(s.rename_group("Alts", "Alts").unwrap(), 0);
+        assert_eq!(fs::read(&s.file_path).unwrap(), before);
+    }
+
+    #[test]
+    fn a_refused_save_renames_nothing() {
+        let s = store_with("locked", &[(1, "Alts")]);
+        s.lock_writes_until_restart("test");
+        assert!(s.rename_group("Alts", "Bots").is_err());
+        assert_eq!(groups(&s), vec![(1, "Alts".to_string())]);
     }
 }
 

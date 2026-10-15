@@ -1,9 +1,10 @@
-import { Check, ChevronDown, ChevronRight, ChevronUp, GripVertical } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, GripVertical, Pencil } from "lucide-react";
 import { useStore } from "../../store";
 import type { ParsedGroup } from "../../types";
 import { AccountRow } from "./AccountRow";
 import { useAccountListView } from "./accountListView";
 import { useTr } from "../../i18n/text";
+import { canRenameGroup, useRenameGroup } from "../../hooks/useRenameGroup";
 
 export function GroupSection({
   group,
@@ -18,6 +19,7 @@ export function GroupSection({
 }) {
   const t = useTr();
   const store = useStore();
+  const renameGroup = useRenameGroup();
   const showHeader = group.key !== "__all__" && store.showGroups && (store.theme?.show_headers ?? true);
   const [listView] = useAccountListView();
   const cards = listView === "cards";
@@ -168,6 +170,23 @@ export function GroupSection({
 
           {/* Setas à direita: o caminho que não depende de arrastar. */}
           <span className="ml-auto flex items-center gap-0.5 shrink-0">
+            {/* Renomear: o mesmo fluxo do menu de contexto. O `Default` (grupo
+                implícito) não se renomeia, então não ganha o lápis. */}
+            {canRenameGroup(group.key) && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void renameGroup(group.key);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+                aria-label={t("Rename group")}
+                title={t("Rename group")}
+                className="w-6 h-6 flex items-center justify-center rounded theme-muted opacity-0 group-hover/ghead:opacity-100 focus-visible:opacity-100 hover:text-[var(--panel-fg)] hover:bg-[var(--panel-soft)] transition-colors"
+              >
+                <Pencil size={11} strokeWidth={2} />
+              </button>
+            )}
             <button
               type="button"
               onClick={(e) => moverPara(acima, e)}

@@ -122,7 +122,7 @@ O botão da toolbar existe para gravar ou compartilhar a tela sem expor as conta
 
 ### Lista de contas
 
-- Contas agrupadas por `Group` (ver regras em [accounts.md](accounts.md)); grupos podem ser colapsados e têm menu (ordenar alfabeticamente, copiar, alternar visibilidade).
+- Contas agrupadas por `Group` (ver regras em [accounts.md](accounts.md)); grupos podem ser colapsados e têm menu (ordenar alfabeticamente, renomear, copiar, alternar visibilidade). **Renomear** também está no lápis do cabeçalho do grupo (aparece ao passar o mouse ou com foco do teclado; clicar não colapsa o grupo). O `Default` não tem nem o item nem o lápis — ver [accounts.md](accounts.md#regras-de-negócio) (Grupos › renomear).
 - **Seleção** (`handleSelect` em [store.tsx](../../src/store.tsx)): clique simples seleciona só a conta; Ctrl/Alt/Cmd alterna; Shift seleciona o intervalo desde o último clique na ordem visível (grupos colapsados ficam fora); Shift+Ctrl soma o intervalo. Arrastar no fundo da lista faz seleção por retângulo (inclui membros de grupos colapsados quando o retângulo cobre o cabeçalho).
 - **Arrastar** pela alça (ícone de grip à esquerda da linha, não a linha inteira — o corpo da linha é usado pela seleção por retângulo) para outro grupo move as contas selecionadas para esse grupo; soltar sobre outra linha reordena (`reorder_accounts`). `onDragEnd` na alça limpa `dragState`, então um arrasto cancelado (Esc / soltar fora) não deixa estado velho que um drop posterior de texto de cookie usaria.
 - **Soltar texto** na lista: extrai todos os cookies `_|WARNING:-DO-NOT-SHARE-THIS...|<token>` e adiciona cada um.
@@ -157,7 +157,7 @@ Aparece com ≥ 1 conta selecionada:
 | Restart launched clients | só contas lançadas pelo app |
 | Auto Rejoin | abre diálogo ou adiciona contas ao Auto Rejoin ativo |
 | Close All Roblox | `killAllRobloxProcesses` |
-| Remove | exige digitar `REMOVE` |
+| Remove | exige digitar `REMOVE`; o toast "Removed N account(s)" oferece **Undo** por 10 s ([accounts.md](accounts.md#remover-editar-reordenar-agrupar)) |
 | **Choose Game** | abre a `ChooseGameScreen` |
 
 ### Choose Game ([ChooseGameScreen.tsx](../../src/components/ChooseGameScreen.tsx))
