@@ -835,6 +835,8 @@ fn restore_backup(
     // `?` aqui mantém a trava, e é o que se quer: com a extração pela metade não
     // existe lista confiável de arquivos para decidir qualquer coisa.
     let outcome = restore_backup_archive(&layout, &path)?;
+    // Os presets podem ter voltado com o backup: o menu da bandeja os lista.
+    refresh_tray_menu(&app);
 
     let mut restart_reasons = restart_reasons_for(&outcome.restored);
     let mut accounts_reloaded = false;

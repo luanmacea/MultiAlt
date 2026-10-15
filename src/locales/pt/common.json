@@ -2714,5 +2714,6 @@
   "Group": "Grupo",
   "Pick a group.": "Escolha um grupo.",
   "That group has no accounts.": "Esse grupo não tem contas.",
-  "The group name is too long.": "O nome do grupo é longo demais."
+  "The group name is too long.": "O nome do grupo é longo demais.",
+  "Preset {{name}} opened {{count}} account(s)": "Preset {{name}} abriu {{count}} conta(s)"
 }
