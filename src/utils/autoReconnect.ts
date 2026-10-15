@@ -5,6 +5,7 @@
  */
 import type { TOptions } from "i18next";
 import type { AutoReconnectEntry } from "../types";
+import { launchErrorText } from "./robloxErrors";
 
 type Translate = (text: string, options?: TOptions) => string;
 
@@ -35,7 +36,8 @@ function waitingLabel(ms: number, attempt: number, max: number, t: Translate): s
 /**
  * O erro da tentativa na língua da tela. As frases que o backend escreve
  * (`RECONNECT_ERROR_*` em commands/reconnect.rs) chegam em inglês; o teste lê
- * a lista do fonte do Rust. Outro texto (erro do launch) passa como veio.
+ * a lista do fonte do Rust. Outro texto (erro do launch) passa por
+ * `launchErrorText`, que só traduz as frases que conhece.
  */
 export function reconnectErrorText(error: string, t: Translate): string {
   switch (error) {
@@ -48,7 +50,7 @@ export function reconnectErrorText(error: string, t: Translate): string {
     case "The Roblox client did not start":
       return t("The Roblox client did not start");
     default:
-      return error;
+      return launchErrorText(error, t);
   }
 }
 

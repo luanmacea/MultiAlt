@@ -1042,9 +1042,13 @@ async fn ensure_multi_roblox_enabled(
     // Experimental e desligado por padrão (ideia 3): com a opção ligada, o
     // `enable_multi_roblox` também reserva o nome `ROBLOX_singletonEvent`.
     platform::windows::set_singleton_reservation_enabled(reserve_singleton_event);
-    let enabled = platform::windows::enable_multi_roblox()?;
-    if enabled {
-        return Ok(());
+    let outcome = platform::windows::enable_multi_roblox_checked()?;
+    // Outro cliente ainda segura o `ROBLOX_singletonEvent` (ideia 33): sem a
+    // opção opt-in, o launch para aqui com a mensagem — abrir fecharia esse
+    // cliente. Com `AutoCloseRobloxForMultiRbx` ligado segue o caminho de
+    // sempre dessa opção, abaixo.
+    if let Some(response) = platform::windows::held_event_response(outcome, auto_close_conflicts) {
+        return response;
     }
 
     let roblox_pids = platform::windows::get_roblox_pids();

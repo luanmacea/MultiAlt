@@ -133,7 +133,7 @@ export function normalizeServerPreference(value: string | undefined): ServerPref
 import { applyThemeCssVariables, normalizeTheme, DEFAULT_THEME } from "./theme";
 import i18n, { normalizeLanguage } from "./i18n";
 import { REPO_URL } from "./repo";
-import { isLaunchAlreadyActiveError } from "./utils/robloxErrors";
+import { isLaunchAlreadyActiveError, launchErrorText } from "./utils/robloxErrors";
 import { toneFromMessage, type ToastTone } from "./utils/toastTone";
 import { tr } from "./i18n/text";
 import { accountLabel, maskAccountName } from "./utils/accountName";
@@ -1964,8 +1964,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reportLaunchAlreadyActive();
         return "refused";
       }
-      setError(String(e));
-      setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
+      setError(launchErrorText(e, tr));
+      setActionStatusMessage(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }), "error", 5000);
       return "failed";
     }
 
@@ -2006,8 +2006,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reportLaunchAlreadyActive();
         return "refused";
       }
-      setError(String(e));
-      setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
+      setError(launchErrorText(e, tr));
+      setActionStatusMessage(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }), "error", 5000);
       return "failed";
     }
   }
@@ -2097,8 +2097,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         reportLaunchAlreadyActive();
         throw e;
       }
-      setError(String(e));
-      setActionStatusMessage(tr("Launch failed: {{error}}", { error: String(e) }), "error", 5000);
+      setError(launchErrorText(e, tr));
+      setActionStatusMessage(tr("Launch failed: {{error}}", { error: launchErrorText(e, tr) }), "error", 5000);
       throw e;
     }
   }
