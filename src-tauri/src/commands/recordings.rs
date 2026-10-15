@@ -262,6 +262,10 @@ struct AfterReconnectObservation {
     tracked_pid: Option<u32>,
     adopted: bool,
     in_game: bool,
+    /// O cliente entrou como **outra** conta do Roblox (ver
+    /// `client_health::wrong_account`). Pode ser a conta principal de quem usa
+    /// o app: a gravação não toca nele.
+    wrong_account: bool,
 }
 
 /// Desiste de esperar a conta entrar no jogo depois disto.
@@ -313,6 +317,13 @@ impl AfterReconnectBook {
             let obs = observe(user_id);
             // Cliente do site nunca recebe nada do app.
             if obs.adopted {
+                remove.push(user_id);
+                continue;
+            }
+            // Entrou como outra conta do Roblox (pode ser a principal de quem
+            // usa o app): a gravação não toca nele, e a conta é esquecida —
+            // como o cliente adotado. Uma nova tentativa (outro PID) rearma.
+            if obs.wrong_account {
                 remove.push(user_id);
                 continue;
             }
@@ -485,12 +496,12 @@ fn recording_after_join_tick_for(app: &tauri::AppHandle, trigger: &AfterJoinTrig
     let due = with_book(trigger.book, |book| {
         book.tick(now_ms, enabled, delay_s * 1_000, |user_id| {
             let process = tracked.iter().find(|p| p.user_id == user_id);
+            let health = process.and_then(|p| client_health_of(user_id, p.pid));
             AfterReconnectObservation {
                 tracked_pid: process.map(|p| p.pid),
                 adopted: process.is_some_and(|p| p.adopted),
-                in_game: process
-                    .and_then(|p| client_health_of(user_id, p.pid))
-                    .is_some_and(|v| v.in_game),
+                in_game: health.as_ref().is_some_and(|v| v.in_game),
+                wrong_account: health.as_ref().is_some_and(|v| v.wrong_account_user_id.is_some()),
             }
         })
     });
@@ -1302,6 +1313,7 @@ mod recordings_after_reconnect_tests {
             tracked_pid: Some(pid),
             adopted: false,
             in_game: true,
+            wrong_account: false,
         }
     }
 
@@ -1310,6 +1322,7 @@ mod recordings_after_reconnect_tests {
             tracked_pid: Some(pid),
             adopted: false,
             in_game: false,
+            wrong_account: false,
         }
     }
 
@@ -1381,6 +1394,24 @@ mod recordings_after_reconnect_tests {
             tracked_pid: Some(3),
             adopted: true,
             in_game: true,
+            wrong_account: false,
+        });
+        assert!(fired.is_empty());
+        assert!(book.is_empty());
+    }
+
+    #[test]
+    fn a_client_that_logged_in_as_another_account_never_gets_the_recording() {
+        // Pode ser a conta principal de quem usa o app. A gravação não toca,
+        // e a conta é esquecida — vale para "After launch" e "After reconnect"
+        // (o mesmo `tick`).
+        let mut book = AfterReconnectBook::default();
+        book.arm(11, 0);
+        let fired = book.tick(100_000, true, 1, |_| AfterReconnectObservation {
+            tracked_pid: Some(3),
+            adopted: false,
+            in_game: true,
+            wrong_account: true,
         });
         assert!(fired.is_empty());
         assert!(book.is_empty());
@@ -1414,6 +1445,7 @@ mod recordings_after_launch_tests {
             tracked_pid: Some(pid),
             adopted: false,
             in_game: true,
+            wrong_account: false,
         }
     }
 

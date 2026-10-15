@@ -361,8 +361,10 @@ reconexão, antes das saídas cedo):
   **uma vez**, só nela (a do anti-AFK é outra);
 - saiu do jogo antes: a contagem recomeça; cliente novo (outra tentativa da
   reconexão): conta de novo;
-- cliente do site (adotado) nunca recebe; quem não volta ao jogo em 15 min é
-  esquecido; desligar a opção esquece todo mundo;
+- cliente do site (adotado) nunca recebe; cliente que entrou como **outra
+  conta** do Roblox (`client_health::wrong_account` — pode ser a conta
+  principal de quem usa o app) nunca recebe e é esquecido; quem não volta ao
+  jogo em 15 min é esquecido; desligar a opção esquece todo mundo;
 - sem gravação para a conta nessa vaga: só a linha no Console ("…não tem
   gravação para depois da reconexão").
 
@@ -511,7 +513,8 @@ Suíte `recordings` (`bun run t recordings`):
   (`{ kind }`), o rascunho do "Test on one account" validado como o salvar.
 - `recordings_after_reconnect_tests` — só depois do tempo no jogo, só a conta que
   reconectou, uma vez; sair do jogo recomeça; cliente novo recomeça; opção
-  desligada esquece; cliente do site nunca; desiste em 15 min; limites do tempo.
+  desligada esquece; cliente do site nunca; cliente que entrou como outra conta
+  nunca (e é esquecido); desiste em 15 min; limites do tempo.
 - `recordings_after_launch_tests` — depois do launch toca uma vez depois do tempo
   no jogo; desligado não toca; a reconexão tira a conta da espera do After launch
   (nunca as duas gravações); todo launch arma menos o relançamento da reconexão;
