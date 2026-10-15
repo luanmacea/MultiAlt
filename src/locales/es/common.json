@@ -2678,5 +2678,10 @@
   "To bring the accounts back, use Import Accounts › Import Old Account Data and type the password.": "Para recuperar las cuentas, usa Importar cuentas › Importar datos de la app antigua y escribe la contraseña.",
   "Nothing to undo": "Nada que deshacer",
   "Restored {{count}} account(s)": "{{count}} cuenta(s) restaurada(s)",
-  "Undo": "Deshacer"
+  "Undo": "Deshacer",
+  "A group named \"{{target}}\" already exists. Move the accounts of \"{{group}}\" into it?": "Ya existe un grupo llamado \"{{target}}\". ¿Mover las cuentas de \"{{group}}\" a él?",
+  "New name for the group:": "Nuevo nombre del grupo:",
+  "Rename group": "Renombrar grupo",
+  "Rename Group...": "Renombrar grupo...",
+  "Renamed group to {{group}}": "Grupo renombrado a {{group}}"
 }

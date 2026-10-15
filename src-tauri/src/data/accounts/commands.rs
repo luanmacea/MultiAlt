@@ -49,6 +49,63 @@ pub fn undo_remove_accounts(state: tauri::State<'_, AccountStore>) -> Result<usi
     state.undo_remove()
 }
 
+/// `General.GroupOrder` depois de renomear `from` para `to`, ou `None` quando
+/// não há o que mudar (sem ordem manual, valor estragado, grupo fora da lista).
+///
+/// O nome novo fica **na posição do antigo**. Se `to` já estava na ordem (é uma
+/// junção de grupos), o antigo só sai: o grupo de destino fica onde estava.
+/// O valor é JSON, como o frontend grava (`serializeGroupOrder`).
+pub fn rename_group_in_order(raw: &str, from: &str, to: &str) -> Option<String> {
+    let order: Vec<String> = serde_json::from_str(raw).ok()?;
+    let position = order.iter().position(|g| g == from)?;
+    let mut next = order;
+    if next.iter().any(|g| g == to) {
+        next.remove(position);
+    } else {
+        next[position] = to.to_string();
+    }
+    serde_json::to_string(&next).ok()
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameGroupResult {
+    pub renamed: usize,
+    /// O `General.GroupOrder` novo, quando mudou e foi gravado; o frontend o
+    /// põe nas settings em memória sem reler o INI.
+    pub group_order: Option<String>,
+}
+
+/// Renomeia um grupo (ou junta-o a outro já existente): as contas, numa gravação
+/// só, e a entrada dele em `General.GroupOrder`. O grupo `Default` não se
+/// renomeia. O estado "colapsado" dos grupos vive só na tela e é migrado lá.
+#[tauri::command]
+pub fn rename_group(
+    state: tauri::State<'_, AccountStore>,
+    settings: tauri::State<'_, crate::data::settings::SettingsStore>,
+    from: String,
+    to: String,
+) -> Result<RenameGroupResult, String> {
+    let to = to.trim().to_string();
+    let renamed = state.rename_group(&from, &to)?;
+    let mut group_order = None;
+    if renamed > 0 {
+        let raw = settings.get_string("General", "GroupOrder");
+        if let Some(next) = rename_group_in_order(&raw, &from, &to) {
+            // Falhar aqui não desfaz o rename: o grupo só perde o lugar da ordem
+            // manual e vai para o fim, como um grupo novo.
+            match settings.set("General", "GroupOrder", &next) {
+                Ok(()) => group_order = Some(next),
+                Err(e) => eprintln!("Não foi possível gravar a ordem dos grupos: {}", e),
+            }
+        }
+    }
+    Ok(RenameGroupResult {
+        renamed,
+        group_order,
+    })
+}
+
 #[tauri::command]
 pub fn update_account(
     state: tauri::State<'_, AccountStore>,

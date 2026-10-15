@@ -1454,6 +1454,39 @@ impl AccountStore {
         self.save_locked(&accounts)
     }
 
+    /// Renomeia um grupo: toda conta com `Group == from` passa a `to`, numa
+    /// gravação só. Se `to` já existe, as contas **se juntam** a ele (a tela
+    /// pede confirmação antes). Devolve quantas contas mudaram.
+    ///
+    /// O grupo `Default` não se renomeia: ele é o grupo implícito (vazio no
+    /// arquivo), e "renomeá-lo" seria mover todas as contas sem grupo.
+    pub fn rename_group(&self, from: &str, to: &str) -> Result<usize, String> {
+        let to = to.trim();
+        if to.is_empty() {
+            return Err("Group name cannot be empty".to_string());
+        }
+        if is_default_group_name(from) {
+            return Err("The Default group cannot be renamed".to_string());
+        }
+        if from == to {
+            return Ok(0);
+        }
+
+        let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
+        let mut next = accounts.clone();
+        let mut renamed = 0usize;
+        for account in next.iter_mut().filter(|a| a.group == from) {
+            account.group = to.to_string();
+            renamed += 1;
+        }
+        if renamed == 0 {
+            return Ok(0);
+        }
+        self.save_locked(&next)?;
+        *accounts = next;
+        Ok(renamed)
+    }
+
     fn decode_plain_or_legacy_accounts(data: &[u8]) -> Result<Vec<Account>, String> {
         if let Ok(accounts) = Self::parse_accounts_json(data) {
             return Ok(accounts);
@@ -1630,6 +1663,12 @@ impl AccountStore {
         crypto::encrypt(&json, &crypto::hash_password(password))
             .map_err(|e| format!("Failed to encrypt the export: {}", e))
     }
+}
+
+/// O grupo implícito: `Default` no modelo, vazio na tela antiga.
+pub fn is_default_group_name(group: &str) -> bool {
+    let group = group.trim();
+    group.is_empty() || group == "Default"
 }
 
 /// Mínimo da senha do export protegido — o mesmo do Pass Lock.

@@ -666,6 +666,12 @@ export interface StoreValue {
   refreshCookie: (userId: number) => Promise<boolean>;
   moveToGroup: (userIds: number[], group: string) => Promise<void>;
   sortGroupAlphabetically: (groupKey: string) => void;
+  /**
+   * Renomeia o grupo `from` (ou junta-o a `to`, se já existir): contas e
+   * `General.GroupOrder` no backend, estado colapsado aqui. `Default` não se
+   * renomeia. Devolve `true` quando renomeou.
+   */
+  renameGroup: (from: string, to: string) => Promise<boolean>;
   reorderAccounts: (draggedUserId: number, targetUserId: number) => Promise<void>;
   joiningAccounts: Set<number>;
   launchProgress: LaunchProgressState | null;
@@ -1655,6 +1661,39 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     }
     addToast(tr("Moved to {{group}}", { group: parseGroupName(group).displayName }));
+  }
+
+  async function renameGroup(from: string, to: string): Promise<boolean> {
+    const name = to.trim();
+    if (!name || name === from || from === "Default" || from === "__all__") return false;
+    try {
+      const result = await invoke<{ renamed: number; groupOrder: string | null }>("rename_group", {
+        from,
+        to: name,
+      });
+      const groupOrder = result?.groupOrder;
+      if (typeof groupOrder === "string") {
+        setSettings((prev) => ({
+          ...(prev || {}),
+          General: { ...(prev?.General || {}), GroupOrder: groupOrder },
+        }));
+      }
+      // O colapsado é só da tela (não vai para o INI): o grupo renomeado
+      // continua fechado se estava.
+      setCollapsedGroups((prev) => {
+        if (!prev.has(from)) return prev;
+        const next = new Set(prev);
+        next.delete(from);
+        next.add(name);
+        return next;
+      });
+      await loadAccounts();
+      addToast(tr("Renamed group to {{group}}", { group: parseGroupName(name).displayName }), "success");
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    }
   }
 
   function sortGroupAlphabetically(groupKey: string) {
@@ -3851,6 +3890,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     refreshCookie,
     moveToGroup,
     sortGroupAlphabetically,
+    renameGroup,
     reorderAccounts,
     reorderGroups,
     joiningAccounts,
