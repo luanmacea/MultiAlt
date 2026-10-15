@@ -2648,5 +2648,12 @@
   "Scroll left": "Scroll left",
   "Scroll right": "Scroll right",
   "Show the accounts as a list": "Show the accounts as a list",
-  "Show the accounts as cards": "Show the accounts as cards"
+  "Show the accounts as cards": "Show the accounts as cards",
+  "{{name}} is in a game. Launching...": "{{name}} is in a game. Launching...",
+  "{{name}} is not in a game you can join yet.": "{{name}} is not in a game you can join yet.",
+  "Last check failed: {{error}}. Next check at {{time}}.": "Last check failed: {{error}}. Next check at {{time}}.",
+  "Stopped waiting for {{name}}: not in a game after {{hours}} h.": "Stopped waiting for {{name}}: not in a game after {{hours}} h.",
+  "Wait until they're in a game": "Wait until they're in a game",
+  "Watching {{name}}… (checks every {{seconds}} s)": "Watching {{name}}… (checks every {{seconds}} s)",
+  "With “Join by following” off, their server must also be visible.": "With “Join by following” off, their server must also be visible."
 }

@@ -2648,5 +2648,12 @@
   "Scroll left": "Desplazar a la izquierda",
   "Scroll right": "Desplazar a la derecha",
   "Show the accounts as a list": "Mostrar las cuentas en lista",
-  "Show the accounts as cards": "Mostrar las cuentas en tarjetas"
+  "Show the accounts as cards": "Mostrar las cuentas en tarjetas",
+  "{{name}} is in a game. Launching...": "{{name}} entró en un juego. Abriendo...",
+  "{{name}} is not in a game you can join yet.": "{{name}} todavía no está en un juego al que se pueda entrar.",
+  "Last check failed: {{error}}. Next check at {{time}}.": "La última consulta falló: {{error}}. Próxima a las {{time}}.",
+  "Stopped waiting for {{name}}: not in a game after {{hours}} h.": "Dejé de esperar a {{name}}: fuera de juego después de {{hours}} h.",
+  "Wait until they're in a game": "Esperar hasta que entre en un juego",
+  "Watching {{name}}… (checks every {{seconds}} s)": "Esperando a {{name}}… (consulta cada {{seconds}} s)",
+  "With “Join by following” off, their server must also be visible.": "Con “Entrar siguiendo” desactivado, su servidor también debe estar visible."
 }
