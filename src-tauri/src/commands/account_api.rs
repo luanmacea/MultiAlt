@@ -915,6 +915,37 @@ async fn get_servers(
     .await
 }
 
+/// Os servidores privados deste place que **a conta** pode acessar (uma página),
+/// lidos com o cookie dela — a seção "Private servers" da aba Servers.
+///
+/// **Sem `run_with_session_retry`**: é leitura, e o refresh chama
+/// `signoutfromallsessionsandreauthenticate`, que derrubaria as sessões abertas
+/// da conta. Cookie vencido vira o erro desta conta, e só dela.
+#[tauri::command]
+async fn get_private_servers(
+    state: tauri::State<'_, AccountStore>,
+    user_id: i64,
+    place_id: i64,
+    cursor: Option<String>,
+) -> Result<api::roblox::PrivateServersResponse, String> {
+    get_private_servers_inner(state.inner(), user_id, place_id, cursor).await
+}
+
+async fn get_private_servers_inner(
+    state: &AccountStore,
+    user_id: i64,
+    place_id: i64,
+    cursor: Option<String>,
+) -> Result<api::roblox::PrivateServersResponse, String> {
+    if place_id <= 0 {
+        return Err("Enter a valid Place ID".to_string());
+    }
+    read_without_refresh(state, user_id, |cookie| async move {
+        api::roblox::get_private_servers(place_id, cursor.as_deref(), &cookie).await
+    })
+    .await
+}
+
 /// A lista de servidores **na ordem da preferência**, já sem os que não cabem
 /// o lote.
 ///
@@ -3308,5 +3339,86 @@ mod read_only_retry_tests {
     fn the_scan_still_sees_the_retry_helper_in_the_file() {
         assert!(FONTE.contains("fn run_with_session_retry"));
         assert!(FONTE.matches("run_with_session_retry(").count() > 5);
+    }
+}
+
+/// `get_private_servers`: lê com o cookie **da conta pedida** e nunca faz
+/// refresh de sessão.
+#[cfg(test)]
+mod private_servers_command_tests {
+    use super::*;
+    use crate::api::endpoints::test_support::{cookie_of, mock_path, mock_server};
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    fn store_with(accounts: &[(i64, &str)], tag: &str) -> AccountStore {
+        crypto::init();
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let store = AccountStore::new(std::env::temp_dir().join(format!("ram-privsrv-{tag}-{nanos}.json")));
+        for (user_id, token) in accounts {
+            store
+                .add(crate::data::accounts::Account::new(
+                    token.to_string(),
+                    format!("user{user_id}"),
+                    *user_id,
+                ))
+                .unwrap();
+        }
+        store
+    }
+
+    #[tokio::test]
+    async fn reads_with_the_cookie_of_the_requested_account() {
+        let server = mock_server().await;
+        let store = store_with(&[(8101, "ps-cmd-first"), (8102, "ps-cmd-second")], "cookie");
+
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/7200/private-servers")))
+            .and(header("cookie", cookie_of("ps-cmd-second")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{ "id": null, "name": "Mine", "vipServerId": 5, "accessCode": "a-b-c-d-e", "maxPlayers": 6 }],
+                "nextPageCursor": null
+            })))
+            .mount(server)
+            .await;
+
+        let page = super::get_private_servers_inner(&store, 8102, 7200, None)
+            .await
+            .expect("page");
+        assert_eq!(page.data.len(), 1);
+        assert_eq!(page.data[0].name.as_deref(), Some("Mine"));
+    }
+
+    /// Sem mock de sign-out montado: um refresh apareceria como outra falha.
+    #[tokio::test]
+    async fn a_rejected_cookie_is_this_accounts_error_and_never_refreshes() {
+        let server = mock_server().await;
+        let store = store_with(&[(8103, "ps-cmd-401")], "refresh");
+
+        Mock::given(method("GET"))
+            .and(path(mock_path("games", "/v1/games/7201/private-servers")))
+            .and(header("cookie", cookie_of("ps-cmd-401")))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(server)
+            .await;
+
+        let err = super::get_private_servers_inner(&store, 8103, 7201, None)
+            .await
+            .expect_err("401");
+        assert_eq!(err, "Failed to get private servers (status 401)");
+    }
+
+    #[tokio::test]
+    async fn an_unknown_account_or_place_is_refused_before_any_request() {
+        let store = store_with(&[], "invalid");
+        assert!(super::get_private_servers_inner(&store, 8199, 7202, None).await.is_err());
+        let store = store_with(&[(8104, "ps-cmd-place")], "invalid-place");
+        assert_eq!(
+            super::get_private_servers_inner(&store, 8104, 0, None).await.unwrap_err(),
+            "Enter a valid Place ID"
+        );
     }
 }

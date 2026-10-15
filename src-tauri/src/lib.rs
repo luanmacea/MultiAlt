@@ -643,6 +643,7 @@ pub fn run() {
             get_outfit_details,
             get_place_details,
             get_servers,
+            get_private_servers,
             join_game_instance,
             join_game,
             search_games,

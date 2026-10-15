@@ -397,6 +397,9 @@ export const SUITES: Record<string, TestSuite> = {
       "server_region_http_tests",
       "server_scan_budget_tests",
       "server_scan_dedupe_tests",
+      // Seção "Private servers" da aba Servers (private-servers da conta).
+      "private_servers_list_tests",
+      "private_servers_command_tests",
     ],
     front: ["src/components/servers", "src/components/server-list"],
   },

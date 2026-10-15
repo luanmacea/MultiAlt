@@ -4,6 +4,7 @@ import type { ServerData, ServersResponse, PlaceDetails, ServerRegion } from "./
 import { looksLikeJoinLink, parsePlaceIdInput } from "./types";
 import type { ServerRegion as ServerRegionResult } from "../../types";
 import { ServerContextMenu } from "./ServerContextMenu";
+import { PrivateServersSection } from "../servers/PrivateServersSection";
 import { useTr } from "../../i18n/text";
 import { Server } from "lucide-react";
 
@@ -16,6 +17,8 @@ export interface ServersTabProps {
   refreshOnOpenSignal: number;
   prefillJobId?: string;
   prefillNonce?: number;
+  /** Nome de uma conta do usuário (com a máscara), ou `null` — para a seção de servidores privados. */
+  accountName?: (userId: number) => string | null;
 }
 
 export function ServersTab({
@@ -27,6 +30,7 @@ export function ServersTab({
   refreshOnOpenSignal,
   prefillJobId,
   prefillNonce,
+  accountName,
 }: ServersTabProps) {
   const t = useTr();
   const [manualJobId, setManualJobId] = useState("");
@@ -315,6 +319,19 @@ export function ServersTab({
         <div className="px-1 pb-2 text-[12px] text-zinc-500 truncate">
           {placeName}
         </div>
+      )}
+
+      {/* Servidores privados da conta, pelo mesmo `VIP:<accessCode>` do duplo clique. */}
+      {userId !== null && (
+        <PrivateServersSection
+          className="mb-3 mx-1"
+          userIds={[userId]}
+          placeId={parseInt(placeId, 10) || 0}
+          onJoin={(server) => {
+            if (server.accessCode) onJoinServer(`VIP:${server.accessCode}`);
+          }}
+          accountName={accountName}
+        />
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-zinc-800/60 bg-zinc-950/50">
