@@ -649,6 +649,10 @@ jobs:
               "- Windows 10 or 11",
               "- No administrator password needed",
               "- Updates itself when a new version comes out",
+              "",
+              // Pedido de estrela (15/10/2026): o projeto quase nao ganha estrelas.
+              // Fica dentro de "## Download", que a janela de atualizacao descarta.
+              `⭐ **Like MultiAlt? [Star it on GitHub](https://github.com/${owner}/${repo}).** It's free and made by one person, and every star helps more people find it and keeps the updates coming.`,
               ...betaLine,
               "",
               ...otherFiles,

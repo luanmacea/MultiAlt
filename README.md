@@ -9,7 +9,9 @@
   <sub>Windows 10/11 · <a href="https://multialt.pages.dev/">🌐 website</a> · <a href="https://www.youtube.com/@MultiAltApp">▶ YouTube</a> · <a href="https://discord.gg/NPvyWgKbfH">💬 Discord</a></sub>
 </p>
 
-[![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/release/luanmacea/MultiAlt?include_prereleases&label=Latest%20Release)](https://github.com/luanmacea/MultiAlt/releases/latest) [![GitHub stars](https://img.shields.io/github/stars/luanmacea/MultiAlt?style=social)](https://github.com/luanmacea/MultiAlt/stargazers)
+
+**⭐ Like MultiAlt? [Star the repo](https://github.com/luanmacea/MultiAlt)** (top right of this page). It's free and made by one person, and every star helps more people find it and keeps the updates coming.
 
 **The multi Roblox account manager built for the best user experience.** Keep all your Roblox accounts in one place, open as many Roblox clients as you want at the same time and play on your alts without ever logging out — with Auto Rejoin, anti-AFK, server finder, friends join, encrypted storage and much more.
 
@@ -145,3 +147,6 @@ Real screenshots, with account names hidden (the app has a button for that). Cli
   <tr><td width="50%"><a href="site/assets/screens/auto-rejoin.png"><img src="site/assets/screens/auto-rejoin.png" alt="Auto Rejoin"></a><br><sub><b>Auto Rejoin</b></sub></td><td width="50%"><a href="site/assets/screens/avatars.png"><img src="site/assets/screens/avatars.png" alt="Avatars"></a><br><sub><b>Avatars</b></sub></td></tr>
   <tr><td width="50%"><a href="site/assets/screens/theme.png"><img src="site/assets/screens/theme.png" alt="Theme"></a><br><sub><b>Theme</b></sub></td><td width="50%"><a href="site/assets/screens/settings.png"><img src="site/assets/screens/settings.png" alt="Settings"></a><br><sub><b>Settings</b></sub></td></tr>
 </table>
+
+# Support the project
+MultiAlt is free, open source and maintained by one person. The easiest way to help: **[⭐ star the repository](https://github.com/luanmacea/MultiAlt)**, tell a friend who plays with alts, and report bugs or ideas in the [issues](https://github.com/luanmacea/MultiAlt/issues) or on [Discord](https://discord.gg/NPvyWgKbfH).
