@@ -2737,5 +2737,7 @@
   "With the reason, when the client log says it.": "With the reason, when the client log says it.",
   "That is not a Discord webhook URL. Copy it from Discord: Server Settings › Integrations › Webhooks › Copy Webhook URL.": "That is not a Discord webhook URL. Copy it from Discord: Server Settings › Integrations › Webhooks › Copy Webhook URL.",
   "Paste the webhook URL first.": "Paste the webhook URL first.",
-  "Discord asked to slow down. Try again in a few seconds.": "Discord asked to slow down. Try again in a few seconds."
+  "Discord asked to slow down. Try again in a few seconds.": "Discord asked to slow down. Try again in a few seconds.",
+  "An account opened as a different Roblox account": "An account opened as a different Roblox account",
+  "The launch queue is paused and the client is left open.": "The launch queue is paused and the client is left open."
 }

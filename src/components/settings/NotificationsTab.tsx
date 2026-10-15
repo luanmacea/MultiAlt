@@ -170,6 +170,12 @@ export function NotificationsTab({ s }: { s: UseSettingsReturn }) {
         onChange={(v) => s.setBool("Webhook", "NotifyLaunchFailed", v)}
         label="A launch failed"
       />
+      <Toggle
+        checked={flag("NotifyWrongAccount", true)}
+        onChange={(v) => s.setBool("Webhook", "NotifyWrongAccount", v)}
+        label="An account opened as a different Roblox account"
+        description="The launch queue is paused and the client is left open."
+      />
 
       <Divider />
       <Toggle
