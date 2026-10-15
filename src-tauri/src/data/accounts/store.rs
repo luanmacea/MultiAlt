@@ -209,7 +209,14 @@ pub struct AccountStore {
     /// **Só em memória**, de propósito: gravar em disco seria guardar cookies que
     /// o usuário mandou apagar. Fechar o app esquece; reler o arquivo também
     /// (`mark_memory_fresh`). Ordem de lock: `accounts` → `last_removed`.
-    last_removed: Mutex<Option<Vec<(usize, Account)>>>,
+    ///
+    /// Guarda o **id** do lote junto: o "Undo" de um toast só desfaz **aquele**
+    /// lote. Remover A,B,C e depois D em 10 s troca o lote guardado; clicar no
+    /// Undo do primeiro toast bate id diferente e é recusado ("expirou") em vez
+    /// de devolver D — contas que o usuário não mandou voltar.
+    last_removed: Mutex<Option<(u64, Vec<(usize, Account)>)>>,
+    /// Numerador dos lotes removidos (0 nunca é lote: é "nada para desfazer").
+    removed_batch_seq: std::sync::atomic::AtomicU64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -234,6 +241,7 @@ impl AccountStore {
             key_warning: Mutex::new(None),
             key_warning_watchers: Mutex::new(Vec::new()),
             last_removed: Mutex::new(None),
+            removed_batch_seq: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -993,6 +1001,14 @@ impl AccountStore {
         self.load_failed
             .store(false, std::sync::atomic::Ordering::SeqCst);
 
+        // A lista em memória é a do disco agora; um lote removido de **antes** do
+        // unlock não pode voltar por cima dela — ressuscitaria contas de antes da
+        // restauração/desbloqueio por um "Undo" velho. Mesmo motivo do
+        // `mark_memory_fresh` no `load()`.
+        if let Ok(mut batch) = self.last_removed.lock() {
+            *batch = None;
+        }
+
         let mut slot = self.session.lock().map_err(|e| e.to_string())?;
         *slot = Some(session);
         drop(slot);
@@ -1303,11 +1319,15 @@ impl AccountStore {
     }
 
     /// Remove várias contas numa gravação só e guarda o lote para o "Undo"
-    /// (`undo_remove`). O lote anterior é substituído. Devolve quantas saíram.
+    /// (`undo_remove`). O lote anterior é substituído. Devolve `(id do lote,
+    /// quantas saíram)`; id `0` com contagem `0` quando nada saiu.
+    ///
+    /// O id identifica **este** lote: o toast que a remoção gera leva o id e só
+    /// esse id desfaz esse lote (ver `undo_remove`).
     ///
     /// A lista nova só entra na memória **depois** de gravada: se a gravação
     /// falha, nada sai e o lote anterior continua desfazível.
-    pub fn remove_many(&self, user_ids: &[i64]) -> Result<usize, String> {
+    pub fn remove_many(&self, user_ids: &[i64]) -> Result<(u64, usize), String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
         let wanted: HashSet<i64> = user_ids.iter().copied().collect();
         let mut removed: Vec<(usize, Account)> = Vec::new();
@@ -1320,26 +1340,37 @@ impl AccountStore {
             }
         }
         if removed.is_empty() {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
         self.save_locked(&kept)?;
         *accounts = kept;
         let count = removed.len();
-        *self.last_removed.lock().map_err(|e| e.to_string())? = Some(removed);
-        Ok(count)
+        let batch_id = self
+            .removed_batch_seq
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        *self.last_removed.lock().map_err(|e| e.to_string())? = Some((batch_id, removed));
+        Ok((batch_id, count))
     }
 
-    /// Devolve o último lote de `remove_many` às posições que as contas tinham,
-    /// com tudo (cookie, senha, grupo, campos). Conta que voltou à lista nesse
-    /// meio-tempo (adicionada de novo) é pulada: a de agora vale mais que a
+    /// Devolve o lote `batch_id` de `remove_many` às posições que as contas
+    /// tinham, com tudo (cookie, senha, grupo, campos). Conta que voltou à lista
+    /// nesse meio-tempo (adicionada de novo) é pulada: a de agora vale mais que a
     /// cópia velha. Funciona uma vez; devolve quantas voltaram.
-    pub fn undo_remove(&self) -> Result<usize, String> {
+    ///
+    /// Só desfaz o lote guardado se o id bater. Lote já substituído por um mais
+    /// novo (toast antigo) é **recusado** com erro — não cai no lote novo, que
+    /// fica intacto para o toast dele. Sem lote nenhum = `Ok(0)`.
+    pub fn undo_remove(&self, batch_id: u64) -> Result<usize, String> {
         let mut accounts = self.accounts.lock().map_err(|e| e.to_string())?;
         let mut slot = self.last_removed.lock().map_err(|e| e.to_string())?;
-        let Some(batch) = slot.as_ref() else {
+        let Some((id, batch)) = slot.as_ref() else {
             return Ok(0);
         };
+        if *id != batch_id {
+            return Err("This removal can no longer be undone.".to_string());
+        }
 
         let mut next = accounts.clone();
         let mut restored = 0usize;

@@ -446,8 +446,12 @@ export interface StoreValue {
    */
   addAccountByCookie: (cookie: string, password?: string) => Promise<void>;
   removeAccounts: (userIds: number[]) => Promise<void>;
-  /** Devolve o último lote removido (o "Undo" do toast). Só em memória. */
-  undoRemoveAccounts: () => Promise<void>;
+  /**
+   * Devolve o lote removido de `batchId` (o "Undo" do toast). Só em memória.
+   * Cada toast leva o id do seu lote: um Undo antigo não desfaz uma remoção mais
+   * nova.
+   */
+  undoRemoveAccounts: (batchId: number) => Promise<void>;
   updateAccount: (account: Account) => Promise<void>;
 
   selectedIds: Set<number>;
@@ -1566,26 +1570,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    */
   async function removeAccounts(userIds: number[]) {
     try {
-      const removed = await invoke<number>("remove_accounts", { userIds });
+      const result = await invoke<{ batchId: number; count: number }>("remove_accounts", {
+        userIds,
+      });
       setSelectedIds((prev) => {
         const next = new Set(prev);
         userIds.forEach((id) => next.delete(id));
         return next;
       });
       await loadAccounts();
-      const count = typeof removed === "number" ? removed : userIds.length;
+      const count = result?.count ?? userIds.length;
+      // O backend só guarda **um** lote. Um Undo pendente de uma remoção
+      // anterior já não desfaz aquele lote (foi substituído por este), então o
+      // botão dele viraria "expirou": tira esse toast da tela para não enganar.
+      // Hoje só o toast de remoção carrega `action`.
+      setToasts((prev) => prev.filter((t) => !t.action));
       addToast(tr("Removed {{count}} account(s)", { count }), undefined, {
         durationMs: UNDO_REMOVE_TOAST_MS,
-        action: { label: tr("Undo"), run: () => void undoRemoveAccounts() },
+        action: { label: tr("Undo"), run: () => void undoRemoveAccounts(result.batchId) },
       });
     } catch (e) {
       setError(String(e));
     }
   }
 
-  async function undoRemoveAccounts() {
+  async function undoRemoveAccounts(batchId: number) {
     try {
-      const restored = await invoke<number>("undo_remove_accounts");
+      const restored = await invoke<number>("undo_remove_accounts", { batchId });
       await loadAccounts();
       if (typeof restored === "number" && restored > 0) {
         addToast(tr("Restored {{count}} account(s)", { count: restored }), "success");
@@ -1595,7 +1606,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addToast(tr("Nothing to undo"), "info");
       }
     } catch (e) {
-      setError(String(e));
+      // Lote substituído por uma remoção mais nova (clicou num Undo antigo): o
+      // backend recusa em vez de desfazer o lote errado. Vira aviso, não erro
+      // de tela — nada deu errado de verdade.
+      await loadAccounts().catch(() => {});
+      addToast(tr("This undo expired because of a newer removal"), "info");
     }
   }
 
