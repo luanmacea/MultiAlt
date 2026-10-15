@@ -1014,6 +1014,8 @@ export interface LaunchPresetEvent {
   name: string;
   action: "open" | "close";
   scheduled: boolean;
+  /** De onde veio: botão da tela, horário ou menu da bandeja. */
+  source?: "button" | "schedule" | "tray";
   ok: boolean;
   count: number;
   error: string | null;

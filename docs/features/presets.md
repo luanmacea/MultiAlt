@@ -17,7 +17,7 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
 | Caminho do arquivo e `DATA_FILES` | [data/settings/paths.rs](../../src-tauri/src/data/settings/paths.rs) |
 | Tela (lista + editor) | [components/presets/PresetsDialog.tsx](../../src/components/presets/PresetsDialog.tsx) |
 | Regras puras da tela (destino a partir dos favoritos, rascunho, "Hoje 08:00", contas do preset de grupo — `presetAccountIds`) | [utils/presets.ts](../../src/utils/presets.ts) |
-| Entradas | botão **Presets** da [Toolbar](../../src/components/layout/Toolbar.tsx) (lista de contas) e **Save as preset** no cabeçalho da [Choose Game](../../src/components/ChooseGameScreen.tsx) |
+| Entradas | botão **Presets** da [Toolbar](../../src/components/layout/Toolbar.tsx) (lista de contas), **Save as preset** no cabeçalho da [Choose Game](../../src/components/ChooseGameScreen.tsx) e o submenu **Launch preset** do ícone da bandeja ([commands/tray.rs](../../src-tauri/src/commands/tray.rs)) |
 | Estado / launch pela tela | [store.tsx](../../src/store.tsx): `presetsDialog`, `openPresetsDialog`, `launchPreset`, ouvinte `launch-preset` |
 
 ## Fluxo
@@ -65,8 +65,13 @@ preset abriu. É a ideia 13 de [ideias-de-outros-gerenciadores.md](../ideias-de-
    ("Closing...") enquanto fecha — duplo clique fecha uma vez só — e a lista relê na hora,
    sem depender do evento `launch-preset` chegar.
 6. **Resultado:** linha no Console (`step: "preset"`, sem conta) e evento `launch-preset`
-   (`presetId`, `name`, `action`, `scheduled`, `ok`, `count`, `error`). O que veio do horário
-   vira toast (ninguém clicou).
+   (`presetId`, `name`, `action`, `scheduled`, `source` — `button`/`schedule`/`tray` —, `ok`,
+   `count`, `error`). O que veio do horário ou da bandeja vira toast (ninguém clicou na tela).
+7. **Bandeja:** clique direito no ícone › **Launch preset** › nome do preset. Mesmo caminho do
+   botão (`launch_preset_with` → `run_launch_preset`), sem a pergunta de conta online. O menu
+   mostra só os nomes dos presets (nunca conta — vale o "Names hidden") e é refeito ao salvar,
+   apagar ou restaurar backup. Sem presets: "No presets", desabilitado. Ver
+   [ui-layout.md](ui-layout.md) e `tray_menu_tests`.
 
 ## Preset de grupo (ideia 42)
 

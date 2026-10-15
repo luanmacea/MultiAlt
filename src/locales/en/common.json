@@ -2714,5 +2714,6 @@
   "Group": "Group",
   "Pick a group.": "Pick a group.",
   "That group has no accounts.": "That group has no accounts.",
-  "The group name is too long.": "The group name is too long."
+  "The group name is too long.": "The group name is too long.",
+  "Preset {{name}} opened {{count}} account(s)": "Preset {{name}} opened {{count}} account(s)"
 }

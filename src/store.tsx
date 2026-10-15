@@ -3104,6 +3104,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       listen<LaunchPresetEvent>("launch-preset", (e) => {
         const p = e.payload;
         setPresetsRevision((n) => n + 1);
+        // Menu da bandeja: ninguém clicou na tela, então o resultado vira toast.
+        if (p.source === "tray") {
+          if (!p.ok) addToast(tr("Preset {{name}} failed: {{error}}", { name: p.name, error: p.error ?? "" }), "error");
+          else addToast(tr("Preset {{name}} opened {{count}} account(s)", { name: p.name, count: p.count }), "success");
+          return;
+        }
         if (!p.scheduled) return;
         if (!p.ok) {
           addToast(tr("Preset {{name}} failed: {{error}}", { name: p.name, error: p.error ?? "" }), "error");

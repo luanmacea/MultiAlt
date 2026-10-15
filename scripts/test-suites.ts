@@ -73,6 +73,7 @@ export const SUITES: Record<string, TestSuite> = {
       "launch_preset_validation_tests",
       "launch_preset_schedule_tests",
       "launch_preset_run_tests",
+      "tray_menu_tests",
     ],
     front: ["src/components/presets", "src/utils/presets.test.ts"],
   },

@@ -206,19 +206,28 @@ fn get_launch_presets(store: tauri::State<'_, LaunchPresetStore>) -> Result<Vec<
 
 #[tauri::command]
 fn save_launch_preset(
+    app: tauri::AppHandle,
     store: tauri::State<'_, LaunchPresetStore>,
     preset: LaunchPreset,
 ) -> Result<LaunchPreset, String> {
-    store.upsert(preset, chrono::Utc::now().timestamp_millis())
+    let saved = store.upsert(preset, chrono::Utc::now().timestamp_millis())?;
+    // O submenu "Launch preset" da bandeja segue a lista.
+    refresh_tray_menu(&app);
+    Ok(saved)
 }
 
 #[tauri::command]
-fn delete_launch_preset(store: tauri::State<'_, LaunchPresetStore>, id: String) -> Result<bool, String> {
+fn delete_launch_preset(
+    app: tauri::AppHandle,
+    store: tauri::State<'_, LaunchPresetStore>,
+    id: String,
+) -> Result<bool, String> {
     let deleted = store.delete(&id)?;
     // Esquece a execução: um preset apagado não fecha mais nada.
     if let Ok(mut runs) = PRESET_RUNS.lock() {
         runs.remove(&id);
     }
+    refresh_tray_menu(&app);
     Ok(deleted)
 }
 
@@ -317,12 +326,33 @@ async fn close_preset_run(preset_id: &str) -> usize {
     closed
 }
 
+/// De onde veio a ação do preset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PresetTrigger {
+    /// Botão da tela: quem clicou já vê o resultado lá.
+    Button,
+    /// Horário do agendador: ninguém clicou, vira toast.
+    Schedule,
+    /// Menu da bandeja: a tela pode estar escondida, vira toast.
+    Tray,
+}
+
+impl PresetTrigger {
+    fn source(self) -> &'static str {
+        match self {
+            PresetTrigger::Button => "button",
+            PresetTrigger::Schedule => "schedule",
+            PresetTrigger::Tray => "tray",
+        }
+    }
+}
+
 /// Linha no Console (sem conta: é do preset) e evento para a tela.
 fn emit_preset_outcome(
     app: &tauri::AppHandle,
     preset: &LaunchPreset,
     action: PresetAction,
-    scheduled: bool,
+    trigger: PresetTrigger,
     outcome: &Result<usize, String>,
 ) {
     let (level, message) = match (action, outcome) {
@@ -338,7 +368,8 @@ fn emit_preset_outcome(
             "presetId": preset.id,
             "name": preset.name,
             "action": match action { PresetAction::Open => "open", PresetAction::Close => "close" },
-            "scheduled": scheduled,
+            "scheduled": trigger == PresetTrigger::Schedule,
+            "source": trigger.source(),
             "ok": outcome.is_ok(),
             "count": outcome.as_ref().ok().copied().unwrap_or(0),
             "error": outcome.as_ref().err(),
@@ -346,18 +377,32 @@ fn emit_preset_outcome(
     );
 }
 
-#[tauri::command]
-async fn launch_preset(app: tauri::AppHandle, id: String) -> Result<usize, String> {
-    let preset = app
-        .state::<LaunchPresetStore>()
-        .get(&id)?
-        .ok_or_else(|| "This preset no longer exists.".to_string())?;
-    let outcome = run_launch_preset(&app, &preset).await;
-    // A recusa "launch em andamento" já vira aviso na tela de quem clicou.
-    if !matches!(&outcome, Err(e) if e == LAUNCH_ALREADY_ACTIVE) {
-        emit_preset_outcome(&app, &preset, PresetAction::Open, false, &outcome);
+/// O launch de um preset pelo id — o mesmo caminho para o botão da tela e para
+/// o menu da bandeja.
+async fn launch_preset_with(app: &tauri::AppHandle, id: &str, trigger: PresetTrigger) -> Result<usize, String> {
+    let preset = match app.state::<LaunchPresetStore>().get(id)? {
+        Some(preset) => preset,
+        None => {
+            let err = "This preset no longer exists.".to_string();
+            if trigger == PresetTrigger::Tray {
+                // Menu velho (o preset sumiu entre refazer e clicar): avisa.
+                emit_session_log(app, "error", "preset", err.clone());
+            }
+            return Err(err);
+        }
+    };
+    let outcome = run_launch_preset(app, &preset).await;
+    // A recusa "launch em andamento" já vira aviso na tela de quem clicou; da
+    // bandeja ninguém está olhando, então ela vai para o evento também.
+    if trigger != PresetTrigger::Button || !matches!(&outcome, Err(e) if e == LAUNCH_ALREADY_ACTIVE) {
+        emit_preset_outcome(app, &preset, PresetAction::Open, trigger, &outcome);
     }
     outcome
+}
+
+#[tauri::command]
+async fn launch_preset(app: tauri::AppHandle, id: String) -> Result<usize, String> {
+    launch_preset_with(&app, &id, PresetTrigger::Button).await
 }
 
 #[tauri::command]
@@ -367,7 +412,7 @@ async fn close_preset_clients(app: tauri::AppHandle, id: String) -> Result<usize
         .get(&id)?
         .ok_or_else(|| "This preset no longer exists.".to_string())?;
     let closed = close_preset_run(&id).await;
-    emit_preset_outcome(&app, &preset, PresetAction::Close, false, &Ok(closed));
+    emit_preset_outcome(&app, &preset, PresetAction::Close, PresetTrigger::Button, &Ok(closed));
     Ok(closed)
 }
 
@@ -387,7 +432,7 @@ async fn run_scheduled_preset_action(app: &tauri::AppHandle, preset_id: &str, ac
                     _ => break outcome,
                 }
             };
-            emit_preset_outcome(app, &preset, PresetAction::Open, true, &outcome);
+            emit_preset_outcome(app, &preset, PresetAction::Open, PresetTrigger::Schedule, &outcome);
         }
         PresetAction::Close => {
             // Sem cliente desta execução aberto, a hora de fechar não faz nada
@@ -396,7 +441,7 @@ async fn run_scheduled_preset_action(app: &tauri::AppHandle, preset_id: &str, ac
                 return;
             }
             let closed = close_preset_run(preset_id).await;
-            emit_preset_outcome(app, &preset, PresetAction::Close, true, &Ok(closed));
+            emit_preset_outcome(app, &preset, PresetAction::Close, PresetTrigger::Schedule, &Ok(closed));
         }
     }
 }

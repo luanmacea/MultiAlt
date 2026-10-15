@@ -41,6 +41,7 @@ include!("commands/botting.rs");
 include!("commands/generators.rs");
 include!("commands/launch.rs");
 include!("commands/launch_presets.rs");
+include!("commands/tray.rs");
 include!("commands/diagnostics.rs");
 include!("commands/platform_info.rs");
 include!("commands/isolation.rs");
@@ -468,29 +469,17 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             start_settings_restore_loop(app.handle().clone());
 
-            let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-            let menu = MenuBuilder::new(app).items(&[&show, &quit]).build()?;
+            // Show, "Launch preset" (os presets, só pelo nome) e Quit — ver
+            // commands/tray.rs. O submenu é refeito quando os presets mudam.
+            let menu = build_tray_menu(app.handle())?;
 
-            let _tray = TrayIconBuilder::new()
+            let _tray = TrayIconBuilder::with_id(TRAY_ID)
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("MultiAlt")
                 .menu(&menu)
-                .on_menu_event(
-                    |app: &AppHandle<Wry>, event: MenuEvent| match event.id().as_ref() {
-                        "show" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.unminimize();
-                                let _ = w.set_focus();
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
-                    },
-                )
+                .on_menu_event(|app: &AppHandle<Wry>, event: MenuEvent| {
+                    handle_tray_menu_event(app, event.id().as_ref())
+                })
                 .on_tray_icon_event(|tray: &TrayIcon<Wry>, event: TrayIconEvent| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
