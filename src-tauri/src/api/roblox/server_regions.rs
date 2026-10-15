@@ -5,8 +5,10 @@
 // extensões de navegador) é indireto:
 //
 // 1. `POST gamejoin/v1/join-game-instance` para aquele Job ID devolve o
-//    `joinScript.MachineAddress`, que é o IP da máquina que hospeda o servidor;
-// 2. esse IP é geolocalizado por um serviço externo.
+//    endereço do servidor: o público do proxy UDMUX
+//    (`joinScript.UdmuxEndpoints[].Address`) quando há um, senão o
+//    `joinScript.MachineAddress` — que atrás do UDMUX é um IP interno `10.x`;
+// 2. esse IP é geolocalizado por um serviço externo (só se for público).
 //
 // Isso custa **uma** chamada de join por servidor, e o `join-game-instance` tem
 // rate limit. Por isso nada aqui resolve região sozinho: quem chama decide
@@ -234,6 +236,10 @@ pub async fn lookup_ip_region(ip: &str) -> IpRegion {
     if ip.is_empty() {
         return IpRegion::unknown("");
     }
+    // IP privado/reservado não sai do aparelho (ver `is_public_ip`).
+    if !is_public_ip(ip) {
+        return IpRegion::unknown(ip);
+    }
     if let Some(hit) = cached_region(ip) {
         return hit;
     }
@@ -263,7 +269,72 @@ pub async fn lookup_ip_region(ip: &str) -> IpRegion {
     }
 }
 
-/// IP da máquina que hospeda um Job ID, lido do join script.
+/// O IP serve para geolocalizar? Faixa privada, CGNAT, loopback, link-local,
+/// documentação e afins não dizem onde o servidor está — e mandar `10.x` para
+/// um serviço externo só devolve "faixa reservada" ou a cidade de outra rede.
+fn is_public_ip(ip: &str) -> bool {
+    match ip.trim().parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            let [a, b, c, _] = v4.octets();
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_multicast()
+                || a == 0
+                || a >= 240
+                // 100.64.0.0/10: CGNAT.
+                || (a == 100 && (64..128).contains(&b))
+                // 192.0.0.0/24: atribuições do IETF.
+                || (a == 192 && b == 0 && c == 0)
+                // 198.18.0.0/15: benchmark.
+                || (a == 198 && (b == 18 || b == 19)))
+        }
+        Ok(std::net::IpAddr::V6(v6)) => {
+            let first = v6.segments()[0];
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                // fc00::/7: endereço local único.
+                || (first & 0xfe00) == 0xfc00
+                // fe80::/10: link-local.
+                || (first & 0xffc0) == 0xfe80
+                // 2001:db8::/32: documentação.
+                || (first == 0x2001 && v6.segments()[1] == 0x0db8))
+        }
+        Err(_) => false,
+    }
+}
+
+/// Endereço do servidor no join script. Atrás do proxy UDMUX do Roblox (o caso
+/// comum: todos os joins nos logs reais do dono em 14/10/2026) o
+/// `MachineAddress` é o IP **interno** da máquina (`10.x`) e o público vem em
+/// `UdmuxEndpoints[].Address` — o cliente registra os dois na linha
+/// `UDMUX Address = … | RCC Server Address = …`. Prefere o primeiro endereço
+/// público; sem nenhum, devolve o `MachineAddress` cru (a entrada foi aceita,
+/// só a região é que fica desconhecida — `lookup_ip_region` não o consulta).
+fn join_script_address(join_script: &serde_json::Value) -> Option<String> {
+    let machine = join_script["MachineAddress"]
+        .as_str()
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+    let udmux = join_script["UdmuxEndpoints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|endpoint| endpoint["Address"].as_str())
+        .map(str::trim);
+
+    udmux
+        .chain(machine)
+        .find(|address| is_public_ip(address))
+        .or(machine)
+        .map(str::to_string)
+}
+
+/// Endereço de um Job ID, lido do join script (ver `join_script_address`).
 pub async fn server_machine_address(
     security_token: &str,
     place_id: i64,
@@ -272,13 +343,8 @@ pub async fn server_machine_address(
     let response = join_game_instance(security_token, place_id, job_id, false)
         .await
         .map_err(|message| JoinRefusal { message, status: None })?;
-    let address = response["joinScript"]["MachineAddress"]
-        .as_str()
-        .unwrap_or_default()
-        .trim()
-        .to_string();
 
-    if !address.is_empty() {
+    if let Some(address) = join_script_address(&response["joinScript"]) {
         return Ok(address);
     }
 
@@ -501,6 +567,65 @@ mod server_region_payload_tests {
 
         assert!(parse_ipapi("8.8.8.8", &serde_json::json!({ "status": "fail" })).is_none());
     }
+
+    #[test]
+    fn only_public_ips_are_geolocatable() {
+        for ip in ["128.116.86.33", "200.10.0.1", " 8.8.8.8 ", "2606:4700::1111"] {
+            assert!(is_public_ip(ip), "{} é público", ip);
+        }
+        for ip in [
+            "10.9.3.162",
+            "172.16.0.1",
+            "172.31.255.255",
+            "192.168.0.10",
+            "100.64.0.1",
+            "100.127.255.254",
+            "127.0.0.1",
+            "169.254.1.1",
+            "0.0.0.0",
+            "255.255.255.255",
+            "192.0.2.1",
+            "198.18.0.1",
+            "224.0.0.1",
+            "240.0.0.1",
+            "::1",
+            "fd00::1",
+            "fe80::1",
+            "2001:db8::1",
+            "",
+            "roblox.com",
+        ] {
+            assert!(!is_public_ip(ip), "{} não é público", ip);
+        }
+    }
+
+    #[test]
+    fn the_join_script_prefers_the_public_udmux_endpoint() {
+        let script = serde_json::json!({
+            "MachineAddress": "10.33.5.69",
+            "UdmuxEndpoints": [
+                { "Address": "10.1.1.1", "Port": 1 },
+                { "Address": "128.116.86.33", "Port": 52446 }
+            ]
+        });
+        assert_eq!(join_script_address(&script).as_deref(), Some("128.116.86.33"));
+    }
+
+    #[test]
+    fn without_udmux_a_public_machine_address_is_used() {
+        let script = serde_json::json!({ "MachineAddress": " 200.10.0.1 ", "UdmuxEndpoints": [] });
+        assert_eq!(join_script_address(&script).as_deref(), Some("200.10.0.1"));
+    }
+
+    /// Nenhum endereço público: devolve o interno (a entrada foi aceita), e
+    /// quem geolocaliza o recusa.
+    #[test]
+    fn without_a_public_address_the_machine_address_is_returned_as_is() {
+        let script = serde_json::json!({ "MachineAddress": "10.9.3.162" });
+        assert_eq!(join_script_address(&script).as_deref(), Some("10.9.3.162"));
+        assert_eq!(join_script_address(&serde_json::json!({})), None);
+        assert_eq!(join_script_address(&serde_json::Value::Null), None);
+    }
 }
 
 /// A resolução de região ponta a ponta contra o mock: join → IP →
@@ -627,6 +752,81 @@ mod server_region_http_tests {
         let region = lookup_ip_region("200.10.0.4").await;
         assert_eq!(region.country_code, "");
         assert_eq!(format_region(&region, TEMPLATE), "200.10.0.4");
+    }
+
+    /// Pedidos que chegaram aos dois serviços de geolocalização para aquele IP.
+    async fn geolocation_requests_for(ip: &str) -> usize {
+        mock_server()
+            .await
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|r| {
+                r.url.path() == format!("/ipwhois/{}", ip)
+                    || r.url.path() == format!("/ipapi/json/{}", ip)
+            })
+            .count()
+    }
+
+    /// Servidor atrás do proxy UDMUX do Roblox (todos, nos logs reais do dono
+    /// em 14/10/2026): o `MachineAddress` é o IP interno da máquina (10.x) e o
+    /// IP público, o que diz onde o servidor está, vem em `UdmuxEndpoints`. O
+    /// cliente registra os dois: `UDMUX Address = 128.116.86.33 | RCC Server
+    /// Address = 10.33.5.69`.
+    #[tokio::test]
+    async fn a_udmux_server_is_located_by_its_public_endpoint() {
+        let token = "region-udmux";
+        mount_csrf(token, &format!("csrf-{}", token)).await;
+        Mock::given(method("POST"))
+            .and(path(mock_path("gamejoin", "/v1/join-game-instance")))
+            .and(header("cookie", cookie_of(token)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": 2,
+                "joinScript": {
+                    "MachineAddress": "10.33.5.69",
+                    "ServerPort": 52446,
+                    "UdmuxEndpoints": [{ "Address": "128.116.86.33", "Port": 52446 }]
+                }
+            })))
+            .mount(mock_server().await)
+            .await;
+        mount_ipwhois(
+            "128.116.86.33",
+            serde_json::json!({ "success": true, "city": "Miami", "country_code": "US" }),
+        )
+        .await;
+
+        let resolved = resolve_server_region(token, 1, "job-udmux", TEMPLATE).await;
+        assert_eq!(resolved.label, "Miami, US");
+        assert_eq!(resolved.region.as_ref().unwrap().ip, "128.116.86.33");
+        assert_eq!(
+            geolocation_requests_for("10.33.5.69").await,
+            0,
+            "o IP interno não pode ir para a geolocalização"
+        );
+    }
+
+    /// Sem endereço público nenhum no join, a região fica desconhecida — e o
+    /// IP privado não sai do aparelho: perguntar onde fica `10.x` só devolve
+    /// "faixa reservada" (ou, pior, a cidade de outra rede com o mesmo IP).
+    /// A entrada continua permitida: o join aceitou.
+    #[tokio::test]
+    async fn a_private_address_is_never_geolocated() {
+        mount_join("region-private", "job-private", "10.9.3.162").await;
+
+        let resolved = resolve_server_region("region-private", 1, "job-private", TEMPLATE).await;
+        assert!(resolved.error.is_none());
+        assert!(!resolved.denied);
+        assert_eq!(resolved.region.as_ref().unwrap().country_code, "");
+        assert!(!region_matches(&resolved, "BR"));
+        assert_eq!(geolocation_requests_for("10.9.3.162").await, 0);
+
+        assert!(join_access("region-private", 1, "job-private").await.is_ok());
+
+        let direct = lookup_ip_region("192.168.0.10").await;
+        assert_eq!(direct.country_code, "");
+        assert_eq!(geolocation_requests_for("192.168.0.10").await, 0);
     }
 
     /// O `join-game-instance` recusando com um `status` e a mensagem do Roblox.

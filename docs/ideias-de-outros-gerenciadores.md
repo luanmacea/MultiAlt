@@ -104,7 +104,7 @@ o que mais pesa:
 | 32 | [Motivo novo para ligar a reserva do `ROBLOX_singletonEvent`](#32-motivo-novo-para-ligar-a-reserva-do-roblox_singletonevent-ideia-3) | alta (teste do dono) |
 | 34 | [Fila que espera memória livre no PC](#34-fila-de-launch-que-espera-memória-livre-no-pc) | alta |
 | 35 | [Conferir que o cliente entrou na conta certa](#35-conferir-que-o-cliente-entrou-na-conta-certa) | alta |
-| 36 | [Região do servidor pelo IP interno (provável bug)](#36-região-do-servidor-provável-bug-e-região-na-session) | alta (confirmar) |
+| 36 | [Região do servidor pelo IP interno (provável bug)](#36-região-do-servidor-provável-bug-e-região-na-session) | bug **confirmado e corrigido** na `develop` (14/10); falta a região na Session (média) |
 | 33 | [Só fechar o handle de cliente que já subiu](#33-só-fechar-o-handle-de-cliente-que-já-subiu-e-tudo-ou-nada) | média-alta |
 | 40 | [Download da build com reserva e novas tentativas](#40-download-da-build-motivo-novo-para-a-ideia-29) | média |
 | 38 | [Exportar contas com senha própria](#38-exportar-as-contas-com-uma-senha-própria) | média |
@@ -392,8 +392,8 @@ no nosso código.
 - **Segurança:** limpo.
 
 ### 36. Região do servidor: provável bug, e região na Session
-- **Prioridade:** alta para o bug (**confirmar** com uma resposta real); média para a parte nova.
-- **Situação no MultiAlt:** `server_regions.rs` (`server_machine_address`) geolocaliza o `joinScript.MachineAddress` cru. Para servidores atrás do UDMUX esse endereço é interno `10.x`: o nosso próprio fixture de log real mostra `10.9.3.162` (`external_clients.rs`), e os testes só usam IP público.
+- **Prioridade:** o bug está **corrigido** na `develop` (14/10/2026); média para a parte nova.
+- **Situação no MultiAlt:** confirmado nos logs reais do dono em 14/10/2026 — **todos** os joins iam para um `10.x` (`RCC Server Address`), com o público na linha `UDMUX Address`. O `server_machine_address` geolocalizava o `MachineAddress` cru, e a coluna Region mostrava o IP interno. Hoje ele prefere `joinScript.UdmuxEndpoints[].Address` (o mesmo campo que `ex9d/sentra` e `woogi999/pious-bootstrapper` leem) e IP privado/reservado nunca vai para a geolocalização (`server_region_http_tests`, `server_region_payload_tests`). A região na Session continua aberta.
 - **O que faz:** descarta endereço privado e usa o IP público do UDMUX. A parte nova: a Session mostra a região do servidor de cada conta, lida da linha `UDMUX Address` do log, sem nenhuma chamada `join-game-instance`. Junto, dá para mostrar há quanto tempo o servidor está no ar, pela linha `Server Prefix …_<data>_RCC`.
 - **Onde ver:** [`bloxstraplabs/bloxstrap`](https://github.com/bloxstraplabs/bloxstrap) — `ActivityData.cs:43`, `ActivityWatcher.cs:244-260`, MIT; [`AeroUp/Visor`](https://github.com/AeroUp/Visor) — `logwatcher.js`, MIT; uptime: [`Froststrap/Froststrap`](https://github.com/Froststrap/Froststrap) — `ActivityWatcher.cs:23,570-592`, MPL-2.0.
 - **Segurança:** geolocalizar pelo serviço que já usamos (não o `ipinfo.io` do Visor). Nunca geolocalizar IP privado.
@@ -513,7 +513,7 @@ no nosso código.
 
 ### Bugs do MultiAlt achados nesta passada
 - **Campos da conta perdem o que foi digitado** — conferido. `AccountFieldsDialog.tsx` só salva com Enter na caixa do valor ou ao remover um campo; trocar só a chave, criar campo com "+" ou fechar pelo X, pelo Esc ou pelo fundo descarta tudo sem aviso. O fork [`iamstrix`](https://github.com/iamstrix/iamstrix-Roblox-Account-Manager) corrigiu o mesmo defeito no RAM original (`Classes/Field.cs`, `Forms/AccountFields.cs`: salva ao sair da caixa e ao fechar).
-- **Região do servidor pelo IP interno** — plausível, falta uma resposta real: ver ideia 36.
+- **Região do servidor pelo IP interno** — confirmado pelos logs reais e corrigido em 14/10/2026: ver ideia 36.
 
 ## Para decisão do dono
 
