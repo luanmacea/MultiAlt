@@ -326,15 +326,14 @@ async fn close_preset_run(preset_id: &str) -> usize {
     closed
 }
 
-/// De onde veio a ação do preset.
+/// De onde veio a ação do preset. (A bandeja não lança direto: ela traz a
+/// janela à frente e manda a tela rodar o launch — ver commands/tray.rs.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PresetTrigger {
     /// Botão da tela: quem clicou já vê o resultado lá.
     Button,
     /// Horário do agendador: ninguém clicou, vira toast.
     Schedule,
-    /// Menu da bandeja: a tela pode estar escondida, vira toast.
-    Tray,
 }
 
 impl PresetTrigger {
@@ -342,7 +341,6 @@ impl PresetTrigger {
         match self {
             PresetTrigger::Button => "button",
             PresetTrigger::Schedule => "schedule",
-            PresetTrigger::Tray => "tray",
         }
     }
 }
@@ -377,19 +375,12 @@ fn emit_preset_outcome(
     );
 }
 
-/// O launch de um preset pelo id — o mesmo caminho para o botão da tela e para
-/// o menu da bandeja.
+/// O launch de um preset pelo id (o botão da tela; a bandeja delega a este
+/// caminho via o frontend). O agendador usa `run_launch_preset` direto.
 async fn launch_preset_with(app: &tauri::AppHandle, id: &str, trigger: PresetTrigger) -> Result<usize, String> {
     let preset = match app.state::<LaunchPresetStore>().get(id)? {
         Some(preset) => preset,
-        None => {
-            let err = "This preset no longer exists.".to_string();
-            if trigger == PresetTrigger::Tray {
-                // Menu velho (o preset sumiu entre refazer e clicar): avisa.
-                emit_session_log(app, "error", "preset", err.clone());
-            }
-            return Err(err);
-        }
+        None => return Err("This preset no longer exists.".to_string()),
     };
     let outcome = run_launch_preset(app, &preset).await;
     // A recusa "launch em andamento" já vira aviso na tela de quem clicou; da
