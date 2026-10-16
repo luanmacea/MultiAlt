@@ -122,7 +122,14 @@ export function PrivateServersSection({
         setEntries((prev) => new Map(prev).set(userId, next));
       }
     }, PLACE_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      // Fechar a seção / trocar de aba tem que parar o laço por conta já em
+      // andamento: só limpar o timer deixava o `for` seguir chamando
+      // `get_private_servers` conta após conta. Avançar a geração faz a
+      // próxima volta do laço (e um `loadMore` em voo) desistir.
+      generation.current++;
+    };
     // `userKey` resume a seleção; a lista em si muda de identidade a cada render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, placeId, userKey, reloadNonce]);

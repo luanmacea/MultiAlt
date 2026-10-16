@@ -83,6 +83,29 @@ describe("redactSecretSettings", () => {
     });
   });
 
+  it("never hands the Webhook URL (with token) to a script but keeps the flags", () => {
+    const settings = {
+      Webhook: {
+        Enabled: "true",
+        Url: "https://discord.com/api/webhooks/123456789/aBcDeF-SecretToken",
+        NotifyDropped: "true",
+        HideNames: "true",
+        Mention: "role:987",
+      },
+    };
+
+    const out = redactSecretSettings(settings);
+
+    expect(out.Webhook).not.toHaveProperty("Url");
+    expect(out.Webhook).toEqual({
+      Enabled: "true",
+      NotifyDropped: "true",
+      HideNames: "true",
+      Mention: "role:987",
+    });
+    expect(JSON.stringify(out)).not.toContain("SecretToken");
+  });
+
   it("keeps non-secret keys in a redacted section", () => {
     const out = redactSecretSettings({
       General: { Theme: "dark", SessionToken: "abc", PasswordHint: "mother" },

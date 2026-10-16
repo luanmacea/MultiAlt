@@ -586,6 +586,7 @@ export function ChooseGameScreen() {
    */
   useWaitForPlayerHost({
     byFollowing: () => joinByFollowing,
+    currentUserIds: () => userIds,
     notify: store.addToast,
     launch: async (watch, join) => {
       const result = await launchAll(

@@ -92,7 +92,12 @@ pub(crate) fn notify_webhook(
 }
 
 /// Motivo da queda em inglês (a mensagem não passa pelo i18n da tela).
-fn webhook_drop_reason(drop: &ClientDrop) -> String {
+///
+/// O texto cru do kick do Roblox pode citar o nome real de outro jogador
+/// ("kicked by <username>", "<username> banned you", ...). Com "Hide account
+/// names" ligado (padrão) sai só a CATEGORIA ("kicked from the game"); o texto
+/// completo só quando a pessoa desligou o mascaramento.
+fn webhook_drop_reason(drop: &ClientDrop, hide_names: bool) -> String {
     let code = drop.code.map(|c| format!(" (code {c})")).unwrap_or_default();
     match drop.kind {
         DropKind::Disconnected => match drop.reason {
@@ -102,8 +107,8 @@ fn webhook_drop_reason(drop: &ClientDrop) -> String {
             _ => format!("disconnected{code}"),
         },
         DropKind::Kicked => match &drop.message {
-            Some(message) => format!("kicked: {message}"),
-            None => format!("kicked from the game{code}"),
+            Some(message) if !hide_names => format!("kicked: {message}"),
+            _ => format!("kicked from the game{code}"),
         },
         DropKind::ServerShutdown => format!("the server shut down{code}"),
         DropKind::Crashed => "the client closed without leaving the game".to_string(),
@@ -164,13 +169,14 @@ fn webhook_place_of(user_id: i64) -> Option<i64> {
 
 #[cfg(target_os = "windows")]
 pub(crate) fn webhook_after_health_tick(app: &tauri::AppHandle, notices: &[HealthNotice]) {
+    let hide_names = webhook_config(app).hide_names;
     for notice in notices {
         match notice {
             HealthNotice::Dropped { user_id, drop, .. } => notify_webhook(
                 app,
                 WebhookEventKind::Dropped,
                 *user_id,
-                Some(webhook_drop_reason(drop)),
+                Some(webhook_drop_reason(drop, hide_names)),
                 webhook_place_of(*user_id),
             ),
             HealthNotice::NotResponding {
@@ -279,17 +285,45 @@ mod webhook_glue_tests {
             since_ms: 0,
         };
         assert_eq!(
-            webhook_drop_reason(&drop(DropKind::Disconnected, Some(DropReason::ConnectionLost), Some(277), None)),
+            webhook_drop_reason(
+                &drop(DropKind::Disconnected, Some(DropReason::ConnectionLost), Some(277), None),
+                false
+            ),
             "lost the connection (code 277)"
         );
         assert_eq!(
-            webhook_drop_reason(&drop(DropKind::Kicked, None, Some(267), Some("AFK"))),
+            webhook_drop_reason(&drop(DropKind::Kicked, None, Some(267), Some("AFK")), false),
             "kicked: AFK"
         );
         assert_eq!(
-            webhook_drop_reason(&drop(DropKind::Crashed, None, None, None)),
+            webhook_drop_reason(&drop(DropKind::Crashed, None, None, None), false),
             "the client closed without leaving the game"
         );
+    }
+
+    #[test]
+    fn a_kick_reason_is_hidden_when_names_are_hidden() {
+        let drop = |message: Option<&str>, code| ClientDrop {
+            kind: DropKind::Kicked,
+            reason: None,
+            code,
+            message: message.map(String::from),
+            since_ms: 0,
+        };
+        // Com HideNames ligado (padrão), o texto cru do kick — que pode trazer o
+        // nome real de um jogador — não sai; só a categoria, com o código.
+        assert_eq!(
+            webhook_drop_reason(&drop(Some("Kicked by SomeRealPlayer42"), Some(267)), true),
+            "kicked from the game (code 267)"
+        );
+        // Com HideNames desligado, a mensagem completa sai.
+        assert_eq!(
+            webhook_drop_reason(&drop(Some("Kicked by SomeRealPlayer42"), Some(267)), false),
+            "kicked: Kicked by SomeRealPlayer42"
+        );
+        // Sem mensagem, os dois caminhos dão a categoria.
+        assert_eq!(webhook_drop_reason(&drop(None, Some(267)), true), "kicked from the game (code 267)");
+        assert_eq!(webhook_drop_reason(&drop(None, Some(267)), false), "kicked from the game (code 267)");
     }
 
     #[test]

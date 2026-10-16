@@ -2749,5 +2749,6 @@
   "Star on GitHub": "Estrela no GitHub",
   "This undo expired because of a newer removal": "Este desfazer expirou por causa de uma remoção mais nova",
   "This preset has no accounts to launch": "Este preset não tem contas para lançar",
-  "Unlock MultiAlt first": "Destranque o MultiAlt primeiro"
+  "Unlock MultiAlt first": "Destranque o MultiAlt primeiro",
+  "Stopped waiting for {{name}}: the accounts screen closed.": "Parei de esperar {{name}}: a tela de contas foi fechada."
 }

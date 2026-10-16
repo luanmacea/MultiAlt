@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", async () => (await import("../../test-utils/tauriMocks")).tauriCoreMock());
 
+import { renderHook } from "@testing-library/react";
 import {
   cancelWaitForPlayer,
   getWaitWatch,
   setWaitHost,
   startWaitForPlayer,
+  useWaitForPlayerHost,
   type WaitHost,
 } from "./waitForPlayerWatch";
 import { invokeMock, resetTauriMocks, setInvokeHandler } from "../../test-utils/tauriMocks";
@@ -144,6 +146,68 @@ describe("waitForPlayerWatch", () => {
     await vi.advanceTimersByTimeAsync(WAIT_POLL_INTERVAL_MS * 4);
     expect(presenceCalls()).toBe(calls);
     expect(host.launch).not.toHaveBeenCalled();
+  });
+
+  it("launches the CURRENT selection, not the one from when the wait started", async () => {
+    let type = 0;
+    setInvokeHandler((cmd) =>
+      cmd === "get_presence" ? [{ userId: 42, userPresenceType: type, rootPlaceId: 999, placeId: 111, gameId: null }] : undefined
+    );
+    const host = makeHost(true);
+    // Lote selecionado no momento do launch (muda no meio da espera).
+    let live = [1, 2, 3];
+    host.currentUserIds = () => live;
+    setWaitHost(host);
+    startWaitForPlayer({ targetUserId: 42, name: "B", userIds: [1, 2, 3] });
+
+    await vi.advanceTimersByTimeAsync(WAIT_POLL_INTERVAL_MS);
+    expect(host.launch).not.toHaveBeenCalled();
+
+    // Tirou a conta 2 e a 3 do lote enquanto esperava.
+    live = [1];
+    type = 2;
+    await vi.advanceTimersByTimeAsync(WAIT_POLL_INTERVAL_MS);
+    expect(host.launch).toHaveBeenCalledTimes(1);
+    expect(host.launch).toHaveBeenCalledWith(
+      expect.objectContaining({ targetUserId: 42, userIds: [1] }),
+      expect.objectContaining({ joinable: true })
+    );
+  });
+
+  it("an empty current selection ends the wait without launching", async () => {
+    setInvokeHandler(() => [{ userId: 42, userPresenceType: 2, rootPlaceId: 999, placeId: 111, gameId: null }]);
+    const host = makeHost(true);
+    host.currentUserIds = () => [];
+    setWaitHost(host);
+    startWaitForPlayer({ targetUserId: 42, name: "B", userIds: [1] });
+
+    await vi.advanceTimersByTimeAsync(WAIT_POLL_INTERVAL_MS);
+    expect(host.launch).not.toHaveBeenCalled();
+    expect(getWaitWatch()).toBeNull();
+  });
+
+  it("dropping the host mid-wait toasts instead of stopping silently", () => {
+    vi.useRealTimers();
+    const notify = vi.fn();
+    const { unmount } = renderHook(() =>
+      useWaitForPlayerHost({ byFollowing: () => true, currentUserIds: () => [1], launch: async () => true, notify })
+    );
+    startWaitForPlayer({ targetUserId: 42, name: "Builderman", userIds: [1] });
+    unmount();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("Stopped waiting for Builderman"));
+    expect(getWaitWatch()).toBeNull();
+    vi.useFakeTimers();
+  });
+
+  it("dropping the host with no active wait does not toast", () => {
+    vi.useRealTimers();
+    const notify = vi.fn();
+    const { unmount } = renderHook(() =>
+      useWaitForPlayerHost({ byFollowing: () => true, currentUserIds: () => [1], launch: async () => true, notify })
+    );
+    unmount();
+    expect(notify).not.toHaveBeenCalled();
+    vi.useFakeTimers();
   });
 
   it("a new watch replaces the previous one", async () => {

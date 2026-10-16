@@ -1319,6 +1319,12 @@ fn pick_viewer_cookie(accounts: &[data::accounts::Account]) -> Option<String> {
 /// **Fallback obrigatório:** se a chamada autenticada falhar (cookie morto,
 /// rede, o que for), repete sem cookie em vez de propagar o erro — uma única
 /// conta com sessão inválida não pode apagar a presença de todo mundo.
+///
+/// **Exceção: rate limit (429).** Um 429 na chamada autenticada é propagado
+/// **com o `Retry-After`** em vez de cair no anônimo: o limite é por IP, o
+/// anônimo tomaria 429 igual, e um sucesso anônimo aqui zeraria o backoff da
+/// espera da aba Seguir ("Wait until they're in a game") — ela nunca
+/// desaceleraria sob rate limiting. Continua só leitura, sem refresh de sessão.
 async fn presence_with_viewer_cookie(
     state: &AccountStore,
     user_ids: &[i64],
@@ -1330,12 +1336,22 @@ async fn presence_with_viewer_cookie(
         .or_else(|| state.get_all().ok().and_then(|accounts| pick_viewer_cookie(&accounts)));
 
     if let Some(token) = cookie {
-        if let Ok(presences) = api::roblox::get_presence_as(Some(&token), user_ids).await {
-            return Ok(presences);
+        match api::roblox::get_presence_as(Some(&token), user_ids).await {
+            Ok(presences) => return Ok(presences),
+            // 429: propaga (leva o Retry-After); não mascara com o anônimo.
+            Err(err) if is_presence_rate_limited(&err) => return Err(err),
+            // Cookie morto, rede, 5xx, ilegível: cai para o anônimo.
+            Err(_) => {}
         }
     }
 
     api::roblox::get_presence(user_ids).await
+}
+
+/// Erro de presença que é rate limit (429). O formato vem de
+/// `social_presence::get_presence_as` ("Failed to get presence (status 429...)").
+fn is_presence_rate_limited(err: &str) -> bool {
+    err.contains("status 429")
 }
 
 #[tauri::command]
@@ -3007,6 +3023,39 @@ mod account_api_http_tests {
             .expect("presence");
         assert_eq!(presences[0].user_id, 7073);
         assert!(presences[0].game_id.is_none());
+    }
+
+    /// 429 na chamada autenticada é propagado com o Retry-After, não mascarado
+    /// pelo anônimo: um sucesso anônimo aqui zeraria o backoff da espera da aba
+    /// Seguir, que nunca desaceleraria sob rate limit (regra do plano, Fix 5).
+    #[tokio::test]
+    async fn presence_with_viewer_cookie_propagates_a_429_instead_of_falling_back() {
+        let store = store_with(9075, "presence-429", "presence-429");
+
+        // Chamada autenticada: 429 com Retry-After.
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7075] })))
+            .and(header("cookie", cookie_of("presence-429")))
+            .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "90"))
+            .mount(mock_server().await)
+            .await;
+
+        // Fallback anônimo responderia 200 — se fosse usado, o erro sumiria.
+        Mock::given(method("POST"))
+            .and(path(mock_path("presence", "/v1/presence/users")))
+            .and(body_partial_json(serde_json::json!({ "userIds": [7075] })))
+            .and(|req: &Request| !req.headers.contains_key("cookie"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "userPresences": [{ "userPresenceType": 2, "userId": 7075, "gameId": null }]
+            })))
+            .mount(mock_server().await)
+            .await;
+
+        let err = presence_with_viewer_cookie(&store, &[7075], None)
+            .await
+            .expect_err("429 autenticado deve propagar");
+        assert_eq!(err, "Failed to get presence (status 429, retry after 90 s)");
     }
 
     #[tokio::test]

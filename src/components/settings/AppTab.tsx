@@ -85,7 +85,13 @@ export function AppTab({ s }: { s: UseSettingsReturn }) {
             ariaLabel="Custom interface size (%)"
             value={customPercent}
             onChange={() => {}}
-            onCommit={(value) => saveUiScale(String(clampUiScalePercent(value)))}
+            onCommit={(value) => {
+              // Tab passando pelo campo sem mudar nada não pode desligar o
+              // "Automatic": o campo exibe o valor em vigor (customPercent), e
+              // committar esse mesmo valor gravaria InterfaceScale=<n>.
+              if (value === customPercent) return;
+              saveUiScale(String(clampUiScalePercent(value)));
+            }}
             min={UI_SCALE_FIXED_MIN}
             max={UI_SCALE_FIXED_MAX}
             integer

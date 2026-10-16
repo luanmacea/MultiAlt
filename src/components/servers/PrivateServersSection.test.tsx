@@ -169,6 +169,39 @@ describe("PrivateServersSection", () => {
     expect(await screen.findByRole("button", { name: "Join" })).toBeDisabled();
   });
 
+  it("stops loading the remaining accounts when the section unmounts mid-load", async () => {
+    // Troca de aba / fechar a seção no meio do carregamento não pode deixar o
+    // laço por conta seguir chamando get_private_servers conta após conta.
+    const calls: number[] = [];
+    let resolveFirst: () => void = () => {};
+    setInvokeHandler((cmd, args) => {
+      if (cmd !== "get_private_servers") return undefined;
+      const userId = (args as { userId: number }).userId;
+      calls.push(userId);
+      if (userId === 1001) {
+        return new Promise<{ data: PrivateServer[]; nextPageCursor: null }>((res) => {
+          resolveFirst = () => res({ data: [], nextPageCursor: null });
+        });
+      }
+      return { data: [], nextPageCursor: null };
+    });
+    localStorage.setItem("ram_private_servers_open", "1");
+    const { unmount } = renderWithStore(
+      <PrivateServersSection userIds={[1001, 1002]} placeId={606849621} onJoin={vi.fn()} />,
+      { accounts: [ACCOUNT_A, ACCOUNT_B] }
+    );
+
+    // Debounce passou e a 1ª conta já foi consultada (resposta ainda pendente).
+    await waitFor(() => expect(calls).toEqual([1001]));
+    // A seção some antes de a 1ª resposta chegar.
+    unmount();
+    resolveFirst();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // O laço desistiu: a 2ª conta nunca foi consultada.
+    expect(calls).toEqual([1001]);
+  });
+
   it("remembers that it was opened", async () => {
     routePrivate({ 1001: { data: [] } });
     renderSection(vi.fn(), [1001]);

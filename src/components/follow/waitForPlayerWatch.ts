@@ -39,6 +39,13 @@ export type WaitJoin = Extract<WaitDecision, { joinable: true }>;
 export type WaitHost = {
   /** O toggle "Join by following" no momento da consulta. */
   byFollowing: () => boolean;
+  /**
+   * As contas selecionadas AGORA. A espera lança a seleção do momento em que o
+   * jogador entra, não a que existia quando a espera começou: tirar um chip do
+   * lote enquanto espera não pode lançar a conta removida. Sem host (testes
+   * antigos), cai para as contas gravadas na espera.
+   */
+  currentUserIds?: () => number[];
   /** Lança as contas da espera no alvo; o retorno é ignorado (um launch só). */
   launch: (watch: WaitWatch, join: WaitJoin) => Promise<unknown>;
   notify: (message: string) => void;
@@ -133,9 +140,17 @@ async function check(id: number) {
   if (current?.id !== id) return;
 
   if (decision?.joinable) {
-    emit({ ...watch, phase: "launching", checks: watch.checks + 1, lastError: null });
+    // Seleção do momento: quem tirou um chip do lote enquanto esperava não vê a
+    // conta removida entrar. Lote vazio (nada selecionado): a espera só termina.
+    const liveUserIds = h.currentUserIds?.() ?? watch.userIds;
+    if (liveUserIds.length === 0) {
+      emit(null);
+      return;
+    }
+    const launchWatch: WaitWatch = { ...watch, userIds: liveUserIds };
+    emit({ ...launchWatch, phase: "launching", checks: watch.checks + 1, lastError: null });
     try {
-      await h.launch(watch, decision);
+      await h.launch(launchWatch, decision);
     } catch {
       // O launch já avisa a falha por conta própria; a espera só termina.
     } finally {
@@ -180,10 +195,19 @@ export function useWaitForPlayerHost(next: WaitHost) {
   useEffect(() => {
     setWaitHost({
       byFollowing: () => ref.current.byFollowing(),
+      currentUserIds: () => ref.current.currentUserIds?.() ?? [],
       launch: (watch, join) => ref.current.launch(watch, join),
       notify: (message) => ref.current.notify(message),
     });
     return () => {
+      // A Choose Game sumiu (fechada, ou a pessoa trocou de página com ela
+      // aberta): se havia uma espera em andamento, ela para junto — mas não em
+      // silêncio. Quem clicou em "Cancel" já zerou a espera, então aqui não
+      // toasta de novo.
+      const active = getWaitWatch();
+      if (active) {
+        ref.current.notify(tr("Stopped waiting for {{name}}: the accounts screen closed.", { name: active.name }));
+      }
       setWaitHost(null);
       cancelWaitForPlayer();
     };

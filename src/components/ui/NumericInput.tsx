@@ -75,6 +75,9 @@ export function NumericInput({
   const [draft, setDraft] = useState(() => formatNumber(value, preferInteger ? 0 : precision));
   const [focused, setFocused] = useState(false);
   const latestValueRef = useRef(value);
+  // Escape descarta o rascunho: o blur que vem logo em seguida não pode
+  // committar o que foi digitado (senão "200" + Escape ainda aplicaria 200%).
+  const discardOnBlurRef = useRef(false);
 
   useEffect(() => {
     latestValueRef.current = value;
@@ -146,6 +149,12 @@ export function NumericInput({
         }}
         onBlur={() => {
           setFocused(false);
+          if (discardOnBlurRef.current) {
+            // Veio de um Escape: joga fora o rascunho e não committa nada.
+            discardOnBlurRef.current = false;
+            setDraft(formatNumber(latestValueRef.current, preferInteger ? 0 : precision));
+            return;
+          }
           commit();
         }}
         onKeyDown={(e) => {
@@ -156,6 +165,8 @@ export function NumericInput({
             // `preventDefault` avisa a pilha de Escape que este evento já foi
             // tratado aqui: reverter o rascunho não pode fechar o diálogo junto.
             e.preventDefault();
+            // O blur que segue não pode committar o valor digitado.
+            discardOnBlurRef.current = true;
             setDraft(formatNumber(latestValueRef.current, preferInteger ? 0 : precision));
             (e.currentTarget as HTMLInputElement).blur();
           } else if (e.key === "ArrowUp") {
