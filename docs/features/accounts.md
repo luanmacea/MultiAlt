@@ -136,6 +136,15 @@ Settings › Backups › "Export accounts with a password" → `export_accounts_
 - `reorder_accounts(userIds)` — usado por drag & drop e "Sort Alphabetically" (ordena por `Alias || Username` dentro do grupo).
 - `moveToGroup` no frontend = `update_account` para cada conta com o novo `Group`.
 
+### Trocar senha / e-mail em massa (menu Ações, issue #30)
+
+Desde 15/10/2026, o menu **Ações** (barra inferior, com contas selecionadas) tem **"Trocar senha / e-mail..."** → [BulkCredentialsDialog.tsx](../../src/components/dialogs/BulkCredentialsDialog.tsx). Troca senha e/ou e-mail de **todas as contas selecionadas de uma vez**, uma por vez, pelos comandos `change_password`/`change_email` que já existiam no painel por conta (não é comando novo no backend).
+
+- **A senha atual é obrigatória** (o Roblox exige para trocar senha *e* para trocar e-mail). Ela vem, nesta ordem (`resolveCurrentPassword` em [bulkCredentials.ts](../../src/utils/bulkCredentials.ts)): (1) a senha guardada da conta (`Password`, das importadas por usuário:senha); (2) uma senha única digitada no diálogo ("todas usam esta senha agora"). Conta sem nenhuma das duas é **pulada**, com o motivo na linha dela — o diálogo diz quantas vão mudar e quantas serão puladas antes de rodar.
+- **Se marcar senha e e-mail juntos:** a senha troca primeiro; o e-mail então usa a **nova** senha (a conta já mudou). Só e-mail: usa a senha atual.
+- **Desafio do Roblox:** uma troca de credencial pode pedir CAPTCHA / 2SV / verificação por e-mail. O app **não contorna** — a conta falha com o motivo e as outras seguem (resultado por conta no diálogo). Confirmação obrigatória antes de rodar (muda as contas de verdade, não dá para desfazer por aqui).
+- **Aviso na tela:** usar a mesma senha em todas é menos seguro; está dito no diálogo. Lógica pura e testada em `bulkCredentials.test.ts`; o diálogo em `BulkCredentialsDialog.test.tsx` (suíte `accounts`).
+
 ## Regras de negócio
 
 - **`UserID` é a identidade**: `add` com um `UserID` existente **atualiza** `SecurityToken`, `Username`, `Valid`, `LastUse` (e `Password` só se a nova não for vazia); alias, grupo, campos e descrição são preservados.

@@ -770,6 +770,8 @@ export interface StoreValue {
 
   accountUtilsOpen: boolean;
   setAccountUtilsOpen: (open: boolean) => void;
+  bulkCredentialsOpen: boolean;
+  setBulkCredentialsOpen: (open: boolean) => void;
   accountFieldsOpen: boolean;
   setAccountFieldsOpen: (open: boolean) => void;
   importDialogOpen: boolean;
@@ -1027,6 +1029,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const setScriptsOpen = useCallback((open: boolean) => togglePage("scripts", open), [togglePage]);
   const [serverListOpen, setServerListOpen] = useState(false);
   const [accountUtilsOpen, setAccountUtilsOpen] = useState(false);
+  const [bulkCredentialsOpen, setBulkCredentialsOpen] = useState(false);
   const [accountFieldsOpen, setAccountFieldsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importDialogTab, setImportDialogTab] = useState<"cookie" | "userpass" | "legacy">("cookie");
@@ -3986,6 +3989,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setServerListOpen,
     accountUtilsOpen,
     setAccountUtilsOpen,
+    bulkCredentialsOpen,
+    setBulkCredentialsOpen,
     accountFieldsOpen,
     setAccountFieldsOpen,
     importDialogOpen,

@@ -336,6 +336,8 @@ export function createStoreValue(overrides: Partial<StoreValue> = {}): StoreValu
 
     accountUtilsOpen: false,
     setAccountUtilsOpen: vi.fn(),
+    bulkCredentialsOpen: false,
+    setBulkCredentialsOpen: vi.fn(),
     accountFieldsOpen: false,
     setAccountFieldsOpen: vi.fn(),
     importDialogOpen: false,

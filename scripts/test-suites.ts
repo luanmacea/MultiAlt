@@ -155,6 +155,9 @@ export const SUITES: Record<string, TestSuite> = {
       "src/components/accounts",
       "src/components/dialogs/AddAccountDialog.test.tsx",
       "src/components/dialogs/AccountUtilsDialog.test.tsx",
+      // Trocar senha/e-mail em massa (menu Acoes, issue 30).
+      "src/components/dialogs/BulkCredentialsDialog.test.tsx",
+      "src/utils/bulkCredentials.test.ts",
       "src/components/dialogs/ImportDialog.test.tsx",
       // Fields da conta: grava ao sair do campo e ao fechar, não só com Enter.
       "src/components/dialogs/AccountFieldsDialog.test.tsx",
