@@ -256,9 +256,11 @@ fn can_open_another_client(closed_now: usize, roblox_running: bool, event_exists
     closed_now > 0 || (roblox_running && !event_exists)
 }
 
-/// O nome do Event "existe" também quando é a **nossa** reserva (um Mutex com o
-/// mesmo nome: `OpenEventW` falha com tipo errado, não com "não encontrado").
-/// Essa não barra o próximo cliente — é justamente o que impede o Event.
+/// Um `ROBLOX_singletonEvent` (um Event de verdade) barra o próximo cliente,
+/// a não ser que seja a **nossa** reserva. `named_event_exists` já ignora um
+/// objeto de outro tipo com o mesmo nome (um Mutex), então `reserved_by_us`
+/// fica como salvaguarda explícita do caso em que somos nós que seguramos o
+/// nome.
 fn event_blocks_next_client(name_exists: bool, reserved_by_us: bool) -> bool {
     name_exists && !reserved_by_us
 }

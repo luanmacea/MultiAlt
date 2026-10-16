@@ -485,8 +485,63 @@ fn write_persisted_build(file: &std::path::Path, version: &str) {
     }
 }
 
-/// Exe da build de produção, com os fallbacks de `plan_production_build`.
+/// Build de produção já resolvida para o launch em curso. O `client_dir` (que
+/// recebe o patch do ClientSettings — FPS, fast flags) e o `launch_url` (o spawn)
+/// pedem a **mesma** build com milissegundos de diferença; sem o memo cada um
+/// refazia a resolução e, pior, um download que falhava na 1ª e passava na 2ª
+/// deixava o ClientSettings na pasta de fallback em vez da build aberta. A janela
+/// é curta (cobre o intervalo interno de um launch: resolução + auth + join) e
+/// menor que o espaçamento típico entre contas de uma leva (AccountJoinDelay),
+/// quando a build volta a ser reavaliada.
+static PRODUCTION_EXE_MEMO: LazyLock<Mutex<Option<(std::time::Instant, Option<PathBuf>)>>> =
+    LazyLock::new(|| Mutex::new(None));
+/// Validade do memo da build de produção. Igual ao backoff da consulta de
+/// versão (`LOOKUP_FAILURE_BACKOFF`): a mesma ideia de "não repetir a rede no
+/// mesmo launch". Guardar um `None` (falha) por essa janela é de propósito — a
+/// degradação graciosa é abrir a build instalada/fallback, nunca o instalador.
+const PRODUCTION_EXE_MEMO_TTL: Duration = LOOKUP_FAILURE_BACKOFF;
+
+/// Decide o que fazer com o memo da build de produção. `None` = resolver de
+/// novo; `Some(v)` = reusar `v` (inclusive um `None` guardado: "já tentei e
+/// falhou neste launch", para não baixar de novo). Uma build guardada que sumiu
+/// do disco força nova resolução.
+fn production_exe_memo_decision(
+    entry: Option<&(std::time::Instant, Option<PathBuf>)>,
+    now: std::time::Instant,
+    ttl: Duration,
+) -> Option<Option<PathBuf>> {
+    let (at, value) = entry?;
+    if now.duration_since(*at) >= ttl {
+        return None;
+    }
+    if value.as_ref().is_some_and(|exe| !exe.exists()) {
+        return None;
+    }
+    Some(value.clone())
+}
+
+/// Exe da build de produção, resolvida **uma vez por launch** (ver
+/// [`PRODUCTION_EXE_MEMO`]) e reusada pelo patch e pelo spawn.
 async fn ensure_production_player_exe() -> Option<PathBuf> {
+    let now = std::time::Instant::now();
+    if let Some(hit) = PRODUCTION_EXE_MEMO
+        .lock()
+        .ok()
+        .and_then(|guard| production_exe_memo_decision(guard.as_ref(), now, PRODUCTION_EXE_MEMO_TTL))
+    {
+        return hit;
+    }
+    let resolved = resolve_production_player_exe().await;
+    if let Ok(mut guard) = PRODUCTION_EXE_MEMO.lock() {
+        *guard = Some((now, resolved.clone()));
+    }
+    resolved
+}
+
+/// Exe da build de produção, com os fallbacks de `plan_production_build`.
+/// Sem memo: o invólucro [`ensure_production_player_exe`] é quem resolve uma vez
+/// por launch.
+async fn resolve_production_player_exe() -> Option<PathBuf> {
     let resolved = build_version_for_channel(PRODUCTION_CHANNEL).await;
     let installed = roblox_versions_dir()
         .map(|dir| installed_builds_newest_first(&dir))
@@ -583,10 +638,18 @@ enum ChannelBuild {
 /// build de produção (e no reparo do registro). Timeout, 429, 5xx ou resposta
 /// ilegível não dizem nada sobre o canal: dá `None`, e quem chama usa o cache
 /// vencido sem tocar no registro.
+///
+/// E só quando a consulta veio do **CDN** (`cdn = true`), o host que o próprio
+/// cliente do Roblox consulta. Um 401/404 do servidor de **origem**
+/// (`clientsettings.roblox.com`, o fallback) para um canal que o CDN ainda
+/// serve não prova aposentadoria: gravar `production` aí faria o launch pelo
+/// site divergir. Nesse caso o 4xx cai para `read_build`, que devolve `None`, e
+/// o registro fica intocado.
 async fn fetch_channel_build(
     client: &reqwest::Client,
     production_url: &str,
     channel: &str,
+    cdn: bool,
 ) -> Option<ChannelBuild> {
     let resp = client
         .get(channel_version_url(production_url, channel))
@@ -597,7 +660,7 @@ async fn fetch_channel_build(
         resp.status(),
         reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::NOT_FOUND
     );
-    if retired && !channel_is_production(channel) {
+    if retired && cdn && !channel_is_production(channel) {
         let production = client.get(production_url).send().await.ok()?;
         return read_build(production)
             .await
@@ -630,7 +693,9 @@ async fn fetch_channel_build_with_retry(
         let Some(url) = production_urls.get(*host) else {
             continue;
         };
-        if let Some(found) = fetch_channel_build(client, url, channel).await {
+        // Só o CDN (índice 0, o host que o cliente consulta) é autoritativo para
+        // dizer que um canal foi aposentado; ver `fetch_channel_build`.
+        if let Some(found) = fetch_channel_build(client, url, channel, *host == 0).await {
             return Some(found);
         }
     }
